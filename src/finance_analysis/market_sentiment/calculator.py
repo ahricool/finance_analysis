@@ -131,28 +131,47 @@ def metrics(rows, config=SentimentConfig()):
     }
 
 
+def _promotion_scope(row):
+    # Either exclusion flag alone proves non-membership, even if the other is unknown.
+    # Keep the market-wide metrics' existing scope/quality rules unchanged.
+    if row.get("is_st") is True or row.get("is_new") is True:
+        return False
+    return row["in_scope"]
+
+
 def promotions(previous_rows, rows, previous_date, day):
+    """Validate each prior-day cohort, then only its members' current outcomes.
+
+    Both supplied pools have already passed complete-pagination validation.
+    A missing prior source (None) is not a confirmed empty pool ([]).
+    """
     output = {}
-    complete = previous_rows is not None and all(
-        r["in_scope"] is not None and (r["in_scope"] is False or r["consecutive_boards"] is not None)
-        for r in (previous_rows or []) + rows
-    )
     current = {r["thscode"]: r for r in rows}
     for name, board in (("1_to_2", 1), ("2_to_3", 2), ("3_to_4", 3), ("multi", None)):
-        cohort = [
-            r
-            for r in previous_rows or []
-            if r["in_scope"] is True
-            and r["consecutive_boards"] is not None
-            and (r["consecutive_boards"] == board if board else r["consecutive_boards"] >= 2)
-        ]
-        passed = sorted(
-            r["thscode"]
-            for r in cohort
-            if r["thscode"] in current
-            and current[r["thscode"]]["in_scope"] is True
-            and current[r["thscode"]]["consecutive_boards"] == r["consecutive_boards"] + 1
-        )
+        complete = previous_rows is not None
+        cohort = []
+        for row in previous_rows or []:
+            scope, height = _promotion_scope(row), row["consecutive_boards"]
+            if scope is False:
+                continue
+            if height is not None and not (height == board if board is not None else height >= 2):
+                continue
+            # Unknowns cannot be discarded if they might belong to this denominator.
+            if scope is None or height is None:
+                complete = False
+            else:
+                cohort.append(row)
+
+        passed = []
+        for row in cohort:
+            today = current.get(row["thscode"])
+            if today is None or _promotion_scope(today) is False:
+                continue
+            if _promotion_scope(today) is None or today["consecutive_boards"] is None:
+                complete = False
+            elif today["consecutive_boards"] == row["consecutive_boards"] + 1:
+                passed.append(row["thscode"])
+        passed.sort()
         output[name] = {
             "source_date": previous_date,
             "target_date": day,

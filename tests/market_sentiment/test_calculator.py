@@ -155,3 +155,93 @@ def test_midrank_history_and_real_adjacent_days():
     # Spring Festival closure: no invented weekday sessions.
     feb = sessions_through(date(2026, 2, 24), 2)
     assert feb[-2] == date(2026, 2, 13)
+
+
+@pytest.mark.parametrize("unknown", [dict(continue_day_text="5天4板", continue_day_cnt=4), dict(is_st=None)])
+def test_unrelated_today_record_does_not_invalidate_yesterday_cohort(unknown):
+    before = [stock("000001.SZ", 2), stock("000002.SZ", 2)]
+    today = [stock("000001.SZ", 3)]
+    baseline = promotions(before, today, "2026-09-15", "2026-09-16")["2_to_3"]
+    result = promotions(before, today + [stock("000009.SZ", **unknown)], "2026-09-15", "2026-09-16")["2_to_3"]
+    assert result == baseline
+    assert result == dict(
+        source_date="2026-09-15",
+        target_date="2026-09-16",
+        complete=True,
+        numerator=1,
+        denominator=2,
+        ratio=0.5,
+        promoted_codes=["000001.SZ"],
+        not_promoted_codes=["000002.SZ"],
+    )
+
+
+def test_promotion_tiers_validate_their_own_members():
+    before = [stock("000001.SZ", 1), stock("000002.SZ", 2), stock("000003.SZ", 3)]
+    today = [stock("000001.SZ", 2), stock("000002.SZ", 4, continue_day_text="5天4板"), stock("000003.SZ", 4)]
+    result = promotions(before, today, "before", "today")
+    for tier in ("1_to_2", "3_to_4"):
+        assert result[tier]["complete"] and result[tier]["ratio"] == 1
+    for tier in ("2_to_3", "multi"):
+        assert not result[tier]["complete"]
+        assert result[tier]["ratio"] is result[tier]["numerator"] is result[tier]["denominator"] is None
+        assert result[tier]["not_promoted_codes"] == result[tier]["promoted_codes"] == []
+
+
+@pytest.mark.parametrize(
+    "unknown,invalid",
+    [
+        (dict(is_st=None, board=2), {"2_to_3", "multi"}),
+        (dict(is_new=None, board=1), {"1_to_2"}),
+        (dict(board=4, continue_day_text="5天4板"), {"1_to_2", "2_to_3", "3_to_4", "multi"}),
+        (dict(is_st=True, is_new=None, continue_day_text=None), set()),
+        (dict(is_new=True, is_st=None, continue_day_text=None), set()),
+        (dict(is_st=True, continue_day_text=None), set()),
+    ],
+)
+def test_yesterday_unknown_only_invalidates_possible_cohorts(unknown, invalid):
+    before = [stock("000001.SZ", 2), stock("000009.SZ", **unknown)]
+    result = promotions(before, [stock("000001.SZ", 3)], "before", "today")
+    assert {tier for tier, p in result.items() if not p["complete"]} == invalid
+    if "2_to_3" not in invalid:
+        assert result["2_to_3"]["denominator"] == 1
+        assert result["2_to_3"]["ratio"] == 1
+
+
+@pytest.mark.parametrize("fields", [dict(is_st=None), dict(continue_day_text=None)])
+def test_unknown_today_cohort_member_is_not_a_confirmed_failure(fields):
+    result = promotions([stock(board=2)], [stock(board=3, **fields)], "before", "today")["2_to_3"]
+    assert not result["complete"] and result["ratio"] is None
+    assert result["not_promoted_codes"] == []
+
+
+@pytest.mark.parametrize("fields", [dict(is_st=True), dict(is_new=True, is_st=None)])
+def test_today_explicitly_excluded_member_does_not_need_continuity(fields):
+    result = promotions([stock(board=2)], [stock(continue_day_text=None, **fields)], "before", "today")["2_to_3"]
+    assert result["complete"] and result["ratio"] == 0
+    assert result["not_promoted_codes"] == ["000001.SZ"]
+
+
+def test_promotion_empty_cohort_empty_today_and_missing_source_are_distinct():
+    empty = promotions([], [stock(is_st=None)], "before", "today")["2_to_3"]
+    assert empty["complete"] and empty["numerator"] == empty["denominator"] == 0 and empty["ratio"] is None
+    absent = promotions(None, [], "before", "today")["2_to_3"]
+    assert not absent["complete"] and absent["denominator"] is None
+    no_survivors = promotions([stock(board=2)], [], "before", "today")["2_to_3"]
+    assert no_survivors["complete"] and no_survivors["ratio"] == 0
+    wrong_height = promotions([stock(board=2)], [stock(board=2)], "before", "today")["2_to_3"]
+    assert wrong_height["complete"] and wrong_height["ratio"] == 0
+
+
+@pytest.mark.parametrize(
+    "day,previous", [(date(2026, 9, 14), date(2026, 9, 11)), (date(2026, 2, 24), date(2026, 2, 13))]
+)
+def test_promotion_requires_real_adjacent_session_even_with_unrelated_unknown(day, previous):
+    sessions = sessions_through(day, 21)
+    assert sessions[-2] == previous
+    today = [stock(board=3), stock("000009.SZ", 4, continue_day_text="5天4板")]
+    result = calculate(day, today, {previous: [stock(board=2)]}, {}, sessions)
+    assert result["promotions"]["2_to_3"]["ratio"] == 1
+    assert result["boards_complete"] is False and result["heat_score"] is None
+    missing = calculate(day, today, {sessions[-3]: [stock(board=2)]}, {}, sessions)
+    assert not missing["promotions"]["2_to_3"]["complete"]

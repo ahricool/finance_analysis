@@ -255,3 +255,46 @@ def test_migration_downgrade():
         migration.op = Operations(MigrationContext.configure(conn))
         migration.downgrade()
         assert not set(inspect(conn).get_table_names()) & {Source.__tablename__, Snapshot.__tablename__}
+
+
+def test_cohort_promotion_survives_publish_historical_rebuild_and_api(repo, monkeypatch):
+    previous = source(PREV, count=2, board=2)
+    today = source(DAY, count=2, board=3)
+    today = replace(
+        today,
+        items=[
+            today.items[0],
+            {**today.items[1], "thscode": "000009.SZ", "continue_day_cnt": 4, "continue_day_text": "5天4板"},
+        ],
+    )
+    # Publish T first, then fill T-1: the existing path must rebuild T from saved sources.
+    repo.publish(DAY, {"limit_up": today}, {})
+    assert repo.overview(DAY)["promotions"]["2_to_3"]["complete"] is False
+    repo.publish(PREV, {"limit_up": previous}, {})
+    stored = repo.overview(DAY)
+    assert stored["boards_complete"] is False and stored["multi_board_count"] is None
+    assert stored["heat_score"] is None and stored["state"] == "UNKNOWN"
+    expected = dict(
+        source_date=str(PREV),
+        target_date=str(DAY),
+        complete=True,
+        numerator=1,
+        denominator=2,
+        ratio=0.5,
+        promoted_codes=["000000.SZ"],
+        not_promoted_codes=["000001.SZ"],
+    )
+    assert stored["promotions"]["2_to_3"] == expected
+    app = FastAPI()
+    app.include_router(endpoint.router)
+    app.dependency_overrides[require_current_user] = lambda: SimpleNamespace(id=1)
+    app.dependency_overrides[endpoint.get_repository] = lambda: repo
+    app.dependency_overrides[endpoint.get_industry_repository] = lambda: SimpleNamespace(ranking=lambda d, limit: [])
+    monkeypatch.setattr(endpoint, "expected_date", lambda: DAY)
+    with TestClient(app) as client:
+        overview = client.get("/overview", params={"trade_date": str(DAY)})
+        assert overview.status_code == 200
+        assert overview.json()["observation"]["promotions"]["2_to_3"] == expected
+        history = client.get("/history", params={"end_date": str(DAY), "days": 2})
+        assert history.status_code == 200
+        assert history.json()["items"][-1]["promotions"]["2_to_3"] == expected
