@@ -1,5 +1,5 @@
-import { flushPromises, mount } from '@vue/test-utils';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { flushPromises, mount, type VueWrapper } from '@vue/test-utils';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createMemoryHistory, createRouter } from 'vue-router';
 import { createPinia } from 'pinia';
 import type { IndustrySnapshot } from '@/api/industryStrength';
@@ -9,6 +9,7 @@ import AppDatePicker from '@/components/app/AppDatePicker.vue';
 import IndustryMatrixChart from '@/components/industry-strength/IndustryMatrixChart.vue';
 import IndustryRankHeatmap from '@/components/industry-strength/IndustryRankHeatmap.vue';
 import IndustryRankingTable from '@/components/industry-strength/IndustryRankingTable.vue';
+import IndustryDetailDrawer from '@/components/industry-strength/IndustryDetailDrawer.vue';
 
 const api = vi.hoisted(() => ({ ranking: vi.fn(), dates: vi.fn(), history: vi.fn(), detail: vi.fn(), constituents: vi.fn() }));
 vi.mock('@/api/industryStrength', () => ({ industryStrengthApi: api }));
@@ -32,20 +33,38 @@ function row(code = '881101.TI', name = '行业甲', rank = 1, overrides: Partia
 
 const rows = [row(), row('881102.TI', '行业乙', 2)];
 
+let wrapper: VueWrapper | undefined;
+
 async function render() {
   const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/research/industry-strength', component: IndustryStrengthPage }] });
   await router.push('/research/industry-strength');
   await router.isReady();
-  const wrapper = mount(IndustryStrengthPage, {
+  wrapper = mount(IndustryStrengthPage, {
     attachTo: document.body,
     global: { plugins: [router, createPinia()] },
   });
   return wrapper;
 }
 
-function detailText() {
-  return document.body.querySelector('[data-testid="industry-detail"]')?.textContent ?? '';
+function detailEl() {
+  return document.body.querySelector('[data-testid="industry-detail"]');
 }
+
+function detailText() {
+  return detailEl()?.textContent ?? '';
+}
+
+async function closeDrawer() {
+  const close = document.body.querySelector('[data-testid="industry-drawer-close"]') as HTMLButtonElement | null;
+  close?.click();
+  await flushPromises();
+}
+
+afterEach(() => {
+  wrapper?.unmount();
+  wrapper = undefined;
+  document.body.replaceChildren();
+});
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -108,8 +127,8 @@ describe('Industry Strength', () => {
     await wrapper.get('[data-testid="industry-ranking"]').findAll('button').find(b => b.text() === '行业乙')!.trigger('click');
     await flushPromises();
     expect(detailText()).toContain('行业乙');
-    await wrapper.get('[data-testid="industry-drawer-close"]').trigger('click');
-    await flushPromises();
+    await closeDrawer();
+    expect(detailEl()).toBeNull();
     expect(wrapper.get('[data-testid="industry-search"]').element).toHaveProperty('value', '行业乙');
     expect(wrapper.get('[data-testid="industry-filter-count"]').text()).toContain('当前显示 1 / 全部 2 个行业');
     expect(table.vm.sortKey).toBe('strengthRank');
@@ -156,9 +175,7 @@ describe('Industry Strength', () => {
     await flushPromises();
     expect(detailText()).toContain('行业甲');
     expect(api.constituents).not.toHaveBeenCalled();
-    const tabs = document.body.querySelectorAll('[data-testid="industry-detail"] button');
-    const membersTab = [...tabs].find(button => button.textContent?.includes('当前成分股')) as HTMLButtonElement;
-    membersTab.click();
+    await wrapper.getComponent(IndustryDetailDrawer).vm.$emit('update:tab', 'constituents');
     await flushPromises();
     expect(api.constituents).toHaveBeenCalledTimes(1);
     expect(detailText()).toContain('重试当前成分');
@@ -245,7 +262,7 @@ describe('Industry Strength', () => {
     picker.vm.$emit('update:modelValue', '2026-09-15'); await flushPromises();
     expect(api.ranking).toHaveBeenLastCalledWith('2026-09-15');
     expect(api.detail).not.toHaveBeenCalled();
-    expect(wrapper.get('[data-testid="industry-go-latest"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="industry-go-latest"]').exists()).toBe(true);
     await wrapper.get('[data-testid="industry-go-latest"]').trigger('click'); await flushPromises();
     expect(api.ranking).toHaveBeenLastCalledWith(undefined);
     wrapper.unmount();
@@ -255,8 +272,7 @@ describe('Industry Strength', () => {
     const wrapper = await render(); await flushPromises();
     await wrapper.get('[data-testid="industry-ranking"]').findAll('button').find(b => b.text() === '行业甲')!.trigger('click');
     await flushPromises();
-    const membersTab = [...document.body.querySelectorAll('button')].find(button => button.textContent === '当前成分股')!;
-    membersTab.click();
+    await wrapper.getComponent(IndustryDetailDrawer).vm.$emit('update:tab', 'constituents');
     await flushPromises();
     expect(document.body.querySelector('[data-testid="industry-constituents-dates"]')?.textContent).toContain('2026-09-17');
     expect(document.body.querySelector('[data-testid="industry-constituents-banner"]')?.textContent).toContain('不随上方历史快照日期切换');

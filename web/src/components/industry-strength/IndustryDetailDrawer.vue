@@ -131,13 +131,22 @@ function ma(value: boolean | null) {
           @update:model-value="emit('update:tab', String($event) as DetailTab)"
         >
           <TabsList class="flex h-auto w-full flex-wrap justify-start">
-            <TabsTrigger value="overview">
+            <TabsTrigger
+              value="overview"
+              data-testid="industry-detail-tab-overview"
+            >
               概览
             </TabsTrigger>
-            <TabsTrigger value="history">
+            <TabsTrigger
+              value="history"
+              data-testid="industry-detail-tab-history"
+            >
               历史表现
             </TabsTrigger>
-            <TabsTrigger value="constituents">
+            <TabsTrigger
+              value="constituents"
+              data-testid="industry-detail-tab-constituents"
+            >
               当前成分股
             </TabsTrigger>
           </TabsList>

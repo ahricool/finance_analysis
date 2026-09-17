@@ -26,7 +26,7 @@ const page = useIndustryStrength();
 const {
   ranking, history, detail, constituents, dates, requestedDate, selected, selectedLabel,
   drawerOpen, missingSelected, view, detailTab, loading, refreshing, dateSwitching,
-  historyLoading, detailLoading, membersLoading, stale, pendingDate, error, refreshError,
+  historyLoading, detailLoading, membersLoading, stale, error, refreshError,
   dateError, historyError, datesError, detailError, membersError, rows, summary, snapshotMeta,
   actualTradeDate, latestMode, staleLatest, historyMembersUnavailable, selectedRow,
   loadRanking, openIndustry, setDrawerOpen, setDetailTab, retryRanking, retryHistory,
@@ -137,11 +137,11 @@ onMounted(() => loadRanking('initial'));
         正在重新读取已生成快照…
       </p>
       <p
-        v-if="dateSwitching && pendingDate !== (actualTradeDate ?? '')"
+        v-if="dateSwitching || dateError"
         class="mt-2 text-xs text-muted-foreground"
         data-testid="industry-date-pending"
       >
-        正在加载 {{ pendingDate || '最新快照' }}；以下内容仍对应 {{ actualTradeDate || '上一成功日期' }}。
+        {{ dateSwitching ? '正在加载' : '未能加载' }} {{ requestedDate || '最新快照' }}；以下内容仍对应 {{ actualTradeDate || '上一成功日期' }}。
       </p>
       <p
         v-if="stale"

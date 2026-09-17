@@ -134,13 +134,13 @@ export function useIndustryStrength() {
     }
   }
 
-  function syncSelection(items: IndustrySnapshot[]) {
+  function syncSelection(items: IndustrySnapshot[], reloadMembers: boolean) {
     if (!drawerOpen.value || !selected.value) return;
     const exists = items.some((row) => row.industryCode === selected.value);
     if (exists) {
       missingSelected.value = false;
       void loadDetail(selected.value);
-      if (detailTab.value === 'constituents') void loadConstituents(selected.value, kind === 'refresh');
+      if (detailTab.value === 'constituents') void loadConstituents(selected.value, reloadMembers);
       return;
     }
     missingSelected.value = true;
@@ -175,7 +175,7 @@ export function useIndustryStrength() {
       if (kind === 'refresh') invalidateConstituents();
       if (data.items.length && data.tradeDate) void loadHistory(data.tradeDate);
       else history.value = { dates: [], items: [] };
-      syncSelection(data.items);
+      syncSelection(data.items, kind === 'refresh');
     } catch (cause) {
       if (token !== rankingSeq) return;
       const parsed = getParsedApiError(cause);

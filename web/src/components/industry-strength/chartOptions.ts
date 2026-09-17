@@ -107,7 +107,7 @@ export type HeatmapCell = {
   rankedCount: number | null;
   missing: boolean;
   value: [number, number, number | string];
-  itemStyle?: { color: string; borderWidth?: number; borderColor?: string };
+  itemStyle?: { color?: string; borderWidth?: number; borderColor?: string };
 };
 
 export function heatmapCells(
