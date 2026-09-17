@@ -18,4 +18,18 @@ describe('Table', () => {
     expect(wrapper.get('[data-slot="table"]').classes()).toContain('min-w-max');
     expect(wrapper.findAll('table')).toHaveLength(1);
   });
+
+  it('can disable the inner overflow container so sticky headers work in an outer scroller', () => {
+    const wrapper = mount({
+      components: { Table, TableBody, TableCell, TableHead, TableHeader, TableRow },
+      template: `
+        <Table container-class="overflow-visible">
+          <TableHeader><TableRow><TableHead>名称</TableHead></TableRow></TableHeader>
+          <TableBody><TableRow><TableCell>示例</TableCell></TableRow></TableBody>
+        </Table>
+      `,
+    });
+    expect(wrapper.get('[data-slot="table-container"]').classes()).toContain('overflow-visible');
+    expect(wrapper.get('[data-slot="table-container"]').classes()).not.toContain('overflow-x-auto');
+  });
 });

@@ -1,123 +1,244 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, shallowRef } from 'vue';
-import { industryStrengthApi as api, type IndustryRanking, type IndustryHistory, type IndustryDetail, type Constituents } from '@/api/industryStrength';
-import { getParsedApiError, type ParsedApiError } from '@/api/error';
+import { onMounted } from 'vue';
+import { useIndustryStrength } from '@/composables/useIndustryStrength';
 import AppApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
+import AppDatePicker from '@/components/app/AppDatePicker.vue';
+import LoadingButton from '@/components/app/LoadingButton.vue';
 import PageHeader from '@/components/layout/PageHeader.vue';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Button } from '@/components/ui/button';
-import AppDatePicker from '@/components/app/AppDatePicker.vue';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import IndustryRankingTable from '@/components/industry-strength/IndustryRankingTable.vue';
-import IndustryCharts from '@/components/industry-strength/IndustryCharts.vue';
-import IndustryDetailPanel from '@/components/industry-strength/IndustryDetailPanel.vue';
-import { pct } from '@/components/industry-strength/display';
+import IndustryMatrixChart from '@/components/industry-strength/IndustryMatrixChart.vue';
+import IndustryRankHeatmap from '@/components/industry-strength/IndustryRankHeatmap.vue';
+import IndustryDetailDrawer from '@/components/industry-strength/IndustryDetailDrawer.vue';
+import {
+  coverageInsufficient,
+  formatPoints,
+  formatScore,
+  methodologyLines,
+} from '@/components/industry-strength/display';
 import { formatDateTime } from '@/utils/format';
-const ranking = shallowRef<IndustryRanking | null>(null);
-const history = shallowRef<IndustryHistory>({ dates: [], items: [] });
-const detail = shallowRef<IndustryDetail | null>(null);
-const constituents = shallowRef<Constituents | null>(null);
-const dates = ref<string[]>([]); const date = ref(''); const selected = ref('');
-const loading = ref(true); const detailLoading = ref(false); const membersLoading = ref(false);
-const error = shallowRef<ParsedApiError | null>(null); const auxiliaryError = shallowRef<ParsedApiError | null>(null);
-const detailError = shallowRef<ParsedApiError | null>(null); const membersError = shallowRef<ParsedApiError | null>(null);
-let request = 0; let selection = 0;
-const rows = computed(() => ranking.value?.items ?? []);
-const top = computed(() => [...rows.value].sort((a, b) => a.strengthRank - b.strengthRank)[0]);
-const accelerating = computed(() => [...rows.value].filter(r => r.momentumAcceleration5D > 0).sort((a, b) => b.momentumAcceleration5D - a.momentumAcceleration5D)[0]);
-const cooling = computed(() => [...rows.value].filter(r => r.momentumAcceleration5D < 0).sort((a, b) => a.momentumAcceleration5D - b.momentumAcceleration5D)[0]);
-const summary = computed(() => [
-  ['最强行业', top.value?.industryName ?? '—', top.value ? `Strength ${top.value.strengthScore.toFixed(1)}` : ''],
-  ['加速最快', accelerating.value?.industryName ?? '暂无', pct(accelerating.value?.momentumAcceleration5D)],
-  ['退潮最快', cooling.value?.industryName ?? '暂无', pct(cooling.value?.momentumAcceleration5D)],
-  ['持续强势', String(rows.value.filter(r => r.state === 'STRONG').length), 'RS 与广度共同确认'],
-  ['上涨行业 / 有效行业', `${rows.value.filter(r => r.ret1D > 0).length} / ${rows.value.length}`, '按行业指数当日涨跌'],
-  ['数据有效日期', ranking.value?.tradeDate ?? '—', 'A 股完整收盘截面'],
-]);
-async function selectIndustry(code: string) {
-  const token = ++selection; selected.value = code; detail.value = null; constituents.value = null;
-  detailError.value = null; membersError.value = null; detailLoading.value = true; membersLoading.value = true;
-  await Promise.allSettled([
-    api.detail(code, ranking.value?.tradeDate ?? undefined).then(data => { if (token === selection) detail.value = data; }).catch(cause => { if (token === selection) detailError.value = getParsedApiError(cause); }).finally(() => { if (token === selection) detailLoading.value = false; }),
-    api.constituents(code).then(data => { if (token === selection) constituents.value = data; }).catch(cause => { if (token === selection) membersError.value = getParsedApiError(cause); }).finally(() => { if (token === selection) membersLoading.value = false; }),
-  ]);
-}
-async function load() {
-  const token = ++request; ++selection; loading.value = true; error.value = null; auxiliaryError.value = null;
-  ranking.value = null; detail.value = null; constituents.value = null; selected.value = ''; history.value = { dates: [], items: [] };
-  detailError.value = null; membersError.value = null; detailLoading.value = false; membersLoading.value = false;
-  const datesPromise = api.dates().then(data => { if (token === request) dates.value = data; }).catch(cause => { if (token === request) auxiliaryError.value = getParsedApiError(cause); });
-  try {
-    const data = await api.ranking(date.value || undefined);
-    if (token !== request) return;
-    ranking.value = data;
-    if (data.items.length && data.tradeDate) {
-      void selectIndustry(data.items[0]!.industryCode);
-      try { const result = await api.history(data.tradeDate); if (token === request) history.value = result; }
-      catch (cause) { if (token === request) auxiliaryError.value = getParsedApiError(cause); }
-    }
-  } catch (cause) { if (token === request) error.value = getParsedApiError(cause); }
-  finally { if (token === request) loading.value = false; }
-  await datesPromise;
-}
-onMounted(load);
-onBeforeUnmount(() => { request++; selection++; });
+
+const page = useIndustryStrength();
+const {
+  ranking, chartHistory, matchedDetail, constituents, dates, requestedDate, selected, selectedLabel,
+  drawerOpen, missingSelected, view, detailTab, loading, refreshing, dateSwitching,
+  historyLoading, detailLoading, membersLoading, stale, error, refreshError,
+  dateError, historyError, datesError, detailError, membersError, rows, summary, snapshotMeta,
+  actualTradeDate, latestMode, staleLatest, historyMembersUnavailable, selectedRow,
+  loadRanking, openIndustry, setDrawerOpen, setDetailTab, retryRanking, retryHistory,
+  retryDetail, retryConstituents, retryDates, goLatest, changeDate, refresh,
+} = page;
+
+onMounted(() => loadRanking('initial'));
 </script>
+
 <template>
   <div
-    class="space-y-5"
+    class="min-w-0 space-y-4 overflow-x-hidden"
     data-testid="industry-strength-page"
   >
     <PageHeader
       title="行业强度"
-      description="Industry Strength · A 股行业地图 · 观察相对强弱、加速度与内部广度"
+      description="发现行业、比较强弱与变化，并查看原因和内部广度。综合强度与状态描述 A 股行业环境，不构成买卖建议。"
     >
       <template #actions>
-        <div class="flex items-center gap-2">
+        <div class="flex flex-wrap items-center gap-2">
           <AppDatePicker
-            v-model="date"
+            :model-value="requestedDate"
             class="w-56"
             data-testid="industry-date-picker"
-            placeholder="最新快照"
+            :placeholder="actualTradeDate ? `最新 · ${actualTradeDate}` : '最新快照'"
             :available-dates="dates"
-            @update:model-value="load"
-          /><Button
+            @update:model-value="changeDate"
+          />
+          <Button
+            v-if="!latestMode"
             variant="outline"
-            :disabled="loading"
-            @click="load"
+            data-testid="industry-go-latest"
+            @click="goLatest"
           >
-            刷新
+            回到最新
           </Button>
+          <TooltipProvider :delay-duration="150">
+            <Tooltip>
+              <TooltipTrigger as-child>
+                <LoadingButton
+                  variant="outline"
+                  :loading="refreshing"
+                  loading-text="更新中…"
+                  data-testid="industry-refresh"
+                  aria-label="刷新已生成快照"
+                  @click="refresh"
+                >
+                  刷新
+                </LoadingButton>
+              </TooltipTrigger>
+              <TooltipContent>重新读取已生成快照，不会触发重新计算</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
         </div>
       </template>
     </PageHeader>
-    <p class="text-xs leading-6 text-muted-foreground">
-      数据源：同花顺金融数据 API / 扶摇 · 成分股行情：FA 现有 A 股行情能力 · 基准：沪深300（000300.SH）。Strength 与 State 描述市场环境，不构成买入建议。
-    </p>
+
+    <section
+      v-if="ranking || loading"
+      class="rounded-md border px-3 py-2 text-sm"
+      data-testid="industry-data-status"
+    >
+      <dl class="flex flex-wrap gap-x-5 gap-y-1">
+        <div class="flex gap-2">
+          <dt class="text-muted-foreground">
+            快照
+          </dt>
+          <dd data-testid="industry-snapshot-kind">
+            正式收盘
+          </dd>
+        </div>
+        <div class="flex gap-2">
+          <dt class="text-muted-foreground">
+            数据有效日期
+          </dt>
+          <dd
+            class="font-medium tabular-nums"
+            data-testid="industry-trade-date"
+          >
+            {{ actualTradeDate || '—' }}
+          </dd>
+        </div>
+        <div class="flex gap-2">
+          <dt class="text-muted-foreground">
+            生成/更新
+          </dt>
+          <dd class="tabular-nums">
+            {{ formatDateTime(snapshotMeta?.updatedAt) }}
+          </dd>
+        </div>
+        <div class="flex gap-2">
+          <dt class="text-muted-foreground">
+            行业覆盖
+          </dt>
+          <dd
+            class="tabular-nums"
+            data-testid="industry-coverage"
+          >
+            {{ snapshotMeta ? `${snapshotMeta.quality.rankedCount} / ${snapshotMeta.quality.catalogCount}` : '—' }}
+          </dd>
+        </div>
+      </dl>
+      <p
+        v-if="refreshing"
+        class="mt-2 text-xs text-muted-foreground"
+        data-testid="industry-refreshing"
+      >
+        正在重新读取已生成快照…
+      </p>
+      <p
+        v-if="dateSwitching || dateError"
+        class="mt-2 text-xs text-muted-foreground"
+        data-testid="industry-date-pending"
+      >
+        {{ dateSwitching ? '正在加载' : '未能加载' }} {{ requestedDate || '最新快照' }}；以下内容仍对应 {{ actualTradeDate || '上一成功日期' }}。
+      </p>
+      <p
+        v-if="stale"
+        class="mt-2 rounded-md border border-amber-500/40 px-2 py-1 text-amber-800 dark:text-amber-200"
+        data-testid="industry-stale"
+      >
+        刷新失败，仍在展示上一次成功数据（{{ actualTradeDate }}）。
+      </p>
+      <p
+        v-if="staleLatest"
+        class="mt-2 rounded-md border border-amber-500/40 px-2 py-1 text-amber-800 dark:text-amber-200"
+      >
+        最新完整交易日为 {{ ranking?.expectedTradeDate }}，当前展示 {{ ranking?.tradeDate }} 的已保存结果。
+      </p>
+      <p
+        v-if="historyMembersUnavailable"
+        class="mt-2 rounded-md border border-amber-500/40 px-2 py-1 text-amber-800 dark:text-amber-200"
+      >
+        历史补算：按当前行业目录计算所选日指数强度；缺少当日成分记录，历史广度不可用。
+      </p>
+      <p
+        v-if="rows.some(coverageInsufficient)"
+        class="mt-2 rounded-md border border-amber-500/40 px-2 py-1 text-amber-800 dark:text-amber-200"
+      >
+        部分行业成分覆盖不足，对应广度比例显示为不可用，不会改写综合强度或排名。
+      </p>
+      <details class="mt-2 text-xs leading-6 text-muted-foreground">
+        <summary class="cursor-pointer text-sm text-foreground">
+          口径说明
+        </summary>
+        <p
+          v-for="line in methodologyLines"
+          :key="line"
+          class="mt-1"
+        >
+          {{ line }}
+        </p>
+        <p
+          v-if="snapshotMeta && Object.keys(snapshotMeta.quality.excluded).length"
+          class="mt-2"
+        >
+          未参与排名：
+          <span
+            v-for="(reason, code) in snapshotMeta.quality.excluded"
+            :key="code"
+          >{{ code }}（{{ reason }}） </span>
+        </p>
+      </details>
+    </section>
+
     <AppApiErrorAlert
       v-if="error"
       :error="error"
       action-label="重新加载"
-      @action="load"
+      @action="retryRanking"
       @dismiss="error = null"
     />
     <AppApiErrorAlert
-      v-if="auxiliaryError"
-      :error="auxiliaryError"
-      action-label="重试日期与历史"
-      @action="load"
-      @dismiss="auxiliaryError = null"
+      v-if="refreshError"
+      :error="refreshError"
+      action-label="重试刷新"
+      @action="refresh"
+      @dismiss="refreshError = null"
     />
+    <AppApiErrorAlert
+      v-if="dateError"
+      :error="dateError"
+      action-label="重试该日期"
+      @action="retryRanking"
+      @dismiss="dateError = null"
+    />
+    <AppApiErrorAlert
+      v-if="datesError"
+      :error="datesError"
+      action-label="重试日期列表"
+      @action="retryDates"
+      @dismiss="datesError = null"
+    />
+    <AppApiErrorAlert
+      v-if="historyError"
+      :error="historyError"
+      action-label="重试排名历史"
+      @action="retryHistory"
+      @dismiss="historyError = null"
+    />
+
     <div
       v-if="loading && !ranking"
-      class="grid grid-cols-3 gap-3"
+      class="grid grid-cols-2 gap-3 xl:grid-cols-4"
       data-testid="industry-loading"
     >
       <Skeleton
-        v-for="i in 6"
+        v-for="i in 4"
         :key="i"
         class="h-28"
-      /><Skeleton class="col-span-3 h-80" />
+      />
+      <Skeleton class="col-span-2 h-80 xl:col-span-4" />
     </div>
     <p
       v-else-if="ranking && !rows.length"
@@ -126,96 +247,191 @@ onBeforeUnmount(() => { request++; selection++; });
     >
       所选日期暂无行业强度快照。正式结果由收盘任务生成，覆盖不足时不会发布。
     </p>
+
     <template v-if="rows.length">
-      <p
-        v-if="rows.some(row => row.quality.breadthStatus === 'unavailable_historical_members')"
-        class="rounded-lg border border-amber-500/40 p-3 text-sm text-amber-600"
+      <div
+        class="grid grid-cols-2 gap-3 xl:grid-cols-4"
+        data-testid="industry-summary"
       >
-        历史补算：按当前行业目录计算所选日指数强度；缺少当日成分记录，历史广度不可用。
-      </p>
-      <p
-        v-if="!date && ranking?.tradeDate !== ranking?.expectedTradeDate"
-        class="rounded-lg border border-amber-500/40 p-3 text-sm text-amber-600"
-      >
-        最新完整交易日为 {{ ranking?.expectedTradeDate }}，当前展示 {{ ranking?.tradeDate }} 的已保存结果。
-      </p>
-      <div class="grid grid-cols-3 gap-3 min-[100rem]:grid-cols-6">
+        <Card class="min-w-0 p-0">
+          <button
+            type="button"
+            class="h-full w-full text-left focus-visible:ring-2 focus-visible:ring-ring"
+            :disabled="!summary.strongest"
+            data-testid="industry-summary-strongest"
+            @click="summary.strongest && openIndustry(summary.strongest.industryCode)"
+          >
+            <CardContent class="pt-4">
+              <p class="text-xs text-muted-foreground">
+                最强行业
+              </p>
+              <p class="my-2 text-lg font-semibold">
+                {{ summary.strongest?.industryName ?? '—' }}
+              </p>
+              <p class="text-sm tabular-nums text-muted-foreground">
+                综合强度 {{ summary.strongest ? formatScore(summary.strongest.strengthScore) : '—' }}
+              </p>
+            </CardContent>
+          </button>
+        </Card>
+        <Card class="min-w-0 p-0">
+          <button
+            type="button"
+            class="h-full w-full text-left focus-visible:ring-2 focus-visible:ring-ring"
+            :disabled="!summary.accelerating"
+            data-testid="industry-summary-accelerating"
+            @click="summary.accelerating && openIndustry(summary.accelerating.industryCode)"
+          >
+            <CardContent class="pt-4">
+              <p class="text-xs text-muted-foreground">
+                加速最快
+              </p>
+              <p class="my-2 text-lg font-semibold">
+                {{ summary.accelerating?.industryName ?? '暂无' }}
+              </p>
+              <p class="text-sm tabular-nums text-muted-foreground">
+                {{ summary.accelerating ? formatPoints(summary.accelerating.momentumAcceleration5D) : '无正值动量变化' }}
+              </p>
+            </CardContent>
+          </button>
+        </Card>
+        <Card class="min-w-0 p-0">
+          <button
+            type="button"
+            class="h-full w-full text-left focus-visible:ring-2 focus-visible:ring-ring"
+            :disabled="!summary.decelerating"
+            data-testid="industry-summary-decelerating"
+            @click="summary.decelerating && openIndustry(summary.decelerating.industryCode)"
+          >
+            <CardContent class="pt-4">
+              <p class="text-xs text-muted-foreground">
+                动量降速最大
+              </p>
+              <p class="my-2 text-lg font-semibold">
+                {{ summary.decelerating?.industryName ?? '暂无' }}
+              </p>
+              <p class="text-sm tabular-nums text-muted-foreground">
+                {{ summary.decelerating ? formatPoints(summary.decelerating.momentumAcceleration5D) : '无负值动量变化' }}
+              </p>
+            </CardContent>
+          </button>
+        </Card>
         <Card
-          v-for="[label, value, hint] in summary"
-          :key="label"
+          class="min-w-0"
+          data-testid="industry-summary-advancing"
         >
           <CardContent class="pt-4">
             <p class="text-xs text-muted-foreground">
-              {{ label }}
-            </p><p class="my-2 text-xl font-semibold">
-              {{ value }}
-            </p><p class="text-xs text-muted-foreground">
-              {{ hint }}
+              有效行业上涨占比
+            </p>
+            <p class="my-2 text-lg font-semibold tabular-nums">
+              {{ summary.advancingLabel }}
+            </p>
+            <p class="text-sm text-muted-foreground">
+              按行业指数当日收益，不含成分股上涨广度
             </p>
           </CardContent>
         </Card>
       </div>
-      <p class="text-xs text-muted-foreground">
-        生成时间：{{ formatDateTime(top?.updatedAt) }} · 行业覆盖 {{ top?.quality.rankedCount }} / {{ top?.quality.catalogCount }} · 首次运行积累历史前，排名变化及持续强势确认可能缺失。
-      </p>
-      <details
-        v-if="top && Object.keys(top.quality.excluded).length"
-        class="rounded-lg border p-3 text-sm"
+
+      <Tabs
+        :model-value="view"
+        class="min-w-0"
+        data-testid="industry-views"
+        @update:model-value="view = ($event as 'ranking' | 'matrix' | 'history')"
       >
-        <summary>未参与排名的行业（{{ Object.keys(top.quality.excluded).length }}）</summary><p
-          v-for="(reason, code) in top.quality.excluded"
-          :key="code"
-          class="mt-2 text-xs"
+        <TabsList class="flex h-auto w-full flex-wrap justify-start">
+          <TabsTrigger
+            value="ranking"
+            data-testid="industry-view-ranking"
+          >
+            行业排行
+          </TabsTrigger>
+          <TabsTrigger
+            value="matrix"
+            data-testid="industry-view-matrix"
+          >
+            强度矩阵
+          </TabsTrigger>
+          <TabsTrigger
+            value="history"
+            data-testid="industry-view-history"
+          >
+            排名历史
+          </TabsTrigger>
+        </TabsList>
+        <TabsContent
+          value="ranking"
+          force-mount
+          :class="view === 'ranking' ? 'pt-4' : 'hidden'"
         >
-          {{ code }}：{{ reason }}
-        </p>
-      </details>
-      <section class="space-y-3">
-        <h2 class="text-lg font-semibold">
-          行业强度 Rank
-        </h2><p class="text-xs text-muted-foreground">
-          1 为最强 · 排名变化为历史排名 − 当前排名 · RS / 加速度以百分点理解 · 点击列名排序，点击行业查看详情
-        </p><IndustryRankingTable
-          :rows="rows"
-          :selected="selected"
-          @select="selectIndustry"
-        />
-      </section>
-      <IndustryCharts
-        :rows="rows"
-        :history="history"
-        :selected="selected"
-        @select="selectIndustry"
-      />
-      <AppApiErrorAlert
-        v-if="detailError"
-        :error="detailError"
-        action-label="重试行业详情"
-        @action="selectIndustry(selected)"
-        @dismiss="detailError = null"
-      />
-      <Skeleton
-        v-if="detailLoading"
-        class="h-64"
-      />
-      <IndustryDetailPanel
-        v-if="detail"
-        :detail="detail"
-        :constituents="constituents"
-      />
-      <p
-        v-if="membersLoading"
-        class="text-sm text-muted-foreground"
-      >
-        正在加载当前成分股…
-      </p>
-      <AppApiErrorAlert
-        v-if="membersError"
-        :error="membersError"
-        action-label="重试当前成分"
-        @action="selectIndustry(selected)"
-        @dismiss="membersError = null"
-      />
+          <IndustryRankingTable
+            :rows="rows"
+            :selected="selected"
+            @select="openIndustry"
+          />
+        </TabsContent>
+        <TabsContent
+          value="matrix"
+          force-mount
+          :hidden="view !== 'matrix'"
+          :class="view === 'matrix' ? 'pt-4' : 'hidden'"
+        >
+          <IndustryMatrixChart
+            :rows="rows"
+            :selected="selected"
+            :active="view === 'matrix'"
+            @select="openIndustry"
+          />
+        </TabsContent>
+        <TabsContent
+          value="history"
+          force-mount
+          :class="view === 'history' ? 'pt-4' : 'hidden'"
+        >
+          <p
+            v-if="historyLoading"
+            class="mb-2 text-sm text-muted-foreground"
+            data-testid="industry-history-loading"
+          >
+            正在加载排名历史…
+          </p>
+          <h2 class="text-lg font-semibold">
+            所选日 Top20 · 历史强度排名
+          </h2>
+          <IndustryRankHeatmap
+            v-if="chartHistory.dates.length || !historyLoading"
+            class="mt-3"
+            :rows="rows"
+            :history="chartHistory"
+            :selected="selected"
+            :active="view === 'history'"
+            @select="openIndustry"
+          />
+        </TabsContent>
+      </Tabs>
     </template>
+
+    <IndustryDetailDrawer
+      :open="drawerOpen"
+      :name="selectedLabel"
+      :code="selected"
+      :snapshot-date="actualTradeDate"
+      :row="selectedRow"
+      :detail="matchedDetail"
+      :constituents="constituents"
+      :detail-loading="detailLoading"
+      :members-loading="membersLoading"
+      :detail-error="detailError"
+      :members-error="membersError"
+      :missing-selected="missingSelected"
+      :tab="detailTab"
+      @update:open="setDrawerOpen"
+      @update:tab="setDetailTab"
+      @retry-detail="retryDetail"
+      @retry-constituents="retryConstituents"
+      @dismiss-detail-error="detailError = null"
+      @dismiss-members-error="membersError = null"
+    />
   </div>
 </template>

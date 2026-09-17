@@ -66,10 +66,15 @@ def history(
 
 @router.get("/{industry_code}/constituents", response_model=ConstituentsResponse)
 def constituents(industry_code: str, repo=Depends(get_repository)):
-    if not any(r["industry_code"] == industry_code for r in repo.ranking()):
-        raise HTTPException(404, "行业不在最新正式目录中")
+    service = IndustryStrengthService(repository=repo)
     try:
-        return IndustryStrengthService(repository=repo).constituents(industry_code)
+        catalog = service.market_data.get_industry_catalog()
+    except FuyaoError:
+        raise HTTPException(503, "扶摇当前成分数据暂不可用，请稍后重试") from None
+    if not any(item.get("thscode") == industry_code for item in catalog):
+        raise HTTPException(404, "行业不在当前正式目录中")
+    try:
+        return service.constituents(industry_code)
     except FuyaoError:
         raise HTTPException(503, "扶摇当前成分数据暂不可用，请稍后重试") from None
 
