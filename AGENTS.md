@@ -32,6 +32,17 @@ Vue WebUI ──HTTP/SSE/WS──> FastAPI
 - Qlib 0.9.7 只能运行在独立 Python 3.12 Worker；主应用为 Python 3.13。两侧只经 Redis Celery 协议和 `data/quant` 工件交换，不共享数据库凭据。
 - WebUI 是 Vue 3 SPA；开发时由 Vite 代理 `/api`，生产由 nginx 同源代理到 FastAPI。
 
+## Production Debugging Context
+
+When investigating production issues, assume:
+
+- Production project directory: `~/svr/finance_analysis`
+- Production deployment command: `bash deploy.sh`
+
+These are operational facts for debugging and incident investigation.
+Use them when checking deployment state, logs, runtime files, migrations, or service behavior.
+
+
 ## 技术栈与入口
 
 | 范围 | 技术 | 入口 |
