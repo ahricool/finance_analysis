@@ -272,14 +272,14 @@ def test_trend_following_preview_schedules_use_market_timezones_and_dst():
     assert cn.queue == us.queue == "analysis"
     beat = build_beat_schedule()
     assert len([key for key in beat if key.startswith("trend_following_preview_cn")]) == 3
-    assert len([key for key in beat if key.startswith("trend_following_preview_us")]) == 3
+    assert len([key for key in beat if key.startswith("trend_following_preview_us")]) == 1
 
-    # Summer EDT UTC-4: 11:00 New York == 15:00 UTC.
+    # Summer EDT UTC-4: 10:00 New York == 14:00 UTC.
     summer = datetime(2026, 7, 1, 0, 0, tzinfo=timezone.utc)
-    assert us.next_run_time(now=summer) == datetime(2026, 7, 1, 15, 0, tzinfo=timezone.utc)
-    # Winter EST UTC-5: 11:00 New York == 16:00 UTC.
+    assert us.next_run_time(now=summer) == datetime(2026, 7, 1, 14, 0, tzinfo=timezone.utc)
+    # Winter EST UTC-5: 10:00 New York == 15:00 UTC.
     winter = datetime(2026, 1, 5, 0, 0, tzinfo=timezone.utc)
-    assert us.next_run_time(now=winter) == datetime(2026, 1, 5, 16, 0, tzinfo=timezone.utc)
+    assert us.next_run_time(now=winter) == datetime(2026, 1, 5, 15, 0, tzinfo=timezone.utc)
 
 
 def test_etf_rotation_preview_schedules_use_market_timezones_and_dst():
