@@ -56,18 +56,18 @@ const overviewItems = computed(() => {
   const row = current.value;
   if (!row) return [];
   return [
-    ['5 日收益', formatPercent(row.ret5D), toneClass(row.ret5D)],
-    ['10 日收益', formatPercent(row.ret10D), toneClass(row.ret10D)],
-    ['20 日收益', formatPercent(row.ret20D), toneClass(row.ret20D)],
-    ['5 日超额', formatPoints(row.rs5D), toneClass(row.rs5D)],
-    ['10 日超额', formatPoints(row.rs10D), toneClass(row.rs10D)],
-    ['20 日超额', formatPoints(row.rs20D), toneClass(row.rs20D)],
-    ['5 日动量变化', formatPoints(row.momentumAcceleration5D), toneClass(row.momentumAcceleration5D)],
-    ['成交额脉冲', formatPulse(row.turnoverRatio5D), ''],
+    ['5 日收益（%）', formatPercent(row.ret5D, { unit: false }), toneClass(row.ret5D)],
+    ['10 日收益（%）', formatPercent(row.ret10D, { unit: false }), toneClass(row.ret10D)],
+    ['20 日收益（%）', formatPercent(row.ret20D, { unit: false }), toneClass(row.ret20D)],
+    ['5 日超额（百分点）', formatPoints(row.rs5D, { unit: false }), toneClass(row.rs5D)],
+    ['10 日超额（百分点）', formatPoints(row.rs10D, { unit: false }), toneClass(row.rs10D)],
+    ['20 日超额（百分点）', formatPoints(row.rs20D, { unit: false }), toneClass(row.rs20D)],
+    ['5 日动量变化（百分点）', formatPoints(row.momentumAcceleration5D, { unit: false }), toneClass(row.momentumAcceleration5D)],
+    ['成交额脉冲（×）', formatPulse(row.turnoverRatio5D, { unit: false }), ''],
     ['综合强度', formatScore(row.strengthScore), ''],
-    ['1 日排名变化', formatRankDelta(row.rankChange1D), toneClass(row.rankChange1D)],
-    ['3 日排名变化', formatRankDelta(row.rankChange3D), toneClass(row.rankChange3D)],
-    ['5 日排名变化', formatRankDelta(row.rankChange5D), toneClass(row.rankChange5D)],
+    ['1 日排名变化（名）', formatRankDelta(row.rankChange1D), toneClass(row.rankChange1D)],
+    ['3 日排名变化（名）', formatRankDelta(row.rankChange3D), toneClass(row.rankChange3D)],
+    ['5 日排名变化（名）', formatRankDelta(row.rankChange5D), toneClass(row.rankChange5D)],
   ] as const;
 });
 
@@ -186,7 +186,7 @@ function ma(value: boolean | null) {
                     {{ item[0] }}
                   </p>
                   <p
-                    class="mt-2 font-semibold tabular-nums"
+                    class="mt-2 font-semibold tabular-nums whitespace-nowrap"
                     :class="item[2]"
                   >
                     {{ item[1] }}

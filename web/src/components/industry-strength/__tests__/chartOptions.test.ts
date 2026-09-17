@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { IndustrySnapshot } from '@/api/industryStrength';
-import { heatmapCells, heatmapOption, matrixOption } from '../chartOptions';
+import { heatmapCells, heatmapOption, matrixLabel, matrixOption } from '../chartOptions';
 import { bubbleSize } from '../display';
 
 function row(overrides: Partial<IndustrySnapshot> = {}): IndustrySnapshot {
@@ -20,6 +20,21 @@ function row(overrides: Partial<IndustrySnapshot> = {}): IndustrySnapshot {
 }
 
 describe('industry strength charts', () => {
+  it('labels only the selected industry, or staggers top-3 labels when none is selected', () => {
+    const rows = [
+      row({ industryCode: '1.TI', industryName: '半导体', strengthRank: 1, strengthScore: 98 }),
+      row({ industryCode: '2.TI', industryName: '通信设备', strengthRank: 2, strengthScore: 94, momentumAcceleration5D: 0.04 }),
+      row({ industryCode: '3.TI', industryName: '电力设备', strengthRank: 3, strengthScore: 90 }),
+      row({ industryCode: '4.TI', industryName: '银行', strengthRank: 4, strengthScore: 40 }),
+    ];
+    expect(matrixLabel(rows[0], '')).toEqual({ show: true, position: 'top' });
+    expect(matrixLabel(rows[1], '')).toEqual({ show: true, position: 'bottom' });
+    expect(matrixLabel(rows[2], '')).toEqual({ show: true, position: 'left' });
+    expect(matrixLabel(rows[3], '').show).toBe(false);
+    expect(matrixLabel(rows[0], '2.TI').show).toBe(false);
+    expect(matrixLabel(rows[1], '2.TI')).toEqual({ show: true, position: 'left' });
+  });
+
   it('maps bubble size with the same formula used by the legend', () => {
     const option = matrixOption([row()], '881101.TI', 'light');
     const series = option.series[0] as { symbolSize: (value: number[]) => number };

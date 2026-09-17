@@ -84,16 +84,18 @@ for (const width of [1280, 1440, 1920]) {
   }
 }
 
-test('industry strength drawer is near full width at 390px', async ({ page }, testInfo) => {
+test('industry strength ranking and drawer at 390px', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.addInitScript(() => localStorage.setItem('theme', 'light'));
   await mockIndustryApis(page);
   await page.goto('/research/industry-strength');
+  await expect(page.getByTestId('industry-summary').locator('[data-slot="card"]')).toHaveCount(4);
+  await page.screenshot({ path: testInfo.outputPath('industry-390-ranking.png'), fullPage: true });
   await page.getByTestId('industry-summary-strongest').click();
   const drawer = page.getByTestId('industry-detail');
   await expect(drawer).toBeVisible();
   const box = await drawer.boundingBox();
   expect(box?.width ?? 0).toBeGreaterThan(360);
+  await expect(drawer).toContainText('5 日超额（百分点）');
   await page.screenshot({ path: testInfo.outputPath('industry-390-drawer.png') });
-  await expect(page.getByTestId('industry-summary').locator('[data-slot="card"]')).toHaveCount(4);
 });

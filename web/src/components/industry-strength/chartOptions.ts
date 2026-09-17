@@ -13,6 +13,39 @@ import {
 
 type Theme = 'light' | 'dark';
 
+export function matrixLabel(row: IndustrySnapshot, selected: string): { show: boolean; position: 'top' | 'bottom' | 'left' | 'right' } {
+  const active = Boolean(selected) && row.industryCode === selected;
+  if (selected) {
+    return { show: active, position: matrixLabelPosition(row) };
+  }
+  if (row.strengthRank === 1) return { show: true, position: 'top' };
+  if (row.strengthRank === 2) return { show: true, position: 'bottom' };
+  if (row.strengthRank === 3) return { show: true, position: 'left' };
+  return { show: false, position: matrixLabelPosition(row) };
+}
+
+function matrixLabelPosition(row: IndustrySnapshot): 'top' | 'bottom' | 'left' | 'right' {
+  if (row.strengthScore >= 82) return 'left';
+  if (row.strengthScore <= 18) return 'right';
+  if ((row.momentumAcceleration5D ?? 0) < 0) return 'bottom';
+  return 'top';
+}
+
+function quadrantLabel(text: string, fill: string, theme: Theme, extra: Record<string, string>) {
+  return {
+    type: 'text' as const,
+    silent: true,
+    ...extra,
+    style: {
+      text,
+      fill,
+      fontSize: 11,
+      backgroundColor: theme === 'dark' ? 'rgba(24,24,27,0.72)' : 'rgba(255,255,255,0.78)',
+      padding: [3, 5],
+    },
+  };
+}
+
 export function matrixOption(rows: IndustrySnapshot[], selected: string, theme: Theme) {
   const text = theme === 'dark' ? '#d4d4d8' : '#52525b';
   const muted = theme === 'dark' ? '#a1a1aa' : '#71717a';
@@ -21,7 +54,7 @@ export function matrixOption(rows: IndustrySnapshot[], selected: string, theme: 
   const selectedRow = rows.find((row) => row.industryCode === selected);
   return {
     animation: false,
-    grid: { top: 36, right: 56, bottom: 56, left: 72, containLabel: true },
+    grid: { top: 40, right: 64, bottom: 60, left: 76, containLabel: true },
     tooltip: {
       trigger: 'item',
       confine: true,
@@ -55,10 +88,10 @@ export function matrixOption(rows: IndustrySnapshot[], selected: string, theme: 
       splitLine: { lineStyle: { color: gridLine } },
     },
     graphic: [
-      { type: 'text', left: '18%', top: '18%', silent: true, style: { text: '低强度但改善', fill: muted, fontSize: 12 } },
-      { type: 'text', right: '12%', top: '18%', silent: true, style: { text: '高强度且加速', fill: muted, fontSize: 12 } },
-      { type: 'text', left: '18%', bottom: '22%', silent: true, style: { text: '低强度且恶化', fill: muted, fontSize: 12 } },
-      { type: 'text', right: '12%', bottom: '22%', silent: true, style: { text: '高强度但降速', fill: muted, fontSize: 12 } },
+      quadrantLabel('低强度但改善', muted, theme, { left: '20%', top: '16%' }),
+      quadrantLabel('高强度且加速', muted, theme, { right: '18%', top: '16%' }),
+      quadrantLabel('低强度且恶化', muted, theme, { left: '20%', bottom: '20%' }),
+      quadrantLabel('高强度但降速', muted, theme, { right: '18%', bottom: '20%' }),
     ],
     series: [{
       type: 'scatter',
@@ -66,6 +99,7 @@ export function matrixOption(rows: IndustrySnapshot[], selected: string, theme: 
       labelLayout: { hideOverlap: true, moveOverlap: 'shiftY' },
       data: rows.map((row) => {
         const active = row.industryCode === selected;
+        const label = matrixLabel(row, selected);
         return {
           name: row.industryName,
           code: row.industryCode,
@@ -78,9 +112,10 @@ export function matrixOption(rows: IndustrySnapshot[], selected: string, theme: 
             borderColor: active ? text : 'rgba(255,255,255,0.35)',
           },
           label: {
-            show: active || row.strengthRank <= 3,
+            show: label.show,
             formatter: row.industryName,
-            position: row.strengthScore >= 55 ? 'left' : 'right',
+            position: label.position,
+            distance: 8,
             color: text,
             fontSize: 11,
           },
