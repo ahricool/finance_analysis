@@ -9,7 +9,7 @@ from decimal import Decimal
 from statistics import median
 from typing import Sequence
 
-from finance_analysis.portfolio_risk.bars import NormalizedBar, adjacent, is_complete_session_day, opening_observation_ends  # pragma: allowlist secret
+from finance_analysis.portfolio_risk.bars import NormalizedBar, adjacent, is_complete_session_day, opening_observation_ends, session_prefix_ends  # pragma: allowlist secret
 from finance_analysis.portfolio_risk.config import RiskPolicy  # pragma: allowlist secret
 
 EMA_SEED = 20
@@ -71,7 +71,11 @@ def vwap_until(
     window = [bar for bar in day_bars if bar.trade_date == current.trade_date and bar.bar_end <= current.bar_end]
     if not window:
         return None, "UNAVAILABLE"
-    expected = [bar for bar in window]
+    expected_ends = session_prefix_ends(current.market, current.bar_end)
+    present = {bar.bar_end: bar for bar in window}
+    if not expected_ends or any(end not in present for end in expected_ends):
+        return None, "UNAVAILABLE"
+    expected = [present[end] for end in expected_ends]
     if any(bar.volume_quality == "unreliable" for bar in expected):
         return None, "UNAVAILABLE"
     volumes = [bar.volume for bar in expected]

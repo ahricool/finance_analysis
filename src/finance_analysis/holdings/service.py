@@ -91,16 +91,23 @@ class HoldingsService:
         spreadsheet_id = parse_spreadsheet_id(spreadsheet_value)
         path = validate_return_path(return_path, config=google)
         source = self.repository.get_or_create(uid)
-        changes: dict[str, Any] = {
-            "spreadsheet_id": spreadsheet_id,
-            "accounts_range": google.accounts_range,
-            "positions_range": google.positions_range,
-            "auth_status": "PENDING",
-            "enabled": False,
-        }
-        if source.spreadsheet_id != spreadsheet_id:
-            changes["config_version"] = int(source.config_version) + 1
-        source = self.repository.save(source.id, uid=uid, **changes)
+        connected = bool(
+            source.enabled and source.auth_status == "CONNECTED" and source.encrypted_credentials
+        )
+        changes: dict[str, Any] = {}
+        if not connected:
+            changes.update(
+                {
+                    "spreadsheet_id": spreadsheet_id,
+                    "accounts_range": google.accounts_range,
+                    "positions_range": google.positions_range,
+                    "auth_status": "PENDING",
+                    "enabled": False,
+                }
+            )
+            if source.spreadsheet_id != spreadsheet_id:
+                changes["config_version"] = int(source.config_version) + 1
+        source = self.repository.save(source.id, uid=uid, **changes) if changes else source
         verifier = new_code_verifier()
         state = self.oauth.create_state(
             OAuthState(
@@ -109,12 +116,13 @@ class HoldingsService:
                 config_version=source.config_version,
                 return_path=path,
                 code_verifier=verifier,
+                spreadsheet_id=spreadsheet_id,
             )
         )
         return {
             "authorization_url": self.oauth.authorization_url(state=state, code_verifier=verifier),
             "return_path": path,
-            "auth_status": "PENDING",
+            "auth_status": source.auth_status if connected else "PENDING",
         }
 
     def callback(self, *, uid: int, code: str, state: str) -> dict[str, Any]:
@@ -124,10 +132,20 @@ class HoldingsService:
         source = self.repository.get_by_id(payload.source_id, uid=uid)
         if source is None or source.config_version != payload.config_version:
             raise GoogleOAuthError("config_changed", "持仓来源配置已变化，请重新连接")
+        if source.auth_status == "DISCONNECTED" and not source.enabled:
+            raise GoogleOAuthError("disconnected", "来源已断开，旧回调不能重新启用")
         tokens = self.oauth.exchange_code(code=code, code_verifier=payload.code_verifier)
         previous = decrypt_credentials(source.encrypted_credentials) if source.encrypted_credentials else {}
+        connected = source.auth_status == "CONNECTED" and source.enabled
         if not tokens.has_offline_access:
-            if previous.get("refresh_token") and source.auth_status == "CONNECTED":
+            if previous.get("refresh_token") and connected:
+                return {
+                    "return_path": payload.return_path,
+                    "auth_status": source.auth_status,
+                    "offline_granted": False,
+                    "replaced": False,
+                }
+            if connected:
                 return {
                     "return_path": payload.return_path,
                     "auth_status": source.auth_status,
@@ -148,15 +166,25 @@ class HoldingsService:
                 "replaced": False,
             }
         blob = self.oauth.encrypt_tokens(tokens, previous=previous)
-        self.repository.save(
-            source.id,
-            uid=uid,
-            encrypted_credentials=blob,
-            auth_status="CONNECTED",
-            enabled=True,
-            last_error_code=None,
-            sync_status="IDLE",
-        )
+        changes: dict[str, Any] = {
+            "encrypted_credentials": blob,
+            "auth_status": "CONNECTED",
+            "enabled": True,
+            "last_error_code": None,
+            "sync_status": "IDLE",
+        }
+        new_sheet = payload.spreadsheet_id or source.spreadsheet_id
+        if new_sheet and new_sheet != source.spreadsheet_id:
+            changes["spreadsheet_id"] = new_sheet
+            changes["config_version"] = int(source.config_version) + 1
+            changes["published_generation"] = 0
+            changes["content_hash"] = None
+            changes["published_snapshot"] = None
+            try:
+                self.cache.clear_source(uid, source.id, source.published_generation)
+            except Exception:
+                pass
+        self.repository.save(source.id, uid=uid, **changes)
         return {
             "return_path": payload.return_path,
             "auth_status": "CONNECTED",
@@ -168,12 +196,7 @@ class HoldingsService:
         source = self.repository.get_for_uid(uid)
         if source is None:
             return {"auth_status": "DISCONNECTED", "google_revoke": "skipped_no_source"}
-        revoke = "skipped_no_token"
-        try:
-            revoke = self.oauth.revoke(source.encrypted_credentials)
-        except Exception:
-            revoke = "revoke_request_failed"
-        self.cache.clear_source(uid, source.id, source.published_generation)
+        blob = source.encrypted_credentials
         self.repository.save(
             source.id,
             uid=uid,
@@ -182,20 +205,46 @@ class HoldingsService:
             enabled=False,
             sync_status="IDLE",
             last_error_code=None,
+            config_version=int(source.config_version) + 1,
         )
+        revoke = "skipped_no_token"
+        try:
+            revoke = self.oauth.revoke(blob)
+        except Exception:
+            revoke = "revoke_request_failed"
+        try:
+            self.cache.clear_source(uid, source.id, source.published_generation)
+        except Exception:
+            pass
         return {"auth_status": "DISCONNECTED", "google_revoke": revoke}
 
     def get_snapshot(self, *, uid: int) -> HoldingsSnapshot | None:
         source = self.repository.get_for_uid(uid)
-        if source is None or source.published_generation <= 0:
+        if source is None or source.published_generation <= 0 or not source.enabled:
             return None
-        cached = self.cache.get_snapshot(uid, source.id, source.published_generation)
-        if cached is not None:
-            return cached
-        if source.content_hash:
-            rebuilt = self.sync(uid=uid, force=True)
-            return rebuilt.get("snapshot")
-        return None
+        cached = None
+        try:
+            cached = self.cache.get_snapshot(uid, source.id, source.published_generation)
+        except Exception:
+            cached = None
+        snapshot = cached
+        if snapshot is None and source.published_snapshot:
+            snapshot = HoldingsSnapshot.model_validate(source.published_snapshot)
+            if (
+                snapshot.source_id != source.id
+                or snapshot.generation != source.published_generation
+                or snapshot.content_hash != source.content_hash
+            ):
+                return None
+            try:
+                self.cache.write_snapshot(snapshot, context_text=render_holdings_context(snapshot))
+            except Exception:
+                pass
+        if snapshot is None:
+            return None
+        from .snapshot import refresh_validity  # pragma: allowlist secret
+
+        return refresh_validity(snapshot, now=utc_now())
 
     def get_context(self, *, uid: int) -> str | None:
         snapshot = self.get_snapshot(uid=uid)
@@ -208,6 +257,8 @@ class HoldingsService:
         source = self.repository.get_for_uid(uid)
         if source is None:
             raise GoogleOAuthError("not_connected", "尚未连接 Google Sheet")
+        if not source.enabled or source.auth_status != "CONNECTED":
+            raise GoogleOAuthError("source_disabled", "持仓来源未启用")
         self.repository.update_health(source_id=source.id, uid=uid, last_attempt_at=utc_now(), sync_status="SYNCING")
         try:
             credentials = self.oauth.credentials_from_blob(source.encrypted_credentials)
@@ -238,7 +289,13 @@ class HoldingsService:
             )
             raise
 
-        previous = self.cache.get_snapshot(uid, source.id, source.published_generation)
+        previous = None
+        try:
+            previous = self.cache.get_snapshot(uid, source.id, source.published_generation)
+        except Exception:
+            previous = None
+        if previous is None and source.published_snapshot:
+            previous = HoldingsSnapshot.model_validate(source.published_snapshot)
         try:
             snapshot = build_snapshot(
                 uid=uid,
@@ -257,6 +314,8 @@ class HoldingsService:
             raise
 
         same_hash = source.content_hash == snapshot.content_hash
+        if same_hash and not source.enabled:
+            raise SnapshotRejected("source_disabled", "来源已禁用，不能用旧快照继续同步")
         if same_hash and not force:
             snapshot = snapshot.model_copy(update={"generation": source.published_generation})
             cached = self.cache.get_snapshot(uid, source.id, source.published_generation)
@@ -291,6 +350,7 @@ class HoldingsService:
             new_generation=snapshot.generation,
             content_hash=snapshot.content_hash,
             sync_status="OK",
+            published_snapshot=snapshot.model_dump(mode="json"),
         )
         if published is None:
             raise SnapshotRejected("stale_generation", "同步结果已过期，未覆盖更新版本")
@@ -299,10 +359,14 @@ class HoldingsService:
 
     def update_policy(self, *, uid: int, policy: dict[str, Any]) -> dict[str, Any]:
         source = self.repository.get_or_create(uid)
+        merged = dict(source.risk_policy or {})
+        for key, value in policy.items():
+            if value is not None:
+                merged[key] = value
         updated = self.repository.save(
             source.id,
             uid=uid,
-            risk_policy=dict(policy),
+            risk_policy=merged,
             policy_version=int(source.policy_version) + 1,
         )
         return {"policy": updated.risk_policy, "policy_version": updated.policy_version}

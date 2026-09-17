@@ -90,6 +90,7 @@ class HoldingsRepository:
         content_hash: str,
         sync_status: str,
         error_code: str | None = None,
+        published_snapshot: dict | None = None,
     ) -> HoldingSource | None:
         def write(session: Session) -> int | None:
             row = (
@@ -109,6 +110,8 @@ class HoldingsRepository:
                 return None
             row.published_generation = new_generation
             row.content_hash = content_hash
+            if published_snapshot is not None:
+                row.published_snapshot = published_snapshot
             row.sync_status = sync_status
             row.last_error_code = error_code
             row.last_success_at = utc_now() if sync_status == "OK" else row.last_success_at

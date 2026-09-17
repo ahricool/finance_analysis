@@ -26,6 +26,37 @@ def test_content_hash_ignores_fetched_at_and_generation():
     assert content_hash(first) == first.content_hash
 
 
+def test_legal_closed_zero_quantity_is_published():
+    accounts = [HEADERS_A, ["a1", "CN", "CNY", 100000, "2026-09-16T15:00:00+08:00", "2026-09-16T15:00:00+08:00", True]]
+    open_rows = [HEADERS_P, ["a1", "p1", "c1", "CORE", "600519.SH", "STOCK", "100", "10", "2026-01-05T10:00:00+08:00", "OPEN"]]
+    previous = build_snapshot(uid=1, source_id=1, batch=_batch(accounts, open_rows), generation=1, now=datetime(2026, 9, 16, 8, tzinfo=timezone.utc))
+    closed_rows = [HEADERS_P, ["a1", "p1", "c1", "CORE", "600519.SH", "STOCK", "0", "10", "2026-01-05T10:00:00+08:00", "CLOSED"]]
+    snapshot = build_snapshot(
+        uid=1,
+        source_id=1,
+        batch=_batch(accounts, closed_rows),
+        generation=2,
+        previous=previous,
+        now=datetime(2026, 9, 17, 8, tzinfo=timezone.utc),
+    )
+    assert snapshot.status == "VALID"
+    assert snapshot.accounts[0].validity == "EMPTY_VALID"
+    assert snapshot.positions[0].legs[0].status == "CLOSED"
+    assert snapshot.positions[0].legs[0].quantity == 0
+
+
+def test_open_supported_asset_requires_positive_quantity_and_price():
+    accounts = [HEADERS_A, ["a1", "CN", "CNY", 100000, "2026-09-16T15:00:00+08:00", "2026-09-16T15:00:00+08:00", True]]
+    with pytest.raises(SnapshotRejected):
+        build_snapshot(
+            uid=1,
+            source_id=1,
+            batch=_batch(accounts, [HEADERS_P, ["a1", "p1", "c1", "CORE", "600519.SH", "STOCK", "0", "10", "2026-01-05T10:00:00+08:00", "OPEN"]]),
+            generation=1,
+            now=datetime(2026, 9, 16, 8, tzinfo=timezone.utc),
+        )
+
+
 def test_unexpected_empty_after_open_legs_is_rejected():
     accounts = [HEADERS_A, ["a1", "CN", "CNY", 100000, "2026-09-16T15:00:00+08:00", "2026-09-16T15:00:00+08:00", True]]
     positions = [HEADERS_P, ["a1", "p1", "c1", "CORE", "600519.SH", "STOCK", "100", "10", "2026-01-05T10:00:00+08:00", "OPEN"]]

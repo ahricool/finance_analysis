@@ -41,6 +41,7 @@ class HoldingSource(Base):
     published_generation = Column(Integer, nullable=False, default=0)
     content_hash = Column(String(64), nullable=True)
     config_version = Column(Integer, nullable=False, default=1)
+    published_snapshot = Column(JSONB().with_variant(JSON(), "sqlite"), nullable=True)
     risk_policy = Column(JSONB().with_variant(JSON(), "sqlite"), nullable=False, default=dict)
     policy_version = Column(Integer, nullable=False, default=1)
     created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)

@@ -213,6 +213,7 @@ class YFinanceProvider:
             "actions": False,
             "auto_adjust": False,
             "back_adjust": False,
+            "timeout": 8,
         }
         if request.period:
             download_kwargs["period"] = request.period

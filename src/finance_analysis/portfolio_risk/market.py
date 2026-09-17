@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 import logging
 import time
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
+from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any, Iterable
@@ -74,6 +74,8 @@ class RiskMarketGateway:
         self.max_concurrency = int(max_concurrency or policy.max_symbol_concurrency)
         self.publish_buffer = timedelta(seconds=policy.publish_buffer_seconds)
         self.quote_max_age = timedelta(seconds=policy.quote_max_age_seconds)
+        self.qualities: dict[str, dict[str, Any]] = {}
+        self.degraded_symbols: list[str] = []
 
     def quotes(self, symbols: Iterable[str], *, now: datetime | None = None) -> dict[str, QuoteView]:
         current = now or utc_now()
@@ -95,6 +97,11 @@ class RiskMarketGateway:
                 if quote_time is None:
                     result[symbol] = QuoteView(
                         price=Decimal(str(quote.price)), quote_as_of=None, valid=False, stale=True
+                    )
+                    continue
+                if quote_time > current + timedelta(seconds=5):
+                    result[symbol] = QuoteView(
+                        price=Decimal(str(quote.price)), quote_as_of=quote_time, valid=False, stale=False
                     )
                     continue
                 stale = current - quote_time > self.quote_max_age
@@ -181,98 +188,159 @@ class RiskMarketGateway:
         timeout_seconds: float | None,
     ) -> dict[str, list[NormalizedBar]]:
         timeout = self.timeout_seconds if timeout_seconds is None else float(timeout_seconds)
-        grouped: dict[Market, list[str]] = {}
-        for symbol in symbols:
-            grouped.setdefault(infer_market(symbol), []).append(symbol)
+        unique = list(dict.fromkeys(symbols))
         result: dict[str, list[NormalizedBar]] = {}
-        workers = max(1, min(self.max_concurrency, len(grouped) or 1))
+        degraded: list[str] = []
+        write_ns = time.time_ns()
+        workers = max(1, min(self.max_concurrency, len(unique) or 1))
         started = time.perf_counter()
-        with ThreadPoolExecutor(max_workers=workers) as pool:
-            futures = {
-                pool.submit(self._refresh_market, market, codes, start, end, now): (market, codes)
-                for market, codes in grouped.items()
-            }
-            remaining = timeout
-            for future, (_market, codes) in list(futures.items()):
-                wait = max(0.05, remaining)
-                try:
-                    result.update(future.result(timeout=wait))
-                except FuturesTimeout:
-                    logger.warning("portfolio_risk 5m refresh timed out for %s", ",".join(codes))
-                    for symbol in codes:
-                        self._mark_stale(symbol)
-                        cached = self.cache.load(portfolio_risk_minute_providers(infer_market(symbol))[0], symbol)
-                        result[symbol] = self._from_cache(cached, now=now) if cached else []
-                except Exception:
-                    logger.exception("portfolio_risk 5m refresh failed")
-                    for symbol in codes:
-                        self._mark_stale(symbol)
-                        cached = self.cache.load(portfolio_risk_minute_providers(infer_market(symbol))[0], symbol)
-                        result[symbol] = self._from_cache(cached, now=now) if cached else []
+        executor = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="pr-5m")
+        pending: dict[Any, str] = {}
+        queue = list(unique)
+        try:
+            while queue or pending:
                 remaining = timeout - (time.perf_counter() - started)
                 if remaining <= 0:
-                    remaining = 0.05
+                    degraded.extend(queue)
+                    queue.clear()
+                    if pending:
+                        wait(list(pending), timeout=min(8.0, self.timeout_seconds))
+                        for future, symbol in list(pending.items()):
+                            if future.done():
+                                try:
+                                    payload = future.result()
+                                    if payload is not None:
+                                        result[symbol] = payload
+                                    else:
+                                        degraded.append(symbol)
+                                except Exception:
+                                    degraded.append(symbol)
+                            else:
+                                degraded.append(symbol)
+                            pending.pop(future, None)
+                    break
+                while queue and len(pending) < workers:
+                    symbol = queue.pop(0)
+                    pending[executor.submit(self._refresh_one_symbol, symbol, start, end, now, write_ns)] = symbol
+                done, _not_done = wait(list(pending), timeout=max(0.05, remaining), return_when=FIRST_COMPLETED)
+                if not done:
+                    continue
+                for future in done:
+                    symbol = pending.pop(future)
+                    try:
+                        payload = future.result()
+                        if payload is None:
+                            degraded.append(symbol)
+                            cached = self.cache.load(portfolio_risk_minute_providers(infer_market(symbol))[0], symbol)
+                            result[symbol] = self._from_cache(cached, now=now) if cached else []
+                        else:
+                            result[symbol] = payload
+                    except Exception:
+                        logger.exception("portfolio_risk 5m refresh failed symbol=%s", symbol)
+                        degraded.append(symbol)
+                        self._mark_stale(symbol)
+                        cached = self.cache.load(portfolio_risk_minute_providers(infer_market(symbol))[0], symbol)
+                        result[symbol] = self._from_cache(cached, now=now) if cached else []
+        finally:
+            executor.shutdown(wait=True, cancel_futures=False)
+        for symbol in unique:
+            if symbol not in result:
+                cached = self.cache.load(portfolio_risk_minute_providers(infer_market(symbol))[0], symbol)
+                result[symbol] = self._from_cache(cached, now=now) if cached else []
+                if symbol not in degraded:
+                    degraded.append(symbol)
+                    self._mark_stale(symbol)
+        self.degraded_symbols = list(dict.fromkeys(degraded))
         elapsed_ms = int((time.perf_counter() - started) * 1000)
-        logger.info("portfolio_risk 5m refresh elapsed_ms=%s symbols=%s", elapsed_ms, len(result))
+        logger.info(
+            "portfolio_risk 5m refresh elapsed_ms=%s symbols=%s degraded=%s",
+            elapsed_ms,
+            len(result),
+            len(self.degraded_symbols),
+        )
         return result
 
-    def _refresh_market(
+    def _refresh_one_symbol(
         self,
-        market: Market,
-        codes: list[str],
+        symbol: str,
         start: datetime,
         end: datetime,
         now: datetime,
-    ) -> dict[str, list[NormalizedBar]]:
+        write_ns: int,
+    ) -> list[NormalizedBar] | None:
+        market = infer_market(symbol)
         providers = portfolio_risk_minute_providers(market)
         provider = providers[0]
+        previous_payload = self.cache.load(provider, symbol) or {}
+        previous = self._from_cache(previous_payload, now=now)
         period = None
         if market is Market.US:
-            cold = any(not (self.cache.load(provider, symbol) or {}).get("initialized") for symbol in codes)
-            period = US_COLD_START_PERIOD if cold else US_REFRESH_PERIOD
+            period = US_COLD_START_PERIOD if not previous_payload.get("initialized") else US_REFRESH_PERIOD
         try:
             remote = self.market_data.get_minute_bars(
-                codes, start, end, interval="5m", providers=providers, period=period
+                [symbol], start, end, interval="5m", providers=providers, period=period
             )
         except Exception:
-            logger.exception("portfolio_risk minute fetch failed market=%s", market.value)
-            payload: dict[str, list[NormalizedBar]] = {}
-            for symbol in codes:
-                self._mark_stale(symbol)
-                cached = self.cache.load(provider, symbol)
-                payload[symbol] = self._from_cache(cached, now=now) if cached else []
-            return payload
-        result: dict[str, list[NormalizedBar]] = {}
-        for symbol in codes:
-            previous = self._from_cache(self.cache.load(provider, symbol), now=now)
-            if symbol in remote.failed_symbols:
-                self._mark_stale(symbol)
-                result[symbol] = previous
-                continue
-            market_bars = remote.data.get(symbol) or []
-            normalized = []
-            for item in market_bars:
-                bar = normalize_market_bar(item, now=now)
-                if bar is not None:
-                    normalized.append(bar)
-            closed = apply_volume_quality(dedupe_closed(_merge_bars(previous, normalized)))
-            initialized = bool(closed)
-            self.cache.save(
-                provider,
-                symbol,
-                {
-                    "fetched_at": now.isoformat(),
-                    "stale": False,
-                    "initialized": initialized,
-                    "provider": provider,
-                    "timeframe": "5m",
-                    "session": "rth",
-                    "adjustment": "raw",
-                    "bars": [_bar_payload(bar) for bar in closed],
-                },
-            )
-            result[symbol] = closed
-        return result
+            logger.exception("portfolio_risk minute fetch failed symbol=%s", symbol)
+            self._mark_stale(symbol)
+            return previous
+        if symbol in remote.failed_symbols or symbol in remote.missing_symbols:
+            self._mark_stale(symbol)
+            return previous
+        market_bars = remote.data.get(symbol) or []
+        if not market_bars:
+            self._mark_stale(symbol)
+            return previous
+        normalized = []
+        for item in market_bars:
+            bar = normalize_market_bar(item, now=now)
+            if bar is not None:
+                normalized.append(bar)
+        if not normalized:
+            self._mark_stale(symbol)
+            return previous
+        closed = apply_volume_quality(dedupe_closed(_merge_bars(previous, normalized)))
+        existing = self.cache.load(provider, symbol) or {}
+        if int(existing.get("write_ns") or 0) > write_ns:
+            return self._from_cache(existing, now=now)
+        expected = latest_expected_closed(market.value, now)
+        latest_closed = max((bar.bar_end for bar in closed), default=None)
+        stale = bool(expected is not None and latest_closed is not None and latest_closed < expected)
+        self.cache.save(
+            provider,
+            symbol,
+            {
+                "fetched_at": now.isoformat(),
+                "write_ns": write_ns,
+                "stale": stale,
+                "initialized": True,
+                "provider": provider,
+                "timeframe": "5m",
+                "session": "rth",
+                "adjustment": "raw",
+                "latest_expected_closed": None if expected is None else expected.isoformat(),
+                "bars": [_bar_payload(bar) for bar in closed],
+            },
+        )
+        self.qualities[symbol] = {
+            "stale": stale,
+            "status": "STALE" if stale else "OK",
+            "latest_expected_closed": expected,
+        }
+        return closed
+
+    def bar_quality(self, symbol: str, *, now: datetime) -> dict[str, Any]:
+        if symbol in self.qualities:
+            return self.qualities[symbol]
+        market = infer_market(symbol)
+        provider = portfolio_risk_minute_providers(market)[0]
+        cached = self.cache.load(provider, symbol) or {}
+        expected = latest_expected_closed(market.value, now)
+        return {
+            "stale": bool(cached.get("stale")),
+            "status": "STALE" if cached.get("stale") else ("OK" if cached.get("initialized") else "UNAVAILABLE"),
+            "latest_expected_closed": expected,
+        }
 
     def _mark_stale(self, symbol: str) -> None:
         provider = portfolio_risk_minute_providers(infer_market(symbol))[0]

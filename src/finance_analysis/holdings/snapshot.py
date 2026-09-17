@@ -134,15 +134,33 @@ def validate_transition(
             raise SnapshotRejected("positions_incomplete", f"{account.account_id} 正在编辑，positions_complete=false")
         if not open_legs:
             had_open = any(item[0] == account.account_id for item in previous_open)
-            if had_open:
+            closed_rows = [
+                leg
+                for position in positions
+                for leg in position.legs
+                if leg.account_id == account.account_id and leg.status == "CLOSED"
+            ]
+            if had_open and not closed_rows:
                 raise SnapshotRejected("unexpected_empty", f"{account.account_id} 已有持仓突然空表，不视为清仓")
             current = current.model_copy(update={"validity": "EMPTY_VALID", "validity_reason": "empty_confirmed"})
         validated.append(current)
     return validated, warnings
 
 
+def refresh_validity(snapshot: HoldingsSnapshot, *, now: datetime | None = None) -> HoldingsSnapshot:
+    current = coerce_aware_utc(now) or utc_now()
+    config = get_holdings_config()
+    max_age = timedelta(hours=config.nav_max_age_hours)
+    accounts = [_nav_validity(account, now=current, max_age=max_age) for account in snapshot.accounts]
+    warnings = list(snapshot.warnings)
+    for account in accounts:
+        holdings_as_of = coerce_aware_utc(account.holdings_as_of)
+        if holdings_as_of is None or current - holdings_as_of > max_age:
+            warnings.append(f"{account.account_id}:holdings_stale")
+    return snapshot.model_copy(update={"accounts": accounts, "warnings": warnings})
+
+
 def build_snapshot(
-    *,
     uid: int,
     source_id: int,
     batch: SheetBatch,

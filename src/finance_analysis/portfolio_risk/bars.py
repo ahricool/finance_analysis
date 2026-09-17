@@ -218,9 +218,38 @@ def dedupe_closed(bars: Iterable[NormalizedBar]) -> list[NormalizedBar]:
 
 def latest_expected_closed(market: str, now: datetime) -> datetime | None:
     local = now.astimezone(market_zone(market))
-    slots = regular_5m_slots(market, local.date())
-    closed = [end for _start, end, _session in slots if now >= end]
-    return closed[-1] if closed else None
+    cursor = local.date()
+    for _ in range(14):
+        if is_market_open(market.lower(), cursor):
+            slots = regular_5m_slots(market, cursor)
+            closed = [end for _start, end, _session in slots if now >= end]
+            if closed:
+                return closed[-1]
+        cursor = cursor - timedelta(days=1)
+    return None
+
+
+def expected_closed_ends(market: str, start: datetime, end: datetime) -> list[datetime]:
+    """Regular-session closed slot ends with start < bar_end <= end."""
+
+    zone = market_zone(market)
+    cursor = start.astimezone(zone).date()
+    last = end.astimezone(zone).date()
+    ends: list[datetime] = []
+    while cursor <= last:
+        if is_market_open(market.lower(), cursor):
+            for _start, bar_end, _session in regular_5m_slots(market, cursor):
+                if start < bar_end <= end:
+                    ends.append(bar_end)
+        cursor = cursor + timedelta(days=1)
+    return ends
+
+
+def session_prefix_ends(market: str, current_end: datetime) -> list[datetime]:
+    """Open-to-current regular slots for the trade date, including lunch-separated AM."""
+
+    local = current_end.astimezone(market_zone(market))
+    return [end for _start, end, _session in regular_5m_slots(market, local.date()) if end <= current_end]
 
 
 def in_evaluation_window(market: str, now: datetime, *, close_buffer: timedelta = timedelta(minutes=5)) -> bool:

@@ -46,13 +46,20 @@ class LegRiskState(RiskModel):
     structure_stop: Decimal | None = None
     observed_from: datetime | None = None
     coverage: str = "PARTIAL"
+    coverage_reason: str | None = None
     fixed_target: Decimal | None = None
     calibration_required: bool = False
+    stop_effective_at: datetime | None = None
+    rebase_status: str = "NONE"
 
 
 class LegsStateDocument(RiskModel):
     schema_version: str = LEGS_STATE_VERSION
     last_vwap_mode: str | None = None
+    episode_consumed: bool = False
+    needs_review: bool = False
+    five_minute_status: str | None = None
+    quote_status: str | None = None
     legs: dict[str, LegRiskState] = Field(default_factory=dict)
 
 
@@ -65,9 +72,14 @@ class ActivePlan(RiskModel):
     bound_leg_ids: list[str] = Field(default_factory=list)
     leg_targets: dict[str, str] = Field(default_factory=dict)
     position_target: str | None = None
+    current_quantity: str | None = None
+    reduce_quantity: str | None = None
     reason: str | None = None
     created_bar_end: datetime | None = None
     execution: Execution = "UNKNOWN"
+    hard_locked: bool = False
+    needs_review: bool = False
+    trigger_event: str | None = None
 
 
 def fingerprint(leg_id: str, symbol: str, role: str, entry_price: Decimal, entry_time: datetime) -> str:

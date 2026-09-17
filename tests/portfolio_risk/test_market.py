@@ -115,6 +115,46 @@ def test_quotes_do_not_require_minute_history():
     assert fake.minute_calls == []
 
 
+def test_slow_symbol_fetch_degrades_within_budget_without_thread_leak():
+    import threading
+    import time
+
+    class SlowMarket(FakeMarket):
+        def get_minute_bars(self, symbols, start, end, *, interval="5m", providers=None, period=None):
+            time.sleep(2)
+            return super().get_minute_bars(symbols, start, end, interval=interval, providers=providers, period=period)
+
+    before = {thread.name for thread in threading.enumerate()}
+    fake = SlowMarket()
+    gateway = RiskMarketGateway(
+        market_data=fake,
+        cache=MinuteBarCache(MemoryRedis()),
+        timeout_seconds=0.4,
+        max_concurrency=2,
+    )
+    now = datetime(2026, 9, 16, 9, 40, tzinfo=SH)
+    start = now - timedelta(days=5)
+    started = time.perf_counter()
+    bars = gateway.five_minute_bars(
+        ["600519.SH", "000001.SZ", "600036.SH"],
+        start=start,
+        end=now,
+        now=now,
+        refresh=True,
+        timeout_seconds=0.4,
+    )
+    elapsed = time.perf_counter() - started
+    assert elapsed < 3.5
+    assert set(bars) == {"600519.SH", "000001.SZ", "600036.SH"}
+    assert gateway.degraded_symbols
+    leftover = [
+        thread.name
+        for thread in threading.enumerate()
+        if thread.name.startswith("pr-5m") and thread.name not in before
+    ]
+    assert leftover == []
+
+
 def test_us_cold_start_uses_one_month_then_five_day_refresh():
     fake = FakeMarket()
     cache = MinuteBarCache(MemoryRedis())

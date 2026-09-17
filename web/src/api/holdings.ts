@@ -85,6 +85,12 @@ export interface RiskPositionView {
   lastQuoteAsOf: string | null;
   activePlan: Record<string, unknown> | null;
   legsState: Record<string, unknown> | null;
+  fiveMinuteStatus?: string | null;
+  quoteStatus?: string | null;
+  execution?: string | null;
+  currentQuantity?: string | null;
+  reduceQuantity?: string | null;
+  needsReview?: boolean;
 }
 
 export interface RiskEventView {

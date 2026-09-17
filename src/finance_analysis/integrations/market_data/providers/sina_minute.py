@@ -36,9 +36,16 @@ def to_sina_symbol(code: str) -> str:
 
 
 def _akshare_minute(sina_symbol: str) -> pd.DataFrame:
+    import socket
+
     import akshare as ak
 
-    frame = ak.stock_zh_a_minute(symbol=sina_symbol, period="5", adjust="")
+    previous = socket.getdefaulttimeout()
+    socket.setdefaulttimeout(8)
+    try:
+        frame = ak.stock_zh_a_minute(symbol=sina_symbol, period="5", adjust="")
+    finally:
+        socket.setdefaulttimeout(previous)
     return pd.DataFrame() if frame is None else frame
 
 

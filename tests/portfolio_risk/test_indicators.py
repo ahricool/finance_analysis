@@ -37,22 +37,25 @@ def _bar(trade_date, end, *, volume=1000, amount=None, amount_quality="missing",
 
 def test_exact_and_proxy_vwap_are_not_mixed_and_unavailable_pauses():
     day = date(2026, 9, 16)
-    slot = regular_5m_slots("CN", day)[2][1]
-    exact_bars = [
-        _bar(day, slot, volume=100, amount=Decimal("1050"), amount_quality="exact", close=Decimal("10.5")),
-    ]
-    value, mode = vwap_until(exact_bars, exact_bars[0], mode="exact_or_proxy")
+    slots = regular_5m_slots("CN", day)
+    prefix = [_bar(day, end, volume=100, amount=Decimal("1050"), amount_quality="exact", close=Decimal("10.5")) for _start, end, _session in slots[:3]]
+    value, mode = vwap_until(prefix, prefix[-1], mode="exact_or_proxy")
     assert mode == "EXACT"
     assert value == Decimal("10.5")
-    proxy_bars = [_bar(day, slot, volume=100, amount=None, close=Decimal("12"))]
-    value, mode = vwap_until(proxy_bars, proxy_bars[0], mode="exact_or_proxy")
+    proxy_prefix = [_bar(day, end, volume=100, amount=None, close=Decimal("12")) for _start, end, _session in slots[:3]]
+    value, mode = vwap_until(proxy_prefix, proxy_prefix[-1], mode="exact_or_proxy")
     assert mode == "PROXY"
-    missing, mode = vwap_until(proxy_bars, proxy_bars[0], mode="exact_only")
+    missing, mode = vwap_until(proxy_prefix, proxy_prefix[-1], mode="exact_only")
     assert mode == "UNAVAILABLE"
     assert missing is None
-    zero, mode = vwap_until([_bar(day, slot, volume=0, amount=None)], _bar(day, slot, volume=0), mode="exact_or_proxy")
+    zero_prefix = [_bar(day, end, volume=0, amount=None) for _start, end, _session in slots[:1]]
+    zero, mode = vwap_until(zero_prefix, zero_prefix[0], mode="exact_or_proxy")
     assert mode == "UNAVAILABLE"
     assert zero is None
+    incomplete = [_bar(day, slots[2][1], volume=100, amount=Decimal("1050"), amount_quality="exact", close=Decimal("10.5"))]
+    missing_prefix, mode = vwap_until(incomplete, incomplete[0], mode="exact_or_proxy")
+    assert mode == "UNAVAILABLE"
+    assert missing_prefix is None
 
 
 def test_rvol_unknown_without_ten_complete_days_and_ignores_partial_first_day():

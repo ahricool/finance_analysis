@@ -112,10 +112,15 @@ describe('holdings page', () => {
           planAction: 'REDUCE',
           planRevision: 1,
           rowVersion: 3,
-          lastBarEnd: null,
-          lastQuoteAsOf: null,
-          activePlan: {},
-          legsState: {},
+          lastBarEnd: '2026-09-16T06:00:00+00:00',
+          lastQuoteAsOf: '2026-09-16T06:00:01+00:00',
+          fiveMinuteStatus: 'OK',
+          quoteStatus: 'OK',
+          execution: 'UNKNOWN',
+          currentQuantity: '1000',
+          reduceQuantity: '500',
+          activePlan: { position_target: '500', reduce_quantity: '500', current_quantity: '1000', execution: 'UNKNOWN' },
+          legsState: { five_minute_status: 'OK', quote_status: 'OK', legs: { core: { active_stop: '96', profit_stage: 'B' } } },
         },
       ],
       events: [
@@ -152,6 +157,10 @@ describe('holdings page', () => {
     expect(wrapper!.text()).toContain('600519.SH');
     expect(wrapper!.text()).toContain('CORE');
     expect(wrapper!.text()).toContain('PROXY');
+    expect(wrapper!.text()).toContain('1000');
+    expect(wrapper!.text()).toContain('500');
+    expect(wrapper!.text()).toContain('96');
+    expect(wrapper!.text()).toContain('OK / OK');
     expect(wrapper!.find('[data-testid="portfolio-page"]').exists()).toBe(false);
     expect(wrapper!.find('[data-testid="holdings-page"]').exists()).toBe(true);
   });
@@ -166,6 +175,25 @@ describe('holdings page', () => {
     expect(mocks.connect).toHaveBeenCalledWith('1abcSpreadsheetIdValueXX');
     expect(assign).toHaveBeenCalledWith('https://accounts.google.com/o');
     vi.unstubAllGlobals();
+  });
+
+  it('saves VWAP without dropping other policy fields and waits after queued sync', async () => {
+    mocks.policy.mockResolvedValue({
+      policy: { vwapMode: 'exact_or_proxy', maxSymbolWeight: 0.1, riskPerSymbol: 0.005 },
+      policyVersion: 1,
+    });
+    mocks.sync.mockResolvedValue({ task_id: 't1', status: 'queued' });
+    await mountPage();
+    await wrapper!.get('[data-testid="vwap-mode"]').setValue('exact_only');
+    await wrapper!.get('[data-testid="save-policy"]').trigger('click');
+    await flushPromises();
+    expect(mocks.updatePolicy).toHaveBeenCalled();
+    const payload = mocks.updatePolicy.mock.calls[0][0] as Record<string, unknown>;
+    expect(payload.vwap_mode || payload.vwapMode).toBe('exact_only');
+    expect(payload.maxSymbolWeight ?? payload.max_symbol_weight).toBe(0.1);
+    await wrapper!.get('[data-testid="sync-button"]').trigger('click');
+    await flushPromises();
+    expect(mocks.sync).toHaveBeenCalled();
   });
 
   it('cancels a pending plan', async () => {

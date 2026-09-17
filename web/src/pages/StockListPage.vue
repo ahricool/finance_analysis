@@ -15,7 +15,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
 import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { useRoute } from 'vue-router';
 
 const route = useRoute();
@@ -30,6 +30,9 @@ const positions = ref<HoldingsPosition[]>([]);
 const riskPositions = ref<RiskPositionView[]>([]);
 const events = ref<RiskEventView[]>([]);
 const vwapMode = ref('exact_or_proxy');
+const loadGeneration = ref(0);
+const policySnapshot = ref<Record<string, unknown>>({});
+let pollTimer: number | null = null;
 const googleStatus = computed(() => String(route.query.google || ''));
 
 const sourceLabel = computed(() => {
@@ -38,6 +41,7 @@ const sourceLabel = computed(() => {
 });
 
 async function load() {
+  const generation = ++loadGeneration.value;
   loading.value = true;
   error.value = null;
   try {
@@ -47,15 +51,43 @@ async function load() {
       holdingsApi.risk(),
       holdingsApi.policy(),
     ]);
+    if (generation !== loadGeneration.value) return;
     accounts.value = snap.snapshot?.accounts || [];
     positions.value = snap.snapshot?.positions || [];
     riskPositions.value = risk.positions;
     events.value = risk.events;
+    policySnapshot.value = { ...(policy.policy || {}) };
     vwapMode.value = policy.policy.vwapMode || 'exact_or_proxy';
   } catch (err) {
+    if (generation !== loadGeneration.value) return;
     error.value = getParsedApiError(err);
   } finally {
-    loading.value = false;
+    if (generation === loadGeneration.value) loading.value = false;
+  }
+}
+
+function stopPoll() {
+  if (pollTimer != null) {
+    window.clearInterval(pollTimer);
+    pollTimer = null;
+  }
+}
+
+function startPoll() {
+  stopPoll();
+  pollTimer = window.setInterval(() => {
+    if (document.visibilityState === 'visible') {
+      void load();
+    }
+  }, 15000);
+}
+
+function onVisibility() {
+  if (document.visibilityState === 'visible') {
+    void load();
+    startPoll();
+  } else {
+    stopPoll();
   }
 }
 
@@ -81,8 +113,21 @@ async function sync() {
   syncing.value = true;
   error.value = null;
   try {
-    await holdingsApi.sync();
-    await load();
+    const started = source.value?.publishedGeneration ?? 0;
+    const result = await holdingsApi.sync();
+    if (result.status === 'queued') {
+      for (let attempt = 0; attempt < 20; attempt += 1) {
+        await load();
+        const generation = source.value?.publishedGeneration ?? 0;
+        const status = source.value?.syncStatus;
+        if (generation > started || status === 'OK' || status === 'REJECTED' || status === 'UNAVAILABLE') {
+          break;
+        }
+        await new Promise((resolve) => window.setTimeout(resolve, 1000));
+      }
+    } else {
+      await load();
+    }
   } catch (err) {
     error.value = getParsedApiError(err);
   } finally {
@@ -92,7 +137,7 @@ async function sync() {
 
 async function savePolicy() {
   error.value = null;
-  await holdingsApi.updatePolicy({ vwap_mode: vwapMode.value });
+  await holdingsApi.updatePolicy({ ...policySnapshot.value, vwap_mode: vwapMode.value });
   await load();
 }
 
@@ -112,7 +157,46 @@ function vwapLabel(evidence: Record<string, unknown> | undefined) {
   return mode;
 }
 
-onMounted(load);
+function planTarget(row: RiskPositionView) {
+  const plan = row.activePlan || {};
+  return String(plan.position_target || plan.positionTarget || '');
+}
+
+function currentQuantity(row: RiskPositionView) {
+  const plan = row.activePlan || {};
+  return String(row.currentQuantity || plan.current_quantity || plan.currentQuantity || '');
+}
+
+function reduceQuantity(row: RiskPositionView) {
+  const plan = row.activePlan || {};
+  return String(row.reduceQuantity || plan.reduce_quantity || plan.reduceQuantity || '');
+}
+
+function protectionPrices(row: RiskPositionView) {
+  const legs = (row.legsState as { legs?: Record<string, { active_stop?: string; activeStop?: string }> } | null)?.legs || {};
+  return Object.values(legs)
+    .map((leg) => String(leg.active_stop || leg.activeStop || ''))
+    .filter(Boolean)
+    .join(' / ');
+}
+
+function legStage(positionId: string, legId: string) {
+  const state = riskPositions.value.find((row) => row.positionId === positionId)?.legsState as
+    | { legs?: Record<string, { profit_stage?: string; profitStage?: string }> }
+    | null
+    | undefined;
+  return state?.legs?.[legId]?.profit_stage || state?.legs?.[legId]?.profitStage || '-';
+}
+
+onMounted(() => {
+  void load();
+  startPoll();
+  document.addEventListener('visibilitychange', onVisibility);
+});
+onUnmounted(() => {
+  stopPoll();
+  document.removeEventListener('visibilitychange', onVisibility);
+});
 </script>
 
 <template>
@@ -184,6 +268,7 @@ onMounted(load);
                 <TableHead>数量</TableHead>
                 <TableHead>成本</TableHead>
                 <TableHead>覆盖</TableHead>
+                <TableHead>阶段</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -195,6 +280,7 @@ onMounted(load);
                 <TableCell>{{ leg.quantity }}</TableCell>
                 <TableCell>{{ leg.entryPrice }}</TableCell>
                 <TableCell>{{ leg.coverage }}</TableCell>
+                <TableCell>{{ legStage(leg.positionId, leg.legId) }}</TableCell>
               </TableRow>
             </TableBody>
           </Table>
@@ -218,26 +304,36 @@ onMounted(load);
               <option value="exact_only">exact_only</option>
             </select>
           </label>
-          <Button variant="secondary" size="sm" @click="savePolicy">保存口径</Button>
+          <Button variant="secondary" size="sm" data-testid="save-policy" @click="savePolicy">保存口径</Button>
         </div>
         <Table data-testid="risk-table">
           <TableHeader>
-            <TableRow>
-              <TableHead>仓位</TableHead>
-              <TableHead>证券</TableHead>
-              <TableHead>计划</TableHead>
-              <TableHead>动作</TableHead>
-              <TableHead>版本</TableHead>
-              <TableHead></TableHead>
-            </TableRow>
+              <TableRow>
+                <TableHead>仓位</TableHead>
+                <TableHead>证券</TableHead>
+                <TableHead>当前</TableHead>
+                <TableHead>目标</TableHead>
+                <TableHead>减少</TableHead>
+                <TableHead>保护价</TableHead>
+                <TableHead>计划</TableHead>
+                <TableHead>5m / 报价</TableHead>
+                <TableHead>执行</TableHead>
+                <TableHead>数据时间</TableHead>
+                <TableHead></TableHead>
+              </TableRow>
           </TableHeader>
           <TableBody>
             <TableRow v-for="row in riskPositions" :key="`${row.accountId}-${row.positionId}`">
               <TableCell>{{ row.positionId }}</TableCell>
               <TableCell>{{ row.symbol }}</TableCell>
-              <TableCell>{{ row.planStatus }}</TableCell>
-              <TableCell>{{ row.planAction }}</TableCell>
-              <TableCell>{{ row.rowVersion }}</TableCell>
+              <TableCell>{{ currentQuantity(row) }}</TableCell>
+              <TableCell>{{ planTarget(row) }}</TableCell>
+              <TableCell>{{ reduceQuantity(row) }}</TableCell>
+              <TableCell>{{ protectionPrices(row) || '-' }}</TableCell>
+              <TableCell>{{ row.planStatus }} / {{ row.planAction }}</TableCell>
+              <TableCell>{{ row.fiveMinuteStatus || '-' }} / {{ row.quoteStatus || '-' }}</TableCell>
+              <TableCell>{{ row.execution || (row.activePlan || {}).execution || '-' }}</TableCell>
+              <TableCell>{{ row.lastBarEnd || row.lastQuoteAsOf || '未知' }}</TableCell>
               <TableCell>
                 <Button
                   v-if="row.planStatus === 'PENDING'"

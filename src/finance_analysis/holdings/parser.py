@@ -217,6 +217,13 @@ def parse_legs(rows: list[list[Any]], *, tz: ZoneInfo) -> list[ParsedLeg]:
             raise SheetParseError("invalid_leg_role", f"非法 leg_role {role}")
         if status not in {"OPEN", "CLOSED"}:
             raise SheetParseError("invalid_status", f"非法 status {status}")
+        if status == "CLOSED" and quantity != 0:
+            raise SheetParseError("closed_quantity", "CLOSED 腿数量必须为 0")
+        if status == "OPEN":
+            if quantity <= 0:
+                raise SheetParseError("open_quantity", "OPEN 腿数量必须为正")
+            if entry_price <= 0:
+                raise SheetParseError("open_entry_price", "OPEN 支持资产需要有限正入场价")
         symbol = _text(_cell(row, headers, "symbol")) or ""
         asset_type = (_text(_cell(row, headers, "asset_type")) or "").upper()
         coverage, canonical, reason = _coverage(symbol, asset_type, quantity)

@@ -48,6 +48,7 @@ class OAuthState:
     config_version: int
     return_path: str
     code_verifier: str
+    spreadsheet_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -130,6 +131,7 @@ class GoogleOAuthService:
             "config_version": payload.config_version,
             "return_path": payload.return_path,
             "code_verifier": payload.code_verifier,
+            "spreadsheet_id": payload.spreadsheet_id,
         }
         stored = self.redis.set(key, json.dumps(body), nx=True, ex=int(OAUTH_STATE_TTL.total_seconds()))
         if not stored:
@@ -163,6 +165,7 @@ class GoogleOAuthService:
             config_version=int(data["config_version"]),
             return_path=str(data["return_path"]),
             code_verifier=str(data["code_verifier"]),
+            spreadsheet_id=data.get("spreadsheet_id"),
         )
 
     def authorization_url(self, *, state: str, code_verifier: str) -> str:
