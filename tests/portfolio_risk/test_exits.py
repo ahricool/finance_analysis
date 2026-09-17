@@ -112,8 +112,15 @@ def test_same_bar_end_does_not_double_count_and_pending_plan_keeps_fixed_target(
     assert second.state.last_bar_end == first.state.last_bar_end
     pending = first.state
     if first.plan.status != "PENDING":
-        pending = pending.__class__(
-            **{**pending.__dict__, "plan": ActivePlan(revision=1, status="PENDING", action="REDUCE", position_target="800", leg_targets={"core": "800"})}
+        pending = replace(
+            pending,
+            plan=ActivePlan(
+                revision=1,
+                status="PENDING",
+                action="REDUCE",
+                position_target="800",
+                leg_targets={"core": "800"},
+            ),
         )
     third = evaluate_position_exit(_position(addon_qty=None), quote=quote, bars=bars, state=pending, policy=POLICY, now=now, market="CN")
     if third.plan.status == "PENDING":

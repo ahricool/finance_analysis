@@ -21,7 +21,6 @@ from finance_analysis.integrations.google_sheets.credentials import decrypt_cred
 from finance_analysis.integrations.google_sheets.oauth import (  # pragma: allowlist secret
     GoogleOAuthError,
     GoogleOAuthService,
-    GoogleTokens,
     OAuthState,
     new_code_verifier,
     validate_return_path,

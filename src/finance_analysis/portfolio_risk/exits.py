@@ -6,13 +6,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 from datetime import datetime
 from decimal import Decimal
-from typing import Mapping, Sequence
+from typing import Sequence
 from uuid import uuid4
 
 from finance_analysis.portfolio_risk.bars import NormalizedBar  # pragma: allowlist secret
 from finance_analysis.portfolio_risk.config import RiskPolicy  # pragma: allowlist secret
 from finance_analysis.portfolio_risk.indicators import (  # pragma: allowlist secret
-    BarIndicators,
     annotate,
     ordinary_weak,
     recovered,
@@ -219,12 +218,14 @@ def evaluate_position_exit(
     events: list[dict] = []
     reasons: list[str] = []
     quote_status = "UNAVAILABLE"
-    if quote is None or not quote.valid:
+    if quote is None:
         quote_status = "UNAVAILABLE"
-    elif quote.stale:
-        quote_status = "STALE"
     elif quote.quote_as_of is None:
         quote_status = "UNKNOWN_TIME"
+    elif quote.stale:
+        quote_status = "STALE"
+    elif not quote.valid:
+        quote_status = "UNAVAILABLE"
     else:
         quote_status = "OK"
 

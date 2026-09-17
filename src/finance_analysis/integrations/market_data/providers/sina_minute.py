@@ -69,7 +69,7 @@ class SinaMinuteProvider:
             except Exception as exc:
                 result.failed_symbols[symbol] = str(exc)
                 result.request_errors[symbol] = str(exc)
-        result.fetched_at = fetched_at  # type: ignore[attr-defined]
+        result.fetched_at = fetched_at
         return result
 
     def _bars_from_frame(

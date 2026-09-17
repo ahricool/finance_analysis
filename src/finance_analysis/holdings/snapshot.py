@@ -48,6 +48,7 @@ def content_payload(snapshot: HoldingsSnapshot) -> dict[str, Any]:
     body = snapshot.model_dump(mode="python")
     body.pop("fetched_at", None)
     body.pop("generation", None)
+    body.pop("content_hash", None)
     return _dump(body)
 
 
@@ -88,6 +89,8 @@ def validate_transition(
     }
     missing = sorted(previous_open - current_keys)
     if missing:
+        if not current_keys:
+            raise SnapshotRejected("unexpected_empty", "已有持仓突然空表，不视为清仓")
         raise SnapshotRejected("unexpected_disappearance", "活跃腿意外消失，需显式核对后再同步")
 
     previous_legs = {}

@@ -1,6 +1,6 @@
 """Synthetic indicator tests. History days are constructed, not recorded live OHLCV."""
 
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 

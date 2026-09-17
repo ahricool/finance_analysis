@@ -254,8 +254,6 @@ def test_default_registry_excludes_unsupported_fuyao_minute():
     assert registry.capabilities("sina_minute") == {MINUTE_BARS}
 
 
-
-
 def test_tickflow_free_uses_maximum_history_count_native_batch_forward_and_cn_lots_become_shares():
     calls = []
 

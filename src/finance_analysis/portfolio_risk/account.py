@@ -8,7 +8,7 @@ from decimal import Decimal
 from typing import Mapping, Sequence
 
 from finance_analysis.portfolio_risk.config import RiskPolicy  # pragma: allowlist secret
-from finance_analysis.portfolio_risk.exits import LegInput, PositionExitResult, PositionInput, QuoteView  # pragma: allowlist secret
+from finance_analysis.portfolio_risk.exits import PositionExitResult, PositionInput, QuoteView  # pragma: allowlist secret
 
 
 @dataclass(frozen=True, slots=True)

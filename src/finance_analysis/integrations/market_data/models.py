@@ -130,6 +130,7 @@ class BatchBarResult:
     # Sticky request failures survive retries/fallbacks. Full-history writers
     # must reject these symbols, even when some bars were recovered later.
     request_errors: dict[str, str] = field(default_factory=dict)
+    fetched_at: datetime | None = None
 
 
 @dataclass(frozen=True, slots=True)

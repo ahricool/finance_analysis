@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import json
 import secrets
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import timedelta
 from typing import Any, Mapping
 from urllib.parse import urlparse
@@ -63,6 +63,14 @@ class GoogleTokens:
     @property
     def has_offline_access(self) -> bool:
         return bool(self.refresh_token)
+
+
+def _token_payload(tokens: GoogleTokens) -> dict[str, Any]:
+    payload = asdict(tokens)
+    scopes = payload.get("scopes")
+    if isinstance(scopes, tuple):
+        payload["scopes"] = list(scopes)
+    return payload
 
 
 def _client_config(config: GoogleSheetsConfig) -> dict[str, Any]:
@@ -234,10 +242,10 @@ class GoogleOAuthService:
             scopes=tuple(credentials.scopes or existing.get("scopes") or (SPREADSHEETS_READONLY_SCOPE,)),
             google_account_hint=existing.get("google_account_hint"),
         )
-        return tokens, encrypt_credentials(tokens.__dict__, config=config).decode("utf-8")
+        return tokens, encrypt_credentials(_token_payload(tokens), config=config).decode("utf-8")
 
     def encrypt_tokens(self, tokens: GoogleTokens, *, previous: Mapping[str, Any] | None = None) -> bytes:
-        payload = dict(tokens.__dict__)
+        payload = _token_payload(tokens)
         if previous:
             if not payload.get("refresh_token"):
                 payload["refresh_token"] = previous.get("refresh_token")

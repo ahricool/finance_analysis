@@ -147,7 +147,7 @@ def put_policy(
 
 
 def _risk():
-    from [REDACTED].portfolio_risk.service import PortfolioRiskService  # pragma: allowlist secret
+    from finance_analysis.portfolio_risk.service import PortfolioRiskService  # pragma: allowlist secret
 
     return PortfolioRiskService()
 

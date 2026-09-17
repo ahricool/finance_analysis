@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from decimal import Decimal
 from functools import lru_cache
 from typing import Literal
@@ -52,7 +52,7 @@ class RiskPolicy:
         ):
             if key in payload and payload[key] is not None:
                 data[key] = Decimal(str(payload[key])) if key != "vwap_mode" else str(payload[key])
-        return RiskPolicy(**{**self.__dict__, **data})
+        return replace(self, **data)
 
 
 @lru_cache(maxsize=1)

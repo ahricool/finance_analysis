@@ -4,12 +4,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Iterable, Literal
 from zoneinfo import ZoneInfo
 
-from finance_analysis.integrations.market_data.models import Market, MarketBar  # pragma: allowlist secret
+from finance_analysis.integrations.market_data.models import MarketBar  # pragma: allowlist secret
 from finance_analysis.market_review.trading_calendar import MARKET_EXCHANGE, MARKET_TIMEZONE, is_market_open  # pragma: allowlist secret
 from finance_analysis.market_stream.config import MARKET_SPECS  # pragma: allowlist secret
 
@@ -19,6 +19,14 @@ PROVIDER_TIMESTAMP_KIND: dict[str, TimestampKind] = {
     "yfinance": "start",
 }
 INTERVAL = timedelta(minutes=5)
+
+
+def adjacent(left: NormalizedBar, right: NormalizedBar) -> bool:
+    """True when `right` is the next regular-session 5m slot after `left`."""
+
+    if left.symbol != right.symbol or left.session_id != right.session_id:
+        return False
+    return abs((right.bar_start - left.bar_end).total_seconds()) < 1
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,6 +113,8 @@ def opening_observation_ends(market: str, trade_date: date) -> set[datetime]:
 
 
 def is_complete_session_day(market: str, trade_date: date, bars: Iterable[NormalizedBar]) -> bool:
+    if not is_market_open(market.lower(), trade_date):
+        return False
     expected = {slot[1] for slot in regular_5m_slots(market, trade_date)}
     if not expected:
         return False

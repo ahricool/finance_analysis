@@ -1,6 +1,5 @@
 """Offline parser tests for Google Sheet holdings. Synthetic rows only."""
 
-from datetime import datetime
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
@@ -66,4 +65,5 @@ def test_uncovered_hk_is_kept_and_float_money_uses_decimal_string():
         tz=SH,
     )
     assert legs[0].coverage == "UNCOVERED_MARKET"
-    assert legs[0].canonical_symbol == "0700.HK"
+    assert legs[0].canonical_symbol == "700.HK"
+    assert legs[0].symbol == "0700.HK"
