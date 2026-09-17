@@ -7,8 +7,8 @@
 - 隔离 Qlib Worker：`qlib_worker/AGENTS.md`
 
 现有 `README.md` 主要是 reference data / daily sync 升级运维备忘，不是完整快速开始。
-专题细节见 `docs/market-streamer.md`、`docs/quant-research.md` 和
-`docs/etf-rotation.md`；其中时间表和迁移步骤可能落后，易变事实仍以代码为准。
+专题细节见 `docs/market-streamer.md`、`docs/quant-research.md`、
+`docs/etf-rotation.md` 和 `docs/holdings-portfolio-risk.md`；其中时间表和迁移步骤可能落后，易变事实仍以代码为准。
 
 ## 系统概览
 
@@ -137,6 +137,7 @@ static/                    Web 构建产物，由 `web/vite.config.ts` 生成
 - `/calendar`：日历记录和财经事件。
 - `/tasks`：周期定义、手动触发及任务运行记录。
 - `/quant`、`/etf-rotation`、`/trend-following`：研究结果与运行入口；趋势预演为 `GET /trend-following/preview`。
+- `/holdings`：Google Sheet 只读持仓、OAuth 回调、风控状态/事件；页面 `/market/holdings`。
 - `/market-data/ws`：基于 Cookie 的用户自选股实时 WebSocket。
 - `/usage`：LLM 使用统计；`/celery` 是演示/诊断端点。
 
@@ -282,6 +283,7 @@ pnpm run test:smoke
 | 新通知渠道 | `notification/senders/` + config/routing/diagnostics |
 | 新前端功能 | 见 `web/AGENTS.md` |
 | 新 Qlib 模型/协议 | 见 `qlib_worker/AGENTS.md`，同时核对主应用 quant 边界 |
+| Google Sheet 持仓 / 分钟风控 | `holdings/`、`portfolio_risk/`、`integrations/google_sheets/`、`integrations/market_data/providers/sina_minute.py` |
 
 ## 提交前检查
 
@@ -321,3 +323,13 @@ API `/api/v1/crypto` 与页面 `/research/crypto/btc` 统一走 `CryptoService`�
 复用行业目录、指数历史、当前成分三个 CN capability；`FUYAO_API_KEY` 仅后端读取。
 `industry_strength_cn` 在上海19:10检查收盘、行业/成分覆盖率后保存独立快照；禁止用当前成分回填历史 Breadth。
 页面 `/research/industry-strength`，指标和口径见 `docs/industry-strength.md`。
+
+## Holdings / Portfolio Risk
+
+`holdings/` 只从 Google Sheet 读取 Accounts/Positions；系统不写回成交、不恢复旧 Portfolio CRUD。
+`portfolio_risk/` 是建议型分层风控：硬保护用现有实时报价，5m 软规则仅用于本模块。
+CN 5m 只走窄范围 `SinaMinuteProvider`（`ak.stock_zh_a_minute` period=5）；US 5m 只走现有 yfinance。
+不要把新浪数据伪装成扶摇，不要把长桥/东财设为本模块隐式分钟 fallback，不要恢复全功能 AkShareProvider。
+任务复用 `ingestion`（`holdings_sync` 每 5 分钟）和 `alerts`（`portfolio_risk_cn/us` 每分钟），不新增 risk-worker。
+通知复用现有全局 Telegram/ntfy：先与 `risk_event` 同事务写入站内消息，再 `push_existing`；外推失败不回滚、不重复创建站内消息。
+Google token、OAuth code/state 和完整表格不得进入日志、API 或通知。详见 `docs/holdings-portfolio-risk.md`。

@@ -1,961 +1,280 @@
 <script setup lang="ts">
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import {
-  portfolioApi,
-  type PortfolioAccount,
-  type PortfolioAssetType,
-  type PortfolioMarket,
-  type PortfolioPosition,
-  type PositionStatus,
-} from '@/api/portfolio';
+  holdingsApi,
+  type HoldingsAccount,
+  type HoldingsPosition,
+  type HoldingsSource,
+  type RiskEventView,
+  type RiskPositionView,
+} from '@/api/holdings';
 import ApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
-import { Button } from '@/components/ui/button';
 import LoadingButton from '@/components/app/LoadingButton.vue';
-import ConfirmDialog from '@/components/app/AppConfirmDialog.vue';
-import FieldInput from '@/components/forms/FieldInput.vue';
-import AppDatePicker from '@/components/app/AppDatePicker.vue';
-import AppDateTimePicker from '@/components/app/AppDateTimePicker.vue';
-import FieldSelect from '@/components/forms/FieldSelect.vue';
-import StockAutocomplete from '@/components/StockAutocomplete/StockAutocomplete.vue';
-import { Textarea } from '@/components/ui/textarea';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
-import { Skeleton } from '@/components/ui/skeleton';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Input } from '@/components/ui/input';
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { useRealtimeQuotes } from '@/composables/useRealtimeQuotes';
-import type { AssetType, Market } from '@/types/stockIndex';
-import { formatDecimalText, formatMarketCurrencyAmount } from '@/utils/marketCurrency';
-import { formatSecurityLabel } from '@/utils/security';
-import { Pencil, Plus, Trash2 } from 'lucide-vue-next';
-import { computed, onMounted, ref, watch } from 'vue';
-import { useRoute, useRouter } from 'vue-router';
-
-type AssetFilter = PortfolioAssetType | 'ALL';
-type CreateAssetType = 'STOCK' | 'ETF' | 'OPTION';
-type EquityAssetType = Exclude<CreateAssetType, 'OPTION'>;
-type DialogMode = 'create' | 'edit' | null;
-type PositionDirection = 'LONG' | 'SHORT';
-
-interface SelectedSecurity {
-  canonicalCode: string;
-  displayCode: string;
-  name: string;
-  market: PortfolioMarket;
-}
-
-const ACCOUNT_ORDER: PortfolioMarket[] = ['CN', 'HK', 'US'];
-const DECIMAL_PATTERN = /^\d+(?:\.\d+)?$/;
-const POSITIVE_INTEGER_PATTERN = /^[1-9]\d*$/;
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { computed, onMounted, ref } from 'vue';
+import { useRoute } from 'vue-router';
 
 const route = useRoute();
-const router = useRouter();
-const { getQuote } = useRealtimeQuotes();
-const accounts = ref<PortfolioAccount[]>([]);
-const positions = ref<PortfolioPosition[]>([]);
 const loading = ref(false);
+const connecting = ref(false);
+const syncing = ref(false);
 const error = ref<ParsedApiError | null>(null);
-const selectedAccountCode = ref<PortfolioMarket>('CN');
-const assetFilter = ref<AssetFilter>('ALL');
-const statusFilter = ref<PositionStatus | 'ALL'>('OPEN');
-const dialogMode = ref<DialogMode>(null);
-const editingPosition = ref<PortfolioPosition | null>(null);
-const deletingPosition = ref<PortfolioPosition | null>(null);
-const saving = ref(false);
-const formError = ref<string | null>(null);
+const spreadsheetId = ref('');
+const source = ref<HoldingsSource | null>(null);
+const accounts = ref<HoldingsAccount[]>([]);
+const positions = ref<HoldingsPosition[]>([]);
+const riskPositions = ref<RiskPositionView[]>([]);
+const events = ref<RiskEventView[]>([]);
+const vwapMode = ref('exact_or_proxy');
+const googleStatus = computed(() => String(route.query.google || ''));
 
-const stockQuery = ref('');
-const selectedSecurity = ref<SelectedSecurity | null>(null);
-const createAssetType = ref<CreateAssetType>('STOCK');
-const optionUnderlyingType = ref<EquityAssetType>('STOCK');
-const quantity = ref('');
-const avgCost = ref('');
-const openedAt = ref('');
-const notes = ref('');
-const editStatus = ref<PositionStatus>('OPEN');
-const optionType = ref<'CALL' | 'PUT'>('CALL');
-const expirationDate = ref('');
-const strikePrice = ref('');
-const optionContracts = ref('');
-const optionDirection = ref<PositionDirection>('LONG');
-const cashInput = ref('');
-const cashSaving = ref(false);
-
-const selectedAccount = computed(
-  () => accounts.value.find((item) => item.account_code === selectedAccountCode.value) ?? null,
-);
-const filteredPositions = computed(() =>
-  positions.value.filter(
-    (item) =>
-      (assetFilter.value === 'ALL' || item.asset_type === assetFilter.value) &&
-      (statusFilter.value === 'ALL' || item.status === statusFilter.value),
-  ),
-);
-const equityPositions = computed(() =>
-  filteredPositions.value.filter(
-    (item) => item.asset_type === 'STOCK' || item.asset_type === 'ETF',
-  ),
-);
-const optionPositions = computed(() =>
-  filteredPositions.value.filter((item) => item.asset_type === 'OPTION'),
-);
-const openEquities = computed(() =>
-  positions.value.filter(
-    (item) => item.status === 'OPEN' && (item.asset_type === 'STOCK' || item.asset_type === 'ETF'),
-  ),
-);
-const openOptions = computed(() =>
-  positions.value.filter((item) => item.status === 'OPEN' && item.asset_type === 'OPTION'),
-);
-const equityCost = computed(() => sumNumbers(openEquities.value.map((item) => item.cost_amount)));
-const optionCost = computed(() => sumNumbers(openOptions.value.map((item) => item.cost_amount)));
-const pricedEquityValues = computed(() =>
-  openEquities.value.map((item) => {
-    const price = getQuote(item.display_symbol, item.market)?.last_price;
-    return price === null || price === undefined ? null : Number(item.quantity) * price;
-  }),
-);
-const hasUnpricedEquity = computed(() => pricedEquityValues.value.some((value) => value === null));
-const equityMarketValue = computed(() =>
-  hasUnpricedEquity.value ? null : sumNumbers(pricedEquityValues.value as number[]),
-);
-const unrealizedPnl = computed(() =>
-  equityMarketValue.value === null ? null : equityMarketValue.value - equityCost.value,
-);
-const pricedAssets = computed(() => {
-  if (equityMarketValue.value === null || !selectedAccount.value) return null;
-  return Number(selectedAccount.value.cash_balance) + equityMarketValue.value;
+const sourceLabel = computed(() => {
+  if (!source.value) return '未连接';
+  return `${source.value.authStatus} / ${source.value.syncStatus || 'IDLE'}`;
 });
-const availableAssetFilters = computed<{ value: AssetFilter; label: string }[]>(() => [
-  { value: 'ALL', label: '全部' },
-  { value: 'STOCK', label: '股票' },
-  { value: 'ETF', label: 'ETF' },
-  ...(selectedAccountCode.value === 'US' ? [{ value: 'OPTION' as const, label: '期权' }] : []),
-]);
-const availableCreateAssetTypes = computed<{ value: CreateAssetType; label: string }[]>(() => [
-  { value: 'STOCK', label: '股票' },
-  { value: 'ETF', label: 'ETF' },
-  ...(selectedAccountCode.value === 'US' ? [{ value: 'OPTION' as const, label: '期权' }] : []),
-]);
 
-function sumNumbers(values: Array<string | number>): number {
-  return values.reduce<number>((sum, value) => sum + Number(value), 0);
-}
-
-function amount(value: string | number | null): string {
-  return formatMarketCurrencyAmount(value, selectedAccount.value?.market);
-}
-
-function toDatetimeLocal(value: string | null): string {
-  if (!value) return '';
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return '';
-  return new Date(parsed.getTime() - parsed.getTimezoneOffset() * 60_000)
-    .toISOString()
-    .slice(0, 16);
-}
-
-function toIso(value: string): string | null {
-  if (!value.trim()) return null;
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
-}
-
-function quotePrice(position: PortfolioPosition): number | null {
-  return getQuote(position.display_symbol, position.market)?.last_price ?? null;
-}
-
-function positionMarketValue(position: PortfolioPosition): number | null {
-  const price = quotePrice(position);
-  return price === null ? null : Number(position.quantity) * price;
-}
-
-function positionPnl(position: PortfolioPosition): number | null {
-  const marketValue = positionMarketValue(position);
-  return marketValue === null ? null : marketValue - Number(position.cost_amount);
-}
-
-function resetForm(): void {
-  stockQuery.value = '';
-  selectedSecurity.value = null;
-  createAssetType.value = 'STOCK';
-  optionUnderlyingType.value = 'STOCK';
-  quantity.value = '';
-  avgCost.value = '';
-  openedAt.value = '';
-  notes.value = '';
-  editStatus.value = 'OPEN';
-  optionType.value = 'CALL';
-  expirationDate.value = '';
-  strikePrice.value = '';
-  optionContracts.value = '';
-  optionDirection.value = 'LONG';
-  formError.value = null;
-}
-
-function openCreatePosition(): void {
-  resetForm();
-  dialogMode.value = 'create';
-}
-
-function changeCreateAssetType(assetType: CreateAssetType): void {
-  if (assetType === 'OPTION' && selectedAccountCode.value !== 'US') return;
-  resetForm();
-  createAssetType.value = assetType;
-  dialogMode.value = 'create';
-}
-
-function openEdit(position: PortfolioPosition): void {
-  resetForm();
-  editingPosition.value = position;
-  quantity.value = position.quantity.replace(/^-/, '');
-  optionContracts.value = quantity.value;
-  optionDirection.value = position.position_side;
-  avgCost.value = position.avg_cost;
-  openedAt.value = toDatetimeLocal(position.opened_at);
-  notes.value = position.notes ?? '';
-  editStatus.value = position.status;
-  dialogMode.value = 'edit';
-}
-
-function closeDialog(): void {
-  dialogMode.value = null;
-  editingPosition.value = null;
-}
-
-function handleAutocompleteInput(value: string): void {
-  stockQuery.value = value;
-  selectedSecurity.value = null;
-  formError.value = null;
-}
-
-function handleAutocomplete(
-  canonicalCode: string,
-  name?: string,
-  source?: 'manual' | 'autocomplete',
-  market?: Market,
-  assetType?: AssetType,
-): void {
-  selectedSecurity.value = null;
-  if (source !== 'autocomplete' || !selectedAccount.value) {
-    formError.value = '请从搜索结果中选择标的';
-    return;
-  }
-  const normalizedMarket: PortfolioMarket | null =
-    market === 'BSE' ? 'CN' : market === 'CN' || market === 'HK' || market === 'US' ? market : null;
-  if (normalizedMarket !== selectedAccount.value.market) {
-    formError.value = `只能选择${selectedAccount.value.name}对应市场的标的`;
-    return;
-  }
-  if (assetType === 'index') {
-    formError.value = '仅支持股票和 ETF';
-    return;
-  }
-  const displayCode = canonicalCode.split('.')[0] ?? canonicalCode;
-  selectedSecurity.value = {
-    canonicalCode,
-    displayCode,
-    name: name ?? '',
-    market: normalizedMarket,
-  };
-  stockQuery.value = name ? `${name}（${displayCode}）` : displayCode;
-  formError.value = null;
-}
-
-function validNonNegativeDecimal(value: string): boolean {
-  return DECIMAL_PATTERN.test(value.trim());
-}
-
-function validateCommon(): string | null {
-  if (!selectedSecurity.value) return '请从搜索结果中选择标的';
-  if (!validNonNegativeDecimal(avgCost.value)) return '平均成本必须是大于等于 0 的数字';
-  if (openedAt.value && toIso(openedAt.value) === null) return '建仓时间格式不正确';
-  return null;
-}
-
-async function savePosition(): Promise<void> {
-  formError.value = null;
-  const account = selectedAccount.value;
-  if (!account) return;
-  saving.value = true;
-  try {
-    if (dialogMode.value === 'edit' && editingPosition.value) {
-      const position = editingPosition.value;
-      const rawQuantity = position.asset_type === 'OPTION' ? optionContracts.value : quantity.value;
-      if (
-        (position.asset_type === 'OPTION' && !POSITIVE_INTEGER_PATTERN.test(rawQuantity)) ||
-        (position.asset_type !== 'OPTION' &&
-          (!validNonNegativeDecimal(rawQuantity) || Number(rawQuantity) <= 0))
-      ) {
-        formError.value = position.asset_type === 'OPTION' ? '张数必须为正整数' : '数量必须大于 0';
-        return;
-      }
-      if (!validNonNegativeDecimal(avgCost.value)) {
-        formError.value = '平均成本必须是大于等于 0 的数字';
-        return;
-      }
-      const signedQuantity =
-        position.asset_type === 'OPTION' && optionDirection.value === 'SHORT'
-          ? `-${rawQuantity}`
-          : rawQuantity;
-      await portfolioApi.updatePosition(position.id, {
-        quantity: signedQuantity,
-        avg_cost: avgCost.value.trim(),
-        opened_at: toIso(openedAt.value),
-        status: editStatus.value,
-        notes: notes.value.trim() || null,
-      });
-    } else if (dialogMode.value === 'create' && createAssetType.value !== 'OPTION') {
-      const validation = validateCommon();
-      if (validation || !validNonNegativeDecimal(quantity.value) || Number(quantity.value) <= 0) {
-        formError.value = validation ?? '数量必须大于 0';
-        return;
-      }
-      await portfolioApi.createEquity(account.id, {
-        canonical_symbol: selectedSecurity.value!.canonicalCode,
-        display_symbol: selectedSecurity.value!.displayCode,
-        name: selectedSecurity.value!.name || undefined,
-        asset_type: createAssetType.value,
-        quantity: quantity.value.trim(),
-        avg_cost: avgCost.value.trim(),
-        opened_at: toIso(openedAt.value),
-        notes: notes.value.trim() || null,
-      });
-    } else if (dialogMode.value === 'create' && createAssetType.value === 'OPTION') {
-      const validation = validateCommon();
-      if (validation) {
-        formError.value = validation;
-        return;
-      }
-      if (!expirationDate.value) formError.value = '请选择到期日';
-      else if (!validNonNegativeDecimal(strikePrice.value) || Number(strikePrice.value) <= 0)
-        formError.value = '行权价必须大于 0';
-      else if (!POSITIVE_INTEGER_PATTERN.test(optionContracts.value))
-        formError.value = '张数必须为正整数';
-      if (formError.value) return;
-      const signedQuantity =
-        optionDirection.value === 'SHORT' ? `-${optionContracts.value}` : optionContracts.value;
-      await portfolioApi.createOption(account.id, {
-        underlying_canonical_symbol: selectedSecurity.value!.canonicalCode,
-        underlying_display_symbol: selectedSecurity.value!.displayCode,
-        underlying_name: selectedSecurity.value!.name || undefined,
-        underlying_asset_type: optionUnderlyingType.value,
-        option_type: optionType.value,
-        expiration_date: expirationDate.value,
-        strike_price: strikePrice.value.trim(),
-        quantity: signedQuantity,
-        avg_cost: avgCost.value.trim(),
-        contract_multiplier: '100',
-        opened_at: toIso(openedAt.value),
-        notes: notes.value.trim() || null,
-      });
-    }
-    closeDialog();
-    await loadPositions();
-  } catch (caught) {
-    formError.value = getParsedApiError(caught).message;
-  } finally {
-    saving.value = false;
-  }
-}
-
-async function loadPositions(): Promise<void> {
-  const account = selectedAccount.value;
-  if (!account) return;
+async function load() {
   loading.value = true;
   error.value = null;
   try {
-    positions.value = await portfolioApi.listPositions(account.id, 'ALL', 'ALL');
-    cashInput.value = account.cash_balance;
-  } catch (caught) {
-    error.value = getParsedApiError(caught);
+    source.value = await holdingsApi.source();
+    const [snap, risk, policy] = await Promise.all([
+      holdingsApi.snapshot(),
+      holdingsApi.risk(),
+      holdingsApi.policy(),
+    ]);
+    accounts.value = snap.snapshot?.accounts || [];
+    positions.value = snap.snapshot?.positions || [];
+    riskPositions.value = risk.positions;
+    events.value = risk.events;
+    vwapMode.value = policy.policy.vwapMode || 'exact_or_proxy';
+  } catch (err) {
+    error.value = getParsedApiError(err);
   } finally {
     loading.value = false;
   }
 }
 
-async function selectAccount(code: PortfolioMarket): Promise<void> {
-  selectedAccountCode.value = code;
-  assetFilter.value = 'ALL';
-  await router.replace({ query: { ...route.query, account: code } });
-  await loadPositions();
+async function connect() {
+  connecting.value = true;
+  error.value = null;
+  try {
+    const result = await holdingsApi.connect(spreadsheetId.value.trim());
+    window.location.assign(result.authorization_url);
+  } catch (err) {
+    error.value = getParsedApiError(err);
+    connecting.value = false;
+  }
 }
 
-async function saveCash(): Promise<void> {
-  const account = selectedAccount.value;
-  if (!account || !/^-?\d+(?:\.\d+)?$/.test(cashInput.value.trim())) {
-    error.value = getParsedApiError(new Error('现金余额格式不正确'));
-    return;
-  }
-  cashSaving.value = true;
+async function disconnect() {
+  error.value = null;
+  await holdingsApi.disconnect();
+  await load();
+}
+
+async function sync() {
+  syncing.value = true;
+  error.value = null;
   try {
-    const updated = await portfolioApi.updateCash(account.id, cashInput.value.trim());
-    const index = accounts.value.findIndex((item) => item.id === updated.id);
-    if (index >= 0) accounts.value[index] = updated;
-  } catch (caught) {
-    error.value = getParsedApiError(caught);
+    await holdingsApi.sync();
+    await load();
+  } catch (err) {
+    error.value = getParsedApiError(err);
   } finally {
-    cashSaving.value = false;
+    syncing.value = false;
   }
 }
 
-async function confirmDelete(): Promise<void> {
-  if (!deletingPosition.value) return;
-  try {
-    await portfolioApi.removePosition(deletingPosition.value.id);
-    deletingPosition.value = null;
-    await loadPositions();
-  } catch (caught) {
-    error.value = getParsedApiError(caught);
-  }
+async function savePolicy() {
+  error.value = null;
+  await holdingsApi.updatePolicy({ vwap_mode: vwapMode.value });
+  await load();
 }
 
-async function markStatus(
-  position: PortfolioPosition,
-  status: 'CLOSED' | 'EXPIRED',
-): Promise<void> {
-  try {
-    await portfolioApi.updatePosition(position.id, { status });
-    await loadPositions();
-  } catch (caught) {
-    error.value = getParsedApiError(caught);
-  }
+async function cancelPlan(row: RiskPositionView) {
+  error.value = null;
+  await holdingsApi.cancelPlan({
+    accountId: row.accountId,
+    positionId: row.positionId,
+    expectedStateVersion: row.rowVersion,
+    reason: 'manual_cancel',
+  });
+  await load();
 }
 
-function dteLabel(position: PortfolioPosition): string {
-  const dte = position.option?.days_to_expiration;
-  if (dte === undefined) return '—';
-  if (dte < 0 && position.status === 'OPEN') return '已到期，待确认处理';
-  if (dte === 0) return '今日到期';
-  return `${dte} 天`;
+function vwapLabel(evidence: Record<string, unknown> | undefined) {
+  const mode = String(evidence?.vwap_mode || evidence?.vwapMode || 'UNAVAILABLE');
+  return mode;
 }
 
-function dteClass(position: PortfolioPosition): string {
-  const dte = position.option?.days_to_expiration;
-  if (dte === undefined || dte > 7) return 'text-muted-foreground';
-  if (dte >= 1) return 'text-warning';
-  return 'text-destructive';
-}
-
-watch(selectedAccountCode, () => {
-  if (selectedAccountCode.value !== 'US' && assetFilter.value === 'OPTION')
-    assetFilter.value = 'ALL';
-});
-
-onMounted(async () => {
-  loading.value = true;
-  try {
-    accounts.value = (await portfolioApi.listAccounts()).sort(
-      (left, right) =>
-        ACCOUNT_ORDER.indexOf(left.account_code) - ACCOUNT_ORDER.indexOf(right.account_code),
-    );
-    const queryAccount = String(route.query.account ?? '').toUpperCase();
-    selectedAccountCode.value = ACCOUNT_ORDER.includes(queryAccount as PortfolioMarket)
-      ? (queryAccount as PortfolioMarket)
-      : 'CN';
-    await loadPositions();
-  } catch (caught) {
-    error.value = getParsedApiError(caught);
-  } finally {
-    loading.value = false;
-  }
-});
+onMounted(load);
 </script>
 
 <template>
-  <div
-    class="space-y-5"
-    data-testid="portfolio-page"
-  >
-    <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-      <div>
-        <h2 class="text-xl font-semibold tracking-tight text-foreground">
-          投资组合
-        </h2>
-        <p class="mt-1 text-sm text-muted-foreground">
-          按市场管理固定账户的现金、股票、ETF 与美股期权记录。
+  <div class="space-y-6" data-testid="holdings-page">
+    <Card>
+      <CardHeader>
+        <CardTitle>Google Sheet 持仓</CardTitle>
+        <CardDescription>
+          Sheet 是唯一持仓编辑源。本页只读同步，不在系统内改仓或自动下单。风险摘要会发送到现有全局 Telegram/ntfy 渠道；未配置渠道也不阻塞风控。
+        </CardDescription>
+      </CardHeader>
+      <CardContent class="space-y-4">
+        <ApiErrorAlert v-if="error" :error="error" />
+        <p v-if="googleStatus" class="text-sm text-muted-foreground">Google 授权结果：{{ googleStatus }}</p>
+        <div class="flex flex-wrap items-end gap-3">
+          <label class="min-w-64 flex-1 space-y-1 text-sm">
+            <span>Spreadsheet ID 或 docs.google.com 链接</span>
+            <Input v-model="spreadsheetId" data-testid="spreadsheet-input" placeholder="1abc... 或表格 URL" />
+          </label>
+          <LoadingButton :loading="connecting" data-testid="connect-button" @click="connect">连接 Google</LoadingButton>
+          <LoadingButton :loading="syncing" variant="secondary" data-testid="sync-button" @click="sync">立即同步</LoadingButton>
+          <Button variant="outline" data-testid="disconnect-button" @click="disconnect">断开</Button>
+        </div>
+        <p class="text-sm" data-testid="source-status">状态：{{ sourceLabel }}</p>
+        <p class="text-xs text-muted-foreground">
+          未覆盖的港股/期权等会保留并标记，不按零处理。Google token、OAuth code 和完整表格不会进入通知。
         </p>
-      </div>
-      <div class="flex flex-wrap gap-2">
-        <Button
-          data-testid="add-position"
-          size="sm"
-          @click="openCreatePosition"
-        >
-          <Plus class="h-4 w-4" />添加持仓
-        </Button>
-      </div>
-    </div>
+      </CardContent>
+    </Card>
 
-    <ApiErrorAlert
-      v-if="error"
-      :error="error"
-      @dismiss="error = null"
-    />
-
-    <Tabs
-      :model-value="selectedAccountCode"
-    >
-      <TabsList class="grid h-auto w-full grid-cols-3">
-        <TabsTrigger
-          v-for="account in accounts"
-          :key="account.account_code"
-          :value="account.account_code"
-          :data-account-code="account.account_code"
-          @click="selectAccount(account.account_code)"
-        >
-          {{ account.name }}
-        </TabsTrigger>
-      </TabsList>
-    </Tabs>
-
-    <section
-      v-if="selectedAccount"
-      class="grid gap-3 sm:grid-cols-2 xl:grid-cols-5"
-      aria-label="账户汇总"
-    >
-      <Card>
-        <CardHeader class="pb-2">
-          <CardDescription>现金余额 · {{ selectedAccount.currency }}</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div class="flex items-center gap-2">
-            <Input
-              v-model="cashInput"
-              class="h-8 min-w-0 flex-1"
-              aria-label="现金余额"
-            />
-            <LoadingButton
-              size="xs"
-              :loading="cashSaving"
-              @click="saveCash"
-            >
-              保存
-            </LoadingButton>
-          </div>
-        </CardContent>
-      </Card>
-      <Card><CardHeader><CardDescription>股票/ETF 持仓成本</CardDescription><CardTitle>{{ amount(equityCost) }}</CardTitle></CardHeader></Card>
-      <Card>
-        <CardHeader><CardDescription>股票/ETF 实时市值</CardDescription><CardTitle>{{ amount(equityMarketValue) }}</CardTitle></CardHeader><CardContent
-          v-if="hasUnpricedEquity"
-          class="text-xs text-warning"
-        >
-          存在未定价股票/ETF
-        </CardContent>
-      </Card>
-      <Card>
-        <CardHeader>
-          <CardDescription>股票/ETF 未实现盈亏</CardDescription><CardTitle
-            :class="unrealizedPnl !== null && unrealizedPnl < 0 ? 'text-market-down' : 'text-market-up'"
-          >
-            {{ amount(unrealizedPnl) }}
-          </CardTitle>
-        </CardHeader>
-      </Card>
-      <Card>
-        <CardHeader><CardDescription>可定价资产 · 不含期权</CardDescription><CardTitle>{{ amount(pricedAssets) }}</CardTitle></CardHeader><CardContent
-          v-if="selectedAccountCode === 'US'"
-          class="text-xs text-muted-foreground"
-        >
-          期权 {{ openOptions.length }} 笔 · 成本 {{ amount(optionCost) }}
-        </CardContent>
-      </Card>
-    </section>
-
-    <div class="flex flex-wrap items-center gap-2">
-      <Button
-        v-for="option in availableAssetFilters"
-        :key="option.value"
-        size="sm"
-        :variant="assetFilter === option.value ? 'secondary' : 'ghost'"
-        @click="assetFilter = option.value"
-      >
-        {{ option.label }}
-      </Button>
-      <FieldSelect
-        :model-value="statusFilter"
-        class="ml-auto min-w-32"
-        :options="[
-          { value: 'OPEN', label: '持有中' },
-          { value: 'CLOSED', label: '已平仓' },
-          { value: 'EXPIRED', label: '已失效' },
-          { value: 'ALL', label: '全部状态' },
-        ]"
-        @update:model-value="statusFilter = $event as PositionStatus | 'ALL'"
-      />
-    </div>
-
-    <div
-      v-if="loading"
-      class="space-y-3"
-    >
-      <Skeleton
-        v-for="index in 5"
-        :key="index"
-        class="h-16 w-full"
-      />
-    </div>
-    <template v-else>
-      <section
-        v-if="equityPositions.length"
-        data-testid="equity-section"
-      >
-        <div class="overflow-hidden rounded-xl border bg-card block">
-          <Table class="w-full min-w-[960px] text-sm">
-            <TableHeader class="bg-muted/40 text-left text-xs text-muted-foreground">
+    <Card>
+      <CardHeader>
+        <CardTitle>账户与持仓</CardTitle>
+        <CardDescription>CORE/ADDON 独立保护基准；同一证券的多条腿汇总为单票风险。</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <Empty v-if="!loading && !accounts.length">
+          <EmptyHeader>
+            <EmptyTitle>还没有已发布的持仓快照</EmptyTitle>
+            <EmptyDescription>连接 Google Sheet 并完成同步后，这里会显示账户和腿。</EmptyDescription>
+          </EmptyHeader>
+        </Empty>
+        <div v-else class="space-y-6">
+          <Table>
+            <TableHeader>
               <TableRow>
-                <TableHead class="min-w-[220px] p-3">
-                  标的
-                </TableHead>
-                <TableHead>类型</TableHead>
+                <TableHead>账户</TableHead>
+                <TableHead>币种</TableHead>
+                <TableHead>净资产</TableHead>
+                <TableHead>校验</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              <TableRow v-for="account in accounts" :key="account.accountId">
+                <TableCell>{{ account.accountName }} / {{ account.accountId }}</TableCell>
+                <TableCell>{{ account.baseCurrency }}</TableCell>
+                <TableCell>{{ account.netAsset || '未知' }}</TableCell>
+                <TableCell>{{ account.validity }}</TableCell>
+              </TableRow>
+            </TableBody>
+          </Table>
+          <Table data-testid="positions-table">
+            <TableHeader>
+              <TableRow>
+                <TableHead>仓位</TableHead>
+                <TableHead>证券</TableHead>
+                <TableHead>腿</TableHead>
+                <TableHead>角色</TableHead>
                 <TableHead>数量</TableHead>
-                <TableHead>最新价格</TableHead>
-                <TableHead>平均成本</TableHead>
-                <TableHead>成本金额</TableHead>
-                <TableHead>持仓市值</TableHead>
-                <TableHead>未实现盈亏</TableHead>
-                <TableHead>操作</TableHead>
+                <TableHead>成本</TableHead>
+                <TableHead>覆盖</TableHead>
               </TableRow>
             </TableHeader>
-            <TableBody class="divide-y divide-border/60">
-              <TableRow
-                v-for="position in equityPositions"
-                :key="position.id"
-              >
-                <TableCell class="p-3">
-                  <p class="font-medium">
-                    {{ formatSecurityLabel(position.display_symbol, position.name) }}
-                  </p>
-                </TableCell>
-                <TableCell>{{ position.asset_type === 'ETF' ? 'ETF' : '股票' }}</TableCell>
-                <TableCell>{{ formatDecimalText(position.quantity) }} 股</TableCell>
-                <TableCell>{{ quotePrice(position) === null ? '—' : amount(quotePrice(position)) }}</TableCell>
-                <TableCell>{{ amount(position.avg_cost) }}</TableCell>
-                <TableCell>{{ amount(position.cost_amount) }}</TableCell>
-                <TableCell>{{ amount(positionMarketValue(position)) }}</TableCell>
-                <TableCell>{{ amount(positionPnl(position)) }}</TableCell>
-                <TableCell>
-                  <div class="flex gap-1">
-                    <Button
-                      variant="ghost"
-                      size="xs"
-                      aria-label="编辑持仓"
-                      @click="openEdit(position)"
-                    >
-                      <Pencil class="h-3.5 w-3.5" />
-                    </Button><Button
-                      variant="destructive"
-                      size="xs"
-                      aria-label="删除持仓"
-                      @click="deletingPosition = position"
-                    >
-                      <Trash2 class="h-3.5 w-3.5" />
-                    </Button>
-                  </div>
-                </TableCell>
+            <TableBody>
+              <TableRow v-for="leg in positions.flatMap((item) => item.legs)" :key="`${leg.accountId}-${leg.legId}`">
+                <TableCell>{{ leg.positionId }}</TableCell>
+                <TableCell>{{ leg.canonicalSymbol || leg.symbol }}</TableCell>
+                <TableCell>{{ leg.legId }}</TableCell>
+                <TableCell>{{ leg.legRole }}</TableCell>
+                <TableCell>{{ leg.quantity }}</TableCell>
+                <TableCell>{{ leg.entryPrice }}</TableCell>
+                <TableCell>{{ leg.coverage }}</TableCell>
               </TableRow>
             </TableBody>
           </Table>
         </div>
-      </section>
+      </CardContent>
+    </Card>
 
-      <section
-        v-if="selectedAccountCode === 'US' && optionPositions.length"
-        data-testid="option-section"
-        class="space-y-3"
-      >
-        <p class="rounded-lg border border-warning/25 bg-warning/10 p-3 text-xs text-warning">
-          期权仅作手工持仓记录，不提供实时价格、市值或盈亏。
-        </p>
-        <div class="overflow-hidden rounded-xl border bg-card block">
-          <Table class="w-full min-w-[1120px] text-sm">
-            <TableHeader class="bg-muted/40 text-left text-xs text-muted-foreground">
-              <TableRow>
-                <TableHead class="min-w-[220px] p-3">
-                  标的
-                </TableHead>
-                <TableHead>方向</TableHead>
-                <TableHead>Call/Put</TableHead>
-                <TableHead>行权价</TableHead>
-                <TableHead>到期日 / DTE</TableHead>
-                <TableHead>张数</TableHead>
-                <TableHead>平均成本</TableHead>
-                <TableHead>乘数</TableHead>
-                <TableHead>成本金额</TableHead>
-                <TableHead>状态</TableHead>
-                <TableHead>操作</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody class="divide-y divide-border/60">
-              <TableRow
-                v-for="position in optionPositions"
-                :key="position.id"
-              >
-                <TableCell class="p-3">
-                  {{ formatSecurityLabel(
-                    position.option?.underlying_display_symbol,
-                    position.option?.underlying_name,
-                  ) }}
-                </TableCell>
-                <TableCell>{{ position.position_side === 'LONG' ? '多头' : '空头' }}</TableCell>
-                <TableCell>{{ position.option?.option_type === 'CALL' ? 'Call' : 'Put' }}</TableCell>
-                <TableCell>{{ amount(position.option?.strike_price ?? null) }}</TableCell>
-                <TableCell>
-                  {{ position.option?.expiration_date }}
-                  <p
-                    :class="dteClass(position)"
-                    class="text-xs"
-                  >
-                    {{ dteLabel(position) }}
-                  </p>
-                </TableCell>
-                <TableCell>{{ formatDecimalText(position.quantity.replace('-', '')) }} 张</TableCell>
-                <TableCell>{{ amount(position.avg_cost) }}</TableCell>
-                <TableCell>{{ formatDecimalText(position.contract_multiplier) }}</TableCell>
-                <TableCell>{{ amount(position.cost_amount) }}</TableCell>
-                <TableCell>{{ position.status }}</TableCell>
-                <TableCell>
-                  <div class="flex gap-1">
-                    <Button
-                      v-if="position.option?.expiration_action_required"
-                      variant="ghost"
-                      size="xs"
-                      @click="markStatus(position, 'CLOSED')"
-                    >
-                      标记已平仓
-                    </Button><Button
-                      v-if="position.option?.expiration_action_required"
-                      variant="ghost"
-                      size="xs"
-                      @click="markStatus(position, 'EXPIRED')"
-                    >
-                      标记失效
-                    </Button><Button
-                      variant="ghost"
-                      size="xs"
-                      aria-label="编辑期权"
-                      @click="openEdit(position)"
-                    >
-                      <Pencil class="h-3.5 w-3.5" />
-                    </Button><Button
-                      variant="destructive"
-                      size="xs"
-                      aria-label="删除期权"
-                      @click="deletingPosition = position"
-                    >
-                      <Trash2 class="h-3.5 w-3.5" />
-                    </Button>
-                  </div>
-                </TableCell>
-              </TableRow>
-            </TableBody>
-          </Table>
+    <Card>
+      <CardHeader>
+        <CardTitle>风控状态</CardTitle>
+        <CardDescription>
+          硬保护看实时报价；5m 软规则使用 CN 新浪 / US yfinance。VWAP 展示 EXACT / PROXY / UNAVAILABLE。
+        </CardDescription>
+      </CardHeader>
+      <CardContent class="space-y-4">
+        <div class="flex flex-wrap items-center gap-3">
+          <label class="text-sm">
+            VWAP 口径
+            <select v-model="vwapMode" class="ml-2 rounded border px-2 py-1" data-testid="vwap-mode">
+              <option value="exact_or_proxy">exact_or_proxy</option>
+              <option value="exact_only">exact_only</option>
+            </select>
+          </label>
+          <Button variant="secondary" size="sm" @click="savePolicy">保存口径</Button>
         </div>
-      </section>
-      <Empty
-        v-if="!filteredPositions.length"
-      >
-        <EmptyHeader><EmptyTitle>暂无持仓记录</EmptyTitle><EmptyDescription>当前账户和筛选条件下没有可展示的持仓。</EmptyDescription></EmptyHeader>
-      </Empty>
-    </template>
-
-    <Dialog
-      :open="dialogMode !== null"
-      @update:open="closeDialog"
-    >
-      <DialogContent class="max-h-[calc(100dvh-1rem)] max-w-xl overflow-y-auto">
-        <DialogHeader><DialogTitle>{{ dialogMode === 'edit' ? '编辑持仓' : '添加持仓' }}</DialogTitle><DialogDescription>维护标的、数量、成本、建仓时间和持仓状态。</DialogDescription></DialogHeader>
-        <form
-          class="space-y-4"
-          @submit.prevent="savePosition"
-        >
-          <template v-if="dialogMode !== 'edit'">
-            <fieldset>
-              <legend class="text-sm font-medium">
-                持仓类型
-              </legend>
-              <div class="mt-2 flex flex-wrap gap-4">
-                <label
-                  v-for="assetType in availableCreateAssetTypes"
-                  :key="assetType.value"
-                  class="flex items-center gap-2 text-sm"
+        <Table data-testid="risk-table">
+          <TableHeader>
+            <TableRow>
+              <TableHead>仓位</TableHead>
+              <TableHead>证券</TableHead>
+              <TableHead>计划</TableHead>
+              <TableHead>动作</TableHead>
+              <TableHead>版本</TableHead>
+              <TableHead></TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            <TableRow v-for="row in riskPositions" :key="`${row.accountId}-${row.positionId}`">
+              <TableCell>{{ row.positionId }}</TableCell>
+              <TableCell>{{ row.symbol }}</TableCell>
+              <TableCell>{{ row.planStatus }}</TableCell>
+              <TableCell>{{ row.planAction }}</TableCell>
+              <TableCell>{{ row.rowVersion }}</TableCell>
+              <TableCell>
+                <Button
+                  v-if="row.planStatus === 'PENDING'"
+                  size="sm"
+                  variant="outline"
+                  :data-testid="`cancel-${row.positionId}`"
+                  @click="cancelPlan(row)"
                 >
-                  <input
-                    :checked="createAssetType === assetType.value"
-                    :data-create-asset-type="assetType.value"
-                    type="radio"
-                    name="create-asset-type"
-                    :value="assetType.value"
-                    @change="changeCreateAssetType(assetType.value)"
-                  />
-                  {{ assetType.label }}
-                </label>
-              </div>
-            </fieldset>
-            <fieldset v-if="createAssetType === 'OPTION'">
-              <legend class="text-sm font-medium">
-                标的类型
-              </legend>
-              <div class="mt-2 flex gap-4">
-                <label class="flex items-center gap-2 text-sm">
-                  <input
-                    v-model="optionUnderlyingType"
-                    type="radio"
-                    name="option-underlying-type"
-                    value="STOCK"
-                  />股票
-                </label>
-                <label class="flex items-center gap-2 text-sm">
-                  <input
-                    v-model="optionUnderlyingType"
-                    type="radio"
-                    name="option-underlying-type"
-                    value="ETF"
-                  />ETF
-                </label>
-              </div>
-            </fieldset>
-            <label class="block text-sm font-medium">{{
-              createAssetType === 'OPTION' ? '期权标的' : '标的'
-            }}</label>
-            <StockAutocomplete
-              :model-value="stockQuery"
-              :placeholder="`搜索${selectedAccount?.name ?? ''}标的`"
-              @update:model-value="handleAutocompleteInput"
-              @submit="handleAutocomplete"
-            />
-            <p
-              v-if="selectedSecurity"
-              class="text-xs text-muted-foreground"
-            >
-              已选择 {{ formatSecurityLabel(selectedSecurity.canonicalCode, selectedSecurity.name) }} ·
-              {{ createAssetType === 'OPTION' ? optionUnderlyingType : createAssetType }}
-            </p>
-          </template>
-          <template v-if="dialogMode === 'create' && createAssetType === 'OPTION'">
-            <div class="grid gap-3 sm:grid-cols-2">
-              <FieldSelect
-                v-model="optionType"
-                label="Call / Put"
-                :options="[
-                  { value: 'CALL', label: 'Call' },
-                  { value: 'PUT', label: 'Put' },
-                ]"
-              /><AppDatePicker
-                v-model="expirationDate"
-                label="到期日"
-              />
-            </div>
-            <div class="grid grid-cols-2 items-end gap-3">
-              <FieldInput
-                v-model="strikePrice"
-                label="行权价"
-                inputmode="decimal"
-              />
-              <p
-                class="rounded-xl border border-border/70 bg-muted/30 px-3 py-2 text-sm text-muted-foreground"
-              >
-                合约乘数：100
-              </p>
-            </div>
-            <div class="grid gap-3 sm:grid-cols-2">
-              <FieldInput
-                v-model="optionContracts"
-                label="张数"
-                inputmode="numeric"
-              /><FieldSelect
-                :model-value="optionDirection"
-                label="持仓方向"
-                :options="[
-                  { value: 'LONG', label: '多头' },
-                  { value: 'SHORT', label: '空头' },
-                ]"
-                @update:model-value="optionDirection = $event as PositionDirection"
-              />
-            </div>
-          </template>
-          <template v-else-if="dialogMode === 'edit' && editingPosition?.asset_type === 'OPTION'">
-            <div class="grid gap-3 sm:grid-cols-2">
-              <FieldInput
-                v-model="optionContracts"
-                label="张数"
-                inputmode="numeric"
-              /><FieldSelect
-                :model-value="optionDirection"
-                label="持仓方向"
-                :options="[
-                  { value: 'LONG', label: '多头' },
-                  { value: 'SHORT', label: '空头' },
-                ]"
-                @update:model-value="optionDirection = $event as PositionDirection"
-              />
-            </div>
-          </template>
-          <FieldInput
-            v-else
-            v-model="quantity"
-            label="数量"
-            inputmode="decimal"
-          />
-          <FieldInput
-            v-model="avgCost"
-            label="平均成本"
-            inputmode="decimal"
-          />
-          <AppDateTimePicker
-            v-model="openedAt"
-            label="建仓时间"
-          />
-          <FieldSelect
-            v-if="dialogMode === 'edit'"
-            :model-value="editStatus"
-            label="状态"
-            :options="[
-              { value: 'OPEN', label: 'OPEN' },
-              { value: 'CLOSED', label: 'CLOSED' },
-              ...(editingPosition?.asset_type === 'OPTION'
-                ? [{ value: 'EXPIRED', label: 'EXPIRED' }]
-                : []),
-            ]"
-            @update:model-value="editStatus = $event as PositionStatus"
-          />
-          <label class="grid gap-2 text-sm">备注<Textarea
-            v-model="notes"
-            class="min-h-20"
-          /></label>
-          <p
-            v-if="formError"
-            class="text-sm text-destructive"
-          >
-            {{ formError }}
-          </p>
-          <DialogFooter>
-            <Button
-              variant="secondary"
-              @click="closeDialog"
-            >
-              取消
-            </Button><LoadingButton
-              type="submit"
-              :loading="saving"
-            >
-              保存
-            </LoadingButton>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
-    <ConfirmDialog
-      :open="deletingPosition !== null"
-      title="删除持仓记录"
-      :description="`确认删除 ${formatSecurityLabel(deletingPosition?.display_symbol, deletingPosition?.name, '')}？此操作不可撤销。`"
-      confirm-text="删除"
-      destructive
-      @update:open="deletingPosition = null"
-      @confirm="confirmDelete"
-    />
+                  取消计划
+                </Button>
+              </TableCell>
+            </TableRow>
+          </TableBody>
+        </Table>
+        <Table data-testid="events-table">
+          <TableHeader>
+            <TableRow>
+              <TableHead>时间</TableHead>
+              <TableHead>事件</TableHead>
+              <TableHead>动作</TableHead>
+              <TableHead>目标</TableHead>
+              <TableHead>VWAP</TableHead>
+              <TableHead>通知</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            <TableRow v-for="item in events" :key="item.id">
+              <TableCell>{{ item.createdAt }}</TableCell>
+              <TableCell>{{ item.eventType }}</TableCell>
+              <TableCell>{{ item.action }}</TableCell>
+              <TableCell>{{ item.targetQuantity }}</TableCell>
+              <TableCell>{{ vwapLabel(item.evidence) }}</TableCell>
+              <TableCell>{{ item.notificationId ? item.pushStatus : '未创建' }}</TableCell>
+            </TableRow>
+          </TableBody>
+        </Table>
+      </CardContent>
+    </Card>
   </div>
 </template>

@@ -18,20 +18,20 @@ from dataclasses import dataclass
 from typing import List, Dict, Any, Optional, Tuple, TYPE_CHECKING
 from enum import Enum
 
-from finance_analysis.notification.config import get_notification_config
-from finance_analysis.reporting.config import get_report_config
-from finance_analysis.reporting.types import ReportType
-from finance_analysis.notification.routing import (
+from finance_analysis.notification.config import get_notification_config  # pragma: allowlist secret
+from finance_analysis.reporting.config import get_report_config  # pragma: allowlist secret
+from finance_analysis.reporting.types import ReportType  # pragma: allowlist secret
+from finance_analysis.notification.routing import (  # pragma: allowlist secret
     get_notification_route_config,
     split_notification_route_channels,
 )
-from finance_analysis.notification.noise_control import (
+from finance_analysis.notification.noise_control import (  # pragma: allowlist secret
     NotificationNoiseDecision,
     evaluate_notification_noise,
     record_notification_noise,
     release_notification_noise,
 )
-from finance_analysis.reporting.localization import (
+from finance_analysis.reporting.localization import (  # pragma: allowlist secret
     get_localized_stock_name,
     get_report_labels,
     get_signal_level,
@@ -40,19 +40,19 @@ from finance_analysis.reporting.localization import (
     localize_trend_prediction,
     normalize_report_language,
 )
-from finance_analysis.notification.messages import BotMessage
-from finance_analysis.analysis.context_normalizer import normalize_model_used
-from finance_analysis.notification.senders import (
+from finance_analysis.notification.messages import BotMessage  # pragma: allowlist secret
+from finance_analysis.analysis.context_normalizer import normalize_model_used  # pragma: allowlist secret
+from finance_analysis.notification.senders import (  # pragma: allowlist secret
     NtfySender,
     TelegramSender,
     resolve_ntfy_endpoint,
 )
-from finance_analysis.reporting.markdown_renderer import ReportRenderingMixin
+from finance_analysis.reporting.markdown_renderer import ReportRenderingMixin  # pragma: allowlist secret
 
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
-    from finance_analysis.analysis.stock_report_analyzer import AnalysisResult
+    from finance_analysis.analysis.stock_report_analyzer import AnalysisResult  # pragma: allowlist secret
 
 
 @dataclass
@@ -186,7 +186,7 @@ class NotificationService(
             return {"history_by_code": self._history_compare_cache[cache_key]}
 
         try:
-            from finance_analysis.analysis.history.comparison import get_signal_changes_batch
+            from finance_analysis.analysis.history.comparison import get_signal_changes_batch  # pragma: allowlist secret
 
             exclude_ids = {
                 r.code: r.query_id
@@ -355,8 +355,8 @@ class NotificationService(
     ) -> Optional[int]:
         """Record a business message independently of external delivery; fail open."""
         try:
-            from finance_analysis.database.repositories.notification import NotificationRepository
-            from finance_analysis.notification.noise_control import normalize_notification_severity
+            from finance_analysis.database.repositories.notification import NotificationRepository  # pragma: allowlist secret
+            from finance_analysis.notification.noise_control import normalize_notification_severity  # pragma: allowlist secret
 
             heading = next((line.strip().strip("#* ") for line in content.splitlines() if line.strip()), "系统消息")
             return NotificationRepository().create(
@@ -403,6 +403,34 @@ class NotificationService(
                 logger.exception("External notification delivery failed")
         return result
 
+    def push_existing(
+        self,
+        content: str,
+        *,
+        notification_id: int,
+        route_type: Optional[str] = None,
+        severity: Optional[str] = None,
+        dedup_key: Optional[str] = None,
+        cooldown_key: Optional[str] = None,
+        title: Optional[str] = None,
+        push_content: Optional[str] = None,
+    ) -> NotificationResult:
+        """Push an already persisted in-app message. Never creates another notification row."""
+        self.last_notification_id = notification_id
+        result = NotificationResult(notification_id=notification_id)
+        try:
+            self._push_message(
+                result,
+                content if push_content is None else push_content,
+                route_type=route_type,
+                severity=severity,
+                dedup_key=dedup_key,
+                cooldown_key=cooldown_key,
+            )
+        except Exception:
+            logger.exception("External notification delivery failed")
+        return result
+
     def _push_message(
         self,
         result: NotificationResult,
@@ -437,7 +465,7 @@ class NotificationService(
                 for ch in target_channels
             ):
                 try:
-                    from finance_analysis.reporting.md2img import markdown_to_image
+                    from finance_analysis.reporting.md2img import markdown_to_image  # pragma: allowlist secret
 
                     image_bytes = markdown_to_image(content, max_chars=self._markdown_to_image_max_chars)
                 except Exception:

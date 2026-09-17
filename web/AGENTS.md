@@ -104,9 +104,9 @@ layout（Shell / PageHeader / ModuleTabs）+ ui/app 组件
 
 要点：
 
-- `/market/holdings`、`StockListPage.vue` 和 `src/api/portfolio.ts` 是前端遗留：当前后端已移除
-  `/api/v1/portfolio/*` 路由及对应表，所以该页面不能完成真实读写。修改此功能前先确认产品方向，
-  不要假设后端契约仍存在。
+- `/market/holdings` 与 `StockListPage.vue` 读取 Google Sheet 持仓和分层风控，API 为
+  `/api/v1/holdings`。Sheet 是唯一持仓编辑源。不要恢复旧 `/api/v1/portfolio` CRUD。
+  风险摘要走现有全局 Telegram/ntfy；页面需展示 VWAP 的 EXACT/PROXY/UNAVAILABLE。
 - `meta.public === true` 才是公开页（目前只有登录）。
 - `meta.title` 用于 `document.title`（`「页面名 - Finance Analysis」`）。嵌套路由取最近一层有 title 的记录。
 - 研究走 `/research/**`，市场走 `/market/**`。不要把 Quant / ETF / 趋势跟踪 / BTC 再挂到 `/market`。
