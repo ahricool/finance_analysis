@@ -6,26 +6,26 @@ from types import SimpleNamespace
 import pandas as pd
 import pytest
 
-from finance_analysis.database.repositories.stock import StockRepository
-from finance_analysis.integrations.market_data.config import DataProviderConfig, provider_order
-from finance_analysis.integrations.market_data.models import (
+from finance_analysis.database.repositories.stock import StockRepository  # pragma: allowlist secret
+from finance_analysis.integrations.market_data.config import DataProviderConfig, provider_order  # pragma: allowlist secret
+from finance_analysis.integrations.market_data.models import (  # pragma: allowlist secret
     Adjustment,
     BatchBarResult,
     DailyBarsRequest,
     Market,
     MarketBar,
 )
-from finance_analysis.integrations.market_data.providers.tickflow import TickFlowFreeProvider
-from finance_analysis.integrations.market_data.registry import (
+from finance_analysis.integrations.market_data.providers.tickflow import TickFlowFreeProvider  # pragma: allowlist secret
+from finance_analysis.integrations.market_data.registry import (  # pragma: allowlist secret
     DAILY_BARS,
     LATEST_MARKET_SNAPSHOT,
     MINUTE_BARS,
     ProviderConfigurationError,
     ProviderRegistry,
 )
-from finance_analysis.integrations.market_data.service import MarketDataService, build_default_registry
-from finance_analysis.tasks.celery.jobs.market_data_sync.models import DailyResult, SymbolResult
-from finance_analysis.tasks.celery.jobs.market_data_sync.service import MarketDataSyncService
+from finance_analysis.integrations.market_data.service import MarketDataService, build_default_registry  # pragma: allowlist secret
+from finance_analysis.tasks.celery.jobs.market_data_sync.models import DailyResult, SymbolResult  # pragma: allowlist secret
+from finance_analysis.tasks.celery.jobs.market_data_sync.service import MarketDataSyncService  # pragma: allowlist secret
 
 
 def _bar(symbol: str, provider: str, *, amount=None) -> MarketBar:
@@ -233,6 +233,11 @@ def test_default_orders_are_explicit_and_not_integer_priorities():
     assert "longbridge" not in provider_order(Market.US, DAILY_BARS)
     assert "fuyao" not in provider_order(Market.US, DAILY_BARS)
     assert provider_order(Market.CN, MINUTE_BARS) == ("streaming", "longbridge")
+    assert "sina_minute" not in provider_order(Market.CN, MINUTE_BARS)
+    from finance_analysis.integrations.market_data.config import portfolio_risk_minute_providers  # pragma: allowlist secret
+
+    assert portfolio_risk_minute_providers(Market.CN) == ("sina_minute",)
+    assert portfolio_risk_minute_providers(Market.US) == ("yfinance",)
     assert provider_order(Market.CN, LATEST_MARKET_SNAPSHOT) == ("fuyao", "easyquotation")
     assert provider_order(Market.CN, LATEST_MARKET_SNAPSHOT)[0] == "fuyao"
 
@@ -246,6 +251,7 @@ def test_default_registry_registers_easyquotation_snapshot_only():
 def test_default_registry_excludes_unsupported_fuyao_minute():
     registry = build_default_registry()
     assert MINUTE_BARS not in registry.capabilities("fuyao")
+    assert registry.capabilities("sina_minute") == {MINUTE_BARS}
 
 
 
@@ -349,7 +355,7 @@ def test_tickflow_batch_configuration_defaults_and_validation():
 
 def test_full_batch_keeps_failed_symbol_history_and_distinguishes_normal_empty(monkeypatch):
     events = []
-    monkeypatch.setattr("finance_analysis.integrations.market_data.batch_pacing.sleep", events.append)
+    monkeypatch.setattr("finance_analysis.integrations.market_data.batch_pacing.sleep", events.append)  # pragma: allowlist secret
     day = date(2025, 1, 2)
     symbols = [SimpleNamespace(id=i, code=code) for i, code in enumerate(("600000.SH", "600001.SH", "600002.SH"), 1)]
 
@@ -398,7 +404,7 @@ def test_full_batch_keeps_failed_symbol_history_and_distinguishes_normal_empty(m
 def test_yfinance_logged_symbol_exception_survives_retry(monkeypatch):
     import logging
     import yfinance
-    from finance_analysis.integrations.market_data.providers.yfinance import YFinanceProvider
+    from finance_analysis.integrations.market_data.providers.yfinance import YFinanceProvider  # pragma: allowlist secret
 
     calls = []
 
@@ -1199,8 +1205,8 @@ def test_db_fresh_batches_tail_merges_remote_over_db_without_writes(local_days):
 def test_db_fresh_two_thousand_symbols_use_three_db_queries_and_two_remote_batches():
     from sqlalchemy import create_engine, event, func, select
     from sqlalchemy.orm import Session
-    from finance_analysis.database.models.stock import Instrument, StockDaily
-    from finance_analysis.database.repositories.stock import InstrumentRepository
+    from finance_analysis.database.models.stock import Instrument, StockDaily  # pragma: allowlist secret
+    from finance_analysis.database.repositories.stock import InstrumentRepository  # pragma: allowlist secret
 
     engine = create_engine("sqlite+pysqlite:///:memory:")
     Instrument.__table__.create(engine)
@@ -1271,15 +1277,15 @@ def test_db_fresh_two_thousand_symbols_use_three_db_queries_and_two_remote_batch
 
 @pytest.fixture(autouse=True)
 def mock_daily_sync_waits(monkeypatch):
-    monkeypatch.setattr("finance_analysis.integrations.market_data.batch_pacing.sleep", lambda seconds: None)
-    monkeypatch.setattr("finance_analysis.tasks.celery.jobs.market_data_sync.service.sleep", lambda seconds: None)
+    monkeypatch.setattr("finance_analysis.integrations.market_data.batch_pacing.sleep", lambda seconds: None)  # pragma: allowlist secret
+    monkeypatch.setattr("finance_analysis.tasks.celery.jobs.market_data_sync.service.sleep", lambda seconds: None)  # pragma: allowlist secret
 
 
 @pytest.mark.parametrize("market", ["CN", "US"])
 @pytest.mark.parametrize("missing_count,retry_fills", [(0, True), (12, True), (12, False), (25, False)])
 def test_daily_sync_delayed_retry_is_bounded_and_missing_only(monkeypatch, caplog, market, missing_count, retry_fills):
-    from finance_analysis.integrations.market_data import batch_pacing
-    from finance_analysis.tasks.celery.jobs.market_data_sync import service as sync_module
+    from finance_analysis.integrations.market_data import batch_pacing  # pragma: allowlist secret
+    from finance_analysis.tasks.celery.jobs.market_data_sync import service as sync_module  # pragma: allowlist secret
 
     day = date(2026, 9, 8)
     codes = [f"SYM{i}.US" if market == "US" else f"600{i:03d}.SH" for i in range(25)]
@@ -1341,7 +1347,7 @@ def test_daily_sync_delayed_retry_is_bounded_and_missing_only(monkeypatch, caplo
 
 
 def test_delayed_retry_rechecks_database_before_requesting(monkeypatch):
-    from finance_analysis.tasks.celery.jobs.market_data_sync import service as module
+    from finance_analysis.tasks.celery.jobs.market_data_sync import service as module  # pragma: allowlist secret
 
     service = _batch_sync_service(SimpleNamespace())
     symbols = [SimpleNamespace(id=1, code="AAA.US")]
@@ -1355,7 +1361,7 @@ def test_delayed_retry_rechecks_database_before_requesting(monkeypatch):
 
 
 def test_batch_pacing_shared_across_nested_scopes_and_no_trailing_sleep(monkeypatch):
-    from finance_analysis.integrations.market_data import batch_pacing as pacing
+    from finance_analysis.integrations.market_data import batch_pacing as pacing  # pragma: allowlist secret
 
     events = []
     monkeypatch.setattr(pacing, "sleep", lambda seconds: events.append(seconds))
@@ -1372,7 +1378,7 @@ def test_batch_pacing_shared_across_nested_scopes_and_no_trailing_sleep(monkeypa
 
 
 def test_missing_provider_error_logs_keep_reason_and_redact_credentials(monkeypatch, caplog):
-    from finance_analysis.tasks.celery.jobs.market_data_sync import service as module
+    from finance_analysis.tasks.celery.jobs.market_data_sync import service as module  # pragma: allowlist secret
 
     service = _batch_sync_service(SimpleNamespace(), "US")
     symbol = SimpleNamespace(id=1, code="MU.US")
@@ -1392,8 +1398,8 @@ def test_missing_provider_error_logs_keep_reason_and_redact_credentials(monkeypa
 
 @pytest.mark.parametrize("provider_name", ["yfinance", "tickflow"])
 def test_daily_provider_parse_error_isolated_per_symbol(monkeypatch, provider_name):
-    from finance_analysis.integrations.market_data.providers import yfinance as yahoo
-    from finance_analysis.integrations.market_data.providers import tickflow
+    from finance_analysis.integrations.market_data.providers import yfinance as yahoo  # pragma: allowlist secret
+    from finance_analysis.integrations.market_data.providers import tickflow  # pragma: allowlist secret
 
     module = yahoo if provider_name == "yfinance" else tickflow
     codes = ("BAD.US", "GOOD.US")

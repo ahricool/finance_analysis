@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from functools import lru_cache
 
-from finance_analysis.config.env_parsing import env_int, env_str
+from finance_analysis.config.env_parsing import env_int, env_str  # pragma: allowlist secret
 
 from .models import Market, market_from_value
 from .registry import (
@@ -49,12 +49,28 @@ DEFAULT_PROVIDER_ORDER: dict[tuple[Market, str], tuple[str, ...]] = {
 }
 
 
-def provider_order(market: Market | str, capability: str) -> tuple[str, ...]:
-    key = (market_from_value(market), str(capability).strip().lower())
+PORTFOLIO_RISK_MINUTE_PROVIDERS: dict[Market, tuple[str, ...]] = {
+    Market.CN: ("sina_minute",),
+    Market.US: ("yfinance",),
+}
+
+
+def portfolio_risk_minute_providers(market: Market | str) -> tuple[str, ...]:
+    key = market_from_value(market)
     try:
-        return DEFAULT_PROVIDER_ORDER[key]
+        return PORTFOLIO_RISK_MINUTE_PROVIDERS[key]
     except KeyError as exc:
-        raise ValueError(f"No provider order configured for market={key[0].value}, capability={key[1]}") from exc
+        raise ValueError(f"portfolio_risk has no 5m provider for market={key.value}") from exc
+
+
+def provider_order(market: Market | str, capability: str) -> tuple[str, ...]:
+    order_key = (market_from_value(market), str(capability).strip().lower())
+    try:
+        return DEFAULT_PROVIDER_ORDER[order_key]
+    except KeyError as exc:
+        raise ValueError(
+            f"No provider order configured for market={order_key[0].value}, capability={order_key[1]}"
+        ) from exc
 
 
 @dataclass(frozen=True, slots=True)

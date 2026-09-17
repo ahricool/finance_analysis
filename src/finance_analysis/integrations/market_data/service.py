@@ -9,7 +9,7 @@ from typing import Any, Iterable, Literal
 
 import pandas as pd
 
-from finance_analysis.database.repositories.stock import InstrumentRepository, StockRepository
+from finance_analysis.database.repositories.stock import InstrumentRepository, StockRepository  # pragma: allowlist secret
 
 from .config import DataProviderConfig, get_data_provider_config
 from .models import (
@@ -120,6 +120,8 @@ class _StreamingStateProvider:
         return result
 
     def fetch_minute_bars(self, request: MinuteBarsRequest) -> BatchBarResult:
+        if request.interval != "1m":
+            raise ValueError("streaming minute bars are 1m only; refusing to relabel as " + request.interval)
         source = self._get_source()
         result = BatchBarResult()
         minutes = max(1, int((request.end_time - request.start_time).total_seconds() // 60) + 5)
@@ -165,6 +167,7 @@ def build_default_registry(
     from .providers.easyquotation import EasyQuotationProvider
     from .providers.tickflow import TickFlowFreeProvider
     from .providers.yfinance import YFinanceProvider
+    from .providers.sina_minute import SinaMinuteProvider
 
     resolved_config = config or get_data_provider_config()
     registry = ProviderRegistry()
@@ -202,6 +205,11 @@ def build_default_registry(
             max_retries=resolved_config.market_data_yfinance_max_retries,
         ),
         capabilities={DAILY_BARS, MINUTE_BARS, REALTIME_QUOTES, MARKET_INDICES, INSTRUMENT_INFO},
+    )
+    registry.register(
+        "sina_minute",
+        SinaMinuteProvider(),
+        capabilities={MINUTE_BARS},
     )
     from .providers.longbridge.market import LongbridgeProvider
 
@@ -402,8 +410,15 @@ class MarketDataService:
         *,
         interval: str = "1m",
         providers: Iterable[str] | None = None,
+        period: str | None = None,
     ) -> BatchBarResult:
-        request = MinuteBarsRequest(self._canonical_symbols(symbols), start_time, end_time, interval)
+        request = MinuteBarsRequest(
+            self._canonical_symbols(symbols),
+            start_time,
+            end_time,
+            interval,
+            period=period,
+        )
         return self.router.route_minute(request, providers)
 
     def get_realtime_quotes(
