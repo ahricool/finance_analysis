@@ -24,7 +24,8 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Mapping, Optional, Tuple
 
-from finance_analysis.core.paths import (
+from finance_analysis.core.secret_redact import SecretRedactFilter  # pragma: allowlist secret
+from finance_analysis.core.paths import (  # pragma: allowlist secret
     PROJECT_ROOT,
     get_log_app_dir,
     get_log_celery_dir,
@@ -266,6 +267,7 @@ def setup_logging(
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setLevel(level)
     console_handler.setFormatter(rel_formatter)
+    console_handler.addFilter(SecretRedactFilter())
     console_handler._finance_app_handler = True  # type: ignore[attr-defined]
     root_logger.addHandler(console_handler)
 
@@ -278,6 +280,7 @@ def setup_logging(
     )
     file_handler.setLevel(logging.INFO)
     file_handler.setFormatter(rel_formatter)
+    file_handler.addFilter(SecretRedactFilter())
     file_handler._finance_app_handler = True  # type: ignore[attr-defined]
     root_logger.addHandler(file_handler)
 
@@ -290,8 +293,12 @@ def setup_logging(
     )
     debug_handler.setLevel(logging.DEBUG)
     debug_handler.setFormatter(rel_formatter)
+    debug_handler.addFilter(SecretRedactFilter())
     debug_handler._finance_app_handler = True  # type: ignore[attr-defined]
     root_logger.addHandler(debug_handler)
+
+    access_logger = logging.getLogger("uvicorn.access")
+    access_logger.addFilter(SecretRedactFilter())
 
     # 降低第三方库的日志级别
     quiet_loggers = DEFAULT_QUIET_LOGGERS.copy()
