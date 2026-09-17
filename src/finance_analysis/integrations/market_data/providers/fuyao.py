@@ -9,9 +9,10 @@ from __future__ import annotations
 from datetime import date, datetime, time, timedelta, timezone
 import re
 import math
+import logging
 from copy import deepcopy
 from threading import RLock
-from time import monotonic
+from time import monotonic, sleep
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -36,10 +37,12 @@ from ..models import (
     SectorRankings,
 )
 from ..normalizer import canonical_symbol, infer_market
-from ..request_budget import BudgetExhausted, check_budget, remaining_seconds
+from ..request_budget import BudgetExhausted, MIN_REQUEST_SECONDS, check_budget, remaining_seconds
 from ..validator import validate_bars, validate_quote
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
+logger = logging.getLogger(__name__)
+RATE_LIMIT_RETRY_DELAYS = (1.0, 2.0, 4.0)
 INDEX_NAMES = {
     "000001.SH": "上证指数",
     "399001.SZ": "深证成指",
@@ -72,6 +75,10 @@ def date_ms(day: date) -> int:
 
 class FuyaoError(RuntimeError):
     """Sanitized transport or envelope failure; never includes payloads or keys."""
+
+
+class FuyaoRateLimitError(FuyaoError):
+    """HTTP 429 or equivalent business-envelope rate limit."""
 
 
 class FuyaoProvider:
@@ -117,6 +124,21 @@ class FuyaoProvider:
             self._cache_lock.release()
 
     def _get(self, path: str, **params) -> dict:
+        for attempt in range(len(RATE_LIMIT_RETRY_DELAYS) + 1):
+            try:
+                return self._get_once(path, **params)
+            except FuyaoRateLimitError:
+                if attempt == len(RATE_LIMIT_RETRY_DELAYS):
+                    raise
+                delay = RATE_LIMIT_RETRY_DELAYS[attempt]
+                remaining = remaining_seconds()
+                if remaining is not None and remaining < delay + MIN_REQUEST_SECONDS:
+                    raise BudgetExhausted() from None
+                logger.warning("Fuyao rate limited: path=%s retry=%s delay=%ss", path, attempt + 1, delay)
+                sleep(delay)
+        raise AssertionError("unreachable")
+
+    def _get_once(self, path: str, **params) -> dict:
         check_budget()
         remaining = remaining_seconds()
         # Reserve time for all four HTTP phases. Never mutate the provider default.
@@ -130,6 +152,8 @@ class FuyaoProvider:
                     params=params,
                     headers={"X-api-key": self._api_key},
                 )
+                if response.status_code == 429:
+                    raise FuyaoRateLimitError(f"Fuyao HTTP 429: {path}")
                 if response.status_code != 200:
                     raise FuyaoError(f"Fuyao HTTP {response.status_code}: {path}")
                 envelope = response.json()
@@ -140,6 +164,8 @@ class FuyaoProvider:
         if not isinstance(envelope, dict) or envelope.get("code") != 0:
             code = envelope.get("code") if isinstance(envelope, dict) else None
             code = code if isinstance(code, int) else "invalid"
+            if code == 4001:
+                raise FuyaoRateLimitError(f"Fuyao error code=4001: {path}")
             raise FuyaoError(f"Fuyao error code={code}: {path}")
         data = envelope.get("data")
         if not isinstance(data, dict):

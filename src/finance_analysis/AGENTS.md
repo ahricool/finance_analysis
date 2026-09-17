@@ -111,7 +111,7 @@ LLM 调用统一进入 `llm/LLMClient`，由 `LLM_BACKEND=api|cli` 二选一。�
 - `registry.py`：Provider + capability 注册。
 - `router.py`：按市场/capability 确定性 fallback。
 - `validator.py`：结果进入业务层前校验。
-- `providers/`：TickFlow、Fuyao、easyquotation（仅 Preview）、yfinance、Longbridge。
+- `providers/`：TickFlow、Fuyao、easyquotation（Preview 与 CN 全市场快照 fallback）、yfinance、Longbridge。
   Fuyao 接口、数据语义与缺失能力见 `docs/market-data-providers.md`（仓库根目录）。
 - `realtime_state/`：Streamer 写入的 Redis schema 与同步/异步读取。
 - `instrument_sync.py`：证券主数据与指数成分同步辅助。

@@ -86,7 +86,8 @@ def test_registry_exact_external_inventory_internal_readers_and_order():
     assert provider_order("CN", DAILY_BARS) == ("tickflow", "fuyao", "yfinance")
     assert provider_order("CN", MINUTE_BARS) == ("streaming", "longbridge")
     assert provider_order("CN", REALTIME_QUOTES) == ("streaming", "longbridge", "fuyao")
-    for capability in (LATEST_MARKET_SNAPSHOT, MARKET_INDICES, MARKET_STATS, SECTOR_RANKINGS):
+    assert provider_order("CN", LATEST_MARKET_SNAPSHOT) == ("fuyao", "easyquotation")
+    for capability in (MARKET_INDICES, MARKET_STATS, SECTOR_RANKINGS):
         assert provider_order("CN", capability) == ("fuyao",)
     assert provider_order("CN", INSTRUMENT_INFO) == ("database", "tickflow", "longbridge", "fuyao", "yfinance")
     for market in ("US", "HK"):
@@ -142,12 +143,16 @@ def test_forward_daily_units_dates_validation_and_partial_failure():
         httpx.Response(200, json={"code": 0, "data": None}),
     ],
 )
-def test_http_and_envelope_errors_do_not_retry_or_leak_key(response):
+def test_http_and_envelope_errors_retry_only_rate_limits_without_leaking_key(response, monkeypatch):
+    delays = []
+    monkeypatch.setattr("finance_analysis.integrations.market_data.providers.fuyao.sleep", delays.append)
     p, calls = provider(lambda path, params: response)
     result = p.fetch_quotes(QuoteRequest((SYMBOL,)))
     assert SYMBOL in result.failed_symbols
     assert "test-key" not in result.failed_symbols[SYMBOL]
-    assert len(calls) == 1
+    limited = response.status_code == 429 or (response.status_code == 200 and response.json().get("code") == 4001)
+    assert len(calls) == (4 if limited else 1)
+    assert delays == ([1, 2, 4] if limited else [])
     assert "test-key" not in repr(DataProviderConfig(fuyao_api_key="test-key"))
 
 
@@ -493,7 +498,7 @@ def test_symbol_validation_failure_does_not_reject_whole_snapshot():
     p, _ = provider(handler)
     registry = ProviderRegistry()
     registry.register("fuyao", p, capabilities={LATEST_MARKET_SNAPSHOT})
-    result = MarketDataService(registry).get_market_snapshot("CN")
+    result = MarketDataService(registry).get_market_snapshot("CN", providers=["fuyao"])
     assert SYMBOL in result.data and "000001.SZ" in result.failed_symbols
     assert "CN" not in result.failed_symbols
 
@@ -676,3 +681,107 @@ def test_budget_reuses_existing_quote_without_starting_quote_chain(monkeypatch):
     assert result["valuation"]["data"]["pe_ratio"] == 25
     assert result["valuation"]["source_chain"][-1]["provider"] == "longbridge"
     assert not calls
+
+
+@pytest.mark.parametrize("business_code", [False, True])
+def test_rate_limit_recovers_and_stops_retrying(monkeypatch, business_code):
+    delays = []
+    monkeypatch.setattr("finance_analysis.integrations.market_data.providers.fuyao.sleep", delays.append)
+    responses = iter([
+        httpx.Response(200, json={"code": 4001}) if business_code else httpx.Response(429),
+        httpx.Response(429),
+        {"item": [snapshot()]},
+    ])
+    p, calls = provider(lambda *_: next(responses))
+    result = p.fetch_quotes(QuoteRequest((SYMBOL,)))
+    assert SYMBOL in result.data
+    assert len(calls) == 3 and delays == [1, 2]
+
+
+def test_rate_limit_does_not_sleep_or_retry_beyond_budget(monkeypatch):
+    from finance_analysis.integrations.market_data.request_budget import BudgetExhausted
+
+    delays = []
+    monkeypatch.setattr("finance_analysis.integrations.market_data.providers.fuyao.sleep", delays.append)
+    monkeypatch.setattr("finance_analysis.integrations.market_data.providers.fuyao.remaining_seconds", lambda: 1.5)
+    p, calls = provider(lambda *_: httpx.Response(429))
+    with pytest.raises(BudgetExhausted):
+        p._get("/api/meta/tickers/list")
+    assert len(calls) == 1 and delays == []
+
+
+@pytest.mark.parametrize("failure", ["limited", "empty", "invalid", "http_error"])
+def test_default_snapshot_fallback_to_tencent(monkeypatch, failure):
+    from types import SimpleNamespace
+    from finance_analysis.integrations.market_data.providers.easyquotation import EasyQuotationProvider
+
+    delays, tencent_calls = [], []
+    monkeypatch.setattr("finance_analysis.integrations.market_data.providers.fuyao.sleep", delays.append)
+
+    def handler(path, params):
+        if failure == "limited":
+            return httpx.Response(429)
+        if failure == "http_error":
+            return httpx.Response(503)
+        if failure == "invalid":
+            return httpx.Response(200, json={"code": 0, "data": None})
+        return {"item": [], "total": 0}
+
+    def tencent_snapshot(prefix):
+        tencent_calls.append(prefix)
+        return {"sh600519": {
+            "name": "贵州茅台", "now": 10.5, "close": 10, "open": 10,
+            "high": 11, "low": 9, "volume": 10000, "成交额(万)": 105000,
+            "涨跌": 0.5, "涨跌(%)": 5, "振幅": 20, "turnover": 2,
+            "datetime": datetime(2026, 9, 17, 10, 0),
+        }}
+
+    p, calls = provider(handler)
+    registry = ProviderRegistry()
+    registry.register("fuyao", p, capabilities={LATEST_MARKET_SNAPSHOT})
+    registry.register("easyquotation", EasyQuotationProvider(
+        client_factory=lambda: SimpleNamespace(market_snapshot=tencent_snapshot)
+    ), capabilities={LATEST_MARKET_SNAPSHOT})
+    result = MarketDataService(registry).get_market_snapshot("CN")
+    quote = result.data[SYMBOL]
+    assert result.providers_used == {SYMBOL: "easyquotation"}
+    assert (quote.change_pct, quote.change_amount, quote.amplitude, quote.turnover_rate) == (5, 0.5, 20, 2)
+    assert (quote.volume, quote.amount) == (10000, 105000)
+    assert quote.quote_time.tzinfo is not None
+    assert tencent_calls == [True]
+    assert delays == ([1, 2, 4] if failure == "limited" else [])
+    if failure == "limited":
+        assert len(calls) == 4
+
+
+def test_snapshot_primary_success_never_calls_fallback():
+    from types import SimpleNamespace
+
+    def unexpected(_):
+        pytest.fail("fallback must not run after primary success")
+
+    p, _ = provider(overview_handler)
+    registry = ProviderRegistry()
+    registry.register("fuyao", p, capabilities={LATEST_MARKET_SNAPSHOT})
+    registry.register("easyquotation", SimpleNamespace(fetch_market_snapshot=unexpected),
+                      capabilities={LATEST_MARKET_SNAPSHOT})
+    assert MarketDataService(registry).get_market_snapshot("CN").providers_used[SYMBOL] == "fuyao"
+
+
+def test_both_snapshot_providers_fail_preserves_errors(monkeypatch):
+    from types import SimpleNamespace
+
+    monkeypatch.setattr("finance_analysis.integrations.market_data.providers.fuyao.sleep", lambda _: None)
+    p, _ = provider(lambda *_: httpx.Response(429))
+
+    def fail(_):
+        raise RuntimeError("Tencent unavailable")
+
+    registry = ProviderRegistry()
+    registry.register("fuyao", p, capabilities={LATEST_MARKET_SNAPSHOT})
+    registry.register("easyquotation", SimpleNamespace(fetch_market_snapshot=fail),
+                      capabilities={LATEST_MARKET_SNAPSHOT})
+    result = MarketDataService(registry).get_market_snapshot("CN")
+    assert not result.data
+    assert "429" in result.failed_symbols["CN"]
+    assert "Tencent unavailable" in result.failed_symbols["CN"]

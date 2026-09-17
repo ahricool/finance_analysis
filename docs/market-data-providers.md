@@ -22,20 +22,25 @@ ReferenceDataSyncService 独立路由这两类来源。请求失败或返回空�
 | DAILY_BARS | tickflow → fuyao → yfinance | yfinance → tickflow | longbridge → yfinance |
 | MINUTE_BARS | streaming → longbridge | streaming → longbridge → yfinance | streaming → longbridge |
 | REALTIME_QUOTES | streaming → longbridge → fuyao | streaming → longbridge → yfinance | streaming → longbridge → yfinance |
-| LATEST_MARKET_SNAPSHOT | fuyao | — | — |
+| LATEST_MARKET_SNAPSHOT | fuyao → easyquotation（腾讯） | — | — |
 | MARKET_INDICES | fuyao | longbridge → yfinance | longbridge → yfinance |
 | MARKET_STATS / SECTOR_RANKINGS | fuyao | — | — |
 | INSTRUMENT_INFO | database → tickflow → longbridge → fuyao → yfinance | database → tickflow → longbridge → yfinance | database → tickflow → longbridge → yfinance |
 
 本次只替换或删除原来源位置，没有提升 Fuyao 相对 TickFlow、yfinance 或 Longbridge
-的优先级。easyquotation 仍用于 Tencent CN Trend Following / ETF Rotation Preview，
-不参与通用 fallback。TickFlow → Longbridge 的证券主数据同步顺序不变。
+的优先级。easyquotation 用于 Tencent CN Trend Following / ETF Rotation Preview，
+并作为 CN 全市场快照的备用来源；不参与逐股 Quote、指数或板块排行 fallback。
+TickFlow → Longbridge 的证券主数据同步顺序不变。
 
 ## Fuyao 接入
 
 设置 `FUYAO_API_KEY`，请求超时由 `FUYAO_TIMEOUT_SECONDS` 控制（默认 10 秒）。
 密钥只放在请求头，不写日志、报告或仓库。未配置时返回明确失败，Router 按已有语义
-fallback / fail-open；HTTP 错误和业务信封错误均检查，429 / 4001 不立即重试。
+fallback / fail-open；HTTP 错误和业务信封错误均检查。所有扶摇 API 统一经
+`FuyaoProvider._get()` 请求：HTTP 429 / 业务码 4001 按 1、2、4 秒指数退避，
+最多重试 3 次（含首次共 4 次），其他错误不重试。每次重试重新计算请求时间预算；
+预算不足以完成等待并发起请求时直接结束。快照重试耗尽或其他失败后由 Router
+切换 easyquotation，日志记录失败原因与 fallback 来源。
 
 业务调用继续经过 `MarketDataService`。Provider 内部将数据转换为现有 canonical
 models，价格为 CNY 元、成交量为股、涨跌幅为百分数值、时间为 aware UTC。

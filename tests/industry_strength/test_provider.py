@@ -72,11 +72,13 @@ def test_reusable_cn_provider_protocol_and_no_secret_in_params(monkeypatch):
     ],
 )
 def test_errors_are_bounded_and_sanitized(monkeypatch, response):
+    monkeypatch.setattr("finance_analysis.integrations.market_data.providers.fuyao.sleep", lambda _: None)
     calls = []
     p = provider(monkeypatch, lambda r: calls.append(r) or response)
     with pytest.raises(FuyaoError) as error:
         p.get_industry_catalog()
-    assert len(calls) == 1
+    limited = response.status_code == 429 or (response.status_code == 200 and response.json().get("code") == 4001)
+    assert len(calls) == (4 if limited else 1)
     assert "secret-body" not in str(error.value) and "offline-test-key" not in str(error.value)
 
 

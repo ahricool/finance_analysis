@@ -185,6 +185,7 @@ class MarketDataRouter:
                 result = registration.provider.fetch_market_snapshot(market)
                 if market.value in result.failed_symbols:
                     errors.append(f"{registration.name}: {result.failed_symbols[market.value]}")
+                    logger.warning("market=%s snapshot failed: %s", market.value, errors[-1])
                     continue
                 if result.data:
                     validated = {}
@@ -195,10 +196,14 @@ class MarketDataRouter:
                             result.failed_symbols[symbol] = str(exc)
                     result.data = validated
                     if result.data:
+                        if errors:
+                            logger.info("market=%s snapshot fallback provider=%s", market.value, registration.name)
                         return result
                 errors.append(f"{registration.name}: empty snapshot")
+                logger.warning("market=%s snapshot failed: %s", market.value, errors[-1])
             except Exception as exc:
                 errors.append(f"{registration.name}: {exc}")
+                logger.warning("market=%s snapshot failed: %s", market.value, errors[-1])
         return BatchQuoteResult(failed_symbols={market.value: "; ".join(errors)})
 
     def route_indices(self, market: Market, providers: Iterable[str] | None = None) -> list[MarketIndex]:

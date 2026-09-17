@@ -1,4 +1,4 @@
-"""Tencent full-market A-share snapshot via easyquotation. Preview-only; not a general realtime fallback."""
+"""Tencent A-share snapshots for previews and full-market snapshot fallback."""
 
 from __future__ import annotations
 
@@ -85,6 +85,10 @@ def quote_from_tencent_row(raw_code: str, row: Mapping[str, Any]) -> MarketQuote
         currency=currency_for_market(Market.CN),
         name=str(row.get("name") or "").strip(),
         price=price,
+        change_pct=_number(row.get("涨跌(%)")),
+        change_amount=_number(row.get("涨跌")),
+        amplitude=_number(row.get("振幅")),
+        turnover_rate=_number(row.get("turnover")),
         open_price=_number(row.get("open")),
         high=_number(row.get("high")),
         low=_number(row.get("low")),
