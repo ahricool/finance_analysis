@@ -129,7 +129,7 @@ export function breadthMissingReason(row: IndustrySnapshot, kind: BreadthKind): 
     : kind === 'ma5'
       ? row.quality.ma5Coverage
       : row.quality.ma20Coverage;
-  if (typeof coverage === 'number' && coverage < 0.95) return '成分覆盖不足，该项比例暂不可用';
+  if (coverageBelowThreshold(coverage)) return '成分覆盖不足，该项比例暂不可用';
   return '数据暂不可用';
 }
 
@@ -138,10 +138,16 @@ export function rankChangeMissingReason(value: number | null | undefined): strin
   return '对应历史交易日尚无该行业快照，排名变化暂不可用';
 }
 
+export const BREADTH_COVERAGE_THRESHOLD = 0.95;
+
+export function coverageBelowThreshold(value: number | null | undefined): boolean {
+  return typeof value === 'number' && value < BREADTH_COVERAGE_THRESHOLD;
+}
+
 export function coverageInsufficient(row: IndustrySnapshot): boolean {
-  const coverages = [row.quality.dailyBreadthCoverage, row.quality.ma5Coverage, row.quality.ma20Coverage];
-  return coverages.some((value) => typeof value === 'number' && value < 0.95)
-    || row.quality.breadthStatus === 'partial';
+  return coverageBelowThreshold(row.quality.dailyBreadthCoverage)
+    || coverageBelowThreshold(row.quality.ma5Coverage)
+    || coverageBelowThreshold(row.quality.ma20Coverage);
 }
 
 export function historicalMembersUnavailable(rows: IndustrySnapshot[]): boolean {

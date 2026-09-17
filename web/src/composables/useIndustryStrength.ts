@@ -13,9 +13,19 @@ import { computeSummary, historicalMembersUnavailable } from '@/components/indus
 export type IndustryView = 'ranking' | 'matrix' | 'history';
 export type DetailTab = 'overview' | 'history' | 'constituents';
 
+export function detailMatchesQuery(
+  detail: IndustryDetail | null | undefined,
+  code: string,
+  tradeDate: string | null | undefined,
+): boolean {
+  if (!detail || !code || !tradeDate) return false;
+  return detail.current.industryCode === code && detail.current.tradeDate === tradeDate;
+}
+
 export function useIndustryStrength() {
   const ranking = shallowRef<IndustryRanking | null>(null);
   const history = shallowRef<IndustryHistory>({ dates: [], items: [] });
+  const historyEndTradeDate = ref<string | null>(null);
   const detail = shallowRef<IndustryDetail | null>(null);
   const constituents = shallowRef<Constituents | null>(null);
   const dates = ref<string[]>([]);
@@ -60,10 +70,30 @@ export function useIndustryStrength() {
   ));
   const historyMembersUnavailable = computed(() => historicalMembersUnavailable(rows.value));
   const selectedRow = computed(() => rows.value.find((row) => row.industryCode === selected.value) ?? null);
+  const matchedDetail = computed(() => (
+    detailMatchesQuery(detail.value, selected.value, ranking.value?.tradeDate) ? detail.value : null
+  ));
+  const chartHistory = computed<IndustryHistory>(() => {
+    if (!ranking.value?.tradeDate || historyEndTradeDate.value !== ranking.value.tradeDate) {
+      return { dates: [], items: [] };
+    }
+    return history.value;
+  });
+
+  function dropMismatchedDetail(code: string, tradeDate: string | null | undefined) {
+    if (!detailMatchesQuery(detail.value, code, tradeDate)) detail.value = null;
+  }
 
   function invalidateConstituents() {
+    membersSeq += 1;
     constituentsCache.clear();
     constituents.value = null;
+    membersLoading.value = false;
+  }
+
+  function invalidateHistory() {
+    historySeq += 1;
+    historyLoading.value = false;
   }
 
   async function loadDates() {
@@ -75,7 +105,7 @@ export function useIndustryStrength() {
     }
   }
 
-  async function loadHistory(tradeDate: string) {
+  async function loadHistory(tradeDate: string, mode: 'replace' | 'refresh' = 'replace') {
     const token = ++historySeq;
     historyLoading.value = true;
     historyError.value = null;
@@ -83,27 +113,34 @@ export function useIndustryStrength() {
       const result = await api.history(tradeDate);
       if (token !== historySeq) return;
       history.value = result;
+      historyEndTradeDate.value = tradeDate;
     } catch (cause) {
       if (token !== historySeq) return;
       historyError.value = getParsedApiError(cause);
+      if (mode === 'refresh' && historyEndTradeDate.value === tradeDate) return;
+      history.value = { dates: [], items: [] };
+      historyEndTradeDate.value = tradeDate;
     } finally {
       if (token === historySeq) historyLoading.value = false;
     }
   }
 
   async function loadDetail(code: string) {
+    const tradeDate = ranking.value?.tradeDate ?? null;
     const token = ++detailSeq;
     detailLoading.value = true;
     detailError.value = null;
+    dropMismatchedDetail(code, tradeDate);
     try {
-      const data = await api.detail(code, ranking.value?.tradeDate ?? undefined);
+      const data = await api.detail(code, tradeDate ?? undefined);
       if (token !== detailSeq) return;
+      if (!detailMatchesQuery(data, code, tradeDate)) return;
       detail.value = data;
       missingSelected.value = false;
     } catch (cause) {
       if (token !== detailSeq) return;
       detailError.value = getParsedApiError(cause);
-      if (detail.value?.current.industryCode !== code) detail.value = null;
+      dropMismatchedDetail(code, tradeDate);
     } finally {
       if (token === detailSeq) detailLoading.value = false;
     }
@@ -115,6 +152,7 @@ export function useIndustryStrength() {
     if (!force) {
       const cached = constituentsCache.get(code);
       if (cached) {
+        if (token !== membersSeq) return;
         constituents.value = cached;
         membersLoading.value = false;
         return;
@@ -145,7 +183,8 @@ export function useIndustryStrength() {
     }
     missingSelected.value = true;
     detail.value = null;
-    ++detailSeq;
+    detailSeq += 1;
+    detailLoading.value = false;
   }
 
   async function loadRanking(kind: 'initial' | 'refresh' | 'date') {
@@ -173,8 +212,17 @@ export function useIndustryStrength() {
       refreshError.value = null;
       dateError.value = null;
       if (kind === 'refresh') invalidateConstituents();
-      if (data.items.length && data.tradeDate) void loadHistory(data.tradeDate);
-      else history.value = { dates: [], items: [] };
+      if (data.items.length && data.tradeDate) {
+        const sameDate = historyEndTradeDate.value === data.tradeDate;
+        const historyMode = kind === 'refresh' && sameDate ? 'refresh' : 'replace';
+        if (!sameDate) invalidateHistory();
+        void loadHistory(data.tradeDate, historyMode);
+      } else {
+        invalidateHistory();
+        historyError.value = null;
+        history.value = { dates: [], items: [] };
+        historyEndTradeDate.value = data.tradeDate;
+      }
       syncSelection(data.items, kind === 'refresh');
     } catch (cause) {
       if (token !== rankingSeq) return;
@@ -202,6 +250,7 @@ export function useIndustryStrength() {
     selectedLabel.value = rows.value.find((row) => row.industryCode === code)?.industryName ?? code;
     drawerOpen.value = true;
     missingSelected.value = false;
+    dropMismatchedDetail(code, ranking.value?.tradeDate);
     void loadDetail(code);
     if (detailTab.value === 'constituents') void loadConstituents(code);
   }
@@ -209,8 +258,8 @@ export function useIndustryStrength() {
   function setDrawerOpen(open: boolean) {
     drawerOpen.value = open;
     if (!open) {
-      ++detailSeq;
-      ++membersSeq;
+      detailSeq += 1;
+      membersSeq += 1;
       detailLoading.value = false;
       membersLoading.value = false;
     }
@@ -252,7 +301,10 @@ export function useIndustryStrength() {
   return {
     ranking,
     history,
+    historyEndTradeDate,
+    chartHistory,
     detail,
+    matchedDetail,
     constituents,
     dates,
     requestedDate,

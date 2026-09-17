@@ -2,7 +2,7 @@
 import { computed, nextTick, ref, watch } from 'vue';
 import { use } from 'echarts/core';
 import type { ECElementEvent } from 'echarts/core';
-import { HeatmapChart } from 'echarts/charts';
+import { HeatmapChart, CustomChart } from 'echarts/charts';
 import { GridComponent, TooltipComponent, VisualMapComponent } from 'echarts/components';
 import { CanvasRenderer } from 'echarts/renderers';
 import VChart from 'vue-echarts';
@@ -11,7 +11,7 @@ import type { IndustryHistory, IndustrySnapshot } from '@/api/industryStrength';
 import { selectedDateLeaders } from './display';
 import { heatmapOption } from './chartOptions';
 
-use([HeatmapChart, GridComponent, TooltipComponent, VisualMapComponent, CanvasRenderer]);
+use([HeatmapChart, CustomChart, GridComponent, TooltipComponent, VisualMapComponent, CanvasRenderer]);
 
 const props = defineProps<{ rows: IndustrySnapshot[]; history: IndustryHistory; selected: string; active?: boolean }>();
 const emit = defineEmits<{ select: [code: string] }>();

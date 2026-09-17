@@ -10,6 +10,7 @@ import {
   heatmapNormalizedRank,
   selectedDateLeaders,
   stateCounts,
+  coverageInsufficient,
 } from '../display';
 
 function row(overrides: Partial<IndustrySnapshot> = {}): IndustrySnapshot {
@@ -82,5 +83,23 @@ describe('industry strength display', () => {
     expect(leaders.at(-1)?.strengthRank).toBe(20);
     expect(heatmapNormalizedRank(1, 21)).toBe(100);
     expect(heatmapNormalizedRank(21, 21)).toBe(0);
+  });
+
+  it('does not treat 96% partial coverage as 覆盖不足, but flags coverage below 0.95', () => {
+    expect(coverageInsufficient(row({
+      quality: {
+        ...row().quality,
+        dailyBreadthCoverage: 0.96,
+        ma5Coverage: 0.96,
+        ma20Coverage: 0.96,
+        breadthStatus: 'partial',
+      },
+    }))).toBe(false);
+    expect(coverageInsufficient(row({
+      quality: { ...row().quality, dailyBreadthCoverage: 0.94, ma5Coverage: 1, ma20Coverage: 1, breadthStatus: 'partial' },
+    }))).toBe(true);
+    expect(coverageInsufficient(row({
+      quality: { ...row().quality, dailyBreadthCoverage: 1, ma5Coverage: 1, ma20Coverage: 1, breadthStatus: 'unavailable_historical_members' },
+    }))).toBe(false);
   });
 });

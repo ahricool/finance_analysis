@@ -51,7 +51,21 @@ const emit = defineEmits<{
   dismissMembersError: [];
 }>();
 
-const current = computed(() => props.detail?.current ?? props.row ?? null);
+const matchedDetail = computed(() => {
+  const current = props.detail?.current;
+  if (!current) return null;
+  if (current.industryCode !== props.code) return null;
+  if (!props.snapshotDate || current.tradeDate !== props.snapshotDate) return null;
+  return props.detail;
+});
+const matchingRow = computed(() => {
+  if (!props.row) return null;
+  if (props.row.industryCode !== props.code) return null;
+  if (props.snapshotDate && props.row.tradeDate !== props.snapshotDate) return null;
+  return props.row;
+});
+const current = computed(() => matchedDetail.value?.current ?? matchingRow.value ?? null);
+const historyItems = computed(() => matchedDetail.value?.history ?? []);
 const overviewItems = computed(() => {
   const row = current.value;
   if (!row) return [];
@@ -257,8 +271,9 @@ function ma(value: boolean | null) {
               历史指标跟随所选快照日期 {{ snapshotDate || '—' }}，最多展示截至该日的 20 个已保存交易日。
             </p>
             <div
-              v-if="detail?.history.length"
+              v-if="historyItems.length"
               class="max-h-[28rem] overflow-auto rounded-lg border"
+              data-testid="industry-detail-history"
             >
               <Table container-class="overflow-visible">
                 <TableHeader class="sticky top-0 bg-background">
@@ -273,7 +288,7 @@ function ma(value: boolean | null) {
                 </TableHeader>
                 <TableBody>
                   <TableRow
-                    v-for="item in [...detail.history].reverse()"
+                    v-for="item in [...historyItems].reverse()"
                     :key="item.tradeDate"
                   >
                     <TableCell class="tabular-nums">
@@ -310,7 +325,13 @@ function ma(value: boolean | null) {
               </Table>
             </div>
             <p
-              v-else-if="!detailLoading"
+              v-else-if="detailLoading"
+              class="py-10 text-center text-muted-foreground"
+            >
+              正在加载历史表现…
+            </p>
+            <p
+              v-else
               class="py-10 text-center text-muted-foreground"
             >
               暂无该行业历史快照。

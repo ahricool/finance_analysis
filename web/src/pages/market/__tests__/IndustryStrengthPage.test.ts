@@ -295,4 +295,88 @@ describe('Industry Strength', () => {
     expect(toCamelCase({ rs_5d: .1, ret_10d: .2, above_ma5_ratio: .6, rank_change_3d: 1 }))
       .toEqual({ rs5D: .1, ret10D: .2, aboveMa5Ratio: .6, rankChange3D: 1 });
   });
+
+  it('does not show industry A metrics under industry B while B detail is pending', async () => {
+    api.detail.mockImplementation(async (code: string) => ({
+      current: rows.find(r => r.industryCode === code),
+      history: [{ ...rows.find(r => r.industryCode === code)!, tradeDate: '2026-08-01', strengthScore: 12.34 }],
+    }));
+    const wrapper = await render(); await flushPromises();
+    await wrapper.get('[data-testid="industry-ranking"]').findAll('button').find(b => b.text() === '行业甲')!.trigger('click');
+    await flushPromises();
+    await wrapper.getComponent(IndustryDetailDrawer).vm.$emit('update:tab', 'history');
+    await flushPromises();
+    expect(detailText()).toContain('2026-08-01');
+    let resolveB!: (value: unknown) => void;
+    api.detail.mockReturnValueOnce(new Promise(r => { resolveB = r; }));
+    await wrapper.get('[data-testid="industry-ranking"]').findAll('button').find(b => b.text() === '行业乙')!.trigger('click');
+    await flushPromises();
+    expect(detailText()).toContain('行业乙');
+    expect(detailText()).not.toContain('2026-08-01');
+    expect(detailText()).toContain('强度排名 2');
+    expect(detailText()).toContain('正在加载历史表现');
+    resolveB({ current: rows[1], history: [{ ...rows[1], tradeDate: '2026-08-02' }] });
+    await flushPromises();
+    expect(detailText()).toContain('行业乙');
+    expect(detailText()).not.toContain('2026-08-01');
+    wrapper.unmount();
+  });
+
+  it('does not keep T detail history after a failed T-1 detail request', async () => {
+    api.detail.mockImplementation(async (code: string, tradeDate?: string) => ({
+      current: { ...rows.find(r => r.industryCode === code)!, tradeDate: tradeDate ?? '2026-09-16' },
+      history: [{ ...rows[0], tradeDate: '2026-08-01', strengthScore: 12.34 }],
+    }));
+    const wrapper = await render(); await flushPromises();
+    await wrapper.get('[data-testid="industry-ranking"]').findAll('button').find(b => b.text() === '行业甲')!.trigger('click');
+    await flushPromises();
+    await wrapper.getComponent(IndustryDetailDrawer).vm.$emit('update:tab', 'history');
+    await flushPromises();
+    expect(detailText()).toContain('2026-08-01');
+    api.ranking.mockResolvedValueOnce({
+      tradeDate: '2026-09-15', expectedTradeDate: '2026-09-16',
+      items: rows.map(item => ({ ...item, tradeDate: '2026-09-15' })),
+    });
+    api.history.mockResolvedValueOnce({ dates: ['2026-09-15'], items: [] });
+    api.detail.mockRejectedValueOnce(new Error('detail offline'));
+    wrapper.getComponent(AppDatePicker).vm.$emit('update:modelValue', '2026-09-15');
+    await flushPromises();
+    expect(wrapper.get('[data-testid="industry-trade-date"]').text()).toContain('2026-09-15');
+    expect(detailText()).toContain('实际查询快照日期 2026-09-15');
+    expect(detailText()).not.toContain('2026-08-01');
+    wrapper.unmount();
+  });
+
+  it('does not paint T history onto the T-1 heatmap', async () => {
+    const wrapper = await render(); await flushPromises();
+    await wrapper.get('[data-testid="industry-view-history"]').trigger('click');
+    expect(wrapper.getComponent(IndustryRankHeatmap).props('history').dates).toEqual(['2026-09-16']);
+    let resolveHistory!: (reason?: unknown) => void;
+    api.ranking.mockResolvedValueOnce({
+      tradeDate: '2026-09-15', expectedTradeDate: '2026-09-16',
+      items: rows.map(item => ({ ...item, tradeDate: '2026-09-15' })),
+    });
+    api.history.mockReturnValueOnce(new Promise((_, reject) => { resolveHistory = reject; }));
+    wrapper.getComponent(AppDatePicker).vm.$emit('update:modelValue', '2026-09-15');
+    await flushPromises();
+    expect(wrapper.find('[data-testid="industry-history-loading"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="industry-heatmap"]').exists()).toBe(false);
+    resolveHistory(new Error('history offline'));
+    await flushPromises();
+    expect(wrapper.find('[data-testid="industry-heatmap-empty"]').exists()).toBe(true);
+    expect(wrapper.getComponent(IndustryRankHeatmap).props('history').dates).toEqual([]);
+    wrapper.unmount();
+  });
+
+  it('does not show 覆盖不足 for 96% partial coverage', async () => {
+    api.ranking.mockResolvedValue({
+      tradeDate: '2026-09-16', expectedTradeDate: '2026-09-16', items: [
+        { ...row(), quality: { ...row().quality, dailyBreadthCoverage: 0.96, ma5Coverage: 0.96, ma20Coverage: 0.96, breadthStatus: 'partial' } },
+      ],
+    });
+    const wrapper = await render(); await flushPromises();
+    expect(wrapper.text()).not.toContain('覆盖不足');
+    expect(wrapper.text()).not.toContain('对应广度比例显示为不可用');
+    wrapper.unmount();
+  });
 });

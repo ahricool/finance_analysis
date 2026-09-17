@@ -24,7 +24,7 @@ import { formatDateTime } from '@/utils/format';
 
 const page = useIndustryStrength();
 const {
-  ranking, history, detail, constituents, dates, requestedDate, selected, selectedLabel,
+  ranking, chartHistory, matchedDetail, constituents, dates, requestedDate, selected, selectedLabel,
   drawerOpen, missingSelected, view, detailTab, loading, refreshing, dateSwitching,
   historyLoading, detailLoading, membersLoading, stale, error, refreshError,
   dateError, historyError, datesError, detailError, membersError, rows, summary, snapshotMeta,
@@ -392,6 +392,7 @@ onMounted(() => loadRanking('initial'));
           <p
             v-if="historyLoading"
             class="mb-2 text-sm text-muted-foreground"
+            data-testid="industry-history-loading"
           >
             正在加载排名历史…
           </p>
@@ -399,9 +400,10 @@ onMounted(() => loadRanking('initial'));
             所选日 Top20 · 历史强度排名
           </h2>
           <IndustryRankHeatmap
+            v-if="chartHistory.dates.length || !historyLoading"
             class="mt-3"
             :rows="rows"
-            :history="history"
+            :history="chartHistory"
             :selected="selected"
             :active="view === 'history'"
             @select="openIndustry"
@@ -416,7 +418,7 @@ onMounted(() => loadRanking('initial'));
       :code="selected"
       :snapshot-date="actualTradeDate"
       :row="selectedRow"
-      :detail="detail"
+      :detail="matchedDetail"
       :constituents="constituents"
       :detail-loading="detailLoading"
       :members-loading="membersLoading"
