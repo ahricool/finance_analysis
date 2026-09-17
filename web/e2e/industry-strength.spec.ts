@@ -13,6 +13,24 @@ const rows = names.map((name, i) => ({
   data_timestamp: `${day}T07:00:00Z`, members_observed_at: `${day}T11:10:00Z`, created_at: `${day}T11:12:00Z`, updated_at: `${day}T11:12:00Z`,
   quality: { catalog_count: 20, ranked_count: 20, coverage: 1, excluded: {} },
 }));
+
+async function mockIndustryApis(page: import('@playwright/test').Page) {
+  await page.route('**/api/v1/**', async route => {
+    const url = new URL(route.request().url()); const path = url.pathname;
+    if (path === '/api/v1/auth/status') return route.fulfill({ json: { loggedIn: true, user: { uid: 1, username: 'Tester', role: 'user', extra: {} } } });
+    if (path.endsWith('/ranking')) return route.fulfill({ json: { trade_date: day, expected_trade_date: day, items: rows } });
+    if (path.endsWith('/dates')) return route.fulfill({ json: [...dates].reverse() });
+    if (path.endsWith('/history')) return route.fulfill({ json: { dates, items: dates.flatMap((d, j) => rows.map((r, i) => ({ ...r, trade_date: d, strength_rank: 1 + (i + j) % 20 }))) } });
+    if (path.endsWith('/constituents')) return route.fulfill({ json: { industry_code: path.split('/').at(-2), trade_date: day, members_observed_at: `${day}T11:20:00Z`, constituent_count: 2, daily_valid_count: 2, ma5_valid_count: 2, above_ma5_count: 1, ma20_valid_count: 2, above_ma20_count: 1, items: [
+      { code: '600001.SH', name: '示例成分甲', price: 42.5, change_pct: .035, above_ma5: true, above_ma20: true, amount: 600000000 },
+      { code: '600002.SH', name: '示例成分乙', price: 21.5, change_pct: -.021, above_ma5: false, above_ma20: true, amount: 350000000 },
+    ] } });
+    const row = rows.find(r => path.endsWith(r.industry_code));
+    if (row) return route.fulfill({ json: { current: row, history: dates.map(d => ({ ...row, trade_date: d })) } });
+    return route.fulfill({ json: {} });
+  });
+}
+
 for (const width of [1280, 1440, 1920]) {
   for (const theme of ['light', 'dark']) {
     test(`industry strength ${width}px ${theme}`, async ({ page }, testInfo) => {
@@ -20,28 +38,26 @@ for (const width of [1280, 1440, 1920]) {
       await page.addInitScript(value => localStorage.setItem('theme', value), theme);
       const errors: string[] = [];
       page.on('pageerror', error => errors.push(error.message));
-      await page.route('**/api/v1/**', async route => {
-        const url = new URL(route.request().url()); const path = url.pathname;
-        if (path === '/api/v1/auth/status') return route.fulfill({ json: { loggedIn: true, user: { uid: 1, username: 'Tester', role: 'user', extra: {} } } });
-        if (path.endsWith('/ranking')) return route.fulfill({ json: { trade_date: day, expected_trade_date: day, items: rows } });
-        if (path.endsWith('/dates')) return route.fulfill({ json: [...dates].reverse() });
-        if (path.endsWith('/history')) return route.fulfill({ json: { dates, items: dates.flatMap((d, j) => rows.map((r, i) => ({ ...r, trade_date: d, strength_rank: 1 + (i + j) % 20 }))) } });
-        if (path.endsWith('/constituents')) return route.fulfill({ json: { trade_date: day, members_observed_at: `${day}T11:20:00Z`, constituent_count: 2, daily_valid_count: 2, ma5_valid_count: 2, above_ma5_count: 1, ma20_valid_count: 2, above_ma20_count: 1, items: [
-          { code: '600001.SH', name: '示例成分甲', price: 42.5, change_pct: .035, above_ma5: true, above_ma20: true, amount: 600000000 },
-          { code: '600002.SH', name: '示例成分乙', price: 21.5, change_pct: -.021, above_ma5: false, above_ma20: true, amount: 350000000 },
-        ] } });
-        const row = rows.find(r => path.endsWith(r.industry_code));
-        if (row) return route.fulfill({ json: { current: row, history: dates.map(d => ({ ...row, trade_date: d })) } });
-        return route.fulfill({ json: {} });
-      });
+      await mockIndustryApis(page);
       await page.goto('/research/industry-strength');
       await expect(page.getByRole('heading', { name: '行业强度', exact: true })).toBeVisible();
       await expect(page.getByTestId('module-tabs').getByRole('tab', { name: '行业强度' })).toHaveAttribute('data-state', 'active');
+      await expect(page.getByTestId('industry-detail')).toHaveCount(0);
       await expect(page.getByTestId('industry-ranking').locator('tbody tr')).toHaveCount(20);
-      await expect(page.locator('canvas')).toHaveCount(2);
-      await expect(page.getByTestId('industry-detail')).toContainText('示例成分甲');
+      await expect(page.getByTestId('industry-summary')).toContainText('动量降速最大');
+      await page.getByTestId('industry-view-matrix').click();
+      await expect(page.getByTestId('industry-matrix').locator('canvas')).toHaveCount(1);
+      await page.getByTestId('industry-view-history').click();
+      await expect(page.getByRole('heading', { name: '所选日 Top20 · 历史强度排名' })).toBeVisible();
+      await expect(page.getByTestId('industry-heatmap').locator('canvas')).toHaveCount(1);
+      await page.getByTestId('industry-view-ranking').click();
       await page.getByTestId('industry-ranking').getByRole('button', { name: '通信设备', exact: true }).click();
       await expect(page.getByTestId('industry-detail')).toContainText('通信设备');
+      await expect(page.getByTestId('industry-detail')).toContainText(`实际查询快照日期 ${day}`);
+      await page.getByRole('tab', { name: '当前成分股' }).click();
+      await expect(page.getByTestId('industry-constituents-banner')).toContainText('不随上方历史快照日期切换');
+      await expect(page.getByTestId('industry-detail')).toContainText('示例成分甲');
+      await page.getByTestId('industry-drawer-close').click();
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
       await page.screenshot({ path: testInfo.outputPath(`industry-${width}-${theme}.png`), fullPage: true });
       await page.getByTestId('industry-date-picker').getByRole('button').first().click();
@@ -53,8 +69,21 @@ for (const width of [1280, 1440, 1920]) {
       const selectedDate = new URL((await selectedRequest).url()).searchParams.get('trade_date');
       expect(dates).toContain(selectedDate);
       await page.getByRole('button', { name: '清空日期' }).click();
-      await expect(page.getByTestId('industry-date-picker')).toContainText('最新快照');
+      await expect(page.getByTestId('industry-date-picker')).toContainText('最新');
       expect(errors).toEqual([]);
     });
   }
 }
+
+test('industry strength drawer is near full width at 390px', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.addInitScript(() => localStorage.setItem('theme', 'light'));
+  await mockIndustryApis(page);
+  await page.goto('/research/industry-strength');
+  await page.getByTestId('industry-summary-strongest').click();
+  const drawer = page.getByTestId('industry-detail');
+  await expect(drawer).toBeVisible();
+  const box = await drawer.boundingBox();
+  expect(box?.width ?? 0).toBeGreaterThan(300);
+  await expect(page.getByTestId('industry-summary').locator('[data-slot="card"]')).toHaveCount(4);
+});
