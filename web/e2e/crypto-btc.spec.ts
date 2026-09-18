@@ -39,7 +39,7 @@ for (const width of [1280, 1440]) {
       websocket = ws;
       ws.send(JSON.stringify({ type: 'state', market }));
     });
-    await page.goto('/research/crypto/btc');
+    await page.goto('/crypto/btc');
     await expect(page.getByTestId('crypto-btc-page')).toBeVisible();
     await expect(page.getByText('EMA20 · 1h', { exact: true })).toBeVisible();
     const chart = page.getByTestId('btc-kline-chart');

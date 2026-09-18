@@ -13,6 +13,7 @@ describe('main navigation', () => {
       '时间线',
       '研究',
       '市场',
+      '加密货币',
       '任务中心',
     ]);
     expect(mainNavItems.map((item) => item.key)).not.toContain('chat');
@@ -38,7 +39,6 @@ describe('main navigation', () => {
       { key: 'market-sentiment', label: '市场情绪', to: '/research/market-sentiment' },
       { key: 'macro', label: '宏观数据', to: '/research/macro' },
       { key: 'quant', to: '/research/quant', activePathPrefix: '/research/quant' },
-      { key: 'crypto-btc', to: '/research/crypto/btc' },
     ]);
     expect(allNavDestinations.map((item) => item.key)).toEqual([
       'dashboard',
@@ -49,9 +49,9 @@ describe('main navigation', () => {
       'market-sentiment',
       'macro',
       'quant',
-      'crypto-btc',
       'watch-list',
       'holdings',
+      'crypto-btc',
       'tasks',
     ]);
     expect(mainNavItems.find((item) => item.key === 'tasks')).toMatchObject({

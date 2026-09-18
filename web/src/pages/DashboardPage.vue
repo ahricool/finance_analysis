@@ -304,7 +304,7 @@ const number = (value: string | undefined) => value && Number.isFinite(Number(va
         </div>
         <div class="mt-5 rounded-lg border px-5 py-4">
           <RouterLink
-            to="/research/crypto/btc"
+            to="/crypto/btc"
             class="flex items-center gap-2 text-sm font-semibold"
           >
             <Bitcoin class="size-4" /> BTCUSDT <span class="ml-auto text-xs font-normal text-muted-foreground">24 / 7</span><ArrowUpRight class="size-4" />
