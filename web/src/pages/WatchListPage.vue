@@ -86,8 +86,8 @@ const marketFilterOptions: { value: MarketFilter; label: string }[] = [
   { value: 'CN', label: 'A 股' },
 ];
 const selectedMarket = ref<MarketFilter>('ALL');
-const sortKey = ref<WatchListSortKey | null>(null);
-const sortDirection = ref<SortDirection>('asc');
+const sortKey = ref<WatchListSortKey | null>('is_favorite');
+const sortDirection = ref<SortDirection>('desc');
 
 const visibleItems = computed(() => {
   const filtered =
