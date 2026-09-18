@@ -19,7 +19,7 @@ def timeline_query(
     market: str | None = None,
     category: Category | None = None,
     calendar_type: CalendarType | None = None,
-    importance: Importance | None = None,
+    importance: Importance | None = Query(None, description="最低重要性，包含所选等级及以上：low < normal < high < critical"),
 ):
     """``end_date`` is a cutoff: keep everything up to the end of that display-timezone day."""
     try:

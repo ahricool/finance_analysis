@@ -755,18 +755,25 @@ def test_importance_filters_unified_sources_and_cursor(db, monkeypatch, importan
     seed_news(db)
     client = timeline_client(db, monkeypatch)
     params = dict(importance=importance, market="US", end_date=NOW.date().isoformat(), limit=1)
+    included_levels = {
+        "critical": {"critical"},
+        "high": {"critical", "high"},
+        "normal": {"critical", "high", "normal"},
+        "low": {"critical", "high", "normal", "low"},
+    }[importance]
     titles = []
     while True:
         response = client.get("/api/v1/timeline", params=params)
         assert response.status_code == 200
         page = response.json()
-        assert all(item["importance"] == importance for item in page["items"])
+        assert all(item["importance"] in included_levels for item in page["items"])
+        assert page["total"] == len(included_levels) + 2
         titles.extend(item["title"] for item in page["items"])
         if not page["has_more"]:
             break
         params["cursor"] = page["next_cursor"]
-    assert importance in titles
-    assert len(titles) == (3 if importance == "critical" else 1)
+    assert included_levels.issubset(titles)
+    assert len(titles) == len(included_levels) + 2
 
 
 def test_importance_combines_with_calendar_type_market_and_cutoff(db, monkeypatch):

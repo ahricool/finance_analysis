@@ -67,9 +67,12 @@ class TimelineService:
         stmt = select(projection)
         if end_date is not None:
             stmt = stmt.where(projection.c.event_time < day_bounds_utc(end_date, timezone_name)[1])
-        for key in ("market", "category", "calendar_type", "importance"):
+        for key in ("market", "category", "calendar_type"):
             if filters.get(key):
                 stmt = stmt.where(projection.c[key] == filters[key])
+        if importance := filters.get("importance"):
+            levels = ("low", "normal", "high", "critical")
+            stmt = stmt.where(projection.c.importance.in_(levels[levels.index(importance) :]))
         return stmt.subquery()
 
     def list(self, *, cursor: TimelineCursor | None = None, limit=20, **query):

@@ -53,7 +53,8 @@ DESC Timeline。API 没有隐藏的默认日期；Timeline 页面首次进入明
 
 - `GET /api/v1/timeline`：`end_date`、`timezone`、`market`、`category`、`calendar_type`、`importance`、`cursor`、`limit`。
 
-`importance` 支持 critical / high / normal / low，省略表示全部。它与市场、类型、截止日期在统一 projection
+`importance` 指定最低等级，按 low < normal < high < critical 包含所选等级及以上，省略表示全部。
+例如 high 同时返回 high 和 critical。它与市场、类型、截止日期在统一 projection
 上组合过滤，不改变来源评分。页面任一查询条件或时区变化都会清空 cursor，重新请求第一页。
 
 不再存在 `date` / `start_date` 范围参数、`/timeline/summary`，以及 `POST|PUT|DELETE /timeline/notes*`。

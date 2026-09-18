@@ -160,7 +160,7 @@ function safeUrl(value: unknown) { return typeof value === 'string' && /^https?:
             :key="value"
             :value="value"
           >
-            {{ importanceNames[value] }}
+            {{ importanceNames[value] }} 及以上
           </option>
         </select>
       </div>
