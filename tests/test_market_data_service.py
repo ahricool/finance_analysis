@@ -1008,10 +1008,11 @@ def test_replace_daily_history_uses_one_transaction_for_delete_and_insert():
 
 
 @pytest.mark.parametrize(
-    ("sync_mode", "expected_windows"),
-    [("incremental", [5 * 365, 60]), ("full", [5 * 365, 5 * 365])],
+    ("sync_mode", "has_history", "expected_windows"),
+    [("incremental", True, [5 * 365, 60]), ("full", True, [5 * 365, 5 * 365]),
+     ("incremental", False, [5 * 365, 5 * 365])],
 )
-def test_sync_mode_preserves_sixty_day_incremental_and_five_year_full_windows(sync_mode, expected_windows):
+def test_sync_mode_preserves_sixty_day_incremental_and_five_year_full_windows(sync_mode, has_history, expected_windows):
     symbol = SimpleNamespace(id=1, code="600000.SH")
     service = MarketDataSyncService.__new__(MarketDataSyncService)
     service.market = "CN"
@@ -1030,7 +1031,7 @@ def test_sync_mode_preserves_sixty_day_incremental_and_five_year_full_windows(sy
 
     service._refresh_days = refresh_days
     service.stock_repository = SimpleNamespace(
-        has_daily_data=lambda _symbol_id: True,
+        has_daily_data=lambda _symbol_id: has_history,
         daily_ids_on_date=lambda ids, day: set(ids),
     )
     service._sync_daily_batch_groups = lambda _symbols, _days, **_kwargs: {

@@ -1,4 +1,4 @@
-"""DB-backed stock analysis with read-only CSI2000 and benchmark tail refresh."""
+"""DB-backed stock analysis with read-only benchmark tail refresh."""
 
 from __future__ import annotations
 
@@ -10,7 +10,6 @@ from typing import Any
 
 from ..core.time import utc_isoformat, utc_now
 from ..database.repositories.trend_following import TrendFollowingRepository
-from ..database.repositories.universe import UniverseResolver
 from ..integrations.market_data.preview import (
     CN_PREVIEW_PROVIDER,
     PreviewQuoteError,
@@ -243,11 +242,6 @@ class TrendFollowingService:
         save_preview(self.market, payload)
         return payload
 
-    def _csi2000_universe_codes(self, universe_codes: set[str]) -> set[str]:
-        if self.market != "CN":
-            return set()
-        return {item.code for item in UniverseResolver().resolve_universe("cn_csi2000")} & universe_codes
-
     def _duration_calendar_lookback_days(self) -> int:
         return max(self.config.calendar_lookback_days, DURATION_CALENDAR_LOOKBACK_DAYS)
 
@@ -258,7 +252,7 @@ class TrendFollowingService:
         *,
         calendar_lookback_days: int | None = None,
     ) -> dict[str, list[DailyBar]]:
-        """Read-only CSI2000 / benchmark tails. Official and preview share this db_fresh path."""
+        """Read-only benchmark tails. Official and preview share this db_fresh path."""
         if not codes:
             return {}
         lookback = self.config.calendar_lookback_days if calendar_lookback_days is None else calendar_lookback_days
@@ -332,23 +326,13 @@ class TrendFollowingService:
         universe_codes = set(member_by_code)
         benchmark_code = self.config.benchmark_codes[self.market]
         universe_key = self.config.universe_keys[self.market]
-        csi2000_codes = self._csi2000_universe_codes(universe_codes)
-        db_codes = universe_codes - csi2000_codes
         duration_lookback = self._duration_calendar_lookback_days()
-        supplemental = self._forward_adjusted_histories(
-            csi2000_codes, effective_date, calendar_lookback_days=duration_lookback
-        )
         benchmark_history = self._forward_adjusted_histories(
             {benchmark_code}, effective_date, calendar_lookback_days=duration_lookback
         ).get(benchmark_code, [])
         drop_today = overlay_bars is not None
         if overlay_bars is None:
-            ready_codes = self.repository.daily_codes_on_date(db_codes, effective_date)
-            ready_codes.update(
-                code
-                for code in csi2000_codes
-                if any(bar.trade_date == effective_date for bar in supplemental.get(code, []))
-            )
+            ready_codes = self.repository.daily_codes_on_date(universe_codes, effective_date)
             benchmark_ready = bool(benchmark_history and benchmark_history[-1].trade_date == effective_date)
         else:
             ready_codes = {code for code in universe_codes if code in overlay_bars}
@@ -393,13 +377,11 @@ class TrendFollowingService:
             }
 
         histories = self._load_db_histories(
-            db_codes,
+            universe_codes,
             effective_date,
             drop_today=drop_today,
             calendar_lookback_days=duration_lookback,
         )
-        for code, bars in supplemental.items():
-            histories[code] = _bars_before(bars, effective_date) if drop_today else bars
         if overlay_bars is None:
             benchmark_bars = benchmark_history
         else:

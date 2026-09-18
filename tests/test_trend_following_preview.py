@@ -467,16 +467,12 @@ def test_official_run_after_preview_still_inherits_previous_official_state(monke
 
 
 
-def test_cn_preview_completes_with_csi2000_db_fresh_history(monkeypatch):
+def test_cn_preview_completes_with_csi2000_db_history(monkeypatch):
     codes = ("600001.SH", "600002.SH", "600003.SH")
     csi2000 = {"600002.SH", "600003.SH"}
     monkeypatch.setattr(
         "finance_analysis.trend_following.service.get_universe",  # pragma: allowlist secret
         lambda market: tuple(UniverseMember("CN", code, code) for code in codes),
-    )
-    monkeypatch.setattr(
-        "finance_analysis.trend_following.service.UniverseResolver",  # pragma: allowlist secret
-        lambda: SimpleNamespace(resolve_universe=lambda key: [SimpleNamespace(code=code) for code in sorted(csi2000)]),
     )
     overlay = {code: _overlay_bar(200.0 + index) for index, code in enumerate(codes)}
     overlay["510300.SH"] = _overlay_bar(160.0)
@@ -494,13 +490,11 @@ def test_cn_preview_completes_with_csi2000_db_fresh_history(monkeypatch):
         market = "CN"
 
         def load_daily_history(self, requested, trade_date, *, calendar_lookback_days):
-            assert set(requested) == {"600001.SH"}
-            return _history_rows("600001.SH", trade_date, 1.2)
+            assert set(requested) == set(codes)
+            return [row for code in requested for row in _history_rows(code, trade_date, 1.2)]
 
     repository = Repository()
     bars_by_code = {
-        "600002.SH": _history_rows("600002.SH", TRADE_DATE, 0.8),
-        "600003.SH": _history_rows("600003.SH", TRADE_DATE, 0.6),
         "510300.SH": _history_rows("510300.SH", TRADE_DATE, 0.7),
     }
     market_data, calls = _forward_market_data(bars_by_code)
@@ -515,8 +509,8 @@ def test_cn_preview_completes_with_csi2000_db_fresh_history(monkeypatch):
     assert {item["code"] for item in saved[0]["snapshots"]} >= csi2000
     assert repository.replace_calls == []
     assert repository.previous_calls == [(TRADE_DATE, set(codes))]
-    assert calls[0][0] == ["600002.SH", "600003.SH"]
-    assert calls[1][0] == ["510300.SH"]
+    assert len(calls) == 1
+    assert calls[0][0] == ["510300.SH"]
     assert all(call[3] == {"adjustment": "forward", "source_policy": "db_fresh"} for call in calls)
     csi_row = next(item for item in result["snapshots"] if item["code"] == "600002.SH")
     assert csi_row["reference_price"] == overlay["600002.SH"].close

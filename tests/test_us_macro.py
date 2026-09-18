@@ -108,7 +108,7 @@ def test_seed_migration_idempotence_scope_and_etf_isolation(database):
     resolver = UniverseResolver(UniverseRepository(database))
     before = {item.code: item.id for item in resolver.resolve_universe("us_index_etf")}
     scripts = ScriptDirectory.from_config(Config("alembic.ini"))
-    assert scripts.get_heads() == ["0056_market_sentiment"]
+    assert scripts.get_heads() == ["0057_us_trend_universe"]
     migration = scripts.get_revision("0051_us_macro").module
     with database.engine.begin() as connection:
         migration.op = Operations(MigrationContext.configure(connection))
@@ -157,6 +157,8 @@ def test_startup_seed_keeps_macro_include(database):
     parent = repository.get_by_key("us_daily_sync")
     assert {item.key for item in repository.list_included_universes(parent.id)} == {
         "us_sp500",
+        "us_sp400",
+        "us_nasdaq100",
         "us_index_etf",
         "us_macro",
     }

@@ -9,7 +9,7 @@ Macro 不自己同步行情，Macro API 不访问 yfinance；正式行情统一�
 - 成员按展示顺序：`SPY.US, QQQ.US, TLT.US, UUP.US, USO.US, GLD.US,
   HYG.US, LQD.US, IWM.US, SMH.US, XLY.US, XLP.US, VIX.US`。
 - 全部为 USD；VIX 是 INDEX，其余是 ETF。复用已有 Instrument ID 和名称。
-- `us_daily_sync` include `us_sp500`、`us_index_etf`、`us_macro`。
+- `us_daily_sync` 直接 include `us_sp500`、`us_sp400`、`us_nasdaq100`、`us_index_etf`、`us_macro`，不依赖策略池。
   `us_index_etf` 的 ETF Rotation 成员和分类不变。
 - Migration `0051_us_macro` 与启动参考数据 seed 幂等补齐证券、成员及 include；
   downgrade 仅删除 Macro Universe 及关系，保留共享证券与行情。
