@@ -12,11 +12,13 @@ const props = withDefaults(
   defineProps<{
     modelValue: string;
     disabled?: boolean;
+    teleported?: boolean;
     placeholder?: string;
     class?: string;
   }>(),
   {
     disabled: false,
+    teleported: true,
     placeholder: '输入股票代码或名称',
     class: '',
   },
@@ -48,7 +50,7 @@ const {
 } = useAutocomplete();
 
 const inputRef = ref<HTMLInputElement | null>(null);
-const dropdownStyle = ref<{ top: string; left: string; width: string } | null>(null);
+const dropdownStyle = ref<Record<string, string> | null>(null);
 
 let openListenersCleanup: (() => void) | null = null;
 
@@ -56,6 +58,10 @@ function updateDropdownPosition() {
   const el = inputRef.value;
   if (!el) {
     dropdownStyle.value = null;
+    return;
+  }
+  if (!props.teleported) {
+    dropdownStyle.value = { position: 'absolute', top: '100%', left: '0', width: '100%' };
     return;
   }
   const rect = el.getBoundingClientRect();
@@ -221,7 +227,10 @@ function onCompositionEnd(e: CompositionEvent) {
       <div class="h-4 w-4 animate-spin rounded-full border-2 border-primary/20 border-t-primary" />
     </div>
 
-    <Teleport to="body">
+    <Teleport
+      to="body"
+      :disabled="!teleported"
+    >
       <SuggestionsList
         v-if="isOpen && dropdownStyle"
         :suggestions="suggestions"
