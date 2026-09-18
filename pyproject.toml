@@ -38,6 +38,8 @@ dependencies = [
     "pyarrow>=20.0.0,<24.0.0",
     "websockets>=15,<17",
     "paramiko>=3.5,<5",
+    "mcp>=1.26,<2",
+    "pglast>=7,<8",
 ]
 
 [project.scripts]
@@ -87,3 +89,6 @@ skip = [".git", "__pycache__", ".env", "venv", ".venv"]
 [tool.bandit]
 exclude_dirs = ["tests", "test_*.py"]
 skips = ["B101"]  # assert 语句在测试中是允许的
+
+[tool.pytest.ini_options]
+markers = ["network: opt-in tests requiring external or explicitly configured disposable services"]

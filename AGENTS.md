@@ -328,3 +328,10 @@ API `/api/v1/crypto` 与页面 `/research/crypto/btc` 统一走 `CryptoService`�
 `market_sentiment_cn` 上海19:20在独立任务锁下原子保存完整源与结果，核心不完整不覆盖旧结果，补数重算后续派生值。
 `/api/v1/market-sentiment` GET只读，管理员 `/run` 支持单日或最多31交易日异步补数；页面 `/research/market-sentiment`。
 主观察为非ST且非未开板新股；官方天梯有限样本和补充池独立展示，不参与评分。见 `docs/market-sentiment.md`。
+
+## Admin MCP
+
+`mcp/` 是挂载在现有 FastAPI `/mcp/` 的管理员底层只读诊断入口，独立 Bearer key、
+PostgreSQL 只读账号与 Redis ACL 账号；禁止回退业务连接或新增业务/写入/命令执行 tool。
+文件 jail 固定 `/data`，生产 server 只读挂载现有数据目录。权限、资源限制和部署步骤见
+`docs/mcp.md`，离线/临时服务测试位于 `tests/mcp/`。
