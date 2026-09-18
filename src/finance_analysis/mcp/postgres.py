@@ -1,12 +1,15 @@
 """Dedicated, short-lived read-only PostgreSQL transactions; never business Sessions."""
 
+import json
 import time
 from threading import Timer
 
 import psycopg2
 from sqlalchemy.engine import make_url
 
-from .security import MAX_RESULT_BYTES, encoded, qualify_functions, validate_sql
+from .errors import ReadValidationError
+from .security import MAX_RESULT_BYTES, validate_sql
+from .serialization import encoded
 
 
 class PostgresReader:
@@ -15,18 +18,14 @@ class PostgresReader:
 
     def query(self, sql: str, max_rows: int = 500) -> dict:
         kind = validate_sql(sql)
-        sql = qualify_functions(sql)
         if not 1 <= max_rows <= 5000:
-            raise ValueError("max_rows must be between 1 and 5000")
+            raise ReadValidationError("max_rows must be between 1 and 5000")
         start = time.monotonic()
         params = self.url.translate_connect_args(username="user")
         params.update(dict(self.url.query))
         params.update(
             connect_timeout=5,
-            options=(
-                "-c default_transaction_read_only=on "
-                "-c statement_timeout=10000 -c lock_timeout=2000 -c search_path=pg_catalog,public"
-            ),
+            options=("-c default_transaction_read_only=on " "-c statement_timeout=10000 -c lock_timeout=2000"),
         )
         conn = psycopg2.connect(**params)
 
@@ -47,7 +46,7 @@ class PostgresReader:
                     "FROM pg_roles WHERE rolname = current_user"
                 )
                 if any(check.fetchone()):
-                    raise ValueError("MCP database role must not have elevated privileges")
+                    raise ReadValidationError("MCP database role must not have elevated privileges")
             # Named cursors avoid buffering an entire SELECT result in the application.
             cursor = conn.cursor(name="mcp_read") if kind == "SelectStmt" else conn.cursor()
             with cursor:
@@ -62,7 +61,7 @@ class PostgresReader:
                     if len(rows) >= max_rows or size + row_size > MAX_RESULT_BYTES:
                         truncated = True
                         break
-                    rows.append(row)
+                    rows.append(json.loads(encoded(row)))
                     size += row_size
                     batch = cursor.fetchmany(1)
             return {

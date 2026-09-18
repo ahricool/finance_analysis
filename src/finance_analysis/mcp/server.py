@@ -6,19 +6,14 @@ import time
 from contextlib import asynccontextmanager
 
 from fastapi import HTTPException, Request
-from mcp.server.fastmcp import FastMCP
-from mcp.server.transport_security import TransportSecuritySettings
-from mcp.types import ToolAnnotations
 from starlette.background import BackgroundTask
 from starlette.concurrency import run_in_threadpool
 from starlette.responses import StreamingResponse
 
 from .auth import MCPAuthMiddleware
 from .config import MCPConfig
-from .filesystem import FileReader
-from .postgres import PostgresReader
-from .redis import RedisReader
-from .security import encoded
+from .errors import ReadValidationError
+from .serialization import encoded
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +23,16 @@ def install_mcp(app):
     app.add_middleware(MCPAuthMiddleware, enabled=config.enabled, api_key=config.api_key)
     if not config.enabled:
         return
+    # Disabled MCP does not import its SDK, SQL parser or Redis private parser.
+    from mcp.server.fastmcp import FastMCP
+    from mcp.server.fastmcp.exceptions import ToolError
+    from mcp.server.transport_security import TransportSecuritySettings
+    from mcp.types import ToolAnnotations
+
+    from .filesystem import FileReader
+    from .postgres import PostgresReader
+    from .redis import RedisReader
+
     files = FileReader()
     postgres = PostgresReader(config.database_url)
     redis = RedisReader(config.redis_url)
@@ -60,11 +65,11 @@ def install_mcp(app):
 
             result = json.loads(encoded(result))
             success = True
-        except ValueError as exc:
+        except ReadValidationError as exc:
             # Only our validation errors are safe to expose. External errors may contain SQL/credentials.
-            result = {"error": str(exc)}
+            raise ToolError(str(exc)) from None
         except Exception:
-            result = {"error": "Diagnostic read failed or server busy; check path, permissions and connection"}
+            raise ToolError("Diagnostic read failed or server busy; check path, permissions and connection") from None
         finally:
             logger.info(
                 "MCP tool=%s elapsed_ms=%d success=%s result_size=%d",

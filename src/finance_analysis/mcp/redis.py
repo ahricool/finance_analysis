@@ -4,7 +4,9 @@ from redis import Redis
 from redis._parsers.resp2 import _RESP2Parser
 from redis.connection import ConnectionPool
 
-from .security import MAX_RESULT_BYTES, encoded
+from .errors import ReadValidationError
+from .security import MAX_RESULT_BYTES
+from .serialization import encoded, text_or_binary
 
 ALLOWED = frozenset("""GET MGET HGET HMGET HGETALL HSCAN HLEN LRANGE LLEN ZRANGE ZREVRANGE
 ZCARD ZSCAN SMEMBERS SCARD SSCAN SCAN TYPE EXISTS TTL PTTL XLEN XRANGE XREVRANGE INFO""".split())
@@ -51,41 +53,20 @@ class BoundedParser(_RESP2Parser):
 def validate_command(command: str, args: list[str]):
     command = command.upper()
     if command not in ALLOWED:
-        raise ValueError("Redis command is not allowed")
-    if len(args) > 1000 or sum(len(arg.encode()) for arg in args) > 65536:
-        raise ValueError("Too many/large Redis arguments")
-    # SORT-like writes and module commands cannot be smuggled through options: each
-    # command is passed as one RESP token, with no command string interpretation.
+        raise ReadValidationError(f"Redis command {command} is not allowed")
     args = list(args)
     if command in {"SCAN", "HSCAN", "SSCAN", "ZSCAN"}:
         option_start = 1 if command == "SCAN" else 2
-        for i, arg in enumerate(args):
-            if arg.upper() == "COUNT" and i >= (1 if command == "SCAN" else 2):
-                if i + 1 >= len(args) or not 1 <= int(args[i + 1]) <= 1000:
-                    raise ValueError("SCAN COUNT must be 1–1000")
-        if not any(a.upper() == "COUNT" for a in args[option_start:]):
+        # MATCH/COUNT/TYPE options have a value; don't mistake a MATCH pattern
+        # named COUNT for the option. All other argument validation belongs to Redis.
+        if not any(arg.upper() == "COUNT" for arg in args[option_start::2]):
             args += ["COUNT", "500"]
-    if command in {"XRANGE", "XREVRANGE"}:
-        if len(args) == 3:
-            args += ["COUNT", "500"]
-        elif len(args) != 5 or args[3].upper() != "COUNT" or not 1 <= int(args[4]) <= 1000:
-            raise ValueError("Stream range requires key, start, end, optional COUNT 1–1000")
-    if command in {"LRANGE", "ZRANGE", "ZREVRANGE"}:
-        # Rank ranges only: predictable work; BYSCORE/BYLEX are intentionally unsupported.
-        if len(args) not in {3, 4} or (len(args) == 4 and (command == "LRANGE" or args[3].upper() != "WITHSCORES")):
-            raise ValueError("Use a bounded rank range, optionally WITHSCORES")
-        start, end = int(args[1]), int(args[2])
-        if (start < 0) != (end < 0) or end < start or end - start >= 1000:
-            raise ValueError("Range must select at most 1000 ranks with matching index signs")
     return command, args
 
 
 def json_value(value):
     if isinstance(value, bytes):
-        # Lossless binary representation, compatible with filesystem reads.
-        from .filesystem import FileReader
-
-        return FileReader.content(value)
+        return text_or_binary(value)
     if isinstance(value, (tuple, list)):
         return [json_value(item) for item in value]
     return value

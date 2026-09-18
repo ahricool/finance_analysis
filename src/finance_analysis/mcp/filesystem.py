@@ -1,9 +1,11 @@
 """Fixed /data jail. Descriptor-relative no-follow opens also prevent symlink races."""
 
-import base64
 import os
 from pathlib import Path
 import stat
+
+from .errors import ReadValidationError
+from .serialization import text_or_binary
 
 MAX_BYTES = 1024 * 1024
 MAX_ENTRIES = 2000
@@ -15,12 +17,12 @@ class FileReader:
 
     def open(self, path: str):
         if len(path) > 4096 or "\x00" in path or ".." in Path(path).parts:
-            raise ValueError("Invalid data path")
+            raise ReadValidationError("Invalid data path")
         relative = path.lstrip("/")
         # Both /logs/a and logs/a mean paths relative to the jail, never host paths.
         target = self.root / relative
         if not target.resolve().is_relative_to(self.root.resolve()):
-            raise ValueError("Path escapes /data")
+            raise ReadValidationError("Path escapes /data")
         fd = os.open(self.root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
         try:
             parts = Path(relative).parts
@@ -33,7 +35,7 @@ class FileReader:
                 fd = next_fd
             info = os.fstat(fd)
             if not (stat.S_ISREG(info.st_mode) or stat.S_ISDIR(info.st_mode)):
-                raise ValueError("Only regular files and directories are accessible")
+                raise ReadValidationError("Only regular files and directories are accessible")
             return fd
         except BaseException:
             os.close(fd)
@@ -68,19 +70,16 @@ class FileReader:
         fd = self.open(path)
         if not stat.S_ISREG(os.fstat(fd).st_mode):
             os.close(fd)
-            raise ValueError("A regular file is required")
+            raise ReadValidationError("A regular file is required")
         return os.fdopen(fd, "rb")
 
     @staticmethod
     def content(data):
-        try:
-            return {"encoding": "utf-8", "content": data.decode("utf-8")}
-        except UnicodeDecodeError:
-            return {"encoding": "base64", "content": base64.b64encode(data).decode("ascii")}
+        return text_or_binary(data)
 
     def read(self, path: str, offset: int = 0, max_bytes: int = 256 * 1024):
         if offset < 0 or not 1 <= max_bytes <= MAX_BYTES:
-            raise ValueError("offset must be nonnegative; max_bytes must be 1–1048576")
+            raise ReadValidationError("offset must be nonnegative; max_bytes must be 1–1048576")
         with self.file(path) as stream:
             stream.seek(offset)
             data = stream.read(max_bytes)
@@ -93,7 +92,7 @@ class FileReader:
 
     def tail(self, path: str, lines: int = 200):
         if not 1 <= lines <= 5000:
-            raise ValueError("lines must be 1–5000")
+            raise ReadValidationError("lines must be 1–5000")
         with self.file(path) as stream:
             size = os.fstat(stream.fileno()).st_size
             start = max(0, size - MAX_BYTES)

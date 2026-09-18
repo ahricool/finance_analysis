@@ -4,6 +4,7 @@ MCP_TEST_POSTGRES_ADMIN_URL must name an empty disposable database; these tests 
 roles/tables. MCP_TEST_REDIS_ADMIN_URL must be a disposable Redis instance.
 """
 
+import base64
 import os
 import time
 
@@ -31,11 +32,15 @@ def postgres_url():
             cursor.execute("CREATE ROLE mcp_test_ro LOGIN PASSWORD 'test-only' NOSUPERUSER NOCREATEDB NOCREATEROLE")
             cursor.execute("CREATE TABLE mcp_test_values(value integer)")
             cursor.execute("INSERT INTO mcp_test_values SELECT generate_series(1, 6000)")
+            cursor.execute(
+                "CREATE FUNCTION public.mcp_test_echo(value integer) RETURNS integer " "LANGUAGE SQL AS 'SELECT $1'"
+            )
             cursor.execute("GRANT USAGE ON SCHEMA public TO mcp_test_ro")
             cursor.execute("GRANT SELECT ON mcp_test_values TO mcp_test_ro")
     yield parsed.set(username="mcp_test_ro", password="test-only").render_as_string(hide_password=False)
     with psycopg2.connect(**parsed.translate_connect_args(username="user")) as conn:
         with conn.cursor() as cursor:
+            cursor.execute("DROP FUNCTION public.mcp_test_echo(integer)")
             cursor.execute("DROP TABLE mcp_test_values")
             cursor.execute("DROP OWNED BY mcp_test_ro")
             cursor.execute("DROP ROLE mcp_test_ro")
@@ -51,6 +56,15 @@ def test_real_postgres_readonly_limits_and_timeout(postgres_url):
     assert reader.query("SELECT * FROM mcp_test_values")["row_count"] == 500
     assert reader.query("EXPLAIN SELECT * FROM mcp_test_values")["rows"]
     assert reader.query("SELECT string_agg('x', '') FROM generate_series(1, 3000000)")["truncated"]
+    assert reader.query("SELECT public.mcp_test_echo(42)")["rows"] == [[42]]
+    assert reader.query("SELECT regexp_replace('abc', 'b', 'x')")["rows"] == [["axc"]]
+    assert reader.query("SELECT array_to_string(ARRAY[1,2,3], ',')")["rows"] == [["1,2,3"]]
+    assert reader.query("SELECT jsonb_each('{\"a\":1}'::jsonb)")["rows"]
+    assert reader.query("SELECT jsonb_pretty('{\"a\":1}'::jsonb)")["rows"]
+    assert reader.query("SELECT to_jsonb(ARRAY[1,2])")["rows"] == [[[1, 2]]]
+    binary = reader.query("SELECT decode('deadbeef', 'hex')")["rows"][0][0]
+    assert binary["encoding"] == "base64"
+    assert base64.b64decode(binary["content"]).hex() == "deadbeef"
     # Even bypassing the validator and transaction setting, grants prevent writes.
     with psycopg2.connect(**reader.url.translate_connect_args(username="user")) as conn:
         with conn.cursor() as cursor, pytest.raises(psycopg2.errors.InsufficientPrivilege):
@@ -85,6 +99,9 @@ def test_real_redis_acl_and_response_limit():
     admin.set("mcp:small", "hello")
     admin.set("mcp:big", b"x" * (3 * 1024 * 1024))
     admin.hset("mcp:hash", mapping={"one": "1", "two": "2"})
+    admin.rpush("mcp:list", "one", "two")
+    admin.zadd("mcp:zset", {"one": 1, "two": 2})
+    admin.xadd("mcp:stream", {"field": "value"})
     restricted_url = urlunsplit((parts.scheme, "mcp_test_ro:test-only@" + parts.netloc, parts.path, "", ""))
     reader = RedisReader(restricted_url)
     try:
@@ -93,10 +110,13 @@ def test_real_redis_acl_and_response_limit():
         assert reader.read("GET", ["mcp:small"])["data"]["content"] == "hello"
         assert reader.read("HGETALL", ["mcp:hash"])["data"]
         assert reader.read("SCAN", ["0"])["data"]
+        assert len(reader.read("LRANGE", ["mcp:list", "0", "-1"])["data"]) == 2
+        assert len(reader.read("ZRANGE", ["mcp:zset", "-inf", "+inf", "BYSCORE", "WITHSCORES"])["data"]) == 4
+        assert reader.read("XRANGE", ["mcp:stream", "-", "+"])["data"]
         with pytest.raises(ResponseError):
             reader.client.set("mcp:small", "forbidden")
     finally:
         reader.close()
-        admin.delete("mcp:small", "mcp:big", "mcp:hash")
+        admin.delete("mcp:small", "mcp:big", "mcp:hash", "mcp:list", "mcp:zset", "mcp:stream")
         admin.acl_deluser("mcp_test_ro")
         admin.close()

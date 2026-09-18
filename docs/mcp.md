@@ -1,5 +1,6 @@
 # 管理员只读 MCP 诊断入口
 
+这是供个人管理员自己的 Agent / Codex 使用的维护入口，不面向普通用户或不可信调用方。
 MCP 随现有 FastAPI server 启动，无新增生产进程或容器。持有专用 Bearer key 即管理员，
 不接入 Cookie、用户系统或 OAuth。默认关闭；启用后配置缺失/不合法会使 server 启动失败。
 只提供底层读取，不提供业务工具、命令执行或任何写操作。
@@ -22,7 +23,8 @@ curl https://<host>/mcp/ \
 ```
 
 服务无会话状态。后续调用使用 MCP 标准 `tools/list`、`tools/call`，同样每次带 Bearer header。
-SDK 按协商版本返回 JSON 文本内容；读取结果里的 `truncated` 和 `error`。
+SDK 按协商版本返回 JSON 文本内容；读取结果里的 `truncated`。工具失败使用 MCP
+`isError=true`，自有校验错误给出具体原因，连接/驱动错误返回不含凭据的通用说明。
 
 | Tool | 参数 | 返回/限制 |
 | --- | --- | --- |
@@ -62,7 +64,8 @@ MCP_REDIS_URL=redis://finance_mcp_ro:<URL编码的密码>@redis:6379/0
 PostgreSQL URL query 仅允许 SSL 参数；Redis URL 不接受 query，避免覆盖账号、协议和超时限制。
 必须显式配置两个 URL，不回退 `DATABASE_URL`/`REDIS_URL`。拒绝与业务 URL 同名的数据库用户，
 拒绝 Redis default/匿名用户和与业务 URL 同名用户。配置对象 repr 隐藏凭据。
-本版本固定 `/data`，无任意 filesystem root 环境变量。
+本版本固定 `/data`，无任意 filesystem root 环境变量。关闭时不会导入 MCP SDK、SQL parser
+或 MCP Redis reader，避免可选实现问题影响现有 FastAPI 启动。
 
 ## PostgreSQL 独立账号
 
@@ -91,14 +94,18 @@ SELECT 使用服务端游标，仅逐行收集到上限；SHOW/EXPLAIN 使用普
 
 SQL 通过 PostgreSQL AST 校验，仅允许单条 SELECT/SHOW/EXPLAIN SELECT；嵌套写 CTE、
 SELECT INTO、行锁、EXPLAIN ANALYZE（包括 ANALYZE false）、DDL/写/utility 均拒绝。
-函数另有保守 allowlist，并在执行前将函数名限定到 pg_catalog，防止 public 同名重载；见 `mcp/security.py`；任意自定义函数、set_config、文件函数、
-advisory lock、dblink 等不开放。不能把只读事务视作任意扩展函数的安全沙箱。
+普通 PostgreSQL 函数默认允许，包括 JSON、数组、正则、日期、encode/decode 和已有的
+`schema.function(...)`。SQL 原样执行，不重写函数、不强制 search_path，也没有表/列/schema
+白名单或查询复杂度分析。只保留九个明显副作用函数的 denylist：`pg_advisory_lock`、
+`pg_advisory_xact_lock`、`set_config`、`pg_notify`、`pg_read_file`、`pg_read_binary_file`、
+`pg_ls_dir`、`lo_import`、`lo_export`。
 
-PostgreSQL 默认向 PUBLIC 授予函数 EXECUTE 和数据库 TEMP；单独 REVOKE FROM finance_mcp_ro
-不能抵消 PUBLIC 权限。上线前检查 PUBLIC/继承权限、自定义函数、扩展、SECURITY DEFINER、
-视图、运算符和类型转换；必要时由 DBA 收回 PUBLIC EXECUTE/TEMP/CREATE，再按需授予业务账号。
-这会影响业务，因此部署代码不自动执行全库 REVOKE。敏感表可通过更窄 SELECT 授权排除。
-参考 [PostgreSQL 权限规则](https://www.postgresql.org/docs/16/ddl-priv.html)。
+只读边界是独立数据库账号的权限和只读事务；轻量 AST 检查用于防止 Agent 明显误写，
+不把 SQL 当成不可信代码进行完整沙箱化。数据库中已有函数按管理员控制的现有权限调用。
+
+PostgreSQL `bytea`（包括 Python bytes/bytearray/memoryview）统一返回可恢复的
+`{"encoding":"base64","content":"..."}`；例如 `decode('deadbeef','hex')` 返回
+`{"encoding":"base64","content":"3q2+7w=="}`。datetime/date、Decimal、UUID 稳定转为字符串。
 
 ## Redis ACL 独立账号
 
@@ -114,10 +121,11 @@ ACL SETUSER finance_mcp_ro reset on >独立随机密码 ~* resetchannels -@all +
 可把 `~*` 改为所需 key pattern；但 SCAN/INFO 的名称/服务器信息可见性仍需评估。
 Redis ACL 不按逻辑 DB 隔离，SELECT URL 中的 DB 是连接选择，不是授权边界。
 
-SCAN 系列默认 COUNT 500、最大1000（Redis COUNT 是 hint）；stream range 默认500、最大1000；
-list/zset rank range 最多1000且起止同号，不支持 BYSCORE/BYLEX。HGETALL/SMEMBERS 可读，
-但 RESP 解析层最多消费约2 MiB，超出直接关闭连接，返回 data=null/truncated=true，要求用 SCAN。
-超大 bulk 在分配完整值前拒绝；不保留不完整 RESP 结果/游标。每次响应 JSON 编码也检查2 MiB。
+只读命令的参数交给 Redis 原生解析，支持 `LRANGE key 0 -1`、ZRANGE BYSCORE/BYLEX、
+WITHSCORES 和 stream range；不额外限制 COUNT、范围长度或索引符号。SCAN 系列未指定 COUNT
+时补默认500。保留 socket timeout 和约2 MiB 响应上限；HGETALL/SMEMBERS 同样可用。
+RESP 超限直接关闭连接，返回 data=null/truncated=true；超大 bulk 在分配完整值前拒绝，
+不保留不完整 RESP 结果/游标。每次响应 JSON 编码也检查2 MiB。
 
 **持久化 ACL：** 当前生产 Redis 关闭持久化且 `/data` 为 tmpfs；仅 ACL SETUSER 会在容器重建后丢失。
 推荐把用户写入宿主机受限文件 `/etc/finance-analysis/redis-users.acl`，并通过站点 Compose override：
@@ -166,7 +174,7 @@ env -u LLM_MODEL -u LLM_API_KEY -u LLM_BASE_URL uv run ./scripts/ci_gate.sh
 ```
 
 完整门禁的 DATABASE_URL 必须指向测试库。真实协议/权限测试仅对临时实例运行，测试会创建/删除
-`mcp_test_ro` role、`mcp_test_values` 表和 `mcp:*` key，**绝不能指向生产或开发数据**：
+`mcp_test_ro` role、`mcp_test_values` 表、`mcp_test_echo` 函数和 `mcp:*` key，**绝不能指向生产或开发数据**：
 
 ```bash
 MCP_TEST_POSTGRES_ADMIN_URL=postgresql://postgres:<测试密码>@127.0.0.1:<端口>/<空测试库> \
@@ -178,8 +186,8 @@ uv run pytest tests/mcp/test_services.py -q -m network
 
 - 这是高信任管理员入口，可读取授权表中的全部用户数据、Redis 值、数据目录中的日志/备份；
   不自动脱敏。Agent 获取的数据可能包含凭据或不可信文本，不能把读取内容当作操作指令。
-- 独立账号的真正权限由 DBA/Redis ACL 保证；代码不会自动创建或修复角色。函数 allowlist 不是
-  数据库扩展沙箱，必须核验间接调用与 PUBLIC 授权。不要部署在含不可信数据库对象的实例上。
+- 独立账号的真正权限由 PostgreSQL grants / Redis ACL 保证；代码不会自动创建或修复角色。
+  这是管理员可控环境中的读取入口，普通数据库函数按现有权限可用。
 - PostgreSQL 单个巨大字段及 SHOW/EXPLAIN 结果在驱动返回后才检查大小；结果限制不是严格的
   进程内存预算。Redis 的返回限制也不能撤销 Redis 已执行的 HGETALL/SMEMBERS 工作；大集合优先 SCAN。
 - 每个 API 进程最多同时4个 MCP tool，等待1秒后失败；查询 timeout 不等于数据库 CPU/内存配额。

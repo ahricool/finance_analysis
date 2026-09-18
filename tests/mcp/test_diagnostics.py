@@ -29,6 +29,14 @@ KEY = "test-key-" + "a" * 32
         "SELECT '; DELETE'",
         "SELECT count(*) FROM x",
         "SELECT 1 /* DELETE */;",
+        "SELECT lower('ABC')",
+        "SELECT regexp_replace('abc', 'b', 'x')",
+        "SELECT jsonb_each('{\"a\":1}'::jsonb)",
+        "SELECT jsonb_pretty('{\"a\":1}'::jsonb)",
+        "SELECT array_to_string(ARRAY[1,2,3], ',')",
+        "SELECT to_jsonb(ARRAY[1,2])",
+        "SELECT decode('deadbeef', 'hex')",
+        "SELECT reporting.existing_function(1)",
     ],
 )
 def test_sql_allowed(sql):
@@ -50,12 +58,12 @@ def test_sql_allowed(sql):
         "SELECT 1; DELETE FROM x",
         "WITH x AS (DELETE FROM y RETURNING *) SELECT * FROM x",
         "SELECT * FROM x FOR UPDATE",
+        "SELECT * FROM x FOR SHARE",
         "COPY x TO PROGRAM 'id'",
         "CALL x()",
         "DO 'BEGIN END'",
         "SELECT set_config('a','b',false)",
         "SELECT pg_advisory_lock(1)",
-        "SELECT public.custom_write()",
         "EXPLAIN DELETE FROM x",
         "",
         "SELECT pg_catalog.pg_read_file('/etc/passwd')",
@@ -82,14 +90,7 @@ def test_redis_allowed(command):
     assert validate_command(command, args)[0] == command
 
 
-def test_redis_bounds():
-    for command, args in [
-        ("SCAN", ["0", "COUNT", "99999"]),
-        ("LRANGE", ["k", "0", "-1"]),
-        ("XRANGE", ["k", "-", "+", "COUNT", "99999"]),
-    ]:
-        with pytest.raises(ValueError):
-            validate_command(command, args)
+def test_redis_response_bound():
     buffer = BoundedBuffer(io.BytesIO())
     with pytest.raises(ResponseTooLarge):
         buffer.read(3 * 1024 * 1024)
@@ -141,7 +142,7 @@ def client(monkeypatch, files):
             True, KEY, "postgresql://reader:password@localhost/test", "redis://reader:password@localhost/0"
         ),
     )
-    monkeypatch.setattr("finance_analysis.mcp.server.FileReader", lambda: files)
+    monkeypatch.setattr("finance_analysis.mcp.filesystem.FileReader", lambda: files)
     app = FastAPI()
     install_mcp(app)
     with TestClient(app) as client:
@@ -246,6 +247,7 @@ def test_postgres_limits(monkeypatch):
     reader = PostgresReader("postgresql://reader:password@localhost/test")
     result = reader.query("SELECT 1", 2)
     assert result["row_count"] == 2 and result["truncated"]
+    assert "SELECT 1" in calls["sql"]
     assert calls["session"]["readonly"]
     assert "statement_timeout=10000" in calls["connect"]["options"]
     assert "lock_timeout=2000" in calls["connect"]["options"]
@@ -295,12 +297,6 @@ def test_audit_does_not_log_key_or_content(client, caplog):
     assert KEY not in caplog.text and "one\\ntwo" not in caplog.text
 
 
-def test_unqualified_functions_are_bound_to_catalog():
-    from finance_analysis.mcp.security import qualify_functions
-
-    assert "pg_catalog.lower" in qualify_functions("SELECT lower('ABC')")
-
-
 def test_download_suffix_and_invalid_ranges(client):
     headers = {"Authorization": "Bearer " + KEY}
     response = client.get("/mcp/files/logs/worker.log", headers={**headers, "Range": "bytes=-6"})
@@ -339,3 +335,131 @@ def test_connection_query_options_cannot_override_security(monkeypatch, database
     monkeypatch.setenv("MCP_REDIS_URL", redis_url)
     with pytest.raises(ValueError):
         MCPConfig.from_env()
+
+
+@pytest.mark.parametrize(
+    "command,args",
+    [
+        ("LRANGE", ["k", "0", "-1"]),
+        ("ZRANGE", ["k", "-inf", "+inf", "BYSCORE", "LIMIT", "0", "10000", "WITHSCORES"]),
+        ("ZRANGE", ["k", "-", "+", "BYLEX"]),
+        ("ZREVRANGE", ["k", "0", "-1", "WITHSCORES"]),
+        ("XRANGE", ["k", "-", "+"]),
+        ("XRANGE", ["k", "-", "+", "COUNT", "99999"]),
+        ("SCAN", ["0", "COUNT", "99999"]),
+    ],
+)
+def test_redis_native_arguments_unchanged(command, args):
+    assert validate_command(command, args) == (command, args)
+
+
+@pytest.mark.parametrize(
+    "command,args",
+    [
+        ("SCAN", ["0"]),
+        ("HSCAN", ["key", "0"]),
+        ("SCAN", ["0", "MATCH", "COUNT"]),
+        ("ZSCAN", ["key", "0", "MATCH", "*"]),
+    ],
+)
+def test_scan_default_count(command, args):
+    assert validate_command(command, args)[1] == args + ["COUNT", "500"]
+
+
+@pytest.mark.parametrize("value", [bytes.fromhex("deadbeef"), bytearray(b"abc"), memoryview(b"abc")])
+def test_binary_json_is_recoverable(value):
+    import base64
+    from finance_analysis.mcp.serialization import encoded
+
+    result = json.loads(encoded(value))
+    assert result["encoding"] == "base64"
+    assert base64.b64decode(result["content"]) == bytes(value)
+
+
+def test_common_postgres_types_are_stable():
+    from datetime import date, datetime, timezone
+    from decimal import Decimal
+    from uuid import UUID
+    from finance_analysis.mcp.serialization import encoded
+
+    values = [date(2026, 9, 18), datetime(2026, 9, 18, tzinfo=timezone.utc), Decimal("123.4500"), UUID(int=1)]
+    assert json.loads(encoded(values)) == [str(value) for value in values]
+
+
+@pytest.mark.parametrize(
+    "tool,arguments,message",
+    [
+        ("postgres_query", {"sql": "DELETE FROM x"}, "Only SELECT"),
+        ("postgres_query", {"sql": "SELECT 1", "max_rows": 5001}, "max_rows"),
+        ("redis_read", {"command": "SET", "args": ["a", "b"]}, "Redis command SET is not allowed"),
+        ("fs_read", {"path": "../etc/passwd"}, "Invalid data path"),
+    ],
+)
+def test_validation_is_mcp_tool_error(client, tool, arguments, message):
+    response = rpc(client, "tools/call", {"name": tool, "arguments": arguments})
+    result = response.json()["result"]
+    assert result["isError"] is True
+    assert message in result["content"][0]["text"]
+
+
+def test_external_error_does_not_disclose_credentials(client, monkeypatch, caplog):
+    import logging
+
+    secret = "postgresql://private:private-password@db/private"
+
+    def fail(*args):
+        raise ValueError(secret)
+
+    monkeypatch.setattr(PostgresReader, "query", fail)
+    with caplog.at_level(logging.DEBUG):
+        response = rpc(client, "tools/call", {"name": "postgres_query", "arguments": {"sql": "SELECT 1"}})
+    assert response.json()["result"]["isError"] is True
+    assert secret not in response.text and secret not in caplog.text
+    assert "private-password" not in caplog.text
+
+
+def test_binary_tool_protocol(client, monkeypatch):
+    import base64
+
+    monkeypatch.setattr(
+        PostgresReader,
+        "query",
+        lambda *args: {"columns": ["decode"], "rows": [[memoryview(bytes.fromhex("deadbeef"))]]},
+    )
+    result = rpc(
+        client, "tools/call", {"name": "postgres_query", "arguments": {"sql": "SELECT decode('deadbeef', 'hex')"}}
+    ).json()["result"]
+    assert not result["isError"]
+    cell = json.loads(result["content"][0]["text"])["rows"][0][0]
+    assert base64.b64decode(cell["content"]).hex() == "deadbeef"
+
+
+def test_disabled_does_not_import_mcp_dependencies():
+    import os
+    import subprocess
+    import sys
+
+    script = """
+import builtins
+original_import = builtins.__import__
+def guarded(name, *args, **kwargs):
+    if name == "mcp" or name.startswith("mcp.") or name == "pglast":
+        raise ImportError("MCP dependency deliberately unavailable")
+    return original_import(name, *args, **kwargs)
+builtins.__import__ = guarded
+from finance_analysis.interfaces.api.app import create_app
+from fastapi.testclient import TestClient
+with TestClient(create_app()) as client:
+    assert client.get("/status").status_code == 200
+    assert client.post("/mcp/").status_code == 404
+import sys
+assert "finance_analysis.mcp.redis" not in sys.modules
+assert "finance_analysis.mcp.postgres" not in sys.modules
+"""
+    subprocess.run(
+        [sys.executable, "-c", script],
+        env={**os.environ, "MCP_ENABLED": "false"},
+        check=True,
+        capture_output=True,
+        text=True,
+    )
