@@ -244,9 +244,9 @@ class PortfolioRiskService:
                     coverage=leg.coverage,
                     available_quantity=leg.available_quantity,
                     available_as_of=leg.available_as_of,
+                    status=leg.status,
                 )
                 for leg in position.legs
-                if leg.status == "OPEN"
             ),
         )
 

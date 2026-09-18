@@ -71,6 +71,21 @@ def session_bars(
     return bars
 
 
+def recover_last_adjacent(bars: list[NormalizedBar], *, count: int = 2, close: Decimal = Decimal("108")) -> list[NormalizedBar]:
+    updated = list(bars)
+    for index in range(count, 0, -1):
+        bar = updated[-index]
+        updated[-index] = replace(
+            bar,
+            open=close - Decimal("1"),
+            high=close + Decimal("1"),
+            low=close - Decimal("1"),
+            close=close,
+            amount=close * bar.volume,
+        )
+    return updated
+
+
 def weaken_last_adjacent(bars: list[NormalizedBar], *, count: int = 2, close: Decimal = Decimal("90")) -> list[NormalizedBar]:
     updated = list(bars)
     for index in range(count, 0, -1):

@@ -39,6 +39,7 @@ class LegInput:
     coverage: str = "COVERED"
     available_quantity: Decimal | None = None
     available_as_of: datetime | None = None
+    status: str = "OPEN"
 
 
 @dataclass(frozen=True, slots=True)
@@ -296,25 +297,31 @@ def _make_plan(
     )
 
 
+def _is_open(leg: LegInput) -> bool:
+    return getattr(leg, "status", "OPEN") == "OPEN" and leg.quantity > 0
+
+
 def _bound_quantities(position: PositionInput, plan: ActivePlan) -> tuple[Decimal, Decimal, bool]:
     bound = set(plan.bound_leg_ids or [leg.leg_id for leg in position.legs])
     current = Decimal("0")
     target = Decimal("0")
     matched = True
-    by_id = {leg.leg_id: leg.quantity for leg in position.legs}
+    by_id = {leg.leg_id: leg for leg in position.legs}
     for leg_id in bound:
-        qty = by_id.get(leg_id)
-        if qty is None:
+        leg = by_id.get(leg_id)
+        if leg is None:
             matched = False
             continue
-        current += qty
+        if getattr(leg, "status", "OPEN") == "CLOSED":
+            if leg.quantity != 0:
+                matched = False
+        current += leg.quantity
         planned = plan.leg_targets.get(leg_id)
         if planned is None:
             matched = False
             continue
         target += Decimal(planned)
-    total_current = sum((leg.quantity for leg in position.legs if leg.leg_id in bound), start=Decimal("0"))
-    return total_current, target, matched
+    return current, target, matched
 
 
 def evaluate_position_exit(
@@ -344,12 +351,14 @@ def evaluate_position_exit(
     quote_status = _quote_status(quote, now)
     trigger_row = None
 
-    earliest_entry = min((leg.entry_time for leg in position.legs), default=now)
-    hard_targets: dict[str, Decimal] = {leg.leg_id: leg.quantity for leg in position.legs}
+    earliest_entry = min((leg.entry_time for leg in position.legs if _is_open(leg)), default=now)
+    hard_targets: dict[str, Decimal] = {
+        leg.leg_id: (leg.quantity if _is_open(leg) else Decimal("0")) for leg in position.legs
+    }
     hard_reasons: dict[str, str] = {}
     if quote_status == "OK" and quote is not None:
         for leg in position.legs:
-            if not _covered(leg) or legs_state[leg.leg_id].calibration_required:
+            if not _is_open(leg) or not _covered(leg) or legs_state[leg.leg_id].calibration_required:
                 continue
             stop = legs_state[leg.leg_id].active_stop
             effective = legs_state[leg.leg_id].stop_effective_at
@@ -466,27 +475,24 @@ def evaluate_position_exit(
             rec = recovered(previous_row, row)
             if rec is True:
                 recovery_streak += 1
+                if episode_id:
+                    events.append(
+                        {
+                            "event_type": "EPISODE_RECOVERED",
+                            "action": "HOLD",
+                            "episode_id": episode_id,
+                            "plan_revision": plan.revision,
+                        }
+                    )
+                    reasons.append("相邻两根确认恢复")
+                    episode_id = None
+                    episode_consumed = False
+                    weak_streak = 0
+                    recovery_streak = 0
             else:
-                recovery_streak = 0
-            if recovery_streak >= 2 and episode_id:
-                events.append(
-                    {
-                        "event_type": "EPISODE_RECOVERED",
-                        "action": "HOLD",
-                        "episode_id": episode_id,
-                        "plan_revision": plan.revision,
-                    }
-                )
-                reasons.append("相邻两根确认恢复")
-                episode_id = None
-                episode_consumed = False
-                weak_streak = 0
                 recovery_streak = 0
         previous_row = row
 
-    if new_soft and plan.status in {"SATISFIED_BY_SHEET", "CANCELED"}:
-        new_soft = False
-        reasons.append("本episode软退出已消费")
     if new_soft and episode_consumed:
         new_soft = False
         reasons.append("同一episode不再重复软减仓")
@@ -500,7 +506,8 @@ def evaluate_position_exit(
         addon_fail = [
             leg
             for leg in position.legs
-            if _covered(leg)
+            if _is_open(leg)
+            and _covered(leg)
             and leg.role == "ADDON"
             and legs_state[leg.leg_id].profit_stage == STAGE_A
             and remaining[leg.leg_id] > 0
@@ -512,13 +519,14 @@ def evaluate_position_exit(
                 remaining[leg.leg_id] = Decimal("0")
                 reasons.append(f"{leg.leg_id}:未站稳加仓优先清零")
         else:
-            stage_a = [leg for leg in position.legs if _covered(leg) and legs_state[leg.leg_id].profit_stage == STAGE_A]
+            stage_a = [leg for leg in position.legs if _is_open(leg) and _covered(leg) and legs_state[leg.leg_id].profit_stage == STAGE_A]
             for leg in stage_a:
                 remaining[leg.leg_id] = Decimal("0")
             profitable = [
                 leg
                 for leg in position.legs
-                if _covered(leg)
+                if _is_open(leg)
+                and _covered(leg)
                 and legs_state[leg.leg_id].profit_stage in {STAGE_B, STAGE_C}
                 and remaining[leg.leg_id] > 0
             ]
@@ -529,13 +537,13 @@ def evaluate_position_exit(
                 take = min(remaining[leg.leg_id], budget)
                 remaining[leg.leg_id] -= take
                 budget -= take
-        current_qty = sum((leg.quantity for leg in position.legs), start=Decimal("0"))
+        current_qty = sum((leg.quantity for leg in position.legs if _is_open(leg)), start=Decimal("0"))
         plan = _make_plan(
             previous=plan,
             remaining=remaining,
             current_qty=current_qty,
             episode_id=episode_id,
-            bound_leg_ids=[leg.leg_id for leg in position.legs],
+            bound_leg_ids=[leg.leg_id for leg in position.legs if _is_open(leg) or leg.leg_id in remaining],
             reason=";".join(reasons) or "soft_exit",
             created_bar_end=trigger_end,
             hard_locked=False,
@@ -551,7 +559,7 @@ def evaluate_position_exit(
             }
         )
 
-    current_qty = sum((leg.quantity for leg in position.legs), start=Decimal("0"))
+    current_qty = sum((leg.quantity for leg in position.legs if _is_open(leg)), start=Decimal("0"))
     hard_upgrade = bool(hard_reasons) and holdings_actionable
     if hard_upgrade:
         if plan.hard_locked and Decimal(plan.position_target or "0") <= 0:

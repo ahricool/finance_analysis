@@ -28,6 +28,7 @@ from finance_analysis.portfolio_risk.account import AccountView, apply_account_c
 from finance_analysis.portfolio_risk.config import RiskPolicy  # pragma: allowlist secret
 from finance_analysis.portfolio_risk.exits import LegInput, PositionInput, PositionState, QuoteView, evaluate_position_exit  # pragma: allowlist secret
 from finance_analysis.portfolio_risk.service import PortfolioRiskService  # pragma: allowlist secret
+from finance_analysis.holdings.models import HoldingsSnapshot, ParsedLeg, ParsedPosition  # pragma: allowlist secret
 
 
 class SqliteDb:
@@ -292,3 +293,150 @@ def test_published_snapshot_migration_on_live_database():  # pragma: allowlist s
     finally:
         connection.close()
         engine.dispose()
+
+
+def test_closed_addon_plan_is_persisted_and_returned_by_latest_api():
+    db = SqliteDb()
+    sources = HoldingsRepository(db)
+    source = sources.get_or_create(1, defaults={"enabled": True, "auth_status": "CONNECTED", "risk_policy": {}})
+    now = datetime(2026, 9, 16, 6, 0, tzinfo=timezone.utc)
+    with db.session_scope() as session:
+        session.add(
+            PositionRiskState(
+                uid=1,
+                source_id=source.id,
+                account_id="a1",
+                position_id="p1",
+                symbol="600519.SH",
+                canonical_symbol="600519.SH",
+                plan_status="PENDING",
+                plan_action="REDUCE",
+                plan_revision=1,
+                episode_id="ep1",
+                active_plan={
+                    "schema_version": "active_plan.v1",
+                    "revision": 1,
+                    "status": "PENDING",
+                    "action": "REDUCE",
+                    "episode_id": "ep1",
+                    "bound_leg_ids": ["core", "addon"],
+                    "leg_targets": {"core": "1000", "addon": "0"},
+                    "position_target": "1000",
+                    "current_quantity": "1500",
+                    "reduce_quantity": "500",
+                    "execution": "UNKNOWN",
+                    "hard_locked": False,
+                    "needs_review": False,
+                },
+                legs_state={
+                    "schema_version": "legs_state.v1",
+                    "episode_consumed": True,
+                    "needs_review": False,
+                    "five_minute_status": "UNAVAILABLE",
+                    "quote_status": "OK",
+                    "legs": {},
+                },
+            )
+        )
+    entry = datetime(2026, 9, 14, 1, 35, tzinfo=timezone.utc)
+    position = ParsedPosition(
+        account_id="a1",
+        position_id="p1",
+        symbol="600519.SH",
+        canonical_symbol="600519.SH",
+        asset_type="STOCK",
+        currency="CNY",
+        legs=[
+            ParsedLeg(
+                account_id="a1",
+                position_id="p1",
+                leg_id="core",
+                leg_role="CORE",
+                symbol="600519.SH",
+                canonical_symbol="600519.SH",
+                asset_type="STOCK",
+                quantity=Decimal("1000"),
+                entry_price=Decimal("100"),
+                entry_time=entry,
+                status="OPEN",
+                coverage="COVERED",
+            ),
+            ParsedLeg(
+                account_id="a1",
+                position_id="p1",
+                leg_id="addon",
+                leg_role="ADDON",
+                symbol="600519.SH",
+                canonical_symbol="600519.SH",
+                asset_type="STOCK",
+                quantity=Decimal("0"),
+                entry_price=Decimal("110"),
+                entry_time=entry,
+                status="CLOSED",
+                coverage="COVERED",
+            ),
+        ],
+    )
+    snapshot = HoldingsSnapshot(
+        uid=1,
+        source_id=source.id,
+        spreadsheet_id="sheet",
+        generation=2,
+        content_hash="abc",
+        fetched_at=now,
+        timezone="Asia/Shanghai",
+        status="VALID",
+        accounts=[],
+        positions=[position],
+    )
+    service = PortfolioRiskService(holdings=MagicMock(), db=db, market=MagicMock())
+    with db.session_scope() as session:
+        existing = session.get(PositionRiskState, 1)
+        payload = service._compute_position(
+            snapshot=snapshot,
+            position=position,
+            bars=[],
+            quote=QuoteView(price=Decimal("108"), quote_as_of=now, valid=True),
+            existing=existing,
+            policy=RiskPolicy(),
+            now=now,
+            bars_stale=True,
+            latest_expected=None,
+            holdings_actionable=True,
+        )
+        assert payload["computed"] is not None
+        assert payload["computed"].plan.status == "SATISFIED_BY_SHEET"
+        assert payload["computed"].needs_review is False
+        written = service._write_position(
+            session,
+            snapshot=snapshot,
+            position=position,
+            existing=existing,
+            policy=RiskPolicy(),
+            now=now,
+            computed=payload["computed"],
+            summary=payload["summary"],
+        )
+        assert written["summary"]["plan_status"] == "SATISFIED_BY_SHEET"
+    view = service.latest_view(1)
+    assert view["positions"][0]["plan_status"] == "SATISFIED_BY_SHEET"
+    assert view["positions"][0]["needs_review"] is False
+    from finance_analysis.interfaces.api.v1.endpoints import holdings as holdings_ep  # pragma: allowlist secret
+    from finance_analysis.interfaces.api.deps import require_current_user  # pragma: allowlist secret
+
+    app = FastAPI()
+
+    @app.middleware("http")
+    async def uid_middleware(request, call_next):
+        request.state.uid = 1
+        return await call_next(request)
+
+    app.include_router(holdings_ep.router, prefix="/api/v1/holdings")
+    app.dependency_overrides[require_current_user] = lambda: SimpleNamespace(id=1, email="t@example.test")
+    app.dependency_overrides[holdings_ep._risk] = lambda: service
+    with TestClient(app) as client:
+        response = client.get("/api/v1/holdings/risk")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["positions"][0]["plan_status"] == "SATISFIED_BY_SHEET"
+    assert body["positions"][0]["needs_review"] is False

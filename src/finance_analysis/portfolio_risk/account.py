@@ -49,27 +49,85 @@ def _leg_risk(quantity: Decimal, price: Decimal, stop: Decimal | None) -> Decima
     return quantity * gap
 
 
-def _cut_to_target(
-    position: PositionInput,
-    remaining: dict[str, Decimal],
-    allowed: Decimal,
-) -> dict[str, Decimal]:
-    current = dict(remaining)
-    total = sum(current.values(), start=Decimal("0"))
-    if total <= allowed:
-        return current
-    need = total - allowed
-    order = sorted(
-        position.legs,
-        key=lambda leg: (0 if leg.role == "ADDON" else 1, -leg.entry_time.timestamp(), leg.leg_id),
-    )
-    for leg in order:
-        if need <= 0:
-            break
-        take = min(current[leg.leg_id], need)
-        current[leg.leg_id] -= take
-        need -= take
-    return current
+class _Slice:
+    __slots__ = ("account_id", "position_id", "symbol", "leg", "stop", "price", "qty", "candidate")
+
+    def __init__(
+        self,
+        *,
+        account_id: str,
+        position_id: str,
+        symbol: str,
+        leg: object,
+        stop: Decimal | None,
+        price: Decimal | None,
+        qty: Decimal,
+    ) -> None:
+        self.account_id = account_id
+        self.position_id = position_id
+        self.symbol = symbol
+        self.leg = leg
+        self.stop = stop
+        self.price = price
+        self.qty = qty
+        self.candidate = qty
+
+
+def _slice_key(item: _Slice) -> tuple:
+    return (0 if item.leg.role == "ADDON" else 1, -item.leg.entry_time.timestamp(), item.position_id, item.leg.leg_id)
+
+
+def _value_of(slices: Sequence[_Slice]) -> Decimal:
+    return sum((item.qty * item.price for item in slices if item.price is not None), start=Decimal("0"))
+
+
+def _risk_of(slices: Sequence[_Slice]) -> Decimal | None:
+    total = Decimal("0")
+    for item in slices:
+        if item.price is None:
+            return None
+        risk = _leg_risk(item.qty, item.price, item.stop)
+        if risk is None:
+            return None
+        total += risk
+    return total
+
+
+def _reduce_value(slices: Sequence[_Slice], budget: Decimal) -> bool:
+    value = _value_of(slices)
+    if value <= budget:
+        return False
+    need = value - budget
+    changed = False
+    for item in sorted(slices, key=_slice_key):
+        if need <= 0 or item.price is None or item.price <= 0 or item.qty <= 0:
+            continue
+        take = min(item.qty, need / item.price)
+        if take > 0:
+            item.qty -= take
+            need -= take * item.price
+            changed = True
+    return changed
+
+
+def _reduce_risk(slices: Sequence[_Slice], budget: Decimal) -> bool:
+    risk = _risk_of(slices)
+    if risk is None or risk <= budget:
+        return False
+    need = risk - budget
+    changed = False
+    for item in sorted(slices, key=_slice_key):
+        if need <= 0 or item.price is None or item.stop is None:
+            continue
+        gap = item.price - item.stop
+        if gap <= 0 or item.qty <= 0:
+            continue
+        take = min(item.qty, need / gap)
+        if take > 0:
+            item.qty -= take
+            need -= take * gap
+            changed = True
+    return changed
 
 
 def apply_account_constraints(
@@ -112,151 +170,135 @@ def apply_account_constraints(
         return _uncovered("fx_unavailable")
 
     net = account.net_asset
-    grouped: dict[str, list[tuple[PositionInput, PositionExitResult, QuoteView | None]]] = {}
-    for item in positions:
-        grouped.setdefault(item[0].symbol, []).append(item)
+    slices: list[_Slice] = []
+    quote_ok: dict[tuple[str, str], bool] = {}
+    stops: dict[tuple[str, str, str], Decimal | None] = {}
+    for position, exit_result, quote in positions:
+        missing = quote is None or quote.quote_as_of is None or not quote.valid or quote.stale
+        quote_ok[(position.account_id, position.position_id)] = not missing
+        price = None if missing or quote is None else quote.price
+        by_exit = {item.leg_id: item for item in exit_result.leg_exits}
+        for leg in position.legs:
+            leg_exit = by_exit.get(leg.leg_id)
+            stop = None if leg_exit is None else leg_exit.active_stop
+            stops[(position.account_id, position.position_id, leg.leg_id)] = stop
+            candidate = leg.quantity if leg_exit is None else leg_exit.target_quantity
+            slices.append(
+                _Slice(
+                    account_id=position.account_id,
+                    position_id=position.position_id,
+                    symbol=position.symbol,
+                    leg=leg,
+                    stop=stop,
+                    price=price,
+                    qty=candidate,
+                )
+            )
 
-    per_symbol_allowed: dict[str, Decimal] = {}
+    grouped_slices: dict[str, list[_Slice]] = {}
+    for item in slices:
+        grouped_slices.setdefault(item.symbol, []).append(item)
+
     per_symbol_unmet: dict[str, list[str]] = {}
     per_symbol_meta: dict[str, dict] = {}
-    for symbol, items in grouped.items():
-        quantity = Decimal("0")
-        value = Decimal("0")
-        planned = Decimal("0")
-        uncovered = False
-        triggered = False
-        missing_quote = False
-        remaining = Decimal("0")
-        price = None
-        for position, exit_result, quote in items:
-            remaining += exit_result.position_target
-            for leg, leg_exit in zip(position.legs, exit_result.leg_exits):
-                quantity += leg.quantity
-                if quote is None or quote.quote_as_of is None or not quote.valid or quote.stale:
-                    missing_quote = True
-                    uncovered = True
-                    continue
-                price = quote.price
-                value += leg.quantity * quote.price
-                stop = leg_exit.active_stop
-                risk = _leg_risk(leg.quantity, quote.price, stop)
-                if risk is None:
-                    uncovered = True
-                    continue
-                if quote.price <= stop:
-                    triggered = True
-                    continue
-                planned += risk
+    for symbol, items in grouped_slices.items():
+        missing_quote = any(item.price is None for item in items)
+        uncovered = missing_quote or any(_leg_risk(item.qty, item.price, item.stop) is None for item in items if item.price is not None)
+        triggered = any(
+            item.price is not None and item.stop is not None and item.price <= item.stop for item in items
+        )
         unmet: list[str] = []
-        allowed = remaining
         if missing_quote:
             unmet.append("quote_unavailable")
-        elif price is not None and price > 0:
-            weight = value / net
-            if weight > policy.max_symbol_weight:
-                allowed = min(allowed, policy.max_symbol_weight * net / price)
-                unmet.append("max_symbol_weight")
-            if not uncovered and planned > 0:
-                risk_ratio = planned / net
-                if risk_ratio > policy.risk_per_symbol:
-                    per_share = planned / quantity if quantity else None
-                    if per_share:
-                        allowed = min(allowed, (policy.risk_per_symbol * net) / per_share)
+        else:
+            if _value_of(items) / net > policy.max_symbol_weight:
+                if _reduce_value(items, policy.max_symbol_weight * net):
+                    unmet.append("max_symbol_weight")
+            symbol_risk = _risk_of(items)
+            if symbol_risk is not None and symbol_risk / net > policy.risk_per_symbol:
+                if _reduce_risk(items, policy.risk_per_symbol * net):
                     unmet.append("risk_per_symbol")
-        per_symbol_allowed[symbol] = max(Decimal("0"), allowed)
         per_symbol_unmet[symbol] = unmet
         per_symbol_meta[symbol] = {
-            "value": None if missing_quote else value,
-            "planned": None if uncovered else planned,
             "uncovered": uncovered or missing_quote,
             "triggered": triggered,
-            "quantity": quantity,
-            "price": price,
             "missing_quote": missing_quote,
         }
 
-    gross = sum((meta["value"] or Decimal("0") for meta in per_symbol_meta.values()), start=Decimal("0"))
-    open_risk = sum((meta["planned"] or Decimal("0") for meta in per_symbol_meta.values()), start=Decimal("0"))
     complete = not any(meta["uncovered"] for meta in per_symbol_meta.values())
     extra_unmet: list[str] = []
-    if complete and gross > policy.max_gross_exposure * net:
-        extra_unmet.append("max_gross_exposure")
-        scale = (policy.max_gross_exposure * net) / gross if gross else Decimal("0")
-        for symbol, allowed in list(per_symbol_allowed.items()):
-            price = per_symbol_meta[symbol]["price"]
-            value = per_symbol_meta[symbol]["value"]
-            if price and value:
-                per_symbol_allowed[symbol] = min(allowed, (value * scale) / price)
-    if complete and open_risk > policy.total_open_risk * net:
-        extra_unmet.append("total_open_risk")
-        scale = (policy.total_open_risk * net) / open_risk if open_risk else Decimal("0")
-        for symbol, allowed in list(per_symbol_allowed.items()):
-            per_symbol_allowed[symbol] = min(allowed, allowed * scale)
+    if complete:
+        if _value_of(slices) > policy.max_gross_exposure * net:
+            if _reduce_value(slices, policy.max_gross_exposure * net):
+                extra_unmet.append("max_gross_exposure")
+        total_risk = _risk_of(slices)
+        if total_risk is not None and total_risk > policy.total_open_risk * net:
+            if _reduce_risk(slices, policy.total_open_risk * net):
+                extra_unmet.append("total_open_risk")
+
+    by_position: dict[tuple[str, str], list[_Slice]] = {}
+    for item in slices:
+        by_position.setdefault((item.account_id, item.position_id), []).append(item)
 
     result: dict[tuple[str, str], PositionAccountRisk] = {}
-    for symbol, items in grouped.items():
-        budget = per_symbol_allowed[symbol]
-        ordered = sorted(items, key=lambda item: item[0].position_id)
-        for position, exit_result, quote in ordered:
-            remaining = {item.leg_id: item.target_quantity for item in exit_result.leg_exits}
-            total = sum(remaining.values(), start=Decimal("0"))
-            take = min(total, budget)
-            budget -= take
-            remaining = _cut_to_target(position, remaining, take)
-            target = sum(remaining.values(), start=Decimal("0"))
-            quantity = sum((leg.quantity for leg in position.legs), start=Decimal("0"))
-            price = quote.price if quote is not None and quote.valid else None
-            value = None if price is None else quantity * price
-            post_value = None if price is None else target * price
-            current_risk = Decimal("0")
-            post_risk = Decimal("0")
-            risk_unknown = False
-            for leg, leg_exit in zip(position.legs, exit_result.leg_exits):
-                if price is None:
-                    risk_unknown = True
-                    break
-                current = _leg_risk(leg.quantity, price, leg_exit.active_stop)
-                planned = _leg_risk(remaining[leg.leg_id], price, leg_exit.active_stop)
-                if current is None or planned is None:
-                    risk_unknown = True
-                    break
-                current_risk += current
-                post_risk += planned
-            execution = "UNKNOWN"
-            available = [
-                leg.available_quantity
-                for leg in position.legs
-                if leg.available_quantity is not None
-            ]
-            reduce_qty = max(Decimal("0"), quantity - target)
-            if available and reduce_qty > 0:
-                free = sum(available, start=Decimal("0"))
-                if free <= 0:
-                    execution = "BLOCKED"
-                elif free < reduce_qty:
-                    execution = "PARTIALLY_AVAILABLE"
-                else:
-                    execution = "AVAILABLE"
-            unmet = tuple(per_symbol_unmet[symbol] + extra_unmet)
-            result[(position.account_id, position.position_id)] = PositionAccountRisk(
-                account_id=position.account_id,
-                position_id=position.position_id,
-                symbol=symbol,
-                quantity=quantity,
-                target_quantity=target,
-                reduce_quantity=reduce_qty,
-                market_value=value,
-                current_risk=None if risk_unknown else current_risk,
-                post_plan_risk=None if risk_unknown else post_risk,
-                current_weight=None if value is None else value / net,
-                post_plan_weight=None if post_value is None else post_value / net,
-                uncovered_risk=per_symbol_meta[symbol]["uncovered"],
-                account_complete=complete,
-                triggered=per_symbol_meta[symbol]["triggered"],
-                execution=execution,
-                unmet=unmet,
-                leg_targets=remaining,
-            )
+    for position, exit_result, quote in positions:
+        key = (position.account_id, position.position_id)
+        owned = by_position.get(key, [])
+        remaining = {item.leg.leg_id: item.qty for item in owned}
+        for item in exit_result.leg_exits:
+            remaining.setdefault(item.leg_id, item.target_quantity)
+        target = sum(remaining.values(), start=Decimal("0"))
+        quantity = sum((leg.quantity for leg in position.legs), start=Decimal("0"))
+        price = quote.price if quote is not None and quote.valid and not quote.stale else None
+        value = None if price is None else quantity * price
+        post_value = None if price is None else target * price
+        current_risk = Decimal("0")
+        post_risk = Decimal("0")
+        risk_unknown = False
+        for leg in position.legs:
+            stop = stops.get((position.account_id, position.position_id, leg.leg_id))
+            if price is None:
+                risk_unknown = True
+                break
+            current = _leg_risk(leg.quantity, price, stop)
+            planned = _leg_risk(remaining.get(leg.leg_id, Decimal("0")), price, stop)
+            if current is None or planned is None:
+                risk_unknown = True
+                break
+            current_risk += current
+            post_risk += planned
+        execution = "UNKNOWN"
+        available = [leg.available_quantity for leg in position.legs if leg.available_quantity is not None]
+        reduce_qty = max(Decimal("0"), quantity - target)
+        if available and reduce_qty > 0:
+            free = sum(available, start=Decimal("0"))
+            if free <= 0:
+                execution = "BLOCKED"
+            elif free < reduce_qty:
+                execution = "PARTIALLY_AVAILABLE"
+            else:
+                execution = "AVAILABLE"
+        cut = any(item.qty < item.candidate for item in owned)
+        unmet = tuple(per_symbol_unmet[position.symbol] + extra_unmet) if cut else ()
+        result[key] = PositionAccountRisk(
+            account_id=position.account_id,
+            position_id=position.position_id,
+            symbol=position.symbol,
+            quantity=quantity,
+            target_quantity=target,
+            reduce_quantity=reduce_qty,
+            market_value=value,
+            current_risk=None if risk_unknown else current_risk,
+            post_plan_risk=None if risk_unknown else post_risk,
+            current_weight=None if value is None else value / net,
+            post_plan_weight=None if post_value is None else post_value / net,
+            uncovered_risk=per_symbol_meta[position.symbol]["uncovered"],
+            account_complete=complete,
+            triggered=per_symbol_meta[position.symbol]["triggered"],
+            execution=execution,
+            unmet=unmet,
+            leg_targets=remaining,
+        )
     return result
 
 

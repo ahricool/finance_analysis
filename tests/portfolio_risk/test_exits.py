@@ -9,7 +9,7 @@ from finance_analysis.portfolio_risk.bars import latest_expected_closed  # pragm
 from finance_analysis.portfolio_risk.config import RiskPolicy  # pragma: allowlist secret
 from finance_analysis.portfolio_risk.exits import LegInput, PositionInput, PositionState, QuoteView, evaluate_position_exit  # pragma: allowlist secret
 from finance_analysis.portfolio_risk.models import ActivePlan  # pragma: allowlist secret
-from bar_fixtures import session_bars, trading_dates, weaken_last_adjacent
+from bar_fixtures import recover_last_adjacent, session_bars, trading_dates, weaken_last_adjacent
 
 SH = ZoneInfo("Asia/Shanghai")
 DAY = datetime(2026, 9, 16, tzinfo=SH).date()
@@ -297,3 +297,144 @@ def test_same_bar_end_does_not_double_count_and_pending_plan_keeps_fixed_target(
     assert second.plan.status == "PENDING"
     assert second.plan.position_target == first.plan.position_target
     assert second.plan.revision == first.plan.revision
+
+
+def test_new_episode_can_exit_after_recovery():
+    now = datetime(2026, 9, 16, 14, 0, tzinfo=SH)
+    bars = weaken_last_adjacent(_bars(until=now, high_close=Decimal("110")))
+    quote = QuoteView(price=Decimal("108"), quote_as_of=now, valid=True)
+    first = evaluate_position_exit(
+        _position(addon_qty=None),
+        quote=quote,
+        bars=bars,
+        state=PositionState(),
+        policy=POLICY,
+        now=now,
+        market="CN",
+        latest_expected=latest_expected_closed("CN", now),
+    )
+    assert first.plan.status == "PENDING"
+    assert Decimal(first.plan.position_target) == Decimal("500")
+    halved = _position(core_qty="500", addon_qty=None)
+    satisfied = evaluate_position_exit(
+        halved,
+        quote=quote,
+        bars=bars,
+        state=first.state,
+        policy=POLICY,
+        now=now + timedelta(minutes=5),
+        market="CN",
+        latest_expected=latest_expected_closed("CN", now),
+    )
+    assert satisfied.plan.status == "SATISFIED_BY_SHEET"
+    later = now + timedelta(minutes=10)
+    still_weak = weaken_last_adjacent(_bars(until=later, high_close=Decimal("110")))
+    again = evaluate_position_exit(
+        halved,
+        quote=QuoteView(price=Decimal("108"), quote_as_of=later, valid=True),
+        bars=still_weak,
+        state=satisfied.state,
+        policy=POLICY,
+        now=later,
+        market="CN",
+        latest_expected=latest_expected_closed("CN", later),
+    )
+    assert Decimal(again.position_target) == Decimal("500")
+    assert again.plan.status == "SATISFIED_BY_SHEET"
+    assert not any(event["event_type"] == "CONFIRMED_WEAK" for event in again.events)
+    recovered_at = now + timedelta(minutes=20)
+    recovered_bars = recover_last_adjacent(_bars(until=recovered_at, high_close=Decimal("110")))
+    recovered = evaluate_position_exit(
+        halved,
+        quote=QuoteView(price=Decimal("108"), quote_as_of=recovered_at, valid=True),
+        bars=recovered_bars,
+        state=again.state,
+        policy=POLICY,
+        now=recovered_at,
+        market="CN",
+        latest_expected=latest_expected_closed("CN", recovered_at),
+    )
+    assert recovered.state.episode_consumed is False
+    assert any(event["event_type"] == "EPISODE_RECOVERED" for event in recovered.events)
+    weak_again_at = now + timedelta(minutes=30)
+    new_weak = weaken_last_adjacent(_bars(until=weak_again_at, high_close=Decimal("110")))
+    second = evaluate_position_exit(
+        halved,
+        quote=QuoteView(price=Decimal("108"), quote_as_of=weak_again_at, valid=True),
+        bars=new_weak,
+        state=recovered.state,
+        policy=POLICY,
+        now=weak_again_at,
+        market="CN",
+        latest_expected=latest_expected_closed("CN", weak_again_at),
+    )
+    assert second.plan.status == "PENDING"
+    assert Decimal(second.plan.position_target) == Decimal("250")
+    assert any(event["event_type"] == "CONFIRMED_WEAK" for event in second.events)
+    assert second.plan.revision == recovered.plan.revision + 1
+
+
+def test_closed_addon_zero_quantity_satisfies_bound_plan():
+    now = datetime(2026, 9, 16, 14, 0, tzinfo=SH)
+    plan = ActivePlan(
+        revision=1,
+        status="PENDING",
+        action="REDUCE",
+        bound_leg_ids=["core", "addon"],
+        leg_targets={"core": "1000", "addon": "0"},
+        position_target="1000",
+        current_quantity="1500",
+        reduce_quantity="500",
+    )
+    position = PositionInput(
+        "a1",
+        "p1",
+        "600519.SH",
+        (
+            LegInput("core", "CORE", Decimal("1000"), Decimal("100"), now, status="OPEN"),
+            LegInput("addon", "ADDON", Decimal("0"), Decimal("110"), now, status="CLOSED"),
+        ),
+    )
+    result = evaluate_position_exit(
+        position,
+        quote=QuoteView(price=Decimal("108"), quote_as_of=now, valid=True),
+        bars=[],
+        state=PositionState(plan=plan, episode_consumed=True),
+        policy=POLICY,
+        now=now,
+        market="CN",
+    )
+    assert result.plan.status == "SATISFIED_BY_SHEET"
+    assert result.needs_review is False
+    assert not any(event["event_type"] == "CONFIRMED_WEAK" for event in result.events)
+    assert any(event["event_type"] == "PLAN_SATISFIED" for event in result.events)
+
+
+def test_missing_bound_leg_is_review_not_satisfied():
+    now = datetime(2026, 9, 16, 14, 0, tzinfo=SH)
+    plan = ActivePlan(
+        revision=1,
+        status="PENDING",
+        action="REDUCE",
+        bound_leg_ids=["core", "addon"],
+        leg_targets={"core": "1000", "addon": "0"},
+        position_target="1000",
+    )
+    position = PositionInput(
+        "a1",
+        "p1",
+        "600519.SH",
+        (LegInput("core", "CORE", Decimal("1000"), Decimal("100"), now, status="OPEN"),),
+    )
+    result = evaluate_position_exit(
+        position,
+        quote=QuoteView(price=Decimal("108"), quote_as_of=now, valid=True),
+        bars=[],
+        state=PositionState(plan=plan, episode_consumed=True),
+        policy=POLICY,
+        now=now,
+        market="CN",
+    )
+    assert result.plan.status == "PENDING"
+    assert result.needs_review is True
+    assert any(event["event_type"] == "PLAN_NEEDS_REVIEW" for event in result.events)
