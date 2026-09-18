@@ -244,7 +244,7 @@ async function loadList() {
 async function save() {
   formError.value = null;
   const code = formCode.value.trim();
-  if (!code || !formMarketType.value) {
+  if (editingId.value === null && (!code || !formMarketType.value)) {
     formError.value = '请先搜索并选择股票';
     return;
   }
@@ -252,9 +252,7 @@ async function save() {
   try {
     if (editingId.value !== null) {
       const updated = await watchListApi.update(editingId.value, {
-        name: formName.value.trim() || undefined,
         notes: formNotes.value.trim(),
-        market_type: formMarketType.value,
       });
       const idx = items.value.findIndex((i) => i.id === editingId.value);
       if (idx !== -1) items.value[idx] = updated;
@@ -263,7 +261,7 @@ async function save() {
         code,
         name: formName.value.trim() || undefined,
         notes: formNotes.value.trim() || undefined,
-        market_type: formMarketType.value,
+        market_type: formMarketType.value ?? undefined,
       };
       const created = await watchListApi.create(body);
       items.value.push(created);
@@ -656,17 +654,23 @@ onMounted(loadList);
       @update:open="showDialog = $event"
     >
       <DialogContent class="max-w-md">
-        <DialogHeader><DialogTitle>{{ editingId !== null ? '编辑自选股' : '添加自选股' }}</DialogTitle><DialogDescription>搜索并选择股票，市场自动识别，可按需补充备注。</DialogDescription></DialogHeader>
+        <DialogHeader><DialogTitle>{{ editingId !== null ? '编辑自选股' : '添加自选股' }}</DialogTitle><DialogDescription>{{ editingId !== null ? '查看已选股票并修改备注。' : '搜索并选择股票，市场自动识别，可按需补充备注。' }}</DialogDescription></DialogHeader>
         <div class="space-y-4 py-2">
           <div>
             <Label
               class="mb-2"
               for="watchlist-stock"
             >股票 *</Label>
+            <FieldInput
+              v-if="editingId !== null"
+              id="watchlist-stock"
+              :model-value="formStockQuery"
+              readonly
+            />
             <StockAutocomplete
+              v-else
               v-model="formStockQuery"
               placeholder="搜索股票代码或名称"
-              :disabled="editingId !== null"
               :teleported="false"
               @submit="handleStockAutocompleteSubmit"
             />

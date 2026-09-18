@@ -823,6 +823,7 @@ onMounted(async () => {
             }}</label>
             <StockAutocomplete
               :model-value="stockQuery"
+              :teleported="false"
               :placeholder="`搜索${selectedAccount?.name ?? ''}标的`"
               @update:model-value="handleAutocompleteInput"
               @submit="handleAutocomplete"
