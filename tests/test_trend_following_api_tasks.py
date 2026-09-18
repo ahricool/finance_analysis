@@ -188,7 +188,7 @@ def test_tasks_and_schedules_are_registered():
     assert cn.celery_task_name == "scheduled.trend_following_cn"
     assert us.celery_task_name == "scheduled.trend_following_us"
     assert cn.schedule_text.startswith("周一至周五 18:40")
-    assert us.schedule_text.startswith("周一至周五 18:40")
+    assert us.schedule_text.startswith("周一至周五 21:40")
     assert build_beat_schedule()[JOB_TREND_FOLLOWING_CN]["options"]["queue"] == "analysis"
     assert build_beat_schedule()[JOB_TREND_FOLLOWING_US]["options"]["queue"] == "analysis"
     assert "finance_analysis.tasks.celery.jobs.trend_following.tasks" in TASK_MODULES  # pragma: allowlist secret
