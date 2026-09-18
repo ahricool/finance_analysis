@@ -58,6 +58,12 @@ JOB_TREND_FOLLOWING_CN = "trend_following_cn"
 JOB_TREND_FOLLOWING_US = "trend_following_us"
 JOB_TREND_FOLLOWING_PREVIEW_CN = "trend_following_preview_cn"
 JOB_TREND_FOLLOWING_PREVIEW_US = "trend_following_preview_us"
+JOB_HOLDINGS_SYNC = "holdings_sync"
+JOB_PORTFOLIO_RISK_CN = "portfolio_risk_cn"
+JOB_PORTFOLIO_RISK_US = "portfolio_risk_us"
+
+EXPIRES_HOLDINGS_SYNC = 4 * 60
+EXPIRES_PORTFOLIO_RISK = 50
 
 
 def celery_task_name(job_id: str) -> str:

@@ -12,7 +12,7 @@ from alembic.migration import MigrationContext
 from alembic.operations import Operations
 from alembic.script import ScriptDirectory
 
-from finance_analysis.database.models import Notification
+from finance_analysis.database.models import Notification  # pragma: allowlist secret
 
 
 def exercise(connection, monkeypatch):
@@ -74,4 +74,5 @@ def test_cleanup_postgresql(monkeypatch):
 
 def test_single_head():
     script = ScriptDirectory.from_config(Config("alembic.ini"))
-    assert script.get_heads() == ["0057_us_trend_universe"]
+    assert script.get_heads() == ["0059_holdings_published_snapshot"]
+

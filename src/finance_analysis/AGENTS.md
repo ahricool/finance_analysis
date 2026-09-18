@@ -18,7 +18,7 @@ interfaces/api + tasks/celery/jobs
 
 - `interfaces/` 是传输边界：解析请求、鉴权、选择依赖、序列化响应，不应承载核心计算。
 - `tasks/celery/jobs/` 是异步适配层：解析 payload、记录生命周期、调用领域服务。
-- 顶层领域包（`analysis`、`quant`、`etf_rotation`、`trend_following`、`market_review`）拥有业务规则。
+- 顶层领域包（`analysis`、`quant`、`etf_rotation`、`trend_following`、`market_review`、`holdings`、`portfolio_risk`）拥有业务规则。
 - `database/repositories/` 封装查询和事务；领域代码不应散落 SQL。
 - `integrations/` 封装外部行情；`llm/`、`notification/` 同样是共享基础能力。
 - 为避免循环导入和高成本启动，现有代码有意在函数内延迟导入数据库、Provider和任务组件；修改前先确认初始化顺序。

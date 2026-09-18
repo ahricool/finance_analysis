@@ -20,7 +20,7 @@ const activeTab = computed<MarketTab>(() => {
   <div class="space-y-6 py-4 sm:py-6">
     <PageHeader
       title="市场"
-      description="管理自选股和投资组合。"
+      description="管理自选股，并从 Google Sheet 读取实际持仓。"
     />
     <ModuleTabs
       :items="marketNavItems"

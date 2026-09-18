@@ -6,8 +6,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
-from finance_analysis.tasks.celery.app import celery_app
-from finance_analysis.tasks.celery.schedule import (
+from finance_analysis.tasks.celery.app import celery_app  # pragma: allowlist secret
+from finance_analysis.tasks.celery.schedule import (  # pragma: allowlist secret
     ALL_QUEUES,
     build_beat_schedule,
     build_task_routes,
@@ -15,7 +15,7 @@ from finance_analysis.tasks.celery.schedule import (
     get_scheduled_task_definition,
     get_scheduled_task_definitions,
 )
-from finance_analysis.tasks.celery.schedule.cron import LocalizedCrontab, compute_next_run, next_run_for_crontab
+from finance_analysis.tasks.celery.schedule.cron import LocalizedCrontab, compute_next_run, next_run_for_crontab  # pragma: allowlist secret
 
 EXPECTED_JOBS = {
     "market_sentiment_cn": ("scheduled_market_sentiment_cn", "Asia/Shanghai"),
@@ -43,6 +43,9 @@ EXPECTED_JOBS = {
     "trend_following_us": ("scheduled_trend_following_us", "America/New_York"),
     "trend_following_preview_cn": ("scheduled_trend_following_preview_cn", "Asia/Shanghai"),
     "trend_following_preview_us": ("scheduled_trend_following_preview_us", "America/New_York"),
+    "holdings_sync": ("scheduled_holdings_sync", "Asia/Shanghai"),
+    "portfolio_risk_cn": ("scheduled_portfolio_risk_cn", "Asia/Shanghai"),
+    "portfolio_risk_us": ("scheduled_portfolio_risk_us", "America/New_York"),
 }
 
 
@@ -309,7 +312,7 @@ def test_compute_next_run_handles_localized_per_schedule_timezone():
 
 
 def test_scheduled_celery_tasks_are_lifecycle_tracked():
-    from finance_analysis.tasks.lifecycle import is_tracked_callable
+    from finance_analysis.tasks.lifecycle import is_tracked_callable  # pragma: allowlist secret
 
     celery_app.loader.import_default_modules()
     tasks = {
@@ -324,7 +327,7 @@ def test_scheduled_celery_tasks_are_lifecycle_tracked():
 def test_before_publish_creates_single_pending_record_with_scheduler_metadata():
     from unittest.mock import patch
 
-    from finance_analysis.tasks.celery import app as app_module
+    from finance_analysis.tasks.celery import app as app_module  # pragma: allowlist secret
 
     events = []
 
@@ -352,7 +355,7 @@ def test_before_publish_creates_single_pending_record_with_scheduler_metadata():
 def test_before_publish_carries_manual_trigger_metadata():
     from unittest.mock import patch
 
-    from finance_analysis.tasks.celery import app as app_module
+    from finance_analysis.tasks.celery import app as app_module  # pragma: allowlist secret
 
     events = []
 
@@ -384,7 +387,7 @@ def test_before_publish_carries_manual_trigger_metadata():
 def test_before_publish_skips_internal_quant_callback_record():
     from unittest.mock import MagicMock, patch
 
-    from finance_analysis.tasks.celery import app as app_module
+    from finance_analysis.tasks.celery import app as app_module  # pragma: allowlist secret
 
     service = MagicMock()
     with patch.object(app_module, "get_task_lifecycle_service", return_value=service):
@@ -400,7 +403,7 @@ def test_before_publish_skips_internal_quant_callback_record():
 def test_before_publish_uses_importance_task_metadata():
     from unittest.mock import patch
 
-    from finance_analysis.tasks.celery import app as app_module
+    from finance_analysis.tasks.celery import app as app_module  # pragma: allowlist secret
 
     events = []
 

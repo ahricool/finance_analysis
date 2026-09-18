@@ -2,28 +2,30 @@
 """Explicit task packages loaded by the Celery application."""
 
 TASK_PACKAGES = (
-    "finance_analysis.tasks.celery.jobs.market_sentiment",
-    "finance_analysis.tasks.celery.jobs.industry_strength",
-    "finance_analysis.tasks.celery.jobs.market_structure",
-    "finance_analysis.tasks.celery.jobs.demo_add",
-    "finance_analysis.tasks.celery.jobs.stock_analysis",
-    "finance_analysis.tasks.celery.jobs.market_review",
-    "finance_analysis.tasks.celery.jobs.market_calendar_importance",
-    "finance_analysis.tasks.celery.jobs.daily_analysis",
-    "finance_analysis.tasks.celery.jobs.market_calendar_sync",
-    "finance_analysis.tasks.celery.jobs.us_premarket_news",
-    "finance_analysis.tasks.celery.jobs.us_premarket_analysis",
-    "finance_analysis.tasks.celery.jobs.us_intraday_analysis",
-    "finance_analysis.tasks.celery.jobs.us_postmarket_review",
-    "finance_analysis.tasks.celery.jobs.market_data_sync",
-    "finance_analysis.tasks.celery.jobs.reference_data_sync",
-    "finance_analysis.tasks.celery.jobs.a_share_intraday_analysis",
-    "finance_analysis.tasks.celery.jobs.a_share_pre_close_review",
-    "finance_analysis.tasks.celery.jobs.quant_dataset",
-    "finance_analysis.tasks.celery.jobs.quant_training",
-    "finance_analysis.tasks.celery.jobs.quant_daily",
-    "finance_analysis.tasks.celery.jobs.etf_rotation",
-    "finance_analysis.tasks.celery.jobs.trend_following",
+    "finance_analysis.tasks.celery.jobs.market_sentiment",  # pragma: allowlist secret
+    "finance_analysis.tasks.celery.jobs.industry_strength",  # pragma: allowlist secret
+    "finance_analysis.tasks.celery.jobs.market_structure",  # pragma: allowlist secret
+    "finance_analysis.tasks.celery.jobs.demo_add",  # pragma: allowlist secret
+    "finance_analysis.tasks.celery.jobs.stock_analysis",  # pragma: allowlist secret
+    "finance_analysis.tasks.celery.jobs.market_review",  # pragma: allowlist secret
+    "finance_analysis.tasks.celery.jobs.market_calendar_importance",  # pragma: allowlist secret
+    "finance_analysis.tasks.celery.jobs.daily_analysis",  # pragma: allowlist secret
+    "finance_analysis.tasks.celery.jobs.market_calendar_sync",  # pragma: allowlist secret
+    "finance_analysis.tasks.celery.jobs.us_premarket_news",  # pragma: allowlist secret
+    "finance_analysis.tasks.celery.jobs.us_premarket_analysis",  # pragma: allowlist secret
+    "finance_analysis.tasks.celery.jobs.us_intraday_analysis",  # pragma: allowlist secret
+    "finance_analysis.tasks.celery.jobs.us_postmarket_review",  # pragma: allowlist secret
+    "finance_analysis.tasks.celery.jobs.market_data_sync",  # pragma: allowlist secret
+    "finance_analysis.tasks.celery.jobs.reference_data_sync",  # pragma: allowlist secret
+    "finance_analysis.tasks.celery.jobs.a_share_intraday_analysis",  # pragma: allowlist secret
+    "finance_analysis.tasks.celery.jobs.a_share_pre_close_review",  # pragma: allowlist secret
+    "finance_analysis.tasks.celery.jobs.quant_dataset",  # pragma: allowlist secret
+    "finance_analysis.tasks.celery.jobs.quant_training",  # pragma: allowlist secret
+    "finance_analysis.tasks.celery.jobs.quant_daily",  # pragma: allowlist secret
+    "finance_analysis.tasks.celery.jobs.etf_rotation",  # pragma: allowlist secret
+    "finance_analysis.tasks.celery.jobs.trend_following",  # pragma: allowlist secret
+    "finance_analysis.tasks.celery.jobs.holdings_sync",  # pragma: allowlist secret
+    "finance_analysis.tasks.celery.jobs.portfolio_risk",  # pragma: allowlist secret
 )
 TASK_MODULES = tuple(f"{package}.tasks" for package in TASK_PACKAGES)
 

@@ -13,19 +13,19 @@ from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from typing import Any, Callable, Generic, TypeVar
 
-from finance_analysis.core.time import utc_now
-from finance_analysis.integrations.market_data.providers.longbridge.market import _to_longbridge_symbol
-from finance_analysis.integrations.market_data.realtime_state.models import CandleState, QuoteState
-from finance_analysis.integrations.market_data.realtime_state.repository import RealtimeStateRepository
-from finance_analysis.integrations.market_data.realtime_types import RealtimeSource, UnifiedRealtimeQuote
-from finance_analysis.market_stream.config import (
+from finance_analysis.core.time import utc_now  # pragma: allowlist secret
+from finance_analysis.integrations.market_data.providers.longbridge.market import _to_longbridge_symbol  # pragma: allowlist secret
+from finance_analysis.integrations.market_data.realtime_state.models import CandleState, QuoteState  # pragma: allowlist secret
+from finance_analysis.integrations.market_data.realtime_state.repository import RealtimeStateRepository  # pragma: allowlist secret
+from finance_analysis.integrations.market_data.realtime_types import RealtimeSource, UnifiedRealtimeQuote  # pragma: allowlist secret
+from finance_analysis.market_stream.config import (  # pragma: allowlist secret
     MarketStreamConfig,
     latest_completed_bar_time,
     market_spec,
     market_trading_date,
     market_timezone,
 )
-from finance_analysis.stocks.markets import MarketType, normalize_market_type
+from finance_analysis.stocks.markets import MarketType, normalize_market_type  # pragma: allowlist secret
 
 logger = logging.getLogger(__name__)
 
@@ -492,6 +492,9 @@ def _quote_to_unified(quote: QuoteState, *, requested_symbol: str) -> UnifiedRea
     amplitude = None
     if previous and quote.high is not None and quote.low is not None:
         amplitude = (float(quote.high) - float(quote.low)) / previous * 100
+    quote_time = quote.event_time
+    if quote.event_time is not None and quote.received_at is not None and quote.event_time == quote.received_at:
+        quote_time = None
     return UnifiedRealtimeQuote(
         code=requested_symbol,
         source=RealtimeSource.MARKET_STREAMER,
@@ -505,6 +508,7 @@ def _quote_to_unified(quote: QuoteState, *, requested_symbol: str) -> UnifiedRea
         high=float(quote.high) if quote.high is not None else None,
         low=float(quote.low) if quote.low is not None else None,
         pre_close=previous,
+        quote_time=quote_time,
     )
 
 

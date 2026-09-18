@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any
 
-from finance_analysis.integrations.market_data.realtime_state.models import CandleState
+from finance_analysis.integrations.market_data.realtime_state.models import CandleState  # pragma: allowlist secret
 
 CN_VOLUME_MULTIPLIER = 100
 
@@ -73,6 +73,19 @@ def longbridge_datetime_to_utc(value: Any, fallback: datetime) -> datetime:
         return datetime.fromtimestamp(float(value), tz=timezone.utc)
     except (TypeError, ValueError, OSError):
         return fallback
+
+
+def try_parse_longbridge_datetime(value: Any) -> datetime | None:
+    """Parse a Longbridge timestamp without substituting now()."""
+    if value is None:
+        return None
+    if isinstance(value, str) and not value.strip():
+        return None
+    sentinel = datetime(1, 1, 1, tzinfo=timezone.utc)
+    parsed = longbridge_datetime_to_utc(value, sentinel)
+    if parsed == sentinel:
+        return None
+    return parsed
 
 
 def _time(value: Any, fallback: datetime) -> datetime:

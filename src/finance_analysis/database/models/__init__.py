@@ -1,20 +1,21 @@
 # -*- coding: utf-8 -*-
 """ORM model exports."""
 
-from finance_analysis.database.models.industry_strength import IndustryStrengthSnapshot
-from finance_analysis.database.models.market_sentiment import MarketSentimentSnapshot, MarketSentimentSourceSnapshot
+from finance_analysis.database.models.holdings import HoldingSource, PositionRiskState, RiskEvent  # pragma: allowlist secret
+from finance_analysis.database.models.industry_strength import IndustryStrengthSnapshot  # pragma: allowlist secret
+from finance_analysis.database.models.market_sentiment import MarketSentimentSnapshot, MarketSentimentSourceSnapshot  # pragma: allowlist secret
 
-from finance_analysis.database.models.market_structure import MarketStructureSnapshot
+from finance_analysis.database.models.market_structure import MarketStructureSnapshot  # pragma: allowlist secret
 
-from finance_analysis.database.models.notification import Notification
-from finance_analysis.database.models.analysis import AnalysisHistory
-from finance_analysis.database.models.timeline import TimelineEntry
-from finance_analysis.database.models.news_analysis import NewsAnalysis
-from finance_analysis.database.models.llm_usage import LLMUsage
-from finance_analysis.database.models.etf_rotation import ETFMarketRotationSnapshot, ETFMomentumSnapshot
-from finance_analysis.database.models.market_calendar import FinanceEvent
-from finance_analysis.database.models.news import FundamentalSnapshot, NewsIntel, NewsIntelUsage
-from finance_analysis.database.models.quant import (
+from finance_analysis.database.models.notification import Notification  # pragma: allowlist secret
+from finance_analysis.database.models.analysis import AnalysisHistory  # pragma: allowlist secret
+from finance_analysis.database.models.timeline import TimelineEntry  # pragma: allowlist secret
+from finance_analysis.database.models.news_analysis import NewsAnalysis  # pragma: allowlist secret
+from finance_analysis.database.models.llm_usage import LLMUsage  # pragma: allowlist secret
+from finance_analysis.database.models.etf_rotation import ETFMarketRotationSnapshot, ETFMomentumSnapshot  # pragma: allowlist secret
+from finance_analysis.database.models.market_calendar import FinanceEvent  # pragma: allowlist secret
+from finance_analysis.database.models.news import FundamentalSnapshot, NewsIntel, NewsIntelUsage  # pragma: allowlist secret
+from finance_analysis.database.models.quant import (  # pragma: allowlist secret
     MarketRegimeSnapshot,
     ModelDefinition,
     ModelPublication,
@@ -24,19 +25,22 @@ from finance_analysis.database.models.quant import (
     PortfolioRecommendationItem,
     QuantDatasetSnapshot,
 )
-from finance_analysis.database.models.stock import (
+from finance_analysis.database.models.stock import (  # pragma: allowlist secret
     Instrument,
     StockDaily,
 )
-from finance_analysis.database.models.universe import Universe, UniverseInclude, UniverseMember
-from finance_analysis.database.models.task import TaskRecord
-from finance_analysis.database.models.trend_following import TrendFollowingSnapshot, TrendFollowingSummary
-from finance_analysis.database.models.user import User
-from finance_analysis.database.models.watch_list import WatchListItem
+from finance_analysis.database.models.universe import Universe, UniverseInclude, UniverseMember  # pragma: allowlist secret
+from finance_analysis.database.models.task import TaskRecord  # pragma: allowlist secret
+from finance_analysis.database.models.trend_following import TrendFollowingSnapshot, TrendFollowingSummary  # pragma: allowlist secret
+from finance_analysis.database.models.user import User  # pragma: allowlist secret
+from finance_analysis.database.models.watch_list import WatchListItem  # pragma: allowlist secret
 
-from finance_analysis.database.models.crypto import CryptoKline, CryptoStrategySnapshot, CryptoStrategyState
+from finance_analysis.database.models.crypto import CryptoKline, CryptoStrategySnapshot, CryptoStrategyState  # pragma: allowlist secret
 
 __all__ = [
+    "HoldingSource",
+    "PositionRiskState",
+    "RiskEvent",
     "MarketSentimentSnapshot",
     "MarketSentimentSourceSnapshot",
     "IndustryStrengthSnapshot",
