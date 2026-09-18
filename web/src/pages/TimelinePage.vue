@@ -117,7 +117,7 @@ function safeUrl(value: unknown) { return typeof value === 'string' && /^https?:
     class="w-full py-6"
     data-testid="investment-timeline"
   >
-    <header class="overflow-hidden rounded-xl border border-border bg-gradient-to-br from-primary/8 via-card to-card p-5 shadow-sm sm:p-6">
+    <header class="overflow-hidden rounded-xl border border-border bg-card p-5 shadow-sm sm:p-6">
       <p class="text-xs tracking-[0.2em] text-muted-foreground">
         INVESTMENT TIMELINE
       </p>
