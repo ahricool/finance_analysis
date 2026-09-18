@@ -2,6 +2,7 @@
 """Explicit task packages loaded by the Celery application."""
 
 TASK_PACKAGES = (
+    "finance_analysis.tasks.celery.jobs.market_sentiment",  # pragma: allowlist secret
     "finance_analysis.tasks.celery.jobs.industry_strength",  # pragma: allowlist secret
     "finance_analysis.tasks.celery.jobs.market_structure",  # pragma: allowlist secret
     "finance_analysis.tasks.celery.jobs.demo_add",  # pragma: allowlist secret

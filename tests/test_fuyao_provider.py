@@ -79,6 +79,7 @@ def test_registry_exact_external_inventory_internal_readers_and_order():
         SECTOR_RANKINGS,
         INSTRUMENT_INFO,
         "industry_catalog", "index_history", "index_constituents",
+        "limit_up_pool", "limit_down_pool", "limit_break_pool", "limit_up_ladder",
     }
     assert registry.capabilities("easyquotation") == {LATEST_MARKET_SNAPSHOT}
     with pytest.raises(ProviderConfigurationError, match="do not support"):

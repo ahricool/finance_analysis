@@ -18,6 +18,7 @@ from finance_analysis.tasks.celery.schedule import (  # pragma: allowlist secret
 from finance_analysis.tasks.celery.schedule.cron import LocalizedCrontab, compute_next_run, next_run_for_crontab  # pragma: allowlist secret
 
 EXPECTED_JOBS = {
+    "market_sentiment_cn": ("scheduled_market_sentiment_cn", "Asia/Shanghai"),
     "industry_strength_cn": ("scheduled_industry_strength_cn", "Asia/Shanghai"),
     "market_structure_cn": ("scheduled_market_structure_cn", "Asia/Shanghai"),
     "market_structure_us": ("scheduled_market_structure_us", "America/New_York"),
@@ -214,11 +215,11 @@ def test_market_data_sync_schedules_and_queue():
         (item.hour, item.minute, item.day_of_week, item.day_of_month, item.timezone, item.sync_mode)
         for item in us.schedules
     } == {
-        ("18", "0", "mon-fri", "*", "America/New_York", "incremental"),
+        ("21", "0", "mon-fri", "*", "America/New_York", "incremental"),
         ("10", "0", "sun", "1-7", "America/New_York", "full"),
     }
     assert cn_hk.schedule_text == "周一至周五 18:00 增量；每月第一个周日 10:00 全量（Asia/Shanghai）"
-    assert us.schedule_text == "周一至周五 18:00 增量；每月第一个周日 10:00 全量（America/New_York）"
+    assert us.schedule_text == "周一至周五 21:00 增量；每月第一个周日 10:00 全量（America/New_York）"
 
 
 def test_market_data_full_beat_crons_fire_only_on_the_first_sunday_of_each_month():

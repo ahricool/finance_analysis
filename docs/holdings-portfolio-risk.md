@@ -68,6 +68,6 @@ CORE/ADDON 独立保护基准，position 级统一软退出计划。加仓失败
 
 1. 填写 `.env.example` 中的 Google OAuth 与 `GOOGLE_OAUTH_TOKEN_KEY`。
 2. 重定向 URI 必须是 `.../api/v1/holdings/oauth/callback`。
-3. 跑 Alembic 至 `0057_holdings_published_snapshot`。
+3. 跑 Alembic 至 `0059_holdings_published_snapshot`。
 4. 普通 worker 已消费 `ingestion` 与 `alerts`，无需新队列。
 5. 可选配置全局 Telegram/ntfy；没有渠道时风控仍可用。

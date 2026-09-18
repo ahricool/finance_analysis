@@ -4,7 +4,7 @@
 
 ## 复用与业务边界
 
-- Market Structure 复用现有 Daily Sync 的 `cn_daily_sync` / `us_daily_sync` Universe，仅选择同市场 ACTIVE STOCK 成员（排除 ETF），以及 `TrendFollowingConfig.benchmark_codes`（当前 CN `510300.SH`、US `SPY.US`）。没有第二套 benchmark 配置或新增 Provider。
+- Market Structure 使用独立 `cn_market_structure`（CSI300/500/1000）与 `us_market_structure`（SP500）Universe，不随 Daily Sync 或 Trend 扩池，仅选择同市场 ACTIVE STOCK 成员（排除 ETF），以及 `TrendFollowingConfig.benchmark_codes`（当前 CN `510300.SH`、US `SPY.US`）。没有第二套 benchmark 配置或新增 Provider。
 - CN Trend Universe 另含中证 2000，现有 Daily Sync 不覆盖它，因此没有直接把全部 `cn_trend` 作为 DB-only 市场结构样本。现有 CN 日线范围为 CSI300/500/1000，US 为 S&P500；Quant Universe 则可能依赖已有数据库成员配置。快照明确保存 Universe key、样本数及覆盖率；若现有 Daily Sync 股票 Universe 为空或其行情不足，任务失败，不偷偷切换范围。
 - `UniverseResolver` 沿用现有当前成员语义，不重构历史成员。Market Structure 的样本应解读为这个 Universe 的结构，而非交易所全部股票。
 - `stock_daily` 批量历史读取复用 `TrendFollowingRepository.load_daily_history`；股票成员仅接受数据库前复权日线。每个成员对齐同一组最近 20 个交易所交易日，缺少任一日的标的不纳入本次样本。至少 90% eligible Universe 覆盖才写快照（eligibility 规则见回填章节）。
@@ -15,9 +15,9 @@
 ## 正式任务与失败语义
 
 ```text
-Daily Sync（已有）
-  → ETF Rotation（已有，18:30 市场当地时间）
-  → Market Structure（新增，18:50 市场当地时间）
+Daily Sync（CN 18:00 / US 21:00）
+  → ETF Rotation（CN 18:30 / US 21:30）
+  → Market Structure（CN 18:50 / US 21:50）
       → 校验交易日已经收盘
       → 读取当日及最多 5 个历史 ETF 横截面
       → 批量读取股票 Universe 的 DB-only 日线并验证 readiness
@@ -26,7 +26,9 @@ Daily Sync（已有）
       → 单行原子 upsert
 ```
 
-`market_structure_cn` / `market_structure_us` 在周一至周五当地时间 18:50 发布到 `analysis` 队列，分别用 `Asia/Shanghai` / `America/New_York`，保留 DST 行为。注册、路由、TaskRecord 生命周期和 Task Center 手动运行均复用已有注册表。
+`market_structure_cn` / `market_structure_us` 分别在周一至周五当地时间 18:50 / 21:50 发布到 `analysis` 队列，分别用 `Asia/Shanghai` / `America/New_York`，保留 DST 行为。注册、路由、TaskRecord 生命周期和 Task Center 手动运行均复用已有注册表。
+
+美股正式收盘任务按 `America/New_York`、周一至周五依次调度：21:00 日线增量同步、21:30 ETF Rotation、21:40 Trend Following、21:50 Market Structure、22:30 Quant Daily Pipeline。延后为 Yahoo/yfinance 当日日线留出更多更新时间；每月全量同步仍为第一个周日 10:00。美股收盘复盘保持 18:00，不随本次调整。
 
 依赖通过当日 ETF snapshot 的存在检查，而非仅靠时钟保证。Market Structure 不重新运行 ETF Ranking；ETF 任务迟到/失败时本任务失败，可以在上游完成后手动重试。交易日非收盘、benchmark 缺失、股票覆盖不足也不生成新快照。没有与 Daily Sync / ETF Rotation 共用写事务，失败不回滚上游。
 

@@ -3,8 +3,8 @@ from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import JSONB  # pragma: allowlist secret
 
-revision = "0057_holdings_published_snapshot"
-down_revision = "0056_holdings_portfolio_risk"
+revision = "0059_holdings_published_snapshot"
+down_revision = "0058_holdings_portfolio_risk"
 branch_labels = None
 depends_on = None
 

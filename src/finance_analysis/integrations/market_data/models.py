@@ -266,3 +266,17 @@ class IndexDailyBar:
     close: float
     volume: float
     amount: float
+
+
+@dataclass(frozen=True)
+class MarketPoolSnapshot:
+    """Complete upstream pool; requested date is distinct from data readiness time."""
+
+    requested_trade_date: date | None
+    source_kind: str
+    source_timestamp: datetime
+    fetched_at: datetime
+    total: int
+    items: list[dict]
+    quality: dict
+    window: dict | None = None

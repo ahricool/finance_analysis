@@ -74,4 +74,5 @@ def test_cleanup_postgresql(monkeypatch):
 
 def test_single_head():
     script = ScriptDirectory.from_config(Config("alembic.ini"))
-    assert script.get_heads() == ["0057_holdings_published_snapshot"]
+    assert script.get_heads() == ["0059_holdings_published_snapshot"]
+

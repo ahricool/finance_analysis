@@ -42,6 +42,12 @@ T = TypeVar("T")
 
 
 class MarketDataRouter:
+    def route_market_pool(self, market, capability, *args):
+        if str(getattr(market, "value", market)).upper() != "CN":
+            raise ValueError("Market sentiment supports CN only")
+        registrations = self._providers(market=Market.CN, capability=capability, providers=None)
+        return getattr(registrations[0].provider, CAPABILITY_METHODS[capability])(*args)
+
     def route_index_reference(self, market, capability, *args):
         # These index capabilities have no stock adjustment semantics or implicit DB writes.
         if str(getattr(market, "value", market)).upper() != "CN":

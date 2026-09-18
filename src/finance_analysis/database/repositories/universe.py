@@ -76,10 +76,11 @@ class UniverseRepository:
     def replace_members_with_stats(
         self, key: str, instruments: Iterable[dict[str, Any]], source: str
     ) -> MembershipSyncStats:
-        records = list(instruments)
+        # Deduplicate within this index only; other index memberships are independent.
+        records = list({str(item["code"]).strip().upper(): item for item in instruments}.values())
         with self.db.session_scope() as session:
             universe = session.execute(select(Universe).where(Universe.key == key)).scalar_one()
-            codes = {str(item["code"]).upper() for item in records}
+            codes = {str(item["code"]).strip().upper() for item in records}
             ids = dict(session.execute(select(Instrument.code, Instrument.id).where(Instrument.code.in_(codes))).all())
             missing = sorted(codes - set(ids))
             if missing:
@@ -100,7 +101,7 @@ class UniverseRepository:
                 )
             inserted = 0
             for item in records:
-                code = str(item["code"]).upper()
+                code = str(item["code"]).strip().upper()
                 if code in existing:
                     session.execute(
                         update(UniverseMember)

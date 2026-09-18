@@ -11,6 +11,7 @@ from celery.schedules import crontab
 
 from .constants import (
     JOB_INDUSTRY_STRENGTH_CN,
+    JOB_MARKET_SENTIMENT_CN,
     EXPIRES_CALENDAR,
     EXPIRES_DAILY,
     EXPIRES_ETF_ROTATION,
@@ -107,6 +108,18 @@ class ScheduledTaskDefinition:
 
 
 SCHEDULED_TASK_DEFINITIONS = (
+    ScheduledTaskDefinition(
+        job_id=JOB_MARKET_SENTIMENT_CN,
+        name="市场情绪 CN",
+        description="A股完整涨停池、连板晋级与盘后情绪观察；完整分页后原子发布",
+        task_type="scheduled_market_sentiment_cn",
+        celery_task_name=celery_task_name(JOB_MARKET_SENTIMENT_CN),
+        schedules=(CronSchedule(minute="20", hour="19", day_of_week="mon-fri", timezone=SCHEDULE_TIMEZONE),),
+        schedule_text="周一至周五 19:20 Asia/Shanghai",
+        timezone=SCHEDULE_TIMEZONE,
+        queue=QUEUE_ANALYSIS,
+        expires=EXPIRES_ETF_ROTATION,
+    ),
     ScheduledTaskDefinition(
         job_id=JOB_INDUSTRY_STRENGTH_CN,
         name="行业强度 CN",
@@ -239,7 +252,7 @@ SCHEDULED_TASK_DEFINITIONS = (
         schedules=(
             CronSchedule(
                 minute="0",
-                hour="18",
+                hour="21",
                 day_of_week="mon-fri",
                 timezone=US_TIMEZONE,
                 sync_mode="incremental",
@@ -253,7 +266,7 @@ SCHEDULED_TASK_DEFINITIONS = (
                 sync_mode="full",
             ),
         ),
-        schedule_text="周一至周五 18:00 增量；每月第一个周日 10:00 全量（America/New_York）",
+        schedule_text="周一至周五 21:00 增量；每月第一个周日 10:00 全量（America/New_York）",
         timezone=US_TIMEZONE,
         queue=QUEUE_INGESTION,
         expires=EXPIRES_MARKET_DATA_SYNC,
@@ -266,8 +279,8 @@ SCHEDULED_TASK_DEFINITIONS = (
         description="在日线同步后计算市场、排名、融合信号和目标组合",
         task_type="scheduled_quant_daily_us",
         celery_task_name=celery_task_name(JOB_QUANT_DAILY_PIPELINE_US),
-        schedules=(CronSchedule(minute="30", hour="21", day_of_week="mon-fri", timezone=US_TIMEZONE),),
-        schedule_text="周一至周五 21:30 America/New_York",
+        schedules=(CronSchedule(minute="30", hour="22", day_of_week="mon-fri", timezone=US_TIMEZONE),),
+        schedule_text="周一至周五 22:30 America/New_York",
         timezone=US_TIMEZONE,
         queue=QUEUE_ANALYSIS,
         expires=EXPIRES_QUANT,
@@ -302,8 +315,8 @@ SCHEDULED_TASK_DEFINITIONS = (
         description="读取收盘日线与正式 ETF 排名，保存市场广度、轮动速度和领导集中度",
         task_type="scheduled_market_structure_us",
         celery_task_name=celery_task_name(JOB_MARKET_STRUCTURE_US),
-        schedules=(CronSchedule(minute="50", hour="18", day_of_week="mon-fri", timezone=US_TIMEZONE),),
-        schedule_text="周一至周五 18:50 America/New_York",
+        schedules=(CronSchedule(minute="50", hour="21", day_of_week="mon-fri", timezone=US_TIMEZONE),),
+        schedule_text="周一至周五 21:50 America/New_York",
         timezone=US_TIMEZONE, queue=QUEUE_ANALYSIS, expires=EXPIRES_ETF_ROTATION, allow_manual_run=True,
     ),
     ScheduledTaskDefinition(
@@ -325,8 +338,8 @@ SCHEDULED_TASK_DEFINITIONS = (
         description="计算固定 ETF Universe 的多因子动量、市场环境与公共轮动信号",
         task_type="scheduled_etf_rotation_us",
         celery_task_name=celery_task_name(JOB_ETF_ROTATION_US),
-        schedules=(CronSchedule(minute="30", hour="18", day_of_week="mon-fri", timezone=US_TIMEZONE),),
-        schedule_text="周一至周五 18:30 America/New_York",
+        schedules=(CronSchedule(minute="30", hour="21", day_of_week="mon-fri", timezone=US_TIMEZONE),),
+        schedule_text="周一至周五 21:30 America/New_York",
         timezone=US_TIMEZONE,
         queue=QUEUE_ANALYSIS,
         expires=EXPIRES_ETF_ROTATION,
@@ -385,8 +398,8 @@ SCHEDULED_TASK_DEFINITIONS = (
         description="从数据库前复权日线独立计算标普500趋势跟踪快照",
         task_type="scheduled_trend_following_us",
         celery_task_name=celery_task_name(JOB_TREND_FOLLOWING_US),
-        schedules=(CronSchedule(minute="40", hour="18", day_of_week="mon-fri", timezone=US_TIMEZONE),),
-        schedule_text="周一至周五 18:40 America/New_York",
+        schedules=(CronSchedule(minute="40", hour="21", day_of_week="mon-fri", timezone=US_TIMEZONE),),
+        schedule_text="周一至周五 21:40 America/New_York",
         timezone=US_TIMEZONE,
         queue=QUEUE_ANALYSIS,
         expires=EXPIRES_TREND_FOLLOWING,

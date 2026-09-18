@@ -3,6 +3,7 @@
 
 from finance_analysis.database.models.holdings import HoldingSource, PositionRiskState, RiskEvent  # pragma: allowlist secret
 from finance_analysis.database.models.industry_strength import IndustryStrengthSnapshot  # pragma: allowlist secret
+from finance_analysis.database.models.market_sentiment import MarketSentimentSnapshot, MarketSentimentSourceSnapshot  # pragma: allowlist secret
 
 from finance_analysis.database.models.market_structure import MarketStructureSnapshot  # pragma: allowlist secret
 
@@ -40,6 +41,8 @@ __all__ = [
     "HoldingSource",
     "PositionRiskState",
     "RiskEvent",
+    "MarketSentimentSnapshot",
+    "MarketSentimentSourceSnapshot",
     "IndustryStrengthSnapshot",
     "MarketStructureSnapshot",
     "Notification",

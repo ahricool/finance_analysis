@@ -17,6 +17,7 @@ class USIndexConstituentProvider:
     name = "wikipedia"
     URLS = {
         "SP500": "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies",
+        "SP400": "https://en.wikipedia.org/wiki/List_of_S%26P_400_companies",
         "NASDAQ100": "https://en.wikipedia.org/wiki/List_of_NASDAQ-100_companies",
     }
 

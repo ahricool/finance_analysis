@@ -33,6 +33,7 @@ from ..models import (
     MarketIndex,
     MarketQuote,
     MarketStats,
+    MarketPoolSnapshot,
     QuoteRequest,
     SectorRankings,
 )
@@ -558,3 +559,128 @@ class FuyaoProvider:
     def _validate_index(code):
         if not re.fullmatch(r"\d{6}\.(TI|SH|SZ)", code):
             raise ValueError("Fuyao supports A-share indices only")
+
+    def get_limit_up_pool(self, trade_date):
+        return self._complete_pool(trade_date, "limit_up", "continue_day_cnt")
+
+    def get_limit_down_pool(self, trade_date):
+        return self._complete_pool(trade_date, "limit_down", "last_limit_time")
+
+    def get_limit_break_pool(self, trade_date):
+        return self._complete_pool(trade_date, "limit_break", "open_times")
+
+    def _complete_pool(self, trade_date, kind, sort_field):
+        if type(trade_date) is not date:
+            raise ValueError("An explicit requested trade date is required")
+        path = "/api/a-share/special-data/" + kind.replace("_", "-") + "-pool"
+        rows, seen, total, source_time = [], set(), None, None
+        for page in range(1, 101):
+            data = self._get(
+                path, date_ms=date_ms(trade_date), page=page, size=200, sort_field=sort_field, sort_dir="desc"
+            )
+            meta = data.get("pagination", {})
+            if not isinstance(meta, dict) or any(
+                type(meta.get(k)) is not int for k in ("total", "pages", "size", "page")
+            ):
+                raise FuyaoError("Fuyao invalid pool pagination")
+            count = meta["total"]
+            pages = (count + 199) // 200
+            if (
+                count < 0
+                or meta["page"] != page
+                or meta["size"] != 200
+                or meta["pages"] not in ({0, 1} if count == 0 else {pages})
+                or (total is not None and total != count)
+            ):
+                raise FuyaoError("Fuyao inconsistent pool pagination")
+            total = count
+            stamp = timestamp(data.get("timestamp"))
+            if stamp is None or stamp > datetime.now(timezone.utc) + timedelta(minutes=5):
+                raise FuyaoError("Fuyao invalid pool readiness timestamp")
+            # The documented timestamp is readiness time, NOT an echoed trade date.
+            # Reject pre-session readiness; later timestamps on historical requests are valid.
+            if stamp < datetime.combine(trade_date, time(15), SHANGHAI):
+                raise FuyaoError("Fuyao pool is not ready after requested close")
+            if source_time is not None and source_time != stamp:
+                raise FuyaoError("Fuyao pool generation changed during pagination")
+            source_time = stamp
+            if "date_ms" in data and data["date_ms"] != date_ms(trade_date):
+                raise FuyaoError("Fuyao unexpected pool date echo")
+            items = self._items(data)
+            if len(items) != min(200, max(0, total - (page - 1) * 200)):
+                raise FuyaoError("Fuyao incomplete pool page")
+            for row in items:
+                code = row.get("thscode")
+                if not isinstance(code, str) or not re.fullmatch(r"\d{6}\.(SH|SZ|BJ)", code):
+                    raise FuyaoError("Fuyao invalid pool thscode")
+                if code in seen:
+                    raise FuyaoError("Fuyao duplicate pool code/page")
+                seen.add(code)
+                rows.append(row)
+            if page >= pages:
+                if len(seen) != total:
+                    raise FuyaoError("Fuyao incomplete pool")
+                return MarketPoolSnapshot(
+                    trade_date,
+                    kind,
+                    source_time,
+                    datetime.now(timezone.utc),
+                    total,
+                    rows,
+                    {"complete": True, "date_basis": "explicit_date_ms", "timestamp_semantics": "data_ready_time"},
+                )
+        raise FuyaoError("Fuyao pool pagination exceeded bound")
+
+    def get_limit_up_ladder(self):
+        data = self._get("/api/a-share/special-data/limit-up-ladder")
+        rows = self._items(data)
+        window = data.get("window")
+        boards = {"two_board", "three_board", "four_board", "five_board", "six_board", "seven_over"}
+        stamp = timestamp(data.get("timestamp"))
+        try:
+            dates = window["date_list"]
+            valid = (
+                stamp is not None
+                and isinstance(dates, list)
+                and len(dates) == len(set(dates))
+                and 0 < len(dates) <= 30
+                and window["length"] == len(dates)
+                and set(window["board_caps"]) == boards
+                and all(window["board_caps"][k] == 4 for k in boards)
+                and len(rows) == len(dates)
+                and {r["date"] for r in rows} == set(dates)
+            )
+            for day in dates:
+                datetime.strptime(day, "%Y%m%d")
+            for row in rows:
+                valid = valid and set(row["boards"]) == boards
+                for entries in row["boards"].values():
+                    valid = valid and isinstance(entries, list) and len(entries) <= 4
+                    valid = valid and len({r["thscode"] for r in entries}) == len(entries)
+                    for item in entries:
+                        valid = valid and bool(re.fullmatch(r"\d{6}\.(SH|SZ|BJ)", item["thscode"]))
+            if not valid:
+                raise ValueError()
+        except (KeyError, TypeError, ValueError, AttributeError):
+            raise FuyaoError("Fuyao invalid limited ladder window") from None
+        # Keep the limited sample independent; no posterior seal_nextday enters calculations or UI.
+        clean = [
+            {
+                "date": r["date"],
+                "boards": {
+                    k: [{f: v for f, v in item.items() if f != "seal_nextday"} for item in entries]
+                    for k, entries in r["boards"].items()
+                },
+            }
+            for r in rows
+        ]
+        return MarketPoolSnapshot(
+            None,
+            "ladder",
+            stamp,
+            datetime.now(timezone.utc),
+            len(clean),
+            clean,
+            {"complete": True, "limited_sample": True},
+            window,
+        )

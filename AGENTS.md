@@ -307,7 +307,7 @@ API `/api/v1/crypto` 与页面 `/research/crypto/btc` 统一走 `CryptoService`�
 
 ## Market Structure / Trend Health
 
-`market_structure/` 独立计算 CN/US 收盘市场结构，任务 `market_structure_cn/us` 在当地 18:50 读取已存 ETF Ranking 与 DB 日线；API `/api/v1/market-structure` 只读 PostgreSQL snapshot。手动回填复用 `/market-structure/run` 的日期范围任务。Trend lifecycle/fragility 集成现有正式/preview 计算链，分别保存 PostgreSQL/Redis，不改交易规则。范围、公式、缺失数据语义见 `docs/market-structure.md`。
+`market_structure/` 独立计算 CN/US 收盘市场结构，任务 `market_structure_cn/us` 分别在当地 18:50 / 21:50 读取已存 ETF Ranking 与 DB 日线；API `/api/v1/market-structure` 只读 PostgreSQL snapshot。手动回填复用 `/market-structure/run` 的日期范围任务。Trend lifecycle/fragility 集成现有正式/preview 计算链，分别保存 PostgreSQL/Redis，不改交易规则。范围、公式、缺失数据语义见 `docs/market-structure.md`。
 
 ## 信息输入边界
 
@@ -333,3 +333,10 @@ CN 5m 只走窄范围 `SinaMinuteProvider`（`ak.stock_zh_a_minute` period=5）�
 任务复用 `ingestion`（`holdings_sync` 每 5 分钟）和 `alerts`（`portfolio_risk_cn/us` 每分钟），不新增 risk-worker。
 通知复用现有全局 Telegram/ntfy：先与 `risk_event` 同事务写入站内消息，再 `push_existing`；外推失败不回滚、不重复创建站内消息。
 Google token、OAuth code/state 和完整表格不得进入日志、API 或通知。详见 `docs/holdings-portfolio-risk.md`。
+
+## Market Sentiment
+
+`market_sentiment/` 独立计算 A 股完整盘后涨停池、连板晋级与情绪观察；经现有 FuyaoProvider 四个 CN capability 取数。
+`market_sentiment_cn` 上海19:20在独立任务锁下原子保存完整源与结果，核心不完整不覆盖旧结果，补数重算后续派生值。
+`/api/v1/market-sentiment` GET只读，管理员 `/run` 支持单日或最多31交易日异步补数；页面 `/research/market-sentiment`。
+主观察为非ST且非未开板新股；官方天梯有限样本和补充池独立展示，不参与评分。见 `docs/market-sentiment.md`。

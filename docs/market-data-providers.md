@@ -5,7 +5,7 @@
 读取器是内部来源，`names(include_internal=True)` 可用于检查完整路由。
 
 `USIndexConstituentProvider` 是独立 Reference Data Source，不属于 Market Data Provider，
-不注册到 ProviderRegistry，也不参与日线、Quote 或分钟 fallback。S&P 500 / Nasdaq-100
+不注册到 ProviderRegistry，也不参与日线、Quote 或分钟 fallback。S&P 500 / S&P MidCap 400 / Nasdaq-100
 当前成分继续通过 Wikipedia 同步；四个 CN 指数 Universe 恢复通过 AkShare
 `index_stock_cons_csindex` 同步（000300 / 000905 / 000852 / 932000）。
 `AkShareIndexConstituentProvider` 同样仅属于 Reference Data Source，不加入行情 registry
