@@ -57,7 +57,7 @@ export const researchNavItems: NavDestination[] = [
 ];
 
 export const mainNavItems: MainNavItem[] = [
-  { key: 'dashboard', label: '动态', to: '/dashboard', icon: Activity, exact: true },
+  { key: 'dashboard', label: '市场动态', to: '/dashboard', icon: Activity, exact: true },
   { key: 'timeline', label: '时间线', to: '/timeline', icon: CalendarDays },
   {
     key: 'research',

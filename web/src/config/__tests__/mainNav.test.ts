@@ -9,7 +9,7 @@ import {
 describe('main navigation', () => {
   it('orders desktop destinations and scopes research away from market', () => {
     expect(mainNavItems.map((item) => item.label)).toEqual([
-      '动态',
+      '市场动态',
       '时间线',
       '研究',
       '市场',
