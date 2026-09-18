@@ -117,8 +117,8 @@ BUY 要求 Composite Top4、Entry Score 至少 70 且状态为 EMERGING/STRONG/T
 ## Scheduler、手动运行与 API
 
 Celery Beat 任务 `scheduled.etf_rotation_cn` / `scheduled.etf_rotation_us` 默认分别在工作日
-18:30 Asia/Shanghai / 18:30 America/New_York 进入 `analysis` queue。时间顺序不是数据正确性的保障，
-任务自身总会执行 readiness 检查。正式 18:30 任务不读取盘中 Preview。
+18:30 Asia/Shanghai / 21:30 America/New_York 进入 `analysis` queue。时间顺序不是数据正确性的保障，
+任务自身总会执行 readiness 检查。正式收盘任务不读取盘中 Preview。
 
 盘中预演 `etf_rotation_preview_cn` / `etf_rotation_preview_us` 在交易日
 11:05、14:05、14:35 Asia/Shanghai 与 11:05、15:05、15:35 America/New_York 运行，

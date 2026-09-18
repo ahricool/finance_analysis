@@ -305,7 +305,7 @@ API `/api/v1/crypto` 与页面 `/research/crypto/btc` 统一走 `CryptoService`�
 
 ## Market Structure / Trend Health
 
-`market_structure/` 独立计算 CN/US 收盘市场结构，任务 `market_structure_cn/us` 在当地 18:50 读取已存 ETF Ranking 与 DB 日线；API `/api/v1/market-structure` 只读 PostgreSQL snapshot。手动回填复用 `/market-structure/run` 的日期范围任务。Trend lifecycle/fragility 集成现有正式/preview 计算链，分别保存 PostgreSQL/Redis，不改交易规则。范围、公式、缺失数据语义见 `docs/market-structure.md`。
+`market_structure/` 独立计算 CN/US 收盘市场结构，任务 `market_structure_cn/us` 分别在当地 18:50 / 21:50 读取已存 ETF Ranking 与 DB 日线；API `/api/v1/market-structure` 只读 PostgreSQL snapshot。手动回填复用 `/market-structure/run` 的日期范围任务。Trend lifecycle/fragility 集成现有正式/preview 计算链，分别保存 PostgreSQL/Redis，不改交易规则。范围、公式、缺失数据语义见 `docs/market-structure.md`。
 
 ## 信息输入边界
 
