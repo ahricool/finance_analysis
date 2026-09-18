@@ -6,7 +6,6 @@ from zoneinfo import ZoneInfo
 
 from finance_analysis.portfolio_risk.account import AccountView, apply_account_constraints, merge_account_targets  # pragma: allowlist secret
 
-from finance_analysis.portfolio_risk.account import AccountView, apply_account_constraints, merge_account_targets  # pragma: allowlist secret
 from finance_analysis.portfolio_risk.config import RiskPolicy  # pragma: allowlist secret
 from finance_analysis.portfolio_risk.exits import LegInput, PositionInput, PositionState, QuoteView, evaluate_position_exit  # pragma: allowlist secret
 
