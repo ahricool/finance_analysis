@@ -220,7 +220,7 @@ function safeUrl(value: unknown) { return typeof value === 'string' && /^https?:
     />
     <div
       v-if="loading && !items.length"
-      class="mt-4 columns-3 gap-3 2xl:columns-4"
+      class="mt-4 columns-4 gap-3"
       aria-label="正在加载"
     >
       <div class="mb-3 h-36 break-inside-avoid animate-pulse rounded-xl bg-muted" />
@@ -252,7 +252,7 @@ function safeUrl(value: unknown) { return typeof value === 'string' && /^https?:
           {{ dayHeading(group.key) }}
         </h2>
         <div
-          class="columns-3 gap-3 2xl:columns-4"
+          class="columns-4 gap-3"
           data-testid="timeline-columns"
         >
           <div
