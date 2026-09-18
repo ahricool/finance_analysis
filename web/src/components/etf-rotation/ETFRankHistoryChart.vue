@@ -18,6 +18,18 @@ use([CanvasRenderer, LineChart, GridComponent, LegendComponent, TooltipComponent
 const props = defineProps<{ market: ETFMarket; asOf?: string; includePreview: boolean; refreshKey: number }>();
 const { resolvedTheme } = useTheme();
 const history = shallowRef<ETFRankHistoryResponse | null>(null);
+const seriesColors = ['#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de', '#3ba272', '#fc8452', '#9a60b4', '#ea7ccc'];
+const selectedSeries = ref<Record<string, boolean>>({});
+function toggleSeries(name: string) {
+  selectedSeries.value = { ...selectedSeries.value, [name]: selectedSeries.value[name] === false };
+  hoveredSeriesIndex.value = null;
+}
+const hoveredSeriesIndex = ref<number | null>(null);
+const hoveredSeries = computed(() => hoveredSeriesIndex.value == null
+  ? null : history.value?.series[hoveredSeriesIndex.value]);
+function showSeriesLegend(event: { componentType?: string; seriesIndex?: number }) {
+  hoveredSeriesIndex.value = event.componentType === 'series' ? event.seriesIndex ?? null : null;
+}
 const loading = ref(false);
 const error = shallowRef<ParsedApiError | null>(null);
 let requestId = 0;
@@ -26,6 +38,8 @@ async function load() {
   loading.value = true;
   error.value = null;
   history.value = null;
+  selectedSeries.value = {};
+  hoveredSeriesIndex.value = null;
   try {
     const result = await etfRotationApi.rankHistory(props.market, props.asOf, props.includePreview);
     if (current === requestId) history.value = result;
@@ -59,10 +73,9 @@ const option = computed<ComposeOption<LineSeriesOption | GridComponentOption | L
       },
     },
     legend: {
-      type: 'plain', top: 0, left: 0, right: 0,
-      textStyle: { color: muted, fontSize: 11 },
+      type: 'plain', show: false, selected: selectedSeries.value,
     },
-    grid: { left: 12, right: 16, top: 120, bottom: 12, containLabel: true },
+    grid: { left: 12, right: 16, top: 16, bottom: 12, containLabel: true },
     xAxis: {
       type: 'category', data: data?.dates ?? [],
       axisLabel: { color: muted, hideOverlap: true, formatter: (value: string) => value.slice(5) },
@@ -73,8 +86,9 @@ const option = computed<ComposeOption<LineSeriesOption | GridComponentOption | L
       max: Math.max(2, ...(data?.series.flatMap(series => series.ranks.map(rank => rank ?? 1)) ?? [])),
       axisLabel: { color: muted, formatter: '#{value}' }, splitLine: { lineStyle: { color: split } },
     },
-    series: data?.series.map(series => ({
-      name: series.name, type: 'line', smooth: 0.25, connectNulls: false,
+    series: data?.series.map((series, index) => ({
+      name: series.name, type: 'line', smooth: 0.25, connectNulls: false, triggerLineEvent: true,
+      itemStyle: { color: seriesColors[index % seriesColors.length] },
       showSymbol: true, symbol: 'circle', symbolSize: 3, lineStyle: { width: 1 },
       emphasis: { focus: 'series', lineStyle: { width: 2 } },
       data: series.ranks.map((rank, index) => data.dates[index] === data.previewDate
@@ -95,7 +109,7 @@ const option = computed<ComposeOption<LineSeriesOption | GridComponentOption | L
       ETF 排名走势
     </h3>
     <p class="mt-1 text-xs text-muted-foreground">
-      最近 30 个有正式快照的交易日{{ asOf ? ` · 截至 ${asOf}` : '' }} · 排名提升时曲线上移 · 点击图例可隐藏或显示 ETF
+      最近 30 个有正式快照的交易日{{ asOf ? ` · 截至 ${asOf}` : '' }} · 排名提升时曲线上移 · 悬停曲线可查看 ETF · 点击图例可隐藏或显示 ETF
     </p>
     <p
       v-if="loading"
@@ -117,9 +131,40 @@ const option = computed<ComposeOption<LineSeriesOption | GridComponentOption | L
       </Button>
     </div>
     <template v-else>
+      <ul
+        v-if="hasRanks"
+        class="mt-4 flex flex-wrap gap-x-3 gap-y-1"
+        aria-label="ETF 图例"
+      >
+        <li
+          v-for="(series, index) in history?.series"
+          :key="series.code"
+          class="max-w-full"
+        >
+          <button
+            type="button"
+            class="flex max-w-full items-center gap-1.5 rounded-sm py-0.5 text-left text-xs text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            :class="{ 'opacity-40': selectedSeries[series.name] === false }"
+            :aria-pressed="selectedSeries[series.name] !== false"
+            @click="toggleSeries(series.name)"
+          >
+            <span
+              class="relative h-0.5 w-5 shrink-0"
+              :style="{ backgroundColor: seriesColors[index % seriesColors.length] }"
+              aria-hidden="true"
+            >
+              <span
+                class="absolute left-1/2 top-1/2 size-2 -translate-x-1/2 -translate-y-1/2 rounded-full"
+                :style="{ backgroundColor: seriesColors[index % seriesColors.length] }"
+              />
+            </span>
+            <span class="min-w-0 break-words">{{ series.name }}</span>
+          </button>
+        </li>
+      </ul>
       <div
         v-if="hasRanks"
-        class="mt-4 h-[30rem] min-w-0"
+        class="relative mt-4 h-[30rem] min-w-0"
       >
         <VChart
           :option="option"
@@ -127,7 +172,18 @@ const option = computed<ComposeOption<LineSeriesOption | GridComponentOption | L
           autoresize
           role="img"
           aria-label="ETF Rank 历史折线图，Rank 1 位于最上方，缺失排名保留断点"
+          @mouseover="showSeriesLegend"
+          @mouseout="hoveredSeriesIndex = null"
+          @globalout="hoveredSeriesIndex = null"
         />
+        <div
+          v-if="hoveredSeries"
+          class="pointer-events-none absolute bottom-12 right-4 rounded-md border bg-popover px-3 py-2 text-sm text-popover-foreground shadow-md"
+          role="status"
+        >
+          <span class="font-medium">{{ hoveredSeries.name }}</span>
+          <span class="ml-2 text-muted-foreground">{{ hoveredSeries.code }}</span>
+        </div>
       </div>
       <p
         v-else

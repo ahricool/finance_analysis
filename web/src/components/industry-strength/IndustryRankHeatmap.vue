@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue';
+import { computed } from 'vue';
 import { use } from 'echarts/core';
 import type { ECElementEvent } from 'echarts/core';
 import { HeatmapChart, CustomChart } from 'echarts/charts';
@@ -13,21 +13,13 @@ import { heatmapOption } from './chartOptions';
 
 use([HeatmapChart, CustomChart, GridComponent, TooltipComponent, VisualMapComponent, CanvasRenderer]);
 
-const props = defineProps<{ rows: IndustrySnapshot[]; history: IndustryHistory; selected: string; active?: boolean }>();
+const props = defineProps<{ rows: IndustrySnapshot[]; history: IndustryHistory; selected: string }>();
 const emit = defineEmits<{ select: [code: string] }>();
 const { resolvedTheme } = useTheme();
-const chart = ref<{ resize?: () => void } | null>(null);
 const leaders = computed(() => selectedDateLeaders(props.rows));
 const option = computed(() => heatmapOption(props.rows, props.history, props.selected, resolvedTheme.value === 'dark' ? 'dark' : 'light'));
 const height = computed(() => Math.max(280, leaders.value.length * 32 + 120));
 const selectedInSample = computed(() => leaders.value.some((row) => row.industryCode === props.selected));
-
-watch(() => props.active, async (active) => {
-  if (active) {
-    await nextTick();
-    chart.value?.resize?.();
-  }
-});
 
 function select(event: ECElementEvent) {
   const data = event.data;
@@ -54,7 +46,6 @@ function select(event: ECElementEvent) {
       aria-label="行业排名热力图"
     >
       <VChart
-        ref="chart"
         :option="option"
         autoresize
         @click="select"
