@@ -156,7 +156,9 @@ def test_startup_seed_keeps_macro_include(database):
     repository = UniverseRepository(database)
     parent = repository.get_by_key("us_daily_sync")
     assert {item.key for item in repository.list_included_universes(parent.id)} == {
-        "us_trend",
+        "us_sp500",
+        "us_sp400",
+        "us_nasdaq100",
         "us_index_etf",
         "us_macro",
     }

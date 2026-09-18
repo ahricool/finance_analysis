@@ -578,7 +578,7 @@ def test_us_trend_migration_union_memberships_and_atomic_replacement(monkeypatch
     assert [item.code for item in get_universe("US", resolver)] == sorted(codes)
     assert {item.code for item in resolver.resolve_universe("us_daily_sync")} == set(codes)
     assert {item.key for item in repository.list_included_universes(ids["us_daily_sync"])} == {
-        "us_trend", "us_macro", "us_index_etf",
+        "us_sp500", "us_sp400", "us_nasdaq100", "us_macro", "us_index_etf",
     }
     for key in ("us_sp500", "us_nasdaq100"):
         assert "AAPL.US" in {item.code for item in resolver.resolve_universe(key)}
@@ -589,3 +589,87 @@ def test_us_trend_migration_union_memberships_and_atomic_replacement(monkeypatch
     assert stats.deleted == 1
     assert "AAPL.US" in {item.code for item in resolver.resolve_universe("us_nasdaq100")}
     assert [item.code for item in get_universe("US", resolver)] == sorted(codes)
+
+
+@pytest.mark.parametrize("setup", ["seed", "migration", "migration_old_pr"])
+def test_daily_trend_and_market_structure_scopes_are_independent(setup, monkeypatch):
+    import importlib.util
+    from sqlalchemy import JSON, MetaData, select
+    from sqlalchemy.dialects.postgresql import JSONB
+    from finance_analysis.core.paths import PROJECT_ROOT
+    from finance_analysis.database.models.quant import ModelDefinition
+    from finance_analysis.database.seed import seed_quant_reference_data
+    from finance_analysis.market_structure.universe import get_universe_codes
+    from finance_analysis.tasks.celery.jobs.market_data_sync.service import MarketDataSyncService
+
+    expected = {
+        "us_trend": {"us_sp500", "us_sp400", "us_nasdaq100"},
+        "us_daily_sync": {"us_sp500", "us_sp400", "us_nasdaq100", "us_index_etf", "us_macro"},
+        "us_market_structure": {"us_sp500"},
+        "cn_trend": {"cn_csi300", "cn_csi500", "cn_csi1000", "cn_csi2000"},
+        "cn_daily_sync": {"cn_csi300", "cn_csi500", "cn_csi1000", "cn_csi2000", "cn_index_etf"},
+        "cn_market_structure": {"cn_csi300", "cn_csi500", "cn_csi1000"},
+    }
+    database = Database()
+    if setup == "seed":
+        table = ModelDefinition.__table__.to_metadata(MetaData())
+        for column in table.columns:
+            if isinstance(column.type, JSONB):
+                column.type = JSON()
+        table.create(database.engine)
+        seed_quant_reference_data(database)
+        seed_quant_reference_data(database)
+    else:
+        old = {
+            "us_trend": {"us_sp500"},
+            "us_daily_sync": {"us_sp500", "us_index_etf", "us_macro"},
+            "cn_trend": expected["cn_trend"],
+            "cn_daily_sync": expected["cn_daily_sync"] - {"cn_csi2000"},
+        }
+        if setup == "migration_old_pr":
+            old["us_daily_sync"] = {"us_trend", "us_index_etf", "us_macro"}
+            old["us_trend"] = expected["us_trend"]
+        keys = set(old) | {child for children in old.values() for child in children} | {"us_nasdaq100"}
+        with database.session_scope() as session:
+            for key in keys:
+                session.add(Universe(key=key, name=key, market=key[:2].upper(),
+                                     universe_type="STRATEGY" if key in old else "INDEX"))
+            session.flush()
+            ids = dict(session.execute(select(Universe.key, Universe.id)).all())
+            for parent, children in old.items():
+                for child in children:
+                    session.add(UniverseInclude(universe_id=ids[parent], included_universe_id=ids[child]))
+        spec = importlib.util.spec_from_file_location(
+            "scope_migration", PROJECT_ROOT / "alembic/versions/0057_us_trend_universe.py"
+        )
+        migration = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(migration)
+        with database.engine.begin() as connection:
+            monkeypatch.setattr(migration.op, "get_bind", lambda: connection)
+            migration.upgrade()
+            migration.upgrade()
+    repository = UniverseRepository(database)
+    for parent, children in expected.items():
+        row = repository.get_by_key(parent)
+        assert row.universe_type == "STRATEGY"
+        assert {item.key for item in repository.list_included_universes(row.id)} == children
+    resolver = UniverseResolver(repository)
+    instruments = InstrumentRepository(database)
+    leaves = sorted({child for children in expected.values() for child in children})
+    codes = {}
+    for i, key in enumerate(leaves):
+        market = key[:2].upper()
+        code = f"{600000 + i}.SH" if market == "CN" else f"TEST{i}.US"
+        codes[key] = code
+        kind = "ETF" if key.endswith(("etf", "macro")) else "STOCK"
+        instruments.upsert_symbols([{"code": code, "market": market, "name": code, "instrument_type": kind}])
+        repository.replace_members(key, [{"code": code}], "TEST")
+    for market in ("CN", "US"):
+        prefix = market.lower()
+        assert get_universe_codes(market, resolver) == {codes[key] for key in expected[f"{prefix}_market_structure"]}
+        sync = object.__new__(MarketDataSyncService)
+        sync.market, sync.universe_resolver = market, resolver
+        assert {item.code for item in sync.load_scope()} == {codes[key] for key in expected[f"{prefix}_daily_sync"]}
+        assert {item.code for item in resolver.resolve_universe(f"{prefix}_trend")} == {
+            codes[key] for key in expected[f"{prefix}_trend"]
+        }

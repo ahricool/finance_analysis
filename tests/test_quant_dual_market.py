@@ -108,6 +108,8 @@ def test_quant_seed_initializes_unified_universe_definitions():
         "us_macro",
         "cn_trend",
         "us_trend",
+        "us_market_structure",
+        "cn_market_structure",
         "cn_index_etf",
         "us_index_etf",
         "cn_quant",

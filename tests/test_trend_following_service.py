@@ -386,17 +386,12 @@ def test_historical_exception_also_invalidates_the_remaining_future_chain(monkey
 
 
 
-def test_cn_trend_batches_csi2000_history_before_readiness_without_daily_writes(monkeypatch):
+@pytest.mark.parametrize("missing_csi2000", [False, True])
+def test_cn_trend_reads_all_stock_history_from_db_including_csi2000(monkeypatch, missing_csi2000):
     codes = {"600001.SH", "600002.SH", "600003.SH"}
     monkeypatch.setattr(
         "finance_analysis.trend_following.service.get_universe",
         lambda market: [UniverseMember(market, code, code) for code in sorted(codes)],
-    )
-    monkeypatch.setattr(
-        "finance_analysis.trend_following.service.UniverseResolver",
-        lambda: SimpleNamespace(
-            resolve_universe=lambda key: [SimpleNamespace(code=code) for code in sorted(codes - {"600001.SH"})]
-        ),
     )
     calls = []
 
@@ -422,21 +417,22 @@ def test_cn_trend_batches_csi2000_history_before_readiness_without_daily_writes(
         market = "CN"
 
         def daily_codes_on_date(self, requested, day):
-            assert requested == {"600001.SH"}
-            return set(requested)
+            assert requested == codes
+            return {"600001.SH"} if missing_csi2000 else set(requested)
 
         def load_daily_history(self, requested, day, **kwargs):
-            assert requested == {"600001.SH"}
-            return [dict(code="600001.SH", **vars(bar)) for bar in bars("600001.SH")]
+            assert requested == codes
+            return [dict(code=code, **vars(bar)) for code in requested for bar in bars(code)]
 
     repository = Repository()
     result = RealTrendFollowingService("CN", repository, market_data=SimpleNamespace(get_daily_bars=fetch)).run(
         TRADE_DATE
     )
-    assert result["status"] == "completed"
-    assert result["data_ready_count"] == 3
-    assert calls[0][0] == ["600002.SH", "600003.SH"]
-    assert calls[1][0] == ["510300.SH"]
+    assert result["status"] == ("incomplete" if missing_csi2000 else "completed")
+    assert result["data_ready_count"] == (1 if missing_csi2000 else 3)
+    assert result["snapshot_count"] == (0 if missing_csi2000 else 3)
+    assert len(calls) == 1
+    assert calls[0][0] == ["510300.SH"]
     assert all(call[3] == {"adjustment": "forward", "source_policy": "db_fresh"} for call in calls)
     assert calls[0][1] == TRADE_DATE - timedelta(
         days=max(DEFAULT_CONFIG.calendar_lookback_days, DURATION_CALENDAR_LOOKBACK_DAYS)

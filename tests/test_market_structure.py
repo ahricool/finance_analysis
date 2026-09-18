@@ -130,7 +130,7 @@ def test_backfill_uses_calendar_and_never_auto_runs(monkeypatch):
     assert [call.args[0] for call in service.run.call_args_list] == [DAY - timedelta(days=1), DAY]
 
 
-def test_universe_reuses_daily_scope_but_excludes_etfs_and_inactive_stocks():
+def test_universe_uses_market_structure_scope_and_excludes_etfs_and_inactive_stocks():
     from types import SimpleNamespace
     from finance_analysis.market_structure.universe import get_universe_codes
 
@@ -142,7 +142,7 @@ def test_universe_reuses_daily_scope_but_excludes_etfs_and_inactive_stocks():
         SimpleNamespace(code="600000.SH", market="CN", instrument_type="STOCK", listing_status="ACTIVE"),
     ]
     assert get_universe_codes("US", resolver) == {"A.US"}
-    resolver.resolve_universe.assert_called_once_with("us_daily_sync")
+    resolver.resolve_universe.assert_called_once_with("us_market_structure")
 
 
 def test_manual_api_validates_range_and_enqueues_without_running(monkeypatch):

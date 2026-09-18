@@ -127,6 +127,8 @@ def seed_quant_reference_data(db_manager=None) -> dict:
             ("cn_daily_sync", "A股日线同步", "CN", "STRATEGY"),
             ("us_daily_sync", "美股日线同步", "US", "STRATEGY"),
             ("us_macro", "US Macro", "US", "STRATEGY"),
+            ("cn_market_structure", "A股市场结构", "CN", "STRATEGY"),
+            ("us_market_structure", "美股市场结构", "US", "STRATEGY"),
             ("cn_trend", "A股趋势跟踪", "CN", "STRATEGY"),
             ("us_trend", "美股趋势跟踪", "US", "STRATEGY"),
             ("cn_index_etf", "CN Index ETF", "CN", "STRATEGY"),
@@ -162,7 +164,10 @@ def seed_quant_reference_data(db_manager=None) -> dict:
         session.execute(
             delete(UniverseInclude).where(
                 UniverseInclude.universe_id.in_(
-                    [universe_ids[key] for key in ("cn_trend", "us_trend", "cn_daily_sync", "us_daily_sync")]
+                    [universe_ids[key] for key in (
+                        "cn_trend", "us_trend", "cn_daily_sync", "us_daily_sync",
+                        "cn_market_structure", "us_market_structure",
+                    )]
                 )
             )
         )
@@ -170,8 +175,11 @@ def seed_quant_reference_data(db_manager=None) -> dict:
             ("cn_daily_sync", "cn_csi300"),
             ("cn_daily_sync", "cn_csi500"),
             ("cn_daily_sync", "cn_csi1000"),
+            ("cn_daily_sync", "cn_csi2000"),
             ("cn_daily_sync", "cn_index_etf"),
-            ("us_daily_sync", "us_trend"),
+            ("us_daily_sync", "us_sp500"),
+            ("us_daily_sync", "us_sp400"),
+            ("us_daily_sync", "us_nasdaq100"),
             ("us_daily_sync", "us_index_etf"),
             ("us_daily_sync", "us_macro"),
             ("cn_trend", "cn_csi300"),
@@ -181,6 +189,10 @@ def seed_quant_reference_data(db_manager=None) -> dict:
             ("us_trend", "us_sp500"),
             ("us_trend", "us_sp400"),
             ("us_trend", "us_nasdaq100"),
+            ("us_market_structure", "us_sp500"),
+            ("cn_market_structure", "cn_csi300"),
+            ("cn_market_structure", "cn_csi500"),
+            ("cn_market_structure", "cn_csi1000"),
         ):
             session.execute(
                 pg_insert(UniverseInclude)
