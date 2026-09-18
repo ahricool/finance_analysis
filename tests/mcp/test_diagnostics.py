@@ -402,20 +402,62 @@ def test_validation_is_mcp_tool_error(client, tool, arguments, message):
     assert message in result["content"][0]["text"]
 
 
-def test_external_error_does_not_disclose_credentials(client, monkeypatch, caplog):
+def test_runtime_error_returns_traceback_and_logs(client, monkeypatch, caplog):
     import logging
 
-    secret = "postgresql://private:private-password@db/private"
-
     def fail(*args):
-        raise ValueError(secret)
+        raise RuntimeError("diagnostic-test")
 
     monkeypatch.setattr(PostgresReader, "query", fail)
-    with caplog.at_level(logging.DEBUG):
+    with caplog.at_level(logging.INFO):
         response = rpc(client, "tools/call", {"name": "postgres_query", "arguments": {"sql": "SELECT 1"}})
-    assert response.json()["result"]["isError"] is True
-    assert secret not in response.text and secret not in caplog.text
-    assert "private-password" not in caplog.text
+    result = response.json()["result"]
+    assert result["isError"] is True
+    for text in ["RuntimeError", "diagnostic-test", "Traceback", "MCP tool failed"]:
+        assert text in caplog.text
+    for text in ["RuntimeError", "diagnostic-test", "Traceback"]:
+        assert text in result["content"][0]["text"]
+    assert "success=False" in caplog.text and "result_size=" in caplog.text
+    assert KEY not in response.text and KEY not in caplog.text
+
+
+def test_filesystem_runtime_error(client):
+    result = rpc(client, "tools/call", {"name": "fs_read", "arguments": {"path": "logs/not-exist.log"}}).json()[
+        "result"
+    ]
+    assert result["isError"] is True
+    for text in ["FileNotFoundError", "not-exist.log", "Traceback", "filesystem.py"]:
+        assert text in result["content"][0]["text"]
+
+
+@pytest.mark.parametrize(
+    "tool,exception,message",
+    [
+        ("postgres_query", "UndefinedTable", 'relation "not_existing_table" does not exist'),
+        ("redis_read", "ResponseError", "WRONGTYPE Operation against a key holding the wrong kind of value"),
+    ],
+)
+def test_native_runtime_error_protocol(client, monkeypatch, tool, exception, message):
+    import psycopg2.errors
+    import redis.exceptions
+    from finance_analysis.mcp.redis import RedisReader
+
+    error_class = getattr(psycopg2.errors if tool == "postgres_query" else redis.exceptions, exception)
+
+    def fail(*args):
+        raise error_class(message)
+
+    if tool == "postgres_query":
+        monkeypatch.setattr(PostgresReader, "query", fail)
+        arguments = {"sql": "SELECT not_existing_column FROM not_existing_table"}
+    else:
+        monkeypatch.setattr(RedisReader, "read", fail)
+        arguments = {"command": "HGETALL", "args": ["string_key"]}
+    result = rpc(client, "tools/call", {"name": tool, "arguments": arguments}).json()["result"]
+    assert result["isError"] is True
+    assert exception in result["content"][0]["text"]
+    assert message in result["content"][0]["text"]
+    assert "Traceback" in result["content"][0]["text"]
 
 
 def test_binary_tool_protocol(client, monkeypatch):

@@ -12,7 +12,7 @@ from starlette.responses import StreamingResponse
 
 from .auth import MCPAuthMiddleware
 from .config import MCPConfig
-from .errors import ReadValidationError
+from .errors import format_tool_error
 from .serialization import encoded
 
 logger = logging.getLogger(__name__)
@@ -65,11 +65,10 @@ def install_mcp(app):
 
             result = json.loads(encoded(result))
             success = True
-        except ReadValidationError as exc:
-            # Only our validation errors are safe to expose. External errors may contain SQL/credentials.
-            raise ToolError(str(exc)) from None
-        except Exception:
-            raise ToolError("Diagnostic read failed or server busy; check path, permissions and connection") from None
+        except Exception as exc:
+            result = format_tool_error(exc)
+            logger.exception("MCP tool failed: tool=%s elapsed_ms=%d", tool, round((time.monotonic() - start) * 1000))
+            raise ToolError(result) from None
         finally:
             logger.info(
                 "MCP tool=%s elapsed_ms=%d success=%s result_size=%d",

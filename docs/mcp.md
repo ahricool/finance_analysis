@@ -24,7 +24,9 @@ curl https://<host>/mcp/ \
 
 服务无会话状态。后续调用使用 MCP 标准 `tools/list`、`tools/call`，同样每次带 Bearer header。
 SDK 按协商版本返回 JSON 文本内容；读取结果里的 `truncated`。工具失败使用 MCP
-`isError=true`，自有校验错误给出具体原因，连接/驱动错误返回不含凭据的通用说明。
+`isError=true`，所有 Tool 异常（含校验、PostgreSQL、Redis 和文件错误）返回原始异常类型、
+message 和完整 Python traceback，服务端同时通过 logger.exception 记录调用栈。
+不额外脱敏异常内容，也不主动拼接 MCP key、Authorization 或连接 URL。
 
 | Tool | 参数 | 返回/限制 |
 | --- | --- | --- |
@@ -113,13 +115,20 @@ PostgreSQL `bytea`（包括 Python bytes/bytearray/memoryview）统一返回可�
 由运维在 Redis 管理连接执行以下指令，密码不要写进 shell history：
 
 ```text
-ACL SETUSER finance_mcp_ro reset on >独立随机密码 ~* resetchannels -@all +get +mget +hget +hmget +hgetall +hscan +hlen +lrange +llen +zrange +zrevrange +zcard +zscan +smembers +scard +sscan +scan +type +exists +ttl +pttl +xlen +xrange +xrevrange +info +ping +select
+ACL SETUSER finance_mcp_ro reset on >独立随机密码 ~* resetchannels -@all +get +mget +hget +hmget +hgetall +hscan +hlen +lrange +llen +zrange +zrevrange +zcard +zscan +smembers +scard +sscan +scan +type +exists +ttl +pttl +xlen +xrange +xrevrange +info +ping +strlen +getrange +hexists +hkeys +hvals +sismember +smismember +zscore +zmscore +zrank +zrevrank +zcount +zlexcount +xinfo +dbsize +time +object +select
 ```
 
-`PING`/`SELECT` 仅供连接协议使用，不是 tools allowlist。redis-py 的可选 CLIENT SETINFO 被 ACL
+`PING` 可通过 tool 调用；`SELECT` 仅供连接协议使用，不是 tools allowlist。redis-py 的可选 CLIENT SETINFO 被 ACL
 拒绝不影响连接。不要授予 CLIENT、CONFIG、EVAL、SCRIPT、KEYS、MONITOR 或写命令。
 可把 `~*` 改为所需 key pattern；但 SCAN/INFO 的名称/服务器信息可见性仍需评估。
 Redis ACL 不按逻辑 DB 隔离，SELECT URL 中的 DB 是连接选择，不是授权边界。
+
+新增诊断命令：`PING`、`STRLEN`、`GETRANGE`、`HEXISTS`、`HKEYS`、`HVALS`、
+`SISMEMBER`、`SMISMEMBER`、`ZSCORE`、`ZMSCORE`、`ZRANK`、`ZREVRANK`、`ZCOUNT`、
+`ZLEXCOUNT`、`XINFO`、`DBSIZE`、`TIME`、`OBJECT`。已有部署需同步更新 ACL 授权。
+`OBJECT` 的现有 ENCODING/FREQ/IDLETIME/REFCOUNT/HELP 子命令均读取元信息；参数和
+运行条件（例如 FREQ 需要 LFU）由 Redis 判断，原生错误完整返回。
+参考 [Redis OBJECT 命令](https://redis.io/docs/latest/commands/redis-7-2-commands/)。
 
 只读命令的参数交给 Redis 原生解析，支持 `LRANGE key 0 -1`、ZRANGE BYSCORE/BYLEX、
 WITHSCORES 和 stream range；不额外限制 COUNT、范围长度或索引符号。SCAN 系列未指定 COUNT
@@ -194,6 +203,7 @@ uv run pytest tests/mcp/test_services.py -q -m network
   无全局 rate limit，下载不占 tool semaphore；大文件并发下载仍消耗带宽/文件描述符。
 - 文件只读挂载不阻止其他业务进程写/轮转日志；读结果不是原子快照。硬链接/目录内嵌挂载属于
   运维信任边界，不允许不可信用户向此目录创建挂载或硬链接。文件读取不跟随 symlink。
-- 审计仅记录 tool、耗时、成功/失败、结果字节数，不记录 key、Header、SQL 或原始异常。
+- 审计保留 tool、耗时、成功/失败、结果字节数；失败另记录完整原始异常与 traceback。
+  SQL 错误可能包含查询片段；不主动拼接或记录 MCP key、Authorization、数据库或 Redis URL。
   未实现 OAuth、细分授权、账号吊销管理；Bearer 持有者即管理员。仅通过 HTTPS 和受控网络使用。
 - Redis 有界 RESP2 解析使用 redis-py 内部 parser 接口；依赖升级需运行真实 Redis 回归测试。

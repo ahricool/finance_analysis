@@ -46,7 +46,7 @@ def postgres_url():
             cursor.execute("DROP ROLE mcp_test_ro")
 
 
-def test_real_postgres_readonly_limits_and_timeout(postgres_url):
+def test_real_postgres_readonly_limits_and_timeout(postgres_url, monkeypatch):
     reader = PostgresReader(postgres_url)
     assert reader.query("SHOW transaction_read_only")["rows"] == [["on"]]
     assert reader.query("SHOW statement_timeout")["rows"] == [["10s"]]
@@ -65,6 +65,16 @@ def test_real_postgres_readonly_limits_and_timeout(postgres_url):
     binary = reader.query("SELECT decode('deadbeef', 'hex')")["rows"][0][0]
     assert binary["encoding"] == "base64"
     assert base64.b64decode(binary["content"]).hex() == "deadbeef"
+    error = call_tool(
+        monkeypatch,
+        postgres_url,
+        "redis://reader:password@localhost/0",
+        "postgres_query",
+        {"sql": "SELECT not_existing_column FROM not_existing_table"},
+    )
+    assert error["isError"] is True
+    assert "does not exist" in error["content"][0]["text"]
+    assert "postgres.py" in error["content"][0]["text"]
     # Even bypassing the validator and transaction setting, grants prevent writes.
     with psycopg2.connect(**reader.url.translate_connect_args(username="user")) as conn:
         with conn.cursor() as cursor, pytest.raises(psycopg2.errors.InsufficientPrivilege):
@@ -75,7 +85,7 @@ def test_real_postgres_readonly_limits_and_timeout(postgres_url):
     assert 8 <= time.monotonic() - start < 15
 
 
-def test_real_redis_acl_and_response_limit():
+def test_real_redis_acl_and_response_limit(monkeypatch):
     url = os.getenv("MCP_TEST_REDIS_ADMIN_URL")
     if not url:
         pytest.skip("Requires disposable MCP_TEST_REDIS_ADMIN_URL")
@@ -99,6 +109,7 @@ def test_real_redis_acl_and_response_limit():
     admin.set("mcp:small", "hello")
     admin.set("mcp:big", b"x" * (3 * 1024 * 1024))
     admin.hset("mcp:hash", mapping={"one": "1", "two": "2"})
+    admin.sadd("mcp:set", "one", "two")
     admin.rpush("mcp:list", "one", "two")
     admin.zadd("mcp:zset", {"one": 1, "two": 2})
     admin.xadd("mcp:stream", {"field": "value"})
@@ -113,10 +124,64 @@ def test_real_redis_acl_and_response_limit():
         assert len(reader.read("LRANGE", ["mcp:list", "0", "-1"])["data"]) == 2
         assert len(reader.read("ZRANGE", ["mcp:zset", "-inf", "+inf", "BYSCORE", "WITHSCORES"])["data"]) == 4
         assert reader.read("XRANGE", ["mcp:stream", "-", "+"])["data"]
+        assert reader.read("PING", [])["data"]["content"] == "PONG"
+        assert reader.read("STRLEN", ["mcp:small"])["data"] == 5
+        assert reader.read("GETRANGE", ["mcp:small", "0", "1"])["data"]["content"] == "he"
+        assert reader.read("HEXISTS", ["mcp:hash", "one"])["data"] == 1
+        assert len(reader.read("HKEYS", ["mcp:hash"])["data"]) == 2
+        assert len(reader.read("HVALS", ["mcp:hash"])["data"]) == 2
+        assert reader.read("SISMEMBER", ["mcp:set", "one"])["data"] == 1
+        assert reader.read("SMISMEMBER", ["mcp:set", "one", "missing"])["data"] == [1, 0]
+        assert reader.read("ZSCORE", ["mcp:zset", "one"])["data"]["content"] == "1"
+        assert len(reader.read("ZMSCORE", ["mcp:zset", "one", "two"])["data"]) == 2
+        assert reader.read("ZRANK", ["mcp:zset", "one"])["data"] == 0
+        assert reader.read("ZREVRANK", ["mcp:zset", "one"])["data"] == 1
+        assert reader.read("ZCOUNT", ["mcp:zset", "-inf", "+inf"])["data"] == 2
+        assert reader.read("ZLEXCOUNT", ["mcp:zset", "-", "+"])["data"] == 2
+        assert reader.read("DBSIZE", [])["data"] >= 7
+        assert len(reader.read("TIME", [])["data"]) == 2
+        assert reader.read("XINFO", ["STREAM", "mcp:stream"])["data"]
+        assert reader.read("OBJECT", ["ENCODING", "mcp:small"])["data"]
+        assert reader.read("OBJECT", ["REFCOUNT", "mcp:small"])["data"] >= 1
+        assert reader.read("OBJECT", ["IDLETIME", "mcp:small"])["data"] >= 0
+        assert reader.read("OBJECT", ["HELP"])["data"]
+        # FREQ requires LFU eviction; the native configuration error is expected here.
+        with pytest.raises(ResponseError, match="LFU"):
+            reader.read("OBJECT", ["FREQ", "mcp:small"])
+        error = call_tool(
+            monkeypatch,
+            "postgresql://reader:password@localhost/test",
+            restricted_url,
+            "redis_read",
+            {"command": "HGETALL", "args": ["mcp:small"]},
+        )
+        assert error["isError"] is True
+        assert "WRONGTYPE" in error["content"][0]["text"]
+        assert "redis.py" in error["content"][0]["text"]
         with pytest.raises(ResponseError):
             reader.client.set("mcp:small", "forbidden")
     finally:
         reader.close()
-        admin.delete("mcp:small", "mcp:big", "mcp:hash", "mcp:list", "mcp:zset", "mcp:stream")
+        admin.delete("mcp:small", "mcp:big", "mcp:hash", "mcp:list", "mcp:zset", "mcp:stream", "mcp:set")
         admin.acl_deluser("mcp_test_ro")
         admin.close()
+
+
+def call_tool(monkeypatch, database_url, redis_url, tool, arguments):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from finance_analysis.mcp.config import MCPConfig
+    from finance_analysis.mcp.server import install_mcp
+
+    key = "integration-test-" + "a" * 32
+    monkeypatch.setattr(MCPConfig, "from_env", lambda: MCPConfig(True, key, database_url, redis_url))
+    app = FastAPI()
+    install_mcp(app)
+    with TestClient(app) as client:
+        response = client.post(
+            "/mcp/",
+            headers={"Authorization": "Bearer " + key, "Accept": "application/json, text/event-stream"},
+            json={"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": tool, "arguments": arguments}},
+        )
+    assert response.status_code == 200
+    return response.json()["result"]
