@@ -107,6 +107,9 @@ def create_app() -> FastAPI:
         """健康检查接口"""
         return HealthResponse(status="ok", timestamp=utc_isoformat(utc_now()))
 
+    from finance_analysis.mcp.server import install_mcp
+
+    install_mcp(app)
     return app
 
 
