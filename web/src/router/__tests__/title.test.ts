@@ -18,7 +18,7 @@ describe('router document titles', () => {
     ['/research/quant/portfolios', '目标组合 - Finance Analysis'],
     ['/research/etf-rotation', 'ETF动量轮动 - Finance Analysis'],
     ['/research/trend-following', '趋势跟踪 - Finance Analysis'],
-    ['/research/crypto/btc', 'BTC交易 - Finance Analysis'],
+    ['/crypto/btc', 'BTC交易 - Finance Analysis'],
     ['/profile', '个人中心 - Finance Analysis'],
     ['/profile/info', '个人中心 - Finance Analysis'],
     ['/profile/password', '个人中心 - Finance Analysis'],

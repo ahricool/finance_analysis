@@ -15,8 +15,6 @@ import {
   TASK_STATUS_OPTIONS,
   formatDuration,
   isJobInFlight,
-  jobStatusLabel,
-  jobStatusVariant,
   runStatusLabel,
   runStatusVariant,
   truncateText,
@@ -519,7 +517,6 @@ onBeforeUnmount(() => {
                   <TableHead class="w-[10rem]">
                     调度规则
                   </TableHead>
-                  <TableHead>状态</TableHead>
                   <TableHead>最近执行</TableHead>
                   <TableHead>下次执行</TableHead>
                 </TableRow>
@@ -539,11 +536,6 @@ onBeforeUnmount(() => {
                   </TableCell>
                   <TableCell class="max-w-[10rem] truncate text-muted-foreground">
                     {{ job.schedule }}
-                  </TableCell>
-                  <TableCell>
-                    <Badge :variant="jobStatusVariant(job)">
-                      {{ jobStatusLabel(job) }}
-                    </Badge>
                   </TableCell>
                   <TableCell>
                     <div

@@ -17,7 +17,7 @@ for (const width of [1280, 1440, 1920]) {
       await page.goto('/');
       await expect(page).toHaveURL(/\/dashboard$/);
       await expect(page.getByRole('heading', { name: '市场动态', exact: true })).toBeVisible();
-      await expect(page.getByTestId('desktop-main-nav').getByRole('link', { name: '动态', exact: true })).toBeVisible();
+      await expect(page.getByTestId('desktop-main-nav').getByRole('link', { name: '市场动态', exact: true })).toBeVisible();
       await expect(page.getByTestId('dashboard-feed-item')).toHaveCount(8);
       await expect(page.getByTestId('dashboard-feed-item').first()).toContainText('ORCL FY27 Q1');
       await expect(page.getByText('114,820', { exact: false })).toBeVisible();

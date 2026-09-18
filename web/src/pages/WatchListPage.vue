@@ -29,7 +29,6 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { useCurrentTime } from '@/composables/useCurrentTime';
 import { useRealtimeQuotes } from '@/composables/useRealtimeQuotes';
 import type { Market } from '@/types/stockIndex';
-import { looksLikeStockCode } from '@/utils/validation';
 import { formatSecurityLabel } from '@/utils/security';
 import { calculateZeroDteStatus, zeroDteStatusSortValue } from '@/utils/zeroDteStatus';
 import { Eye, Heart, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-vue-next';
@@ -62,7 +61,7 @@ const formStockQuery = ref('');
 const formCode = ref('');
 const formName = ref('');
 const formNotes = ref('');
-const formMarketType = ref<MarketType>('CN');
+const formMarketType = ref<MarketType | null>(null);
 const formError = ref<string | null>(null);
 const saving = ref(false);
 
@@ -86,8 +85,8 @@ const marketFilterOptions: { value: MarketFilter; label: string }[] = [
   { value: 'CN', label: 'A 股' },
 ];
 const selectedMarket = ref<MarketFilter>('ALL');
-const sortKey = ref<WatchListSortKey | null>(null);
-const sortDirection = ref<SortDirection>('asc');
+const sortKey = ref<WatchListSortKey | null>('is_favorite');
+const sortDirection = ref<SortDirection>('desc');
 
 const visibleItems = computed(() => {
   const filtered =
@@ -223,6 +222,7 @@ watch(formStockQuery, (value) => {
   if (value !== selectedQuery && value !== formCode.value) {
     formCode.value = '';
     formName.value = '';
+    formMarketType.value = null;
   }
 });
 
@@ -243,9 +243,8 @@ async function loadList() {
 
 async function save() {
   formError.value = null;
-  const query = formStockQuery.value.trim();
-  const code = (formCode.value.trim() || (looksLikeStockCode(query) ? query : '')).toUpperCase();
-  if (!code) {
+  const code = formCode.value.trim();
+  if (editingId.value === null && (!code || !formMarketType.value)) {
     formError.value = '请先搜索并选择股票';
     return;
   }
@@ -253,9 +252,7 @@ async function save() {
   try {
     if (editingId.value !== null) {
       const updated = await watchListApi.update(editingId.value, {
-        name: formName.value.trim() || undefined,
         notes: formNotes.value.trim(),
-        market_type: formMarketType.value,
       });
       const idx = items.value.findIndex((i) => i.id === editingId.value);
       if (idx !== -1) items.value[idx] = updated;
@@ -264,7 +261,7 @@ async function save() {
         code,
         name: formName.value.trim() || undefined,
         notes: formNotes.value.trim() || undefined,
-        market_type: formMarketType.value,
+        market_type: formMarketType.value ?? undefined,
       };
       const created = await watchListApi.create(body);
       items.value.push(created);
@@ -301,7 +298,7 @@ function openCreate() {
   formCode.value = '';
   formName.value = '';
   formNotes.value = '';
-  formMarketType.value = 'CN';
+  formMarketType.value = null;
   formError.value = null;
   showDialog.value = true;
 }
@@ -325,13 +322,22 @@ function closeDialog() {
 function handleStockAutocompleteSubmit(
   code: string,
   name?: string,
-  _source?: 'manual' | 'autocomplete',
+  source?: 'manual' | 'autocomplete',
   market?: Market,
 ) {
+  const marketType = marketToMarketType(market);
+  if (source !== 'autocomplete' || !marketType) {
+    formCode.value = '';
+    formName.value = '';
+    formMarketType.value = null;
+    formError.value = '请先搜索并选择股票';
+    return;
+  }
   formCode.value = code;
   formName.value = name ?? '';
   formStockQuery.value = formatStockQuery(code, name);
-  formMarketType.value = marketToMarketType(market) ?? formMarketType.value;
+  formMarketType.value = marketType;
+  formError.value = null;
 }
 
 function openDelete(item: WatchListItem) {
@@ -648,25 +654,27 @@ onMounted(loadList);
       @update:open="showDialog = $event"
     >
       <DialogContent class="max-w-md">
-        <DialogHeader><DialogTitle>{{ editingId !== null ? '编辑自选股' : '添加自选股' }}</DialogTitle><DialogDescription>选择股票、市场，并按需补充备注。</DialogDescription></DialogHeader>
+        <DialogHeader><DialogTitle>{{ editingId !== null ? '编辑自选股' : '添加自选股' }}</DialogTitle><DialogDescription>{{ editingId !== null ? '查看已选股票并修改备注。' : '搜索并选择股票，市场自动识别，可按需补充备注。' }}</DialogDescription></DialogHeader>
         <div class="space-y-4 py-2">
           <div>
             <Label
               class="mb-2"
               for="watchlist-stock"
             >股票 *</Label>
+            <FieldInput
+              v-if="editingId !== null"
+              id="watchlist-stock"
+              :model-value="formStockQuery"
+              readonly
+            />
             <StockAutocomplete
+              v-else
               v-model="formStockQuery"
               placeholder="搜索股票代码或名称"
-              :disabled="editingId !== null"
+              :teleported="false"
               @submit="handleStockAutocompleteSubmit"
             />
           </div>
-          <FieldSelect
-            v-model="formMarketType"
-            label="市场"
-            :options="marketOptions"
-          />
           <div>
             <Label
               class="mb-2"

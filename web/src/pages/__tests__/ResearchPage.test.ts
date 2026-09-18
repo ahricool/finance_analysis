@@ -32,7 +32,7 @@ describe('ResearchPage', () => {
     expect(rotationLinks).toHaveLength(1);
     expect(rotationLinks[0]?.attributes('data-state')).toBe('active');
     expect(wrapper.findAll('a[href="/research/trend-following"]')).toHaveLength(1);
-    expect(wrapper.findAll('a[href="/research/crypto/btc"]')).toHaveLength(1);
+    expect(wrapper.findAll('a[href="/research/crypto/btc"]')).toHaveLength(0);
     expect(wrapper.text()).toContain('ETF 轮动内容');
   });
 });

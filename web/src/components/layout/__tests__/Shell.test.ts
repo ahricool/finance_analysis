@@ -99,7 +99,7 @@ describe('Shell navigation', () => {
       .get('[data-testid="desktop-main-nav"]')
       .findAll('a[aria-label], button[aria-label]')
       .map((node) => node.attributes('aria-label'));
-    expect(labels).toEqual(['动态', '时间线', '研究', '市场', '任务中心']);
+    expect(labels).toEqual(['市场动态', '时间线', '研究', '市场', '加密货币', '任务中心']);
     expect(wrapper.text()).not.toContain('问股');
     expect(wrapper.text()).not.toContain('AI');
     wrapper.unmount();
@@ -107,7 +107,7 @@ describe('Shell navigation', () => {
 
   it('marks dashboard as the only active primary destination', async () => {
     const { wrapper } = await mountShell('/dashboard');
-    expect(wrapper.get('[data-testid="desktop-main-nav"] a[aria-label="动态"]').attributes('aria-current')).toBe('page');
+    expect(wrapper.get('[data-testid="desktop-main-nav"] a[aria-label="市场动态"]').attributes('aria-current')).toBe('page');
     expect(wrapper.get('button[aria-label="研究"]').attributes('aria-current')).toBeUndefined();
     expect(wrapper.get('button[aria-label="市场"]').attributes('aria-current')).toBeUndefined();
     wrapper.unmount();
@@ -193,7 +193,7 @@ describe('Shell navigation', () => {
     const { wrapper } = await mountShell('/dashboard');
     expect(wrapper.get('[data-testid="desktop-main-nav"]').classes()).not.toContain('hidden');
     expect(wrapper.get('a[aria-label="回到动态"]').attributes('href')).toBe('/dashboard');
-    expect(wrapper.get('a[aria-label="动态"]').attributes('aria-current')).toBe('page');
+    expect(wrapper.get('a[aria-label="市场动态"]').attributes('aria-current')).toBe('page');
     wrapper.unmount();
   });
 });

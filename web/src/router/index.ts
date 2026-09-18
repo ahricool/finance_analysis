@@ -64,6 +64,9 @@ const router = createRouter({
           component: () => import('@/pages/DashboardPage.vue'),
           meta: { title: '市场动态' },
         },
+        { path: 'crypto', redirect: redirectWithQuery('/crypto/btc') },
+        { path: 'crypto/btc', name: 'crypto-btc', component: CryptoBtcPage, meta: { title: 'BTC交易' } },
+        { path: 'research/crypto/btc', name: 'research-crypto-btc', redirect: redirectWithQuery('/crypto/btc') },
         { path: 'timeline', name: 'timeline', component: TimelinePage, meta: { title: '投资时间线' } },
         {
           path: 'research',
@@ -130,12 +133,6 @@ const router = createRouter({
                 },
               ],
             },
-            {
-              path: 'crypto/btc',
-              name: 'research-crypto-btc',
-              component: CryptoBtcPage,
-              meta: { title: 'BTC交易' },
-            },
           ],
         },
         {
@@ -174,7 +171,7 @@ const router = createRouter({
         { path: 'market/quant/:pathMatch(.*)*', redirect: redirectLegacyQuant },
         { path: 'market/etf-rotation', redirect: redirectWithQuery('/research/etf-rotation') },
         { path: 'market/trend-following', redirect: redirectWithQuery('/research/trend-following') },
-        { path: 'market/crypto/btc', redirect: redirectWithQuery('/research/crypto/btc') },
+        { path: 'market/crypto/btc', redirect: redirectWithQuery('/crypto/btc') },
         { path: ':pathMatch(.*)*', name: 'not-found', component: NotFoundPage, meta: { title: '页面未找到' } },
       ],
     },

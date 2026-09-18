@@ -96,7 +96,7 @@ layout（Shell / PageHeader / ModuleTabs）+ ui/app 组件
 | `/research/etf-rotation` | `research-etf-rotation` | ETF 动量轮动 |
 | `/research/trend-following` | `research-trend-following` | 趋势跟踪 |
 | `/research/quant` 及子路径 | `research-quant*` | 量化研究（总览 / 选股 / 数据集 / 模型 / 组合） |
-| `/research/crypto/btc` | `research-crypto-btc` | BTC 交易 |
+| `/crypto/btc` | `crypto-btc` | BTC 交易 |
 | `/market/watch-list` | `market-watch-list` | 自选股 |
 | `/market/holdings` | `market-holdings` | 投资组合 |
 | `/profile/info` `/password` `/notification` | `profile-*` | 个人中心（同一页） |
@@ -109,8 +109,9 @@ layout（Shell / PageHeader / ModuleTabs）+ ui/app 组件
   不要假设后端契约仍存在。
 - `meta.public === true` 才是公开页（目前只有登录）。
 - `meta.title` 用于 `document.title`（`「页面名 - Finance Analysis」`）。嵌套路由取最近一层有 title 的记录。
-- 研究走 `/research/**`，市场走 `/market/**`。不要把 Quant / ETF / 趋势跟踪 / BTC 再挂到 `/market`。
+- 研究走 `/research/**`，市场走 `/market/**`。加密货币走 `/crypto/**`。不要把 Quant / ETF / 趋势跟踪 / BTC 再挂到 `/market`。
 - 旧 `/market/quant*`、`/market/etf-rotation`、`/market/trend-following`、`/market/crypto/btc` 只作为 compatibility redirect，内部导航必须用 canonical URL。
+- BTC 的旧 `/research/crypto/btc` 同样重定向到 `/crypto/btc`；一级“加密货币”菜单位于“任务中心”之前。
 - `/chat` 只保留到 `/dashboard` 的 legacy redirect，前端不再有问股或个股分析页面。
 - 量化范围用 query `?market=US|CN`。在量化子路由之间跳转时，守卫会保留已有 `market`。读写市场用 `useQuantMarket()`，不要手写丢 query 的 `router.push`。
 - 顶栏菜单数据在 `src/config/mainNav.ts`，和路由表分开维护。加入口时两处都要改，并补 `src/config/__tests__/mainNav.test.ts` 一类断言。
@@ -243,7 +244,7 @@ Cookie 会话，`apiClient` 设了 `withCredentials: true`。
 
 ## BTC 页面
 
-`/research/crypto/btc` 位于研究导航，`useCryptoBtc()` 统一后端REST与WS，断线后60秒轮询并尝试重连；不得直接访问Binance。
+`/crypto/btc` 位于一级“加密货币”导航，`useCryptoBtc()` 统一后端REST与WS，断线后60秒轮询并尝试重连；不得直接访问Binance。
 `BtcKlineChart` 复用ECharts，已闭合history与单根current分开更新。VChart的固定高度放外层；manual-update配合autoresize时，应等初始nextTick提交完整option，再增量更新series。
 
 ## 消息中心
@@ -252,6 +253,6 @@ Cookie 会话，`apiClient` 设了 `withCredentials: true`。
 
 ## 行业强度
 
-`/research/industry-strength` 位于研究导航；排行、矩阵、Top20 热力历史通过统一详情抽屉联动，初次加载不自动打开。
+`/research/industry-strength` 位于一级“加密货币”导航；排行、矩阵、Top20 热力历史通过统一详情抽屉联动，初次加载不自动打开。
 历史快照 Breadth 与当前成分表必须分别标注日期；当前成分不代表历史成分，等权涨跌不是指数贡献。
 仅展示 A 股市场环境，不增加市场切换或交易建议，数据源密钥不得进入 WebUI。
