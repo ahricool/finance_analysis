@@ -45,18 +45,15 @@ for (const width of [1280, 1440, 1920]) {
       await expect(page.getByTestId('industry-detail')).toHaveCount(0);
       await expect(page.getByTestId('industry-ranking').locator('tbody tr')).toHaveCount(20);
       await expect(page.getByTestId('industry-summary')).toContainText('动量降速最大');
-      await page.getByTestId('industry-view-matrix').click();
       await expect(page.getByTestId('industry-matrix').locator('canvas')).toHaveCount(1);
       if (width === 1280 && theme === 'light') {
         await page.screenshot({ path: testInfo.outputPath('industry-matrix.png'), fullPage: true });
       }
-      await page.getByTestId('industry-view-history').click();
-      await expect(page.getByRole('heading', { name: '所选日 Top20 · 历史强度排名' })).toBeVisible();
+      await expect(page.getByRole('heading', { name: '排名历史', exact: true })).toBeVisible();
       await expect(page.getByTestId('industry-heatmap').locator('canvas')).toHaveCount(1);
       if (width === 1280 && theme === 'light') {
         await page.screenshot({ path: testInfo.outputPath('industry-heatmap.png'), fullPage: true });
       }
-      await page.getByTestId('industry-view-ranking').click();
       await page.getByTestId('industry-ranking').getByRole('button', { name: '通信设备', exact: true }).click();
       await expect(page.getByTestId('industry-detail')).toContainText('通信设备');
       await expect(page.getByTestId('industry-detail')).toContainText(`实际查询快照日期 ${day}`);

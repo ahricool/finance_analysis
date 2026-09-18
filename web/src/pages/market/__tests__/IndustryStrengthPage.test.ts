@@ -107,10 +107,8 @@ describe('Industry Strength', () => {
     await wrapper.get('[data-testid="industry-ranking"]').findAll('button').find(b => b.text() === '行业乙')!.trigger('click');
     await flushPromises();
     expect(detailText()).toContain('行业乙');
-    await wrapper.get('[data-testid="industry-view-matrix"]').trigger('click');
     await wrapper.getComponent(IndustryMatrixChart).vm.$emit('select', '881101.TI'); await flushPromises();
     expect(detailText()).toContain('行业甲');
-    await wrapper.get('[data-testid="industry-view-history"]').trigger('click');
     await wrapper.getComponent(IndustryRankHeatmap).vm.$emit('select', '881102.TI'); await flushPromises();
     expect(detailText()).toContain('行业乙');
     expect(api.constituents).not.toHaveBeenCalled();
@@ -363,7 +361,6 @@ describe('Industry Strength', () => {
 
   it('does not paint T history onto the T-1 heatmap', async () => {
     const wrapper = await render(); await flushPromises();
-    await wrapper.get('[data-testid="industry-view-history"]').trigger('click');
     expect(wrapper.getComponent(IndustryRankHeatmap).props('history').dates).toEqual(['2026-09-16']);
     let resolveHistory!: (reason?: unknown) => void;
     api.ranking.mockResolvedValueOnce({

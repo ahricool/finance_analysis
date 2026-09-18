@@ -8,7 +8,6 @@ import PageHeader from '@/components/layout/PageHeader.vue';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import IndustryRankingTable from '@/components/industry-strength/IndustryRankingTable.vue';
 import IndustryMatrixChart from '@/components/industry-strength/IndustryMatrixChart.vue';
@@ -25,7 +24,7 @@ import { formatDateTime } from '@/utils/format';
 const page = useIndustryStrength();
 const {
   ranking, chartHistory, matchedDetail, constituents, dates, requestedDate, selected, selectedLabel,
-  drawerOpen, missingSelected, view, detailTab, loading, refreshing, dateSwitching,
+  drawerOpen, missingSelected, detailTab, loading, refreshing, dateSwitching,
   historyLoading, detailLoading, membersLoading, stale, error, refreshError,
   dateError, historyError, datesError, detailError, membersError, rows, summary, snapshotMeta,
   actualTradeDate, latestMode, staleLatest, historyMembersUnavailable, selectedRow,
@@ -334,61 +333,49 @@ onMounted(() => loadRanking('initial'));
         </Card>
       </div>
 
-      <Tabs
-        :model-value="view"
-        class="min-w-0"
-        data-testid="industry-views"
-        @update:model-value="view = ($event as 'ranking' | 'matrix' | 'history')"
-      >
-        <TabsList class="flex h-auto w-full flex-wrap justify-start">
-          <TabsTrigger
-            value="ranking"
-            data-testid="industry-view-ranking"
+      <div class="min-w-0 space-y-6">
+        <section
+          class="min-w-0 space-y-4"
+          aria-labelledby="industry-ranking-heading"
+        >
+          <h2
+            id="industry-ranking-heading"
+            class="text-lg font-semibold"
           >
             行业排行
-          </TabsTrigger>
-          <TabsTrigger
-            value="matrix"
-            data-testid="industry-view-matrix"
-          >
-            强度矩阵
-          </TabsTrigger>
-          <TabsTrigger
-            value="history"
-            data-testid="industry-view-history"
-          >
-            排名历史
-          </TabsTrigger>
-        </TabsList>
-        <TabsContent
-          value="ranking"
-          force-mount
-          :class="view === 'ranking' ? 'pt-4' : 'hidden'"
-        >
+          </h2>
           <IndustryRankingTable
             :rows="rows"
             :selected="selected"
             @select="openIndustry"
           />
-        </TabsContent>
-        <TabsContent
-          value="matrix"
-          force-mount
-          :hidden="view !== 'matrix'"
-          :class="view === 'matrix' ? 'pt-4' : 'hidden'"
+        </section>
+        <section
+          class="min-w-0 space-y-4"
+          aria-labelledby="industry-matrix-heading"
         >
+          <h2
+            id="industry-matrix-heading"
+            class="text-lg font-semibold"
+          >
+            强度矩阵
+          </h2>
           <IndustryMatrixChart
             :rows="rows"
             :selected="selected"
-            :active="view === 'matrix'"
             @select="openIndustry"
           />
-        </TabsContent>
-        <TabsContent
-          value="history"
-          force-mount
-          :class="view === 'history' ? 'pt-4' : 'hidden'"
+        </section>
+        <section
+          class="min-w-0 space-y-4"
+          aria-labelledby="industry-history-heading"
         >
+          <h2
+            id="industry-history-heading"
+            class="text-lg font-semibold"
+          >
+            排名历史
+          </h2>
           <p
             v-if="historyLoading"
             class="mb-2 text-sm text-muted-foreground"
@@ -396,20 +383,19 @@ onMounted(() => loadRanking('initial'));
           >
             正在加载排名历史…
           </p>
-          <h2 class="text-lg font-semibold">
+          <p class="text-sm text-muted-foreground">
             所选日 Top20 · 历史强度排名
-          </h2>
+          </p>
           <IndustryRankHeatmap
             v-if="chartHistory.dates.length || !historyLoading"
             class="mt-3"
             :rows="rows"
             :history="chartHistory"
             :selected="selected"
-            :active="view === 'history'"
             @select="openIndustry"
           />
-        </TabsContent>
-      </Tabs>
+        </section>
+      </div>
     </template>
 
     <IndustryDetailDrawer

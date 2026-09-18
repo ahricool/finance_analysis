@@ -10,7 +10,6 @@ import {
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import { computeSummary, historicalMembersUnavailable } from '@/components/industry-strength/display';
 
-export type IndustryView = 'ranking' | 'matrix' | 'history';
 export type DetailTab = 'overview' | 'history' | 'constituents';
 
 export function detailMatchesQuery(
@@ -34,7 +33,6 @@ export function useIndustryStrength() {
   const selectedLabel = ref('');
   const drawerOpen = ref(false);
   const missingSelected = ref(false);
-  const view = ref<IndustryView>('ranking');
   const detailTab = ref<DetailTab>('overview');
   const loading = ref(true);
   const refreshing = ref(false);
@@ -312,7 +310,6 @@ export function useIndustryStrength() {
     selectedLabel,
     drawerOpen,
     missingSelected,
-    view,
     detailTab,
     loading,
     refreshing,

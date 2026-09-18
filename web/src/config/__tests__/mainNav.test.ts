@@ -36,7 +36,7 @@ describe('main navigation', () => {
       { key: 'trend-following', to: '/research/trend-following' },
       { key: 'industry-strength', label: '行业强度', to: '/research/industry-strength' },
       { key: 'market-sentiment', label: '市场情绪', to: '/research/market-sentiment' },
-      { key: 'macro', label: '宏观', to: '/research/macro' },
+      { key: 'macro', label: '宏观数据', to: '/research/macro' },
       { key: 'quant', to: '/research/quant', activePathPrefix: '/research/quant' },
       { key: 'crypto-btc', to: '/research/crypto/btc' },
     ]);

@@ -10,7 +10,7 @@ describe('router document titles', () => {
     ['/timeline', '投资时间线 - Finance Analysis'],
     ['/market/watch-list', '自选股 - Finance Analysis'],
     ['/market/holdings', '投资组合 - Finance Analysis'],
-    ['/research/macro', '宏观 - Finance Analysis'],
+    ['/research/macro', '宏观数据 - Finance Analysis'],
     ['/research/quant', '量化研究 - Finance Analysis'],
     ['/research/quant/signals', '模型选股 - Finance Analysis'],
     ['/research/quant/signals/NVDA.US', '选股详情 - Finance Analysis'],
