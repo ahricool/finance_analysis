@@ -101,6 +101,7 @@ def test_quant_seed_initializes_unified_universe_definitions():
         "cn_csi1000",
         "cn_csi2000",
         "us_sp500",
+        "us_sp400",
         "us_nasdaq100",
         "cn_daily_sync",
         "us_daily_sync",

@@ -455,3 +455,45 @@ def test_us_452_of_503_remains_incomplete_without_writing_snapshots(monkeypatch)
     assert result["data_ready_count"] == 452
     assert result["snapshot_count"] == 0
     assert repository.upserted_dates == []
+
+
+def test_us_union_members_are_scored_and_snapshotted_once(monkeypatch):
+    from finance_analysis.database.repositories.universe import UniverseResolver
+    from finance_analysis.trend_following.universe import get_universe
+
+    codes = ("SPONLY.US", "MIDONLY.US", "NDXONLY.US", "AAPL.US")
+    groups = {"us_trend": [], "us_sp500": [codes[0], codes[3]],
+              "us_sp400": [codes[1]], "us_nasdaq100": [codes[2], codes[3]]}
+
+    class Universes:
+        def get_by_key(self, key):
+            return SimpleNamespace(id=key, key=key, enabled=True, universe_type="INDEX")
+
+        def list_members(self, key):
+            return [SimpleNamespace(instrument=SimpleNamespace(code=code, name=code)) for code in groups[key]]
+
+        def list_included_universes(self, key):
+            return [self.get_by_key(child) for child in groups if child != key] if key == "us_trend" else []
+
+    class Repository(FakeRepository):
+        def load_daily_history(self, selected, trade_date, *, calendar_lookback_days):
+            assert selected == set(codes)
+            rows = super().load_daily_history({"AAA.US", "BBB.US"}, trade_date,
+                                             calendar_lookback_days=calendar_lookback_days)
+            return [{**row, "code": code, "name": code, "instrument_id": i}
+                    for i, code in enumerate(codes, 1) for row in rows if row["code"] == "AAA.US"]
+
+    repository = Repository()
+    resolver = UniverseResolver(Universes())
+    monkeypatch.setattr("finance_analysis.trend_following.service.get_universe",
+                        lambda market: get_universe(market, resolver))
+    benchmark_rows = FakeRepository().load_daily_history({"AAA.US", "BBB.US"}, TRADE_DATE,
+                                                        calendar_lookback_days=500)
+    market_data = SimpleNamespace(get_daily_bars=lambda *args, **kwargs: SimpleNamespace(
+        data={"SPY.US": [SimpleNamespace(**row) for row in benchmark_rows if row["code"] == "SPY.US"]}
+    ))
+    result = RealTrendFollowingService("US", repository, market_data=market_data).run(TRADE_DATE)
+    assert result["status"] == "completed"
+    assert result["snapshot_count"] == 4
+    assert sorted(item["code"] for item in repository.snapshots) == sorted(codes)
+    assert repository.previous_requested == (TRADE_DATE, set(codes))

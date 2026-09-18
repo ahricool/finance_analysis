@@ -122,6 +122,7 @@ def seed_quant_reference_data(db_manager=None) -> dict:
             ("cn_csi1000", "中证1000", "CN", "INDEX"),
             ("cn_csi2000", "中证2000", "CN", "INDEX"),
             ("us_sp500", "S&P 500", "US", "INDEX"),
+            ("us_sp400", "S&P MidCap 400", "US", "INDEX"),
             ("us_nasdaq100", "Nasdaq 100", "US", "INDEX"),
             ("cn_daily_sync", "A股日线同步", "CN", "STRATEGY"),
             ("us_daily_sync", "美股日线同步", "US", "STRATEGY"),
@@ -170,7 +171,7 @@ def seed_quant_reference_data(db_manager=None) -> dict:
             ("cn_daily_sync", "cn_csi500"),
             ("cn_daily_sync", "cn_csi1000"),
             ("cn_daily_sync", "cn_index_etf"),
-            ("us_daily_sync", "us_sp500"),
+            ("us_daily_sync", "us_trend"),
             ("us_daily_sync", "us_index_etf"),
             ("us_daily_sync", "us_macro"),
             ("cn_trend", "cn_csi300"),
@@ -178,6 +179,8 @@ def seed_quant_reference_data(db_manager=None) -> dict:
             ("cn_trend", "cn_csi1000"),
             ("cn_trend", "cn_csi2000"),
             ("us_trend", "us_sp500"),
+            ("us_trend", "us_sp400"),
+            ("us_trend", "us_nasdaq100"),
         ):
             session.execute(
                 pg_insert(UniverseInclude)
