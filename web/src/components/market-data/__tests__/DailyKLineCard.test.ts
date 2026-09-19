@@ -15,9 +15,10 @@ describe('DailyKLineCard', () => {
     const wrapper = mount(DailyKLineCard, options);
     expect(wrapper.text()).toContain('加载中');
     expect(marketDataApi.dailyBars).toHaveBeenCalledWith('AAPL.US', '2026-09-18', undefined, expect.any(AbortSignal));
-    resolve(result); await flushPromises();
+    resolve({ ...result, items: [{ ...result.items[0]!, low: 1.237 }] }); await flushPromises();
+    expect(wrapper.getComponent(MarketKLineChart).props('pricePrecision')).toBe(3);
     expect(wrapper.getComponent(MarketKLineChart).props('bars')[0]).toEqual({ timestamp: Date.parse('2026-09-18T00:00:00Z'),
-      open: 100, high: 105, low: 98, close: 103, volume: 100, turnover: 1000 });
+      open: 100, high: 105, low: 1.237, close: 103, volume: 100, turnover: 1000 });
     wrapper.unmount();
   });
   it('isolates errors with retry and shows empty state', async () => {
@@ -33,7 +34,7 @@ describe('DailyKLineCard', () => {
   it('aborts old requests, never restores stale data and excludes future bars', async () => {
     let resolve!: (value: DailyBarsResponse) => void;
     vi.mocked(marketDataApi.dailyBars).mockReturnValueOnce(new Promise(r => { resolve = r; }))
-      .mockResolvedValueOnce({ ...result, symbol: 'MSFT.US', items: [...result.items, { ...result.items[0]!, tradeDate: '2026-09-19' }] });
+      .mockResolvedValueOnce({ ...result, symbol: 'MSFT.US', items: [{ ...result.items[0]!, low: 0.8567 }, { ...result.items[0]!, tradeDate: '2026-09-19' }] });
     const wrapper = mount(DailyKLineCard, options);
     const signal = vi.mocked(marketDataApi.dailyBars).mock.calls[0]![3]!;
     await wrapper.setProps({ symbol: 'MSFT.US' }); await flushPromises();
@@ -41,6 +42,7 @@ describe('DailyKLineCard', () => {
     resolve(result); await flushPromises();
     expect(wrapper.getComponent(MarketKLineChart).props('symbol')).toBe('MSFT.US');
     expect(wrapper.getComponent(MarketKLineChart).props('bars')).toHaveLength(1);
+    expect(wrapper.getComponent(MarketKLineChart).props('pricePrecision')).toBe(4);
     wrapper.unmount();
     expect(vi.mocked(marketDataApi.dailyBars).mock.lastCall![3]!.aborted).toBe(true);
   });

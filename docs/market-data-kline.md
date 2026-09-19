@@ -5,7 +5,9 @@
 `subscribeBar/unsubscribeBar`。切换标的、周期或 sourceKey 时销毁并重新初始化；
 历史数据替换时 `resetData`；ResizeObserver 与 Vue 卸载一起清理。
 红涨绿跌，主题跟随 `useTheme`，默认 VOL，日线叠加 MA5/10/20。
-其他统计图继续使用 ECharts。
+其他统计图继续使用 ECharts。通用组件接受 `pricePrecision`，BTC 明确传 2；
+DailyKLineCard 从展示的 OHLC 推导 2～4 位小数（12.35 → 2、1.237 → 3、0.8567 → 4），
+忽略第 4 位之后的浮点噪声。KLineChart 将 symbol 精度同步到 MA 等价格指标。
 
 ## 日线接口
 
@@ -20,17 +22,29 @@
 - items 按日期升序，包含 `trade_date/open/high/low/close/volume/amount`。
 - 无数据返回空 items；上游失败且没有恢复到数据时返回 503。
 
-入口只调用 `MarketDataService.get_daily_bars(source_policy="db_first", adjustment="forward")`：
+入口只调用 `MarketDataService.get_daily_bars(source_policy="db_latest", adjustment="forward")`：
 
-1. 有本地历史时读取请求区间，来源为 database。
-2. 证券不存在或从未存过日线时，走现有 `router.route_daily`。
-3. 数据库读取异常时，服务层 warning 后走同一 router。
+1. 复用现有市场交易日历，在市场时区以 `min(当前时刻, end_date 当天结束)`
+   求最近一个已完成交易日。历史请求使用历史截止日，盘中不要求当天的收盘 K。
+2. DB 有该 symbol 在这个交易日的数据，整个请求直接用 DB，不检查中间 gap，
+   不因停牌、IPO 或历史不足回源。请求区间外用于 freshness 判断的数据不进入响应。
+3. DB 无此日数据（包括无该证券日线）或查询异常，调用现有 `router.route_daily`
+   获取整个请求窗口，不合并或补取 stale tail。DB 异常先 warning。
 4. router 保持 CN TickFlow → Fuyao → yfinance、US yfinance → TickFlow、
    HK Longbridge → yfinance 的既有顺序。
 5. 降级取得数据即可展示，即使存在早先 provider 的 sticky request error。
 
-保留 db_first 的“已有任何历史即信任 DB”语义：若仅请求区间无记录而区间外有历史，
-返回空结果，不自动补 gap。所有查询均不写库，不触发行情同步。
+例如周日 9/20 查到最近完成交易日为 9/18，有 9/18 即用 DB；9/18 盘中只要求 9/17，
+收盘后要求 9/18。历史 end_date=8/9 周日则要求 8/7，与今天无关。
+原有 `db_first` 与 `db_fresh` 不变；本 API 不使用 `db_fresh`。
+
+> Daily K HTTP API is read-only.
+> DB freshness is determined only by whether the latest completed trading day on or before the requested end date exists for the symbol.
+> If it exists, trust DB as-is. Do not check historical gaps.
+> If it does not exist, fall back to the configured market-data providers for this request only.
+> Provider fallback must never trigger database synchronization or persistence.
+
+所有查询均不写库，不调用 Celery / sync task，不刷新 DB，不补 gap 或 DB tail。
 旧 `/stocks/{stock_code}/history` 保留，新 UI 不使用它。
 
 ## 页面

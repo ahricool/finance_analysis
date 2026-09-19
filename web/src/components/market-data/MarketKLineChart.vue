@@ -6,6 +6,7 @@ import { useTheme } from '@/composables/useTheme';
 const props = defineProps<{
   symbol: string;
   period: '1m' | '1d';
+  pricePrecision?: number;
   bars: KLineData[];
   current?: KLineData | null;
   sourceKey?: string;
@@ -49,7 +50,9 @@ function initialize() {
   if (props.period === '1d') {
     chart.createIndicator({ name: 'MA', calcParams: [5, 10, 20], paneId: 'candle_pane' });
   }
-  chart.setSymbol({ ticker: props.symbol, pricePrecision: 2, volumePrecision: props.period === '1m' ? 4 : 0 });
+  // KLineChart synchronizes price-series indicators (including MA) from the symbol precision.
+  chart.setSymbol({ ticker: props.symbol, volumePrecision: props.period === '1m' ? 4 : 0,
+    ...(props.pricePrecision === undefined ? {} : { pricePrecision: props.pricePrecision }) });
   chart.setPeriod({ type: props.period === '1d' ? 'day' : 'minute', span: 1 });
   chart.setDataLoader({
     getBars: ({ type, callback }) => {
@@ -62,7 +65,7 @@ function initialize() {
     unsubscribeBar: () => { pushBar = undefined; },
   });
 }
-watch(() => [props.symbol, props.period, props.sourceKey], initialize);
+watch(() => [props.symbol, props.period, props.sourceKey, props.pricePrecision], initialize);
 watch(() => props.bars, () => chart?.resetData());
 watch(() => props.current, () => {
   const bar = liveBar();

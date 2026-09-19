@@ -55,7 +55,7 @@ def daily_bars(symbol: str, start_date: date | None = None, end_date: date | Non
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     try:
         result = MarketDataService().get_daily_bars(
-            [code], start, end, adjustment="forward", source_policy="db_first"
+            [code], start, end, adjustment="forward", source_policy="db_latest"
         )
     except Exception as exc:
         logger.warning("Daily bars unavailable: %s", code, exc_info=True)

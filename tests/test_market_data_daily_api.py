@@ -1,6 +1,6 @@
 """Daily chart API contract using the real service/router and offline repositories."""
 
-from datetime import date
+from datetime import date, datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -11,11 +11,13 @@ from fastapi.testclient import TestClient
 from finance_analysis.integrations.market_data.models import Adjustment, BatchBarResult, Market, MarketBar
 from finance_analysis.integrations.market_data.registry import DAILY_BARS, ProviderRegistry
 from finance_analysis.integrations.market_data.service import MarketDataService
+from finance_analysis.integrations.market_data import service as market_service
 from finance_analysis.interfaces.api.v1.endpoints import market_data
 
 
 @pytest.fixture
 def setup_api(monkeypatch):
+    monkeypatch.setattr(market_service, "utc_now", lambda: datetime(2026, 9, 20, tzinfo=timezone.utc))
     instruments = Mock()
     instruments.get_by_code.return_value = SimpleNamespace(id=1)
     stocks = Mock()
@@ -60,7 +62,7 @@ def test_database_data_never_calls_provider(setup_api):
 def test_empty_or_failed_database_falls_back(setup_api, raw, code, market, db_error, caplog):
     client, stocks, provider = setup_api
     if db_error:
-        stocks.has_daily_data.side_effect = RuntimeError('database offline')
+        stocks.get_range.side_effect = RuntimeError('database offline')
     provider.fetch_daily_bars.return_value = BatchBarResult(data={code: [bar(code)]})
     response = client.get(f'/api/v1/market-data/daily-bars/{raw}?start_date=2026-09-01&end_date=2026-09-18')
     assert response.status_code == 200
@@ -78,7 +80,7 @@ def test_empty_or_failed_database_falls_back(setup_api, raw, code, market, db_er
 
 def test_provider_failure_is_503(setup_api):
     client, stocks, provider = setup_api
-    stocks.has_daily_data.side_effect = RuntimeError('database offline')
+    stocks.get_range.side_effect = RuntimeError('database offline')
     provider.fetch_daily_bars.side_effect = RuntimeError('provider offline')
     response = client.get('/api/v1/market-data/daily-bars/AAPL.US')
     assert response.status_code == 503

@@ -14,6 +14,15 @@ const bars = computed(() => (data.value?.items ?? [])
   .filter(row => !props.endDate || row.tradeDate <= props.endDate)
   .map(row => ({ timestamp: Date.parse(`${row.tradeDate}T00:00:00Z`), open: row.open,
     high: row.high, low: row.low, close: row.close, volume: row.volume, turnover: row.amount ?? undefined })));
+// Use displayed OHLC only; cap at four places and ignore floating-point noise beyond that.
+const pricePrecision = computed(() => bars.value.reduce((precision, bar) => {
+  for (const value of [bar.open, bar.high, bar.low, bar.close]) {
+    if (!Number.isFinite(value)) continue;
+    const decimals = value.toFixed(4).replace(/0+$/, '').split('.')[1]?.length ?? 0;
+    precision = Math.max(precision, decimals);
+  }
+  return precision;
+}, 2));
 async function load() {
   controller?.abort();
   const request = new AbortController();
@@ -65,6 +74,7 @@ onBeforeUnmount(() => controller?.abort());
       v-else
       :symbol="data?.symbol ?? symbol"
       period="1d"
+      :price-precision="pricePrecision"
       :bars="bars"
       :source-key="`${symbol}:${endDate ?? 'latest'}`"
     />

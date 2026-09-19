@@ -20,6 +20,7 @@ const current = computed(() => {
   <MarketKLineChart
     symbol="BTCUSDT"
     period="1m"
+    :price-precision="2"
     :bars="bars"
     :current="current"
     data-testid="btc-kline-chart"

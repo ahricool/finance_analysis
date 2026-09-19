@@ -17,7 +17,7 @@ const context = { symbol: { ticker: 'AAPL.US', pricePrecision: 2, volumePrecisio
 describe('MarketKLineChart v10 lifecycle', () => {
   beforeEach(() => { vi.clearAllMocks(); lifecycle.init.mockReturnValue(chart); });
   it('loads OHLCV, adds VOL and daily MA, resets on source/symbol/period and disposes', async () => {
-    const wrapper = mount(MarketKLineChart, { props: { symbol: 'AAPL.US', period: '1d', bars: [bar] } });
+    const wrapper = mount(MarketKLineChart, { props: { symbol: 'AAPL.US', period: '1d', pricePrecision: 2, bars: [bar] } });
     expect(chart.setSymbol).toHaveBeenCalledWith(context.symbol);
     expect(chart.setPeriod).toHaveBeenCalledWith(context.period);
     expect(chart.createIndicator).toHaveBeenCalledWith('VOL');
@@ -29,9 +29,10 @@ describe('MarketKLineChart v10 lifecycle', () => {
     expect(callback).toHaveBeenLastCalledWith([], false);
     await wrapper.setProps({ bars: [] });
     expect(chart.resetData).toHaveBeenCalled();
-    await wrapper.setProps({ symbol: '600519.SH', period: '1m', sourceKey: 'new' });
+    await wrapper.setProps({ symbol: '600519.SH', period: '1m', sourceKey: 'new', pricePrecision: 3 });
     expect(lifecycle.dispose).toHaveBeenCalledTimes(1);
     expect(chart.setSymbol.mock.lastCall![0].ticker).toBe('600519.SH');
+    expect(chart.setSymbol.mock.lastCall![0].pricePrecision).toBe(3);
     loader().getBars({ ...context, type: 'init', timestamp: null, callback });
     expect(callback).toHaveBeenLastCalledWith([], false);
     wrapper.unmount();
