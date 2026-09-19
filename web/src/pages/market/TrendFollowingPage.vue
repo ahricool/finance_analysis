@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import DailyKLineCard from '@/components/market-data/DailyKLineCard.vue';
 import { detailChartHistory as buildDetailChartHistory } from '@/utils/detailChartHistory';
 import ResearchMarketToggle from '@/components/research/ResearchMarketToggle.vue';
 import { useRoute } from 'vue-router';
@@ -964,6 +965,10 @@ onMounted(() => void load(true, { autoSelectMode: true }));
             <div>Acceleration<strong class="block">{{ score(detail.latest.features.trendAcceleration) }}</strong></div>
             <div>Signed Efficiency<strong class="block">{{ score(detail.latest.features.signedEfficiencyRatio10D) }}</strong></div>
           </div>
+          <DailyKLineCard
+            :symbol="detail.latest.code"
+            :end-date="detail.latest.tradeDate"
+          />
           <details class="rounded-lg border p-4 text-sm">
             <summary class="cursor-pointer">
               Fragility Breakdown

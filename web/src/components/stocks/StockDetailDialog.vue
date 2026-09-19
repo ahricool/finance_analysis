@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import DailyKLineCard from '@/components/market-data/DailyKLineCard.vue';
 import type { RealtimeQuote } from '@/api/realtimeMarket';
 import type { MarketType } from '@/api/watchList';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -189,6 +190,8 @@ function movementClass(value: number | null | undefined): string {
               </div>
             </dl>
           </section>
+
+          <DailyKLineCard :symbol="stock.code" />
 
           <section>
             <h3 class="mb-3 text-sm font-semibold text-foreground">

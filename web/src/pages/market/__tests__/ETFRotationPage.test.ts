@@ -1,3 +1,4 @@
+import { marketDataApi } from '@/api/marketData';
 import ETFRotationHistoryCharts from '@/components/etf-rotation/ETFRotationHistoryCharts.vue';
 import { flushPromises, mount } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -18,6 +19,8 @@ const apiMocks = vi.hoisted(() => ({
 vi.mock('@/api/etfRotation', () => ({
   etfRotationApi: apiMocks,
 }));
+
+vi.mock('@/api/marketData', () => ({ marketDataApi: { dailyBars: vi.fn().mockResolvedValue({ items: [] }) } }));
 
 vi.mock('vue-sonner', () => ({
   toast: { success: vi.fn(), error: vi.fn() },
@@ -220,8 +223,8 @@ describe('ETFRotationPage', () => {
         exits: [exit],
       };
     });
-    apiMocks.detail.mockImplementation(async (code: string, market: ETFMarket = 'CN') => {
-      const item = snapshot({ code, market, name: market === 'US' ? 'SPDR S&P 500 ETF' : '科创50ETF' });
+    apiMocks.detail.mockImplementation(async (code: string, market: ETFMarket = 'CN', _limit?: number, tradeDate = '2026-08-25') => {
+      const item = snapshot({ code, market, tradeDate, name: market === 'US' ? 'SPDR S&P 500 ETF' : '科创50ETF' });
       return { market, metadata: item, latest: item, history: [item], marketSnapshot: null };
     });
     mockPreview(null);
@@ -344,6 +347,7 @@ describe('ETFRotationPage', () => {
     await wrapper.get('[data-testid="rotation-candidate"]').trigger('click');
     await flushPromises();
     expect(apiMocks.detail).toHaveBeenLastCalledWith('159915.SZ', 'CN', 60, '2026-08-21');
+    expect(marketDataApi.dailyBars).toHaveBeenLastCalledWith('159915.SZ', '2026-08-21', undefined, expect.any(AbortSignal));
   });
 
   it('resets the selected date and reloads US snapshots when switching markets', async () => {
@@ -389,6 +393,7 @@ describe('ETFRotationPage', () => {
     expect(document.body.textContent).toContain('RS10');
     expect(document.body.textContent).toContain('Signed ER10');
     expect(apiMocks.detail).toHaveBeenCalledWith('588000.SH', 'CN', 60, '2026-08-25');
+    expect(marketDataApi.dailyBars).toHaveBeenLastCalledWith('588000.SH', '2026-08-25', undefined, expect.any(AbortSignal));
   });
 
   it('renders nullable actions and snapshot warnings without treating them as signals', async () => {

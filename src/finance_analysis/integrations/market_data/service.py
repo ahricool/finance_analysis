@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import logging
 from dataclasses import replace
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from typing import Any, Iterable, Literal
 
 import pandas as pd
 
+from finance_analysis.core.time import utc_now
 from finance_analysis.database.repositories.stock import InstrumentRepository, StockRepository
+from finance_analysis.market_review.trading_calendar import get_completed_trading_days, get_market_now
 
 from .config import DataProviderConfig, get_data_provider_config
 from .models import (
@@ -282,11 +284,13 @@ class MarketDataService:
         *,
         adjustment: Adjustment | str,
         providers: Iterable[str] | None = None,
-        source_policy: Literal["db_only", "db_first", "db_fresh", "remote_only"] = "db_first",
+        source_policy: Literal["db_only", "db_first", "db_latest", "db_fresh", "remote_only"] = "db_first",
     ) -> BatchBarResult:
         """Prefer existing local history, otherwise return remote bars without writes.
 
         db_first trusts any local history; db_fresh refreshes only stale tails.
+        db_latest trusts DB only when the expected completed session exists;
+        otherwise providers serve the whole requested window in memory only.
         Only explicit maintenance jobs persist daily history. Local existence is
         not a trading-calendar completeness claim (suspensions and IPOs have gaps).
         """
@@ -294,8 +298,8 @@ class MarketDataService:
         requested_adjustment = adjustment_from_value(adjustment)
         if requested_adjustment is not Adjustment.FORWARD:
             raise ValueError("Daily bars are stored and served only as forward-adjusted prices")
-        if source_policy not in {"db_only", "db_first", "db_fresh", "remote_only"}:
-            raise ValueError("source_policy must be db_only, db_first, db_fresh, or remote_only")
+        if source_policy not in {"db_only", "db_first", "db_latest", "db_fresh", "remote_only"}:
+            raise ValueError("source_policy must be db_only, db_first, db_latest, db_fresh, or remote_only")
         if not canonical:
             return BatchBarResult()
         request = DailyBarsRequest(canonical, start_date, end_date, Adjustment.FORWARD)
@@ -313,8 +317,14 @@ class MarketDataService:
             return self.router.route_daily(request, providers)
         if source_policy == "db_fresh":
             return self._get_fresh_daily(request, providers)
-        result, missing = self._load_persisted_daily(request)
-        if missing and source_policy == "db_first":
+        try:
+            result, missing = (
+                self._load_latest_daily(request) if source_policy == "db_latest" else self._load_persisted_daily(request)
+            )
+        except Exception:
+            logger.warning("Database daily bars unavailable; falling back to providers: %s", canonical, exc_info=True)
+            return self.router.route_daily(request, providers)
+        if missing and source_policy in {"db_first", "db_latest"}:
             remote = self.router.route_daily(replace(request, symbols=tuple(missing)), providers)
             result.data.update(remote.data)
             result.providers_used.update(remote.providers_used)
@@ -324,6 +334,34 @@ class MarketDataService:
         elif missing:
             result.missing_symbols.extend(missing)
         return result
+
+    def _load_latest_daily(self, request: DailyBarsRequest) -> tuple[BatchBarResult, list[str]]:
+        """Daily K HTTP API is read-only: trust DB as-is if its expected session exists.
+
+        Freshness is ONLY the latest completed trading day on or before end_date.
+        Do not check historical gaps. Missing/stale DB falls back to providers for
+        this request only, never to database synchronization or persistence.
+        """
+        _, stocks = self._repositories()
+        result = BatchBarResult()
+        missing: list[str] = []
+        now = utc_now()
+        for code in request.symbols:
+            market = infer_market(code).value.lower()
+            market_now = get_market_now(market, now)
+            # Historical requests use that market's end-of-day; today/future
+            # requests are capped at now so an unfinished session is not required.
+            cutoff = min(market_now, datetime.combine(request.end_date, time.max, tzinfo=market_now.tzinfo))
+            expected = get_completed_trading_days(market, 1, cutoff)[-1]
+            # Also probe expected when the requested window starts on a weekend
+            # or after now. Never include that extra probe date in the response.
+            rows = stocks.get_range(code, min(request.start_date, expected), request.end_date)
+            if not any(row.date == expected for row in rows):
+                missing.append(code)
+                continue
+            result.providers_used[code] = "database"
+            result.data[code] = [self._stored_bar(row) for row in rows if row.date >= request.start_date]
+        return result, missing
 
     def _get_fresh_daily(self, request: DailyBarsRequest, providers: Iterable[str] | None) -> BatchBarResult:
         """Read history and batch-refresh stale tails, without gap checks or writes."""

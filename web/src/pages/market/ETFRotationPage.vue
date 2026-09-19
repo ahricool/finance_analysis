@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import DailyKLineCard from '@/components/market-data/DailyKLineCard.vue';
 import { detailChartHistory as buildDetailChartHistory } from '@/utils/detailChartHistory';
 import ResearchMarketToggle from '@/components/research/ResearchMarketToggle.vue';
 import { useRoute } from 'vue-router';
@@ -902,6 +903,10 @@ onMounted(() => void load(true, { autoSelectMode: true }));
                 /><strong class="mt-1 block text-xl">{{ score(factor[1]) }}</strong>
               </div>
             </div>
+            <DailyKLineCard
+              :symbol="selected.latest.code"
+              :end-date="selected.latest.tradeDate"
+            />
             <Card>
               <CardHeader><CardTitle>Raw Metrics</CardTitle></CardHeader><CardContent
                 data-testid="etf-raw-metrics-grid"
