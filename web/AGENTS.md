@@ -12,7 +12,7 @@
 | 状态 | Pinia（会话级） |
 | UI | Tailwind CSS 4 + shadcn-vue（preset `reka-vega`，底层 Reka UI）+ Lucide |
 | HTTP | Axios（Cookie 会话）+ 少量 `fetch`（SSE）/ WebSocket |
-| 图表 | ECharts + `vue-echarts` |
+| 图表 | KLineChart 10.x（金融 K 线）；ECharts + `vue-echarts`（统计图） |
 | 包管理 | `pnpm@11.1.3`（以 `package.json` 的 `packageManager` 为准） |
 
 入口：`index.html` → `src/main.ts` → `App.vue`。`index.html` 在 Vue 挂载前读取 `localStorage.theme`：`light`/`dark` 直接应用；缺失、非法或 `system` 则按 `prefers-color-scheme` 解析后给 `<html>` 打 `light`/`dark`，避免主题闪烁。
@@ -245,7 +245,7 @@ Cookie 会话，`apiClient` 设了 `withCredentials: true`。
 ## BTC 页面
 
 `/crypto/btc` 位于一级“加密货币”导航，`useCryptoBtc()` 统一后端REST与WS，断线后60秒轮询并尝试重连；不得直接访问Binance。
-`BtcKlineChart` 复用ECharts，已闭合history与单根current分开更新。VChart的固定高度放外层；manual-update配合autoresize时，应等初始nextTick提交完整option，再增量更新series。
+`BtcKlineChart` 是 `MarketKLineChart` 的轻量 wrapper，已闭合 history 与单根 current 分开传入。统一图表使用 KLineChart 10.x 的 data loader / subscription API，卸载时 dispose。单证券日 K 使用 `DailyKLineCard` 独立请求 `/api/v1/market-data/daily-bars/{symbol}`；历史策略详情必须传返回快照的 tradeDate 作为 endDate。
 
 ## 消息中心
 

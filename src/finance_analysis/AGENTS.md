@@ -67,7 +67,7 @@ interfaces/api + tasks/celery/jobs
 | `tasks.py` | 代码定义的周期任务、管理员手动运行、任务记录 |
 | `quant.py` | 固定市场 Universe 的数据集、模型、信号、组合 |
 | `etf_rotation.py` / `trend_following.py` | 领域结果与手动运行 |
-| `market_data.py` | Cookie 鉴权的实时行情 WebSocket |
+| `market_data.py` | Cookie 鉴权的实时行情 WebSocket，以及统一前复权 daily-bars HTTP 查询 |
 | `usage.py` | LLM 用量 |
 | `celery_demo.py` | Celery 连通性演示，不是业务编排入口 |
 

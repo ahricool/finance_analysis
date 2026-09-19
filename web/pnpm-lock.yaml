@@ -38,6 +38,9 @@ importers:
       echarts:
         specifier: ^5.6.0
         version: 5.6.0
+      klinecharts:
+        specifier: ^10.0.3
+        version: 10.0.3
       lucide-vue-next:
         specifier: ^0.555.0
         version: 0.555.0(vue@3.5.34(typescript@5.9.3))
@@ -1564,6 +1567,9 @@ packages:
 
   keyv@4.5.4:
     resolution: {integrity: sha512-oxVHkHR/EJf2CNXnWxRLW6mg7JyCCUcG0DtEGmL2ctUo1PNTin1PUil+r/+4r5MpVgC/fn1kjsx7mjSujKqIpw==}
+
+  klinecharts@10.0.3:
+    resolution: {integrity: sha512-phvf5CyS7oGE46nuC+nxQxl9D+8+5w8q3reExh0oNeMV1Jws4X0CMHNkOI9xlNA/XWctNS5whZ3PqIJi8YM2Tw==}
 
   levn@0.4.1:
     resolution: {integrity: sha512-+bT2uH4E5LGE7h/n3evcS/sQlJXCpIp6ym8OWJ5eV6+67Dsql/LaaT7qJBAt2rzfoa/5QBGBhxDix1dMt2kQKQ==}
@@ -3645,6 +3651,8 @@ snapshots:
   keyv@4.5.4:
     dependencies:
       json-buffer: 3.0.1
+
+  klinecharts@10.0.3: {}
 
   levn@0.4.1:
     dependencies:

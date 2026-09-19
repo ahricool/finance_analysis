@@ -43,6 +43,15 @@ for (const width of [1280, 1440, 1920]) {
         } else if (pathname.endsWith('/etf-rotation/ranking') || pathname.endsWith('/etf-rotation/candidates')) {
           body = { market: 'CN', tradeDate: snapshot.tradeDate, universeSize: 1, dataReadyCount: 1,
             dataCoverage: 1, rankableSize: 1, rankableCoverage: 1, warnings: [], marketSnapshot: null, items: [snapshot] };
+        } else if (pathname.endsWith('/market-data/daily-bars/510300.SH')) {
+          expect(new URL(route.request().url()).searchParams.get('end_date')).toBe(snapshot.tradeDate);
+          body = { symbol: snapshot.code, market: 'CN', interval: '1d', adjustment: 'forward', source: 'database',
+            items: Array.from({ length: 100 }, (_, i) => ({
+              trade_date: new Date(Date.UTC(2026, 4, 20 + i)).toISOString().slice(0, 10),
+              open: 4 + i * 0.01, high: 4.1 + i * 0.01, low: 3.9 + i * 0.01,
+              close: 4.02 + i * 0.01, volume: 100000 + i * 1000, amount: 400000,
+            })),
+          };
         } else if (pathname.endsWith('/etf-rotation/510300.SH')) {
           body = { market: 'CN', metadata: snapshot, latest: snapshot, history, marketSnapshot: null };
         }
@@ -61,6 +70,10 @@ for (const width of [1280, 1440, 1920]) {
       await page.getByRole('row').filter({ hasText: '510300.SH' }).click();
       const dialog = page.getByTestId('etf-detail-modal');
       await expect(dialog).toBeVisible();
+      const daily = dialog.getByTestId('daily-kline-card');
+      await daily.scrollIntoViewIfNeeded();
+      await expect(daily.locator('canvas').first()).toBeVisible();
+      await daily.screenshot({ path: testInfo.outputPath(`daily-kline-${theme}-${width}.png`) });
       const charts = dialog.getByTestId('rotation-history-charts');
       await expect(charts.locator('canvas')).toHaveCount(4);
       for (const label of ['价格与均线', '综合得分', '排名', '相对强度']) {

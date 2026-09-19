@@ -20,7 +20,7 @@ const market = {
   latest_candle: candle(200, false), recent_closed: [candle(199)], strategy_latest_state: snapshot,
 };
 
-for (const width of [1280, 1440]) {
+for (const width of [1280, 1440, 1920]) {
   test(`BTC candles render and update through backend WS at ${width}px`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width, height: 1000 });
     const errors: string[] = [];
@@ -45,8 +45,8 @@ for (const width of [1280, 1440]) {
     const chart = page.getByTestId('btc-kline-chart');
     await chart.scrollIntoViewIfNeeded();
     expect(errors).toEqual([]);
-    await expect(chart.locator('canvas')).toBeVisible();
-    expect((await chart.locator('canvas').boundingBox())!.height).toBeGreaterThan(250);
+    await expect(chart.locator('canvas').first()).toBeVisible();
+    expect((await chart.locator('canvas').first().boundingBox())!.height).toBeGreaterThan(250);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     websocket!.send(JSON.stringify({ type: 'state', market: { ...market, latest_candle: { ...candle(200, false), close: '60777', high: '60790' } } }));
     await expect(page.getByText('60,777', { exact: false }).first()).toBeVisible();

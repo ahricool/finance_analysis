@@ -313,7 +313,11 @@ class MarketDataService:
             return self.router.route_daily(request, providers)
         if source_policy == "db_fresh":
             return self._get_fresh_daily(request, providers)
-        result, missing = self._load_persisted_daily(request)
+        try:
+            result, missing = self._load_persisted_daily(request)
+        except Exception:
+            logger.warning("Database daily bars unavailable; falling back to providers: %s", canonical, exc_info=True)
+            return self.router.route_daily(request, providers)
         if missing and source_policy == "db_first":
             remote = self.router.route_daily(replace(request, symbols=tuple(missing)), providers)
             result.data.update(remote.data)
