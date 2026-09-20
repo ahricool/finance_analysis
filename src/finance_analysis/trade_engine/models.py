@@ -1,22 +1,18 @@
 # -*- coding: utf-8 -*-
-"""Trade Engine DTOs. Strategies return at most one candidate per position."""
+"""Trade Engine DTOs. Strategies emit explicit BUY/ADD/REDUCE/EXIT proposals."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Literal, Protocol, Sequence
 
-from .bars import NormalizedBar  # pragma: allowlist secret
-from .indicators import BarIndicators  # pragma: allowlist secret
 from ..portfolio.models import ResolvedPosition  # pragma: allowlist secret
 
-Action = Literal["HOLD", "WATCH", "REDUCE", "EXIT"]
-CandidateAction = Literal["WATCH", "REDUCE", "EXIT"]
-Severity = Literal["hard", "soft"]
-ReviewVerdict = Literal["CONFIRM", "REJECT"]
-ACTION_RANK = {"EXIT": 4, "REDUCE": 3, "WATCH": 2, "HOLD": 0}
+TradeAction = Literal["BUY", "ADD", "REDUCE", "EXIT"]
+FinalAction = Literal["BUY", "ADD", "REDUCE", "EXIT", "NO_ACTION"]
+TRADE_ACTIONS = frozenset({"BUY", "ADD", "REDUCE", "EXIT"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,6 +23,37 @@ class QuoteView:
     stale: bool = False
 
 
+@dataclass(frozen=True, slots=True)
+class DailyBar:
+    trade_date: date
+    open: Decimal
+    high: Decimal
+    low: Decimal
+    close: Decimal
+    volume: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class LotRisk:
+    lot_id: str
+    role: str
+    quantity: Decimal
+    entry_price: Decimal
+    high_watermark: Decimal | None
+    profit_stage: str
+    active_stop: Decimal | None
+    structure_stop: Decimal | None
+
+
+@dataclass(frozen=True, slots=True)
+class PositionRisk:
+    lots: tuple[LotRisk, ...] = ()
+    profit_stage: str = "UNKNOWN"
+    active_stop: Decimal | None = None
+    high_watermark: Decimal | None = None
+    dump: dict[str, Any] = field(default_factory=dict)
+
+
 @dataclass
 class PositionContext:
     """Per-holding analysis input. Never contains full-market breadth or scanners."""
@@ -35,14 +62,14 @@ class PositionContext:
     symbol: str
     position: ResolvedPosition
     quote: QuoteView | None
-    five_minute_bars: Sequence[NormalizedBar] = ()
-    daily_bars: Sequence[Any] = ()
-    technical_indicators: Sequence[BarIndicators] = ()
+    daily_bars: Sequence[DailyBar] = ()
     strategy_state: dict[str, Any] = field(default_factory=dict)
+    risk: PositionRisk = field(default_factory=PositionRisk)
     now: datetime | None = None
-    bars_stale: bool = False
-    latest_expected: datetime | None = None
     policy: Any = None
+    cash: Decimal = Decimal("0")
+    market_nav: Decimal = Decimal("0")
+    position_value: Decimal = Decimal("0")
 
     @property
     def lots(self):
@@ -50,31 +77,54 @@ class PositionContext:
 
 
 @dataclass(frozen=True, slots=True)
-class TradeSignalCandidate:
+class StrategyProposal:
     market: str
     account_id: str | None
     position_id: str | None
     symbol: str | None
     strategy_key: str
     strategy_version: str
-    action: CandidateAction
+    action: TradeAction
+    suggested_quantity: Decimal | None
     suggested_target_quantity: Decimal | None
-    severity: Severity
     reason: str
     evidence: dict[str, Any]
     evaluated_at: datetime
-    signal_key: str
-
-    @property
-    def hard(self) -> bool:
-        return self.severity == "hard" or bool((self.evidence or {}).get("hard"))
+    proposal_key: str
 
 
 @dataclass(frozen=True, slots=True)
-class ReviewDecision:
-    decision: ReviewVerdict
+class PortfolioWarning:
+    market: str
+    account_id: str | None
+    position_id: str | None
+    symbol: str | None
+    kind: str
     reason: str
-    comment: str | None = None
+    current: Decimal
+    limit: Decimal
+    evidence: dict[str, Any]
+    evaluated_at: datetime
+    warning_key: str
+
+
+@dataclass(frozen=True, slots=True)
+class StrategyAssessment:
+    strategy: str
+    action: str
+    decision: str
+    reason: str
+
+
+@dataclass(frozen=True, slots=True)
+class FinalDecision:
+    position_id: str
+    symbol: str | None
+    action: FinalAction
+    quantity: Decimal | None
+    target_quantity: Decimal | None
+    reason: str
+    assessments: tuple[StrategyAssessment, ...] = ()
     failed: bool = False
 
 
@@ -86,16 +136,15 @@ class TradeSignal:
     account_id: str | None
     position_id: str | None
     symbol: str | None
-    action: CandidateAction
+    action: TradeAction
+    suggested_quantity: Decimal | None
     suggested_target_quantity: Decimal | None
     reason: str
-    deterministic_reason: str
     llm_reason: str | None
-    llm_comment: str | None
-    reviewed_by_llm: bool
     evidence: dict[str, Any]
     evaluated_at: datetime
     signal_key: str
+    reviewed_by_llm: bool = True
 
 
 class PositionTradeStrategy(Protocol):
@@ -103,36 +152,5 @@ class PositionTradeStrategy(Protocol):
     version: str
     market: str | None
 
-    def evaluate(self, context: PositionContext) -> list[TradeSignalCandidate]:
+    def evaluate(self, context: PositionContext) -> list[StrategyProposal]:
         ...
-
-
-def five_minute_stamp(value: datetime | None) -> str | None:
-    if value is None:
-        return None
-    stamp = value.replace(second=0, microsecond=0)
-    return stamp.replace(minute=(stamp.minute // 5) * 5).isoformat()
-
-
-def one_candidate(signals: list[TradeSignalCandidate]) -> list[TradeSignalCandidate]:
-    if len(signals) <= 1:
-        return signals
-    ranked = max(signals, key=lambda item: (1 if item.hard else 0, ACTION_RANK.get(item.action, 0)))
-    reason = ";".join(item.reason for item in signals if item.reason)
-    return [
-        TradeSignalCandidate(
-            market=ranked.market,
-            account_id=ranked.account_id,
-            position_id=ranked.position_id,
-            symbol=ranked.symbol,
-            strategy_key=ranked.strategy_key,
-            strategy_version=ranked.strategy_version,
-            action=ranked.action,
-            suggested_target_quantity=ranked.suggested_target_quantity,
-            severity=ranked.severity,
-            reason=reason or ranked.reason,
-            evidence=ranked.evidence,
-            evaluated_at=ranked.evaluated_at,
-            signal_key=ranked.signal_key,
-        )
-    ]

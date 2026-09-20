@@ -37,6 +37,22 @@ class RiskPolicy:
     quote_timeout_seconds: int = 5
     max_symbol_concurrency: int = 4
     publish_buffer_seconds: int = 20
+    min_profit_to_add: Decimal = Decimal("0.03")
+    max_add_count: int = 1
+    max_extension_atr: Decimal = Decimal("1.5")
+    min_stop_distance_atr: Decimal = Decimal("0.75")
+    max_stop_atr: Decimal = Decimal("2")
+    max_add_value_fraction: Decimal = Decimal("0.30")
+    min_breakout_volume_ratio: Decimal = Decimal("1.2")
+    pullback_high_min: Decimal = Decimal("0.05")
+    consolidation_min_days: int = 3
+    consolidation_max_days: int = 8
+    pullback_min_days: int = 2
+    pullback_max_days: int = 5
+    add_ma_fast: int = 10
+    add_ma_slow: int = 20
+    atr_period: int = 14
+    daily_lookback_days: int = 80
     rule_version: str = RULE_VERSION
 
     def merge(self, payload: dict | None) -> "RiskPolicy":
@@ -49,6 +65,11 @@ class RiskPolicy:
             "total_open_risk",
             "max_gross_exposure",
             "vwap_mode",
+            "min_profit_to_add",
+            "max_extension_atr",
+            "min_stop_distance_atr",
+            "max_stop_atr",
+            "max_add_value_fraction",
         ):
             if key in payload and payload[key] is not None:
                 data[key] = Decimal(str(payload[key])) if key != "vwap_mode" else str(payload[key])

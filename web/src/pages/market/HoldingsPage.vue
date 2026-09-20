@@ -356,10 +356,9 @@ function closeDetail() {
               <span class="mt-1 block text-xs text-muted-foreground">关闭后，该持仓不会参与5分钟 Trade Engine 分析，也不会产生 Trade Signal 或通知。</span>
             </span>
           </label>
-          <p>Strategy {{ engineView?.strategyKey || detail.strategyKey || '-' }} · 允许 Trade Engine {{ detail.tradeEngineEnabled === false ? '关闭' : '开启' }}</p>
+          <p>适用策略 {{ (engineView?.strategies || ['exit_v1', 'add_v1']).join(' / ') }} · 允许 Trade Engine {{ detail.tradeEngineEnabled === false ? '关闭' : '开启' }}</p>
           <p>最新正式信号 {{ engineView?.action || '-' }} · 保护价 {{ engineView?.activeStop || '-' }} · 阶段 {{ engineView?.profitStage || '-' }}</p>
-          <p v-if="engineView?.llmReason">LLM复核 {{ engineView.llmReason }}</p>
-          <p v-if="engineView?.llmComment">LLM意见 {{ engineView.llmComment }}</p>
+          <p v-if="engineView?.llmReason">LLM最终判断 {{ engineView.llmReason }}</p>
           <DailyKLineCard :symbol="detail.symbol" :markers="markers" marker-caption="操作 BST" />
           <div>
             <h3 class="mb-2 text-sm font-semibold">操作记录</h3>

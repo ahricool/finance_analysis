@@ -139,8 +139,6 @@ def patch_position(
                 get_effective_uid(request),
                 position_id,
                 trade_engine_enabled=payload.get("trade_engine_enabled"),
-                strategy_key=payload.get("strategy_key"),
-                clear_strategy_key="strategy_key" in payload and payload["strategy_key"] is None,
             )
         )
     except PortfolioError as exc:
@@ -424,7 +422,6 @@ def _position_payload(item: dict) -> dict:
         "asset_type": item["asset_type"],
         "quantity": _json_dec(item["quantity"]),
         "average_cost": _json_dec(item["average_cost"]),
-        "strategy_key": item.get("strategy_key"),
         "trade_engine_enabled": True if item.get("trade_engine_enabled") is None else bool(item.get("trade_engine_enabled")),
         "opened_at": item.get("opened_at"),
         "closed_at": item.get("closed_at"),

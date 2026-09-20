@@ -332,8 +332,8 @@ BTC 多策略以 `strategy_key + symbol` 隔离，代码注册表当前仅 `btc_
 
 ## Holdings / Trade Engine
 
-`portfolio/` 是普通股票/ETF 真实持仓（Primary）：账户现金、当前持仓、CORE/ADDON lot 和买卖/出入金操作写 PostgreSQL。`portfolio_position.strategy_key` 可空，默认 `exit_v1`；`trade_engine_enabled` 默认 true，关闭后该持仓不进 Trade Engine。Google Sheet 继续由 `holdings/` 读取，但只作为 Secondary 外部持仓；相同 `market + canonical symbol` 时 DB 覆盖 Google，不合并数量。OPTION 只保留为 `EXTERNAL_ONLY`，不进 DB 持仓，也不进 `exit_v1`。每个 position 一次只运行一个 Position Strategy；LLM 复核只能 CONFIRM/REJECT。 <!-- pragma: allowlist secret -->
-`trade_engine/` 每 5 分钟只分析 `PortfolioResolver` 返回的当前持仓（不是全市场 Scanner）。确定性策略先产生 Candidate，有 Candidate 才 LLM 复核，确认后写 `trade_signal` 并通知。无 Candidate 则 0 LLM / 0 signal / 0 通知。硬保护不依赖 LLM。删除 ActivePlan 与 A/US 旧盘中分析任务。CN 5m 只走窄范围 `SinaMinuteProvider`；US 5m 只走现有 yfinance。
+`portfolio/` 是普通股票/ETF 真实持仓（Primary）：账户现金、当前持仓、CORE/ADDON lot 和买卖/出入金操作写 PostgreSQL。`trade_engine_enabled` 默认 true，关闭后该持仓不进 Trade Engine。Google Sheet 继续由 `holdings/` 读取，但只作为 Secondary 外部持仓；相同 `market + canonical symbol` 时 DB 覆盖 Google，不合并数量。OPTION 只保留为 `EXTERNAL_ONLY`，不进 DB 持仓，也不进 Trade Engine。同一持仓并行运行 `exit_v1` 与 `add_v1`；正式交易动作只有 BUY/ADD/REDUCE/EXIT，由 LLM Resolver 一次裁决。`portfolio_risk_v1` 是账户级 Warning，不进 LLM。CN/US 现金、NAV 与风险隔离。 <!-- pragma: allowlist secret -->
+`trade_engine/` 每 5 分钟只分析 `PortfolioResolver` 返回的当前持仓（不是全市场 Scanner）。适用 Strategy 并行产生 BUY/ADD/REDUCE/EXIT Proposal；没有 Proposal 则 0 LLM / 0 signal / 0 交易通知。有 Proposal 时一次 LLM Resolver 裁决。账户 Warning 独立通知。删除 ActivePlan 与 A/US 旧盘中分析任务。
 任务复用 `ingestion`（`holdings_sync` 每 5 分钟）和 `alerts`（`trade_engine_cn/us` 每 5 分钟），不新增专用 worker。
 通知复用现有全局 Telegram/ntfy：先与 `trade_signal` 同事务写入站内消息，再 `push_existing`。
 Google token、OAuth code/state 和完整表格不得进入日志、API 或通知。详见 `docs/holdings-portfolio-risk.md`。

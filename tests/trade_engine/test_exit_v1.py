@@ -1,38 +1,34 @@
-"""exit_v1 hard stop, stages, ADDON-first reduce, soft-episode dedupe, recovery."""
+"""exit_v1 quote vs daily-formed stops. No 5m soft weakness."""
 
-from __future__ import annotations
-
-import sys
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from decimal import Decimal
-from pathlib import Path
 from zoneinfo import ZoneInfo
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-
-from bar_fixtures import recover_last_adjacent, session_bars, trading_dates, weaken_last_adjacent  # noqa: E402
-
 from finance_analysis.portfolio.models import ResolvedLot, ResolvedPosition  # pragma: allowlist secret
-from finance_analysis.trade_engine.bars import latest_expected_closed  # pragma: allowlist secret
 from finance_analysis.trade_engine.config import RiskPolicy  # pragma: allowlist secret
-from finance_analysis.trade_engine.models import PositionContext, QuoteView  # pragma: allowlist secret
+from finance_analysis.trade_engine.models import DailyBar, PositionContext, QuoteView  # pragma: allowlist secret
 from finance_analysis.trade_engine.strategies.exit_v1 import ExitV1  # pragma: allowlist secret
 
 SH = ZoneInfo("Asia/Shanghai")
-DAY = datetime(2026, 9, 16, tzinfo=SH).date()
 POLICY = RiskPolicy()
 
 
-def _bars(*, until, close=Decimal("100"), high_close=None, days=3):
-    dates = trading_dates("CN", until.date(), count=days)
-    return session_bars(days=dates, close=close, until=until, high_close=high_close, high_on=until.date())
+def _bars(closes):
+    start = date(2026, 6, 1)
+    rows = []
+    day = start
+    for close in closes:
+        while day.weekday() >= 5:
+            day += timedelta(days=1)
+        price = Decimal(str(close))
+        rows.append(DailyBar(day, price, price + Decimal("1"), price - Decimal("1"), price, 1000))
+        day += timedelta(days=1)
+    return rows
 
 
-def _position(core_qty="1000", addon_qty="500", *, core_entry=None, addon_entry=None, core_price="100", addon_price="100"):
-    core_time = core_entry or datetime(2026, 9, 16, 9, 30, tzinfo=SH)
-    lots = [
-        ResolvedLot("core", "CORE", Decimal(core_qty), Decimal(core_price), core_time),
-    ]
+def _position(core_qty="1000", addon_qty=None, *, core_price="100", addon_price="110"):
+    core_time = datetime(2026, 6, 2, 9, 30, tzinfo=SH)
+    lots = [ResolvedLot("core", "CORE", Decimal(core_qty), Decimal(core_price), core_time)]
     if addon_qty:
         lots.append(
             ResolvedLot(
@@ -40,7 +36,7 @@ def _position(core_qty="1000", addon_qty="500", *, core_entry=None, addon_entry=
                 "ADDON",
                 Decimal(addon_qty),
                 Decimal(addon_price),
-                addon_entry or core_time + timedelta(minutes=5),
+                datetime(2026, 7, 1, 9, 30, tzinfo=SH),
             )
         )
     return ResolvedPosition(
@@ -58,7 +54,7 @@ def _position(core_qty="1000", addon_qty="500", *, core_entry=None, addon_entry=
     )
 
 
-def _run(position, *, quote, bars, state=None, now, latest_expected=None):
+def _run(position, *, quote, bars, state=None, now=None):
     strategy = ExitV1()
     payload = {} if state is None else state
     context = PositionContext(
@@ -66,126 +62,103 @@ def _run(position, *, quote, bars, state=None, now, latest_expected=None):
         symbol=position.symbol,
         position=position,
         quote=quote,
-        five_minute_bars=bars,
+        daily_bars=bars,
         strategy_state=payload,
-        now=now,
-        latest_expected=latest_expected,
+        now=now or datetime(2026, 9, 16, 10, 0, tzinfo=SH),
         policy=POLICY,
     )
-    signals = strategy.evaluate(context)
-    return signals, payload
+    return strategy.evaluate(context), payload
 
 
-def _action(signals):
-    return signals[0]
-
-
-def test_hard_stop_uses_quote_and_does_not_need_5m():
+def test_capital_stop_uses_quote_and_does_not_need_5m():
     now = datetime(2026, 9, 16, 10, 0, tzinfo=SH)
     signals, state = _run(
         _position(addon_qty=None),
-        quote=QuoteView(price=Decimal("96"), quote_as_of=now, valid=True),
-        bars=[],
+        quote=QuoteView(price=Decimal("95"), quote_as_of=now, valid=True),
+        bars=_bars([100] * 30),
         now=now,
     )
-    signal = _action(signals)
-    assert signal.action == "EXIT"
-    assert signal.suggested_target_quantity == Decimal("0")
-    assert Decimal(str(state.get("last_hard_target"))) == Decimal("0")
+    assert len(signals) == 1
+    assert signals[0].action == "EXIT"
+    assert signals[0].suggested_target_quantity == Decimal("0")
+    assert state.get("profit_stage") in {"A", "UNKNOWN"}
 
 
-def test_stale_quote_does_not_fire_hard_stop():
+def test_stale_quote_does_not_fire_stop():
     now = datetime(2026, 9, 16, 10, 0, tzinfo=SH)
     signals, _state = _run(
         _position(addon_qty=None),
         quote=QuoteView(price=Decimal("1"), quote_as_of=now - timedelta(minutes=10), valid=False, stale=True),
-        bars=[],
+        bars=_bars([100] * 10),
         now=now,
     )
-    assert all(item.action != "EXIT" for item in signals)
+    assert signals == []
 
 
-def test_soft_reduce_then_same_episode_does_not_rehalve():
-    now = datetime(2026, 9, 16, 14, 0, tzinfo=SH)
-    bars = weaken_last_adjacent(_bars(until=now, high_close=Decimal("110")))
-    quote = QuoteView(price=Decimal("108"), quote_as_of=now, valid=True)
+def test_addon_stop_reduce_keeps_core():
+    now = datetime(2026, 9, 16, 10, 0, tzinfo=SH)
+    bars = _bars([100] * 20 + [110] * 10)
+    position = _position(core_qty="1000", addon_qty="500")
     first, state = _run(
-        _position(addon_qty=None),
-        quote=quote,
-        bars=bars,
-        now=now,
-        latest_expected=latest_expected_closed("CN", now),
-    )
-    signal = _action(first)
-    assert signal.action == "REDUCE"
-    assert signal.suggested_target_quantity == Decimal("500")
-    later = now + timedelta(minutes=10)
-    again, _ = _run(
-        _position(addon_qty=None),
-        quote=QuoteView(price=Decimal("108"), quote_as_of=later, valid=True),
-        bars=weaken_last_adjacent(_bars(until=later)),
-        state=state,
-        now=later,
-        latest_expected=latest_expected_closed("CN", later),
-    )
-    persistable = [item for item in again if item.action in {"REDUCE", "EXIT"}]
-    assert persistable == [] or Decimal(str(persistable[0].suggested_target_quantity)) == Decimal("500")
-    assert state.get("last_confirmed_soft_target") is None
-    assert state.get("last_soft_target") is None
-
-
-def test_addon_stage_a_failure_clears_addon_only():
-    now = datetime(2026, 9, 16, 14, 0, tzinfo=SH)
-    bars = weaken_last_adjacent(_bars(until=now, high_close=Decimal("110")))
-    signals, _state = _run(
-        _position(
-            core_qty="1000",
-            addon_qty="500",
-            core_entry=datetime(2026, 9, 14, 9, 35, tzinfo=SH),
-            addon_entry=datetime(2026, 9, 16, 9, 40, tzinfo=SH),
-            core_price="100",
-            addon_price="110",
-        ),
+        position,
         quote=QuoteView(price=Decimal("108"), quote_as_of=now, valid=True),
         bars=bars,
         now=now,
-        latest_expected=latest_expected_closed("CN", now),
     )
-    signal = _action(signals)
-    assert signal.action == "REDUCE"
-    assert signal.suggested_target_quantity == Decimal("1000")
-
-
-def test_recovery_allows_new_episode_on_current_quantity():
-    now = datetime(2026, 9, 16, 14, 0, tzinfo=SH)
-    bars = weaken_last_adjacent(_bars(until=now, high_close=Decimal("110")))
-    quote = QuoteView(price=Decimal("108"), quote_as_of=now, valid=True)
-    _first, state = _run(
-        _position(addon_qty=None),
-        quote=quote,
+    assert first == []
+    addon_stop = Decimal(str(state["lots"]["addon"]["active_stop"]))
+    hit = now + timedelta(minutes=5)
+    signals, _ = _run(
+        position,
+        quote=QuoteView(price=addon_stop, quote_as_of=hit, valid=True),
         bars=bars,
+        state=state,
+        now=hit,
+    )
+    assert len(signals) == 1
+    assert signals[0].action == "REDUCE"
+    assert signals[0].suggested_target_quantity == Decimal("1000")
+
+
+def test_all_lots_stopped_emit_exit():
+    now = datetime(2026, 9, 16, 10, 0, tzinfo=SH)
+    signals, _state = _run(
+        _position(core_qty="1000", addon_qty="500"),
+        quote=QuoteView(price=Decimal("1"), quote_as_of=now, valid=True),
+        bars=_bars([100] * 30),
         now=now,
-        latest_expected=latest_expected_closed("CN", now),
     )
-    recovered_at = now + timedelta(minutes=20)
-    _recovered, state = _run(
-        _position(core_qty="500", addon_qty=None),
-        quote=QuoteView(price=Decimal("108"), quote_as_of=recovered_at, valid=True),
-        bars=recover_last_adjacent(_bars(until=recovered_at, high_close=Decimal("110"))),
+    assert signals[0].action == "EXIT"
+    assert signals[0].suggested_target_quantity == Decimal("0")
+
+
+def test_same_stop_episode_does_not_repeat_proposal():
+    now = datetime(2026, 9, 16, 10, 0, tzinfo=SH)
+    position = _position(addon_qty=None)
+    first, state = _run(
+        position,
+        quote=QuoteView(price=Decimal("95"), quote_as_of=now, valid=True),
+        bars=_bars([100] * 20),
+        now=now,
+    )
+    assert first[0].action == "EXIT"
+    later = now + timedelta(minutes=5)
+    again, _ = _run(
+        position,
+        quote=QuoteView(price=Decimal("95"), quote_as_of=later, valid=True),
+        bars=_bars([100] * 20),
         state=state,
-        now=recovered_at,
-        latest_expected=latest_expected_closed("CN", recovered_at),
+        now=later,
     )
-    assert state.get("soft_episode_active") is False
-    weak_again_at = now + timedelta(minutes=30)
-    second, _ = _run(
-        _position(core_qty="500", addon_qty=None),
-        quote=QuoteView(price=Decimal("108"), quote_as_of=weak_again_at, valid=True),
-        bars=weaken_last_adjacent(_bars(until=weak_again_at, high_close=Decimal("110"))),
-        state=state,
-        now=weak_again_at,
-        latest_expected=latest_expected_closed("CN", weak_again_at),
+    assert again == []
+
+
+def test_no_intraday_watch_from_ordinary_quote_move():
+    now = datetime(2026, 9, 16, 10, 0, tzinfo=SH)
+    signals, _state = _run(
+        _position(addon_qty=None),
+        quote=QuoteView(price=Decimal("99"), quote_as_of=now, valid=True),
+        bars=_bars([100] * 20),
+        now=now,
     )
-    signal = _action(second)
-    assert signal.action == "REDUCE"
-    assert signal.suggested_target_quantity == Decimal("250")
+    assert signals == []

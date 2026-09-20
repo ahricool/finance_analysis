@@ -86,4 +86,3 @@ class CashRequest(BaseModel):
 
 class PositionUpdateRequest(BaseModel):
     trade_engine_enabled: Optional[bool] = None
-    strategy_key: Optional[str] = None

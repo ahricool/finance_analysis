@@ -14,7 +14,7 @@ from typing import Any, Iterable
 from finance_analysis.core.time import utc_now  # pragma: allowlist secret
 from finance_analysis.holdings.cache import BARS_KEY  # pragma: allowlist secret
 from finance_analysis.integrations.market_data.config import portfolio_risk_minute_providers  # pragma: allowlist secret
-from finance_analysis.integrations.market_data.models import Market  # pragma: allowlist secret
+from finance_analysis.integrations.market_data.models import Adjustment, Market  # pragma: allowlist secret
 from finance_analysis.integrations.market_data.normalizer import infer_market  # pragma: allowlist secret
 from finance_analysis.integrations.market_data.service import MarketDataService  # pragma: allowlist secret
 from finance_analysis.trade_engine.bars import (  # pragma: allowlist secret
@@ -25,7 +25,7 @@ from finance_analysis.trade_engine.bars import (  # pragma: allowlist secret
     normalize_market_bar,
 )
 from finance_analysis.trade_engine.config import get_risk_policy  # pragma: allowlist secret
-from finance_analysis.trade_engine.models import QuoteView  # pragma: allowlist secret
+from finance_analysis.trade_engine.models import DailyBar, QuoteView  # pragma: allowlist secret
 
 logger = logging.getLogger(__name__)
 
@@ -112,6 +112,46 @@ class RiskMarketGateway:
                     stale=stale,
                 )
         return result
+
+    def daily_bars(
+        self,
+        symbols: Iterable[str],
+        *,
+        start: date,
+        end: date,
+        now: datetime | None = None,
+    ) -> dict[str, list[DailyBar]]:
+        del now
+        unique = tuple(dict.fromkeys(symbols))
+        if not unique:
+            return {}
+        try:
+            result = self.market_data.get_daily_bars(
+                unique,
+                start,
+                end,
+                adjustment=Adjustment.FORWARD,
+                source_policy="db_first",
+            )
+        except Exception:
+            logger.exception("trade_engine daily bars failed")
+            return {symbol: [] for symbol in unique}
+        converted: dict[str, list[DailyBar]] = {}
+        for symbol in unique:
+            rows = []
+            for item in result.data.get(symbol) or []:
+                rows.append(
+                    DailyBar(
+                        trade_date=item.trade_date,
+                        open=Decimal(str(item.open)),
+                        high=Decimal(str(item.high)),
+                        low=Decimal(str(item.low)),
+                        close=Decimal(str(item.close)),
+                        volume=int(item.volume or 0),
+                    )
+                )
+            converted[symbol] = sorted(rows, key=lambda bar: bar.trade_date)
+        return converted
 
     def cached_five_minute_bars(
         self,

@@ -74,6 +74,7 @@ class PortfolioResolver:
                     for lot in lots_map.get(row.id, [])
                     if _dec(lot.remaining_quantity) > 0
                 )
+                had_addon = any(lot.role == "ADDON" for lot in lots_map.get(row.id, []))
                 db_keys.add((row.market, row.symbol))
                 db_positions.append(
                     ResolvedPosition(
@@ -89,7 +90,7 @@ class PortfolioResolver:
                         average_cost=_dec(row.average_cost),
                         opened_at=row.opened_at,
                         lots=lots,
-                        strategy_key=getattr(row, "strategy_key", None),
+                        had_addon=had_addon,
                         trade_engine_enabled=True
                         if getattr(row, "trade_engine_enabled", None) is None
                         else bool(row.trade_engine_enabled),

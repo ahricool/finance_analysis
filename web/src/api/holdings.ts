@@ -51,7 +51,6 @@ export interface PortfolioPosition {
   unrealizedPnl?: string | null;
   openedAt?: string | null;
   closedAt?: string | null;
-  strategyKey?: string | null;
   tradeEngineEnabled?: boolean;
   lots?: Array<{ id: number; role: string; remainingQuantity: string; entryPrice: string }>;
 }
@@ -77,13 +76,13 @@ export interface TradeEnginePosition {
   positionId: string;
   symbol: string;
   source: string;
-  strategyKey?: string | null;
+  strategies?: string[];
   tradeEngineEnabled?: boolean;
   action: string | null;
+  suggestedQuantity?: string | null;
   suggestedTargetQuantity: string | null;
   reason: string | null;
   llmReason?: string | null;
-  llmComment?: string | null;
   profitStage: string | null;
   activeStop: string | null;
 }
@@ -129,10 +128,9 @@ export const holdingsApi = {
     const { data } = await apiClient.get(`/api/v1/holdings/positions/${positionId}/markers`);
     return (data.items || []).map((item: unknown) => toCamelCase(item));
   },
-  async updatePosition(positionId: number, body: { tradeEngineEnabled?: boolean; strategyKey?: string | null }) {
+  async updatePosition(positionId: number, body: { tradeEngineEnabled?: boolean }) {
     const payload: Record<string, unknown> = {};
     if (body.tradeEngineEnabled !== undefined) payload.trade_engine_enabled = body.tradeEngineEnabled;
-    if (body.strategyKey !== undefined) payload.strategy_key = body.strategyKey;
     const { data } = await apiClient.patch(`/api/v1/holdings/positions/${positionId}`, payload);
     return toCamelCase(data) as PortfolioPosition;
   },

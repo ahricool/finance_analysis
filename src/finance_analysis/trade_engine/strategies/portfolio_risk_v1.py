@@ -1,15 +1,16 @@
 # -*- coding: utf-8 -*-
-"""Account-level weight/risk WATCH on current holdings only. No sell allocation."""
+"""Account-level Portfolio Warning. Not a Strategy Proposal. Never sent to LLM."""
 
 from __future__ import annotations
 
 from decimal import Decimal
 from typing import Any, Sequence
+from uuid import uuid4
 
 from ...core.time import utc_now  # pragma: allowlist secret
 from ...portfolio.models import ResolvedPosition  # pragma: allowlist secret
 from ..config import RiskPolicy, get_risk_policy  # pragma: allowlist secret
-from ..models import QuoteView, TradeSignalCandidate, five_minute_stamp  # pragma: allowlist secret
+from ..models import PortfolioWarning, QuoteView  # pragma: allowlist secret
 
 KEY = "portfolio_risk_v1"
 VERSION = "1"
@@ -46,7 +47,7 @@ class PortfolioRiskV1:
         now=None,
         policy: RiskPolicy | None = None,
         strategy_state: dict[str, Any] | None = None,
-    ) -> list[TradeSignalCandidate]:
+    ) -> list[PortfolioWarning]:
         policy = policy or get_risk_policy()
         now = now or utc_now()
         state = strategy_state if strategy_state is not None else {}
@@ -71,14 +72,12 @@ class PortfolioRiskV1:
         nav = cash + total_value
         if nav <= 0:
             state["active_keys"] = []
+            state["episodes"] = {key: {**payload, "active": False} for key, payload in (state.get("episodes") or {}).items()}
             return []
-        current_active: set[str] = set()
         pending: list[tuple[str, Decimal, Decimal, str, ResolvedPosition | None]] = []
 
         def consider(kind: str, current: Decimal, limit: Decimal, reason: str, position: ResolvedPosition | None = None):
-            key = f"{KEY}:{market}:{kind}:{None if position is None else position.position_id}"
-            current_active.add(key)
-            pending.append((key, current, limit, reason, position))
+            pending.append((kind, current, limit, reason, position))
 
         for position in eligible:
             weight = values.get(position.position_id, Decimal("0")) / nav
@@ -96,39 +95,45 @@ class PortfolioRiskV1:
             if total_risk > policy.total_open_risk:
                 consider("total_open_risk", total_risk, policy.total_open_risk, "组合计划风险超限")
 
-        confirmed = set(state.get("confirmed_keys") or []) & current_active
-        old_active = set(state.get("active_keys") or [])
-        bar_stamp = five_minute_stamp(now)
-        reviewed_bar = state.get("last_reviewed_5m_bar")
-        signals: list[TradeSignalCandidate] = []
-        for key, current, limit, reason, position in pending:
-            if key in confirmed:
+        episodes: dict[str, dict[str, Any]] = dict(state.get("episodes") or {})
+        current_active: set[str] = set()
+        warnings: list[PortfolioWarning] = []
+        for kind, current, limit, reason, position in pending:
+            slot = f"{kind}:{None if position is None else position.position_id}"
+            current_active.add(slot)
+            row = episodes.get(slot) or {}
+            if row.get("active"):
                 continue
-            if key in old_active:
-                if not (reviewed_bar and bar_stamp and reviewed_bar != bar_stamp):
-                    continue
-            signals.append(
-                TradeSignalCandidate(
-                    strategy_key=KEY,
-                    strategy_version=VERSION,
+            episode_id = str(row.get("next_id") or uuid4().hex)
+            warning_key = f"{KEY}:{market}:{kind}:{None if position is None else position.position_id}:{episode_id}"
+            episodes[slot] = {"active": True, "episode_id": episode_id, "next_id": uuid4().hex, "warning_key": warning_key}
+            warnings.append(
+                PortfolioWarning(
                     market=market,
                     account_id=None if position is None else position.account_id,
                     position_id=None if position is None else position.position_id,
                     symbol=None if position is None else position.symbol,
-                    action="WATCH",
-                    suggested_target_quantity=None,
-                    severity="soft",
+                    kind=kind,
                     reason=reason,
+                    current=current,
+                    limit=limit,
                     evidence={
                         "current": format(current, "f"),
                         "limit": format(limit, "f"),
                         "nav": format(nav, "f"),
-                        "bar_end": bar_stamp,
+                        "cash": format(cash, "f"),
+                        "gross_exposure": format(exposure, "f"),
+                        "episode_id": episode_id,
                     },
                     evaluated_at=now,
-                    signal_key=key,
+                    warning_key=warning_key,
                 )
             )
+        for slot, row in list(episodes.items()):
+            if slot not in current_active:
+                episodes[slot] = {**row, "active": False}
         state["active_keys"] = sorted(current_active)
-        state["confirmed_keys"] = sorted(confirmed)
-        return signals
+        state["episodes"] = episodes
+        state["nav"] = format(nav, "f")
+        state["gross_exposure"] = format(exposure, "f")
+        return warnings
