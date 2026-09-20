@@ -23,20 +23,30 @@ def row(i, price, before, after, average=None):
     )
 
 
-def test_partial_position_average_cost_and_compatibility():
-    state = StrategyState()
-    state = change_position(state, D(".5"), D(100), START)
-    assert state.average_entry_price == 100 and state.position_state == "LONG"
-    state = change_position(state, D(1), D(110), START + timedelta(minutes=15))
-    assert state.average_entry_price == 105 and state.entry_time == START
-    state = change_position(state, D(".5"), D(120), START + timedelta(minutes=30))
-    assert state.average_entry_price == state.entry_price == 105
-    state = change_position(state, D(0), D(90), START + timedelta(minutes=45))
-    assert state.average_entry_price is None and state.entry_time is None and state.position_state == "FLAT"
+def test_full_position_cost_and_compatibility():
+    state = change_position(StrategyState(), D(1), D(100), START)
+    assert state.average_entry_price == state.entry_price == 100
+    held = change_position(state, D(1), D(110), START + timedelta(minutes=15))
+    assert held.average_entry_price == 100 and held.entry_time == START
+    flat = change_position(held, D(0), D(90), START + timedelta(minutes=30))
+    assert flat.average_entry_price is None and flat.entry_price is None
+    assert flat.entry_time is None and flat.position_state == "FLAT"
     for bad in ("-.1", "1.1", "NaN"):
         with pytest.raises(ValueError):
-            change_position(state, D(bad), D(100), START)
+            change_position(flat, D(bad), D(100), START)
     assert StrategyState(position_state="LONG", entry_price=D(100)).position_pct == 1
+
+
+def test_partial_entry_and_reduction_allowed_but_addition_explicitly_rejected():
+    state = change_position(StrategyState(), D(".5"), D(100), START)
+    assert state.position_pct == D(".5") and state.average_entry_price == 100
+    with pytest.raises(ValueError, match="Partial position cost accounting is not implemented"):
+        change_position(state, D(1), D(110), START + timedelta(minutes=15))
+    assert state.position_pct == D(".5") and state.average_entry_price == 100
+    reduced = change_position(state, D(".25"), D(120), START + timedelta(minutes=30))
+    assert reduced.average_entry_price == reduced.entry_price == 100 and reduced.entry_time == START
+    flat = change_position(reduced, D(0), D(90), START + timedelta(minutes=45))
+    assert flat.average_entry_price is None and flat.position_pct == 0
 
 
 def test_mark_to_market_drawdown_includes_open_periods():
@@ -58,17 +68,17 @@ def test_mark_to_market_drawdown_includes_open_periods():
 def test_dynamic_position_equity_and_cycles():
     rows = [
         row(0, "100", "0", ".5", "100"),
-        row(1, "110", ".5", "1", "105"),
-        row(2, "99", "1", ".5", "105"),
-        row(3, "110", ".5", "0"),
+        row(1, "110", ".5", ".5", "100"),
+        row(2, "88", ".5", ".25", "100"),
+        row(3, "105.6", ".25", "0"),
     ]
     result = performance(rows, StrategyState())
     assert result["equity_curve"][1]["equity"] == D("1.05")
     assert result["equity_curve"][2]["equity"] == D(".945")
-    assert float(result["total_return"]) == pytest.approx(-0.0025)
+    assert float(result["total_return"]) == pytest.approx(-0.00775)
     assert result["closed_trades"] == 1 and result["losses"] == 1
-    assert result["recent_trades"][0]["average_entry_price"] == 105
-    assert result["execution_count"] == 4
+    assert result["recent_trades"][0]["average_entry_price"] == 100
+    assert result["execution_count"] == 3
 
 
 def test_open_cycles_not_wins_and_breakeven_in_denominator():

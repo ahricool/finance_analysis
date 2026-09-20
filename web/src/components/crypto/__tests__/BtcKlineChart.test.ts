@@ -31,7 +31,7 @@ describe('BTC chart data mapping', () => {
     wrapper.unmount();
   });
   it('creates BUY/EXIT overlays and reveals details on click', async () => {
-    const signal = { strategyKey: 'btc_breakout_v1', action: 'BUY', evaluatedAt: row.openTime, price: '101', positionBefore: '0', positionAfter: '1',
+    const signal = { strategyKey: 'btc_breakout_v1', action: 'BUY', evaluatedAt: row.closeTime, price: '101', positionBefore: '0', positionAfter: '1',
       regime: 'BULL', setup: 'BREAKOUT', reason: 'test entry' } as CryptoSnapshot;
     const wrapper = mount(BtcKlineChart, { props: { candles: [row], current: null, signals: [signal], strategyKey: signal.strategyKey, strategyName: "Breakout V1" },
       global: { stubs: { MarketKLineChart: true } } });

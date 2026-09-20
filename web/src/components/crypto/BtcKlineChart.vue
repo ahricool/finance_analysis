@@ -34,7 +34,7 @@ registerOverlay<{ label: string; buy: boolean; offset: number }>({
 const overlays = computed<OverlayCreate[]>(() => {
   const rows = [...props.candles, ...(props.current ? [props.current] : [])];
   const offsets = new Map<number, number>();
-  return btcMarkers(props.signals ?? [], rows, props.interval ?? '1m').map(({ signal, timestamp }) => {
+  return btcMarkers(props.signals ?? [], rows).map(({ signal, timestamp }) => {
     const offset = offsets.get(timestamp) ?? 0;
     offsets.set(timestamp, offset + 16);
     return { name: 'btcSignal', id: `btc-${signal.strategyKey}-${signal.evaluatedAt}`, groupId: 'strategy-markers', lock: true,

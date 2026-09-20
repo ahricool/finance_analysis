@@ -15,10 +15,11 @@ def change_position(state: StrategyState, target: Decimal, price: Decimal, at) -
     if target == 0:
         return StrategyState(strategy_key=state.strategy_key, symbol=state.symbol, updated_at=at)
     average = state.average_entry_price
-    if target > before:
-        if before > 0 and average is None:
-            raise ValueError("Existing position has no average cost")
-        average = (before * (average or Decimal(0)) + (target - before) * price) / target
+    # position_pct is portfolio exposure, not a BTC quantity weight.
+    if before > 0 and target > before:
+        raise ValueError("Partial position cost accounting is not implemented")
+    if before == 0:
+        average = price
     return replace(
         state,
         position_pct=target,

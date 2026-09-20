@@ -98,9 +98,10 @@ EMA 以 SMA 为种子，alpha=2/(period+1)；ATR 使用 Wilder 平滑。状态�
 
 保留 `position_state` 与 `entry_price` 兼容字段，随仓位/平均成本同步；`position_pct > 0` 为LONG，0为FLAT。
 首次入场时间、入场后最高价、止损仍在state中。当前规则的BUY固定0→1、HOLD保持仓位、EXIT→0、WAIT为0；
-没有新增加仓、减仓条件。`change_position()` 的纯函数为未来部分仓位提供成本计算：
+没有新增加仓、减仓条件。`position_pct` 是 portfolio exposure（策略净值对 BTC 涨跌的暴露比例），不是 BTC 数量权重。`change_position()` 当前支持：
 
-- 加仓：`(old_pct * old_avg + (new_pct-old_pct) * price) / new_pct`。
+- 从空仓入场（0→1 或 0→部分仓位）：成本取入场价格；持仓不变时成本不变。
+- 已有持仓再次增加（例如0.5→1）：明确抛出 `Partial position cost accounting is not implemented`，不计算错误的数量加权成本。
 - 减仓：平均成本不变；首次entry_time保留。
 - 清仓：平均成本、entry_time、最高价、止损清空。
 
@@ -138,7 +139,7 @@ Performance API还返回 `current_position: {position_pct, average_entry_price}`
 
 页面按Market、Strategy、Performance展示；简单Strategy selector同时切换指标、绩效、信号、标记，Binance连接和K线不重载。两个以上启用策略才展示横向绩效表。K线仅显示 `↑ BUY` / `↓ EXIT`，不会为WAIT/HOLD打标。
 标记使用已有策略snapshot的evaluated_at和price，仅显示所选策略，点击展示策略名称、原始时间、操作、价格、前后仓位、regime/setup/reason。
-1m/5m/15m按精确evaluated_at定位；1h/4h/1d/1w/1M映射至已经加载的Binance candle `[openTime, closeTime)`，
+evaluated_at 是产生判断的15m K线收盘边界。全部八档周期均用 `openTime < evaluated_at <= closeTime` 匹配已加载的Binance candle，marker定位到该candle的openTime（例如10:15的判断属于10:00–10:15这根15m线），
 月线/周线直接采用返回的真实边界，不假定固定月长。范围外标记不显示。同一大周期内多个信号保留并错开文字。
 标记仅请求后端信号范围，不触发行情请求；行情、策略/绩效的错误互不影响。
 
