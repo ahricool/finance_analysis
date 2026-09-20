@@ -1,15 +1,16 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { dispose, init, type Chart, type KLineData } from 'klinecharts';
+import { dispose, init, type Chart, type OverlayCreate, type KLineData } from 'klinecharts';
 import { useTheme } from '@/composables/useTheme';
 
 const props = defineProps<{
   symbol: string;
-  period: '1m' | '1d';
+  period: '1m' | '5m' | '15m' | '1h' | '4h' | '1d' | '1w' | '1M';
   pricePrecision?: number;
   bars: KLineData[];
   current?: KLineData | null;
   sourceKey?: string;
+  overlays?: OverlayCreate[];
 }>();
 const element = ref<HTMLElement>();
 const { resolvedTheme } = useTheme();
@@ -40,6 +41,11 @@ function destroy() {
   if (element.value && chart) dispose(element.value);
   chart = null;
 }
+function applyOverlays() {
+  if (!chart || !props.overlays) return;
+  chart.removeOverlay({ groupId: 'strategy-markers' });
+  if (props.overlays.length) chart.createOverlay(props.overlays);
+}
 function initialize() {
   destroy();
   if (!element.value) return;
@@ -53,7 +59,13 @@ function initialize() {
   // KLineChart synchronizes price-series indicators (including MA) from the symbol precision.
   chart.setSymbol({ ticker: props.symbol, volumePrecision: props.period === '1m' ? 4 : 0,
     ...(props.pricePrecision === undefined ? {} : { pricePrecision: props.pricePrecision }) });
-  chart.setPeriod({ type: props.period === '1d' ? 'day' : 'minute', span: 1 });
+  const periods = {
+    '1m': { type: 'minute', span: 1 }, '5m': { type: 'minute', span: 5 },
+    '15m': { type: 'minute', span: 15 }, '1h': { type: 'hour', span: 1 },
+    '4h': { type: 'hour', span: 4 }, '1d': { type: 'day', span: 1 },
+    '1w': { type: 'week', span: 1 }, '1M': { type: 'month', span: 1 },
+  } as const;
+  chart.setPeriod(periods[props.period]);
   chart.setDataLoader({
     getBars: ({ type, callback }) => {
       const bars = new Map(props.bars.map(bar => [bar.timestamp, bar]));
@@ -64,7 +76,9 @@ function initialize() {
     subscribeBar: ({ callback }) => { pushBar = callback; },
     unsubscribeBar: () => { pushBar = undefined; },
   });
+  applyOverlays();
 }
+watch(() => props.overlays, applyOverlays);
 watch(() => [props.symbol, props.period, props.sourceKey, props.pricePrecision], initialize);
 watch(() => props.bars, () => chart?.resetData());
 watch(() => props.current, () => {

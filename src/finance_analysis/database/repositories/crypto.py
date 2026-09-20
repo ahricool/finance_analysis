@@ -1,25 +1,19 @@
 """Crypto SQL and atomic state/snapshot transitions."""
 
-from contextlib import contextmanager, suppress
 from dataclasses import asdict
-from datetime import datetime
-from threading import Lock
+from datetime import datetime, timedelta
 
-from sqlalchemy import func, select, text
+from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 
-from finance_analysis.core.time import coerce_aware_utc, utc_now
-from finance_analysis.crypto.models import Kline, StrategyState
-from finance_analysis.database.models.crypto import CryptoKline, CryptoStrategySnapshot, CryptoStrategyState
+from finance_analysis.core.time import coerce_aware_utc
+from finance_analysis.crypto.models import StrategyState
+from finance_analysis.database.models.crypto import CryptoStrategySnapshot, CryptoStrategyState
 
 
 def values(row):
     result = {column.name: getattr(row, column.name) for column in row.__table__.columns}
     return {key: coerce_aware_utc(value) if isinstance(value, datetime) else value for key, value in result.items()}
-
-
-class CryptoLeadershipLost(RuntimeError):
-    """The dedicated lock connection was lost; reopen the writer before ingesting."""
 
 
 class CryptoRepository:
@@ -29,133 +23,65 @@ class CryptoRepository:
 
             db_manager = DatabaseManager.get_instance()
         self.db = db_manager
-        self._leader_connection = None
-        self._leader_mutex = Lock()
 
-    def upsert_klines(self, rows: list[Kline]) -> int:
-        self._check_leader()
-        closed = {row.open_time: row.storage_values() for row in rows if row.closed}
-        if not closed:
-            return 0
-        with self.db.session_scope() as session:
-            statement = insert(CryptoKline).values(list(closed.values()))
-            session.execute(
-                statement.on_conflict_do_update(
-                    index_elements=["symbol", "interval", "open_time"],
-                    set_={
-                        **{
-                            key: getattr(statement.excluded, key)
-                            for key in next(iter(closed.values()))
-                            if key not in {"symbol", "interval", "open_time"}
-                        },
-                        "updated_at": utc_now(),
-                    },
-                )
-            )
-        return len(closed)
-
-    def latest_open_time(self):
-        with self.db.get_session() as session:
-            value = session.scalar(select(func.max(CryptoKline.open_time)).where(CryptoKline.symbol == "BTCUSDT"))
-            return coerce_aware_utc(value) if value else None
-
-    def klines(self, *, limit=1000, as_of=None, start=None) -> list[Kline]:
-        query = select(CryptoKline).where(CryptoKline.symbol == "BTCUSDT", CryptoKline.interval == "1m")
-        query = query.where(CryptoKline.close_time <= (as_of or utc_now()))
+    def signals(self, strategy_key, symbol, limit=50, *, start=None, end=None, actions_only=False):
+        query = select(CryptoStrategySnapshot).where(
+            CryptoStrategySnapshot.strategy_key == strategy_key, CryptoStrategySnapshot.symbol == symbol
+        )
         if start is not None:
-            query = query.where(CryptoKline.open_time >= start)
+            query = query.where(CryptoStrategySnapshot.evaluated_at >= start)
+        if end is not None:
+            query = query.where(CryptoStrategySnapshot.evaluated_at <= end)
+        if actions_only:
+            query = query.where(CryptoStrategySnapshot.action.in_(("BUY", "EXIT")))
+        query = query.order_by(CryptoStrategySnapshot.evaluated_at.desc())
+        if limit is not None:
+            query = query.limit(limit)
         with self.db.get_session() as session:
-            rows = session.scalars(query.order_by(CryptoKline.open_time.desc()).limit(limit)).all()
-            return [
-                Kline(**{k: v for k, v in values(row).items() if k not in {"id", "created_at", "updated_at"}})
-                for row in reversed(rows)
-            ]
+            return [values(row) for row in session.scalars(query)]
 
-    def signals(self, limit=50):
+    def state(self, strategy_key, symbol):
         with self.db.get_session() as session:
-            return [
-                values(row)
-                for row in session.scalars(
-                    select(CryptoStrategySnapshot)
-                    .where(CryptoStrategySnapshot.symbol == "BTCUSDT")
-                    .order_by(CryptoStrategySnapshot.evaluated_at.desc())
-                    .limit(limit)
-                )
-            ]
+            row = session.get(CryptoStrategyState, (strategy_key, symbol))
+            return StrategyState(**values(row)) if row else StrategyState(strategy_key=strategy_key, symbol=symbol)
 
-    def state(self):
-        with self.db.get_session() as session:
-            row = session.get(CryptoStrategyState, "BTCUSDT")
-            return StrategyState(**values(row)) if row else StrategyState()
+    def latest_snapshot_time(self, strategy_key, symbol):
+        rows = self.signals(strategy_key, symbol, 1)
+        return rows[0]["evaluated_at"] if rows else None
 
-    def evaluate_once(self, at: datetime, calculate):
+    def evaluate_once(self, strategy_key, symbol, at: datetime, calculate):
         """Serialize evaluations, refuse replays, commit state and immutable snapshot together."""
-        self._check_leader()
         with self.db.session_scope() as session:
             session.execute(
                 insert(CryptoStrategyState)
-                .values(symbol="BTCUSDT", position_state="FLAT")
-                .on_conflict_do_nothing(index_elements=["symbol"])
+                .values(strategy_key=strategy_key, symbol=symbol, position_state="FLAT")
+                .on_conflict_do_nothing(index_elements=["strategy_key", "symbol"])
             )
             row = session.scalar(
-                select(CryptoStrategyState).where(CryptoStrategyState.symbol == "BTCUSDT").with_for_update()
+                select(CryptoStrategyState)
+                .where(CryptoStrategyState.strategy_key == strategy_key, CryptoStrategyState.symbol == symbol)
+                .with_for_update()
             )
             latest = session.scalar(
-                select(func.max(CryptoStrategySnapshot.evaluated_at)).where(CryptoStrategySnapshot.symbol == "BTCUSDT")
+                select(func.max(CryptoStrategySnapshot.evaluated_at)).where(
+                    CryptoStrategySnapshot.strategy_key == strategy_key, CryptoStrategySnapshot.symbol == symbol
+                )
             )
             if latest and coerce_aware_utc(latest) >= at:
                 return None
+            if latest and at != coerce_aware_utc(latest) + timedelta(minutes=15):
+                raise ValueError("BTC evaluation cannot skip a quarter-hour")
             result = calculate(StrategyState(**values(row)))
             if result is None:
                 return None
             state, snapshot = result
+            if state.strategy_key != strategy_key or state.symbol != symbol:
+                raise ValueError("Strategy state identity changed")
+            snapshot = dict(snapshot, strategy_key=strategy_key, symbol=symbol)
+            for key in ("position_before", "position_after", "position_delta"):
+                if snapshot.get(key) is None:
+                    raise ValueError("New snapshots require complete position transitions")
             for key, value in asdict(state).items():
                 setattr(row, key, value)
             session.add(CryptoStrategySnapshot(**snapshot))
             return snapshot
-
-    def _check_leader(self):
-        # Lifecycle operations and worker-thread health checks share this mutex.
-        with self._leader_mutex:
-            connection = self._leader_connection
-            if connection is not None:
-                try:
-                    # Never reconnect without reacquiring the session-level lock.
-                    if connection.closed or connection.invalidated:
-                        raise CryptoLeadershipLost("BTC writer lock connection lost")
-                    connection.execute(text("SELECT 1"))
-                    connection.commit()
-                except Exception as exc:
-                    raise CryptoLeadershipLost("BTC writer lock connection lost") from exc
-
-    @contextmanager
-    def stream_leader(self):
-        """Keep a dedicated connection for the session-level lock, never business SQL."""
-        connection = None
-        acquired = False
-        try:
-            with self._leader_mutex:
-                if self._leader_connection is not None:
-                    raise RuntimeError("BTC writer leadership already active on this repository")
-                connection = self.db.connect()
-                # Session locks survive commits; avoid an idle transaction for hours.
-                connection = connection.execution_options(isolation_level="AUTOCOMMIT")
-                acquired = bool(connection.scalar(text("SELECT pg_try_advisory_lock(7310044)")))
-                connection.commit()
-                if acquired:
-                    self._leader_connection = connection
-            yield acquired
-        finally:
-            with self._leader_mutex:
-                if connection is not None:
-                    if acquired:
-                        self._leader_connection = None
-                        try:
-                            if not connection.closed and not connection.invalidated:
-                                connection.execute(text("SELECT pg_advisory_unlock(7310044)"))
-                                connection.commit()
-                        except Exception:
-                            # Never pool a physical connection that may still own the lock.
-                            with suppress(Exception):
-                                connection.invalidate()
-                    connection.close()

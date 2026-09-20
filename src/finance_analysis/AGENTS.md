@@ -267,9 +267,10 @@ uv run ./scripts/ci_gate.sh
 
 ## BTC 策略
 
-`crypto/` 负责 BTCUSDT Spot 聚合、指标、LONG/FLAT、ATR风险与统一 `CryptoService`；`integrations/crypto` 仅做Binance协议。
-`crypto_stream/` 为独立WS主通道/REST备用进程。只持久化已闭合1m；15m与1h严格UTC本地聚合。
-`database/repositories/crypto.py` 原子写状态及不可变15m快照，用唯一时间点和行锁防止重放信号。迁移为 `0044_crypto_btc`。
+`crypto/` 负责 BTCUSDT 原生15m/1h指标、LONG/FLAT与ATR风险；`integrations/crypto` 仅做 Binance 公共 REST。
+Beat `crypto_btc_strategy` 每15m收盘后一分钟执行，只读闭合K线，不持久化行情，不维护行情WS/Redis/同步进程。
+仓储原子写state与15m快照，以唯一时间点和行锁防重放及跳步；已有快照按15m顺序补算，冷启动只算最新。
+`0060_crypto_positions` 增加0–1仓位、平均成本及snapshot前后仓位/delta；绩效和执行/持仓周期从完整连续snapshot动态派生，不新增表。
 这是共享研究状态，不是用户仓位/Paper Trading。不要添加资金、订单或AI执行。详见 `docs/crypto-btc.md`。
 
 ## A 股行业强度

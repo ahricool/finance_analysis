@@ -1,159 +1,153 @@
-import json
-from dataclasses import replace
+import asyncio
 from datetime import timedelta
-from decimal import Decimal
+from unittest.mock import AsyncMock
 
 import httpx
 import pytest
 
 from finance_analysis.crypto.config import CryptoConfig
 from finance_analysis.crypto.service import CryptoService
-from finance_analysis.integrations.crypto.binance import BinanceClient, parse_ws
+from finance_analysis.integrations.crypto.binance import BinanceClient
+
 from .helpers import START, candle
 
 
-@pytest.mark.asyncio
-async def test_binance_rest_closed_detection_and_ws_decimals():
-    start = int(START.timestamp() * 1000)
+def test_rest_uses_native_intervals_and_excludes_open_candles():
+    requests = []
 
-    def handle(request):
-        if request.url.path.endswith("/time"):
-            return httpx.Response(200, json={"serverTime": start + 60000})
-        assert request.url.params["symbol"] == "BTCUSDT" and request.url.params["interval"] == "1m"
+    def handler(request):
+        requests.append(request)
+        minutes = 15 if request.url.params["interval"] == "15m" else 60
+        start = int(START.timestamp() * 1000)
         return httpx.Response(
             200,
             json=[
+                [start, "100", "102", "99", "101", "3", start + minutes * 60_000 - 1, "300", 2, "1", "100"],
                 [
-                    start + i * 60000,
+                    start + minutes * 60_000,
                     "100",
-                    "101",
+                    "102",
                     "99",
-                    "100.1",
-                    "1.123456789012",
-                    start + (i + 1) * 60000 - 1,
-                    "120",
-                    3,
-                    "0.1",
-                    "12",
-                    "0",
-                ]
-                for i in range(2)
+                    "101",
+                    "3",
+                    start + minutes * 120_000 - 1,
+                    "300",
+                    2,
+                    "1",
+                    "100",
+                ],
             ],
         )
 
-    client = BinanceClient(
-        CryptoConfig(), httpx.AsyncClient(base_url="https://binance.test", transport=httpx.MockTransport(handle))
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="https://example.test") as http:
+            client = BinanceClient(CryptoConfig(), http)
+            for interval, minutes in [("15m", 15), ("1h", 60)]:
+                end = START + timedelta(minutes=minutes)
+                rows = await client.klines(interval=interval, end=end, limit=100)
+                assert len(rows) == 1 and rows[0].closed and rows[0].interval == interval
+                assert requests[-1].url.params["endTime"] == str(int(end.timestamp() * 1000) - 1)
+
+    asyncio.run(run())
+
+
+def test_strategy_reads_bounded_closed_windows_and_is_idempotent(repository):
+    at = START + timedelta(hours=200, minutes=15)
+    client = AsyncMock()
+    client.server_time.return_value = at + timedelta(minutes=1)
+    quarter = [candle(i) for i in range(701, 801)]
+    hourly = [candle(i, interval="1h") for i in range(200)]
+    client.klines.side_effect = lambda **kwargs: quarter if kwargs["interval"] == "15m" else hourly
+    service = CryptoService(repository, binance=client)
+    first = asyncio.run(service.run())
+    assert first["strategies"][0]["action"] == "WAIT"
+    assert asyncio.run(service.run())["evaluations"] == 0
+    assert len(repository.signals("btc_breakout_v1", "BTCUSDT")) == 1
+    assert repository.state("btc_breakout_v1", "BTCUSDT").updated_at == at
+    client.klines.assert_any_await(interval="15m", end=at, limit=100)
+    client.klines.assert_any_await(interval="1h", end=at.replace(minute=0), limit=200)
+    client.klines.side_effect = lambda **kwargs: quarter[:-1] if kwargs["interval"] == "15m" else hourly
+    client.server_time.return_value = at + timedelta(minutes=16)
+    with pytest.raises(ValueError, match="Latest closed"):
+        asyncio.run(service.run())
+    assert len(repository.signals("btc_breakout_v1", "BTCUSDT")) == 1
+
+
+def test_schedule_and_route():
+    from finance_analysis.tasks.celery.schedule import build_task_routes, require_scheduled_task_definition
+
+    definition = require_scheduled_task_definition("crypto_btc_strategy")
+    assert definition.schedules[0].minute == "1,16,31,46"
+    assert definition.timezone == "UTC"
+    assert build_task_routes()[definition.celery_task_name]["queue"] == "analysis"
+
+
+def test_catchup_replays_stop_and_exit_in_order_with_only_two_market_requests(repository):
+    from decimal import Decimal as D
+
+    from finance_analysis.crypto.models import StrategyState
+    from finance_analysis.crypto.strategy import evaluate
+
+    at = START + timedelta(hours=60)
+    q = [candle(i, open=D(100), high=D(101), low=D(99), close=D(100)) for i in range(140, 240)]
+    h = [candle(i, interval="1h") for i in range(60)]
+    state = StrategyState(
+        position_pct=D(1),
+        average_entry_price=D(100),
+        entry_time=START,
+        highest_price_since_entry=D(100),
+        initial_stop=D(90),
+        trailing_stop=D(95),
     )
-    rows = await client.klines()
-    assert rows[0].closed and not rows[1].closed
-    assert rows[0].volume == Decimal("1.123456789012")
-    assert rows[0].close_time == START + timedelta(minutes=1)
-    frame = dict(
-        e="kline",
-        s="BTCUSDT",
-        E=start + 60000,
-        k=dict(
-            t=start,
-            T=start + 59999,
-            s="BTCUSDT",
-            i="1m",
-            o="100",
-            h="101",
-            l="99",
-            c="100.1",
-            v="1.123456789012",
-            q="120",
-            n=3,
-            V="0.1",
-            Q="12",
-            x=True,
-        ),
+    repository.evaluate_once("btc_breakout_v1", "BTCUSDT", at, lambda _: evaluate(q, h, at, state))
+    q += [
+        candle(240, open=D(110), high=D(120), low=D(110), close=D(119)),
+        candle(241, open=D(114), high=D(114), low=D(109), close=D(110)),
+        candle(242, open=D(115), high=D(116), low=D(114), close=D(115)),
+    ]
+    # Skipping intermediate bars would hold the old LONG incorrectly.
+    assert (
+        evaluate(q[-100:], h, at + timedelta(minutes=45), repository.state("btc_breakout_v1", "BTCUSDT"))[1]["action"]
+        == "HOLD"
     )
-    assert parse_ws(json.dumps(frame)) == rows[0]
-    frame["k"]["i"] = "15m"
-    with pytest.raises(ValueError):
-        parse_ws(json.dumps(frame))
-    await client.close()
+    client = AsyncMock()
+    client.server_time.return_value = at + timedelta(minutes=46)
+    client.klines.side_effect = lambda **kw: q if kw["interval"] == "15m" else h
+    result = asyncio.run(CryptoService(repository, binance=client).run())
+    snapshots = list(reversed(repository.signals("btc_breakout_v1", "BTCUSDT", 3)))
+    assert [s["evaluated_at"] for s in snapshots] == [at + timedelta(minutes=n) for n in (15, 30, 45)]
+    assert [s["action"] for s in snapshots] == ["HOLD", "EXIT", "WAIT"]
+    assert snapshots[0]["trailing_stop"] > 95 and repository.state("btc_breakout_v1", "BTCUSDT").position_pct == 0
+    assert [(s["position_before"], s["position_after"], s["position_delta"]) for s in snapshots] == [
+        (1, 1, 0),
+        (1, 0, -1),
+        (0, 0, 0),
+    ]
+    assert result["evaluations"] == 3 and client.klines.await_count == 2
 
 
-@pytest.mark.asyncio
-async def test_backfill_paginates_and_retries_from_committed_page(repository):
-    end = START + timedelta(minutes=1440)
-    calls = []
+def test_long_downtime_rest_window_pages_without_overlapping_candles():
+    requests = []
 
-    class Binance:
-        fail = True
+    def handler(request):
+        requests.append(request)
+        size = int(request.url.params["limit"])
+        end = int(request.url.params["endTime"]) + 1
+        return httpx.Response(
+            200,
+            json=[
+                [t, "100", "101", "99", "100", "3", t + 899999, "300", 2, "1", "100"]
+                for t in range(end - size * 900000, end, 900000)
+            ],
+        )
 
-        async def server_time(self):
-            return end
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="https://example.test") as http:
+            result = await BinanceClient(CryptoConfig(), http).klines(
+                interval="15m", end=START + timedelta(days=20), limit=1200
+            )
+            assert len(result) == len({x.open_time for x in result}) == 1200
+            assert result[999].close_time == result[1000].open_time
 
-        async def klines(self, *, start, end, limit, as_of):
-            calls.append(start)
-            index = int((start - START).total_seconds() // 60)
-            if self.fail and index >= 1000:
-                self.fail = False
-                raise OSError("interrupted")
-            return [candle(i) for i in range(index, min(1440, index + limit))]
-
-    service = CryptoService(repository, binance=Binance(), config=CryptoConfig(initial_history_days=1))
-    with pytest.raises(OSError):
-        await service.backfill()
-    assert repository.latest_open_time() == START + timedelta(minutes=999)
-    await service.backfill()
-    assert calls[2] == START + timedelta(minutes=999)
-    assert len(repository.klines(limit=2000, as_of=end)) == 1440
-    assert service.live["ready"]
-    assert len(repository.signals()) == 1
-    await service.backfill()
-    assert len(repository.signals()) == 1
-
-
-@pytest.mark.asyncio
-async def test_ingest_does_not_replace_closed_realtime_with_partial_or_replay_snapshot(repository):
-    service = CryptoService(repository)
-    rows = [candle(i) for i in range(15)]
-    await service.ingest(rows)
-    await service.ingest([replace(rows[-1], closed=False)])
-    assert service.live["latest_candle"]["closed"]
-    assert len(service.live["recent_closed"]) == 5
-    assert len(repository.signals()) == 1
-    snapshot = repository.signals()[0]
-    await service.ingest([replace(rows[-1], close=Decimal("100"))])
-    assert repository.signals()[0] == snapshot
-    assert service.get_strategy_state()["position_state"] == "FLAT"
-
-
-@pytest.mark.asyncio
-async def test_reconciliation_finishes_interrupted_history_before_advancing_to_recent(repository):
-    end = START + timedelta(days=1)
-    calls = []
-
-    class Binance:
-        async def server_time(self):
-            return end
-
-        async def klines(self, *, start=None, end=None, limit=5, as_of=None):
-            calls.append(start)
-            index = 1435 if start is None else int((start - START).total_seconds() // 60)
-            return [candle(i) for i in range(index, min(1440, index + limit))]
-
-    repository.upsert_klines([candle(i) for i in range(1000)])
-    service = CryptoService(repository, binance=Binance())
-    await service.reconcile()
-    assert calls[0] == START + timedelta(minutes=999)
-    assert calls[-1] is None
-    assert len(repository.klines(limit=2000, as_of=end)) == 1440
-    assert len(repository.signals()) == 1
-
-
-@pytest.mark.asyncio
-async def test_closed_candle_persists_when_local_clock_is_500ms_behind(repository, monkeypatch):
-    row = candle()
-    local_now = row.close_time - timedelta(milliseconds=500)
-    monkeypatch.setattr("finance_analysis.crypto.service.utc_now", lambda: local_now)
-    monkeypatch.setattr("finance_analysis.database.repositories.crypto.utc_now", lambda: local_now)
-    service = CryptoService(repository)
-    await service.ingest([row, candle(1, closed=False)])
-    assert repository.klines(as_of=row.close_time + timedelta(minutes=2)) == [row]
-    assert [item["open_time"] for item in service.live["recent_closed"]] == [row.open_time]
-    assert service.live["latest_candle"]["closed"] is False
+    asyncio.run(run())
+    assert [int(r.url.params["limit"]) for r in requests] == [1000, 200]

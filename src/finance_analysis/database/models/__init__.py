@@ -34,7 +34,7 @@ from finance_analysis.database.models.trend_following import TrendFollowingSnaps
 from finance_analysis.database.models.user import User
 from finance_analysis.database.models.watch_list import WatchListItem
 
-from finance_analysis.database.models.crypto import CryptoKline, CryptoStrategySnapshot, CryptoStrategyState
+from finance_analysis.database.models.crypto import CryptoStrategySnapshot, CryptoStrategyState
 
 __all__ = [
     "MarketSentimentSnapshot",
@@ -43,7 +43,6 @@ __all__ = [
     "IndustryStrengthConstituent",
     "MarketStructureSnapshot",
     "Notification",
-    "CryptoKline",
     "CryptoStrategySnapshot",
     "CryptoStrategyState",
     "AnalysisHistory",

@@ -17,9 +17,7 @@ const now = useCurrentTime();
 const strategyMarket = ref('CN');
 const strategyMarkets = computed(() => markets.filter(entry => entry.market === strategyMarket.value));
 const nextEvents = computed(() => upcomingEvents(upcoming.data?.items ?? [], now.value));
-const btcPrice = computed(() => btc.data?.market.latestCandle?.close ?? btc.data?.strategy?.price);
-const btcDelayed = computed(() => !btc.data?.market.lastUpdateTime
-  || now.value.getTime() - Date.parse(btc.data.market.lastUpdateTime) > 120_000);
+const btcPrice = computed(() => btc.data?.strategy?.price);
 const number = (value: string | undefined) => value && Number.isFinite(Number(value))
   ? Number(value).toLocaleString('en-US', { maximumFractionDigits: 2 }) : '—';
 </script>
@@ -376,7 +374,7 @@ const number = (value: string | undefined) => value && Number.isFinite(Number(va
               <p class="text-3xl font-semibold tabular-nums">
                 {{ number(btcPrice) }} <span class="text-xs font-normal text-muted-foreground">USDT</span>
               </p><p class="mt-2 text-xs text-muted-foreground">
-                {{ btcDelayed ? '行情更新延迟' : '行情快照 · 每30秒更新' }}
+                策略评估价格 · 每 15 分钟收盘后更新
               </p>
             </div>
             <div class="text-right">
