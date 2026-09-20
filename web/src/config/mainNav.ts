@@ -58,6 +58,14 @@ export const researchNavItems: NavDestination[] = [
 
 export const mainNavItems: MainNavItem[] = [
   { key: 'dashboard', label: '市场动态', to: '/dashboard', icon: Activity, exact: true },
+  {
+    key: 'market',
+    label: '市场',
+    to: '/market/watch-list',
+    icon: ChartNoAxesCombined,
+    activePathPrefix: '/market/',
+    children: marketNavItems,
+  },
   { key: 'timeline', label: '时间线', to: '/timeline', icon: CalendarDays },
   {
     key: 'research',
@@ -66,14 +74,6 @@ export const mainNavItems: MainNavItem[] = [
     icon: BarChart3,
     activePathPrefix: '/research/',
     children: researchNavItems,
-  },
-  {
-    key: 'market',
-    label: '市场',
-    to: '/market/watch-list',
-    icon: ChartNoAxesCombined,
-    activePathPrefix: '/market/',
-    children: marketNavItems,
   },
   {
     key: 'crypto',

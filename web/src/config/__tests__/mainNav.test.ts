@@ -10,9 +10,9 @@ describe('main navigation', () => {
   it('orders desktop destinations and scopes research away from market', () => {
     expect(mainNavItems.map((item) => item.label)).toEqual([
       '市场动态',
+      '市场',
       '时间线',
       '研究',
-      '市场',
       '加密货币',
       '任务中心',
     ]);
@@ -42,6 +42,8 @@ describe('main navigation', () => {
     ]);
     expect(allNavDestinations.map((item) => item.key)).toEqual([
       'dashboard',
+      'watch-list',
+      'holdings',
       'timeline',
       'etf-rotation',
       'trend-following',
@@ -49,8 +51,6 @@ describe('main navigation', () => {
       'market-sentiment',
       'macro',
       'quant',
-      'watch-list',
-      'holdings',
       'crypto-btc',
       'tasks',
     ]);
