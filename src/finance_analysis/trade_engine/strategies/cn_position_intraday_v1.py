@@ -29,29 +29,27 @@ class CNPositionIntradayV1:
         metrics = local_bar_metrics(rows)
         if not metrics:
             return []
-        reasons: list[str] = []
-        action = "WATCH"
+        hits: list[tuple[str, str]] = []
         if metrics.get("broke_30m_low") and metrics.get("price_below_vwap") and metrics.get("high_rvol"):
-            reasons.append("跌破前30分钟低点且放量跌破VWAP")
-            action = "REDUCE"
-        elif metrics.get("price_below_ema20") and metrics.get("price_below_vwap") and _lte(metrics.get("change_15m"), -1.0):
-            reasons.append("跌破均线与VWAP，短周期走弱")
-        elif metrics.get("high_open_fade"):
-            reasons.append("高开回落跌破VWAP")
-        elif metrics.get("high_rvol") and _lte(metrics.get("change_5m"), -0.8) and metrics.get("price_below_vwap"):
-            reasons.append("放量下跌")
-        elif context.quote and context.quote.valid and context.position.average_cost > 0:
+            hits.append(("REDUCE", "跌破前30分钟低点且放量跌破VWAP"))
+        if metrics.get("price_below_ema20") and metrics.get("price_below_vwap") and _lte(metrics.get("change_15m"), -1.0):
+            hits.append(("WATCH", "跌破均线与VWAP，短周期走弱"))
+        if metrics.get("high_open_fade"):
+            hits.append(("WATCH", "高开回落跌破VWAP"))
+        if metrics.get("high_rvol") and _lte(metrics.get("change_5m"), -0.8) and metrics.get("price_below_vwap"):
+            hits.append(("WATCH", "放量下跌"))
+        if context.quote and context.quote.valid and context.position.average_cost > 0:
             pnl = (context.quote.price / context.position.average_cost - 1) * 100
             if pnl <= -5 and _lte(metrics.get("change_5m"), -0.5):
-                reasons.append("持仓收益快速恶化")
-        if not reasons:
+                hits.append(("WATCH", "持仓收益快速恶化"))
+        if not hits:
             return []
+        action = "REDUCE" if any(item[0] == "REDUCE" for item in hits) else "WATCH"
+        reason = ";".join(item[1] for item in hits)
         bar_end = metrics.get("bar_end")
         stamp = bar_end.isoformat() if isinstance(bar_end, datetime) else str(bar_end or "")
-        signal_key = f"{KEY}:{context.position.position_id}:{action}:{stamp}"
-        if context.strategy_state.get("last_signal_key") == signal_key:
+        if context.strategy_state.get("last_reviewed_5m_bar") == stamp:
             return []
-        context.strategy_state["last_signal_key"] = signal_key
         now = context.now or utc_now()
         return [
             TradeSignalCandidate(
@@ -64,9 +62,12 @@ class CNPositionIntradayV1:
                 action=action,  # type: ignore[arg-type]
                 suggested_target_quantity=None,
                 severity="soft",
-                reason=";".join(reasons),
-                evidence={key: str(metrics[key]) for key in ("close", "vwap", "ema20", "rvol", "change_5m", "change_15m") if metrics.get(key) is not None},
+                reason=reason,
+                evidence={
+                    **{key: str(metrics[key]) for key in ("close", "vwap", "ema20", "rvol", "change_5m", "change_15m") if metrics.get(key) is not None},
+                    "bar_end": stamp,
+                },
                 evaluated_at=now,
-                signal_key=signal_key,
+                signal_key=f"{KEY}:{context.position.position_id}:{action}:{stamp}",
             )
         ]

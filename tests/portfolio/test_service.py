@@ -55,6 +55,8 @@ def test_deposit_buy_addon_sell_updates_cash_lots_and_average_cost():
     first = service.buy(1, account_id=cn["id"], symbol="600519.SH", quantity="1000", price="10", executed_at=when)
     assert first["quantity"] == Decimal("1000")
     assert first["average_cost"] == Decimal("10")
+    assert first["trade_engine_enabled"] is True
+    assert first["strategy_key"] is None
     roles = {lot["role"]: lot["remaining_quantity"] for lot in first["lots"]}
     assert roles == {"CORE": Decimal("1000")}
     cash = next(item for item in service.list_accounts(1, market="CN") if item["id"] == cn["id"])["cash"]
@@ -111,3 +113,18 @@ def test_buy_rejects_insufficient_cash():
     except InsufficientCashError:
         return
     raise AssertionError("expected insufficient cash")
+
+
+def test_update_position_toggles_trade_engine_without_changing_lots():
+    service = _service()
+    cn = next(item for item in service.ensure_accounts(9) if item["market"] == "CN")
+    service.deposit(9, account_id=cn["id"], amount="100000")
+    opened = service.buy(9, account_id=cn["id"], symbol="600519.SH", quantity="100", price="10")
+    assert opened["trade_engine_enabled"] is True
+    updated = service.update_position(9, opened["id"], trade_engine_enabled=False)
+    assert updated["trade_engine_enabled"] is False
+    assert updated["quantity"] == Decimal("100")
+    assert updated["id"] == opened["id"]
+    again = service.update_position(9, opened["id"], trade_engine_enabled=True, strategy_key="exit_v1")
+    assert again["trade_engine_enabled"] is True
+    assert again["strategy_key"] == "exit_v1"

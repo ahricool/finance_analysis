@@ -42,6 +42,7 @@ class TradeSignalRow(Base):
     suggested_target_quantity = Column(Numeric(28, 8), nullable=True)
     reason = Column(Text, nullable=False, default="")
     llm_reason = Column(Text, nullable=True)
+    llm_comment = Column(Text, nullable=True)
     reviewed_by_llm = Column(Boolean, nullable=False, default=False)
     evidence = Column(JSONB().with_variant(JSON(), "sqlite"), nullable=False, default=dict)
     signal_key = Column(String(190), nullable=False)

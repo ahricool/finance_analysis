@@ -45,6 +45,8 @@ def render_trade_message(
         lines.append(f"确定性原因 {item.deterministic_reason or item.reason}")
         if item.llm_reason:
             lines.append(f"LLM复核 {item.llm_reason}")
+        if item.llm_comment:
+            lines.append(f"LLM意见 {item.llm_comment}")
         if hard:
             lines.append("硬保护规则触发")
     body = "\n".join(lines)

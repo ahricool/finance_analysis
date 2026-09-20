@@ -56,6 +56,14 @@ onMounted(() => {
   void load();
 });
 const engineBySymbol = computed(() => Object.fromEntries(engine.value.map(item => [item.symbol, item])));
+const engineView = computed(() => {
+  if (!detail.value) return null;
+  return (
+    engine.value.find(item => item.positionId === String(detail.value?.id)) ||
+    engineBySymbol.value[detail.value.symbol] ||
+    null
+  );
+});
 
 function fmt(value?: string | null) {
   if (value == null || value === '') return '-';
@@ -127,6 +135,25 @@ async function openDetail(row: PortfolioPosition) {
     type: item.type,
     operations: item.operations.map(op => ({ executedAt: op.executedAt, side: op.side, quantity: op.quantity, price: op.price })),
   }));
+}
+
+async function toggleTradeEngine(enabled: boolean) {
+  if (!detail.value) return;
+  error.value = null;
+  try {
+    const updated = await holdingsApi.updatePosition(detail.value.id, { tradeEngineEnabled: enabled });
+    detail.value = { ...detail.value, tradeEngineEnabled: updated.tradeEngineEnabled };
+    await load();
+    const refreshed = positions.value.find(item => item.id === detail.value?.id);
+    if (refreshed) detail.value = { ...detail.value, ...refreshed };
+  } catch (err) {
+    error.value = getParsedApiError(err);
+  }
+}
+
+function onTradeEngineChange(event: Event) {
+  const target = event.target as HTMLInputElement;
+  void toggleTradeEngine(target.checked);
 }
 
 async function connectGoogle() {
@@ -317,7 +344,23 @@ function closeDetail() {
         </DialogHeader>
         <div v-if="detail" class="space-y-4">
           <p>数量 {{ fmt(detail.quantity) }} · 成本 {{ fmt(detail.averageCost) }} · 市值 {{ fmt(detail.marketValue) }}</p>
-          <p>信号 {{ engineBySymbol[detail.symbol]?.action || '-' }} · 保护价 {{ engineBySymbol[detail.symbol]?.activeStop || '-' }} · 阶段 {{ engineBySymbol[detail.symbol]?.profitStage || '-' }}</p>
+          <label class="flex items-start gap-2 text-sm">
+            <input
+              type="checkbox"
+              class="mt-1"
+              data-testid="trade-engine-enabled"
+              :checked="detail.tradeEngineEnabled !== false"
+              @change="onTradeEngineChange($event)"
+            />
+            <span>
+              <span class="font-medium">交易提醒</span>
+              <span class="mt-1 block text-xs text-muted-foreground">关闭后，该持仓不会参与5分钟 Trade Engine 分析，也不会产生 Trade Signal 或通知。</span>
+            </span>
+          </label>
+          <p>Strategy {{ engineView?.strategyKey || detail.strategyKey || '-' }} · 允许 Trade Engine {{ detail.tradeEngineEnabled === false ? '关闭' : '开启' }}</p>
+          <p>最新正式信号 {{ engineView?.action || '-' }} · 保护价 {{ engineView?.activeStop || '-' }} · 阶段 {{ engineView?.profitStage || '-' }}</p>
+          <p v-if="engineView?.llmReason">LLM复核 {{ engineView.llmReason }}</p>
+          <p v-if="engineView?.llmComment">LLM意见 {{ engineView.llmComment }}</p>
           <DailyKLineCard :symbol="detail.symbol" :markers="markers" marker-caption="操作 BST" />
           <div>
             <h3 class="mb-2 text-sm font-semibold">操作记录</h3>

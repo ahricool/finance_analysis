@@ -7,13 +7,13 @@
 ## 数据模型
 
 - `portfolio_account`：每个市场一个默认账户（A股账户/CN、美股账户/US）。不存 currency，货币由 `market` 推断。
-- `portfolio_position`：当前实际持仓。V1 只支持 STOCK/ETF，数量单位是股（NUMERIC，兼容碎股），canonical symbol 如 `600519.SH` / `AAPL.US`。
+- `portfolio_position`：当前实际持仓。V1 只支持 STOCK/ETF，数量单位是股（NUMERIC，兼容碎股），canonical symbol 如 `600519.SH` / `AAPL.US`。`strategy_key` 可空，空则使用该市场默认 Position Strategy（CN/US 均为 `exit_v1`）。`trade_engine_enabled` 默认 true；关闭后该持仓不进入 Trade Engine。
 - `position_lot`：CORE/ADDON 风险归因，不是税务 lot。第一次买入建 CORE，继续买入建 ADDON，卖出 newest ADDON → older ADDON → CORE。
 - `trade_operation`：BUY/SELL 操作记录。日K BST 由此动态聚合，不另建 BST 表。
 - `cash_operation`：DEPOSIT/WITHDRAW。买入/卖出的现金变化由 trade_operation 解释，不复制成 cash_operation。
 - `holding_source`：Google OAuth 与 Sheet 快照配置。
 - `trade_strategy_state`：按 `uid + account_id + position_id + strategy_key` 保存策略状态。
-- `trade_signal`：LLM 确认后的 WATCH/REDUCE/EXIT（硬保护可绕过 LLM）。一般 HOLD 不落库。
+- `trade_signal`：正式发布的 WATCH/REDUCE/EXIT。Soft 需 LLM CONFIRM；硬保护可绕过 LLM。一般 HOLD 不落库。`llm_reason` / `llm_comment` 只保存复核意见，不能改 action/target。
 
 市值、仓位、浮盈亏按当前报价动态计算，不存 DB。
 
@@ -39,40 +39,48 @@ LLM 自然语言上下文走 `render_portfolio_context()`，必须标记 `[DB]` 
 
 ## Trade Engine
 
-Trade Engine 的 Universe 就是 `PortfolioResolver` 返回的当前有效持仓。没有持仓立即结束：0 LLM、0 signal、0 通知。
+Trade Engine 的 Universe 是 `PortfolioResolver.stock_positions()`：普通股票/ETF、数量>0，且 `trade_engine_enabled=true`。过滤发生在 quotes / 5m / strategy / LLM 之前。没有 eligible 持仓立即结束。Google 补充持仓本轮没有独立开关，仍按现有行为进入引擎。
+
+每个 position 同一时刻只绑定一个 active Position Strategy：
 
 ```text
-Deterministic Strategy
+position.strategy_key 或市场默认 exit_v1
         ↓
-TradeSignalCandidate（WATCH / REDUCE / EXIT）
+Strategy.evaluate()
+        ↓
+0 或 1 TradeSignalCandidate
         ↓
 无 Candidate → stop
-有 Candidate → LLM Review
+Hard Candidate → 直接 TradeSignal + Notification
+Soft Candidate → LLM + Web Search Review
         ↓
-CONFIRM → TradeSignal DB + Notification
-REJECT  → 不入库、不通知
+REJECT → 不入库、不通知；同一根 5m 不再 review
+CONFIRM → 原样使用 candidate 的 action/target → TradeSignal + Notification
 ```
 
-代码 registry：
+不要同时运行多个 Position Strategy，也不再做 Position Signal Aggregator。策略内部多条规则命中时由该策略合并成一个 candidate。
+
+代码 registry 仍保留可选策略，供后续切换：
 
 ```text
-CN: ExitV1, CNPositionIntradayV1, PortfolioRiskV1
-US: ExitV1, USPositionIntradayV1, PortfolioRiskV1
+CN position: exit_v1（默认）, cn_position_intraday_v1
+US position: exit_v1（默认）, us_position_intraday_v1
+portfolio: portfolio_risk_v1（账户级 WATCH，不改股票 target/action）
 ```
 
-每次运行：解析当前持仓 → 只拉这些持仓的 quote/5m → 持仓级策略产出 Candidate → 有 Candidate 才 LLM 复核 → 确认后保存 signal/state 并通知。不扫描全市场，不调 web search，不自动下单。
+`portfolio_risk_v1` 独立产生账户风险提示。恢复后再超限必须重新 arm；只有 CONFIRMED warning 进入 confirmed-active 去重，LLM REJECT 不能永久静默。
 
 `PositionContext` 只包含该持仓的报价、5m、指标、lot 与 strategy state。不计算全市场宽度、板块排名或 market regime。
 
-`portfolio_risk_v1` 只对当前持仓输出仓位/风险 WATCH，不给卖出目标。CORE/ADDON、Stage A/B/C 留在 `exit_v1` 内部。
+PATCH `/api/v1/holdings/positions/{id}` 只改当前用户的 DB position（`trade_engine_enabled` / `strategy_key`），不写 Google Sheet。
 
 ### exit_v1
 
-保留硬保护、Stage A/B/C、high watermark、active stop、5m 普通走弱、严重破位、恢复、ADDON 失败优先退出。同一 soft episode 不重复减仓；用户卖出后按当前数量管理；恢复后可以新 episode。硬保护可随时给出更严格 EXIT，且不依赖 LLM。
+保留硬保护、Stage A/B/C、high watermark、active stop、5m 普通走弱、严重破位、恢复、ADDON 失败优先退出。行情观察状态（bar、streak、watermark、stop）可在 candidate 阶段更新。`last_confirmed_soft_signal_key` / `last_confirmed_soft_target` 只有 LLM CONFIRM 后才写入。硬保护比较历史风险基准时不得使用被 REJECT 的 soft target。
 
 ### LLM Review
 
-LLM 是 Reviewer，不是 Signal Generator。输入只有当前持仓、candidate、原因和有限 5m 摘要。输出 `CONFIRM` / `REJECT`。不能 BUY、不能加仓、不能把 target 提高到超过候选或当前持仓。硬保护不走 LLM，失败也不能挡住 EXIT 入库和通知。普通 soft candidate 在 LLM 失败时本轮不入库、不通知；同一根 5m 不再 review，下一根新完整 5m 仍满足时可再次 review。
+LLM 是复核器，不是 Signal Generator。确定性策略已经决定 action 和 target；LLM 只能 `CONFIRM` 或 `REJECT`，返回的 action/target 一律忽略。`comment` 是附加意见，可入库并展示，但不能改变正式 TradeSignal。允许对当前 symbol 做 Web Search，核实财报、停牌、监管/诉讼/并购或可解释异常波动的公司新闻；不要搜宏观、选股、板块排名或全市场扫描。硬保护不走 LLM。Soft 在 LLM 失败或 REJECT 时本轮不入库、不通知；同一根 5m 不再 review，下一根新完整 5m 仍满足时可再次 review。
 
 ## 分钟数据
 

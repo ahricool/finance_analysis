@@ -260,6 +260,32 @@ class PortfolioService:
 
         return self.repository.run_write("portfolio.sell", write)
 
+    def update_position(
+        self,
+        uid: int,
+        position_id: int,
+        *,
+        trade_engine_enabled: bool | None = None,
+        strategy_key: str | None = None,
+        clear_strategy_key: bool = False,
+    ) -> dict[str, Any]:
+        def write(session: Session):
+            position = self.repository.lock_position(session, uid=uid, position_id=position_id)
+            if position is None:
+                raise PortfolioError("持仓不存在")
+            if trade_engine_enabled is not None:
+                position.trade_engine_enabled = bool(trade_engine_enabled)
+            if clear_strategy_key:
+                position.strategy_key = None
+            elif strategy_key is not None:
+                raw = strategy_key.strip()
+                position.strategy_key = raw or None
+            position.updated_at = utc_now()
+            session.flush()
+            return self._position_view(session, position)
+
+        return self.repository.run_write("portfolio.update_position", write)
+
     def get_position(self, uid: int, position_id: int) -> dict[str, Any] | None:
         with self.repository.db.get_session() as session:
             position = self.repository.get_position(session, uid=uid, position_id=position_id)
@@ -341,6 +367,10 @@ class PortfolioService:
             "asset_type": position.asset_type,
             "quantity": _dec(position.quantity),
             "average_cost": _dec(position.average_cost),
+            "strategy_key": getattr(position, "strategy_key", None),
+            "trade_engine_enabled": True
+            if getattr(position, "trade_engine_enabled", None) is None
+            else bool(position.trade_engine_enabled),
             "opened_at": position.opened_at,
             "closed_at": position.closed_at,
             "updated_at": position.updated_at,

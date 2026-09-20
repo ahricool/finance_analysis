@@ -138,7 +138,7 @@ static/                    Web 构建产物，由 `web/vite.config.ts` 生成
 - `/calendar`：日历记录和财经事件。
 - `/tasks`：周期定义、手动触发及任务运行记录。
 - `/quant`、`/etf-rotation`、`/trend-following`：研究结果与运行入口；趋势预演为 `GET /trend-following/preview`。
-- `/holdings`：Google Sheet 只读持仓、OAuth 回调、风控状态/事件；页面 `/market/holdings`。
+- `/holdings`：DB 持仓买卖/现金、`PATCH /positions/{id}` 交易提醒开关、Google Sheet 次级来源；页面 `/market/holdings`。`/trade-engine` 只读正式信号与管理员手动运行。
 - `/market-data/ws`：基于 Cookie 的用户自选股实时 WebSocket。
 - `/usage`：LLM 使用统计；`/celery` 是演示/诊断端点。
 
@@ -332,7 +332,7 @@ BTC 多策略以 `strategy_key + symbol` 隔离，代码注册表当前仅 `btc_
 
 ## Holdings / Trade Engine
 
-`portfolio/` 是普通股票/ETF 真实持仓（Primary）：账户现金、当前持仓、CORE/ADDON lot 和买卖/出入金操作写 PostgreSQL。Google Sheet 继续由 `holdings/` 读取，但只作为 Secondary 外部持仓；相同 `market + canonical symbol` 时 DB 覆盖 Google，不合并数量。OPTION 只保留为 `EXTERNAL_ONLY`，不进 DB 持仓，也不进 `exit_v1`。 <!-- pragma: allowlist secret -->
+`portfolio/` 是普通股票/ETF 真实持仓（Primary）：账户现金、当前持仓、CORE/ADDON lot 和买卖/出入金操作写 PostgreSQL。`portfolio_position.strategy_key` 可空，默认 `exit_v1`；`trade_engine_enabled` 默认 true，关闭后该持仓不进 Trade Engine。Google Sheet 继续由 `holdings/` 读取，但只作为 Secondary 外部持仓；相同 `market + canonical symbol` 时 DB 覆盖 Google，不合并数量。OPTION 只保留为 `EXTERNAL_ONLY`，不进 DB 持仓，也不进 `exit_v1`。每个 position 一次只运行一个 Position Strategy；LLM 复核只能 CONFIRM/REJECT。 <!-- pragma: allowlist secret -->
 `trade_engine/` 每 5 分钟只分析 `PortfolioResolver` 返回的当前持仓（不是全市场 Scanner）。确定性策略先产生 Candidate，有 Candidate 才 LLM 复核，确认后写 `trade_signal` 并通知。无 Candidate 则 0 LLM / 0 signal / 0 通知。硬保护不依赖 LLM。删除 ActivePlan 与 A/US 旧盘中分析任务。CN 5m 只走窄范围 `SinaMinuteProvider`；US 5m 只走现有 yfinance。
 任务复用 `ingestion`（`holdings_sync` 每 5 分钟）和 `alerts`（`trade_engine_cn/us` 每 5 分钟），不新增专用 worker。
 通知复用现有全局 Telegram/ntfy：先与 `trade_signal` 同事务写入站内消息，再 `push_existing`。

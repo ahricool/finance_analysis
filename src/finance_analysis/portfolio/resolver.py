@@ -89,6 +89,10 @@ class PortfolioResolver:
                         average_cost=_dec(row.average_cost),
                         opened_at=row.opened_at,
                         lots=lots,
+                        strategy_key=getattr(row, "strategy_key", None),
+                        trade_engine_enabled=True
+                        if getattr(row, "trade_engine_enabled", None) is None
+                        else bool(row.trade_engine_enabled),
                     )
                 )
         google_positions, google_accounts, warnings, generation = self._from_google(uid, snapshot, db_keys, market)

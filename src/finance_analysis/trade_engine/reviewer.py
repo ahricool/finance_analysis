@@ -1,79 +1,42 @@
 # -*- coding: utf-8 -*-
-"""LLM reviews deterministic TradeSignalCandidates. It is not a signal generator."""
+"""LLM reviews deterministic TradeSignalCandidates. It cannot change action/target."""
 
 from __future__ import annotations
 
 import json
 import logging
-from decimal import Decimal
 from typing import Any, Sequence
 
 from ..llm import LLMClient, LLMError, LLMRequest, parse_llm_batch_results  # pragma: allowlist secret
-from .models import ACTION_RANK, ReviewDecision, TradeSignalCandidate  # pragma: allowlist secret
+from .models import ReviewDecision, TradeSignalCandidate  # pragma: allowlist secret
 
 logger = logging.getLogger(__name__)
 
 _SYSTEM = (
-    "你是持仓交易信号复核器。只判断给定的确定性交易信号是否合理。"
-    "不能建议买入或加仓。不能挑选其它股票。不能编造新闻或全市场判断。"
+    "你是持仓交易信号复核器。\n"
+    "确定性策略已经决定了 action 和 target，你无权修改交易动作和目标数量。\n"
+    "你的职责只有：\n"
+    "1. CONFIRM：没有发现足以否决该信号的重要事实。\n"
+    "2. REJECT：发现明确且有根据的事实，说明该信号当前不应发布。\n"
+    "你可以使用 Web Search 核实与当前股票直接相关的最新重大信息"
+    "（财报/业绩、停牌、监管/诉讼/并购、可能解释异常波动的公司新闻）。\n"
+    "不要搜索无关宏观、整个市场选股、板块排名或全市场扫描。\n"
+    "不要推荐其它股票。不要产生 BUY。不要扩大仓位。\n"
+    "如果你对策略本身、市场情况或其它风险有额外看法，写在 comment 中，"
+    "但不能修改 action 或 target。\n"
     "只输出 JSON。"
 )
 
-_PROMPT = """下面是同一轮由确定性策略产生的持仓交易信号候选。请逐条独立判断该信号是否合理。
+_PROMPT = """下面是同一轮由确定性策略产生的持仓交易信号候选。请逐条独立判断该信号是否应发布。
 decision 只能是 CONFIRM 或 REJECT。
-不能输出 BUY，不能把建议目标数量提高到超过候选 target 或当前持仓。
-硬保护 EXIT 只可补充解释，不要 REJECT。
+不要返回 action 或 target；即使返回也会被忽略。
+如有必要，仅对该 candidate 的 symbol 进行 Web Search 复核。
 只输出 JSON object，不要 markdown：
-{{"results":[{{"id":"signal_key","decision":"CONFIRM","action":"WATCH|REDUCE|EXIT","target_quantity":null,"reason":"..."}}]}}
+{{"results":[{{"id":"signal_key","decision":"CONFIRM","reason":"...","comment":null}}]}}
 
 输入：
 {payload}
 """
-
-
-def _dec(value: Any) -> Decimal | None:
-    if value is None or value == "":
-        return None
-    try:
-        return value if isinstance(value, Decimal) else Decimal(str(value))
-    except Exception:
-        return None
-
-
-def clamp_review(
-    candidate: TradeSignalCandidate,
-    decision: ReviewDecision,
-    *,
-    current_quantity: Decimal,
-) -> ReviewDecision:
-    if candidate.hard:
-        return ReviewDecision(
-            decision="CONFIRM",
-            action=candidate.action,
-            target_quantity=candidate.suggested_target_quantity,
-            reason=decision.reason or candidate.reason,
-            failed=decision.failed,
-        )
-    if decision.failed:
-        return decision
-    if decision.decision != "CONFIRM":
-        return ReviewDecision("REJECT", candidate.action, candidate.suggested_target_quantity, decision.reason)
-    action = decision.action if decision.action in {"WATCH", "REDUCE", "EXIT"} else candidate.action
-    if ACTION_RANK.get(action, 0) < ACTION_RANK.get(candidate.action, 0):
-        action = candidate.action
-    target = decision.target_quantity if decision.target_quantity is not None else candidate.suggested_target_quantity
-    cap = current_quantity
-    if candidate.suggested_target_quantity is not None:
-        cap = min(cap, candidate.suggested_target_quantity)
-    if target is not None:
-        if target < 0:
-            target = Decimal("0")
-        if target > cap:
-            target = cap
-    if candidate.action == "EXIT" or action == "EXIT":
-        action = "EXIT"
-        target = Decimal("0")
-    return ReviewDecision("CONFIRM", action, target, decision.reason or candidate.reason)
 
 
 def _payload_for(candidate: TradeSignalCandidate, extras: dict[str, Any]) -> dict[str, Any]:
@@ -83,10 +46,13 @@ def _payload_for(candidate: TradeSignalCandidate, extras: dict[str, Any]) -> dic
         "symbol": candidate.symbol,
         "strategy": candidate.strategy_key,
         "action": candidate.action,
-        "target_quantity": None if candidate.suggested_target_quantity is None else format(candidate.suggested_target_quantity, "f"),
+        "target_quantity": None
+        if candidate.suggested_target_quantity is None
+        else format(candidate.suggested_target_quantity, "f"),
         "severity": candidate.severity,
         "reason": candidate.reason,
         "evidence": candidate.evidence,
+        "search_scope": f"only {candidate.symbol}",
         **extras,
     }
 
@@ -119,7 +85,7 @@ class TradeSignalReviewer:
         client = self._client_or_none()
         if client is None:
             return {
-                item.signal_key: ReviewDecision("REJECT", item.action, item.suggested_target_quantity, "llm_unavailable", failed=True)
+                item.signal_key: ReviewDecision("REJECT", "llm_unavailable", failed=True)
                 for item in candidates
             }
         payload = [_payload_for(item, extras.get(item.signal_key) or {}) for item in candidates]
@@ -130,6 +96,7 @@ class TradeSignalReviewer:
                     system_prompt=_SYSTEM,
                     call_type="trade_engine_review",
                     temperature=0,
+                    web_search=True,
                 ),
                 validator=lambda text: parse_llm_batch_results(text, strict=True),
             )
@@ -137,28 +104,23 @@ class TradeSignalReviewer:
         except (LLMError, ValueError) as exc:
             logger.warning("Trade Engine LLM review failed: %s", type(exc).__name__)
             return {
-                item.signal_key: ReviewDecision("REJECT", item.action, item.suggested_target_quantity, "llm_failed", failed=True)
-                for item in candidates
+                item.signal_key: ReviewDecision("REJECT", "llm_failed", failed=True) for item in candidates
             }
         by_id = {str(item.get("id") or ""): item for item in rows}
         decisions: dict[str, ReviewDecision] = {}
         for candidate in candidates:
             raw = by_id.get(candidate.signal_key)
             if raw is None:
-                decisions[candidate.signal_key] = ReviewDecision(
-                    "REJECT", candidate.action, candidate.suggested_target_quantity, "llm_missing_result", failed=True
-                )
+                decisions[candidate.signal_key] = ReviewDecision("REJECT", "llm_missing_result", failed=True)
                 continue
             verdict = str(raw.get("decision") or "").strip().upper()
             if verdict not in {"CONFIRM", "REJECT"}:
                 verdict = "REJECT"
-            action = str(raw.get("action") or candidate.action).strip().upper()
-            if action not in {"WATCH", "REDUCE", "EXIT"}:
-                action = candidate.action
+            comment = raw.get("comment")
+            comment_text = None if comment is None else str(comment).strip()[:600] or None
             decisions[candidate.signal_key] = ReviewDecision(
                 verdict,  # type: ignore[arg-type]
-                action,  # type: ignore[arg-type]
-                _dec(raw.get("target_quantity")),
                 str(raw.get("reason") or "")[:600],
+                comment_text,
             )
         return decisions

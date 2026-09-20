@@ -9,7 +9,7 @@ from typing import Any, Sequence
 from ...core.time import utc_now  # pragma: allowlist secret
 from ...portfolio.models import ResolvedPosition  # pragma: allowlist secret
 from ..config import RiskPolicy, get_risk_policy  # pragma: allowlist secret
-from ..models import QuoteView, TradeSignalCandidate  # pragma: allowlist secret
+from ..models import QuoteView, TradeSignalCandidate, five_minute_stamp  # pragma: allowlist secret
 
 KEY = "portfolio_risk_v1"
 VERSION = "1"
@@ -70,15 +70,43 @@ class PortfolioRiskV1:
             risks[position.position_id] = _leg_risk(position.quantity, quote.price, stop)
         nav = cash + total_value
         if nav <= 0:
+            state["active_keys"] = []
             return []
-        seen = set(state.get("last_keys") or [])
-        signals: list[TradeSignalCandidate] = []
+        current_active: set[str] = set()
+        pending: list[tuple[str, Decimal, Decimal, str, ResolvedPosition | None]] = []
 
-        def emit(kind: str, current: Decimal, limit: Decimal, reason: str, position: ResolvedPosition | None = None):
+        def consider(kind: str, current: Decimal, limit: Decimal, reason: str, position: ResolvedPosition | None = None):
             key = f"{KEY}:{market}:{kind}:{None if position is None else position.position_id}"
-            if key in seen:
-                return
-            seen.add(key)
+            current_active.add(key)
+            pending.append((key, current, limit, reason, position))
+
+        for position in eligible:
+            weight = values.get(position.position_id, Decimal("0")) / nav
+            if weight > policy.max_symbol_weight:
+                consider("max_symbol_weight", weight, policy.max_symbol_weight, f"{position.symbol} 仓位超限", position)
+            risk = risks.get(position.position_id)
+            if risk is not None and risk / nav > policy.risk_per_symbol:
+                consider("risk_per_symbol", risk / nav, policy.risk_per_symbol, f"{position.symbol} 计划风险超限", position)
+        exposure = total_value / nav
+        if exposure > policy.max_gross_exposure:
+            consider("max_gross_exposure", exposure, policy.max_gross_exposure, "总仓位超限")
+        known_risks = [item for item in risks.values() if item is not None]
+        if known_risks and len(known_risks) == len(eligible):
+            total_risk = sum(known_risks, start=Decimal("0")) / nav
+            if total_risk > policy.total_open_risk:
+                consider("total_open_risk", total_risk, policy.total_open_risk, "组合计划风险超限")
+
+        confirmed = set(state.get("confirmed_keys") or []) & current_active
+        old_active = set(state.get("active_keys") or [])
+        bar_stamp = five_minute_stamp(now)
+        reviewed_bar = state.get("last_reviewed_5m_bar")
+        signals: list[TradeSignalCandidate] = []
+        for key, current, limit, reason, position in pending:
+            if key in confirmed:
+                continue
+            if key in old_active:
+                if not (reviewed_bar and bar_stamp and reviewed_bar != bar_stamp):
+                    continue
             signals.append(
                 TradeSignalCandidate(
                     strategy_key=KEY,
@@ -91,26 +119,16 @@ class PortfolioRiskV1:
                     suggested_target_quantity=None,
                     severity="soft",
                     reason=reason,
-                    evidence={"current": format(current, "f"), "limit": format(limit, "f"), "nav": format(nav, "f")},
+                    evidence={
+                        "current": format(current, "f"),
+                        "limit": format(limit, "f"),
+                        "nav": format(nav, "f"),
+                        "bar_end": bar_stamp,
+                    },
                     evaluated_at=now,
                     signal_key=key,
                 )
             )
-
-        for position in eligible:
-            weight = values.get(position.position_id, Decimal("0")) / nav
-            if weight > policy.max_symbol_weight:
-                emit("max_symbol_weight", weight, policy.max_symbol_weight, f"{position.symbol} 仓位超限", position)
-            risk = risks.get(position.position_id)
-            if risk is not None and risk / nav > policy.risk_per_symbol:
-                emit("risk_per_symbol", risk / nav, policy.risk_per_symbol, f"{position.symbol} 计划风险超限", position)
-        exposure = total_value / nav
-        if exposure > policy.max_gross_exposure:
-            emit("max_gross_exposure", exposure, policy.max_gross_exposure, "总仓位超限")
-        known_risks = [item for item in risks.values() if item is not None]
-        if known_risks and len(known_risks) == len(eligible):
-            total_risk = sum(known_risks, start=Decimal("0")) / nav
-            if total_risk > policy.total_open_risk:
-                emit("total_open_risk", total_risk, policy.total_open_risk, "组合计划风险超限")
-        state["last_keys"] = sorted(seen)
+        state["active_keys"] = sorted(current_active)
+        state["confirmed_keys"] = sorted(confirmed)
         return signals

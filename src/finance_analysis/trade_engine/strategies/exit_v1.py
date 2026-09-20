@@ -13,7 +13,7 @@ from finance_analysis.portfolio.models import ResolvedLot, ResolvedPosition  # p
 from finance_analysis.trade_engine.bars import NormalizedBar, adjacent, expected_closed_ends, latest_expected_closed  # pragma: allowlist secret
 from finance_analysis.trade_engine.config import RiskPolicy, get_risk_policy  # pragma: allowlist secret
 from finance_analysis.trade_engine.indicators import annotate, ordinary_weak, recovered, severe_break  # pragma: allowlist secret
-from finance_analysis.trade_engine.models import PositionContext, QuoteView, TradeSignalCandidate  # pragma: allowlist secret  # pragma: allowlist secret
+from finance_analysis.trade_engine.models import PositionContext, QuoteView, TradeSignalCandidate, one_candidate  # pragma: allowlist secret
 
 STAGE_A = "A"
 STAGE_B = "B"
@@ -393,13 +393,15 @@ class ExitV1:
                         recovery_streak = 0
                         state["last_soft_signal_key"] = None
                         state["last_soft_target"] = None
+                        state["last_confirmed_soft_signal_key"] = None
+                        state["last_confirmed_soft_target"] = None
                 else:
                     recovery_streak = 0
             previous_row = row
 
         current_qty = sum((lot.quantity for lot in lots), start=Decimal("0"))
         signals: list[TradeSignalCandidate] = []
-        last_soft_target = _dec(state.get("last_soft_target"))
+        last_soft_target = _dec(state.get("last_confirmed_soft_target")) or _dec(state.get("last_soft_target"))
         target = sum(remaining.values(), start=Decimal("0"))
 
         if new_soft and episode_active:
@@ -413,7 +415,7 @@ class ExitV1:
             target = sum(remaining.values(), start=Decimal("0"))
             action = _action_for(target, current_qty)
             signal_key = f"exit_v1:{position.position_id}:{episode_id}:{action}:{format(target, 'f')}"
-            if action != "HOLD" and signal_key != state.get("last_soft_signal_key"):
+            if action != "HOLD" and signal_key != state.get("last_confirmed_soft_signal_key"):
                 evidence = _evidence(trigger_row)
                 evidence.update(
                     {
@@ -442,8 +444,7 @@ class ExitV1:
                         signal_key=signal_key,
                     )
                 )
-            last_soft_target = target
-            state["last_soft_target"] = _dump_dec(target)
+            # Candidate target is not a confirmed floor. Hard stop uses last_confirmed_soft_target.
 
         if hard_reasons:
             if last_hard_target is not None and last_hard_target <= 0:
@@ -533,7 +534,7 @@ class ExitV1:
                 "quote_status": quote_status,
             }
         )
-        return signals
+        return one_candidate(signals)
 
 
 def _position_stage(lot_state: dict[str, dict[str, Any]]) -> str:

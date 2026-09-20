@@ -2,6 +2,7 @@
 """ORM for DB-authoritative stock/ETF portfolio facts."""
 
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     Column,
     DateTime,
@@ -45,6 +46,8 @@ class PortfolioPosition(Base):
     asset_type = Column(String(16), nullable=False, default="STOCK")
     quantity = Column(Numeric(28, 8), nullable=False, default=0)
     average_cost = Column(Numeric(28, 8), nullable=False, default=0)
+    strategy_key = Column(String(64), nullable=True)
+    trade_engine_enabled = Column(Boolean, nullable=False, default=True)
     opened_at = Column(DateTime(timezone=True), nullable=False)
     closed_at = Column(DateTime(timezone=True), nullable=True)
     updated_at = Column(DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False)

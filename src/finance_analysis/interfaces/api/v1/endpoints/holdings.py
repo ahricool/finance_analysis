@@ -20,6 +20,7 @@ from finance_analysis.interfaces.api.v1.schemas.holdings import (  # pragma: all
     HoldingsPolicyUpdate,
     HoldingsSourceResponse,
     HoldingsSyncResponse,
+    PositionUpdateRequest,
     TradeRequest,
 )
 from finance_analysis.portfolio.context import render_portfolio_context  # pragma: allowlist secret
@@ -118,6 +119,33 @@ def get_position(position_id: int, request: Request, response: Response, service
     if row is None:
         raise HTTPException(status_code=404, detail="持仓不存在")
     return _position_payload(row)
+
+
+@router.patch("/positions/{position_id}")
+def patch_position(
+    position_id: int,
+    body: PositionUpdateRequest,
+    request: Request,
+    response: Response,
+    service: PortfolioService = Depends(_portfolio),
+):
+    _private(response)
+    payload = body.model_dump(exclude_unset=True)
+    if not payload:
+        raise HTTPException(status_code=400, detail="没有可更新的字段")
+    try:
+        return _position_payload(
+            service.update_position(
+                get_effective_uid(request),
+                position_id,
+                trade_engine_enabled=payload.get("trade_engine_enabled"),
+                strategy_key=payload.get("strategy_key"),
+                clear_strategy_key="strategy_key" in payload and payload["strategy_key"] is None,
+            )
+        )
+    except PortfolioError as exc:
+        status = 404 if str(exc) == "持仓不存在" else 400
+        raise HTTPException(status_code=status, detail=str(exc)) from exc
 
 
 @router.post("/buy")
@@ -396,6 +424,8 @@ def _position_payload(item: dict) -> dict:
         "asset_type": item["asset_type"],
         "quantity": _json_dec(item["quantity"]),
         "average_cost": _json_dec(item["average_cost"]),
+        "strategy_key": item.get("strategy_key"),
+        "trade_engine_enabled": True if item.get("trade_engine_enabled") is None else bool(item.get("trade_engine_enabled")),
         "opened_at": item.get("opened_at"),
         "closed_at": item.get("closed_at"),
         "lots": [

@@ -34,6 +34,10 @@ def complete(config: LLMConfig, request: LLMRequest) -> LLMResult:
         kwargs["api_base"] = config.base_url.rstrip("/")
     if request.max_tokens is not None:
         kwargs["max_tokens"] = request.max_tokens
+    if request.web_search:
+        # LiteLLM/OpenAI-compatible web search. Prompt still restricts the
+        # search to the current symbol; this is review, not signal generation.
+        kwargs["web_search_options"] = {"search_context_size": "medium"}
     response = litellm.completion(**kwargs)
     choices = _get(response, "choices", [])
     content = _get(_get(choices[0], "message"), "content") if choices else None

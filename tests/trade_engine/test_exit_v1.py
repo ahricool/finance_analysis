@@ -130,7 +130,8 @@ def test_soft_reduce_then_same_episode_does_not_rehalve():
     )
     persistable = [item for item in again if item.action in {"REDUCE", "EXIT"}]
     assert persistable == [] or Decimal(str(persistable[0].suggested_target_quantity)) == Decimal("500")
-    assert Decimal(str(state.get("last_soft_target"))) == Decimal("500")
+    assert state.get("last_confirmed_soft_target") is None
+    assert state.get("last_soft_target") is None
 
 
 def test_addon_stage_a_failure_clears_addon_only():

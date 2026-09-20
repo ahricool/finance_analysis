@@ -49,6 +49,8 @@ class ResolvedPosition:
     lots: tuple[ResolvedLot, ...] = ()
     quote_price: Decimal | None = None
     name: str | None = None
+    strategy_key: str | None = None
+    trade_engine_enabled: bool = True
 
     @property
     def is_option(self) -> bool:
@@ -56,7 +58,17 @@ class ResolvedPosition:
 
     @property
     def trade_engine_eligible(self) -> bool:
-        return (not self.is_option) and self.quantity > 0 and self.asset_type.upper() in {"STOCK", "ETF"}
+        return (
+            (not self.is_option)
+            and self.quantity > 0
+            and self.asset_type.upper() in {"STOCK", "ETF"}
+            and bool(self.trade_engine_enabled)
+        )
+
+    @property
+    def active_strategy_key(self) -> str | None:
+        raw = (self.strategy_key or "").strip()
+        return raw or None
 
 
 @dataclass(frozen=True, slots=True)

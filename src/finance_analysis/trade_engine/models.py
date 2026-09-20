@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Trade Engine DTOs. Strategies return candidates; confirmed signals are immutable."""
+"""Trade Engine DTOs. Strategies return at most one candidate per position."""
 
 from __future__ import annotations
 
@@ -73,9 +73,8 @@ class TradeSignalCandidate:
 @dataclass(frozen=True, slots=True)
 class ReviewDecision:
     decision: ReviewVerdict
-    action: CandidateAction
-    target_quantity: Decimal | None
     reason: str
+    comment: str | None = None
     failed: bool = False
 
 
@@ -92,18 +91,11 @@ class TradeSignal:
     reason: str
     deterministic_reason: str
     llm_reason: str | None
+    llm_comment: str | None
     reviewed_by_llm: bool
     evidence: dict[str, Any]
     evaluated_at: datetime
     signal_key: str
-
-
-@dataclass(frozen=True, slots=True)
-class AggregatedSignal:
-    action: Action
-    suggested_target_quantity: Decimal | None
-    reasons: tuple[str, ...]
-    candidates: tuple[TradeSignalCandidate, ...] = ()
 
 
 class PositionTradeStrategy(Protocol):
@@ -113,3 +105,34 @@ class PositionTradeStrategy(Protocol):
 
     def evaluate(self, context: PositionContext) -> list[TradeSignalCandidate]:
         ...
+
+
+def five_minute_stamp(value: datetime | None) -> str | None:
+    if value is None:
+        return None
+    stamp = value.replace(second=0, microsecond=0)
+    return stamp.replace(minute=(stamp.minute // 5) * 5).isoformat()
+
+
+def one_candidate(signals: list[TradeSignalCandidate]) -> list[TradeSignalCandidate]:
+    if len(signals) <= 1:
+        return signals
+    ranked = max(signals, key=lambda item: (1 if item.hard else 0, ACTION_RANK.get(item.action, 0)))
+    reason = ";".join(item.reason for item in signals if item.reason)
+    return [
+        TradeSignalCandidate(
+            market=ranked.market,
+            account_id=ranked.account_id,
+            position_id=ranked.position_id,
+            symbol=ranked.symbol,
+            strategy_key=ranked.strategy_key,
+            strategy_version=ranked.strategy_version,
+            action=ranked.action,
+            suggested_target_quantity=ranked.suggested_target_quantity,
+            severity=ranked.severity,
+            reason=reason or ranked.reason,
+            evidence=ranked.evidence,
+            evaluated_at=ranked.evaluated_at,
+            signal_key=ranked.signal_key,
+        )
+    ]

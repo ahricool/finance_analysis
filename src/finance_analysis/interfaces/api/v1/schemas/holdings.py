@@ -82,3 +82,8 @@ class CashRequest(BaseModel):
     amount: str
     executed_at: Optional[datetime] = None
     note: Optional[str] = None
+
+
+class PositionUpdateRequest(BaseModel):
+    trade_engine_enabled: Optional[bool] = None
+    strategy_key: Optional[str] = None

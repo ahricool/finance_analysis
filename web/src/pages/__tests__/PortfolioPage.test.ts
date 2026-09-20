@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   withdraw: vi.fn(),
   operations: vi.fn(),
   markers: vi.fn(),
+  updatePosition: vi.fn(),
   source: vi.fn(),
   connect: vi.fn(),
   disconnect: vi.fn(),
@@ -32,6 +33,7 @@ vi.mock('@/api/holdings', () => ({
     withdraw: mocks.withdraw,
     operations: mocks.operations,
     markers: mocks.markers,
+    updatePosition: mocks.updatePosition,
     source: mocks.source,
     connect: mocks.connect,
     disconnect: mocks.disconnect,
@@ -66,6 +68,7 @@ const summary = {
       marketValue: '12000',
       weight: '0.12',
       unrealizedPnl: '2000',
+      tradeEngineEnabled: true,
     },
   ],
 };
@@ -103,6 +106,9 @@ describe('HoldingsPage', () => {
     mocks.source.mockResolvedValue({ authStatus: 'DISCONNECTED', syncStatus: 'IDLE' });
     mocks.deposit.mockResolvedValue({});
     mocks.buy.mockResolvedValue({});
+    mocks.operations.mockResolvedValue([]);
+    mocks.markers.mockResolvedValue([]);
+    mocks.updatePosition.mockResolvedValue({ ...summary.positions[0], tradeEngineEnabled: false });
   });
   afterEach(() => wrapper?.unmount());
 
@@ -116,5 +122,15 @@ describe('HoldingsPage', () => {
     await wrapper.get('[data-testid="form-submit"]').trigger('click');
     await flushPromises();
     expect(mocks.deposit).toHaveBeenCalledWith({ accountId: 1, amount: '100000' });
+  });
+
+  it('toggles trade engine from the position detail', async () => {
+    await mountPage();
+    await wrapper.get('button.text-left').trigger('click');
+    await flushPromises();
+    expect(wrapper.text()).toContain('交易提醒');
+    await wrapper.get('[data-testid="trade-engine-enabled"]').setValue(false);
+    await flushPromises();
+    expect(mocks.updatePosition).toHaveBeenCalledWith(11, { tradeEngineEnabled: false });
   });
 });

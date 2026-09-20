@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Run Trade Engine on current holdings only: candidates → LLM review → signals."""
+"""Run Trade Engine on current holdings only: one strategy, then LLM review."""
 
 from __future__ import annotations
 
@@ -20,10 +20,15 @@ from ..portfolio.resolver import PortfolioResolver  # pragma: allowlist secret
 from .config import get_risk_policy  # pragma: allowlist secret
 from .indicators import annotate  # pragma: allowlist secret
 from .market import RiskMarketGateway  # pragma: allowlist secret
-from .models import PositionContext, TradeSignal, TradeSignalCandidate  # pragma: allowlist secret
+from .models import PositionContext, TradeSignal, TradeSignalCandidate, five_minute_stamp  # pragma: allowlist secret
 from .notify import push_after_commit, render_trade_message  # pragma: allowlist secret
-from .registry import portfolio_strategies, position_strategies, strategies_for  # pragma: allowlist secret
-from .reviewer import TradeSignalReviewer, clamp_review  # pragma: allowlist secret
+from .registry import (  # pragma: allowlist secret
+    default_position_strategy_key,
+    portfolio_strategies,
+    resolve_position_strategy,
+    strategies_for,
+)
+from .reviewer import TradeSignalReviewer  # pragma: allowlist secret
 
 
 def _empty_stats(market: str, **extra: Any) -> dict[str, Any]:
@@ -62,11 +67,20 @@ class TradeEngineService:
         self.sources = HoldingsRepository(self.db)
         self.notifier = notifier
         self.reviewer = reviewer or TradeSignalReviewer()
-        self._position_strategy_loader = position_strategy_loader or position_strategies
+        self._position_strategy_loader = position_strategy_loader or resolve_position_strategy
         self._portfolio_strategy_loader = portfolio_strategy_loader or portfolio_strategies
 
     def list_strategies(self, market: str) -> list[dict[str, str]]:
-        return [{"key": item.key, "version": item.version} for item in strategies_for(market)]
+        default = default_position_strategy_key(market)
+        return [
+            {
+                "key": item.key,
+                "version": item.version,
+                "role": "portfolio" if item.key == "portfolio_risk_v1" else "position",
+                "default": item.key == default,
+            }
+            for item in strategies_for(market)
+        ]
 
     def evaluate_market(self, market: str, *, now: datetime | None = None, uid: int | None = None) -> dict[str, Any]:
         current = now or utc_now()
@@ -76,7 +90,14 @@ class TradeEngineService:
         for user in uids:
             result = self.evaluate_uid(user, market=market, now=current)
             users += 1
-            for key in ("positions_analyzed", "candidates", "llm_reviews", "confirmed_signals", "rejected_signals", "notifications"):
+            for key in (
+                "positions_analyzed",
+                "candidates",
+                "llm_reviews",
+                "confirmed_signals",
+                "rejected_signals",
+                "notifications",
+            ):
                 totals[key] += int(result.get(key) or 0)
         totals["users"] = users
         totals["evaluated"] = users
@@ -88,7 +109,7 @@ class TradeEngineService:
         eligible = list(portfolio.stock_positions(market))
         if not eligible:
             return _empty_stats(market, uid=uid)
-        symbols = [item.symbol for item in eligible]
+        symbols = list(dict.fromkeys(item.symbol for item in eligible))
         quotes = self.market.quotes(symbols, now=current)
         start = current - timedelta(days=20)
         bars = self.market.cached_five_minute_bars(symbols, start=start, end=current, now=current)
@@ -114,40 +135,45 @@ class TradeEngineService:
             next_states: dict[tuple[str, str, str], dict[str, Any]] = {}
             exit_states: dict[str, dict[str, Any]] = {}
             contexts: dict[str, PositionContext] = {}
-            position_strats = list(self._position_strategy_loader(market))
+            used_versions: dict[str, str] = {}
             portfolio_strats = list(self._portfolio_strategy_loader(market))
+            for item in portfolio_strats:
+                used_versions[item.key] = item.version
             for position in eligible:
+                strategy = self._position_strategy_loader(market, position.active_strategy_key)
+                if strategy is None:
+                    continue
+                used_versions[strategy.key] = strategy.version
                 quality = self.market.bar_quality(position.symbol, now=current)
                 symbol_bars = bars.get(position.symbol, [])
                 indicators = annotate(list(symbol_bars), policy=policy, market=position.market, now=current)
-                for strategy in position_strats:
-                    row = self.states.get_state(
-                        session,
-                        uid=uid,
-                        account_id=position.account_id,
-                        position_id=position.position_id,
-                        strategy_key=strategy.key,
-                    )
-                    state = deepcopy(row.state) if row is not None and isinstance(row.state, dict) else {}
-                    context = PositionContext(
-                        market=position.market,
-                        symbol=position.symbol,
-                        position=position,
-                        quote=quotes.get(position.symbol),
-                        five_minute_bars=symbol_bars,
-                        technical_indicators=indicators,
-                        strategy_state=state,
-                        now=current,
-                        bars_stale=bool(quality.get("stale")),
-                        latest_expected=quality.get("latest_expected_closed"),
-                        policy=policy,
-                    )
-                    contexts[position.position_id] = context
-                    produced = strategy.evaluate(context)
-                    next_states[(position.account_id, position.position_id, strategy.key)] = state
-                    if strategy.key == "exit_v1":
-                        exit_states[position.position_id] = state
-                    candidates.extend(produced)
+                row = self.states.get_state(
+                    session,
+                    uid=uid,
+                    account_id=position.account_id,
+                    position_id=position.position_id,
+                    strategy_key=strategy.key,
+                )
+                state = deepcopy(row.state) if row is not None and isinstance(row.state, dict) else {}
+                context = PositionContext(
+                    market=position.market,
+                    symbol=position.symbol,
+                    position=position,
+                    quote=quotes.get(position.symbol),
+                    five_minute_bars=symbol_bars,
+                    technical_indicators=indicators,
+                    strategy_state=state,
+                    now=current,
+                    bars_stale=bool(quality.get("stale")),
+                    latest_expected=quality.get("latest_expected_closed"),
+                    policy=policy,
+                )
+                contexts[position.position_id] = context
+                produced = list(strategy.evaluate(context))[:1]
+                next_states[(position.account_id, position.position_id, strategy.key)] = state
+                if strategy.key == "exit_v1":
+                    exit_states[position.position_id] = state
+                candidates.extend(produced)
             cash = sum((_dec(item.cash) for item in portfolio.accounts if item.market == market), start=Decimal("0"))
             portfolio_state: dict[str, Any] = {}
             for strategy in portfolio_strats:
@@ -179,32 +205,48 @@ class TradeEngineService:
             confirmed: list[TradeSignal] = []
 
             for item in hard:
-                # Hard stop is deterministic final. LLM is not required and cannot reject.
-                confirmed.append(self._to_signal(item, llm_reason=None, reviewed=False))
+                confirmed.append(self._to_signal(item, reviewed=False))
 
-            if soft:
-                extras_map = {item.signal_key: self._extras(item, contexts.get(item.position_id or "")) for item in soft}
-                decisions = self.reviewer.review(soft, extras=extras_map)
-                llm_reviews += len(soft)
-                for item in soft:
+            pending: list[TradeSignalCandidate] = []
+            for item in soft:
+                state = self._state_for(item, next_states)
+                stamp = self._review_stamp(item, state)
+                if stamp and state.get("last_reviewed_5m_bar") == stamp:
+                    rejected += 1
+                    continue
+                pending.append(item)
+
+            if pending:
+                extras_map = {
+                    item.signal_key: self._extras(item, contexts.get(item.position_id or "")) for item in pending
+                }
+                decisions = self.reviewer.review(pending, extras=extras_map)
+                llm_reviews += len(pending)
+                for item in pending:
+                    state = self._state_for(item, next_states)
+                    stamp = self._review_stamp(item, state)
+                    if stamp:
+                        state["last_reviewed_5m_bar"] = stamp
                     raw = decisions.get(item.signal_key)
-                    if raw is None or raw.failed:
+                    if raw is None or raw.failed or raw.decision != "CONFIRM":
                         rejected += 1
                         continue
-                    current_qty = Decimal("0")
-                    context = contexts.get(item.position_id or "")
-                    if context is not None:
-                        current_qty = context.position.quantity
-                    clamped = clamp_review(item, raw, current_quantity=current_qty)
-                    if clamped.decision != "CONFIRM":
-                        rejected += 1
-                        continue
-                    confirmed.append(self._to_signal(item, clamped=clamped, reviewed=True))
-                    if item.strategy_key == "exit_v1" and item.action in {"REDUCE", "EXIT"}:
-                        key = (item.account_id or "", item.position_id or "", "exit_v1")
-                        if key in next_states:
-                            next_states[key]["soft_episode_active"] = True
-                            next_states[key]["last_soft_signal_key"] = item.signal_key
+                    confirmed.append(self._to_signal(item, llm_reason=raw.reason, llm_comment=raw.comment, reviewed=True))
+                    key = (item.account_id or "", item.position_id or "", item.strategy_key)
+                    if item.strategy_key == "exit_v1" and item.action in {"REDUCE", "EXIT"} and key in next_states:
+                        next_states[key]["soft_episode_active"] = True
+                        next_states[key]["last_confirmed_soft_signal_key"] = item.signal_key
+                        next_states[key]["last_confirmed_soft_target"] = (
+                            None
+                            if item.suggested_target_quantity is None
+                            else format(item.suggested_target_quantity, "f")
+                        )
+                    if item.strategy_key == "portfolio_risk_v1":
+                        pkey = ("portfolio", "portfolio", "portfolio_risk_v1")
+                        if pkey in next_states:
+                            confirmed_keys = set(next_states[pkey].get("confirmed_keys") or [])
+                            confirmed_keys.add(item.signal_key)
+                            next_states[pkey]["confirmed_keys"] = sorted(confirmed_keys)
 
             created: list[TradeSignal] = []
             for signal in confirmed:
@@ -231,6 +273,7 @@ class TradeEngineService:
                     suggested_target_quantity=signal.suggested_target_quantity,
                     reason=signal.deterministic_reason,
                     llm_reason=signal.llm_reason,
+                    llm_comment=signal.llm_comment,
                     reviewed_by_llm=signal.reviewed_by_llm,
                     evidence=signal.evidence,
                     signal_key=signal.signal_key,
@@ -238,17 +281,13 @@ class TradeEngineService:
                     notification_id=notification_id,
                 )
             for (account_id, position_id, strategy_key), state in next_states.items():
-                version = next(
-                    (item.version for item in position_strats + portfolio_strats if item.key == strategy_key),
-                    "1",
-                )
                 self.states.upsert_state(
                     session,
                     uid=uid,
                     account_id=account_id,
                     position_id=position_id,
                     strategy_key=strategy_key,
-                    strategy_version=version,
+                    strategy_version=used_versions.get(strategy_key, "1"),
                     state=state,
                     evaluated_at=current,
                 )
@@ -292,7 +331,8 @@ class TradeEngineService:
         for position in portfolio.positions:
             if market and position.market != market:
                 continue
-            exit_state = state_map.get((position.account_id, position.position_id, "exit_v1"))
+            strategy_key = position.active_strategy_key or default_position_strategy_key(position.market)
+            exit_state = state_map.get((position.account_id, position.position_id, strategy_key))
             payload = exit_state.state if exit_state is not None else {}
             signal = latest.get(position.position_id)
             views.append(
@@ -304,12 +344,15 @@ class TradeEngineService:
                     "coverage": position.coverage,
                     "quantity": format(position.quantity, "f"),
                     "average_cost": format(position.average_cost, "f"),
+                    "strategy_key": strategy_key,
+                    "trade_engine_enabled": bool(position.trade_engine_enabled),
                     "action": None if signal is None else signal.action,
                     "suggested_target_quantity": None
                     if signal is None or signal.suggested_target_quantity is None
                     else format(signal.suggested_target_quantity, "f"),
                     "reason": None if signal is None else signal.reason,
                     "llm_reason": None if signal is None else getattr(signal, "llm_reason", None),
+                    "llm_comment": None if signal is None else getattr(signal, "llm_comment", None),
                     "profit_stage": payload.get("profit_stage"),
                     "active_stop": payload.get("active_stop"),
                     "highest_confirmed_close": payload.get("highest_confirmed_close"),
@@ -335,6 +378,7 @@ class TradeEngineService:
                     else format(row.suggested_target_quantity, "f"),
                     "reason": row.reason,
                     "llm_reason": row.llm_reason,
+                    "llm_comment": getattr(row, "llm_comment", None),
                     "reviewed_by_llm": bool(row.reviewed_by_llm),
                     "evidence": row.evidence or {},
                     "signal_key": row.signal_key,
@@ -351,6 +395,28 @@ class TradeEngineService:
         for source in self.sources.list_enabled():
             uids.add(source.uid)
         return sorted(uids)
+
+    @staticmethod
+    def _state_for(
+        candidate: TradeSignalCandidate,
+        next_states: dict[tuple[str, str, str], dict[str, Any]],
+    ) -> dict[str, Any]:
+        if candidate.strategy_key == "portfolio_risk_v1":
+            key = ("portfolio", "portfolio", "portfolio_risk_v1")
+        else:
+            key = (candidate.account_id or "", candidate.position_id or "", candidate.strategy_key)
+        return next_states.setdefault(key, {})
+
+    @staticmethod
+    def _review_stamp(candidate: TradeSignalCandidate, state: dict[str, Any]) -> str | None:
+        evidence = candidate.evidence or {}
+        stamp = evidence.get("bar_end") or evidence.get("last_processed_5m_bar")
+        if stamp:
+            return str(stamp)
+        processed = state.get("last_processed_5m_bar")
+        if processed:
+            return str(processed)
+        return five_minute_stamp(candidate.evaluated_at)
 
     @staticmethod
     def _extras(candidate: TradeSignalCandidate, context: PositionContext | None) -> dict[str, Any]:
@@ -377,10 +443,13 @@ class TradeEngineService:
         return extras
 
     @staticmethod
-    def _to_signal(candidate: TradeSignalCandidate, *, clamped=None, llm_reason: str | None = None, reviewed: bool = False) -> TradeSignal:
-        action = candidate.action if clamped is None else clamped.action
-        target = candidate.suggested_target_quantity if clamped is None else clamped.target_quantity
-        llm_text = llm_reason if clamped is None else clamped.reason
+    def _to_signal(
+        candidate: TradeSignalCandidate,
+        *,
+        llm_reason: str | None = None,
+        llm_comment: str | None = None,
+        reviewed: bool = False,
+    ) -> TradeSignal:
         return TradeSignal(
             strategy_key=candidate.strategy_key,
             strategy_version=candidate.strategy_version,
@@ -388,11 +457,12 @@ class TradeEngineService:
             account_id=candidate.account_id,
             position_id=candidate.position_id,
             symbol=candidate.symbol,
-            action=action,
-            suggested_target_quantity=target,
+            action=candidate.action,
+            suggested_target_quantity=candidate.suggested_target_quantity,
             reason=candidate.reason,
             deterministic_reason=candidate.reason,
-            llm_reason=llm_text,
+            llm_reason=llm_reason,
+            llm_comment=llm_comment,
             reviewed_by_llm=reviewed,
             evidence=candidate.evidence,
             evaluated_at=candidate.evaluated_at,
