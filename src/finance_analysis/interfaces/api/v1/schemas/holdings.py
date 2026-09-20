@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
-"""API schemas for Google Sheet holdings. Money fields are decimal strings."""
+"""API schemas for DB portfolio, Google Sheet secondary source, and BST markers."""
 
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Optional
+from typing import Optional
 
 from pydantic import BaseModel, Field, field_serializer
 
@@ -66,21 +66,19 @@ class HoldingsPolicyUpdate(BaseModel):
     vwap_mode: Optional[str] = None
 
 
-class HoldingsRebaseRequest(BaseModel):
-    reason: str = Field(..., min_length=1)
-    account_id: str
-    position_id: str
-    leg_id: str
-    expected_source_version: int
-    expected_state_version: int
-    observed_from: Optional[datetime] = None
-    high_watermark: Optional[str] = None
-    profit_stage: Optional[str] = None
-    active_stop: Optional[str] = None
+class TradeRequest(BaseModel):
+    symbol: Optional[str] = None
+    account_id: Optional[int] = None
+    position_id: Optional[int] = None
+    quantity: str
+    price: str
+    executed_at: Optional[datetime] = None
+    note: Optional[str] = None
+    asset_type: Optional[str] = "STOCK"
 
 
-class HoldingsPlanCancelRequest(BaseModel):
-    account_id: str
-    position_id: str
-    expected_state_version: int
-    reason: str = Field(..., min_length=1)
+class CashRequest(BaseModel):
+    account_id: int
+    amount: str
+    executed_at: Optional[datetime] = None
+    note: Optional[str] = None

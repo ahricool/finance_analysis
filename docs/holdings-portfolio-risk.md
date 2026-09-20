@@ -1,73 +1,93 @@
-# Google Sheet 持仓与分层风控
+# 持仓与 Trade Engine
 
-Sheet 是实际持仓的唯一编辑源。Finance Analysis 只读取 Accounts/Positions，不写回成交、不自动下单、不恢复旧 Portfolio CRUD。页面 `/market/holdings`，API `/api/v1/holdings`。本页风控是建议，不是回测或最优参数。
+数据库是普通股票/ETF 实际持仓的权威来源。Google Sheet 仍可连接，但只作为补充来源，后续主要用于复杂期权等外部持仓。Trade Engine 只分析和建议，不自动下单，也不判断用户有没有执行建议。
 
-## 读取与身份
+页面 `/market/holdings`。DB API `/api/v1/holdings`，Trade Engine `/api/v1/trade-engine`。Google OAuth 仍走 `/api/v1/holdings/google/*`，并保留旧路径别名。
 
-- Google OAuth Authorization Code + PKCE，scope 仅 `spreadsheets.readonly`。
-- `state` 一次性；refresh token 用 `GOOGLE_OAUTH_TOKEN_KEY` Fernet 加密后存 `holding_source`。
-- 只解析 spreadsheet ID 或 `docs.google.com` URL，不抓取用户提供的任意网址。
-- 快照 `content_hash` 不含 `fetched_at`。Redis 丢失后，同源 hash 只重建缓存，不重置策略状态。
-- 持仓 API 带 `Cache-Control: private, no-store`。全局通知不等于把持仓 API 或 OAuth 凭据公开。
+## 数据模型
 
-## 分钟数据（仅 portfolio_risk）
+- `portfolio_account`：每个市场一个默认账户（A股账户/CN、美股账户/US）。不存 currency，货币由 `market` 推断。
+- `portfolio_position`：当前实际持仓。V1 只支持 STOCK/ETF，数量单位是股（NUMERIC，兼容碎股），canonical symbol 如 `600519.SH` / `AAPL.US`。
+- `position_lot`：CORE/ADDON 风险归因，不是税务 lot。第一次买入建 CORE，继续买入建 ADDON，卖出 newest ADDON → older ADDON → CORE。
+- `trade_operation`：BUY/SELL 操作记录。日K BST 由此动态聚合，不另建 BST 表。
+- `cash_operation`：DEPOSIT/WITHDRAW。买入/卖出的现金变化由 trade_operation 解释，不复制成 cash_operation。
+- `holding_source`：Google OAuth 与 Sheet 快照配置。
+- `trade_strategy_state`：按 `uid + account_id + position_id + strategy_key` 保存策略状态。
+- `trade_signal`：可通知的 WATCH/REDUCE/EXIT/WARNING；一般 HOLD 不落库。
 
-实时报价继续走现有 REALTIME_QUOTES 顺序。其它业务默认 fallback 不变。
+市值、仓位、浮盈亏按当前报价动态计算，不存 DB。
+
+## 买卖与现金
+
+同一事务：
+
+- 入金/出金更新 `cash`，现金不能为负。
+- BUY：写操作、创建/更新持仓、创建 CORE/ADDON、更新数量与剩余 lot 加权平均成本、`cash -= qty * price`。现金不足直接报错。
+- SELL：数量不能超过当前持仓；newest-first 扣 lot；全部卖完后 `quantity=0` 且 `closed_at=executed_at`。再次买入开新一轮 position 和新的 CORE，不继承上一轮 Trade Engine 状态。
+
+不考虑手续费。
+
+## Google 与 DB
+
+`PortfolioResolver` 合并 DB 与最新 Google 快照：
+
+- 相同 `market + canonical symbol` 的普通股票/ETF：DB 存在则完全忽略 Google 数量/成本。
+- DB 没有的股票/ETF 可作为 `source=GOOGLE` 参与展示和 Trade Engine。
+- OPTION 只作为 `EXTERNAL_ONLY` 外部持仓：不进 DB、不进 `exit_v1`、主持仓页不展示期权字段。
+
+LLM 自然语言上下文走 `render_portfolio_context()`，必须标记 `[DB]` / `[GOOGLE]`。
+
+## Trade Engine
+
+代码 registry，不是插件框架：
+
+```text
+CN: ExitV1, CNIntradayV1, PortfolioRiskV1
+US: ExitV1, USIntradayV1, PortfolioRiskV1
+```
+
+每次运行：解析当前持仓 → 该市场构建一次 MarketContext → 批量报价/5m → 执行策略 → 聚合信号 → 保存必要 state/signal → 首次或升级事件通知。不调 LLM，不自动下单。
+
+聚合极简：`EXIT > REDUCE > WATCH > HOLD`；多个 `suggested_target_quantity` 取最小值。`portfolio_risk_v1` 只输出 WARNING，不算应该卖哪一只。CORE/ADDON、Stage A/B/C 留在 `exit_v1` 内部。
+
+### exit_v1
+
+保留硬保护、Stage A/B/C、high watermark、active stop、5m 普通走弱、严重破位、恢复、ADDON 失败优先退出。同一 soft episode 不重复减仓；用户卖出后按当前数量管理；恢复后可以新 episode。硬保护可随时给出更严格 EXIT。
+
+### MarketContext
+
+一个 market / 一次 run 只构建一次，所有持仓共享。CN 复用已持久化的市场结构、情绪、行业观察；US 复用已持久化的市场结构。不恢复全市场盘中选股 scanner / LLM Judge。
+
+## 分钟数据
+
+实时报价继续走现有 REALTIME_QUOTES 顺序。Trade Engine 5m 来源：
 
 | 市场 | 5m 来源 | 接口 |
 | --- | --- | --- |
 | CN | `SinaMinuteProvider` | `ak.stock_zh_a_minute(symbol, period="5", adjust="")` |
 | US | 现有 yfinance | `period=1mo` 冷启动，`period=5d` 刷新；`prepost=False` |
 
-不要把新浪结果伪装成扶摇，不要把长桥或东财设为本模块隐式分钟 fallback，不要恢复全功能 AkShare、PyTDX、efinance、BaoStock。streaming 的 1m K 线不得改标签冒充 5m。
+不要把新浪结果伪装成扶摇，不要把长桥或东财设为本模块隐式分钟 fallback。只用已闭合 K 线。新浪按结束时间；Yahoo 按开始时间。
 
-时间戳：
-
-- 新浪按 **结束时间**：09:35 表示 09:30–09:35；15:00 表示 14:55–15:00。
-- Yahoo 按 **开始时间**：未闭合行即使返回也不能推进策略。
-- 只用已闭合 K 线；同一 `bar_end` 不重复累计确认。
-- 请求完成时间不是行情时间，请求耗时不是行情延迟。
-- 不写死 yfinance 一定延迟 15 分钟，也不声称它保证实时。
-
-用户在某环境看到约 1970 根、42 个交易日只是实测记录，不是硬编码，也不保证所有股票/ETF 或盘中无延迟。首日不完整窗口不能当作完整历史日。缺 10 个完整交易日基准时 RVOL 为未知。
-
-## 调度与缓存
+## 调度
 
 - `holdings_sync`：每 5 分钟，`ingestion` 队列。
-- `portfolio_risk_cn` / `portfolio_risk_us`：常规交易时段每分钟，`alerts` 队列；午休/非交易日跳过。
-- 不新增 risk-worker，不把部署拓扑当功能前置条件。
-- 5m 按 symbol/provider/timeframe/session/adjustment 共享 Redis 缓存；同一股票多条腿只请求一次。
-- 报价硬保护不 round-trip 等待慢历史请求。新闭合 K 线有短发布缓冲和有界补查，失败保留原缓存并标 STALE。
-- 不新增数据库分钟历史表。
+- `trade_engine_cn` / `trade_engine_us`：对应市场真实交易时段每 5 分钟，`alerts` 队列；cron 为 `*/5`，task 内再用交易日历校验 session / 半天市 / 假期。
+- 已删除：`portfolio_risk_cn/us`、`analysis_a_share_intraday`、`analysis_us_intraday`。
+- 保留：A 股收盘前复核、美股盘前/盘后、ETF/Trend preview。
 
-## VWAP 与量能
+不新增专用 worker。Alembic head 为 `0062_holdings_portfolio_risk`。
 
-`PORTFOLIO_RISK_VWAP_MODE=exact_or_proxy`（可改为 `exact_only`）：
+## BST
 
-- EXACT：真实成交额完整且单位可靠，`sum(amount)/sum(volume)`。
-- PROXY：无真实成交额但 OHLC/量可靠，用 typical price。
-- UNAVAILABLE：量不可靠、累计量为 0 或缺口；暂停依赖该指标的软规则，不偷偷删掉 VWAP 条件继续建议。
+股票日K：同一交易日只有 BUY → B，只有 SELL → S，两者都有 → T。点击/hover 显示当天操作。
 
-整个评估窗口统一一种口径。切换口径重置软确认计数，不重置已有减仓计划。页面、事件和通知展示 EXACT/PROXY/UNAVAILABLE。这是明确允许的近似，不宣称等同真实成交额 VWAP。
-
-单个真实零量 bar 与连续异常零量分开；yfinance `volume=0` 保留 0。不能用盘前有价无量判断缩量或放量。
-
-## 通知
-
-复用现有 `NotificationService` 和全局 Telegram/ntfy。不建设私人通知系统，不要求用户先填私人渠道，不新增 Delivery 账本。
-
-风控状态与 `risk_event` 同事务提交后调用 `push_existing`。`notification_id` 表示站内消息已记录；`push_sent` 只描述外推。已有 `notification_id` 的事件不因外推失败再次 `send()`。未配置渠道或外推失败不回滚风控。正常重复任务靠 episode/dedupe_key 去重；崩溃边界不做恰好一次投递承诺。
-
-允许通知证券、数量、成本、CORE/ADDON、目标数量、保护价和必要风险证据。禁止 Google token、OAuth code/state、Sheet 私有标识和完整表格进入通知或日志。
-
-## 策略主体
-
-CORE/ADDON 独立保护基准，position 级统一软退出计划。加仓失败优先撤新增风险，不叠加对底仓再次减半。episode 与固定目标防止连续重复减仓。单票风险跨所有腿汇总。参数未经验证，不得称为已回测或已优化。
+BTC 不建真实账户。策略快照 `BUY→B`、`EXIT→S`，同一当前图表 interval bucket 同时出现则 T。按当前选中 strategy 筛选。UI 标明「策略 BST / Strategy Signal」，不是真实成交。
 
 ## 部署
 
 1. 填写 `.env.example` 中的 Google OAuth 与 `GOOGLE_OAUTH_TOKEN_KEY`。
-2. 重定向 URI 必须是 `.../api/v1/holdings/oauth/callback`。
-3. 跑 Alembic 至 `0063_holdings_published_snapshot`。
-4. 普通 worker 已消费 `ingestion` 与 `alerts`，无需新队列。
-5. 可选配置全局 Telegram/ntfy；没有渠道时风控仍可用。
+2. 重定向 URI 仍为 `.../api/v1/holdings/oauth/callback`。
+3. 跑 Alembic 至 `0062_holdings_portfolio_risk`。
+4. 普通 worker 已消费 `ingestion` 与 `alerts`。
+5. 可选配置全局 Telegram/ntfy；没有渠道时引擎仍可用。

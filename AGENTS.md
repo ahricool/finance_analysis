@@ -8,6 +8,7 @@
 
 现有 `README.md` 主要是 reference data / daily sync 升级运维备忘，不是完整快速开始。
 专题细节见 `docs/market-streamer.md`、`docs/quant-research.md`、
+专题细节见 `docs/market-streamer.md`、`docs/quant-research.md`、
 `docs/etf-rotation.md` 和 `docs/holdings-portfolio-risk.md`；其中时间表和迁移步骤可能落后，易变事实仍以代码为准。
 
 ## 系统概览
@@ -283,7 +284,7 @@ pnpm run test:smoke
 | 新通知渠道 | `notification/senders/` + config/routing/diagnostics |
 | 新前端功能 | 见 `web/AGENTS.md` |
 | 新 Qlib 模型/协议 | 见 `qlib_worker/AGENTS.md`，同时核对主应用 quant 边界 |
-| Google Sheet 持仓 / 分钟风控 | `holdings/`、`portfolio_risk/`、`integrations/google_sheets/`、`integrations/market_data/providers/sina_minute.py` |
+| Google Sheet 持仓 / Trade Engine | `holdings/`、`portfolio/`、`trade_engine/`、`integrations/google_sheets/`、`integrations/market_data/providers/sina_minute.py` |
 
 ## 提交前检查
 
@@ -329,14 +330,12 @@ BTC 多策略以 `strategy_key + symbol` 隔离，代码注册表当前仅 `btc_
 `industry_strength_cn` 在上海19:10检查收盘、行业/成分覆盖率后保存独立快照；禁止用当前成分回填历史 Breadth。
 页面 `/research/industry-strength`，指标和口径见 `docs/industry-strength.md`。
 
-## Holdings / Portfolio Risk
+## Holdings / Trade Engine
 
-`holdings/` 只从 Google Sheet 读取 Accounts/Positions；系统不写回成交、不恢复旧 Portfolio CRUD。
-`portfolio_risk/` 是建议型分层风控：硬保护用现有实时报价，5m 软规则仅用于本模块。
-CN 5m 只走窄范围 `SinaMinuteProvider`（`ak.stock_zh_a_minute` period=5）；US 5m 只走现有 yfinance。
-不要把新浪数据伪装成扶摇，不要把长桥/东财设为本模块隐式分钟 fallback，不要恢复全功能 AkShareProvider。
-任务复用 `ingestion`（`holdings_sync` 每 5 分钟）和 `alerts`（`portfolio_risk_cn/us` 每分钟），不新增 risk-worker。
-通知复用现有全局 Telegram/ntfy：先与 `risk_event` 同事务写入站内消息，再 `push_existing`；外推失败不回滚、不重复创建站内消息。
+`portfolio/` 是普通股票/ETF 真实持仓（Primary）：账户现金、当前持仓、CORE/ADDON lot 和买卖/出入金操作写 PostgreSQL。Google Sheet 继续由 `holdings/` 读取，但只作为 Secondary 外部持仓；相同 `market + canonical symbol` 时 DB 覆盖 Google，不合并数量。OPTION 只保留为 `EXTERNAL_ONLY`，不进 DB 持仓，也不进 `exit_v1`。 <!-- pragma: allowlist secret -->
+`trade_engine/` 每 5 分钟评估当前事实持仓并输出建议（HOLD/WATCH/REDUCE/EXIT/WARNING），不自动下单，也不判断用户有没有执行建议。删除 ActivePlan。CN 5m 只走窄范围 `SinaMinuteProvider`；US 5m 只走现有 yfinance。
+任务复用 `ingestion`（`holdings_sync` 每 5 分钟）和 `alerts`（`trade_engine_cn/us` 每 5 分钟），不新增专用 worker。
+通知复用现有全局 Telegram/ntfy：先与 `trade_signal` 同事务写入站内消息，再 `push_existing`。
 Google token、OAuth code/state 和完整表格不得进入日志、API 或通知。详见 `docs/holdings-portfolio-risk.md`。
 
 ## Market Sentiment

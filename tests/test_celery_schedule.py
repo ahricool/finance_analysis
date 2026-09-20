@@ -27,12 +27,10 @@ EXPECTED_JOBS = {
     "market_calendar": ("scheduled_market_calendar", "America/New_York"),
     "analysis_us_premarket_news": ("scheduled_us_premarket_news", "America/New_York"),
     "analysis_us_premarket": ("scheduled_us_premarket", "America/New_York"),
-    "analysis_us_intraday": ("scheduled_us_intraday", "America/New_York"),
     "analysis_us_postmarket_review": ("scheduled_us_postmarket_review", "America/New_York"),
     "reference_data_sync": ("scheduled_reference_data_sync", "Asia/Shanghai"),
     "market_data_sync_cn": ("scheduled_market_data_sync_cn", "Asia/Shanghai"),
     "market_data_sync_us": ("scheduled_market_data_sync_us", "America/New_York"),
-    "analysis_a_share_intraday": ("scheduled_a_share_intraday", "Asia/Shanghai"),
     "analysis_a_share_pre_close_review": ("scheduled_a_share_pre_close_review", "Asia/Shanghai"),
     "quant_daily_pipeline_us": ("scheduled_quant_daily_us", "America/New_York"),
     "quant_daily_pipeline_cn": ("scheduled_quant_daily_cn", "Asia/Shanghai"),
@@ -45,8 +43,8 @@ EXPECTED_JOBS = {
     "trend_following_preview_cn": ("scheduled_trend_following_preview_cn", "Asia/Shanghai"),
     "trend_following_preview_us": ("scheduled_trend_following_preview_us", "America/New_York"),
     "holdings_sync": ("scheduled_holdings_sync", "Asia/Shanghai"),
-    "portfolio_risk_cn": ("scheduled_portfolio_risk_cn", "Asia/Shanghai"),
-    "portfolio_risk_us": ("scheduled_portfolio_risk_us", "America/New_York"),
+    "trade_engine_cn": ("scheduled_trade_engine_cn", "Asia/Shanghai"),
+    "trade_engine_us": ("scheduled_trade_engine_us", "America/New_York"),
 }
 
 
@@ -68,10 +66,10 @@ def test_all_original_jobs_enter_beat_schedule():
         definition = get_scheduled_task_definition(job_id)
         if definition.enabled:
             assert celery_task_name(job_id) in task_names
-    a_share_entries = [k for k in schedule if k.startswith("analysis_a_share_intraday")]
-    assert len(a_share_entries) == 2
-    us_intraday_entries = [k for k in schedule if k.startswith("analysis_us_intraday")]
-    assert len(us_intraday_entries) == 2
+    cn_entries = [k for k in schedule if k.startswith("trade_engine_cn")]
+    assert len(cn_entries) == 3
+    us_entries = [k for k in schedule if k.startswith("trade_engine_us")]
+    assert len(us_entries) == 1
 
 
 def test_beat_entries_carry_scheduler_kwargs_queue_and_expires():
@@ -84,28 +82,28 @@ def test_beat_entries_carry_scheduler_kwargs_queue_and_expires():
 
 
 def test_intraday_expires_is_short():
-    definition = get_scheduled_task_definition("analysis_us_intraday")
+    definition = get_scheduled_task_definition("trade_engine_us")
     assert definition.expires <= 10 * 60
 
 
-def test_us_intraday_uses_new_york_offset_windows():
-    definition = get_scheduled_task_definition("analysis_us_intraday")
+def test_us_trade_engine_uses_new_york_five_minute_windows():
+    definition = get_scheduled_task_definition("trade_engine_us")
 
     assert definition.timezone == "America/New_York"
     assert definition.expires == 4 * 60
     schedules = {(item.hour, item.minute, item.day_of_week, item.timezone) for item in definition.schedules}
-    assert ("9", "45", "mon-fri", "America/New_York") in schedules
-    assert ("10-15", "15,45", "mon-fri", "America/New_York") in schedules
-    assert "每30分钟" in definition.schedule_text
+    assert ("9-16", "*/5", "mon-fri", "America/New_York") in schedules
+    assert "每5分钟" in definition.schedule_text
 
 
-def test_a_share_intraday_uses_hourly_windows_and_skips_lunch():
-    definition = get_scheduled_task_definition("analysis_a_share_intraday")
+def test_cn_trade_engine_uses_five_minute_windows_and_skips_lunch():
+    definition = get_scheduled_task_definition("trade_engine_cn")
 
     assert definition.timezone == "Asia/Shanghai"
     schedules = {(item.hour, item.minute, item.day_of_week, item.timezone) for item in definition.schedules}
-    assert ("9-10", "45", "mon-fri", "Asia/Shanghai") in schedules
-    assert ("13-15", "0", "mon-fri", "Asia/Shanghai") in schedules
+    assert ("9-11", "*/5", "mon-fri", "Asia/Shanghai") in schedules
+    assert ("13-14", "*/5", "mon-fri", "Asia/Shanghai") in schedules
+    assert ("15", "0,5", "mon-fri", "Asia/Shanghai") in schedules
     assert "午休不运行" in definition.schedule_text
 
 
@@ -161,19 +159,16 @@ def test_next_run_rolls_over_to_next_day():
 
 
 def test_a_share_window_skips_weekend():
-    definition = get_scheduled_task_definition("analysis_a_share_intraday")
-    # Friday 2026-06-26 16:00 Shanghai (08:00 UTC) -> next is Monday morning.
+    definition = get_scheduled_task_definition("trade_engine_cn")
     friday_evening = datetime(2026, 6, 26, 8, 0, tzinfo=timezone.utc)
     nxt = definition.next_run_time(now=friday_evening)
     local = nxt.astimezone(ZoneInfo("Asia/Shanghai"))
     assert local.isoweekday() == 1  # Monday
-    assert (local.hour, local.minute) == (9, 45)
+    assert (local.hour, local.minute) == (9, 0)
 
 
 def test_multi_cron_takes_earliest_window():
-    definition = get_scheduled_task_definition("analysis_a_share_intraday")
-    # Monday 2026-06-22 12:00 Shanghai (04:00 UTC): morning window finished at
-    # 11:45, so the next fire is the afternoon window opener at 13:00.
+    definition = get_scheduled_task_definition("trade_engine_cn")
     monday_noon = datetime(2026, 6, 22, 4, 0, tzinfo=timezone.utc)
     nxt = definition.next_run_time(now=monday_noon)
     local = nxt.astimezone(ZoneInfo("Asia/Shanghai"))
@@ -259,8 +254,8 @@ def test_cn_quant_runs_one_hour_after_cn_daily_sync_on_analysis_queue():
     }
 
 
-def test_us_intraday_schedule_follows_new_york_dst():
-    definition = get_scheduled_task_definition("analysis_us_intraday")
+def test_us_trade_engine_schedule_follows_new_york_dst():
+    definition = get_scheduled_task_definition("trade_engine_us")
 
     summer = datetime(2026, 7, 1, 13, 44, tzinfo=timezone.utc)
     winter = datetime(2026, 1, 5, 14, 44, tzinfo=timezone.utc)

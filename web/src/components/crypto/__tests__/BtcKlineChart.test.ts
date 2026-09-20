@@ -37,14 +37,13 @@ describe('BTC chart data mapping', () => {
       global: { stubs: { MarketKLineChart: true } } });
     const overlay = wrapper.getComponent(MarketKLineChart).props('overlays')![0]!;
     expect(overlay.points).toEqual([{ timestamp: Date.parse(row.openTime), value: 101 }]);
-    expect((overlay.extendData as { label: string }).label).toBe('↑ BUY');
+    expect((overlay.extendData as { label: string }).label).toBe('B');
     overlay.onClick!({} as never); await wrapper.vm.$nextTick();
-    expect(wrapper.get('[data-testid="btc-signal-detail"]').text()).toContain('test entry');
+    expect(wrapper.get('[data-testid="btc-signal-detail"]').text()).toContain('策略 BST B');
     expect(wrapper.get('[data-testid="btc-signal-detail"]').text()).toContain('Breakout V1');
     await wrapper.setProps({ strategyKey: 'btc_test_v1', strategyName: 'Test V1', signals: [{ ...signal, strategyKey: 'btc_test_v1', action: 'EXIT' }] });
     expect(wrapper.find('[data-testid="btc-signal-detail"]').exists()).toBe(false);
-    expect(wrapper.getComponent(MarketKLineChart).props('overlays')![0]!.id).toContain('btc_test_v1');
-    expect((wrapper.getComponent(MarketKLineChart).props('overlays')![0]!.extendData as { label: string }).label).toBe('↓ EXIT');
+    expect((wrapper.getComponent(MarketKLineChart).props('overlays')![0]!.extendData as { label: string }).label).toBe('S');
     wrapper.unmount();
   });
 

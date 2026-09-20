@@ -39,12 +39,10 @@ JOB_DAILY_ANALYSIS = "analysis_daily"
 JOB_MARKET_CALENDAR = "market_calendar"
 JOB_US_PREMARKET_NEWS = "analysis_us_premarket_news"
 JOB_US_PREMARKET_ANALYSIS = "analysis_us_premarket"
-JOB_US_INTRADAY_ANALYSIS = "analysis_us_intraday"
 JOB_US_POSTMARKET_REVIEW = "analysis_us_postmarket_review"
 JOB_REFERENCE_DATA_SYNC = "reference_data_sync"
 JOB_MARKET_DATA_SYNC_CN = "market_data_sync_cn"
 JOB_MARKET_DATA_SYNC_US = "market_data_sync_us"
-JOB_A_SHARE_INTRADAY_ANALYSIS = "analysis_a_share_intraday"
 JOB_A_SHARE_PRE_CLOSE_REVIEW = "analysis_a_share_pre_close_review"
 JOB_QUANT_DAILY_PIPELINE_US = "quant_daily_pipeline_us"
 JOB_QUANT_DAILY_PIPELINE_CN = "quant_daily_pipeline_cn"
@@ -60,14 +58,15 @@ JOB_TREND_FOLLOWING_US = "trend_following_us"
 JOB_TREND_FOLLOWING_PREVIEW_CN = "trend_following_preview_cn"
 JOB_TREND_FOLLOWING_PREVIEW_US = "trend_following_preview_us"
 JOB_HOLDINGS_SYNC = "holdings_sync"
-JOB_PORTFOLIO_RISK_CN = "portfolio_risk_cn"
-JOB_PORTFOLIO_RISK_US = "portfolio_risk_us"
+JOB_TRADE_ENGINE_CN = "trade_engine_cn"
+JOB_TRADE_ENGINE_US = "trade_engine_us"
 
 EXPIRES_HOLDINGS_SYNC = 4 * 60
-EXPIRES_PORTFOLIO_RISK = 50
+EXPIRES_TRADE_ENGINE = 4 * 60
 
 
 def celery_task_name(job_id: str) -> str:
     return f"scheduled.{job_id}"
+
 
 JOB_MARKET_SENTIMENT_CN = "market_sentiment_cn"

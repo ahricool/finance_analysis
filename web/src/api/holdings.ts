@@ -29,169 +29,142 @@ export interface HoldingsSource {
   canBackgroundSync: boolean;
 }
 
-export interface HoldingsLeg {
-  accountId: string;
-  positionId: string;
-  legId: string;
-  legRole: 'CORE' | 'ADDON';
+export interface PortfolioAccount {
+  id: number;
+  name: string;
+  market: string;
+  cash: string;
+  currency: string;
+}
+
+export interface PortfolioPosition {
+  id: number;
+  accountId: number;
+  market: string;
   symbol: string;
-  canonicalSymbol: string | null;
   assetType: string;
   quantity: string;
-  entryPrice: string;
-  entryTime: string;
-  status: 'OPEN' | 'CLOSED';
-  coverage: string;
-  coverageReason: string | null;
-  initialStop: string | null;
+  averageCost: string;
+  currentPrice?: string | null;
+  marketValue?: string | null;
+  weight?: string | null;
+  unrealizedPnl?: string | null;
+  openedAt?: string | null;
+  closedAt?: string | null;
+  lots?: Array<{ id: number; role: string; remainingQuantity: string; entryPrice: string }>;
 }
 
-export interface HoldingsPosition {
+export interface HoldingsSummary {
+  market: string;
+  accounts: PortfolioAccount[];
+  cash: string;
+  marketValue: string;
+  totalAsset: string;
+  grossExposure: string | null;
+  positions: PortfolioPosition[];
+}
+
+export interface TradeMarkerView {
+  timestamp: string;
+  type: 'B' | 'S' | 'T';
+  operations: Array<{ executedAt: string; side: string; quantity: string; price: string }>;
+}
+
+export interface TradeEnginePosition {
   accountId: string;
   positionId: string;
   symbol: string;
-  canonicalSymbol: string | null;
-  assetType: string;
-  legs: HoldingsLeg[];
-}
-
-export interface HoldingsAccount {
-  accountId: string;
-  accountName: string;
-  baseCurrency: string;
-  netAsset: string | null;
-  validity: string;
-  positionsComplete: boolean;
-}
-
-export interface HoldingsSnapshot {
-  status: string;
-  generation: number;
-  accounts: HoldingsAccount[];
-  positions: HoldingsPosition[];
-  uncoveredLegs: HoldingsLeg[];
-  warnings: string[];
-}
-
-export interface RiskPositionView {
-  accountId: string;
-  positionId: string;
-  symbol: string;
-  planStatus: string;
-  planAction: string;
-  planRevision: number;
-  rowVersion: number;
-  lastBarEnd: string | null;
-  lastQuoteAsOf: string | null;
-  activePlan: Record<string, unknown> | null;
-  legsState: Record<string, unknown> | null;
-  fiveMinuteStatus?: string | null;
-  quoteStatus?: string | null;
-  execution?: string | null;
-  currentQuantity?: string | null;
-  reduceQuantity?: string | null;
-  needsReview?: boolean;
-}
-
-export interface RiskEventView {
-  id: number;
-  eventType: string;
-  action: string;
-  positionId: string;
-  legId: string | null;
-  targetQuantity: string | null;
-  createdAt: string;
-  notificationId: number | null;
-  pushStatus: string;
-  evidence: Record<string, unknown>;
-}
-
-export interface HoldingsPolicy {
-  policy: {
-    maxSymbolWeight?: number;
-    riskPerSymbol?: number;
-    totalOpenRisk?: number;
-    maxGrossExposure?: number;
-    vwapMode?: string;
-  };
-  policyVersion: number;
+  source: string;
+  action: string | null;
+  suggestedTargetQuantity: string | null;
+  reason: string | null;
+  profitStage: string | null;
+  activeStop: string | null;
 }
 
 export const holdingsApi = {
+  async summary(market: string): Promise<HoldingsSummary> {
+    const { data } = await apiClient.get('/api/v1/holdings/summary', { params: { market } });
+    return toCamelCase(data);
+  },
+  async buy(body: { accountId: number; symbol: string; quantity: string; price: string; executedAt?: string; assetType?: string }) {
+    const { data } = await apiClient.post('/api/v1/holdings/buy', {
+      account_id: body.accountId,
+      symbol: body.symbol,
+      quantity: body.quantity,
+      price: body.price,
+      executed_at: body.executedAt,
+      asset_type: body.assetType || 'STOCK',
+    });
+    return toCamelCase(data);
+  },
+  async sell(body: { positionId: number; quantity: string; price: string; executedAt?: string }) {
+    const { data } = await apiClient.post('/api/v1/holdings/sell', {
+      position_id: body.positionId,
+      quantity: body.quantity,
+      price: body.price,
+      executed_at: body.executedAt,
+    });
+    return toCamelCase(data);
+  },
+  async deposit(body: { accountId: number; amount: string }) {
+    const { data } = await apiClient.post('/api/v1/holdings/cash/deposit', { account_id: body.accountId, amount: body.amount });
+    return toCamelCase(data);
+  },
+  async withdraw(body: { accountId: number; amount: string }) {
+    const { data } = await apiClient.post('/api/v1/holdings/cash/withdraw', { account_id: body.accountId, amount: body.amount });
+    return toCamelCase(data);
+  },
+  async operations(positionId: number) {
+    const { data } = await apiClient.get(`/api/v1/holdings/positions/${positionId}/operations`);
+    return (data.items || []).map((item: unknown) => toCamelCase(item));
+  },
+  async markers(positionId: number): Promise<TradeMarkerView[]> {
+    const { data } = await apiClient.get(`/api/v1/holdings/positions/${positionId}/markers`);
+    return (data.items || []).map((item: unknown) => toCamelCase(item));
+  },
   async source(): Promise<HoldingsSource> {
-    const { data } = await apiClient.get('/api/v1/holdings/source');
+    const { data } = await apiClient.get('/api/v1/holdings/google/source');
     return toCamelCase(data);
   },
   async connect(spreadsheetId: string, returnPath = '/market/holdings') {
-    const { data } = await apiClient.post('/api/v1/holdings/connect', {
+    const { data } = await apiClient.post('/api/v1/holdings/google/connect', {
       spreadsheet_id: spreadsheetId,
       return_path: returnPath,
     });
     return data as { authorization_url: string; return_path: string; auth_status: string };
   },
   async disconnect() {
-    const { data } = await apiClient.post('/api/v1/holdings/disconnect');
+    const { data } = await apiClient.post('/api/v1/holdings/google/disconnect');
     return data;
   },
   async sync() {
-    const { data } = await apiClient.post('/api/v1/holdings/sync');
+    const { data } = await apiClient.post('/api/v1/holdings/google/sync');
     return data as { task_id: string | null; status: string; changed?: boolean; generation?: number };
   },
-  async snapshot(): Promise<{ status: string; snapshot: HoldingsSnapshot | null }> {
+  async snapshot() {
     const { data } = await apiClient.get('/api/v1/holdings/snapshot');
     return { status: data.status, snapshot: data.snapshot ? toCamelCase(data.snapshot) : null };
   },
-  async policy(): Promise<HoldingsPolicy> {
-    const { data } = await apiClient.get('/api/v1/holdings/policy');
-    return toCamelCase(data);
+};
+
+export const tradeEngineApi = {
+  async positions(market?: string): Promise<TradeEnginePosition[]> {
+    const { data } = await apiClient.get('/api/v1/trade-engine/positions', { params: market ? { market } : {} });
+    return (data.items || []).map((item: unknown) => toCamelCase(item));
   },
-  async updatePolicy(policy: Record<string, unknown>): Promise<HoldingsPolicy> {
-    const { data } = await apiClient.put('/api/v1/holdings/policy', policy);
-    return toCamelCase(data);
-  },
-  async risk() {
-    const { data } = await apiClient.get('/api/v1/holdings/risk');
-    return {
-      source: data.source,
-      snapshot: data.snapshot ? toCamelCase(data.snapshot) : null,
-      positions: (data.positions || []).map((item: unknown) => toCamelCase(item)) as RiskPositionView[],
-      events: (data.events || []).map((item: unknown) => toCamelCase(item)) as RiskEventView[],
-    };
-  },
-  async runRisk() {
-    const { data } = await apiClient.post('/api/v1/holdings/risk/run');
-    return data;
-  },
-  async cancelPlan(body: {
-    accountId: string;
-    positionId: string;
-    expectedStateVersion: number;
-    reason: string;
-  }) {
-    const { data } = await apiClient.post('/api/v1/holdings/plans/cancel', {
-      account_id: body.accountId,
-      position_id: body.positionId,
-      expected_state_version: body.expectedStateVersion,
-      reason: body.reason,
+  async signals(market?: string, positionId?: string) {
+    const { data } = await apiClient.get('/api/v1/trade-engine/signals', {
+      params: { ...(market ? { market } : {}), ...(positionId ? { position_id: positionId } : {}) },
     });
-    return data;
+    return (data.items || []).map((item: unknown) => toCamelCase(item));
   },
-  async rebase(body: {
-    accountId: string;
-    positionId: string;
-    legId: string;
-    expectedSourceVersion: number;
-    expectedStateVersion: number;
-    reason: string;
-  }) {
-    const { data } = await apiClient.post('/api/v1/holdings/legs/rebase', {
-      account_id: body.accountId,
-      position_id: body.positionId,
-      leg_id: body.legId,
-      expected_source_version: body.expectedSourceVersion,
-      expected_state_version: body.expectedStateVersion,
-      reason: body.reason,
-    });
+  async strategies(market: string) {
+    const { data } = await apiClient.get('/api/v1/trade-engine/strategies', { params: { market } });
+    return data.items || [];
+  },
+  async run(market: string) {
+    const { data } = await apiClient.post('/api/v1/trade-engine/run', null, { params: { market } });
     return data;
   },
 };

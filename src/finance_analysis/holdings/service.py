@@ -247,11 +247,9 @@ class HoldingsService:
         return refresh_validity(snapshot, now=utc_now())
 
     def get_context(self, *, uid: int) -> str | None:
-        snapshot = self.get_snapshot(uid=uid)
-        if snapshot is None:
-            return None
-        cached = self.cache.get_context(uid, snapshot.source_id, snapshot.content_hash)
-        return cached or render_holdings_context(snapshot)
+        from ..portfolio.context import render_portfolio_context
+        from ..portfolio.resolver import PortfolioResolver
+        return render_portfolio_context(PortfolioResolver(holdings=self).get_resolved_portfolio(uid))
 
     def sync(self, *, uid: int, force: bool = False) -> dict[str, Any]:
         source = self.repository.get_for_uid(uid)

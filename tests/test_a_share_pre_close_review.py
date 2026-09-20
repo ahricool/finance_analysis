@@ -349,7 +349,7 @@ def test_existing_intraday_task_and_new_task_are_both_registered():
     from finance_analysis.tasks.celery.app import celery_app
 
     celery_app.loader.import_default_modules()
-    assert "scheduled.analysis_a_share_intraday" in celery_app.tasks
+    assert "scheduled.analysis_a_share_pre_close_review" in celery_app.tasks
     assert "scheduled.analysis_a_share_pre_close_review" in celery_app.tasks
 
     task = celery_app.tasks["scheduled.analysis_a_share_pre_close_review"]

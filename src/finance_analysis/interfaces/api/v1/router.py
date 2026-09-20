@@ -88,5 +88,8 @@ router.include_router(industry_strength.router, prefix="/industry-strength", tag
 from .endpoints import holdings
 router.include_router(holdings.router, prefix="/holdings", tags=["Holdings"])
 
+from .endpoints import trade_engine
+router.include_router(trade_engine.router, prefix="/trade-engine", tags=["Trade Engine"])
+
 from .endpoints import market_sentiment
 router.include_router(market_sentiment.router, prefix="/market-sentiment", tags=["Market Sentiment"])

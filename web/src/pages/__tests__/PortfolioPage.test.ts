@@ -2,209 +2,119 @@ import { flushPromises, mount, type VueWrapper } from '@vue/test-utils';
 import { createPinia } from 'pinia';
 import { createMemoryHistory, createRouter } from 'vue-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import StockListPage from '../StockListPage.vue';
+import HoldingsPage from '../market/HoldingsPage.vue';
 
 const mocks = vi.hoisted(() => ({
+  summary: vi.fn(),
+  buy: vi.fn(),
+  sell: vi.fn(),
+  deposit: vi.fn(),
+  withdraw: vi.fn(),
+  operations: vi.fn(),
+  markers: vi.fn(),
   source: vi.fn(),
   connect: vi.fn(),
   disconnect: vi.fn(),
   sync: vi.fn(),
   snapshot: vi.fn(),
-  policy: vi.fn(),
-  updatePolicy: vi.fn(),
-  risk: vi.fn(),
-  runRisk: vi.fn(),
-  cancelPlan: vi.fn(),
-  rebase: vi.fn(),
+  positions: vi.fn(),
+  signals: vi.fn(),
+  strategies: vi.fn(),
+  run: vi.fn(),
 }));
 
 vi.mock('@/api/holdings', () => ({
-  holdingsApi: mocks,
+  holdingsApi: {
+    summary: mocks.summary,
+    buy: mocks.buy,
+    sell: mocks.sell,
+    deposit: mocks.deposit,
+    withdraw: mocks.withdraw,
+    operations: mocks.operations,
+    markers: mocks.markers,
+    source: mocks.source,
+    connect: mocks.connect,
+    disconnect: mocks.disconnect,
+    sync: mocks.sync,
+    snapshot: mocks.snapshot,
+  },
+  tradeEngineApi: {
+    positions: mocks.positions,
+    signals: mocks.signals,
+    strategies: mocks.strategies,
+    run: mocks.run,
+  },
 }));
 
-const source = {
-  googleConfigured: true,
-  holdingsEnabled: true,
-  missingConfig: [],
-  sourceId: 1,
-  spreadsheetId: 'sheet-1',
-  schemaVersion: 'v1',
-  authStatus: 'CONNECTED',
-  syncStatus: 'OK',
-  enabled: true,
-  lastAttemptAt: null,
-  lastSuccessAt: null,
-  lastErrorCode: null,
-  publishedGeneration: 2,
-  contentHash: 'abc',
-  configVersion: 1,
-  policyVersion: 1,
-  canBackgroundSync: true,
+const summary = {
+  market: 'CN',
+  accounts: [{ id: 1, name: 'A股账户', market: 'CN', cash: '90000', currency: 'CNY' }],
+  cash: '90000',
+  marketValue: '10000',
+  totalAsset: '100000',
+  grossExposure: '0.1',
+  positions: [
+    {
+      id: 11,
+      accountId: 1,
+      market: 'CN',
+      symbol: '600519.SH',
+      assetType: 'STOCK',
+      quantity: '1000',
+      averageCost: '10',
+      currentPrice: '12',
+      marketValue: '12000',
+      weight: '0.12',
+      unrealizedPnl: '2000',
+    },
+  ],
 };
 
-const snapshot = {
-  status: 'VALID',
-  snapshot: {
-    status: 'VALID',
-    generation: 2,
-    accounts: [{ accountId: 'a1', accountName: 'A股', baseCurrency: 'CNY', netAsset: '100000', validity: 'VALID', positionsComplete: true }],
-    positions: [
-      {
-        accountId: 'a1',
-        positionId: 'p1',
-        symbol: '600519.SH',
-        canonicalSymbol: '600519.SH',
-        assetType: 'STOCK',
-        legs: [
-          {
-            accountId: 'a1',
-            positionId: 'p1',
-            legId: 'core',
-            legRole: 'CORE',
-            symbol: '600519.SH',
-            canonicalSymbol: '600519.SH',
-            assetType: 'STOCK',
-            quantity: '1000',
-            entryPrice: '1400',
-            entryTime: '2026-01-01T01:00:00+00:00',
-            status: 'OPEN',
-            coverage: 'COVERED',
-            coverageReason: null,
-            initialStop: null,
-          },
-        ],
-      },
-    ],
-    uncoveredLegs: [],
-    warnings: [],
-  },
-};
-
-let wrapper: VueWrapper | null = null;
+let wrapper: VueWrapper;
 
 async function mountPage() {
   const router = createRouter({
     history: createMemoryHistory(),
-    routes: [{ path: '/market/holdings', component: StockListPage }],
+    routes: [{ path: '/market/holdings', component: HoldingsPage }],
   });
   await router.push('/market/holdings');
   await router.isReady();
-  wrapper = mount(StockListPage, {
-    global: { plugins: [createPinia(), router] },
+  wrapper = mount(HoldingsPage, {
+    global: {
+      plugins: [createPinia(), router],
+      stubs: {
+        DailyKLineCard: true,
+        Dialog: { props: ['open'], template: '<div v-if="open"><slot /></div>' },
+        DialogContent: { template: '<div><slot /></div>' },
+        DialogHeader: { template: '<div><slot /></div>' },
+        DialogTitle: { template: '<div><slot /></div>' },
+        DialogDescription: { template: '<div><slot /></div>' },
+        DialogFooter: { template: '<div><slot /></div>' },
+      },
+    },
   });
   await flushPromises();
 }
 
-describe('holdings page', () => {
+describe('HoldingsPage', () => {
   beforeEach(() => {
-    mocks.source.mockResolvedValue(source);
-    mocks.snapshot.mockResolvedValue(snapshot);
-    mocks.policy.mockResolvedValue({ policy: { vwapMode: 'exact_or_proxy' }, policyVersion: 1 });
-    mocks.risk.mockResolvedValue({
-      source: { id: 1, generation: 2 },
-      snapshot: snapshot.snapshot,
-      positions: [
-        {
-          accountId: 'a1',
-          positionId: 'p1',
-          symbol: '600519.SH',
-          planStatus: 'PENDING',
-          planAction: 'REDUCE',
-          planRevision: 1,
-          rowVersion: 3,
-          lastBarEnd: '2026-09-16T06:00:00+00:00',
-          lastQuoteAsOf: '2026-09-16T06:00:01+00:00',
-          fiveMinuteStatus: 'OK',
-          quoteStatus: 'OK',
-          execution: 'UNKNOWN',
-          currentQuantity: '1000',
-          reduceQuantity: '500',
-          activePlan: { position_target: '500', reduce_quantity: '500', current_quantity: '1000', execution: 'UNKNOWN' },
-          legsState: { five_minute_status: 'OK', quote_status: 'OK', legs: { core: { active_stop: '96', profit_stage: 'B' } } },
-        },
-      ],
-      events: [
-        {
-          id: 9,
-          eventType: 'CONFIRMED_WEAK',
-          action: 'REDUCE',
-          positionId: 'p1',
-          legId: null,
-          targetQuantity: '500',
-          createdAt: '2026-09-17T07:00:00+00:00',
-          notificationId: 44,
-          pushStatus: 'SENT',
-          evidence: { vwap_mode: 'PROXY' },
-        },
-      ],
-    });
-    mocks.connect.mockResolvedValue({ authorization_url: 'https://accounts.google.com/o', return_path: '/market/holdings', auth_status: 'PENDING' });
-    mocks.sync.mockResolvedValue({ task_id: 't1', status: 'queued' });
-    mocks.cancelPlan.mockResolvedValue({ plan_status: 'CANCELED', row_version: 4 });
-    mocks.disconnect.mockResolvedValue({ auth_status: 'DISCONNECTED' });
+    mocks.summary.mockResolvedValue(summary);
+    mocks.positions.mockResolvedValue([{ symbol: '600519.SH', action: 'HOLD', profitStage: 'A', activeStop: '9.6' }]);
+    mocks.source.mockResolvedValue({ authStatus: 'DISCONNECTED', syncStatus: 'IDLE' });
+    mocks.deposit.mockResolvedValue({});
+    mocks.buy.mockResolvedValue({});
   });
+  afterEach(() => wrapper?.unmount());
 
-  afterEach(() => {
-    wrapper?.unmount();
-    wrapper = null;
-    vi.clearAllMocks();
-  });
-
-  it('renders sheet-backed holdings and risk evidence without portfolio CRUD', async () => {
+  it('shows DB portfolio totals and lets the user deposit then buy', async () => {
     await mountPage();
-    expect(wrapper!.text()).toContain('Google Sheet 持仓');
-    expect(wrapper!.text()).toContain('全局 Telegram/ntfy');
-    expect(wrapper!.text()).toContain('600519.SH');
-    expect(wrapper!.text()).toContain('CORE');
-    expect(wrapper!.text()).toContain('PROXY');
-    expect(wrapper!.text()).toContain('1000');
-    expect(wrapper!.text()).toContain('500');
-    expect(wrapper!.text()).toContain('96');
-    expect(wrapper!.text()).toContain('OK / OK');
-    expect(wrapper!.find('[data-testid="portfolio-page"]').exists()).toBe(false);
-    expect(wrapper!.find('[data-testid="holdings-page"]').exists()).toBe(true);
-  });
-
-  it('starts Google connect from a spreadsheet id', async () => {
-    const assign = vi.fn();
-    vi.stubGlobal('location', { ...window.location, assign });
-    await mountPage();
-    await wrapper!.get('[data-testid="spreadsheet-input"]').setValue('1abcSpreadsheetIdValueXX');
-    await wrapper!.get('[data-testid="connect-button"]').trigger('click');
+    expect(wrapper.get('[data-testid="cash"]').text()).toContain('90,000');
+    expect(wrapper.get('[data-testid="total-asset"]').text()).toContain('100,000');
+    expect(wrapper.text()).toContain('600519.SH');
+    await wrapper.get('[data-testid="action-deposit"]').trigger('click');
+    await wrapper.get('[data-testid="form-amount"]').setValue('100000');
+    await wrapper.get('[data-testid="form-submit"]').trigger('click');
     await flushPromises();
-    expect(mocks.connect).toHaveBeenCalledWith('1abcSpreadsheetIdValueXX');
-    expect(assign).toHaveBeenCalledWith('https://accounts.google.com/o');
-    vi.unstubAllGlobals();
-  });
-
-  it('saves VWAP without dropping other policy fields and waits after queued sync', async () => {
-    mocks.policy.mockResolvedValue({
-      policy: { vwapMode: 'exact_or_proxy', maxSymbolWeight: 0.1, riskPerSymbol: 0.005 },
-      policyVersion: 1,
-    });
-    mocks.sync.mockResolvedValue({ task_id: 't1', status: 'queued' });
-    await mountPage();
-    await wrapper!.get('[data-testid="vwap-mode"]').setValue('exact_only');
-    await wrapper!.get('[data-testid="save-policy"]').trigger('click');
-    await flushPromises();
-    expect(mocks.updatePolicy).toHaveBeenCalled();
-    const payload = mocks.updatePolicy.mock.calls[0][0] as Record<string, unknown>;
-    expect(payload.vwap_mode || payload.vwapMode).toBe('exact_only');
-    expect(payload.maxSymbolWeight ?? payload.max_symbol_weight).toBe(0.1);
-    await wrapper!.get('[data-testid="sync-button"]').trigger('click');
-    await flushPromises();
-    expect(mocks.sync).toHaveBeenCalled();
-  });
-
-  it('cancels a pending plan', async () => {
-    await mountPage();
-    await wrapper!.get('[data-testid="cancel-p1"]').trigger('click');
-    await flushPromises();
-    expect(mocks.cancelPlan).toHaveBeenCalledWith({
-      accountId: 'a1',
-      positionId: 'p1',
-      expectedStateVersion: 3,
-      reason: 'manual_cancel',
-    });
+    expect(mocks.deposit).toHaveBeenCalledWith({ accountId: 1, amount: '100000' });
   });
 });
