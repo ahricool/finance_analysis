@@ -1,8 +1,10 @@
 import { flushPromises, mount } from '@vue/test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { stocksApi } from '@/api/stocks';
 import DailyKLineCard from '../DailyKLineCard.vue';
 import MarketKLineChart from '../MarketKLineChart.vue';
 import { marketDataApi, type DailyBarsResponse } from '@/api/marketData';
+vi.mock('@/api/stocks', () => ({ stocksApi: { classification: vi.fn().mockRejectedValue(new Error('offline')) } }));
 vi.mock('@/api/marketData', () => ({ marketDataApi: { dailyBars: vi.fn() } }));
 const result: DailyBarsResponse = { symbol: 'AAPL.US', market: 'US', interval: '1d', adjustment: 'forward', source: 'database',
   items: [{ tradeDate: '2026-09-18', open: 100, high: 105, low: 98, close: 103, volume: 100, amount: 1000 }] };
@@ -16,6 +18,8 @@ describe('DailyKLineCard', () => {
     expect(wrapper.text()).toContain('加载中');
     expect(marketDataApi.dailyBars).toHaveBeenCalledWith('AAPL.US', '2026-09-18', undefined, expect.any(AbortSignal));
     resolve({ ...result, items: [{ ...result.items[0]!, low: 1.237 }] }); await flushPromises();
+    expect(stocksApi.classification).toHaveBeenCalled();
+    expect(wrapper.find('[data-testid="stock-membership-tags"]').exists()).toBe(false);
     expect(wrapper.getComponent(MarketKLineChart).props('pricePrecision')).toBe(3);
     expect(wrapper.getComponent(MarketKLineChart).props('bars')[0]).toEqual({ timestamp: Date.parse('2026-09-18T00:00:00Z'),
       open: 100, high: 105, low: 1.237, close: 103, volume: 100, turnover: 1000 });

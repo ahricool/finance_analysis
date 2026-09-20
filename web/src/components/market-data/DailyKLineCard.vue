@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { marketDataApi, type DailyBarsResponse } from '@/api/marketData';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import AppApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
+import StockMembershipTags from '@/components/stocks/StockMembershipTags.vue';
 import MarketKLineChart from './MarketKLineChart.vue';
 
 const props = defineProps<{ symbol: string; endDate?: string }>();
@@ -48,9 +49,12 @@ onBeforeUnmount(() => controller?.abort());
     class="min-w-0 rounded-xl border bg-card p-4"
     data-testid="daily-kline-card"
   >
-    <h3 class="mb-3 text-sm font-semibold">
-      日 K
-    </h3>
+    <div class="mb-3 flex min-h-6 items-center gap-3">
+      <h3 class="shrink-0 text-sm font-semibold">
+        日 K
+      </h3>
+      <StockMembershipTags :code="symbol" />
+    </div>
     <p
       v-if="loading"
       class="py-12 text-center text-sm text-muted-foreground"

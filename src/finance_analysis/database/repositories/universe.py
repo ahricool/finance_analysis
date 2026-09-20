@@ -38,6 +38,23 @@ class UniverseRepository:
                 session.expunge(row)
             return row
 
+    def list_index_memberships(self, code: str) -> list[dict[str, str]]:
+        """Read current enabled index memberships in one join, without resolving strategy universes."""
+        with self.db.get_session() as session:
+            rows = session.execute(
+                select(Universe.key, Universe.name, UniverseMember.source)
+                .select_from(Instrument)
+                .join(UniverseMember, UniverseMember.instrument_id == Instrument.id)
+                .join(Universe, Universe.id == UniverseMember.universe_id)
+                .where(
+                    Instrument.code == code.strip().upper(),
+                    Universe.universe_type == "INDEX",
+                    Universe.enabled.is_(True),
+                )
+                .order_by(Universe.key)
+            ).mappings().all()
+            return [dict(row) for row in rows]
+
     def list_members(self, universe_id: int) -> list[UniverseMember]:
         with self.db.get_session() as session:
             rows = list(session.execute(

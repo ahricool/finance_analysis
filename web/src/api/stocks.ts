@@ -14,7 +14,25 @@ export type InstrumentSearchResponse = {
   items: InstrumentSearchItem[];
 };
 
+export type StockIndexMembership = {
+  key: string;
+  name: string;
+  source: string;
+};
+
+export type StockClassification = {
+  code: string;
+  market: string;
+  memberships: { indices: StockIndexMembership[] };
+};
+
 export const stocksApi = {
+  async classification(code: string, signal?: AbortSignal): Promise<StockClassification> {
+    const { data } = await apiClient.get<StockClassification>(
+      `/api/v1/stocks/${encodeURIComponent(code)}/classification`, { signal },
+    );
+    return data;
+  },
   async searchInstruments(
     query: string,
     options: { limit?: number; signal?: AbortSignal } = {},
