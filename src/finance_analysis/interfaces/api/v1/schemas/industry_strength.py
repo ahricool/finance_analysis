@@ -81,25 +81,16 @@ class Constituent(BaseModel):
     amount: float | None
     above_ma5: bool | None
     above_ma20: bool | None
+    trend_rank: int | None = None
 
 
 class ConstituentsResponse(BaseModel):
-    quality: dict[str, Any]
     industry_code: str
-    trade_date: date
-    members_observed_at: datetime
-    basis: str
+    updated_at: datetime | None
     constituent_count: int
     daily_valid_count: int
     ma5_valid_count: int
     above_ma5_count: int
     ma20_valid_count: int
     above_ma20_count: int
-    up_count: int
-    down_count: int
-    flat_count: int
-    up_ratio: float | None
-    above_ma5_ratio: float | None
-    above_ma20_ratio: float | None
-    equal_weight_return: float | None
     items: list[Constituent] = Field(default_factory=list)

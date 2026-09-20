@@ -2,7 +2,7 @@ import { flushPromises, mount, type VueWrapper } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createMemoryHistory, createRouter } from 'vue-router';
 import { createPinia } from 'pinia';
-import type { IndustrySnapshot } from '@/api/industryStrength';
+import type { Constituent, IndustrySnapshot } from '@/api/industryStrength';
 import { toCamelCase } from '@/api/utils';
 import IndustryStrengthPage from '../IndustryStrengthPage.vue';
 import AppDatePicker from '@/components/app/AppDatePicker.vue';
@@ -72,12 +72,54 @@ beforeEach(() => {
   api.history.mockResolvedValue({ dates: ['2026-09-16'], items: rows });
   api.detail.mockImplementation(async (code: string) => ({ current: rows.find(r => r.industryCode === code), history: rows.filter(r => r.industryCode === code) }));
   api.constituents.mockImplementation(async (code: string) => ({
-    industryCode: code, tradeDate: '2026-09-17', membersObservedAt: '2026-09-17T11:00:00Z',
+    industryCode: code, updatedAt: '2026-09-17T11:00:00Z',
     constituentCount: 0, dailyValidCount: 0, ma5ValidCount: 0, aboveMa5Count: 0, ma20ValidCount: 0, aboveMa20Count: 0, items: [],
   }));
 });
 
 describe('Industry Strength', () => {
+  const memberRows: Constituent[] = [
+    { code: '003.SH', name: 'A', trendRank: 2, price: 20, changePct: .1, aboveMa5: true, aboveMa20: false, amount: 30, volume: 1 },
+    { code: '002.SH', name: 'B', trendRank: 1, price: 10, changePct: .3, aboveMa5: false, aboveMa20: true, amount: 10, volume: 1 },
+    { code: '005.SH', name: 'D', trendRank: null, price: null, changePct: null, aboveMa5: null, aboveMa20: null, amount: null, volume: null },
+    { code: '001.SH', name: 'A', trendRank: 1, price: 10, changePct: .3, aboveMa5: false, aboveMa20: true, amount: 10, volume: 1 },
+    { code: '004.SH', name: 'C', trendRank: null, price: null, changePct: null, aboveMa5: null, aboveMa20: null, amount: null, volume: null },
+  ];
+  const ascending = ['001.SH', '002.SH', '003.SH', '004.SH', '005.SH'];
+  const descending = ['003.SH', '001.SH', '002.SH', '004.SH', '005.SH'];
+  it.each([
+    ['股票', ['001.SH', '003.SH', '002.SH', '004.SH', '005.SH'], ['005.SH', '004.SH', '002.SH', '001.SH', '003.SH']],
+    ['Trend Rank', ascending, descending],
+    ['收盘价', descending, ascending],
+    ['涨跌幅（%）', descending, ascending],
+    ['MA5', descending, ascending],
+    ['MA20', ascending, descending],
+    ['成交额', descending, ascending],
+  ])('sorts %s in both directions locally with stable ties and nulls last', async (label, first, second) => {
+    const items = Object.freeze(memberRows.map(item => Object.freeze({ ...item })));
+    api.constituents.mockResolvedValueOnce({ industryCode: '881101.TI', updatedAt: '2026-09-17T11:00:00Z',
+      constituentCount: 5, dailyValidCount: 3, ma5ValidCount: 3, ma20ValidCount: 3, items });
+    const wrapper = await render(); await flushPromises();
+    await wrapper.get('[data-testid="industry-summary-strongest"]').trigger('click'); await flushPromises();
+    const section = detailEl()!.querySelector('[data-testid="industry-detail-constituents"]')!;
+    const codes = () => [...section.querySelectorAll('tbody tr')].map(row => row.querySelector('td span')!.textContent);
+    expect(codes()).toEqual(ascending); // Initial changePct DESC, even when API items are unsorted.
+    expect(section.querySelector('thead [aria-sort="descending"]')?.textContent).toContain('涨跌幅');
+    const nullRow = [...section.querySelectorAll('tbody tr')].find(row => row.textContent?.includes('004.SH'))!;
+    expect(nullRow.querySelectorAll('td')[1]!.textContent?.trim()).toBe('—');
+    expect(section.textContent).toContain('当前成分股（最新数据）');
+    expect(section.textContent).toContain('不随上方历史快照日期变化');
+    expect(section.textContent).toContain('不对应上方历史日期');
+    const header = [...section.querySelectorAll('thead button')].find(button => button.textContent?.trim() === label)!;
+    for (const expected of [first, second]) {
+      (header as HTMLButtonElement).click(); await flushPromises();
+      expect(codes()).toEqual(expected);
+    }
+    expect(api.constituents).toHaveBeenCalledTimes(1);
+    expect(api.detail).toHaveBeenCalledTimes(1);
+    expect(items).toEqual(memberRows);
+  });
+
   it('renders loading then rankings without auto-opening the dialog', async () => {
     let resolve!: (value: unknown) => void;
     api.ranking.mockReturnValueOnce(new Promise(r => { resolve = r; }));
@@ -182,13 +224,13 @@ describe('Industry Strength', () => {
     expect(detailText()).toContain('重试当前成分');
     expect(detailText()).toContain('行业甲');
     expect(detailEl()?.querySelector('[data-testid="industry-detail-history"] tbody')).not.toBeNull();
-    api.constituents.mockResolvedValueOnce({ industryCode: '881101.TI', tradeDate: '2026-09-18', items: [] });
+    api.constituents.mockResolvedValueOnce({ industryCode: '881101.TI', updatedAt: '2026-09-18T11:00:00Z', items: [] });
     const retry = [...detailEl()!.querySelectorAll('button')].find(button => button.textContent?.includes('重试当前成分'))!;
     retry.click();
     await flushPromises();
     expect(api.constituents).toHaveBeenCalledTimes(2);
     expect(detailText()).not.toContain('重试当前成分');
-    expect(detailText()).toContain('2026-09-18');
+    expect(detailText()).toContain('2026/09/18');
     wrapper.unmount();
   });
 
@@ -282,8 +324,8 @@ describe('Industry Strength', () => {
     await wrapper.get('[data-testid="industry-ranking"]').findAll('button').find(b => b.text() === '行业甲')!.trigger('click');
     await flushPromises();
     await flushPromises();
-    expect(document.body.querySelector('[data-testid="industry-constituents-dates"]')?.textContent).toContain('2026-09-17');
-    expect(document.body.querySelector('[data-testid="industry-constituents-banner"]')?.textContent).toContain('不随上方历史快照日期切换');
+    expect(document.body.querySelector('[data-testid="industry-constituents-dates"]')?.textContent).toContain('2026/09/17');
+    expect(document.body.querySelector('[data-testid="industry-constituents-banner"]')?.textContent).toContain('不随上方历史快照日期变化');
     expect(detailText()).toContain('实际查询快照日期 2026-09-16');
     wrapper.unmount();
   });

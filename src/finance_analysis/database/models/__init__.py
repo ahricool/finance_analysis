@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """ORM model exports."""
 
-from finance_analysis.database.models.industry_strength import IndustryStrengthSnapshot
+from finance_analysis.database.models.industry_strength import IndustryStrengthConstituent, IndustryStrengthSnapshot
 from finance_analysis.database.models.market_sentiment import MarketSentimentSnapshot, MarketSentimentSourceSnapshot
 
 from finance_analysis.database.models.market_structure import MarketStructureSnapshot
@@ -40,6 +40,7 @@ __all__ = [
     "MarketSentimentSnapshot",
     "MarketSentimentSourceSnapshot",
     "IndustryStrengthSnapshot",
+    "IndustryStrengthConstituent",
     "MarketStructureSnapshot",
     "Notification",
     "CryptoKline",

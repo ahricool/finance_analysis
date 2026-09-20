@@ -43,7 +43,7 @@ function deferred<T>() {
 
 function members(code: string, tradeDate: string): Constituents {
   return {
-    industryCode: code, tradeDate, membersObservedAt: `${tradeDate}T11:00:00Z`,
+    industryCode: code, updatedAt: tradeDate,
     constituentCount: 1, dailyValidCount: 1, ma5ValidCount: 1, aboveMa5Count: 1, ma20ValidCount: 1, aboveMa20Count: 1,
     items: [],
   };
@@ -137,6 +137,28 @@ describe('useIndustryStrength races', () => {
     await page.refresh();
     await flushPromises();
     expect(api.constituents).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not refetch constituents on date changes while pending or after failure', async () => {
+    const page = setup();
+    await page.loadRanking('initial');
+    const pending = deferred<Constituents>();
+    api.constituents.mockReturnValueOnce(pending.promise);
+    page.openIndustry(a.industryCode);
+    api.ranking.mockResolvedValueOnce(rankingOf(t1, [aT1, bT1]));
+    page.changeDate(t1);
+    await flushPromises();
+    expect(api.constituents).toHaveBeenCalledTimes(1);
+    pending.reject(new Error('database unavailable'));
+    await flushPromises();
+    page.changeDate(t);
+    await flushPromises();
+    expect(api.constituents).toHaveBeenCalledTimes(1);
+    expect(page.membersError.value).toBeTruthy();
+    page.retryConstituents();
+    await flushPromises();
+    expect(api.constituents).toHaveBeenCalledTimes(2);
+    expect(page.membersError.value).toBeNull();
   });
 
   it('does not keep industry A detail under industry B while B is pending', async () => {
@@ -266,9 +288,9 @@ describe('useIndustryStrength races', () => {
     await flushPromises();
     stale.resolve(members(a.industryCode, 'STALE-DATE'));
     await flushPromises();
-    expect(page.constituents.value?.tradeDate).not.toBe('STALE-DATE');
+    expect(page.constituents.value?.updatedAt).not.toBe('STALE-DATE');
     fresh.resolve(members(a.industryCode, 'FRESH-DATE'));
     await flushPromises();
-    expect(page.constituents.value?.tradeDate).toBe('FRESH-DATE');
+    expect(page.constituents.value?.updatedAt).toBe('FRESH-DATE');
   });
 });

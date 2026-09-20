@@ -174,7 +174,7 @@ export function useIndustryStrength() {
     if (exists) {
       missingSelected.value = false;
       void loadDetail(selected.value);
-      void loadConstituents(selected.value, reloadMembers);
+      if (reloadMembers) void loadConstituents(selected.value, true);
       return;
     }
     missingSelected.value = true;

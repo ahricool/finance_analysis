@@ -1,6 +1,6 @@
 """Daily industry observations, independent of tradeable universes and strategies."""
 
-from sqlalchemy import Column, Date, DateTime, Float, Integer, JSON, String, UniqueConstraint, CheckConstraint
+from sqlalchemy import Boolean, Column, Date, DateTime, Float, Integer, JSON, String, UniqueConstraint, CheckConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from finance_analysis.core.time import utc_now
 from finance_analysis.database.base import Base
@@ -57,4 +57,25 @@ class IndustryStrengthSnapshot(Base):
     __table_args__ = (
         UniqueConstraint("trade_date", "industry_code", name="uix_industry_strength_date_code"),
         CheckConstraint("state IN ('EMERGING','STRONG','NEUTRAL','COOLING','WEAK')", name="ck_industry_strength_state"),
+    )
+
+
+class IndustryStrengthConstituent(Base):
+    """Latest materialized members only; no historical date or Trend foreign key."""
+
+    __tablename__ = "industry_strength_constituent"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    industry_code = Column(String(32), nullable=False)
+    stock_code = Column(String(32), nullable=False)
+    stock_name = Column(String(128), nullable=False)
+    price = Column(Float)
+    change_pct = Column(Float)
+    volume = Column(Float)
+    amount = Column(Float)
+    above_ma5 = Column(Boolean)
+    above_ma20 = Column(Boolean)
+    trend_rank = Column(Integer, nullable=True)
+    updated_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
+    __table_args__ = (
+        UniqueConstraint("industry_code", "stock_code", name="uix_industry_strength_constituent_code"),
     )

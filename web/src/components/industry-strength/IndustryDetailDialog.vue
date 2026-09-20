@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed } from 'vue';
-import type { Constituents, IndustryDetail, IndustrySnapshot } from '@/api/industryStrength';
+import { computed, ref } from 'vue';
+import type { Constituent, Constituents, IndustryDetail, IndustrySnapshot } from '@/api/industryStrength';
 import type { ParsedApiError } from '@/api/error';
+import SortableTableHeader from '@/components/stocks/SortableTableHeader.vue';
 import AppApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -80,6 +81,40 @@ const overviewItems = computed(() => {
     ['5 日排名变化（名）', formatRankDelta(row.rankChange5D), toneClass(row.rankChange5D)],
   ] as const;
 });
+
+const columns = [
+  { key: 'name', label: '股票' },
+  { key: 'trendRank', label: 'Trend Rank', description: '写入当前成分数据时，最新 CN Trend Following 正式快照中的 Alpha Rank，1 为最强；不在 Trend Universe 或暂无正式数据时显示 —。不对应上方历史日期。' },
+  { key: 'price', label: '收盘价' },
+  { key: 'changePct', label: '涨跌幅（%）' },
+  { key: 'aboveMa5', label: 'MA5' },
+  { key: 'aboveMa20', label: 'MA20' },
+  { key: 'amount', label: '成交额' },
+] as const;
+type SortKey = typeof columns[number]['key'];
+const sortKey = ref<SortKey>('changePct');
+const sortDirection = ref<'asc' | 'desc'>('desc');
+function sortValue(item: Constituent, key: SortKey): string | number | boolean | null {
+  const value = item[key];
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  return value ?? null;
+}
+function toggleSort(key: SortKey) {
+  sortDirection.value = sortKey.value === key
+    ? (sortDirection.value === 'asc' ? 'desc' : 'asc')
+    : (key === 'name' || key === 'trendRank' ? 'asc' : 'desc');
+  sortKey.value = key;
+}
+const sortedItems = computed(() => [...(props.constituents?.items ?? [])].sort((left, right) => {
+  const a = sortValue(left, sortKey.value);
+  const b = sortValue(right, sortKey.value);
+  const tie = left.code.localeCompare(right.code);
+  if (a == null) return b == null ? tie : 1;
+  if (b == null) return -1;
+  const comparison = typeof a === 'string' && typeof b === 'string'
+    ? a.localeCompare(b, 'zh-CN') : Number(a) - Number(b);
+  return comparison * (sortDirection.value === 'asc' ? 1 : -1) || tie;
+}));
 
 function ma(value: boolean | null) {
   return value == null ? '缺失' : value ? '上方' : '下方 / 持平';
@@ -318,27 +353,27 @@ function ma(value: boolean | null) {
           data-testid="industry-detail-constituents"
         >
           <h3 class="text-base font-semibold">
-            当前成分股
+            当前成分股（最新数据）
           </h3>
           <div
             class="rounded-lg border border-amber-500/40 bg-amber-500/5 px-3 py-3"
             data-testid="industry-constituents-banner"
           >
             <p class="font-medium">
-              当前成分股 · 最新完整交易日观察
+              最近一次任务生成的成分数据
             </p>
             <p
               class="mt-1 text-sm"
               data-testid="industry-constituents-dates"
             >
-              行情日期 {{ constituents?.tradeDate || '—' }} · 成分获取时间 {{ formatDateTime(constituents?.membersObservedAt) }}
+              更新时间 {{ formatDateTime(constituents?.updatedAt) }}
             </p>
             <p class="mt-1 text-sm text-amber-800 dark:text-amber-200">
-              不随上方历史快照日期切换，也不代表历史成分。
+              展示最近一次行业强度任务成功生成的最新成分股及收盘指标，不随上方历史快照日期变化。
             </p>
           </div>
           <p class="text-xs leading-6 text-muted-foreground">
-            价格为前复权收盘价。当前成分股等权涨跌仅为行业内部广度代理，不代表行业指数贡献。
+            价格为前复权收盘价。Trend Rank 为写入这份最新成分数据时读取的最新 CN Trend Following 正式快照 Alpha Rank，不对应上方历史日期。
           </p>
           <AppApiErrorAlert
             v-if="membersError"
@@ -354,31 +389,43 @@ function ma(value: boolean | null) {
           >
             正在加载当前成分股…
           </p>
+          <p
+            v-if="!membersLoading && !membersError && constituents && !constituents.items.length"
+            class="text-sm text-muted-foreground"
+          >
+            暂无已生成的成分数据，等待行业强度任务成功生成。
+          </p>
           <template v-if="constituents && constituents.industryCode === code">
             <p class="text-xs text-muted-foreground">
               Daily {{ constituents.dailyValidCount }} / {{ constituents.constituentCount }}
               · MA5 {{ constituents.ma5ValidCount }} / {{ constituents.constituentCount }}
               · MA20 {{ constituents.ma20ValidCount }} / {{ constituents.constituentCount }}
-              · 按涨跌幅降序，缺失排最后
+              · 点击表头排序，缺失值始终排最后
             </p>
             <div class="overflow-x-auto rounded-lg border">
               <Table container-class="overflow-visible">
                 <TableHeader class="sticky top-0 bg-background">
                   <TableRow>
-                    <TableHead
-                      v-for="label in ['股票', '收盘价', '涨跌幅（%）', 'MA5', 'MA20', '成交额']"
-                      :key="label"
-                    >
-                      {{ label }}
-                    </TableHead>
+                    <SortableTableHeader
+                      v-for="column in columns"
+                      :key="column.key"
+                      :label="column.label"
+                      :description="'description' in column ? column.description : undefined"
+                      :active="sortKey === column.key"
+                      :direction="sortDirection"
+                      @sort="toggleSort(column.key)"
+                    />
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   <TableRow
-                    v-for="item in constituents.items"
+                    v-for="item in sortedItems"
                     :key="item.code"
                   >
                     <TableCell>{{ item.name }} <span class="ml-2 text-xs text-muted-foreground">{{ item.code }}</span></TableCell>
+                    <TableCell class="tabular-nums">
+                      {{ item.trendRank == null ? '—' : `#${item.trendRank}` }}
+                    </TableCell>
                     <TableCell class="tabular-nums">
                       {{ formatPrice(item.price) }}
                     </TableCell>

@@ -21,9 +21,9 @@ async function mockIndustryApis(page: import('@playwright/test').Page) {
     if (path.endsWith('/ranking')) return route.fulfill({ json: { trade_date: day, expected_trade_date: day, items: rows } });
     if (path.endsWith('/dates')) return route.fulfill({ json: [...dates].reverse() });
     if (path.endsWith('/history')) return route.fulfill({ json: { dates, items: dates.flatMap((d, j) => rows.map((r, i) => ({ ...r, trade_date: d, strength_rank: 1 + (i + j) % 20 }))) } });
-    if (path.endsWith('/constituents')) return route.fulfill({ json: { industry_code: path.split('/').at(-2), trade_date: day, members_observed_at: `${day}T11:20:00Z`, constituent_count: 30, daily_valid_count: 30, ma5_valid_count: 30, above_ma5_count: 1, ma20_valid_count: 30, above_ma20_count: 1, items: Array.from({ length: 30 }, (_, i) => ({
+    if (path.endsWith('/constituents')) return route.fulfill({ json: { industry_code: path.split('/').at(-2), updated_at: `${day}T11:20:00Z`, constituent_count: 30, daily_valid_count: 30, ma5_valid_count: 30, above_ma5_count: 1, ma20_valid_count: 30, above_ma20_count: 1, items: Array.from({ length: 30 }, (_, i) => ({
       code: `${600001 + i}.SH`, name: `示例成分${i + 1}`, price: 42.5, change_pct: .035,
-      above_ma5: true, above_ma20: true, amount: 600000000,
+      trend_rank: i === 0 ? null : 31 - i, above_ma5: true, above_ma20: true, amount: 600000000,
     })) } });
     const row = rows.find(r => path.endsWith(r.industry_code));
     if (row) return route.fulfill({ json: { current: row, history: dates.map(d => ({ ...row, trade_date: d })) } });
@@ -37,6 +37,10 @@ for (const width of [1280, 1440, 1920]) {
       await page.setViewportSize({ width, height: 1080 });
       await page.addInitScript(value => localStorage.setItem('theme', value), theme);
       const errors: string[] = [];
+      const memberRequests: string[] = [];
+      page.on('request', request => {
+        if (new URL(request.url()).pathname.endsWith('/constituents')) memberRequests.push(request.url());
+      });
       page.on('pageerror', error => errors.push(error.message));
       await mockIndustryApis(page);
       await page.goto('/research/industry-strength');
@@ -91,8 +95,19 @@ for (const width of [1280, 1440, 1920]) {
       if (width === 1280 && theme === 'light') {
         await page.screenshot({ path: testInfo.outputPath('industry-dialog.png') });
       }
-      await expect(page.getByTestId('industry-constituents-banner')).toContainText('不随上方历史快照日期切换');
+      await expect(page.getByTestId('industry-constituents-banner')).toContainText('不随上方历史快照日期变化');
       await expect(page.getByTestId('industry-detail-dialog')).toContainText('示例成分1');
+      const section = dialog.getByTestId('industry-detail-constituents');
+      await expect(section).toContainText('当前成分股（最新数据）');
+      await expect(section).toContainText('不对应上方历史日期');
+      await section.getByRole('button', { name: 'Trend Rank', exact: true }).click();
+      await expect(membersTable.locator('tbody tr').first()).toContainText('600030.SH');
+      await expect(membersTable.locator('tbody tr').last()).toContainText('600001.SH');
+      await expect(membersTable.locator('tbody tr').last().locator('td').nth(1)).toHaveText('—');
+      await section.getByRole('button', { name: 'Trend Rank', exact: true }).click();
+      await expect(membersTable.locator('tbody tr').first()).toContainText('600002.SH');
+      await expect(membersTable.locator('tbody tr').last()).toContainText('600001.SH');
+      expect(memberRequests).toHaveLength(1);
       await page.getByTestId('industry-detail-close').click();
       await expect(dialog).toHaveCount(0);
       await page.getByTestId('industry-summary-strongest').click();
