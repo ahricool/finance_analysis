@@ -6,11 +6,11 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from types import SimpleNamespace
 
-from [REDACTED].portfolio.models import ResolvedAccount, ResolvedLot, ResolvedPortfolio, ResolvedPosition  # pragma: allowlist secret
-from [REDACTED].trade_engine.models import QuoteView, ReviewDecision, TradeSignalCandidate, one_candidate  # pragma: allowlist secret
-from [REDACTED].trade_engine.service import TradeEngineService  # pragma: allowlist secret
-from [REDACTED].trade_engine.strategies.cn_position_intraday_v1 import CNPositionIntradayV1  # pragma: allowlist secret
-from [REDACTED].trade_engine.strategies.exit_v1 import ExitV1  # pragma: allowlist secret
+from finance_analysis.portfolio.models import ResolvedAccount, ResolvedLot, ResolvedPortfolio, ResolvedPosition  # pragma: allowlist secret
+from finance_analysis.trade_engine.models import QuoteView, ReviewDecision, TradeSignalCandidate, one_candidate  # pragma: allowlist secret
+from finance_analysis.trade_engine.service import TradeEngineService  # pragma: allowlist secret
+from finance_analysis.trade_engine.strategies.cn_position_intraday_v1 import CNPositionIntradayV1  # pragma: allowlist secret
+from finance_analysis.trade_engine.strategies.exit_v1 import ExitV1  # pragma: allowlist secret
 
 
 NOW = datetime(2026, 9, 16, 14, 0, tzinfo=timezone.utc)

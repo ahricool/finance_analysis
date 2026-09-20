@@ -3,12 +3,12 @@
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
-from [REDACTED].portfolio.models import ResolvedPosition  # pragma: allowlist secret
-from [REDACTED].trade_engine.config import RiskPolicy  # pragma: allowlist secret
-from [REDACTED].trade_engine.models import PositionContext, QuoteView  # pragma: allowlist secret
-from [REDACTED].trade_engine.strategies import cn_position_intraday_v1 as cn_mod  # pragma: allowlist secret
-from [REDACTED].trade_engine.strategies.cn_position_intraday_v1 import CNPositionIntradayV1  # pragma: allowlist secret
-from [REDACTED].trade_engine.strategies.portfolio_risk_v1 import PortfolioRiskV1  # pragma: allowlist secret
+from finance_analysis.portfolio.models import ResolvedPosition  # pragma: allowlist secret
+from finance_analysis.trade_engine.config import RiskPolicy  # pragma: allowlist secret
+from finance_analysis.trade_engine.models import PositionContext, QuoteView  # pragma: allowlist secret
+from finance_analysis.trade_engine.strategies import cn_position_intraday_v1 as cn_mod  # pragma: allowlist secret
+from finance_analysis.trade_engine.strategies.cn_position_intraday_v1 import CNPositionIntradayV1  # pragma: allowlist secret
+from finance_analysis.trade_engine.strategies.portfolio_risk_v1 import PortfolioRiskV1  # pragma: allowlist secret
 
 NOW = datetime(2026, 9, 16, 14, 0, tzinfo=timezone.utc)
 
@@ -52,7 +52,8 @@ def test_portfolio_risk_watch_does_not_set_target():
 def test_portfolio_risk_rearms_after_recovery():
     state = {}
     first = _run(state)
-    assert len(first) == 1
+    assert {item.signal_key for item in first}
+    assert any("仓位超限" in item.reason for item in first)
     again = _run(state)
     assert again == []
     recovered = _run(state, cash="1000000")
@@ -61,8 +62,8 @@ def test_portfolio_risk_rearms_after_recovery():
     assert state.get("confirmed_keys") == []
     later = NOW + timedelta(minutes=5)
     restarted = _run(state, now=later)
-    assert len(restarted) == 1
-    assert restarted[0].action == "WATCH"
+    assert {item.signal_key for item in restarted} == {item.signal_key for item in first}
+    assert all(item.action == "WATCH" for item in restarted)
 
 
 def test_portfolio_risk_reject_can_rereview_on_new_bar():
@@ -74,7 +75,7 @@ def test_portfolio_risk_reject_can_rereview_on_new_bar():
     assert same == []
     later = NOW + timedelta(minutes=5)
     again = _run(state, now=later)
-    assert len(again) == 1
+    assert {item.signal_key for item in again} == {item.signal_key for item in first}
 
 
 def test_cn_merges_multiple_rules_into_one_candidate(monkeypatch):

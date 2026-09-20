@@ -4,8 +4,8 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from types import SimpleNamespace
 
-from [REDACTED].trade_engine.models import ReviewDecision, TradeSignalCandidate  # pragma: allowlist secret
-from [REDACTED].trade_engine.reviewer import TradeSignalReviewer  # pragma: allowlist secret
+from finance_analysis.trade_engine.models import ReviewDecision, TradeSignalCandidate  # pragma: allowlist secret
+from finance_analysis.trade_engine.reviewer import TradeSignalReviewer  # pragma: allowlist secret
 
 NOW = datetime(2026, 9, 16, tzinfo=timezone.utc)
 

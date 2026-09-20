@@ -7,7 +7,6 @@ import {
   type PortfolioAccount,
   type PortfolioPosition,
   type TradeEnginePosition,
-  type TradeMarkerView,
 } from '@/api/holdings';
 import ApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
 import DailyKLineCard from '@/components/market-data/DailyKLineCard.vue';
