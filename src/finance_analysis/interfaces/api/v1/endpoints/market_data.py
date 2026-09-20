@@ -1,23 +1,26 @@
-"""Authenticated WebSocket stream for user-scoped realtime market quotes."""
+"""Authenticated daily bars and user-scoped realtime market quotes."""
 
 from __future__ import annotations
 
 import asyncio
 import logging
 from dataclasses import asdict, dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any, cast
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 
 from finance_analysis.core.time import utc_isoformat, utc_now
 from finance_analysis.database.config import get_database_config
 from finance_analysis.database.repositories.user import UserRepository
 from finance_analysis.database.repositories.watch_list import WatchListRepo
+from finance_analysis.integrations.market_data.normalizer import canonical_symbol, infer_market
 from finance_analysis.integrations.market_data.providers.longbridge.market import _to_longbridge_symbol
 from finance_analysis.integrations.market_data.realtime_state.models import QuoteState, TrendState
 from finance_analysis.integrations.market_data.realtime_state.repository import RealtimeStateRepository
+from finance_analysis.integrations.market_data.service import MarketDataService
+from finance_analysis.interfaces.api.v1.schemas.market_data import DailyBarItem, DailyBarsResponse
 from finance_analysis.market_review.trading_calendar import get_completed_trading_days, is_market_open
 from finance_analysis.market_stream.config import (
     is_regular_session_minute,
@@ -36,6 +39,48 @@ PATTERN_CONFIG = PatternConfig()
 logger = logging.getLogger(__name__)
 router = APIRouter()
 PUSH_INTERVAL_SECONDS = 5
+
+
+@router.get("/daily-bars/{symbol}", response_model=DailyBarsResponse)
+def daily_bars(symbol: str, start_date: date | None = None, end_date: date | None = None) -> DailyBarsResponse:
+    """Serve a bounded daily window without persisting provider results."""
+    end = end_date or utc_now().date()
+    start = start_date or end - timedelta(days=365)
+    if start > end:
+        raise HTTPException(status_code=422, detail="start_date must not be after end_date")
+    try:
+        code = canonical_symbol(symbol)
+        market = infer_market(code)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    try:
+        result = MarketDataService().get_daily_bars(
+            [code], start, end, adjustment="forward", source_policy="db_latest"
+        )
+    except Exception as exc:
+        logger.warning("Daily bars unavailable: %s", code, exc_info=True)
+        raise HTTPException(status_code=503, detail="日 K 数据暂时不可用，请稍后重试") from exc
+    bars = result.data.get(code, [])
+    if not bars and (code in result.failed_symbols or code in result.request_errors):
+        raise HTTPException(status_code=503, detail="日 K 数据暂时不可用，请稍后重试")
+    return DailyBarsResponse(
+        symbol=code,
+        market=market.value,
+        source=result.providers_used.get(code),
+        items=[
+            DailyBarItem(
+                trade_date=bar.trade_date,
+                open=bar.open,
+                high=bar.high,
+                low=bar.low,
+                close=bar.close,
+                volume=bar.volume,
+                amount=bar.amount,
+            )
+            for bar in sorted(bars, key=lambda bar: bar.trade_date)
+            if start <= bar.trade_date <= end
+        ],
+    )
 
 
 @dataclass(frozen=True, slots=True)

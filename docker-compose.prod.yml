@@ -58,6 +58,7 @@ services:
       - "8000"
     volumes:
       - ./data:/workspace/data
+      - ./data:/data:ro
       - ./.env:/workspace/.env:ro
 
   web:
@@ -154,24 +155,6 @@ services:
     container_name: finance-analysis-streamer
     restart: unless-stopped
     command: ["finance-analysis-stream"]
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    environment:
-      TZ: Asia/Shanghai
-      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
-      REDIS_URL: redis://redis:6379/0
-    volumes:
-      - ./data:/workspace/data
-      - ./.env:/workspace/.env:ro
-
-  crypto-streamer:
-    image: ghcr.io/ahricool/finance_analysis:latest
-    container_name: finance-analysis-crypto-streamer
-    restart: unless-stopped
-    command: ["finance-analysis-crypto-stream"]
     depends_on:
       postgres:
         condition: service_healthy

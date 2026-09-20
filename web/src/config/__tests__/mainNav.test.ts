@@ -9,10 +9,11 @@ import {
 describe('main navigation', () => {
   it('orders desktop destinations and scopes research away from market', () => {
     expect(mainNavItems.map((item) => item.label)).toEqual([
-      '动态',
+      '市场动态',
+      '市场',
       '时间线',
       '研究',
-      '市场',
+      '加密货币',
       '任务中心',
     ]);
     expect(mainNavItems.map((item) => item.key)).not.toContain('chat');
@@ -36,12 +37,13 @@ describe('main navigation', () => {
       { key: 'trend-following', to: '/research/trend-following' },
       { key: 'industry-strength', label: '行业强度', to: '/research/industry-strength' },
       { key: 'market-sentiment', label: '市场情绪', to: '/research/market-sentiment' },
-      { key: 'macro', label: '宏观', to: '/research/macro' },
+      { key: 'macro', label: '宏观数据', to: '/research/macro' },
       { key: 'quant', to: '/research/quant', activePathPrefix: '/research/quant' },
-      { key: 'crypto-btc', to: '/research/crypto/btc' },
     ]);
     expect(allNavDestinations.map((item) => item.key)).toEqual([
       'dashboard',
+      'watch-list',
+      'holdings',
       'timeline',
       'etf-rotation',
       'trend-following',
@@ -50,8 +52,6 @@ describe('main navigation', () => {
       'macro',
       'quant',
       'crypto-btc',
-      'watch-list',
-      'holdings',
       'tasks',
     ]);
     expect(mainNavItems.find((item) => item.key === 'tasks')).toMatchObject({

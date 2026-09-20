@@ -12,6 +12,9 @@ DAYS = [DAY - timedelta(days=i) for i in range(20, -1, -1)]
 class Repository:
     def __init__(self):
         self.saved = []
+        self.members = None
+        self.trend_calls = []
+        self.ranks = {}
 
     def ranking(self, day):
         return []
@@ -19,8 +22,14 @@ class Repository:
     def history(self, end, limit):
         return []
 
-    def save(self, day, rows):
+    def latest_cn_trend_ranks(self, codes):
+        self.trend_calls.append(codes)
+        return self.ranks
+
+    def save(self, day, rows, constituents=None):
         self.saved.append((day, rows))
+        if constituents is not None:
+            self.members = constituents
 
 
 class MarketData:
@@ -178,3 +187,42 @@ def test_historical_backfill_preserves_existing_observed_breadth(monkeypatch):
     with pytest.raises(IndustryReadinessError, match="must not be overwritten"):
         IndustryStrengthService(repo, MarketData()).run(DAY)
     assert not repo.saved
+
+
+@pytest.mark.parametrize("ranks,expected", [({"600001.SH": 38}, 38), ({"600002.SH": 1}, None), ({}, None)])
+def test_materializes_observations_with_one_deduplicated_trend_query(ranks, expected):
+    repo, data = Repository(), MarketData()
+    repo.ranks = ranks
+    assert IndustryStrengthService(repo, data).run()["status"] == "completed"
+    assert repo.trend_calls == [["600001.SH"]]
+    assert len(repo.members) == 20
+    assert {row["industry_code"] for row in repo.members} == {f"{i:06d}.TI" for i in range(20)}
+    for item in repo.members:
+        assert item == {
+            "industry_code": item["industry_code"], "stock_code": "600001.SH", "stock_name": "共同成分",
+            "price": 100, "change_pct": 0, "volume": 10, "amount": 100,
+            "above_ma5": False, "above_ma20": False, "trend_rank": expected,
+        }
+
+
+def test_trend_read_failure_is_not_a_publication_dependency():
+    from sqlalchemy.exc import OperationalError
+    repo = Repository()
+    def fail(codes):
+        raise OperationalError("SELECT", {}, Exception("unavailable"))
+    repo.latest_cn_trend_ranks = fail
+    assert IndustryStrengthService(repo, MarketData()).run()["status"] == "completed"
+    assert all(item["trend_rank"] is None for item in repo.members)
+
+
+def test_failure_and_historical_backfill_preserve_latest_members(monkeypatch):
+    repo = Repository()
+    IndustryStrengthService(repo, MarketData()).run()
+    previous = repo.members
+    with pytest.raises(IndustryReadinessError):
+        IndustryStrengthService(repo, MarketData(broken=2)).run()
+    assert repo.members is previous
+    monkeypatch.setattr(module, "get_market_now", lambda *a: datetime(2026, 9, 17, 2, tzinfo=timezone.utc))
+    IndustryStrengthService(repo, MarketData()).run(DAY)
+    assert repo.members is previous
+    assert repo.trend_calls == [["600001.SH"]]

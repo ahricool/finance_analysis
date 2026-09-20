@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import DailyKLineCard from '@/components/market-data/DailyKLineCard.vue';
 import { quantApi } from '@/api/quant';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import ApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
@@ -74,6 +75,10 @@ watch(
           </p>
         </div>
       </section>
+      <DailyKLineCard
+        :symbol="item.code"
+        :end-date="item.tradeDate"
+      />
       <section class="rounded-xl border bg-card p-4">
         <h3 class="text-sm font-semibold">
           原因说明

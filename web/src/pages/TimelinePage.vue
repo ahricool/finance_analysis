@@ -117,7 +117,7 @@ function safeUrl(value: unknown) { return typeof value === 'string' && /^https?:
     class="w-full py-6"
     data-testid="investment-timeline"
   >
-    <header class="overflow-hidden rounded-xl border border-border bg-gradient-to-br from-primary/8 via-card to-card p-5 shadow-sm sm:p-6">
+    <header class="overflow-hidden rounded-xl border border-border bg-card p-5 shadow-sm sm:p-6">
       <p class="text-xs tracking-[0.2em] text-muted-foreground">
         INVESTMENT TIMELINE
       </p>
@@ -160,7 +160,7 @@ function safeUrl(value: unknown) { return typeof value === 'string' && /^https?:
             :key="value"
             :value="value"
           >
-            {{ importanceNames[value] }}
+            {{ importanceNames[value] }} 及以上
           </option>
         </select>
       </div>
@@ -220,7 +220,7 @@ function safeUrl(value: unknown) { return typeof value === 'string' && /^https?:
     />
     <div
       v-if="loading && !items.length"
-      class="mt-4 columns-3 gap-3 2xl:columns-4"
+      class="mt-4 columns-4 gap-3"
       aria-label="正在加载"
     >
       <div class="mb-3 h-36 break-inside-avoid animate-pulse rounded-xl bg-muted" />
@@ -252,7 +252,7 @@ function safeUrl(value: unknown) { return typeof value === 'string' && /^https?:
           {{ dayHeading(group.key) }}
         </h2>
         <div
-          class="columns-3 gap-3 2xl:columns-4"
+          class="columns-4 gap-3"
           data-testid="timeline-columns"
         >
           <div

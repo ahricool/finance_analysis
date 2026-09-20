@@ -67,7 +67,7 @@ interfaces/api + tasks/celery/jobs
 | `tasks.py` | 代码定义的周期任务、管理员手动运行、任务记录 |
 | `quant.py` | 固定市场 Universe 的数据集、模型、信号、组合 |
 | `etf_rotation.py` / `trend_following.py` | 领域结果与手动运行 |
-| `market_data.py` | Cookie 鉴权的实时行情 WebSocket |
+| `market_data.py` | Cookie 鉴权的实时行情 WebSocket，以及统一前复权 daily-bars HTTP 查询 |
 | `usage.py` | LLM 用量 |
 | `celery_demo.py` | Celery 连通性演示，不是业务编排入口 |
 
@@ -267,14 +267,17 @@ uv run ./scripts/ci_gate.sh
 
 ## BTC 策略
 
-`crypto/` 负责 BTCUSDT Spot 聚合、指标、LONG/FLAT、ATR风险与统一 `CryptoService`；`integrations/crypto` 仅做Binance协议。
-`crypto_stream/` 为独立WS主通道/REST备用进程。只持久化已闭合1m；15m与1h严格UTC本地聚合。
-`database/repositories/crypto.py` 原子写状态及不可变15m快照，用唯一时间点和行锁防止重放信号。迁移为 `0044_crypto_btc`。
+`crypto/` 负责 BTCUSDT 原生15m/1h指标、LONG/FLAT与ATR风险；`integrations/crypto` 仅做 Binance 公共 REST。
+Beat `crypto_btc_strategy` 每15m收盘后一分钟执行，只读闭合K线，不持久化行情，不维护行情WS/Redis/同步进程。
+仓储原子写state与15m快照，以唯一时间点和行锁防重放及跳步；已有快照按15m顺序补算，冷启动只算最新。
+`0060_crypto_positions` 增加0–1仓位、平均成本及snapshot前后仓位/delta；绩效和执行/持仓周期从完整连续snapshot动态派生，不新增表。
 这是共享研究状态，不是用户仓位/Paper Trading。不要添加资金、订单或AI执行。详见 `docs/crypto-btc.md`。
 
 ## A 股行业强度
 
 `industry_strength/` 通过 `MarketDataService` 读取扶摇指数及现有股票日线，独立保存
-`industry_strength_snapshot`。三个扶摇能力仅支持 CN；指数无股票复权语义，使用 `IndexDailyBar`。
+`industry_strength_snapshot`；正式任务同事务整表替换 `industry_strength_constituent` 最新成分。
+成分 HTTP 只读该表，Trend Rank 批量读取最新 CN 正式快照并物化（可空），历史补算不覆盖最新成分。
+三个扶摇能力仅支持 CN；指数无股票复权语义，使用 `IndexDailyBar`。
 股票优先 DB，缺完整窗口则既有 Provider 只读补取；不写 `stock_daily`，不修改 ETF Universe。
 正式 Breadth 仅当日收盘计算，不做当前成分历史回填。配置、状态和覆盖规则见 `docs/industry-strength.md`。

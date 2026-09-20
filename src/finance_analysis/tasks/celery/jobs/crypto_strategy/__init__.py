@@ -1,0 +1,1 @@
+"""Scheduled BTC strategy."""

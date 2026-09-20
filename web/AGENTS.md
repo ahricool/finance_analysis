@@ -12,7 +12,7 @@
 | 状态 | Pinia（会话级） |
 | UI | Tailwind CSS 4 + shadcn-vue（preset `reka-vega`，底层 Reka UI）+ Lucide |
 | HTTP | Axios（Cookie 会话）+ 少量 `fetch`（SSE）/ WebSocket |
-| 图表 | ECharts + `vue-echarts` |
+| 图表 | KLineChart 10.x（金融 K 线）；ECharts + `vue-echarts`（统计图） |
 | 包管理 | `pnpm@11.1.3`（以 `package.json` 的 `packageManager` 为准） |
 
 入口：`index.html` → `src/main.ts` → `App.vue`。`index.html` 在 Vue 挂载前读取 `localStorage.theme`：`light`/`dark` 直接应用；缺失、非法或 `system` 则按 `prefers-color-scheme` 解析后给 `<html>` 打 `light`/`dark`，避免主题闪烁。
@@ -96,7 +96,7 @@ layout（Shell / PageHeader / ModuleTabs）+ ui/app 组件
 | `/research/etf-rotation` | `research-etf-rotation` | ETF 动量轮动 |
 | `/research/trend-following` | `research-trend-following` | 趋势跟踪 |
 | `/research/quant` 及子路径 | `research-quant*` | 量化研究（总览 / 选股 / 数据集 / 模型 / 组合） |
-| `/research/crypto/btc` | `research-crypto-btc` | BTC 交易 |
+| `/crypto/btc` | `crypto-btc` | BTC 交易 |
 | `/market/watch-list` | `market-watch-list` | 自选股 |
 | `/market/holdings` | `market-holdings` | 投资组合 |
 | `/profile/info` `/password` `/notification` | `profile-*` | 个人中心（同一页） |
@@ -109,8 +109,9 @@ layout（Shell / PageHeader / ModuleTabs）+ ui/app 组件
   风险摘要走现有全局 Telegram/ntfy；页面需展示 VWAP 的 EXACT/PROXY/UNAVAILABLE。
 - `meta.public === true` 才是公开页（目前只有登录）。
 - `meta.title` 用于 `document.title`（`「页面名 - Finance Analysis」`）。嵌套路由取最近一层有 title 的记录。
-- 研究走 `/research/**`，市场走 `/market/**`。不要把 Quant / ETF / 趋势跟踪 / BTC 再挂到 `/market`。
+- 研究走 `/research/**`，市场走 `/market/**`。加密货币走 `/crypto/**`。不要把 Quant / ETF / 趋势跟踪 / BTC 再挂到 `/market`。
 - 旧 `/market/quant*`、`/market/etf-rotation`、`/market/trend-following`、`/market/crypto/btc` 只作为 compatibility redirect，内部导航必须用 canonical URL。
+- BTC 的旧 `/research/crypto/btc` 同样重定向到 `/crypto/btc`；一级“加密货币”菜单位于“任务中心”之前。
 - `/chat` 只保留到 `/dashboard` 的 legacy redirect，前端不再有问股或个股分析页面。
 - 量化范围用 query `?market=US|CN`。在量化子路由之间跳转时，守卫会保留已有 `market`。读写市场用 `useQuantMarket()`，不要手写丢 query 的 `router.push`。
 - 顶栏菜单数据在 `src/config/mainNav.ts`，和路由表分开维护。加入口时两处都要改，并补 `src/config/__tests__/mainNav.test.ts` 一类断言。
@@ -190,7 +191,7 @@ Cookie 会话，`apiClient` 设了 `withCredentials: true`。
 - 弹层不要改 `document.body` 的 `overflow` / `paddingRight` 造成顶栏位移；冒烟测试会查这一点。
 - 根滚动条使用 `scrollbar-gutter: stable`，路由切换时不要让页面左右跳。
 - WebUI 仅面向桌面，根最小宽度 1200px；低于此宽度允许页面级横向滚动。只维护 Desktop 导航与表格，不添加手机 Sheet 导航或 Mobile Card。验证 1280 / 1440 / 1920px；桌面宽度之间的响应式布局继续保留。
-- Dashboard 只组合公开的 Quant Regime/Signals、ETF/Trend Changes、Timeline、BTC overview。不得读取持仓、自选股、分析历史等私人数据；各模块独立加载和失败。
+- Dashboard 按市场结构、Trend Market Regime、ETF/Trend Changes、Timeline、Quant Signals/BTC overview 排序；市场环境复用 Trend ranking 的 0–100 分数和 breakdown，不请求 Quant Regime 或展示风险敞口。不得读取持仓、自选股、分析历史等私人数据；各模块独立加载和失败。
 
 新增 shadcn 组件：按 `components.json` 生成到 `src/components/ui/`，不要改 aliases，不要另开一套 primitive。
 
@@ -243,8 +244,12 @@ Cookie 会话，`apiClient` 设了 `withCredentials: true`。
 
 ## BTC 页面
 
-`/research/crypto/btc` 位于研究导航，`useCryptoBtc()` 统一后端REST与WS，断线后60秒轮询并尝试重连；不得直接访问Binance。
-`BtcKlineChart` 复用ECharts，已闭合history与单根current分开更新。VChart的固定高度放外层；manual-update配合autoresize时，应等初始nextTick提交完整option，再增量更新series。
+`/crypto/btc` 位于一级“加密货币”导航。`useBinanceBtcMarket()` 直接访问 Binance REST 与单一 WS，支持1m/5m/15m/1h/4h/1D/1W/1M，断线自动重连，无 HTTP 轮询兜底。`useCryptoStrategy()` 独立读取后端策略，传输、错误、加载状态不得与行情混合。
+`BtcKlineChart` 使用已加载K线映射BUY/EXIT overlay，点击查看策略详情；Performance由后端快照派生，当前浮盈用浏览器Binance price计算。
+`BtcKlineChart` 是 `MarketKLineChart` 的轻量 wrapper，已闭合 history 与单根 current 分开传入。统一图表使用 KLineChart 10.x 的 data loader / subscription API，卸载时 dispose。单证券日 K 使用 `DailyKLineCard` 独立请求 `/api/v1/market-data/daily-bars/{symbol}`；历史策略详情必须传返回快照的 tradeDate 作为 endDate。
+
+
+BTC 多策略以 `strategy_key + symbol` 隔离，代码注册表当前仅 `btc_breakout_v1`。共享 Binance REST 窗口、独立 catch-up 与状态行锁；仓位变化保存于 snapshot，绩效/CAGR/负值回撤动态派生，selector 不影响行情连接。详见 `../docs/crypto-btc.md`。
 
 ## 消息中心
 
@@ -252,6 +257,7 @@ Cookie 会话，`apiClient` 设了 `withCredentials: true`。
 
 ## 行业强度
 
-`/research/industry-strength` 位于研究导航；排行、矩阵、Top20 热力历史通过统一详情抽屉联动，初次加载不自动打开。
-历史快照 Breadth 与当前成分表必须分别标注日期；当前成分不代表历史成分，等权涨跌不是指数贡献。
+`/research/industry-strength` 位于一级“加密货币”导航；排行、矩阵、Top20 热力历史通过统一居中详情 Dialog 联动，初次加载不自动打开。
+历史快照 Breadth 与最新成分表分开标注；成分表显示任务更新时间，Trend Rank 为物化时最新 CN 正式排名，不随历史日期变化。
+成分表所有列复用 SortableTableHeader 本地排序，缺失始终最后，同值按股票代码稳定排序。
 仅展示 A 股市场环境，不增加市场切换或交易建议，数据源密钥不得进入 WebUI。

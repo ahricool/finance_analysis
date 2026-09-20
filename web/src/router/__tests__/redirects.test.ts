@@ -22,7 +22,7 @@ describe('legacy URL redirects', () => {
     ['/market/quant/portfolios', '/research/quant/portfolios'],
     ['/market/etf-rotation', '/research/etf-rotation'],
     ['/market/trend-following', '/research/trend-following'],
-    ['/market/crypto/btc', '/research/crypto/btc'],
+    ['/market/crypto/btc', '/crypto/btc'],
   ])('redirects %s to %s', async (from, expected) => {
     await router.push(from);
     expect(router.currentRoute.value.path).toBe(expected);

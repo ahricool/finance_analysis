@@ -3,15 +3,18 @@
 Web UI 仅面向桌面浏览器。根布局最低宽度 1200px，Shell 最大内容宽度 1500px；更窄窗口允许页面级横向滚动，不维护手机导航或替代表格。
 `/` 和登录后的默认目标为 `/dashboard`；显式登录 redirect 仍有效。个股分析页面已移除。
 
-## 五个模块
+## 模块顺序与数据来源
 
 | 模块 | 现有公共来源 | 展示边界 |
 | --- | --- | --- |
-| Market Pulse | Quant `marketRegime(CN/US)` | 唯一首页市场状态来源；分数由 0–1 格式化为 0–100 标尺，计算不变；风险敞口和实际交易日 |
-| Latest | Timeline `list({limit:10})` | 无 cutoff，含未来事件，严格保留 API DESC 顺序；摘要列表可滚动，进入完整时间线深入查看 |
-| What's Changed | ETF / Trend `ranking(CN/US).changes` | 本地市场切换；显示实际对比交易日；每类至多三条重点变化，普通 WATCH 不展示 |
-| Model Pulse | Quant `signals(CN/US)`、BTC `overview()` | Top 3、BTC 价格/Regime/Setup/Action/State；BTC 每30秒刷新公开快照，不建立新行情连接 |
-| What's Next | Timeline `category=event, end_date=today+7, limit=100` | 展示仍未发生的 earnings/macro，最多8条；保留返回顺序，时间倒序而非最近事件优先 |
+| 市场结构 / MARKET STRUCTURE | Market Structure `snapshot(CN/US)`、Trend ranking 的 lifecycle/fragility 摘要 | Header 后首先展示，沿用现有结构计算 |
+| 市场环境 / MARKET REGIME | Trend `ranking(CN/US)` | 复用策略变化的同一请求；marketRegime、0–100 marketScore（不乘100）、趋势/宽度/风险 breakdown、实际 tradeDate；不展示风险敞口 |
+| What's Changed | ETF / Trend `ranking(CN/US).changes` | 本地市场切换；显示实际对比交易日；重点变化，普通 WATCH 不展示 |
+| Latest / What's Next | Timeline `list({limit:10})` / `category=event, end_date=today+7, limit=100` | 同行展示；Latest 无 cutoff，含未来事件；Next 最多8条未发生的 earnings/macro；均保留 API 倒序 |
+| Model Pulse | Quant `signals(CN/US)`、BTC `overview()` | 页面最后展示模型研究信号 Top 3；BTC 价格/Regime/Setup/Action/State，每30秒刷新公开快照 |
+
+首页不再请求 Quant `marketRegime()`，Quant 独立页面和 API 保持不变；不新增 Dashboard 聚合 API。
+TODO：后续评估行业强度轻量摘要；目前只有完整排行与详情组件，本次不增加首页模块或复制算法。
 
 每个来源拥有独立 loading/error/retry 状态。时区变化重新获取 Timeline cutoff，异步请求使用版本号防止旧响应覆盖新结果。
 页面不读取持仓、投资组合、自选股、分析历史或用户偏好接口；时区仍复用全站展示时区。

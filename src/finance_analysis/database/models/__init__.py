@@ -2,7 +2,7 @@
 """ORM model exports."""
 
 from finance_analysis.database.models.holdings import HoldingSource, PositionRiskState, RiskEvent  # pragma: allowlist secret
-from finance_analysis.database.models.industry_strength import IndustryStrengthSnapshot  # pragma: allowlist secret
+from finance_analysis.database.models.industry_strength import IndustryStrengthConstituent, IndustryStrengthSnapshot  # pragma: allowlist secret
 from finance_analysis.database.models.market_sentiment import MarketSentimentSnapshot, MarketSentimentSourceSnapshot  # pragma: allowlist secret
 
 from finance_analysis.database.models.market_structure import MarketStructureSnapshot  # pragma: allowlist secret
@@ -35,7 +35,7 @@ from finance_analysis.database.models.trend_following import TrendFollowingSnaps
 from finance_analysis.database.models.user import User  # pragma: allowlist secret
 from finance_analysis.database.models.watch_list import WatchListItem  # pragma: allowlist secret
 
-from finance_analysis.database.models.crypto import CryptoKline, CryptoStrategySnapshot, CryptoStrategyState  # pragma: allowlist secret
+from finance_analysis.database.models.crypto import CryptoStrategySnapshot, CryptoStrategyState  # pragma: allowlist secret
 
 __all__ = [
     "HoldingSource",
@@ -44,9 +44,9 @@ __all__ = [
     "MarketSentimentSnapshot",
     "MarketSentimentSourceSnapshot",
     "IndustryStrengthSnapshot",
+    "IndustryStrengthConstituent",
     "MarketStructureSnapshot",
     "Notification",
-    "CryptoKline",
     "CryptoStrategySnapshot",
     "CryptoStrategyState",
     "AnalysisHistory",

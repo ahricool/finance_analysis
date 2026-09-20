@@ -106,9 +106,9 @@ def test_account_constraint_event_reaches_summary_shape():
 
 def test_holdings_migration_revision_is_single_head():
     script = ScriptDirectory.from_config(Config("alembic.ini"))
-    assert script.get_heads() == ["0059_holdings_published_snapshot"]
-    revision = script.get_revision("0059_holdings_published_snapshot")
-    assert revision.down_revision == "0058_holdings_portfolio_risk"
+    assert script.get_heads() == ["0063_holdings_published_snapshot"]
+    revision = script.get_revision("0063_holdings_published_snapshot")
+    assert revision.down_revision == "0062_holdings_portfolio_risk"
 
 
 def test_repository_json_txn_dedupe_and_latest_api():
@@ -269,7 +269,7 @@ def test_published_snapshot_migration_on_live_database():  # pragma: allowlist s
     from pathlib import Path
     import importlib.util
 
-    path = Path("alembic/versions/0059_holdings_published_snapshot.py")
+    path = Path("alembic/versions/0063_holdings_published_snapshot.py")
     spec = importlib.util.spec_from_file_location(path.stem, path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)

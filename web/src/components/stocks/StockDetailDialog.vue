@@ -1,10 +1,9 @@
 <script setup lang="ts">
+import DailyKLineCard from '@/components/market-data/DailyKLineCard.vue';
 import type { RealtimeQuote } from '@/api/realtimeMarket';
 import type { MarketType } from '@/api/watchList';
-import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { formatDateTimeInDisplayTimezone } from '@/utils/format';
 import { formatSecurityLabel } from '@/utils/security';
 import {
@@ -104,65 +103,55 @@ function movementClass(value: number | null | undefined): string {
 </script>
 
 <template>
-  <Sheet
+  <Dialog
     :open="Boolean(stock)"
     @update:open="emit('update:open', $event)"
   >
-    <SheetContent class="flex w-full flex-col p-0 sm:max-w-3xl">
-      <SheetHeader class="p-6 text-left">
-        <SheetTitle class="flex flex-wrap items-center gap-2">
+    <DialogContent class="flex max-h-[calc(100dvh-2rem)] min-w-0 flex-col gap-0 overflow-hidden p-0 sm:max-w-4xl">
+      <DialogHeader class="shrink-0 p-6 pr-16 text-left">
+        <DialogTitle class="flex flex-wrap items-center gap-2 break-words">
           {{ formatSecurityLabel(stock?.code, stock?.name, '股票详情') }}
           <span
             class="rounded-lg border border-border/60 bg-background px-2 py-0.5 text-xs text-muted-foreground"
           >{{ marketName }}</span>
-        </SheetTitle>
-        <SheetDescription>股票完整信息与每 5 秒更新的行情快照</SheetDescription>
-      </SheetHeader>
+        </DialogTitle>
+        <DialogDescription>股票完整信息与每 5 秒更新的行情快照</DialogDescription>
+      </DialogHeader>
       <Separator />
-      <ScrollArea
+      <div
         v-if="stock"
-        class="min-h-0 flex-1"
+        class="min-h-0 flex-1 overflow-y-auto overscroll-contain [scrollbar-gutter:stable]"
       >
         <div class="space-y-6 p-6">
           <section>
             <h3 class="mb-3 text-sm font-semibold text-foreground">
               实时行情
             </h3>
-            <div
+            <dl
               v-if="quote?.available"
-              class="grid grid-cols-2 gap-3 sm:grid-cols-4"
+              class="grid grid-cols-2 gap-3"
             >
-              <Card
-                class="col-span-2 rounded-xl border border-border/60 bg-background p-4 sm:col-span-1"
+              <div
+                v-for="metric in [
+                  { label: '最新价', value: formatNumber(quote.last_price, 4) },
+                  { label: '今日涨跌额', value: formatSigned(quote.change_amount), color: movementClass(quote.change_amount) },
+                  { label: '今日涨跌幅', value: formatSigned(quote.change_pct, '%'), color: movementClass(quote.change_pct) },
+                  { label: '交易时段', value: quote.trade_session || '—' },
+                ]"
+                :key="metric.label"
+                class="min-w-0 rounded-xl border border-border/60 bg-background p-4"
               >
-                <CardHeader><CardDescription>最新价</CardDescription><CardTitle>{{ formatNumber(quote.last_price, 4) }}</CardTitle></CardHeader>
-              </Card>
-              <Card>
-                <CardHeader>
-                  <CardDescription>今日涨跌额</CardDescription><CardTitle
-                    :class="movementClass(quote.change_amount)"
-                  >
-                    {{ formatSigned(quote.change_amount) }}
-                  </CardTitle>
-                </CardHeader>
-              </Card>
-              <Card>
-                <CardHeader>
-                  <CardDescription>今日涨跌幅</CardDescription><CardTitle
-                    :class="movementClass(quote.change_pct)"
-                  >
-                    {{ formatSigned(quote.change_pct, '%') }}
-                  </CardTitle>
-                </CardHeader>
-              </Card>
-              <Card>
-                <CardHeader>
-                  <CardDescription>交易时段</CardDescription><CardTitle class="text-base">
-                    {{ quote.trade_session || '—' }}
-                  </CardTitle>
-                </CardHeader>
-              </Card>
-            </div>
+                <dt class="text-sm text-muted-foreground">
+                  {{ metric.label }}
+                </dt>
+                <dd
+                  class="mt-2 break-words text-xl font-semibold tabular-nums"
+                  :class="metric.color"
+                >
+                  {{ metric.value }}
+                </dd>
+              </div>
+            </dl>
             <p
               v-else
               class="rounded-xl border border-dashed border-border/70 bg-background px-4 py-6 text-center text-sm text-muted-foreground"
@@ -171,7 +160,7 @@ function movementClass(value: number | null | undefined): string {
             </p>
 
             <dl
-              class="mt-3 grid grid-cols-2 overflow-hidden rounded-xl border border-border/60 sm:grid-cols-4"
+              class="mt-3 grid grid-cols-2 overflow-hidden rounded-xl border border-border/60"
             >
               <div
                 v-for="entry in [
@@ -186,14 +175,14 @@ function movementClass(value: number | null | undefined): string {
                   ['接收时间', formatDateTimeInDisplayTimezone(quote?.received_at)],
                 ]"
                 :key="entry[0]"
-                class="min-w-0 border-b border-r border-border/50 p-3 last:border-r-0"
+                class="min-w-0 border-b border-border/50 p-4"
+                :class="['行情标识', '行情时间', '接收时间'].includes(entry[0] ?? '') ? 'col-span-2' : ''"
               >
-                <dt class="whitespace-nowrap text-xs text-muted-foreground">
+                <dt class="text-xs leading-5 text-muted-foreground">
                   {{ entry[0] }}
                 </dt>
                 <dd
-                  class="mt-1 truncate text-sm tabular-nums text-foreground"
-                  :title="entry[1]"
+                  class="mt-1 break-words text-sm leading-6 tabular-nums text-foreground"
                 >
                   {{ entry[1] }}
                 </dd>
@@ -201,14 +190,16 @@ function movementClass(value: number | null | undefined): string {
             </dl>
           </section>
 
+          <DailyKLineCard :symbol="stock.code" />
+
           <section>
             <h3 class="mb-3 text-sm font-semibold text-foreground">
               {{ kind === 'holding' ? '持仓信息' : '自选信息' }}
             </h3>
             <dl
-              class="grid grid-cols-1 gap-x-8 gap-y-4 rounded-xl border border-border/60 bg-background p-4 sm:grid-cols-2"
+              class="grid grid-cols-2 gap-x-8 gap-y-4 rounded-xl border border-border/60 bg-background p-4 [&>div]:min-w-0 [&_dd]:break-words"
             >
-              <div>
+              <div class="col-span-2">
                 <dt class="text-xs text-muted-foreground">
                   股票
                 </dt>
@@ -304,7 +295,7 @@ function movementClass(value: number | null | undefined): string {
                   {{ stock.is_favorite ? '是' : '否' }}
                 </dd>
               </div>
-              <div class="sm:col-span-2">
+              <div class="col-span-2">
                 <dt class="text-xs text-muted-foreground">
                   备注
                 </dt>
@@ -339,7 +330,7 @@ function movementClass(value: number | null | undefined): string {
             </dl>
           </section>
         </div>
-      </ScrollArea>
-    </SheetContent>
-  </Sheet>
+      </div>
+    </DialogContent>
+  </Dialog>
 </template>

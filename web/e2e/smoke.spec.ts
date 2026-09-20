@@ -10,7 +10,7 @@ async function login(page: Page) {
   await page.goto('/login');
   await page.waitForLoadState('domcontentloaded');
 
-  const dashboardLink = page.getByRole('link', { name: '动态' });
+  const dashboardLink = page.getByRole('link', { name: '市场动态' });
 
   const isAlreadyAuthenticated =
     page.url().endsWith('/dashboard') ||

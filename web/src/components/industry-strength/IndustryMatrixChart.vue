@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue';
+import { computed } from 'vue';
 import { use } from 'echarts/core';
 import type { ECElementEvent } from 'echarts/core';
 import { ScatterChart } from 'echarts/charts';
@@ -13,18 +13,10 @@ import { bubbleLegendSamples, matrixOption } from './chartOptions';
 
 use([ScatterChart, GridComponent, TooltipComponent, MarkLineComponent, GraphicComponent, CanvasRenderer]);
 
-const props = defineProps<{ rows: IndustrySnapshot[]; selected: string; active?: boolean }>();
+const props = defineProps<{ rows: IndustrySnapshot[]; selected: string }>();
 const emit = defineEmits<{ select: [code: string] }>();
 const { resolvedTheme } = useTheme();
-const chart = ref<{ resize?: () => void } | null>(null);
 const option = computed(() => matrixOption(props.rows, props.selected, resolvedTheme.value === 'dark' ? 'dark' : 'light'));
-
-watch(() => props.active, async (active) => {
-  if (active) {
-    await nextTick();
-    chart.value?.resize?.();
-  }
-});
 
 function select(event: ECElementEvent) {
   const data = event.data;
@@ -47,7 +39,6 @@ function select(event: ECElementEvent) {
       aria-label="行业强度气泡图"
     >
       <VChart
-        ref="chart"
         :option="option"
         autoresize
         @click="select"

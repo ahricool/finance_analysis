@@ -122,3 +122,19 @@ class StockHistoryResponse(BaseModel):
                 "data": []
             }
         }
+
+
+class StockIndexMembership(BaseModel):
+    key: str
+    name: str
+    source: str = Field(..., description="指数成分来源（UniverseMember.source）")
+
+
+class StockMemberships(BaseModel):
+    indices: list[StockIndexMembership] = Field(default_factory=list)
+
+
+class StockClassificationResponse(BaseModel):
+    code: str
+    market: str
+    memberships: StockMemberships

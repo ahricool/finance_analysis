@@ -2,14 +2,13 @@ import { flushPromises, mount, type VueWrapper } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createMemoryHistory, createRouter } from 'vue-router';
 import { createPinia } from 'pinia';
-import type { IndustrySnapshot } from '@/api/industryStrength';
+import type { Constituent, IndustrySnapshot } from '@/api/industryStrength';
 import { toCamelCase } from '@/api/utils';
 import IndustryStrengthPage from '../IndustryStrengthPage.vue';
 import AppDatePicker from '@/components/app/AppDatePicker.vue';
 import IndustryMatrixChart from '@/components/industry-strength/IndustryMatrixChart.vue';
 import IndustryRankHeatmap from '@/components/industry-strength/IndustryRankHeatmap.vue';
 import IndustryRankingTable from '@/components/industry-strength/IndustryRankingTable.vue';
-import IndustryDetailDrawer from '@/components/industry-strength/IndustryDetailDrawer.vue';
 
 const api = vi.hoisted(() => ({ ranking: vi.fn(), dates: vi.fn(), history: vi.fn(), detail: vi.fn(), constituents: vi.fn() }));
 vi.mock('@/api/industryStrength', () => ({ industryStrengthApi: api }));
@@ -47,15 +46,15 @@ async function render() {
 }
 
 function detailEl() {
-  return document.body.querySelector('[data-testid="industry-detail"]');
+  return document.body.querySelector('[data-testid="industry-detail-dialog"]');
 }
 
 function detailText() {
   return detailEl()?.textContent ?? '';
 }
 
-async function closeDrawer() {
-  const close = document.body.querySelector('[data-testid="industry-drawer-close"]') as HTMLButtonElement | null;
+async function closeDialog() {
+  const close = document.body.querySelector('[data-testid="industry-detail-close"]') as HTMLButtonElement | null;
   close?.click();
   await flushPromises();
 }
@@ -73,13 +72,55 @@ beforeEach(() => {
   api.history.mockResolvedValue({ dates: ['2026-09-16'], items: rows });
   api.detail.mockImplementation(async (code: string) => ({ current: rows.find(r => r.industryCode === code), history: rows.filter(r => r.industryCode === code) }));
   api.constituents.mockImplementation(async (code: string) => ({
-    industryCode: code, tradeDate: '2026-09-17', membersObservedAt: '2026-09-17T11:00:00Z',
+    industryCode: code, updatedAt: '2026-09-17T11:00:00Z',
     constituentCount: 0, dailyValidCount: 0, ma5ValidCount: 0, aboveMa5Count: 0, ma20ValidCount: 0, aboveMa20Count: 0, items: [],
   }));
 });
 
 describe('Industry Strength', () => {
-  it('renders loading then rankings without auto-opening the drawer', async () => {
+  const memberRows: Constituent[] = [
+    { code: '003.SH', name: 'A', trendRank: 2, price: 20, changePct: .1, aboveMa5: true, aboveMa20: false, amount: 30, volume: 1 },
+    { code: '002.SH', name: 'B', trendRank: 1, price: 10, changePct: .3, aboveMa5: false, aboveMa20: true, amount: 10, volume: 1 },
+    { code: '005.SH', name: 'D', trendRank: null, price: null, changePct: null, aboveMa5: null, aboveMa20: null, amount: null, volume: null },
+    { code: '001.SH', name: 'A', trendRank: 1, price: 10, changePct: .3, aboveMa5: false, aboveMa20: true, amount: 10, volume: 1 },
+    { code: '004.SH', name: 'C', trendRank: null, price: null, changePct: null, aboveMa5: null, aboveMa20: null, amount: null, volume: null },
+  ];
+  const ascending = ['001.SH', '002.SH', '003.SH', '004.SH', '005.SH'];
+  const descending = ['003.SH', '001.SH', '002.SH', '004.SH', '005.SH'];
+  it.each([
+    ['股票', ['001.SH', '003.SH', '002.SH', '004.SH', '005.SH'], ['005.SH', '004.SH', '002.SH', '001.SH', '003.SH']],
+    ['Trend Rank', ascending, descending],
+    ['收盘价', descending, ascending],
+    ['涨跌幅（%）', descending, ascending],
+    ['MA5', descending, ascending],
+    ['MA20', ascending, descending],
+    ['成交额', descending, ascending],
+  ])('sorts %s in both directions locally with stable ties and nulls last', async (label, first, second) => {
+    const items = Object.freeze(memberRows.map(item => Object.freeze({ ...item })));
+    api.constituents.mockResolvedValueOnce({ industryCode: '881101.TI', updatedAt: '2026-09-17T11:00:00Z',
+      constituentCount: 5, dailyValidCount: 3, ma5ValidCount: 3, ma20ValidCount: 3, items });
+    const wrapper = await render(); await flushPromises();
+    await wrapper.get('[data-testid="industry-summary-strongest"]').trigger('click'); await flushPromises();
+    const section = detailEl()!.querySelector('[data-testid="industry-detail-constituents"]')!;
+    const codes = () => [...section.querySelectorAll('tbody tr')].map(row => row.querySelector('td span')!.textContent);
+    expect(codes()).toEqual(ascending); // Initial changePct DESC, even when API items are unsorted.
+    expect(section.querySelector('thead [aria-sort="descending"]')?.textContent).toContain('涨跌幅');
+    const nullRow = [...section.querySelectorAll('tbody tr')].find(row => row.textContent?.includes('004.SH'))!;
+    expect(nullRow.querySelectorAll('td')[1]!.textContent?.trim()).toBe('—');
+    expect(section.textContent).toContain('当前成分股（最新数据）');
+    expect(section.textContent).toContain('不随上方历史快照日期变化');
+    expect(section.textContent).toContain('不对应上方历史日期');
+    const header = [...section.querySelectorAll('thead button')].find(button => button.textContent?.trim() === label)!;
+    for (const expected of [first, second]) {
+      (header as HTMLButtonElement).click(); await flushPromises();
+      expect(codes()).toEqual(expected);
+    }
+    expect(api.constituents).toHaveBeenCalledTimes(1);
+    expect(api.detail).toHaveBeenCalledTimes(1);
+    expect(items).toEqual(memberRows);
+  });
+
+  it('renders loading then rankings without auto-opening the dialog', async () => {
     let resolve!: (value: unknown) => void;
     api.ranking.mockReturnValueOnce(new Promise(r => { resolve = r; }));
     const wrapper = await render();
@@ -91,7 +132,7 @@ describe('Industry Strength', () => {
     expect(wrapper.get('[data-testid="industry-summary"]').text()).toContain('最强行业');
     expect(wrapper.get('[data-testid="industry-summary"]').text()).toContain('动量降速最大');
     expect(wrapper.get('[data-testid="industry-summary-advancing"]').text()).toContain('50.0%（1 / 2）');
-    expect(document.body.querySelector('[data-testid="industry-detail"]')).toBeNull();
+    expect(document.body.querySelector('[data-testid="industry-detail-dialog"]')).toBeNull();
     expect(api.detail).not.toHaveBeenCalled();
     expect(api.constituents).not.toHaveBeenCalled();
     expect(wrapper.get('[data-testid="industry-ranking"]').text()).toContain('70.0');
@@ -99,25 +140,29 @@ describe('Industry Strength', () => {
     wrapper.unmount();
   });
 
-  it('opens the same drawer from ranking, summary and both charts', async () => {
+  it('opens the same dialog from ranking, summary and both charts', async () => {
     const wrapper = await render(); await flushPromises();
     await wrapper.get('[data-testid="industry-summary-strongest"]').trigger('click'); await flushPromises();
     expect(detailText()).toContain('行业甲');
     expect(api.detail).toHaveBeenLastCalledWith('881101.TI', '2026-09-16');
+    expect(api.constituents).toHaveBeenLastCalledWith('881101.TI');
+    expect(detailEl()?.getAttribute('role')).toBe('dialog');
+    expect(detailEl()?.querySelector('[role="tablist"]')).toBeNull();
+    for (const section of ['overview', 'history', 'constituents']) {
+      expect(detailEl()?.querySelector(`[data-testid="industry-detail-${section}"]`)).not.toBeNull();
+    }
     await wrapper.get('[data-testid="industry-ranking"]').findAll('button').find(b => b.text() === '行业乙')!.trigger('click');
     await flushPromises();
     expect(detailText()).toContain('行业乙');
-    await wrapper.get('[data-testid="industry-view-matrix"]').trigger('click');
     await wrapper.getComponent(IndustryMatrixChart).vm.$emit('select', '881101.TI'); await flushPromises();
     expect(detailText()).toContain('行业甲');
-    await wrapper.get('[data-testid="industry-view-history"]').trigger('click');
     await wrapper.getComponent(IndustryRankHeatmap).vm.$emit('select', '881102.TI'); await flushPromises();
     expect(detailText()).toContain('行业乙');
-    expect(api.constituents).not.toHaveBeenCalled();
+    expect(api.constituents).toHaveBeenCalledTimes(2);
     wrapper.unmount();
   });
 
-  it('keeps sort, filter and scroll context after closing the drawer', async () => {
+  it('keeps sort, filter and scroll context after closing the dialog', async () => {
     const wrapper = await render(); await flushPromises();
     const table = wrapper.getComponent(IndustryRankingTable);
     await wrapper.get('[data-testid="industry-search"]').setValue('行业乙');
@@ -127,7 +172,7 @@ describe('Industry Strength', () => {
     await wrapper.get('[data-testid="industry-ranking"]').findAll('button').find(b => b.text() === '行业乙')!.trigger('click');
     await flushPromises();
     expect(detailText()).toContain('行业乙');
-    await closeDrawer();
+    await closeDialog();
     expect(detailEl()).toBeNull();
     expect(wrapper.get('[data-testid="industry-search"]').element).toHaveProperty('value', '行业乙');
     expect(wrapper.get('[data-testid="industry-filter-count"]').text()).toContain('当前显示 1 / 全部 2 个行业');
@@ -168,18 +213,24 @@ describe('Industry Strength', () => {
     wrapper.unmount();
   });
 
-  it('loads constituents on demand and isolates that failure from details', async () => {
+  it('automatically loads constituents and isolates that failure from details', async () => {
     api.constituents.mockRejectedValue(new Error('upstream unavailable'));
     const wrapper = await render(); await flushPromises();
     await wrapper.get('[data-testid="industry-ranking"]').findAll('button').find(b => b.text() === '行业甲')!.trigger('click');
     await flushPromises();
     expect(detailText()).toContain('行业甲');
-    expect(api.constituents).not.toHaveBeenCalled();
-    await wrapper.getComponent(IndustryDetailDrawer).vm.$emit('update:tab', 'constituents');
     await flushPromises();
     expect(api.constituents).toHaveBeenCalledTimes(1);
     expect(detailText()).toContain('重试当前成分');
     expect(detailText()).toContain('行业甲');
+    expect(detailEl()?.querySelector('[data-testid="industry-detail-history"] tbody')).not.toBeNull();
+    api.constituents.mockResolvedValueOnce({ industryCode: '881101.TI', updatedAt: '2026-09-18T11:00:00Z', items: [] });
+    const retry = [...detailEl()!.querySelectorAll('button')].find(button => button.textContent?.includes('重试当前成分'))!;
+    retry.click();
+    await flushPromises();
+    expect(api.constituents).toHaveBeenCalledTimes(2);
+    expect(detailText()).not.toContain('重试当前成分');
+    expect(detailText()).toContain('2026/09/18');
     wrapper.unmount();
   });
 
@@ -233,7 +284,7 @@ describe('Industry Strength', () => {
     wrapper.unmount();
   });
 
-  it('refreshes an open drawer and reports a missing industry instead of switching', async () => {
+  it('refreshes an open dialog and reports a missing industry instead of switching', async () => {
     const wrapper = await render(); await flushPromises();
     await wrapper.get('[data-testid="industry-ranking"]').findAll('button').find(b => b.text() === '行业乙')!.trigger('click');
     await flushPromises();
@@ -272,10 +323,9 @@ describe('Industry Strength', () => {
     const wrapper = await render(); await flushPromises();
     await wrapper.get('[data-testid="industry-ranking"]').findAll('button').find(b => b.text() === '行业甲')!.trigger('click');
     await flushPromises();
-    await wrapper.getComponent(IndustryDetailDrawer).vm.$emit('update:tab', 'constituents');
     await flushPromises();
-    expect(document.body.querySelector('[data-testid="industry-constituents-dates"]')?.textContent).toContain('2026-09-17');
-    expect(document.body.querySelector('[data-testid="industry-constituents-banner"]')?.textContent).toContain('不随上方历史快照日期切换');
+    expect(document.body.querySelector('[data-testid="industry-constituents-dates"]')?.textContent).toContain('2026/09/17');
+    expect(document.body.querySelector('[data-testid="industry-constituents-banner"]')?.textContent).toContain('不随上方历史快照日期变化');
     expect(detailText()).toContain('实际查询快照日期 2026-09-16');
     wrapper.unmount();
   });
@@ -318,7 +368,6 @@ describe('Industry Strength', () => {
     const wrapper = await render(); await flushPromises();
     await wrapper.get('[data-testid="industry-ranking"]').findAll('button').find(b => b.text() === '行业甲')!.trigger('click');
     await flushPromises();
-    await wrapper.getComponent(IndustryDetailDrawer).vm.$emit('update:tab', 'history');
     await flushPromises();
     expect(detailText()).toContain('2026-08-01');
     let resolveB!: (value: unknown) => void;
@@ -344,7 +393,6 @@ describe('Industry Strength', () => {
     const wrapper = await render(); await flushPromises();
     await wrapper.get('[data-testid="industry-ranking"]').findAll('button').find(b => b.text() === '行业甲')!.trigger('click');
     await flushPromises();
-    await wrapper.getComponent(IndustryDetailDrawer).vm.$emit('update:tab', 'history');
     await flushPromises();
     expect(detailText()).toContain('2026-08-01');
     api.ranking.mockResolvedValueOnce({
@@ -363,7 +411,6 @@ describe('Industry Strength', () => {
 
   it('does not paint T history onto the T-1 heatmap', async () => {
     const wrapper = await render(); await flushPromises();
-    await wrapper.get('[data-testid="industry-view-history"]').trigger('click');
     expect(wrapper.getComponent(IndustryRankHeatmap).props('history').dates).toEqual(['2026-09-16']);
     let resolveHistory!: (reason?: unknown) => void;
     api.ranking.mockResolvedValueOnce({

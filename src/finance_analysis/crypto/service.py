@@ -1,143 +1,135 @@
-"""Single facade for BTC queries, ingestion, backfill and deterministic evaluation."""
+"""BTC strategy reads and scheduled evaluation; market data is never persisted."""
 
 import asyncio
 from dataclasses import asdict
 from datetime import timedelta
 
-from finance_analysis.core.time import utc_now
 from finance_analysis.crypto.config import get_crypto_config
-from finance_analysis.crypto.strategy import evaluate
-
-
-async def run_db(function, *args, **kwargs):
-    """Let a bounded DB transaction finish before releasing the streamer leader lock."""
-    task = asyncio.create_task(asyncio.to_thread(function, *args, **kwargs))
-    try:
-        return await asyncio.shield(task)
-    except asyncio.CancelledError:
-        await task
-        raise
+from finance_analysis.crypto.features import contiguous_tail
+from finance_analysis.crypto.registry import STRATEGIES, SYMBOL
+from finance_analysis.integrations.crypto.binance import BinanceClient
 
 
 class CryptoService:
-    def __init__(self, repository=None, realtime=None, binance=None, config=None):
+    def __init__(self, repository=None, binance=None, config=None, definitions=STRATEGIES):
+        self.definitions = definitions
         self.config = config or get_crypto_config()
         if repository is None:
             from finance_analysis.database.repositories.crypto import CryptoRepository
 
             repository = CryptoRepository()
         self.repository = repository
-        self.realtime = realtime
         self.binance = binance
-        self.live = dict(
-            stream_mode="http_fallback",
-            websocket_connected=False,
-            last_websocket_message_time=None,
-            last_update_time=None,
-            last_error=None,
-            latest_candle=None,
-            recent_closed=[],
-            strategy_latest_state=None,
-            ready=False,
+
+    def definition(self, strategy_key):
+        return next((item for item in self.definitions if item.key == strategy_key), None)
+
+    def get_signals(self, strategy_key, symbol, limit=50, **filters):
+        return self.repository.signals(strategy_key, symbol, limit, **filters)
+
+    def get_performance(self, strategy_key, symbol):
+        from finance_analysis.crypto.performance import performance
+
+        result = performance(
+            self.repository.signals(strategy_key, symbol, None), self.repository.state(strategy_key, symbol)
+        )
+        return dict(
+            result, strategy_key=strategy_key, symbol=symbol, display_name=self.definition(strategy_key).display_name
         )
 
-    async def get_market_state(self):
-        cached = await self.realtime.read() if self.realtime else {}
-        state = {**self.live, **cached, "enabled": self.config.enabled, "symbol": "BTCUSDT"}
-        if not cached and state["latest_candle"] is None:
-            # An empty/unavailable Redis must not hide closed facts already in PostgreSQL.
-            rows = await run_db(self.get_recent_klines, 5)
-            signals = await run_db(self.get_signals, 1)
-            state.update(
-                recent_closed=rows,
-                latest_candle=rows[-1] if rows else None,
-                last_update_time=rows[-1]["close_time"] if rows else None,
-                strategy_latest_state=signals[0] if signals else None,
-            )
-        return state
-
-    def get_recent_klines(self, limit=1000):
-        return [asdict(row) for row in self.repository.klines(limit=limit)]
-
-    def get_signals(self, limit=50):
-        return self.repository.signals(limit)
-
-    def get_strategy_state(self):
-        return asdict(self.repository.state())
-
-    async def get_overview(self):
-        signals = await run_db(self.get_signals, 1)
+    def get_overview(self, strategy_key, symbol):
+        signals = self.get_signals(strategy_key, symbol, 1)
         return {
-            "symbol": "BTCUSDT",
+            "strategy_key": strategy_key,
+            "symbol": symbol,
             "strategy": signals[0] if signals else None,
-            "state": await run_db(self.get_strategy_state),
-            "market": await self.get_market_state(),
+            "state": asdict(self.repository.state(strategy_key, symbol)),
         }
 
-    async def publish(self, **updates):
-        self.live.update(updates)
-        if self.realtime:
-            await self.realtime.write(self.live)
+    def get_strategies(self):
+        items = []
+        for definition in self.definitions:
+            info = self.get_overview(definition.key, SYMBOL)
+            latest = info["strategy"]
+            items.append(
+                dict(
+                    strategy_key=definition.key,
+                    display_name=definition.display_name,
+                    enabled=definition.enabled,
+                    current_position=info["state"]["position_pct"],
+                    latest_action=latest["action"] if latest else None,
+                    latest_evaluated_at=latest["evaluated_at"] if latest else None,
+                )
+            )
+        return items
 
-    async def ingest(self, rows, *, calculate=True):
-        now = utc_now()
-        await run_db(self.repository.upsert_klines, rows)
-        closed = {row["open_time"]: row for row in self.live["recent_closed"]}
-        closed.update({row.open_time: asdict(row) for row in rows if row.closed})
-        self.live["recent_closed"] = [closed[key] for key in sorted(closed)[-5:]]
-        for row in sorted(rows, key=lambda item: item.open_time):
-            current = self.live["latest_candle"]
-            if current and (
-                row.open_time < current["open_time"]
-                or (row.open_time == current["open_time"] and current["closed"] and not row.closed)
-            ):
-                continue
-            self.live["latest_candle"] = asdict(row)
-        if calculate and any(row.closed for row in rows):
-            await self.evaluate_pending()
-        await self.publish(last_update_time=now)
-
-    async def evaluate_pending(self):
-        latest_open = await run_db(self.repository.latest_open_time)
-        if latest_open is None:
-            return
-        end = latest_open + timedelta(minutes=1)
-        boundary = end.replace(minute=(end.minute // 15) * 15, second=0, microsecond=0)
-        snapshots = await run_db(self.repository.signals, 1)
-        # Cold start records the first live evaluation, not fictitious historical trades.
-        at = snapshots[0]["evaluated_at"] + timedelta(minutes=15) if snapshots else boundary
-        while at <= boundary:
-            rows = await run_db(self.repository.klines, limit=7 * 1440, as_of=at, start=at - timedelta(days=7))
-            snapshot = await run_db(self.repository.evaluate_once, at, lambda state: evaluate(rows, at, state))
-            if snapshot:
-                self.live["strategy_latest_state"] = snapshot
-            at += timedelta(minutes=15)
-        if self.live["strategy_latest_state"] is None and snapshots:
-            self.live["strategy_latest_state"] = snapshots[0]
-
-    async def backfill(self):
-        """Page oldest-first; interrupted backfills restart from the last committed minute."""
-        now = await self.binance.server_time()
-        end = now.replace(second=0, microsecond=0)
-        latest = await run_db(self.repository.latest_open_time)
-        start = latest if latest else end - timedelta(days=self.config.initial_history_days)
-        while start < end:
-            rows = await self.binance.klines(start=start, end=end, limit=1000, as_of=now)
-            rows = [row for row in rows if start <= row.open_time < end and row.closed]
-            if not rows:
-                raise ValueError("Binance history page is empty before the requested end")
-            await self.ingest(rows, calculate=False)
-            following = rows[-1].close_time
-            if following <= start:
-                raise ValueError("Binance history page did not advance")
-            start = following
-        await self.evaluate_pending()
-        await self.publish(ready=True)
-
-    async def reconcile(self):
-        now = await self.binance.server_time()
-        latest = await run_db(self.repository.latest_open_time)
-        # A long simultaneous WS/REST outage uses the same paginated startup catch-up.
-        if not self.live["ready"] or (latest is not None and now - latest > timedelta(minutes=5)):
-            await self.backfill()
-        await self.ingest(await self.binance.klines(limit=5, as_of=now))
+    async def run(self):
+        client = self.binance or BinanceClient(self.config)
+        try:
+            now = await client.server_time()
+            at = now.replace(minute=now.minute // 15 * 15, second=0, microsecond=0)
+            plans = []
+            for definition in self.definitions:
+                if not definition.enabled:
+                    continue
+                previous = await asyncio.to_thread(self.repository.latest_snapshot_time, definition.key, SYMBOL)
+                first = previous + timedelta(minutes=15) if previous else at
+                plans.append((definition, first))
+            pending = [first for _, first in plans if first <= at]
+            if not pending:
+                return {"evaluated_at": at.isoformat(), "strategies": [], "evaluations": 0}
+            first = min(pending)
+            # Fetch each native interval window once, including earliest evaluation warmup.
+            count = int((at - first) / timedelta(minutes=15)) + 1
+            quarter, hourly = await asyncio.gather(
+                client.klines(interval="15m", end=at, limit=99 + count),
+                client.klines(
+                    interval="1h",
+                    end=at.replace(minute=0),
+                    limit=200 + int((at.replace(minute=0) - first.replace(minute=0)) / timedelta(hours=1)),
+                ),
+            )
+            results, failures = [], []
+            for definition, first in plans:
+                completed, action = 0, "already_evaluated"
+                try:
+                    evaluation_at = first
+                    while evaluation_at <= at:
+                        q = contiguous_tail(
+                            [bar for bar in quarter if bar.closed and bar.close_time <= evaluation_at][-100:]
+                        )
+                        h = contiguous_tail(
+                            [bar for bar in hourly if bar.closed and bar.close_time <= evaluation_at.replace(minute=0)][
+                                -200:
+                            ]
+                        )
+                        if not q or q[-1].close_time != evaluation_at:
+                            raise ValueError("Latest closed Binance 15m candle is unavailable")
+                        if len(q) < 21 or len(h) < 50 or h[-1].close_time != evaluation_at.replace(minute=0):
+                            raise ValueError("Binance strategy history is incomplete")
+                        snapshot = await asyncio.to_thread(
+                            self.repository.evaluate_once,
+                            definition.key,
+                            SYMBOL,
+                            evaluation_at,
+                            lambda state: definition.evaluate(q, h, evaluation_at, state),
+                        )
+                        if snapshot:
+                            completed += 1
+                            action = snapshot["action"]
+                        evaluation_at += timedelta(minutes=15)
+                except Exception as error:
+                    failures.append((definition.key, error))
+                results.append(dict(strategy_key=definition.key, action=action, evaluations=completed))
+            if failures:
+                raise ValueError(
+                    "Strategy evaluation failed: " + ", ".join(f"{key}: {error}" for key, error in failures)
+                ) from failures[0][1]
+            return {
+                "evaluated_at": at.isoformat(),
+                "strategies": results,
+                "evaluations": sum(item["evaluations"] for item in results),
+            }
+        finally:
+            if self.binance is None:
+                await client.close()

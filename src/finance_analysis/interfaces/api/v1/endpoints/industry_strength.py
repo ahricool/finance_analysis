@@ -1,10 +1,8 @@
-"""Authenticated shared A-share observations; ranking/history are database-only."""
+"""Authenticated shared A-share observations; all reads are database-only."""
 
 from datetime import date
 from fastapi import APIRouter, Depends, HTTPException, Query
 from finance_analysis.database.repositories.industry_strength import IndustryStrengthRepository, SORT_FIELDS
-from finance_analysis.industry_strength.service import IndustryStrengthService
-from finance_analysis.integrations.market_data.providers.fuyao import FuyaoError
 from finance_analysis.interfaces.api.deps import require_current_user
 from finance_analysis.interfaces.api.v1.schemas.industry_strength import (
     RankingResponse,
@@ -66,17 +64,7 @@ def history(
 
 @router.get("/{industry_code}/constituents", response_model=ConstituentsResponse)
 def constituents(industry_code: str, repo=Depends(get_repository)):
-    service = IndustryStrengthService(repository=repo)
-    try:
-        catalog = service.market_data.get_industry_catalog()
-    except FuyaoError:
-        raise HTTPException(503, "扶摇当前成分数据暂不可用，请稍后重试") from None
-    if not any(item.get("thscode") == industry_code for item in catalog):
-        raise HTTPException(404, "行业不在当前正式目录中")
-    try:
-        return service.constituents(industry_code)
-    except FuyaoError:
-        raise HTTPException(503, "扶摇当前成分数据暂不可用，请稍后重试") from None
+    return repo.constituents(industry_code)
 
 
 @router.get("/{industry_code}", response_model=DetailResponse)

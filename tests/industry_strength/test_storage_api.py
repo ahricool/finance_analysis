@@ -175,89 +175,35 @@ def test_api_latest_date_explicit_date_sorting_and_detail(api):
     assert client.get("/industry-strength/history?trade_date=2020-01-01").json()["items"] == []
 
 
-def _constituents_payload(code="881101.TI"):
-    now = datetime.now(timezone.utc)
-    return {
-        "quality": {},
-        "industry_code": code,
-        "trade_date": DAY,
-        "members_observed_at": now,
-        "basis": "current_members_latest_completed_close",
-        "constituent_count": 0,
-        "daily_valid_count": 0,
-        "ma5_valid_count": 0,
-        "above_ma5_count": 0,
-        "ma20_valid_count": 0,
-        "above_ma20_count": 0,
-        "up_count": 0,
-        "down_count": 0,
-        "flat_count": 0,
-        "up_ratio": None,
-        "above_ma5_ratio": None,
-        "above_ma20_ratio": None,
-        "equal_weight_return": None,
-        "items": [],
-    }
+def test_api_constituents_reads_only_repository(api, monkeypatch):
+    from finance_analysis.integrations.market_data.service import MarketDataService
+    from finance_analysis.industry_strength.service import IndustryStrengthService
+    from finance_analysis.integrations.market_data.providers.fuyao import FuyaoProvider
+    from finance_analysis.database.repositories.trend_following import TrendFollowingRepository
 
+    def forbidden(*args, **kwargs):
+        raise AssertionError("HTTP constituents must only read persisted constituent rows")
 
-def _install_catalog(monkeypatch, codes=("881101.TI", "881199.TI")):
-    catalog = [{"thscode": code, "name": code} for code in codes]
-
-    class FakeMarket:
-        def get_industry_catalog(self):
-            return catalog
-
-    def init(self, repository=None, market_data=None, config=None):
-        self.repository = repository
-        self.market_data = market_data or FakeMarket()
-        self.config = config
-
-    monkeypatch.setattr(endpoint.IndustryStrengthService, "__init__", init)
-
-
-def test_api_constituents_accepts_catalog_industry_missing_from_ranking(api, monkeypatch):
+    for target in (MarketDataService, IndustryStrengthService, FuyaoProvider, TrendFollowingRepository):
+        monkeypatch.setattr(target, "__init__", forbidden)
     client, repo = api
-    _install_catalog(monkeypatch)
-
-    def ok(self, code):
-        return _constituents_payload(code)
-
-    monkeypatch.setattr(endpoint.IndustryStrengthService, "constituents", ok)
+    calls = []
+    def read(code):
+        calls.append(code)
+        return {
+            "industry_code": code, "updated_at": None,
+            "constituent_count": 1, "daily_valid_count": 0,
+            "ma5_valid_count": 0, "above_ma5_count": 0, "ma20_valid_count": 0, "above_ma20_count": 0,
+            "items": [{"code": "600001.SH", "name": "股票", "price": None, "change_pct": None,
+                       "volume": None, "amount": None, "above_ma5": None, "above_ma20": None,
+                       "trend_rank": None}],
+        }
+    repo.constituents = read
     response = client.get("/industry-strength/881199.TI/constituents")
     assert response.status_code == 200
-    assert response.json()["industry_code"] == "881199.TI"
-    assert repo.calls == []
-
-
-def test_api_constituents_unknown_catalog_industry_is_404(api, monkeypatch):
-    client, repo = api
-    _install_catalog(monkeypatch)
-    monkeypatch.setattr(
-        endpoint.IndustryStrengthService,
-        "constituents",
-        lambda self, code: _constituents_payload(code),
-    )
-    response = client.get("/industry-strength/unknown/constituents")
-    assert response.status_code == 404
-    assert repo.calls == []
-
-
-def test_api_constituents_current_only_and_sanitized_failure(api, monkeypatch):
-    client, repo = api
-    from finance_analysis.integrations.market_data.providers.fuyao import FuyaoError
-
-    _install_catalog(monkeypatch)
-
-    def fail(*a):
-        raise FuyaoError("private transport failure")
-
-    monkeypatch.setattr(endpoint.IndustryStrengthService, "constituents", fail)
-    response = client.get("/industry-strength/881101.TI/constituents")
-    assert response.status_code == 503 and "private" not in response.text
-    assert repo.calls == []
-    assert client.get("/industry-strength/unknown/constituents").status_code == 404
-    ranked_missing = client.get("/industry-strength/881199.TI/constituents")
-    assert ranked_missing.status_code == 503 and "private" not in ranked_missing.text
+    assert response.json()["items"][0]["trend_rank"] is None
+    assert "trade_date" not in response.json()
+    assert calls == ["881199.TI"] and repo.calls == []
 
 
 def test_api_requires_authentication():
@@ -288,3 +234,143 @@ def test_history_migration_preserves_rows_and_accepts_missing_observation():
     assert historical["members_observed_at"] is None
     from finance_analysis.interfaces.api.v1.schemas.industry_strength import IndustrySnapshot
     assert IndustrySnapshot.model_validate(historical).members_observed_at is None
+
+
+def constituent_migration():
+    path = Path(__file__).parents[2] / "alembic/versions/0058_industry_constituents.py"
+    spec = importlib.util.spec_from_file_location("industry_constituent_migration", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def member(code="600001.SH", industry="881101.TI", rank=38):
+    return dict(industry_code=industry, stock_code=code, stock_name=code, price=100,
+                change_pct=.01, volume=10, amount=1000, above_ma5=True, above_ma20=None, trend_rank=rank)
+
+
+def test_constituent_migration_schema_and_database_only_reads():
+    from finance_analysis.database.models.industry_strength import IndustryStrengthConstituent as Member
+    db = Database()
+    m = constituent_migration()
+    with db.bind.begin() as conn:
+        m.op = Operations(MigrationContext.configure(conn))
+        m.upgrade()
+        schema = inspect(conn)
+        columns = schema.get_columns(Member.__tablename__)
+        assert {c["name"] for c in columns} == set(Member.__table__.columns.keys())
+        assert "trade_date" not in {c["name"] for c in columns}
+        assert next(c for c in columns if c["name"] == "trend_rank")["nullable"]
+        assert schema.get_foreign_keys(Member.__tablename__) == []
+        assert schema.get_unique_constraints(Member.__tablename__)[0]["column_names"] == ["industry_code", "stock_code"]
+        conn.execute(Member.__table__.insert(), [
+            member(), member("600002.SH", rank=None), member(industry="881102.TI"),
+        ])
+    repo = IndustryStrengthRepository(db)
+    result = repo.constituents("881101.TI")
+    assert [r["trend_rank"] for r in result["items"]] == [38, None]
+    assert result["constituent_count"] == result["daily_valid_count"] == result["ma5_valid_count"] == 2
+    assert result["ma20_valid_count"] == 0
+    assert result["updated_at"] is not None
+    assert repo.constituents("missing")["items"] == []
+    assert repo.constituents("missing")["updated_at"] is None
+    with db.bind.begin() as conn:
+        m.op = Operations(MigrationContext.configure(conn))
+        m.downgrade()
+        assert Member.__tablename__ not in inspect(conn).get_table_names()
+
+
+def test_trend_rank_query_uses_latest_cn_date_once_for_all_codes():
+    from sqlalchemy import event
+    from finance_analysis.database.models.trend_following import TrendFollowingSnapshot as Trend
+    db = Database()
+    Trend.__table__.create(db.bind)
+    def trend(id, market, day, code, rank):
+        return dict(id=id, market=market, trade_date=day, code=code, rank=rank, instrument_id=1,
+                    universe_key="test", market_regime="NEUTRAL", market_score=50, trend_score=50,
+                    rs_score=50, breakout_score=50, alpha_score=50, setup="NONE", state="IDLE",
+                    reference_price=100, atr=1)
+    with db.bind.begin() as conn:
+        conn.execute(Trend.__table__.insert(), [
+            trend(1, "CN", OLD, "600001.SH", 38),
+            trend(2, "CN", date(2026, 9, 14), "600001.SH", 5),
+            trend(3, "CN", date(2026, 9, 14), "600002.SH", 6),
+            trend(4, "US", DAY, "600001.SH", 1),
+            trend(5, "CN", OLD, "600003.SH", 20),
+        ])
+    queries = []
+    def observe(conn, cursor, statement, parameters, context, executemany):
+        queries.append(statement)
+    event.listen(db.bind, "before_cursor_execute", observe)
+    repo = IndustryStrengthRepository(db)
+    assert repo.latest_cn_trend_ranks(["600001.SH", "600001.SH", "600002.SH", "600003.SH", "MISSING"]) == {
+        "600001.SH": 38, "600003.SH": 20,
+    }
+    assert len(queries) == 1
+    # Latest date is across all CN rows, not only the requested codes.
+    assert repo.latest_cn_trend_ranks(["600002.SH"]) == {}
+    with db.bind.begin() as conn:
+        conn.execute(Trend.__table__.delete().where(Trend.market == "CN"))
+    assert repo.latest_cn_trend_ranks(["600001.SH"]) == {}
+
+
+@pytest.fixture
+def current_pg():
+    url = os.environ.get("TEST_POSTGRES_URL")
+    if not url:
+        pytest.skip("dedicated TEST_POSTGRES_URL required")
+    admin = create_engine(url)
+    schema = "test_industry_current_" + uuid4().hex
+    with admin.begin() as conn:
+        conn.execute(text(f"CREATE SCHEMA {schema}"))
+    engine = create_engine(url, connect_args={"options": f"-csearch_path={schema}"})
+    try:
+        with engine.begin() as conn:
+            for m in (migration(), constituent_migration()):
+                m.op = Operations(MigrationContext.configure(conn))
+                m.upgrade()
+        yield engine, IndustryStrengthRepository(Database(engine))
+    finally:
+        engine.dispose()
+        with admin.begin() as conn:
+            conn.execute(text(f"DROP SCHEMA {schema} CASCADE"))
+        admin.dispose()
+
+
+def test_postgresql_generation_is_atomic_and_failure_rolls_back_snapshot_too(current_pg):
+    from sqlalchemy import event
+    engine, repo = current_pg
+    repo.save(OLD, [payload(day=OLD)], constituents=[member(), member(industry="881102.TI")])
+    old = repo.constituents("881101.TI")
+    reads = []
+    def observe(conn, cursor, statement, parameters, context, executemany):
+        if statement.startswith(("DELETE FROM industry_strength_constituent", "INSERT INTO industry_strength_constituent")):
+            # Separate connection sees the entire previous committed generation at both write steps.
+            reads.append(repo.constituents("881101.TI"))
+            assert repo.constituents("881102.TI")["constituent_count"] == 1
+            assert repo.ranking()[0]["trade_date"] == OLD
+    event.listen(engine, "after_cursor_execute", observe)
+    try:
+        repo.save(DAY, [payload(rank=2)], constituents=[member("600002.SH", rank=None)])
+    finally:
+        event.remove(engine, "after_cursor_execute", observe)
+    assert len(reads) == 2 and all(result == old for result in reads)
+    latest = repo.constituents("881101.TI")
+    assert latest["items"][0]["code"] == "600002.SH"
+    assert latest["items"][0]["trend_rank"] is None
+    assert repo.constituents("881102.TI")["items"] == []
+    assert repo.ranking()[0]["strength_rank"] == 2
+
+    def fail(conn, cursor, statement, parameters, context, executemany):
+        if statement.startswith("INSERT INTO industry_strength_constituent"):
+            raise RuntimeError("failed generation")
+    event.listen(engine, "after_cursor_execute", fail)
+    try:
+        with pytest.raises(RuntimeError, match="failed generation"):
+            repo.save(DAY, [payload(rank=3)], constituents=[member("600003.SH")])
+    finally:
+        event.remove(engine, "after_cursor_execute", fail)
+    assert repo.constituents("881101.TI") == latest
+    assert repo.ranking()[0]["strength_rank"] == 2
+    repo.save(OLD, [payload(day=OLD, rank=4)])
+    assert repo.constituents("881101.TI") == latest

@@ -673,3 +673,34 @@ def test_daily_trend_and_market_structure_scopes_are_independent(setup, monkeypa
         assert {item.code for item in resolver.resolve_universe(f"{prefix}_trend")} == {
             codes[key] for key in expected[f"{prefix}_trend"]
         }
+
+
+@pytest.mark.parametrize(
+    "memberships, expected",
+    [
+        ([("one", "INDEX", True)], ["one"]),
+        ([("one", "INDEX", True), ("two", "INDEX", True)], ["one", "two"]),
+        ([("strategy", "STRATEGY", True)], []),
+        ([("disabled", "INDEX", False)], []),
+        ([("market", "MARKET", True)], []),
+        ([], []),
+    ],
+)
+def test_index_memberships_use_one_join_and_only_enabled_indices(memberships, expected):
+    database = Database()
+    with database.session_scope() as session:
+        instrument = Instrument(code="NVDA.US", market="US", name="NVIDIA")
+        session.add(instrument)
+        session.flush()
+        for key, kind, enabled in memberships:
+            universe = Universe(key=key, name=key, market="US", universe_type=kind, enabled=enabled)
+            session.add(universe)
+            session.flush()
+            session.add(UniverseMember(universe_id=universe.id, instrument_id=instrument.id, source="WIKIPEDIA"))
+    queries = []
+    event.listen(database.engine, "before_cursor_execute", lambda conn, cursor, statement, *args: queries.append(statement))
+    result = UniverseRepository(database).list_index_memberships("NVDA.US")
+    assert result == [{"key": key, "name": key, "source": "WIKIPEDIA"} for key in expected]
+    assert len(queries) == 1
+    assert "JOIN universe_member" in queries[0] and "JOIN universe" in queries[0]
+    database.engine.dispose()

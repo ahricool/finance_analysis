@@ -46,7 +46,7 @@ export const researchNavItems: NavDestination[] = [
   },
   { key: 'industry-strength', label: '行业强度', to: '/research/industry-strength', icon: BarChart3 },
   { key: 'market-sentiment', label: '市场情绪', to: '/research/market-sentiment', icon: BarChart3 },
-  { key: 'macro', label: '宏观', to: '/research/macro', icon: Activity },
+  { key: 'macro', label: '宏观数据', to: '/research/macro', icon: Activity },
   {
     key: 'quant',
     label: '量化研究',
@@ -54,11 +54,18 @@ export const researchNavItems: NavDestination[] = [
     icon: Sigma,
     activePathPrefix: '/research/quant',
   },
-  { key: 'crypto-btc', label: 'BTC 交易', to: '/research/crypto/btc', icon: Bitcoin },
 ];
 
 export const mainNavItems: MainNavItem[] = [
-  { key: 'dashboard', label: '动态', to: '/dashboard', icon: Activity, exact: true },
+  { key: 'dashboard', label: '市场动态', to: '/dashboard', icon: Activity, exact: true },
+  {
+    key: 'market',
+    label: '市场',
+    to: '/market/watch-list',
+    icon: ChartNoAxesCombined,
+    activePathPrefix: '/market/',
+    children: marketNavItems,
+  },
   { key: 'timeline', label: '时间线', to: '/timeline', icon: CalendarDays },
   {
     key: 'research',
@@ -69,12 +76,12 @@ export const mainNavItems: MainNavItem[] = [
     children: researchNavItems,
   },
   {
-    key: 'market',
-    label: '市场',
-    to: '/market/watch-list',
-    icon: ChartNoAxesCombined,
-    activePathPrefix: '/market/',
-    children: marketNavItems,
+    key: 'crypto',
+    label: '加密货币',
+    to: '/crypto/btc',
+    icon: Bitcoin,
+    activePathPrefix: '/crypto/',
+    children: [{ key: 'crypto-btc', label: 'BTC 交易', to: '/crypto/btc', icon: Bitcoin }],
   },
   { key: 'tasks', label: '任务中心', to: '/tasks', icon: ClipboardList },
 ];

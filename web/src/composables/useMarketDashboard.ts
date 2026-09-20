@@ -35,7 +35,6 @@ export function useMarketDashboard() {
   const markets = (['CN', 'US'] as const).map(market => ({
     market,
     structure: resource(() => marketStructureApi.snapshot(market)),
-    regime: resource(() => quantApi.marketRegime(market)),
     signals: resource(() => quantApi.signals(market)),
     etf: resource(() => etfRotationApi.ranking(market)),
     trend: resource(() => trendFollowingApi.ranking(market)),
@@ -48,7 +47,7 @@ export function useMarketDashboard() {
   }));
   const btc = resource(() => cryptoApi.overview());
   for (const market of markets) {
-    for (const section of [market.structure, market.regime, market.signals, market.etf, market.trend]) void section.refresh();
+    for (const section of [market.structure, market.signals, market.etf, market.trend]) void section.refresh();
   }
   void btc.refresh();
   const { displayTimezone } = storeToRefs(useTimezoneStore());

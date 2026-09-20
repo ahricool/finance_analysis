@@ -297,9 +297,14 @@ pnpm run test:smoke
 
 ## BTC V0.1
 
-`crypto/` 是独立 BTCUSDT Spot 领域，`integrations/crypto/binance.py` 仅负责公开Binance传输；不要接股票 Provider 链。
-`finance-analysis-crypto-stream` / Compose `crypto-streamer` 独立采集，PostgreSQL保存1m闭合K线和策略状态/快照，Redis仅为实时视图。
-API `/api/v1/crypto` 与页面 `/research/crypto/btc` 统一走 `CryptoService`，详见 `docs/crypto-btc.md`；测试位于 `tests/crypto/`。
+`crypto/` 仅负责 BTCUSDT 策略；`integrations/crypto/binance.py` 是薄公共 REST client，不接股票 Provider 链。
+页面行情由浏览器直接访问 Binance REST / 单一 WS（八档周期），策略通过后端 REST 独立读取。
+Beat `crypto_btc_strategy` 每 15m 收盘后读取原生 15m/1h 闭合线，只保存策略状态与快照；不保存行情，不使用行情 Redis 或后端 WS。
+已有快照按15m逐根补算；仓位为position_pct（0–1），仓位变化保存在snapshot，绩效从完整快照动态计算。
+详见 `docs/crypto-btc.md`；测试位于 `tests/crypto/`。
+
+
+BTC 多策略以 `strategy_key + symbol` 隔离，代码注册表当前仅 `btc_breakout_v1`。共享 Binance REST 窗口、独立 catch-up 与状态行锁；仓位变化保存于 snapshot，绩效/CAGR/负值回撤动态派生，selector 不影响行情连接。详见 `docs/crypto-btc.md`。
 
 ## 消息边界
 
@@ -340,3 +345,10 @@ Google token、OAuth code/state 和完整表格不得进入日志、API 或通�
 `market_sentiment_cn` 上海19:20在独立任务锁下原子保存完整源与结果，核心不完整不覆盖旧结果，补数重算后续派生值。
 `/api/v1/market-sentiment` GET只读，管理员 `/run` 支持单日或最多31交易日异步补数；页面 `/research/market-sentiment`。
 主观察为非ST且非未开板新股；官方天梯有限样本和补充池独立展示，不参与评分。见 `docs/market-sentiment.md`。
+
+## Admin MCP
+
+`mcp/` 是挂载在现有 FastAPI `/mcp/` 的管理员底层只读诊断入口，独立 Bearer key；MCP DB / Redis URL 是可选 override，默认复用业务连接配置，
+可选独立只读账号增强隔离；保留 SQL / Redis 只读限制，禁止新增业务/写入/命令执行 tool。
+文件 jail 固定 `/data`，生产 server 只读挂载现有数据目录。权限、资源限制和部署步骤见
+`docs/mcp.md`，离线/临时服务测试位于 `tests/mcp/`。
