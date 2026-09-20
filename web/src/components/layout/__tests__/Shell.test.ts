@@ -99,7 +99,7 @@ describe('Shell navigation', () => {
       .get('[data-testid="desktop-main-nav"]')
       .findAll('a[aria-label], button[aria-label]')
       .map((node) => node.attributes('aria-label'));
-    expect(labels).toEqual(['市场动态', '时间线', '研究', '市场', '加密货币', '任务中心']);
+    expect(labels).toEqual(['市场动态', '市场', '时间线', '研究', '加密货币', '任务中心']);
     expect(wrapper.text()).not.toContain('问股');
     expect(wrapper.text()).not.toContain('AI');
     wrapper.unmount();

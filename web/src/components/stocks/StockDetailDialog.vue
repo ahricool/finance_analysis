@@ -4,7 +4,7 @@ import type { RealtimeQuote } from '@/api/realtimeMarket';
 import type { MarketType } from '@/api/watchList';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { formatDateTimeInDisplayTimezone } from '@/utils/format';
 import { formatSecurityLabel } from '@/utils/security';
 import {
@@ -104,20 +104,20 @@ function movementClass(value: number | null | undefined): string {
 </script>
 
 <template>
-  <Sheet
+  <Dialog
     :open="Boolean(stock)"
     @update:open="emit('update:open', $event)"
   >
-    <SheetContent class="flex flex-col gap-0 p-0 data-[side=right]:w-full data-[side=right]:sm:max-w-3xl">
-      <SheetHeader class="shrink-0 p-6 pr-16 text-left">
-        <SheetTitle class="flex flex-wrap items-center gap-2 break-words">
+    <DialogContent class="flex max-h-[calc(100dvh-2rem)] min-w-0 flex-col gap-0 overflow-hidden p-0 sm:max-w-4xl">
+      <DialogHeader class="shrink-0 p-6 pr-16 text-left">
+        <DialogTitle class="flex flex-wrap items-center gap-2 break-words">
           {{ formatSecurityLabel(stock?.code, stock?.name, '股票详情') }}
           <span
             class="rounded-lg border border-border/60 bg-background px-2 py-0.5 text-xs text-muted-foreground"
           >{{ marketName }}</span>
-        </SheetTitle>
-        <SheetDescription>股票完整信息与每 5 秒更新的行情快照</SheetDescription>
-      </SheetHeader>
+        </DialogTitle>
+        <DialogDescription>股票完整信息与每 5 秒更新的行情快照</DialogDescription>
+      </DialogHeader>
       <Separator />
       <ScrollArea
         v-if="stock"
@@ -332,6 +332,6 @@ function movementClass(value: number | null | undefined): string {
           </section>
         </div>
       </ScrollArea>
-    </SheetContent>
-  </Sheet>
+    </DialogContent>
+  </Dialog>
 </template>
