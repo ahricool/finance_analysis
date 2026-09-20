@@ -2,7 +2,6 @@
 import DailyKLineCard from '@/components/market-data/DailyKLineCard.vue';
 import type { RealtimeQuote } from '@/api/realtimeMarket';
 import type { MarketType } from '@/api/watchList';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { formatDateTimeInDisplayTimezone } from '@/utils/format';
@@ -119,9 +118,9 @@ function movementClass(value: number | null | undefined): string {
         <DialogDescription>股票完整信息与每 5 秒更新的行情快照</DialogDescription>
       </DialogHeader>
       <Separator />
-      <ScrollArea
+      <div
         v-if="stock"
-        class="min-h-0 flex-1"
+        class="min-h-0 flex-1 overflow-y-auto overscroll-contain [scrollbar-gutter:stable]"
       >
         <div class="space-y-6 p-6">
           <section>
@@ -331,7 +330,7 @@ function movementClass(value: number | null | undefined): string {
             </dl>
           </section>
         </div>
-      </ScrollArea>
+      </div>
     </DialogContent>
   </Dialog>
 </template>
