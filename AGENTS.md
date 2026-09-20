@@ -298,7 +298,11 @@ pnpm run test:smoke
 `crypto/` 仅负责 BTCUSDT 策略；`integrations/crypto/binance.py` 是薄公共 REST client，不接股票 Provider 链。
 页面行情由浏览器直接访问 Binance REST / 单一 WS（八档周期），策略通过后端 REST 独立读取。
 Beat `crypto_btc_strategy` 每 15m 收盘后读取原生 15m/1h 闭合线，只保存策略状态与快照；不保存行情，不使用行情 Redis 或后端 WS。
+已有快照按15m逐根补算；仓位为position_pct（0–1），仓位变化保存在snapshot，绩效从完整快照动态计算。
 详见 `docs/crypto-btc.md`；测试位于 `tests/crypto/`。
+
+
+BTC 多策略以 `strategy_key + symbol` 隔离，代码注册表当前仅 `btc_breakout_v1`。共享 Binance REST 窗口、独立 catch-up 与状态行锁；仓位变化保存于 snapshot，绩效/CAGR/负值回撤动态派生，selector 不影响行情连接。详见 `docs/crypto-btc.md`。
 
 ## 消息边界
 

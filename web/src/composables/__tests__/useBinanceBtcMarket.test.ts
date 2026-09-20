@@ -1,8 +1,16 @@
+/* eslint-disable vue/one-component-per-file -- Independent lifecycle harnesses for composable tests. */
 import { defineComponent } from 'vue';
 import { flushPromises, mount } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { useCryptoStrategy } from '../useCryptoStrategy';
 import { useBinanceBtcMarket } from '../useBinanceBtcMarket';
 import { BINANCE_INTERVALS } from '@/types/binance';
+
+vi.mock('@/api/crypto', () => ({ cryptoApi: {
+  overview: vi.fn().mockRejectedValue(new Error('strategy offline')),
+  signals: vi.fn().mockRejectedValue(new Error('strategy offline')),
+  performance: vi.fn().mockRejectedValue(new Error('strategy offline')),
+} }));
 
 class Socket {
   static OPEN = 1;
@@ -102,4 +110,19 @@ describe('direct Binance BTC market', () => {
     const count = fetcher.mock.calls.length;
     await vi.advanceTimersByTimeAsync(60_000); expect(fetcher).toHaveBeenCalledTimes(count);
   });
+  it('keeps Binance quotes and candles live when all strategy APIs fail', async () => {
+    let market!: ReturnType<typeof useBinanceBtcMarket>;
+    let strategy!: ReturnType<typeof useCryptoStrategy>;
+    wrapper = mount(defineComponent({ setup() {
+      market = useBinanceBtcMarket(); strategy = useCryptoStrategy(); return () => null;
+    } }));
+    Socket.instances[0]!.open(); await flushPromises();
+    expect(strategy.error.value).not.toBeNull();
+    expect(strategy.performanceError.value).not.toBeNull();
+    Socket.instances[0]!.message({ e: 'aggTrade', s: 'BTCUSDT', p: '109' });
+    Socket.instances[0]!.message(kline());
+    expect(market.price.value).toBe('109'); expect(market.current.value?.close).toBe('105');
+    expect(market.connection.value).toBe('live');
+  });
+
 });

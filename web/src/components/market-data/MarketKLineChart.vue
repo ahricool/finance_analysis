@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { dispose, init, type Chart, type KLineData } from 'klinecharts';
+import { dispose, init, type Chart, type OverlayCreate, type KLineData } from 'klinecharts';
 import { useTheme } from '@/composables/useTheme';
 
 const props = defineProps<{
@@ -10,6 +10,7 @@ const props = defineProps<{
   bars: KLineData[];
   current?: KLineData | null;
   sourceKey?: string;
+  overlays?: OverlayCreate[];
 }>();
 const element = ref<HTMLElement>();
 const { resolvedTheme } = useTheme();
@@ -39,6 +40,11 @@ function destroy() {
   pushBar = undefined;
   if (element.value && chart) dispose(element.value);
   chart = null;
+}
+function applyOverlays() {
+  if (!chart || !props.overlays) return;
+  chart.removeOverlay({ groupId: 'strategy-markers' });
+  if (props.overlays.length) chart.createOverlay(props.overlays);
 }
 function initialize() {
   destroy();
@@ -70,7 +76,9 @@ function initialize() {
     subscribeBar: ({ callback }) => { pushBar = callback; },
     unsubscribeBar: () => { pushBar = undefined; },
   });
+  applyOverlays();
 }
+watch(() => props.overlays, applyOverlays);
 watch(() => [props.symbol, props.period, props.sourceKey, props.pricePrecision], initialize);
 watch(() => props.bars, () => chart?.resetData());
 watch(() => props.current, () => {

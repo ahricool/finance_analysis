@@ -50,6 +50,31 @@ def test_postgres_migration_and_concurrent_evaluation():
             conn.execute(text(f'SET LOCAL search_path TO "{schema}"'))
             migration.op = Operations(MigrationContext.configure(conn))
             migration.upgrade()
+            drop_spec = importlib.util.spec_from_file_location(
+                "crypto_drop_pg", Path(__file__).resolve().parents[2] / "alembic/versions/0059_drop_crypto_kline.py"
+            )
+            drop = importlib.util.module_from_spec(drop_spec)
+            drop_spec.loader.exec_module(drop)
+            drop.op = migration.op
+            drop.upgrade()
+
+            position_spec = importlib.util.spec_from_file_location(
+                "positions_pg", Path(__file__).resolve().parents[2] / "alembic/versions/0060_crypto_positions.py"
+            )
+            positions = importlib.util.module_from_spec(position_spec)
+            position_spec.loader.exec_module(positions)
+            positions.op = migration.op
+            positions.upgrade()
+            key_spec = importlib.util.spec_from_file_location(
+                "keys", Path(__file__).resolve().parents[2] / "alembic/versions/0061_crypto_strategy_keys.py"
+            )
+            keys = importlib.util.module_from_spec(key_spec)
+            key_spec.loader.exec_module(keys)
+            keys.op = migration.op
+            keys.upgrade()
+            assert inspect(migration.op.get_bind()).get_pk_constraint("crypto_strategy_state")[
+                "constrained_columns"
+            ] == ["strategy_key", "symbol"]
             for model in (CryptoStrategySnapshot, CryptoStrategyState):
                 assert set(c["name"] for c in inspect(conn).get_columns(model.__tablename__, schema=schema)) == set(
                     model.__table__.columns.keys()
@@ -59,22 +84,61 @@ def test_postgres_migration_and_concurrent_evaluation():
         at = rows[-1].close_time
         with ThreadPoolExecutor(max_workers=2) as pool:
             results = list(
-                pool.map(lambda _: repo.evaluate_once(at, lambda state: evaluate(rows, [], at, state)), range(2))
+                pool.map(
+                    lambda _: repo.evaluate_once(
+                        "btc_breakout_v1", "BTCUSDT", at, lambda state: evaluate(rows, [], at, state)
+                    ),
+                    range(2),
+                )
             )
         assert sum(result is not None for result in results) == 1
-        assert len(repo.signals()) == 1
+        assert len(repo.signals("btc_breakout_v1", "BTCUSDT")) == 1
+
+        def catchup(_):
+            for index in range(15, 18):
+                bar = candle(index)
+                repo.evaluate_once(
+                    "btc_breakout_v1",
+                    "BTCUSDT",
+                    bar.close_time,
+                    lambda state: evaluate([bar], [], bar.close_time, state),
+                )
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            list(pool.map(catchup, range(2)))
+        assert len(repo.signals("btc_breakout_v1", "BTCUSDT")) == 4
+        assert repo.state("btc_breakout_v1", "BTCUSDT").updated_at == candle(17).close_time
+        # Same timestamp, different strategies coexist even while one state row is locked.
+        other = "btc_test_strategy_v1"
+        with repo.db.session_scope() as locked:
+            from sqlalchemy import select
+
+            locked.scalar(
+                select(CryptoStrategyState)
+                .where(CryptoStrategyState.strategy_key == "btc_breakout_v1")
+                .with_for_update()
+            )
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                future = pool.submit(
+                    repo.evaluate_once, other, "BTCUSDT", at, lambda state: evaluate(rows, [], at, state)
+                )
+                assert future.result(timeout=5)["strategy_key"] == other
+        assert len(repo.signals(other, "BTCUSDT")) == 1
+        with repo.db.session_scope() as session:
+            from sqlalchemy import delete
+
+            session.execute(delete(CryptoStrategySnapshot).where(CryptoStrategySnapshot.strategy_key == other))
+            session.execute(delete(CryptoStrategyState).where(CryptoStrategyState.strategy_key == other))
         with engine.begin() as conn:
             conn.execute(text(f'SET LOCAL search_path TO "{schema}"'))
             migration.op = Operations(MigrationContext.configure(conn))
-            drop_spec = importlib.util.spec_from_file_location(
-                "crypto_drop_pg", Path(__file__).resolve().parents[2] / "alembic/versions/0059_drop_crypto_kline.py"
-            )
-            drop = importlib.util.module_from_spec(drop_spec)
-            drop_spec.loader.exec_module(drop)
-            drop.op = migration.op
-            drop.upgrade()
             assert "crypto_kline" not in inspect(conn).get_table_names(schema=schema)
-            assert conn.execute(text("SELECT count(*) FROM crypto_strategy_snapshot")).scalar() == 1
+            assert conn.execute(text("SELECT count(*) FROM crypto_strategy_snapshot")).scalar() == 4
+            positions.op = migration.op
+            keys.op = migration.op
+            keys.downgrade()
+            positions.downgrade()
+            drop.op = migration.op
             drop.downgrade()
             migration.downgrade()
             assert inspect(conn).get_table_names(schema=schema) == []

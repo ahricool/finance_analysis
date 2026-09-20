@@ -7,6 +7,6 @@ it('reads only backend strategy and preserves Decimal strings', async () => {
   expect((await cryptoApi.overview()).strategy?.ema201H).toBe('100.123456789012');
   expect(get).toHaveBeenLastCalledWith('/api/v1/crypto/btc/overview');
   get.mockResolvedValueOnce({ data: { items: [] } });
-  expect(await cryptoApi.signals()).toEqual({ items: [] });
-  expect(get).toHaveBeenLastCalledWith('/api/v1/crypto/btc/signals');
+  expect(await cryptoApi.signals("btc_breakout_v1")).toEqual({ items: [] });
+  expect(get).toHaveBeenLastCalledWith('/api/v1/crypto/btc/strategies/btc_breakout_v1/signals', undefined);
 });

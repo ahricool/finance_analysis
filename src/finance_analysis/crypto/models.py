@@ -60,11 +60,26 @@ class Kline:
 
 @dataclass(frozen=True)
 class StrategyState:
+    strategy_key: str = "btc_breakout_v1"
     symbol: str = "BTCUSDT"
     position_state: Literal["FLAT", "LONG"] = "FLAT"
+    position_pct: Decimal | None = None
+    average_entry_price: Decimal | None = None
     entry_price: Decimal | None = None
     entry_time: datetime | None = None
     highest_price_since_entry: Decimal | None = None
     initial_stop: Decimal | None = None
     trailing_stop: Decimal | None = None
     updated_at: datetime | None = None
+
+    def __post_init__(self):
+        pct = self.position_pct
+        if pct is None:
+            pct = Decimal(1) if self.position_state == "LONG" else Decimal(0)
+        if not pct.is_finite() or not Decimal(0) <= pct <= Decimal(1):
+            raise ValueError("Position must be between zero and one")
+        average = (self.average_entry_price or self.entry_price) if pct > 0 else None
+        object.__setattr__(self, "position_pct", pct)
+        object.__setattr__(self, "position_state", "LONG" if pct > 0 else "FLAT")
+        object.__setattr__(self, "average_entry_price", average)
+        object.__setattr__(self, "entry_price", average)
