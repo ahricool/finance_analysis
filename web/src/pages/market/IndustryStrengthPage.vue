@@ -12,7 +12,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import IndustryRankingTable from '@/components/industry-strength/IndustryRankingTable.vue';
 import IndustryMatrixChart from '@/components/industry-strength/IndustryMatrixChart.vue';
 import IndustryRankHeatmap from '@/components/industry-strength/IndustryRankHeatmap.vue';
-import IndustryDetailDrawer from '@/components/industry-strength/IndustryDetailDrawer.vue';
+import IndustryDetailDialog from '@/components/industry-strength/IndustryDetailDialog.vue';
 import {
   coverageInsufficient,
   formatPoints,
@@ -24,11 +24,11 @@ import { formatDateTime } from '@/utils/format';
 const page = useIndustryStrength();
 const {
   ranking, chartHistory, matchedDetail, constituents, dates, requestedDate, selected, selectedLabel,
-  drawerOpen, missingSelected, detailTab, loading, refreshing, dateSwitching,
+  dialogOpen, missingSelected, loading, refreshing, dateSwitching,
   historyLoading, detailLoading, membersLoading, stale, error, refreshError,
   dateError, historyError, datesError, detailError, membersError, rows, summary, snapshotMeta,
   actualTradeDate, latestMode, staleLatest, historyMembersUnavailable, selectedRow,
-  loadRanking, openIndustry, setDrawerOpen, setDetailTab, retryRanking, retryHistory,
+  loadRanking, openIndustry, setDialogOpen, retryRanking, retryHistory,
   retryDetail, retryConstituents, retryDates, goLatest, changeDate, refresh,
 } = page;
 
@@ -398,8 +398,8 @@ onMounted(() => loadRanking('initial'));
       </div>
     </template>
 
-    <IndustryDetailDrawer
-      :open="drawerOpen"
+    <IndustryDetailDialog
+      :open="dialogOpen"
       :name="selectedLabel"
       :code="selected"
       :snapshot-date="actualTradeDate"
@@ -411,9 +411,7 @@ onMounted(() => loadRanking('initial'));
       :detail-error="detailError"
       :members-error="membersError"
       :missing-selected="missingSelected"
-      :tab="detailTab"
-      @update:open="setDrawerOpen"
-      @update:tab="setDetailTab"
+      @update:open="setDialogOpen"
       @retry-detail="retryDetail"
       @retry-constituents="retryConstituents"
       @dismiss-detail-error="detailError = null"

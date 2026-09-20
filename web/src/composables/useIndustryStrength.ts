@@ -10,8 +10,6 @@ import {
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import { computeSummary, historicalMembersUnavailable } from '@/components/industry-strength/display';
 
-export type DetailTab = 'overview' | 'history' | 'constituents';
-
 export function detailMatchesQuery(
   detail: IndustryDetail | null | undefined,
   code: string,
@@ -31,9 +29,8 @@ export function useIndustryStrength() {
   const requestedDate = ref('');
   const selected = ref('');
   const selectedLabel = ref('');
-  const drawerOpen = ref(false);
+  const dialogOpen = ref(false);
   const missingSelected = ref(false);
-  const detailTab = ref<DetailTab>('overview');
   const loading = ref(true);
   const refreshing = ref(false);
   const dateSwitching = ref(false);
@@ -146,6 +143,7 @@ export function useIndustryStrength() {
 
   async function loadConstituents(code: string, force = false) {
     const token = ++membersSeq;
+    if (constituents.value?.industryCode !== code) constituents.value = null;
     membersError.value = null;
     if (!force) {
       const cached = constituentsCache.get(code);
@@ -171,12 +169,12 @@ export function useIndustryStrength() {
   }
 
   function syncSelection(items: IndustrySnapshot[], reloadMembers: boolean) {
-    if (!drawerOpen.value || !selected.value) return;
+    if (!dialogOpen.value || !selected.value) return;
     const exists = items.some((row) => row.industryCode === selected.value);
     if (exists) {
       missingSelected.value = false;
       void loadDetail(selected.value);
-      if (detailTab.value === 'constituents') void loadConstituents(selected.value, reloadMembers);
+      void loadConstituents(selected.value, reloadMembers);
       return;
     }
     missingSelected.value = true;
@@ -246,26 +244,21 @@ export function useIndustryStrength() {
   function openIndustry(code: string) {
     selected.value = code;
     selectedLabel.value = rows.value.find((row) => row.industryCode === code)?.industryName ?? code;
-    drawerOpen.value = true;
+    dialogOpen.value = true;
     missingSelected.value = false;
     dropMismatchedDetail(code, ranking.value?.tradeDate);
     void loadDetail(code);
-    if (detailTab.value === 'constituents') void loadConstituents(code);
+    void loadConstituents(code);
   }
 
-  function setDrawerOpen(open: boolean) {
-    drawerOpen.value = open;
+  function setDialogOpen(open: boolean) {
+    dialogOpen.value = open;
     if (!open) {
       detailSeq += 1;
       membersSeq += 1;
       detailLoading.value = false;
       membersLoading.value = false;
     }
-  }
-
-  function setDetailTab(tab: DetailTab) {
-    detailTab.value = tab;
-    if (tab === 'constituents' && selected.value) void loadConstituents(selected.value);
   }
 
   function retryRanking() {
@@ -308,9 +301,8 @@ export function useIndustryStrength() {
     requestedDate,
     selected,
     selectedLabel,
-    drawerOpen,
+    dialogOpen,
     missingSelected,
-    detailTab,
     loading,
     refreshing,
     dateSwitching,
@@ -336,8 +328,7 @@ export function useIndustryStrength() {
     selectedRow,
     loadRanking,
     openIndustry,
-    setDrawerOpen,
-    setDetailTab,
+    setDialogOpen,
     retryRanking,
     retryHistory,
     retryDetail,

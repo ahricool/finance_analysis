@@ -75,6 +75,70 @@ beforeEach(() => {
 });
 
 describe('useIndustryStrength races', () => {
+  it('loads detail and members independently and retries detail without reloading members', async () => {
+    const page = setup();
+    await page.loadRanking('initial');
+    const pending = deferred<IndustryDetail>();
+    api.detail.mockReturnValueOnce(pending.promise);
+    page.openIndustry(a.industryCode);
+    await flushPromises();
+    expect(page.detailLoading.value).toBe(true);
+    expect(page.membersLoading.value).toBe(false);
+    expect(page.constituents.value?.industryCode).toBe(a.industryCode);
+    pending.reject(new Error('detail offline'));
+    await flushPromises();
+    expect(page.detailError.value).toBeTruthy();
+    page.retryDetail();
+    await flushPromises();
+    expect(page.matchedDetail.value?.current.industryCode).toBe(a.industryCode);
+    expect(api.constituents).toHaveBeenCalledTimes(1);
+  });
+
+  it('clears previous members and ignores stale successes and failures when switching industries', async () => {
+    const page = setup();
+    await page.loadRanking('initial');
+    page.openIndustry(a.industryCode);
+    await flushPromises();
+    const pendingB = deferred<Constituents>();
+    api.constituents.mockReturnValueOnce(pendingB.promise);
+    page.openIndustry(b.industryCode);
+    expect(page.constituents.value).toBeNull();
+    expect(page.membersLoading.value).toBe(true);
+    page.openIndustry(a.industryCode);
+    await flushPromises();
+    expect(page.constituents.value?.industryCode).toBe(a.industryCode);
+    pendingB.resolve(members(b.industryCode, 'OLD-B'));
+    await flushPromises();
+    expect(page.constituents.value?.industryCode).toBe(a.industryCode);
+    const failedB = deferred<Constituents>();
+    api.constituents.mockReturnValueOnce(failedB.promise);
+    page.openIndustry(b.industryCode);
+    page.openIndustry(a.industryCode);
+    failedB.reject(new Error('old failure'));
+    await flushPromises();
+    expect(page.membersError.value).toBeNull();
+    expect(page.constituents.value?.industryCode).toBe(a.industryCode);
+  });
+
+  it('reuses members on date changes and reopening but invalidates cache after refresh', async () => {
+    const page = setup();
+    await page.loadRanking('initial');
+    page.openIndustry(a.industryCode);
+    await flushPromises();
+    api.ranking.mockResolvedValueOnce(rankingOf(t1, [aT1, bT1]));
+    page.changeDate(t1);
+    await flushPromises();
+    expect(page.matchedDetail.value?.current.tradeDate).toBe(t1);
+    expect(api.constituents).toHaveBeenCalledTimes(1);
+    page.setDialogOpen(false);
+    page.openIndustry(a.industryCode);
+    await flushPromises();
+    expect(api.constituents).toHaveBeenCalledTimes(1);
+    await page.refresh();
+    await flushPromises();
+    expect(api.constituents).toHaveBeenCalledTimes(2);
+  });
+
   it('does not keep industry A detail under industry B while B is pending', async () => {
     const page = setup();
     await page.loadRanking('initial');
@@ -191,7 +255,6 @@ describe('useIndustryStrength races', () => {
     const stale = deferred<Constituents>();
     api.constituents.mockReturnValueOnce(stale.promise);
     page.openIndustry(a.industryCode);
-    page.setDetailTab('constituents');
     await flushPromises();
     expect(page.membersLoading.value).toBe(true);
 

@@ -9,7 +9,6 @@ import AppDatePicker from '@/components/app/AppDatePicker.vue';
 import IndustryMatrixChart from '@/components/industry-strength/IndustryMatrixChart.vue';
 import IndustryRankHeatmap from '@/components/industry-strength/IndustryRankHeatmap.vue';
 import IndustryRankingTable from '@/components/industry-strength/IndustryRankingTable.vue';
-import IndustryDetailDrawer from '@/components/industry-strength/IndustryDetailDrawer.vue';
 
 const api = vi.hoisted(() => ({ ranking: vi.fn(), dates: vi.fn(), history: vi.fn(), detail: vi.fn(), constituents: vi.fn() }));
 vi.mock('@/api/industryStrength', () => ({ industryStrengthApi: api }));
@@ -47,15 +46,15 @@ async function render() {
 }
 
 function detailEl() {
-  return document.body.querySelector('[data-testid="industry-detail"]');
+  return document.body.querySelector('[data-testid="industry-detail-dialog"]');
 }
 
 function detailText() {
   return detailEl()?.textContent ?? '';
 }
 
-async function closeDrawer() {
-  const close = document.body.querySelector('[data-testid="industry-drawer-close"]') as HTMLButtonElement | null;
+async function closeDialog() {
+  const close = document.body.querySelector('[data-testid="industry-detail-close"]') as HTMLButtonElement | null;
   close?.click();
   await flushPromises();
 }
@@ -79,7 +78,7 @@ beforeEach(() => {
 });
 
 describe('Industry Strength', () => {
-  it('renders loading then rankings without auto-opening the drawer', async () => {
+  it('renders loading then rankings without auto-opening the dialog', async () => {
     let resolve!: (value: unknown) => void;
     api.ranking.mockReturnValueOnce(new Promise(r => { resolve = r; }));
     const wrapper = await render();
@@ -91,7 +90,7 @@ describe('Industry Strength', () => {
     expect(wrapper.get('[data-testid="industry-summary"]').text()).toContain('最强行业');
     expect(wrapper.get('[data-testid="industry-summary"]').text()).toContain('动量降速最大');
     expect(wrapper.get('[data-testid="industry-summary-advancing"]').text()).toContain('50.0%（1 / 2）');
-    expect(document.body.querySelector('[data-testid="industry-detail"]')).toBeNull();
+    expect(document.body.querySelector('[data-testid="industry-detail-dialog"]')).toBeNull();
     expect(api.detail).not.toHaveBeenCalled();
     expect(api.constituents).not.toHaveBeenCalled();
     expect(wrapper.get('[data-testid="industry-ranking"]').text()).toContain('70.0');
@@ -99,11 +98,17 @@ describe('Industry Strength', () => {
     wrapper.unmount();
   });
 
-  it('opens the same drawer from ranking, summary and both charts', async () => {
+  it('opens the same dialog from ranking, summary and both charts', async () => {
     const wrapper = await render(); await flushPromises();
     await wrapper.get('[data-testid="industry-summary-strongest"]').trigger('click'); await flushPromises();
     expect(detailText()).toContain('行业甲');
     expect(api.detail).toHaveBeenLastCalledWith('881101.TI', '2026-09-16');
+    expect(api.constituents).toHaveBeenLastCalledWith('881101.TI');
+    expect(detailEl()?.getAttribute('role')).toBe('dialog');
+    expect(detailEl()?.querySelector('[role="tablist"]')).toBeNull();
+    for (const section of ['overview', 'history', 'constituents']) {
+      expect(detailEl()?.querySelector(`[data-testid="industry-detail-${section}"]`)).not.toBeNull();
+    }
     await wrapper.get('[data-testid="industry-ranking"]').findAll('button').find(b => b.text() === '行业乙')!.trigger('click');
     await flushPromises();
     expect(detailText()).toContain('行业乙');
@@ -111,11 +116,11 @@ describe('Industry Strength', () => {
     expect(detailText()).toContain('行业甲');
     await wrapper.getComponent(IndustryRankHeatmap).vm.$emit('select', '881102.TI'); await flushPromises();
     expect(detailText()).toContain('行业乙');
-    expect(api.constituents).not.toHaveBeenCalled();
+    expect(api.constituents).toHaveBeenCalledTimes(2);
     wrapper.unmount();
   });
 
-  it('keeps sort, filter and scroll context after closing the drawer', async () => {
+  it('keeps sort, filter and scroll context after closing the dialog', async () => {
     const wrapper = await render(); await flushPromises();
     const table = wrapper.getComponent(IndustryRankingTable);
     await wrapper.get('[data-testid="industry-search"]').setValue('行业乙');
@@ -125,7 +130,7 @@ describe('Industry Strength', () => {
     await wrapper.get('[data-testid="industry-ranking"]').findAll('button').find(b => b.text() === '行业乙')!.trigger('click');
     await flushPromises();
     expect(detailText()).toContain('行业乙');
-    await closeDrawer();
+    await closeDialog();
     expect(detailEl()).toBeNull();
     expect(wrapper.get('[data-testid="industry-search"]').element).toHaveProperty('value', '行业乙');
     expect(wrapper.get('[data-testid="industry-filter-count"]').text()).toContain('当前显示 1 / 全部 2 个行业');
@@ -166,18 +171,24 @@ describe('Industry Strength', () => {
     wrapper.unmount();
   });
 
-  it('loads constituents on demand and isolates that failure from details', async () => {
+  it('automatically loads constituents and isolates that failure from details', async () => {
     api.constituents.mockRejectedValue(new Error('upstream unavailable'));
     const wrapper = await render(); await flushPromises();
     await wrapper.get('[data-testid="industry-ranking"]').findAll('button').find(b => b.text() === '行业甲')!.trigger('click');
     await flushPromises();
     expect(detailText()).toContain('行业甲');
-    expect(api.constituents).not.toHaveBeenCalled();
-    await wrapper.getComponent(IndustryDetailDrawer).vm.$emit('update:tab', 'constituents');
     await flushPromises();
     expect(api.constituents).toHaveBeenCalledTimes(1);
     expect(detailText()).toContain('重试当前成分');
     expect(detailText()).toContain('行业甲');
+    expect(detailEl()?.querySelector('[data-testid="industry-detail-history"] tbody')).not.toBeNull();
+    api.constituents.mockResolvedValueOnce({ industryCode: '881101.TI', tradeDate: '2026-09-18', items: [] });
+    const retry = [...detailEl()!.querySelectorAll('button')].find(button => button.textContent?.includes('重试当前成分'))!;
+    retry.click();
+    await flushPromises();
+    expect(api.constituents).toHaveBeenCalledTimes(2);
+    expect(detailText()).not.toContain('重试当前成分');
+    expect(detailText()).toContain('2026-09-18');
     wrapper.unmount();
   });
 
@@ -231,7 +242,7 @@ describe('Industry Strength', () => {
     wrapper.unmount();
   });
 
-  it('refreshes an open drawer and reports a missing industry instead of switching', async () => {
+  it('refreshes an open dialog and reports a missing industry instead of switching', async () => {
     const wrapper = await render(); await flushPromises();
     await wrapper.get('[data-testid="industry-ranking"]').findAll('button').find(b => b.text() === '行业乙')!.trigger('click');
     await flushPromises();
@@ -270,7 +281,6 @@ describe('Industry Strength', () => {
     const wrapper = await render(); await flushPromises();
     await wrapper.get('[data-testid="industry-ranking"]').findAll('button').find(b => b.text() === '行业甲')!.trigger('click');
     await flushPromises();
-    await wrapper.getComponent(IndustryDetailDrawer).vm.$emit('update:tab', 'constituents');
     await flushPromises();
     expect(document.body.querySelector('[data-testid="industry-constituents-dates"]')?.textContent).toContain('2026-09-17');
     expect(document.body.querySelector('[data-testid="industry-constituents-banner"]')?.textContent).toContain('不随上方历史快照日期切换');
@@ -316,7 +326,6 @@ describe('Industry Strength', () => {
     const wrapper = await render(); await flushPromises();
     await wrapper.get('[data-testid="industry-ranking"]').findAll('button').find(b => b.text() === '行业甲')!.trigger('click');
     await flushPromises();
-    await wrapper.getComponent(IndustryDetailDrawer).vm.$emit('update:tab', 'history');
     await flushPromises();
     expect(detailText()).toContain('2026-08-01');
     let resolveB!: (value: unknown) => void;
@@ -342,7 +351,6 @@ describe('Industry Strength', () => {
     const wrapper = await render(); await flushPromises();
     await wrapper.get('[data-testid="industry-ranking"]').findAll('button').find(b => b.text() === '行业甲')!.trigger('click');
     await flushPromises();
-    await wrapper.getComponent(IndustryDetailDrawer).vm.$emit('update:tab', 'history');
     await flushPromises();
     expect(detailText()).toContain('2026-08-01');
     api.ranking.mockResolvedValueOnce({
