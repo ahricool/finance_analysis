@@ -14,6 +14,7 @@ import logging
 
 from fastapi import APIRouter, HTTPException, Query
 
+from finance_analysis.database.repositories.universe import UniverseRepository
 from finance_analysis.database.models.stock import Instrument  # pragma: allowlist secret
 from finance_analysis.database.repositories.stock import InstrumentRepository  # pragma: allowlist secret
 
@@ -21,6 +22,8 @@ from finance_analysis.interfaces.api.v1.schemas.stocks import (
     InstrumentSearchItem,
     InstrumentSearchResponse,
     KLineData,
+    StockClassificationResponse,
+    StockMemberships,
     StockHistoryResponse,
     StockInstrumentInfo,
     StockQuote,
@@ -97,6 +100,28 @@ def get_stock_info(stock_code: str) -> StockInstrumentInfo:
         currency=info.currency,
         exchange=info.exchange,
         instrument_type=info.instrument_type,
+    )
+
+
+@router.get(
+    "/{stock_code}/classification",
+    response_model=StockClassificationResponse,
+    responses={404: {"description": "股票不存在", "model": ErrorResponse}},
+    summary="获取个股当前所属指数",
+    description="只读取数据库中已启用的 INDEX Universe 及其当前成分，不调用外部数据源。",
+)
+def get_stock_classification(stock_code: str) -> StockClassificationResponse:
+    try:
+        code = canonical_symbol(stock_code)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    instrument = InstrumentRepository().get_by_code(code)
+    if instrument is None:
+        raise HTTPException(status_code=404, detail=f"未找到股票 {code} 的静态信息")
+    return StockClassificationResponse(
+        code=instrument.code,
+        market=instrument.market,
+        memberships=StockMemberships(indices=UniverseRepository().list_index_memberships(code)),
     )
 
 
