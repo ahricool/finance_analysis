@@ -3,6 +3,8 @@
 import logging
 from datetime import date, timedelta
 
+from sqlalchemy.exc import SQLAlchemyError
+
 from finance_analysis.core.time import utc_now
 from finance_analysis.database.repositories.industry_strength import IndustryStrengthRepository
 from finance_analysis.integrations.market_data.service import MarketDataService
@@ -98,13 +100,26 @@ class IndustryStrengthService:
         except Exception as exc:
             stocks = {}
             breadth_failures["history"] = str(exc)
+        trend_ranks = {}
+        if codes:
+            try:
+                trend_ranks = self.repository.latest_cn_trend_ranks(codes)
+            except SQLAlchemyError:
+                logger.warning("Latest CN Trend ranks unavailable; publishing null ranks", exc_info=True)
+        current_constituents = []
         valid = ready
         for row in valid:
             code = row["industry_code"]
-            row.update(breadth(
-                constituent_observations(memberships[code], stocks, sessions),
-                self.config.minimum_breadth_coverage,
-            ))
+            observations = constituent_observations(memberships[code], stocks, sessions)
+            for item in observations:
+                current_constituents.append({
+                    "industry_code": code,
+                    "stock_code": item["code"],
+                    "stock_name": item["name"],
+                    **{key: value for key, value in item.items() if key not in {"code", "name"}},
+                    "trend_rank": trend_ranks.get(item["code"]),
+                })
+            row.update(breadth(observations, self.config.minimum_breadth_coverage))
             if historical:
                 row["quality"]["breadth_status"] = "unavailable_historical_members"
                 for key in ("constituent_count", "daily_valid_count", "ma5_valid_count", "ma20_valid_count",
@@ -130,7 +145,7 @@ class IndustryStrengthService:
             }
         if not historical and get_market_now("cn").date() != day:
             raise IndustryReadinessError("Collection crossed the Shanghai date boundary; no snapshot written")
-        self.repository.save(day, valid)
+        self.repository.save(day, valid, constituents=None if historical else current_constituents)
         return {
             "status": "completed",
             "trade_date": day.isoformat(),
@@ -176,18 +191,3 @@ class IndustryStrengthService:
                 # Sticky errors are a full-history persistence guard, not a ban on fallback reads.
                 stored[code] = remote.data.get(code) or stored.get(code, [])
         return stored
-
-    def constituents(self, code):
-        day = get_completed_trading_days("cn", 1)[-1]
-        sessions = self.sessions(day)
-        members = self.market_data.get_index_constituents(code)
-        stocks = self.load_member_history([m["thscode"] for m in members], sessions)
-        rows = constituent_observations(members, stocks, sessions)
-        return {
-            "industry_code": code,
-            "trade_date": day,
-            "members_observed_at": utc_now(),
-            "basis": "current_members_latest_completed_close",
-            "items": rows,
-            **breadth(rows, self.config.minimum_breadth_coverage),
-        }

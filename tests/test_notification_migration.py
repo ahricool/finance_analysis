@@ -74,4 +74,4 @@ def test_cleanup_postgresql(monkeypatch):
 
 def test_single_head():
     script = ScriptDirectory.from_config(Config("alembic.ini"))
-    assert script.get_heads() == ["0057_us_trend_universe"]
+    assert script.get_heads() == ["0058_industry_constituents"]

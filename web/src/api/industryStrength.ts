@@ -19,9 +19,9 @@ export interface IndustryHistory { dates: string[]; items: IndustrySnapshot[] }
 export interface IndustryDetail { current: IndustrySnapshot; history: IndustrySnapshot[] }
 export interface Constituent {
   code: string; name: string; price: number | null; changePct: number | null; volume: number | null;
-  amount: number | null; aboveMa5: boolean | null; aboveMa20: boolean | null;
+  amount: number | null; trendRank: number | null; aboveMa5: boolean | null; aboveMa20: boolean | null;
 }
-export interface Constituents { industryCode: string; tradeDate: string; membersObservedAt: string;
+export interface Constituents { industryCode: string; updatedAt: string | null;
   constituentCount: number; dailyValidCount: number; ma5ValidCount: number; aboveMa5Count: number; ma20ValidCount: number; aboveMa20Count: number; items: Constituent[] }
 const base = '/api/v1/industry-strength';
 export const industryStrengthApi = {

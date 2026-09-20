@@ -275,6 +275,8 @@ uv run ./scripts/ci_gate.sh
 ## A 股行业强度
 
 `industry_strength/` 通过 `MarketDataService` 读取扶摇指数及现有股票日线，独立保存
-`industry_strength_snapshot`。三个扶摇能力仅支持 CN；指数无股票复权语义，使用 `IndexDailyBar`。
+`industry_strength_snapshot`；正式任务同事务整表替换 `industry_strength_constituent` 最新成分。
+成分 HTTP 只读该表，Trend Rank 批量读取最新 CN 正式快照并物化（可空），历史补算不覆盖最新成分。
+三个扶摇能力仅支持 CN；指数无股票复权语义，使用 `IndexDailyBar`。
 股票优先 DB，缺完整窗口则既有 Provider 只读补取；不写 `stock_daily`，不修改 ETF Universe。
 正式 Breadth 仅当日收盘计算，不做当前成分历史回填。配置、状态和覆盖规则见 `docs/industry-strength.md`。

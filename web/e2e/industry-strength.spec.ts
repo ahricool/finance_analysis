@@ -21,10 +21,10 @@ async function mockIndustryApis(page: import('@playwright/test').Page) {
     if (path.endsWith('/ranking')) return route.fulfill({ json: { trade_date: day, expected_trade_date: day, items: rows } });
     if (path.endsWith('/dates')) return route.fulfill({ json: [...dates].reverse() });
     if (path.endsWith('/history')) return route.fulfill({ json: { dates, items: dates.flatMap((d, j) => rows.map((r, i) => ({ ...r, trade_date: d, strength_rank: 1 + (i + j) % 20 }))) } });
-    if (path.endsWith('/constituents')) return route.fulfill({ json: { industry_code: path.split('/').at(-2), trade_date: day, members_observed_at: `${day}T11:20:00Z`, constituent_count: 2, daily_valid_count: 2, ma5_valid_count: 2, above_ma5_count: 1, ma20_valid_count: 2, above_ma20_count: 1, items: [
-      { code: '600001.SH', name: '示例成分甲', price: 42.5, change_pct: .035, above_ma5: true, above_ma20: true, amount: 600000000 },
-      { code: '600002.SH', name: '示例成分乙', price: 21.5, change_pct: -.021, above_ma5: false, above_ma20: true, amount: 350000000 },
-    ] } });
+    if (path.endsWith('/constituents')) return route.fulfill({ json: { industry_code: path.split('/').at(-2), updated_at: `${day}T11:20:00Z`, constituent_count: 30, daily_valid_count: 30, ma5_valid_count: 30, above_ma5_count: 1, ma20_valid_count: 30, above_ma20_count: 1, items: Array.from({ length: 30 }, (_, i) => ({
+      code: `${600001 + i}.SH`, name: `示例成分${i + 1}`, price: 42.5, change_pct: .035,
+      trend_rank: i === 0 ? null : 31 - i, above_ma5: true, above_ma20: true, amount: 600000000,
+    })) } });
     const row = rows.find(r => path.endsWith(r.industry_code));
     if (row) return route.fulfill({ json: { current: row, history: dates.map(d => ({ ...row, trade_date: d })) } });
     return route.fulfill({ json: {} });
@@ -37,12 +37,16 @@ for (const width of [1280, 1440, 1920]) {
       await page.setViewportSize({ width, height: 1080 });
       await page.addInitScript(value => localStorage.setItem('theme', value), theme);
       const errors: string[] = [];
+      const memberRequests: string[] = [];
+      page.on('request', request => {
+        if (new URL(request.url()).pathname.endsWith('/constituents')) memberRequests.push(request.url());
+      });
       page.on('pageerror', error => errors.push(error.message));
       await mockIndustryApis(page);
       await page.goto('/research/industry-strength');
       await expect(page.getByRole('heading', { name: '行业强度', exact: true })).toBeVisible();
       await expect(page.getByTestId('module-tabs').getByRole('tab', { name: '行业强度' })).toHaveAttribute('data-state', 'active');
-      await expect(page.getByTestId('industry-detail')).toHaveCount(0);
+      await expect(page.getByTestId('industry-detail-dialog')).toHaveCount(0);
       await expect(page.getByTestId('industry-ranking').locator('tbody tr')).toHaveCount(20);
       await expect(page.getByTestId('industry-summary')).toContainText('动量降速最大');
       await expect(page.getByTestId('industry-matrix').locator('canvas')).toHaveCount(1);
@@ -55,15 +59,65 @@ for (const width of [1280, 1440, 1920]) {
         await page.screenshot({ path: testInfo.outputPath('industry-heatmap.png'), fullPage: true });
       }
       await page.getByTestId('industry-ranking').getByRole('button', { name: '通信设备', exact: true }).click();
-      await expect(page.getByTestId('industry-detail')).toContainText('通信设备');
-      await expect(page.getByTestId('industry-detail')).toContainText(`实际查询快照日期 ${day}`);
-      if (width === 1280 && theme === 'light') {
-        await page.screenshot({ path: testInfo.outputPath('industry-drawer.png') });
+      await expect(page.getByTestId('industry-detail-dialog')).toContainText('通信设备');
+      const dialog = page.getByTestId('industry-detail-dialog');
+      await expect(dialog.getByRole('tab')).toHaveCount(0);
+      for (const section of ['overview', 'history', 'constituents']) {
+        await expect(dialog.getByTestId(`industry-detail-${section}`)).toHaveCount(1);
       }
-      await page.getByRole('tab', { name: '当前成分股' }).click();
-      await expect(page.getByTestId('industry-constituents-banner')).toContainText('不随上方历史快照日期切换');
-      await expect(page.getByTestId('industry-detail')).toContainText('示例成分甲');
-      await page.getByTestId('industry-drawer-close').click();
+      const box = await dialog.boundingBox();
+      expect(Math.abs(box!.x + box!.width / 2 - width / 2)).toBeLessThan(2);
+      expect(Math.abs(box!.y + box!.height / 2 - 540)).toBeLessThan(2);
+      expect(box!.height).toBeLessThanOrEqual(1048);
+      const membersTable = dialog.getByTestId('industry-detail-constituents').locator('table');
+      await expect(membersTable.locator('tbody tr')).toHaveCount(30);
+      expect(await membersTable.evaluate(el => {
+        const container = el.parentElement!;
+        return container.scrollHeight <= container.clientHeight + 1;
+      })).toBe(true);
+      if (width === 1280 && theme === 'light') {
+        await page.screenshot({ path: testInfo.outputPath('industry-dialog-overview.png') });
+      }
+      const headerY = await dialog.locator('[data-slot="dialog-header"]').boundingBox();
+      await membersTable.locator('tbody tr').nth(19).scrollIntoViewIfNeeded();
+      await expect(membersTable.locator('tbody tr').nth(19)).toBeVisible();
+      expect(await membersTable.locator('tbody tr').evaluateAll(elements => {
+        const scroller = elements[0]!.closest('[data-testid="industry-detail-dialog"]')!.lastElementChild!;
+        const viewport = scroller.getBoundingClientRect();
+        return elements.filter(element => {
+          const rect = element.getBoundingClientRect();
+          return rect.top >= viewport.top && rect.bottom <= viewport.bottom;
+        }).length;
+      })).toBeGreaterThanOrEqual(20);
+      expect((await dialog.locator('[data-slot="dialog-header"]').boundingBox())!.y).toBe(headerY!.y);
+
+      await expect(page.getByTestId('industry-detail-dialog')).toContainText(`实际查询快照日期 ${day}`);
+      if (width === 1280 && theme === 'light') {
+        await page.screenshot({ path: testInfo.outputPath('industry-dialog.png') });
+      }
+      await expect(page.getByTestId('industry-constituents-banner')).toContainText('不随上方历史快照日期变化');
+      await expect(page.getByTestId('industry-detail-dialog')).toContainText('示例成分1');
+      const section = dialog.getByTestId('industry-detail-constituents');
+      await expect(section).toContainText('当前成分股（最新数据）');
+      await expect(section).toContainText('不对应上方历史日期');
+      await section.getByRole('button', { name: 'Trend Rank', exact: true }).click();
+      await expect(membersTable.locator('tbody tr').first()).toContainText('600030.SH');
+      await expect(membersTable.locator('tbody tr').last()).toContainText('600001.SH');
+      await expect(membersTable.locator('tbody tr').last().locator('td').nth(1)).toHaveText('—');
+      await section.getByRole('button', { name: 'Trend Rank', exact: true }).click();
+      await expect(membersTable.locator('tbody tr').first()).toContainText('600002.SH');
+      await expect(membersTable.locator('tbody tr').last()).toContainText('600001.SH');
+      expect(memberRequests).toHaveLength(1);
+      await page.getByTestId('industry-detail-close').click();
+      await expect(dialog).toHaveCount(0);
+      await page.getByTestId('industry-summary-strongest').click();
+      await expect(dialog).toBeVisible();
+      await page.keyboard.press('Escape');
+      await expect(dialog).toHaveCount(0);
+      await page.getByTestId('industry-summary-strongest').click();
+      await expect(dialog).toBeVisible();
+      await page.locator('[data-slot="dialog-overlay"]').click({ position: { x: 2, y: 2 } });
+      await expect(dialog).toHaveCount(0);
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
       await page.screenshot({ path: testInfo.outputPath(`industry-${width}-${theme}.png`), fullPage: true });
       await page.getByTestId('industry-date-picker').getByRole('button').first().click();
@@ -81,7 +135,7 @@ for (const width of [1280, 1440, 1920]) {
   }
 }
 
-test('industry strength ranking and drawer at 390px', async ({ page }, testInfo) => {
+test('industry strength ranking and dialog at 390px', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.addInitScript(() => localStorage.setItem('theme', 'light'));
   await mockIndustryApis(page);
@@ -89,10 +143,13 @@ test('industry strength ranking and drawer at 390px', async ({ page }, testInfo)
   await expect(page.getByTestId('industry-summary').locator('[data-slot="card"]')).toHaveCount(4);
   await page.screenshot({ path: testInfo.outputPath('industry-390-ranking.png'), fullPage: true });
   await page.getByTestId('industry-summary-strongest').click();
-  const drawer = page.getByTestId('industry-detail');
-  await expect(drawer).toBeVisible();
-  const box = await drawer.boundingBox();
-  expect(box?.width ?? 0).toBeGreaterThan(360);
-  await expect(drawer).toContainText('5 日超额（百分点）');
-  await page.screenshot({ path: testInfo.outputPath('industry-390-drawer.png') });
+  const dialog = page.getByTestId('industry-detail-dialog');
+  await expect(dialog).toBeVisible();
+  const box = await dialog.boundingBox();
+  expect(box?.width ?? 0).toBeGreaterThan(350);
+  expect(box!.x).toBeGreaterThanOrEqual(0);
+  expect(box!.x + box!.width).toBeLessThanOrEqual(390);
+  expect(box!.height).toBeLessThanOrEqual(812);
+  await expect(dialog).toContainText('5 日超额（百分点）');
+  await page.screenshot({ path: testInfo.outputPath('industry-390-dialog.png') });
 });
