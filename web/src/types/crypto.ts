@@ -1,4 +1,5 @@
 export interface CryptoSnapshot {
+  strategyKey: string;
   symbol: 'BTCUSDT'; evaluatedAt: string; regime: 'BULL' | 'BEAR' | 'RANGE' | 'UNKNOWN';
   setup: 'BREAKOUT' | 'NONE'; action: 'BUY' | 'WAIT' | 'HOLD' | 'EXIT'; price: string;
   // Digit/letter boundaries follow the shared camelcase-keys API adapter.
@@ -10,12 +11,14 @@ export interface CryptoSnapshot {
   positionState: 'FLAT' | 'LONG'; reason: string;
 }
 export interface CryptoState {
+  strategyKey: string;
   symbol: 'BTCUSDT'; positionState: 'FLAT' | 'LONG'; entryPrice: string | null;
   positionPct: string; averageEntryPrice: string | null;
   entryTime: string | null; highestPriceSinceEntry: string | null;
   initialStop: string | null; trailingStop: string | null; updatedAt: string | null;
 }
 export interface CryptoOverview {
+  strategyKey: string;
   symbol: 'BTCUSDT'; strategy: CryptoSnapshot | null; state: CryptoState;
 }
 
@@ -28,11 +31,21 @@ export interface CryptoTrade {
   averageEntryPrice: string; exitPrice: string; realizedReturn: string;
 }
 export interface CryptoPerformance {
+  strategyKey: string; displayName: string; symbol: string;
+  runningDays: string; annualizedReturn: string | null; breakeven: number; equityPointsTotal: number;
   performanceStartAt: string | null; performanceEndAt: string | null;
   currentPosition: { positionPct: string; averageEntryPrice: string | null };
-  executionCount: number; completedCycles: number; winCount: number; lossCount: number;
-  winRate: string | null; averageReturn: string | null; cumulativeReturn: string; maxDrawdown: string;
+  executionCount: number; closedTrades: number; wins: number; losses: number;
+  winRate: string | null; averageTradeReturn: string | null; totalReturn: string; maxDrawdown: string;
   bestTrade: string | null; worstTrade: string | null;
   recentExecutions: CryptoExecution[]; recentTrades: CryptoTrade[];
   equityCurve: { evaluatedAt: string; equity: string; drawdown: string }[];
 }
+
+export interface CryptoStrategyDefinition {
+  strategyKey: string; displayName: string; enabled: boolean; currentPosition: string;
+  latestAction: string | null; latestEvaluatedAt: string | null;
+}
+export type CryptoPerformanceSummary = Pick<CryptoPerformance,
+  'strategyKey' | 'displayName' | 'currentPosition' | 'totalReturn' | 'annualizedReturn' |
+  'maxDrawdown' | 'winRate' | 'closedTrades' | 'runningDays' | 'performanceStartAt' | 'performanceEndAt'>;

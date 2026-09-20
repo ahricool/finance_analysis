@@ -20,7 +20,7 @@ const markerRange = computed(() => {
   return first && last ? { start: first.openTime, end: last.closeTime } : null;
 });
 const { overview, signals, loading, error, refresh, performance, performanceError, refreshPerformance,
-  markers, markerError, refreshMarkers } = useCryptoStrategy(markerRange);
+  selectedKey, strategies, strategiesError, refreshStrategies, summaries, markers, markerError, refreshMarkers } = useCryptoStrategy(markerRange);
 const strategy = computed(() => overview.value?.strategy);
 const metrics = computed(() => [
   ['Market Regime', strategy.value?.regime ?? '等待数据'],
@@ -35,6 +35,7 @@ const metrics = computed(() => [
   ['Initial Stop', number(strategy.value?.initialStop)],
   ['Trailing Stop', number(strategy.value?.trailingStop)],
 ]);
+function percent(value: string | null) { return value == null ? '—' : Number.isFinite(Number(value) * 100) ? `${(Number(value) * 100).toFixed(2)}%` : `${value} × 100%`; }
 function number(value: string | null | undefined) {
   return value == null ? '—' : Number(value).toLocaleString('en-US', { maximumFractionDigits: 2 });
 }
@@ -135,14 +136,48 @@ function time(value: string | null | undefined) {
           v-if="candles.length || current"
           :interval="interval"
           :signals="markers"
+          :strategy-key="selectedKey"
+          :strategy-name="strategies.find(item => item.strategyKey === selectedKey)?.displayName"
           :candles="candles"
           :current="current"
         />
       </CardContent>
     </Card>
-    <h3 class="text-lg font-semibold">
-      Strategy
-    </h3>
+    <AppApiErrorAlert
+      v-if="strategiesError"
+      :error="strategiesError"
+    />
+    <Button
+      v-if="strategiesError"
+      variant="outline"
+      @click="refreshStrategies()"
+    >
+      重试策略列表与对比
+    </Button>
+    <div class="flex items-center gap-3">
+      <h3 class="text-lg font-semibold">
+        Strategy
+      </h3>
+      <select
+        v-model="selectedKey"
+        aria-label="Strategy"
+        class="rounded border bg-background px-3 py-2 text-sm"
+      >
+        <option
+          v-if="!strategies.length"
+          value="btc_breakout_v1"
+        >
+          Breakout V1
+        </option>
+        <option
+          v-for="item in strategies"
+          :key="item.strategyKey"
+          :value="item.strategyKey"
+        >
+          {{ item.displayName }}{{ item.enabled ? '' : '（停用）' }}
+        </option>
+      </select>
+    </div>
     <div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
       <Card
         v-for="[label, value] in metrics"
@@ -203,6 +238,25 @@ function time(value: string | null | undefined) {
     >
       重试绩效
     </Button>
+    <Card
+      v-if="summaries.length >= 2"
+      data-testid="btc-strategy-comparison"
+    >
+      <CardHeader><CardTitle>Strategy Comparison</CardTitle></CardHeader>
+      <CardContent class="overflow-x-auto">
+        <Table>
+          <TableHeader><TableRow><TableHead>Strategy</TableHead><TableHead>Position</TableHead><TableHead>Total</TableHead><TableHead>Annualized</TableHead><TableHead>MDD</TableHead><TableHead>Win Rate</TableHead><TableHead>Days</TableHead></TableRow></TableHeader>
+          <TableBody>
+            <TableRow
+              v-for="item in summaries"
+              :key="item.strategyKey"
+            >
+              <TableCell>{{ item.displayName }}</TableCell><TableCell>{{ percent(item.currentPosition.positionPct) }}</TableCell><TableCell>{{ percent(item.totalReturn) }}</TableCell><TableCell>{{ percent(item.annualizedReturn) }}</TableCell><TableCell>{{ percent(item.maxDrawdown) }}</TableCell><TableCell>{{ percent(item.winRate) }}</TableCell><TableCell>{{ number(item.runningDays) }}</TableCell>
+            </TableRow>
+          </TableBody>
+        </Table>
+      </CardContent>
+    </Card>
     <BtcPerformance
       v-if="performance"
       :performance="performance"

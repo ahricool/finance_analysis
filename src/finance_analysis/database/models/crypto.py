@@ -1,6 +1,16 @@
 """PostgreSQL facts for Binance BTCUSDT and the V0.1 strategy."""
 
-from sqlalchemy import CheckConstraint, Column, DateTime, Integer, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import (
+    CheckConstraint,
+    Column,
+    DateTime,
+    Integer,
+    Numeric,
+    PrimaryKeyConstraint,
+    String,
+    Text,
+    UniqueConstraint,
+)
 
 from finance_analysis.core.time import utc_now
 from finance_analysis.database.base import Base
@@ -9,9 +19,11 @@ from finance_analysis.database.base import Base
 class CryptoStrategyState(Base):
     __tablename__ = "crypto_strategy_state"
     __table_args__ = (
+        PrimaryKeyConstraint("strategy_key", "symbol", name="pk_crypto_strategy_state"),
         CheckConstraint("position_state IN ('FLAT', 'LONG')", name="ck_crypto_state_position"),
         CheckConstraint("position_pct >= 0 AND position_pct <= 1", name="ck_crypto_state_pct"),
     )
+    strategy_key = Column(String(64), primary_key=True)
     symbol = Column(String(16), primary_key=True)
     position_state = Column(String(8), nullable=False, default="FLAT")
     position_pct = Column(Numeric(18, 12), nullable=False, default=0, server_default="0")
@@ -27,12 +39,13 @@ class CryptoStrategyState(Base):
 class CryptoStrategySnapshot(Base):
     __tablename__ = "crypto_strategy_snapshot"
     __table_args__ = (
-        UniqueConstraint("symbol", "evaluated_at", name="uq_crypto_snapshot_symbol_evaluated"),
+        UniqueConstraint("strategy_key", "symbol", "evaluated_at", name="uq_crypto_snapshot_strategy_symbol_evaluated"),
         CheckConstraint("position_before >= 0 AND position_before <= 1", name="ck_crypto_snapshot_before"),
         CheckConstraint("position_after >= 0 AND position_after <= 1", name="ck_crypto_snapshot_after"),
         CheckConstraint("position_delta = position_after - position_before", name="ck_crypto_snapshot_delta"),
     )
     id = Column(Integer, primary_key=True)
+    strategy_key = Column(String(64), nullable=False)
     symbol = Column(String(16), nullable=False)
     evaluated_at = Column(DateTime(timezone=True), nullable=False)
     regime = Column(String(16), nullable=False)

@@ -3,9 +3,10 @@ import { expect, it } from 'vitest';
 import BtcPerformance from '../BtcPerformance.vue';
 import type { CryptoPerformance } from '@/types/crypto';
 export const performance: CryptoPerformance = {
+  strategyKey: "btc_breakout_v1", displayName: "Breakout V1", symbol: "BTCUSDT", runningDays: "365", annualizedReturn: "0.21", breakeven: 0, equityPointsTotal: 3,
   performanceStartAt: '2026-09-01T00:00:00Z', performanceEndAt: '2026-09-01T00:15:00Z',
-  currentPosition: { positionPct: '0.5', averageEntryPrice: '100' }, executionCount: 3, completedCycles: 2,
-  winCount: 1, lossCount: 1, winRate: '0.5', averageReturn: '0.02', cumulativeReturn: '0.04', maxDrawdown: '0.2',
+  currentPosition: { positionPct: '0.5', averageEntryPrice: '100' }, executionCount: 3, closedTrades: 2,
+  wins: 1, losses: 1, winRate: '0.5', averageTradeReturn: '0.02', totalReturn: '0.04', maxDrawdown: '0.2',
   bestTrade: '0.1', worstTrade: '-0.06', recentExecutions: [], recentTrades: [],
   equityCurve: [{ evaluatedAt: '2026-09-01T00:00:00Z', equity: '1', drawdown: '0' }],
 };

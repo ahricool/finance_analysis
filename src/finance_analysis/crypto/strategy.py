@@ -22,7 +22,8 @@ def evaluate(
     original_state = state
     current = quarter[-1]
     snapshot = dict(
-        symbol="BTCUSDT",
+        strategy_key=state.strategy_key,
+        symbol=state.symbol,
         evaluated_at=at,
         price=current.close,
         regime="UNKNOWN",
@@ -53,6 +54,8 @@ def evaluate(
             stop = initial_stop(current.close, atr14)
             # Entry is at this bar's close: its earlier high was before entry.
             state = StrategyState(
+                strategy_key=original_state.strategy_key,
+                symbol=original_state.symbol,
                 position_state="LONG",
                 entry_price=current.close,
                 entry_time=at,

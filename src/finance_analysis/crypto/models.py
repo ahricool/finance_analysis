@@ -60,6 +60,7 @@ class Kline:
 
 @dataclass(frozen=True)
 class StrategyState:
+    strategy_key: str = "btc_breakout_v1"
     symbol: str = "BTCUSDT"
     position_state: Literal["FLAT", "LONG"] = "FLAT"
     position_pct: Decimal | None = None

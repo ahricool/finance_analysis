@@ -31,16 +31,19 @@ describe('BTC chart data mapping', () => {
     wrapper.unmount();
   });
   it('creates BUY/EXIT overlays and reveals details on click', async () => {
-    const signal = { action: 'BUY', evaluatedAt: row.openTime, price: '101', positionBefore: '0', positionAfter: '1',
+    const signal = { strategyKey: 'btc_breakout_v1', action: 'BUY', evaluatedAt: row.openTime, price: '101', positionBefore: '0', positionAfter: '1',
       regime: 'BULL', setup: 'BREAKOUT', reason: 'test entry' } as CryptoSnapshot;
-    const wrapper = mount(BtcKlineChart, { props: { candles: [row], current: null, signals: [signal] },
+    const wrapper = mount(BtcKlineChart, { props: { candles: [row], current: null, signals: [signal], strategyKey: signal.strategyKey, strategyName: "Breakout V1" },
       global: { stubs: { MarketKLineChart: true } } });
     const overlay = wrapper.getComponent(MarketKLineChart).props('overlays')![0]!;
     expect(overlay.points).toEqual([{ timestamp: Date.parse(row.openTime), value: 101 }]);
     expect((overlay.extendData as { label: string }).label).toBe('↑ BUY');
     overlay.onClick!({} as never); await wrapper.vm.$nextTick();
     expect(wrapper.get('[data-testid="btc-signal-detail"]').text()).toContain('test entry');
-    await wrapper.setProps({ signals: [{ ...signal, action: 'EXIT' }] });
+    expect(wrapper.get('[data-testid="btc-signal-detail"]').text()).toContain('Breakout V1');
+    await wrapper.setProps({ strategyKey: 'btc_test_v1', strategyName: 'Test V1', signals: [{ ...signal, strategyKey: 'btc_test_v1', action: 'EXIT' }] });
+    expect(wrapper.find('[data-testid="btc-signal-detail"]').exists()).toBe(false);
+    expect(wrapper.getComponent(MarketKLineChart).props('overlays')![0]!.id).toContain('btc_test_v1');
     expect((wrapper.getComponent(MarketKLineChart).props('overlays')![0]!.extendData as { label: string }).label).toBe('↓ EXIT');
     wrapper.unmount();
   });

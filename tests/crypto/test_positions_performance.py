@@ -43,9 +43,9 @@ def test_mark_to_market_drawdown_includes_open_periods():
     rows = [row(0, "100", "0", "1", "100"), row(1, "80", "1", "1", "100"), row(2, "110", "1", "0")]
     result = performance(rows, StrategyState())
     assert [x["equity"] for x in result["equity_curve"]] == [D(1), D(".8"), D("1.1")]
-    assert result["max_drawdown"] == D(".2")
-    assert result["cumulative_return"] == result["average_return"] == D(".1")
-    assert (result["completed_cycles"], result["win_count"], result["loss_count"], result["execution_count"]) == (
+    assert result["max_drawdown"] == D("-.2")
+    assert result["total_return"] == result["average_trade_return"] == D(".1")
+    assert (result["closed_trades"], result["wins"], result["losses"], result["execution_count"]) == (
         1,
         1,
         0,
@@ -65,8 +65,8 @@ def test_dynamic_position_equity_and_cycles():
     result = performance(rows, StrategyState())
     assert result["equity_curve"][1]["equity"] == D("1.05")
     assert result["equity_curve"][2]["equity"] == D(".945")
-    assert float(result["cumulative_return"]) == pytest.approx(-0.0025)
-    assert result["completed_cycles"] == 1 and result["loss_count"] == 1
+    assert float(result["total_return"]) == pytest.approx(-0.0025)
+    assert result["closed_trades"] == 1 and result["losses"] == 1
     assert result["recent_trades"][0]["average_entry_price"] == 105
     assert result["execution_count"] == 4
 
@@ -81,9 +81,10 @@ def test_open_cycles_not_wins_and_breakeven_in_denominator():
         row(5, "150", ".5", ".5", "100"),
     ]
     result = performance(rows, StrategyState(position_pct=D(".5"), average_entry_price=D(100)))
-    assert result["completed_cycles"] == 2 and result["win_count"] == 1 and result["loss_count"] == 0
-    assert result["win_rate"] == D(".5") and result["average_return"] == D(".05")
-    assert result["cumulative_return"] == D(".375")
+    assert result["closed_trades"] == 2 and result["wins"] == 1 and result["losses"] == 0
+    assert result["breakeven"] == 1
+    assert result["win_rate"] == D(".5") and result["average_trade_return"] == D(".05")
+    assert result["total_return"] == D(".375")
     assert result["best_trade"] == D(".1") and result["worst_trade"] == 0
     assert result["current_position"]["position_pct"] == D(".5")
 
@@ -99,7 +100,7 @@ def test_old_incomplete_and_missing_intervals_do_not_invent_executions_or_trades
     ]
     result = performance(rows, StrategyState())
     assert result["performance_start_at"] == rows[1]["evaluated_at"]
-    assert result["completed_cycles"] == 1 and result["execution_count"] == 3
+    assert result["closed_trades"] == 1 and result["execution_count"] == 3
     assert result["recent_trades"][0]["realized_return"] == D(".05")
     # A missing snapshot invalidates the preceding performance segment, not bridged with guesses.
     result = performance([rows[1], rows[3], rows[4]], StrategyState())

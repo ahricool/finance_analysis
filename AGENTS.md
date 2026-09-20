@@ -301,6 +301,9 @@ Beat `crypto_btc_strategy` 每 15m 收盘后读取原生 15m/1h 闭合线，只�
 已有快照按15m逐根补算；仓位为position_pct（0–1），仓位变化保存在snapshot，绩效从完整快照动态计算。
 详见 `docs/crypto-btc.md`；测试位于 `tests/crypto/`。
 
+
+BTC 多策略以 `strategy_key + symbol` 隔离，代码注册表当前仅 `btc_breakout_v1`。共享 Binance REST 窗口、独立 catch-up 与状态行锁；仓位变化保存于 snapshot，绩效/CAGR/负值回撤动态派生，selector 不影响行情连接。详见 `docs/crypto-btc.md`。
+
 ## 消息边界
 
 所有系统消息先写 `notification`（`uid` 非空为用户消息，空为全局消息），再执行现有 Noise Control 和 Telegram/ntfy 推送；不保存 delivery 状态。读取仅限本人 + 全局。报告不再写 Timeline 或本地文件；Calendar 只保存 earnings/macro 真实事件。详见 `docs/notifications.md`。

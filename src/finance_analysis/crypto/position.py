@@ -13,7 +13,7 @@ def change_position(state: StrategyState, target: Decimal, price: Decimal, at) -
     if not price.is_finite() or price <= 0:
         raise ValueError("Execution price must be positive")
     if target == 0:
-        return StrategyState(updated_at=at)
+        return StrategyState(strategy_key=state.strategy_key, symbol=state.symbol, updated_at=at)
     average = state.average_entry_price
     if target > before:
         if before > 0 and average is None:

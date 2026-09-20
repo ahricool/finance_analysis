@@ -1,12 +1,12 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { registerOverlay, type OverlayCreate } from 'klinecharts';
 import type { CryptoSnapshot } from '@/types/crypto';
 import { btcMarkers } from './btcMarkers';
 import MarketKLineChart from '@/components/market-data/MarketKLineChart.vue';
 import type { BinanceInterval, CryptoKline } from '@/types/binance';
 
-const props = defineProps<{ signals?: CryptoSnapshot[]; interval?: BinanceInterval; candles: CryptoKline[]; current: CryptoKline | null }>();
+const props = defineProps<{ strategyKey?: string; strategyName?: string; signals?: CryptoSnapshot[]; interval?: BinanceInterval; candles: CryptoKline[]; current: CryptoKline | null }>();
 function toBar(row: CryptoKline) {
   return { timestamp: Date.parse(row.openTime), open: Number(row.open), high: Number(row.high),
     low: Number(row.low), close: Number(row.close), volume: Number(row.volume), turnover: Number(row.quoteVolume) };
@@ -19,6 +19,7 @@ const current = computed(() => {
 });
 
 const selected = ref<CryptoSnapshot | null>(null);
+watch(() => props.strategyKey, () => { selected.value = null; });
 registerOverlay<{ label: string; buy: boolean; offset: number }>({
   name: 'btcSignal', totalStep: 1, needDefaultPointFigure: false,
   needDefaultXAxisFigure: false, needDefaultYAxisFigure: false,
@@ -36,7 +37,7 @@ const overlays = computed<OverlayCreate[]>(() => {
   return btcMarkers(props.signals ?? [], rows, props.interval ?? '1m').map(({ signal, timestamp }) => {
     const offset = offsets.get(timestamp) ?? 0;
     offsets.set(timestamp, offset + 16);
-    return { name: 'btcSignal', id: `btc-${signal.evaluatedAt}`, groupId: 'strategy-markers', lock: true,
+    return { name: 'btcSignal', id: `btc-${signal.strategyKey}-${signal.evaluatedAt}`, groupId: 'strategy-markers', lock: true,
       points: [{ timestamp, value: Number(signal.price) }],
       extendData: { label: signal.action === 'BUY' ? '↑ BUY' : '↓ EXIT', buy: signal.action === 'BUY', offset },
       onClick: () => { selected.value = signal; return true; } };
@@ -59,7 +60,7 @@ const overlays = computed<OverlayCreate[]>(() => {
     class="mt-3 rounded border p-3 text-sm"
     data-testid="btc-signal-detail"
   >
-    <strong>{{ selected.action }} · {{ selected.evaluatedAt }} · {{ selected.price }} USDT</strong>
+    <strong>{{ strategyName ?? selected.strategyKey }} · {{ selected.action }} · {{ selected.evaluatedAt }} · {{ selected.price }} USDT</strong>
     <p>仓位 {{ selected.positionBefore == null ? '未知' : `${Number(selected.positionBefore) * 100}%` }} → {{ selected.positionAfter == null ? '未知' : `${Number(selected.positionAfter) * 100}%` }} · {{ selected.regime }} · {{ selected.setup }}</p>
     <p>{{ selected.reason }}</p>
   </div>

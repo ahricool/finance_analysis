@@ -4,7 +4,7 @@ import type { CryptoPerformance } from '@/types/crypto';
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 const props = defineProps<{ performance: CryptoPerformance; price: string | null }>();
-const percent = (value: string | number | null | undefined) => value == null ? '—' : `${(Number(value) * 100).toFixed(2)}%`;
+const percent = (value: string | number | null | undefined) => value == null ? '—' : Number.isFinite(Number(value) * 100) ? `${(Number(value) * 100).toFixed(2)}%` : `${value} × 100%`;
 const number = (value: string | null) => value == null ? '—' : Number(value).toLocaleString('en-US', { maximumFractionDigits: 2 });
 const floating = computed(() => props.price && Number(props.performance.currentPosition.averageEntryPrice) > 0
   ? Number(props.price) / Number(props.performance.currentPosition.averageEntryPrice) - 1 : null);
@@ -13,9 +13,10 @@ const metrics = computed(() => [
   ['平均成本', number(props.performance.currentPosition.averageEntryPrice)],
   ['当前 BTC 浮盈率', percent(floating.value)],
   ['持仓浮动贡献', percent(floating.value == null ? null : Number(props.performance.currentPosition.positionPct) * floating.value)],
-  ['累计收益', percent(props.performance.cumulativeReturn)], ['最大回撤', percent(props.performance.maxDrawdown)],
-  ['胜率', percent(props.performance.winRate)], ['完整交易次数', props.performance.completedCycles],
-  ['执行次数', props.performance.executionCount], ['平均交易收益', percent(props.performance.averageReturn)],
+  ['年化收益 CAGR', percent(props.performance.annualizedReturn)], ['运行天数', Number(props.performance.runningDays).toFixed(2)],
+  ['累计收益', percent(props.performance.totalReturn)], ['最大回撤', percent(props.performance.maxDrawdown)],
+  ['胜率', percent(props.performance.winRate)], ['完整交易次数', props.performance.closedTrades],
+  ['执行次数', props.performance.executionCount], ['平均交易收益', percent(props.performance.averageTradeReturn)],
 ]);
 const curve = computed(() => {
   const values = props.performance.equityCurve.map(point => Number(point.equity));
@@ -27,7 +28,7 @@ const curve = computed(() => {
   <Card data-testid="btc-performance">
     <CardHeader>
       <CardTitle>Performance</CardTitle>
-      <CardDescription>有效起点 {{ performance.performanceStartAt ?? '等待完整仓位快照' }} · 15m 收盘净值，初始为 1 · 无手续费与滑点</CardDescription>
+      <CardDescription>{{ performance.displayName }} · 有效起点 {{ performance.performanceStartAt ?? '等待完整仓位快照' }} · 截至 {{ performance.performanceEndAt ?? '—' }} · 15m 收盘净值，初始为 1 · 无手续费与滑点</CardDescription>
     </CardHeader>
     <CardContent class="space-y-5">
       <div class="grid grid-cols-5 gap-4">
@@ -36,6 +37,12 @@ const curve = computed(() => {
           :key="label"
           class="space-y-1"
         >
+          <p
+            v-if="performance.equityPointsTotal > performance.equityCurve.length"
+            class="text-xs text-muted-foreground"
+          >
+            曲线显示抽样点，收益与回撤仍按全部 {{ performance.equityPointsTotal }} 条快照计算。
+          </p>
           <p class="text-xs text-muted-foreground">
             {{ label }}
           </p><strong class="tabular-nums">{{ value }}</strong>

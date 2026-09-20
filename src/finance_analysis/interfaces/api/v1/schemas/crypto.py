@@ -8,6 +8,7 @@ from pydantic import BaseModel
 
 
 class CryptoStateResponse(BaseModel):
+    strategy_key: str
     symbol: Literal["BTCUSDT"] = "BTCUSDT"
     position_state: Literal["FLAT", "LONG"]
     position_pct: Decimal
@@ -21,6 +22,7 @@ class CryptoStateResponse(BaseModel):
 
 
 class CryptoSnapshotResponse(BaseModel):
+    strategy_key: str
     symbol: Literal["BTCUSDT"] = "BTCUSDT"
     evaluated_at: datetime
     regime: Literal["BULL", "BEAR", "RANGE", "UNKNOWN"]
@@ -44,6 +46,7 @@ class CryptoSnapshotResponse(BaseModel):
 
 
 class CryptoOverviewResponse(BaseModel):
+    strategy_key: str
     symbol: Literal["BTCUSDT"] = "BTCUSDT"
     strategy: CryptoSnapshotResponse | None
     state: CryptoStateResponse
@@ -84,19 +87,50 @@ class CryptoEquityPoint(BaseModel):
 
 
 class CryptoPerformanceResponse(BaseModel):
+    strategy_key: str
+    symbol: str
+    display_name: str
+    running_days: Decimal
+    annualized_return: Decimal | None
+    breakeven: int
+    equity_points_total: int
     performance_start_at: datetime | None
     performance_end_at: datetime | None
     current_position: CryptoPositionResponse
     execution_count: int
-    completed_cycles: int
-    win_count: int
-    loss_count: int
+    closed_trades: int
+    wins: int
+    losses: int
     win_rate: Decimal | None
-    average_return: Decimal | None
-    cumulative_return: Decimal
+    average_trade_return: Decimal | None
+    total_return: Decimal
     max_drawdown: Decimal
     best_trade: Decimal | None
     worst_trade: Decimal | None
     recent_executions: list[CryptoExecutionResponse]
     recent_trades: list[CryptoTradeResponse]
     equity_curve: list[CryptoEquityPoint]
+
+
+class CryptoStrategyResponse(BaseModel):
+    strategy_key: str
+    display_name: str
+    enabled: bool
+    current_position: Decimal
+    latest_action: str | None
+    latest_evaluated_at: datetime | None
+
+
+class CryptoPerformanceSummary(BaseModel):
+    strategy_key: str
+    symbol: str
+    display_name: str
+    current_position: CryptoPositionResponse
+    total_return: Decimal
+    annualized_return: Decimal | None
+    max_drawdown: Decimal
+    win_rate: Decimal | None
+    closed_trades: int
+    running_days: Decimal
+    performance_start_at: datetime | None
+    performance_end_at: datetime | None

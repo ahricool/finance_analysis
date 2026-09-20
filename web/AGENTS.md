@@ -248,6 +248,9 @@ Cookie 会话，`apiClient` 设了 `withCredentials: true`。
 `BtcKlineChart` 使用已加载K线映射BUY/EXIT overlay，点击查看策略详情；Performance由后端快照派生，当前浮盈用浏览器Binance price计算。
 `BtcKlineChart` 是 `MarketKLineChart` 的轻量 wrapper，已闭合 history 与单根 current 分开传入。统一图表使用 KLineChart 10.x 的 data loader / subscription API，卸载时 dispose。单证券日 K 使用 `DailyKLineCard` 独立请求 `/api/v1/market-data/daily-bars/{symbol}`；历史策略详情必须传返回快照的 tradeDate 作为 endDate。
 
+
+BTC 多策略以 `strategy_key + symbol` 隔离，代码注册表当前仅 `btc_breakout_v1`。共享 Binance REST 窗口、独立 catch-up 与状态行锁；仓位变化保存于 snapshot，绩效/CAGR/负值回撤动态派生，selector 不影响行情连接。详见 `../docs/crypto-btc.md`。
+
 ## 消息中心
 
 `/notifications` 仅从头像菜单进入，使用 `/api/v1/notifications` 列表/详情，不显示 uid 或推送状态。Timeline 仅展示财经事件与新闻，不提供报告消息。
