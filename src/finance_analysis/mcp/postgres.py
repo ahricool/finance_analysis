@@ -40,13 +40,6 @@ class PostgresReader:
         deadline.start()
         try:
             conn.set_session(readonly=True, autocommit=False)
-            with conn.cursor() as check:
-                check.execute(
-                    "SELECT rolsuper, rolcreaterole, rolcreatedb, rolreplication, rolbypassrls "
-                    "FROM pg_roles WHERE rolname = current_user"
-                )
-                if any(check.fetchone()):
-                    raise ReadValidationError("MCP database role must not have elevated privileges")
             # Named cursors avoid buffering an entire SELECT result in the application.
             cursor = conn.cursor(name="mcp_read") if kind == "SelectStmt" else conn.cursor()
             with cursor:

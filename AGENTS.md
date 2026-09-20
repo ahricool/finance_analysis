@@ -331,7 +331,7 @@ API `/api/v1/crypto` 与页面 `/crypto/btc` 统一走 `CryptoService`，详见 
 
 ## Admin MCP
 
-`mcp/` 是挂载在现有 FastAPI `/mcp/` 的管理员底层只读诊断入口，独立 Bearer key、
-PostgreSQL 只读账号与 Redis ACL 账号；禁止回退业务连接或新增业务/写入/命令执行 tool。
+`mcp/` 是挂载在现有 FastAPI `/mcp/` 的管理员底层只读诊断入口，独立 Bearer key；MCP DB / Redis URL 是可选 override，默认复用业务连接配置，
+可选独立只读账号增强隔离；保留 SQL / Redis 只读限制，禁止新增业务/写入/命令执行 tool。
 文件 jail 固定 `/data`，生产 server 只读挂载现有数据目录。权限、资源限制和部署步骤见
 `docs/mcp.md`，离线/临时服务测试位于 `tests/mcp/`。
