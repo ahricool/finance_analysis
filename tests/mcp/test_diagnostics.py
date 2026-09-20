@@ -216,9 +216,6 @@ def test_postgres_limits(monkeypatch):
         def execute(self, sql):
             calls.setdefault("sql", []).append(sql)
 
-        def fetchone(self):
-            return [False] * 5
-
         def fetchmany(self, size):
             row = next(self.rows, None)
             return [row] if row else []
@@ -247,8 +244,9 @@ def test_postgres_limits(monkeypatch):
     reader = PostgresReader("postgresql://reader:password@localhost/test")
     result = reader.query("SELECT 1", 2)
     assert result["row_count"] == 2 and result["truncated"]
-    assert "SELECT 1" in calls["sql"]
-    assert calls["session"]["readonly"]
+    assert calls["sql"] == ["SELECT 1"]
+    assert calls["session"] == {"readonly": True, "autocommit": False}
+    assert "default_transaction_read_only=on" in calls["connect"]["options"]
     assert "statement_timeout=10000" in calls["connect"]["options"]
     assert "lock_timeout=2000" in calls["connect"]["options"]
     assert calls["closed"] and calls["rollback"]
@@ -258,23 +256,72 @@ def test_postgres_limits(monkeypatch):
     assert reader.query("SELECT 1")["truncated"]
 
 
-def test_config_fails_closed(monkeypatch):
+@pytest.fixture
+def config_env(monkeypatch):
     monkeypatch.setattr("finance_analysis.mcp.config.load_env", lambda: None)
+    for name in ("MCP_DATABASE_URL", "MCP_REDIS_URL", "DATABASE_URL", "REDIS_URL"):
+        monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("MCP_ENABLED", "true")
     monkeypatch.setenv("MCP_API_KEY", KEY)
-    monkeypatch.setenv("DATABASE_URL", "postgresql://business:pw@localhost/test")
-    monkeypatch.setenv("REDIS_URL", "redis://localhost/0")
-    monkeypatch.setenv("MCP_DATABASE_URL", "postgresql://reader:pw@localhost/test")
-    monkeypatch.setenv("MCP_REDIS_URL", "redis://reader:pw@localhost/0")
-    assert MCPConfig.from_env().enabled
-    monkeypatch.setenv("MCP_DATABASE_URL", "postgresql://business:pw@localhost/test")
-    with pytest.raises(ValueError):
+    return monkeypatch
+
+
+@pytest.mark.parametrize("override", [None, "", "   "])
+@pytest.mark.parametrize("redis_url", ["redis://localhost/0", "redis://:pw@localhost/0", "redis://default:pw@localhost/0"])
+def test_config_fallback(config_env, override, redis_url):
+    config_env.setenv("DATABASE_URL", "postgresql://business:pw@localhost/test")
+    config_env.setenv("REDIS_URL", redis_url)
+    if override is not None:
+        config_env.setenv("MCP_DATABASE_URL", override)
+        config_env.setenv("MCP_REDIS_URL", override)
+    config = MCPConfig.from_env()
+    assert config.enabled
+    assert config.database_url == "postgresql://business:pw@localhost/test"
+    assert config.redis_url == redis_url
+
+
+@pytest.mark.parametrize("business", [None, "invalid", "same"])
+def test_config_override(config_env, business):
+    urls = {"DATABASE_URL": "postgresql://business:pw@localhost/test", "REDIS_URL": "redis://default:pw@localhost/0"}
+    for name, url in urls.items():
+        config_env.setenv("MCP_" + name, url)
+        if business is not None:
+            config_env.setenv(name, url if business == "same" else business)
+    config = MCPConfig.from_env()
+    assert config.database_url == urls["DATABASE_URL"]
+    assert config.redis_url == urls["REDIS_URL"]
+
+
+@pytest.mark.parametrize("missing", ["DATABASE_URL", "REDIS_URL"])
+@pytest.mark.parametrize("value", [None, "", "invalid"])
+def test_config_missing_or_invalid(config_env, missing, value):
+    config_env.setenv("DATABASE_URL", "postgresql://business:pw@localhost/test")
+    config_env.setenv("REDIS_URL", "redis://localhost/0")
+    config_env.delenv(missing)
+    if value is not None:
+        config_env.setenv(missing, value)
+    with pytest.raises(ValueError, match=f"MCP_{missing} or {missing}"):
         MCPConfig.from_env()
-    monkeypatch.setenv("MCP_DATABASE_URL", "postgresql://reader:pw@localhost/test")
-    monkeypatch.setenv("MCP_REDIS_URL", "redis://default:pw@localhost/0")
-    with pytest.raises(ValueError):
+
+
+@pytest.mark.parametrize("name", ["DATABASE_URL", "REDIS_URL"])
+def test_config_overrides_are_independent(config_env, name):
+    urls = {"DATABASE_URL": "postgresql://business:pw@localhost/test", "REDIS_URL": "redis://localhost/0"}
+    for key, value in urls.items():
+        config_env.setenv(key, value)
+    override = urls[name].replace("localhost", "override-host")
+    config_env.setenv("MCP_" + name, override)
+    config = MCPConfig.from_env()
+    assert config.database_url == (override if name == "DATABASE_URL" else urls["DATABASE_URL"])
+    assert config.redis_url == (override if name == "REDIS_URL" else urls["REDIS_URL"])
+    config_env.setenv("MCP_" + name, "invalid")
+    with pytest.raises(ValueError, match=f"MCP_{name} or {name}"):
         MCPConfig.from_env()
-    monkeypatch.setenv("MCP_ENABLED", "false")
+
+
+def test_config_disabled_without_urls(config_env):
+    config_env.setenv("MCP_ENABLED", "false")
+    config_env.delenv("MCP_API_KEY")
     assert not MCPConfig.from_env().enabled
 
 
@@ -322,7 +369,6 @@ def test_tail_byte_window_and_binary(files):
     "database_url,redis_url",
     [
         ("postgresql://reader:pw@localhost/test?user=business", "redis://reader:pw@localhost/0"),
-        ("postgresql://reader:pw@localhost/test", "redis://%64efault:pw@localhost/0"),
         ("postgresql://reader:pw@localhost/test", "redis://reader:pw@localhost/0?username=default"),
         ("postgresql://reader:pw@localhost/test", "redis://reader:pw@localhost/0?socket_timeout=9999"),
     ],

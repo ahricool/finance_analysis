@@ -58,20 +58,22 @@ curl https://<host>/mcp/files/logs/worker.log \
 ```dotenv
 MCP_ENABLED=false
 MCP_API_KEY=<至少32字符的随机ASCII密钥>
-MCP_DATABASE_URL=postgresql://finance_mcp_ro:<URL编码的密码>@postgres:5432/<数据库>
-MCP_REDIS_URL=redis://finance_mcp_ro:<URL编码的密码>@redis:6379/0
+MCP_DATABASE_URL=
+MCP_REDIS_URL=
 ```
 
 可用 `openssl rand -hex 32` 本地生成 key。URL 支持 PostgreSQL SSL 参数以及 `rediss://`。
 PostgreSQL URL query 仅允许 SSL 参数；Redis URL 不接受 query，避免覆盖账号、协议和超时限制。
-必须显式配置两个 URL，不回退 `DATABASE_URL`/`REDIS_URL`。拒绝与业务 URL 同名的数据库用户，
-拒绝 Redis default/匿名用户和与业务 URL 同名用户。配置对象 repr 隐藏凭据。
+`MCP_DATABASE_URL` / `MCP_REDIS_URL` 是可选 override。默认复用主系统的 `DATABASE_URL` / `REDIS_URL`；
+如果以后需要更强的权限隔离，可以单独配置 MCP 只读账号。非空 override 优先，未配置或空白时回退；
+启用后任一最终 URL 缺失或不合法都会启动失败，错误指出对应的 MCP 和主系统变量。
+允许复用业务账号、Redis default 用户或无认证连接，不检查 PostgreSQL 角色高权限标志。配置对象 repr 隐藏凭据。
 本版本固定 `/data`，无任意 filesystem root 环境变量。关闭时不会导入 MCP SDK、SQL parser
 或 MCP Redis reader，避免可选实现问题影响现有 FastAPI 启动。
 
-## PostgreSQL 独立账号
+## PostgreSQL 可选独立账号
 
-以下由数据库管理员在目标数据库执行，替换数据库、密码和实际迁移对象 owner；
+如需额外权限隔离，可设置 `MCP_DATABASE_URL` 指向独立只读账号。以下由数据库管理员在目标数据库执行，替换数据库、密码和实际迁移对象 owner；
 不是 MCP tool，也不会由应用自动执行。创建全新、不属于任何其他角色的账号：
 
 ```sql
@@ -90,7 +92,7 @@ ALTER ROLE finance_mcp_ro CONNECTION LIMIT 4;
 
 不要授予序列 USAGE/UPDATE、schema CREATE、写权限、预定义管理角色或业务角色成员资格。
 不要使用业务 owner。每个对象创建 owner 都需分别设置 default privileges；其他 schema 显式授权。
-服务每次创建独立 psycopg2 连接，检查角色高权限标志，设置只读事务、10秒 statement_timeout、
+无论使用哪个账号，服务每次创建独立 psycopg2 连接，设置只读事务、10秒 statement_timeout、
 2秒 lock_timeout、5秒连接超时和10秒整体查询取消计时器，结束始终 rollback/close。
 SELECT 使用服务端游标，仅逐行收集到上限；SHOW/EXPLAIN 使用普通游标。
 
@@ -102,16 +104,16 @@ SELECT INTO、行锁、EXPLAIN ANALYZE（包括 ANALYZE false）、DDL/写/utili
 `pg_advisory_xact_lock`、`set_config`、`pg_notify`、`pg_read_file`、`pg_read_binary_file`、
 `pg_ls_dir`、`lo_import`、`lo_export`。
 
-只读边界是独立数据库账号的权限和只读事务；轻量 AST 检查用于防止 Agent 明显误写，
+MCP 保留只读事务与轻量 AST 检查，用于防止 Agent 明显误写；独立只读账号可提供额外权限隔离，
 不把 SQL 当成不可信代码进行完整沙箱化。数据库中已有函数按管理员控制的现有权限调用。
 
 PostgreSQL `bytea`（包括 Python bytes/bytearray/memoryview）统一返回可恢复的
 `{"encoding":"base64","content":"..."}`；例如 `decode('deadbeef','hex')` 返回
 `{"encoding":"base64","content":"3q2+7w=="}`。datetime/date、Decimal、UUID 稳定转为字符串。
 
-## Redis ACL 独立账号
+## Redis 可选 ACL 独立账号
 
-仅使用 Redis 6+ ACL 命名用户。不要使用 `+@read`（未来命令可能扩大权限），采用显式 allowlist。
+如需额外权限隔离，可设置 `MCP_REDIS_URL` 指向 Redis 6+ ACL 命名用户。以下为可选配置。不要使用 `+@read`（未来命令可能扩大权限），采用显式 allowlist。
 由运维在 Redis 管理连接执行以下指令，密码不要写进 shell history：
 
 ```text
@@ -130,6 +132,7 @@ Redis ACL 不按逻辑 DB 隔离，SELECT URL 中的 DB 是连接选择，不是
 运行条件（例如 FREQ 需要 LFU）由 Redis 判断，原生错误完整返回。
 参考 [Redis OBJECT 命令](https://redis.io/docs/latest/commands/redis-7-2-commands/)。
 
+无论使用哪个账号，MCP 都仅允许现有 read-command allowlist，不提供写命令。
 只读命令的参数交给 Redis 原生解析，支持 `LRANGE key 0 -1`、ZRANGE BYSCORE/BYLEX、
 WITHSCORES 和 stream range；不额外限制 COUNT、范围长度或索引符号。SCAN 系列未指定 COUNT
 时补默认500。保留 socket timeout 和约2 MiB 响应上限；HGETALL/SMEMBERS 同样可用。
@@ -165,8 +168,8 @@ Linux 可将现有 DATA_DIR bind mount 到 `/data` 并设只读；不要把 `.en
 
 生产操作顺序（项目 `~/svr/finance_analysis`）：
 
-1. 创建 PostgreSQL 只读 role，配置 Redis ACL 及重建后的恢复方式，验证独立连接写入被拒绝。
-2. `.env` 配置三个 MCP 凭据变量，再设 `MCP_ENABLED=true`；权限限制为部署账号可读。
+1. 确认现有 `DATABASE_URL` / `REDIS_URL` 可用；如需更强隔离，可选创建 PostgreSQL 只读 role 和 Redis ACL 用户。
+2. `.env` 配置 `MCP_API_KEY`，按需配置两个 MCP URL override，再设 `MCP_ENABLED=true`；权限限制为部署账号可读。
 3. 合并后等待 server/web 镜像发布，运行 `bash deploy.sh`。若使用 Redis override，再应用上述 override。
 4. 确认 server `/data` 挂载为只读，TLS/网络入口可用。nginx 已代理 `/mcp` 和下载，关闭 buffering。
 5. 验证无 token/错误 token 为401、正确 token 可 initialize/list/call/download，现有 Cookie API 不受影响。
@@ -195,7 +198,7 @@ uv run pytest tests/mcp/test_services.py -q -m network
 
 - 这是高信任管理员入口，可读取授权表中的全部用户数据、Redis 值、数据目录中的日志/备份；
   不自动脱敏。Agent 获取的数据可能包含凭据或不可信文本，不能把读取内容当作操作指令。
-- 独立账号的真正权限由 PostgreSQL grants / Redis ACL 保证；代码不会自动创建或修复角色。
+- 默认复用业务连接配置；可选独立账号的权限由 PostgreSQL grants / Redis ACL 保证，代码不会自动创建或修复角色。
   这是管理员可控环境中的读取入口，普通数据库函数按现有权限可用。
 - PostgreSQL 单个巨大字段及 SHOW/EXPLAIN 结果在驱动返回后才检查大小；结果限制不是严格的
   进程内存预算。Redis 的返回限制也不能撤销 Redis 已执行的 HGETALL/SMEMBERS 工作；大集合优先 SCAN。

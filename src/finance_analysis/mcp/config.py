@@ -1,7 +1,7 @@
 """MCP configuration using the application's existing environment loader."""
 
 from dataclasses import dataclass, field
-from urllib.parse import unquote, urlsplit
+from urllib.parse import urlsplit
 
 from sqlalchemy.engine import make_url
 
@@ -21,8 +21,8 @@ class MCPConfig:
         config = cls(
             env_bool("MCP_ENABLED", False),
             env_str("MCP_API_KEY", ""),
-            env_str("MCP_DATABASE_URL", ""),
-            env_str("MCP_REDIS_URL", ""),
+            env_str("MCP_DATABASE_URL", "").strip() or env_str("DATABASE_URL", "").strip(),
+            env_str("MCP_REDIS_URL", "").strip() or env_str("REDIS_URL", "").strip(),
         )
         if not config.enabled:
             return config
@@ -30,27 +30,23 @@ class MCPConfig:
             raise ValueError("MCP_API_KEY must contain at least 32 ASCII characters")
         try:
             db = make_url(config.database_url)
-            redis = urlsplit(config.redis_url)
-            business_db = env_str("DATABASE_URL", "")
-            business_redis = urlsplit(env_str("REDIS_URL", ""))
-            valid = (
-                db.drivername in {"postgresql", "postgresql+psycopg2"}
-                and db.username
-                and db.password
-                and not (set(db.query) - {"sslmode", "sslrootcert", "sslcert", "sslkey", "sslcrl"})
-                and redis.scheme in {"redis", "rediss"}
-                and redis.username
-                and unquote(redis.username) != "default"
-                and not redis.query
-                and not redis.fragment
-                and redis.password
-            )
-            if business_db and db.username == make_url(business_db).username:
-                valid = False
-            if unquote(redis.username or "") == unquote(business_redis.username or ""):
-                valid = False
-            if not valid:
+            if (
+                db.drivername not in {"postgresql", "postgresql+psycopg2"}
+                or set(db.query) - {"sslmode", "sslrootcert", "sslcert", "sslkey", "sslcrl"}
+            ):
                 raise ValueError()
         except Exception:
-            raise ValueError("MCP requires separate PostgreSQL and named Redis ACL credentials") from None
+            raise ValueError("MCP requires a valid PostgreSQL URL: set MCP_DATABASE_URL or DATABASE_URL") from None
+        try:
+            redis = urlsplit(config.redis_url)
+            if (
+                redis.scheme not in {"redis", "rediss"}
+                or not redis.hostname
+                or redis.query
+                or redis.fragment
+                or (redis.port is not None and not 1 <= redis.port <= 65535)
+            ):
+                raise ValueError()
+        except Exception:
+            raise ValueError("MCP requires a valid Redis URL: set MCP_REDIS_URL or REDIS_URL") from None
         return config
