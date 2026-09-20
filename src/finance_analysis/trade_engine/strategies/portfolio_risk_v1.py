@@ -1,14 +1,15 @@
 # -*- coding: utf-8 -*-
-"""Account-level weight/risk warnings. Does not allocate sells or set target quantity."""
+"""Account-level weight/risk WATCH on current holdings only. No sell allocation."""
 
 from __future__ import annotations
 
 from decimal import Decimal
 from typing import Any, Sequence
 
-from finance_analysis.portfolio.models import ResolvedPosition  # pragma: allowlist secret
-from finance_analysis.trade_engine.config import RiskPolicy, get_risk_policy  # pragma: allowlist secret
-from finance_analysis.trade_engine.models import MarketContext, QuoteView, TradeSignal  # pragma: allowlist secret
+from ...core.time import utc_now  # pragma: allowlist secret
+from ...portfolio.models import ResolvedPosition  # pragma: allowlist secret
+from ..config import RiskPolicy, get_risk_policy  # pragma: allowlist secret
+from ..models import QuoteView, TradeSignalCandidate  # pragma: allowlist secret
 
 KEY = "portfolio_risk_v1"
 VERSION = "1"
@@ -34,17 +35,21 @@ class PortfolioRiskV1:
     version = VERSION
     market = None
 
-    def evaluate(
+    def evaluate_portfolio(
         self,
         positions: Sequence[ResolvedPosition],
         quotes: dict[str, QuoteView],
-        market_context: MarketContext,
         states: dict[str, dict[str, Any]],
         *,
         cash: Decimal,
+        market: str,
+        now=None,
         policy: RiskPolicy | None = None,
-    ) -> list[TradeSignal]:
+        strategy_state: dict[str, Any] | None = None,
+    ) -> list[TradeSignalCandidate]:
         policy = policy or get_risk_policy()
+        now = now or utc_now()
+        state = strategy_state if strategy_state is not None else {}
         eligible = [item for item in positions if item.trade_engine_eligible]
         values: dict[str, Decimal] = {}
         risks: dict[str, Decimal | None] = {}
@@ -58,37 +63,36 @@ class PortfolioRiskV1:
             value = position.quantity * quote.price
             values[position.position_id] = value
             total_value += value
-            stop = None
             lot_states = (states.get(position.position_id) or {}).get("lots") or {}
             stops = [_dec(item.get("active_stop")) for item in lot_states.values()]
             stops = [item for item in stops if item is not None]
-            if stops:
-                stop = max(stops)
+            stop = max(stops) if stops else None
             risks[position.position_id] = _leg_risk(position.quantity, quote.price, stop)
         nav = cash + total_value
-        signals: list[TradeSignal] = []
         if nav <= 0:
-            return signals
+            return []
+        seen = set(state.get("last_keys") or [])
+        signals: list[TradeSignalCandidate] = []
 
         def emit(kind: str, current: Decimal, limit: Decimal, reason: str, position: ResolvedPosition | None = None):
-            key = f"{KEY}:{market_context.market}:{kind}:{None if position is None else position.position_id}"
+            key = f"{KEY}:{market}:{kind}:{None if position is None else position.position_id}"
+            if key in seen:
+                return
+            seen.add(key)
             signals.append(
-                TradeSignal(
+                TradeSignalCandidate(
                     strategy_key=KEY,
                     strategy_version=VERSION,
-                    market=market_context.market,
+                    market=market,
                     account_id=None if position is None else position.account_id,
                     position_id=None if position is None else position.position_id,
                     symbol=None if position is None else position.symbol,
-                    action="WARNING",
+                    action="WATCH",
                     suggested_target_quantity=None,
+                    severity="soft",
                     reason=reason,
-                    evidence={
-                        "current": format(current, "f"),
-                        "limit": format(limit, "f"),
-                        "nav": format(nav, "f"),
-                    },
-                    evaluated_at=market_context.as_of,
+                    evidence={"current": format(current, "f"), "limit": format(limit, "f"), "nav": format(nav, "f")},
+                    evaluated_at=now,
                     signal_key=key,
                 )
             )
@@ -96,22 +100,10 @@ class PortfolioRiskV1:
         for position in eligible:
             weight = values.get(position.position_id, Decimal("0")) / nav
             if weight > policy.max_symbol_weight:
-                emit(
-                    "max_symbol_weight",
-                    weight,
-                    policy.max_symbol_weight,
-                    f"{position.symbol} 仓位超限",
-                    position,
-                )
+                emit("max_symbol_weight", weight, policy.max_symbol_weight, f"{position.symbol} 仓位超限", position)
             risk = risks.get(position.position_id)
             if risk is not None and risk / nav > policy.risk_per_symbol:
-                emit(
-                    "risk_per_symbol",
-                    risk / nav,
-                    policy.risk_per_symbol,
-                    f"{position.symbol} 计划风险超限",
-                    position,
-                )
+                emit("risk_per_symbol", risk / nav, policy.risk_per_symbol, f"{position.symbol} 计划风险超限", position)
         exposure = total_value / nav
         if exposure > policy.max_gross_exposure:
             emit("max_gross_exposure", exposure, policy.max_gross_exposure, "总仓位超限")
@@ -120,4 +112,5 @@ class PortfolioRiskV1:
             total_risk = sum(known_risks, start=Decimal("0")) / nav
             if total_risk > policy.total_open_risk:
                 emit("total_open_risk", total_risk, policy.total_open_risk, "组合计划风险超限")
+        state["last_keys"] = sorted(seen)
         return signals

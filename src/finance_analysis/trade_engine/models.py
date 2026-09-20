@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Shared Trade Engine DTOs. Strategies return TradeSignal; state stays in JSON dicts."""
+"""Trade Engine DTOs. Strategies return candidates; confirmed signals are immutable."""
 
 from __future__ import annotations
 
@@ -8,10 +8,15 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any, Literal, Protocol, Sequence
 
-from finance_analysis.portfolio.models import ResolvedPosition  # pragma: allowlist secret
+from .bars import NormalizedBar  # pragma: allowlist secret
+from .indicators import BarIndicators  # pragma: allowlist secret
+from ..portfolio.models import ResolvedPosition  # pragma: allowlist secret
 
-Action = Literal["HOLD", "WATCH", "REDUCE", "EXIT", "WARNING"]
-ACTION_RANK = {"EXIT": 4, "REDUCE": 3, "WATCH": 2, "WARNING": 1, "HOLD": 0}
+Action = Literal["HOLD", "WATCH", "REDUCE", "EXIT"]
+CandidateAction = Literal["WATCH", "REDUCE", "EXIT"]
+Severity = Literal["hard", "soft"]
+ReviewVerdict = Literal["CONFIRM", "REJECT"]
+ACTION_RANK = {"EXIT": 4, "REDUCE": 3, "WATCH": 2, "HOLD": 0}
 
 
 @dataclass(frozen=True, slots=True)
@@ -22,18 +27,56 @@ class QuoteView:
     stale: bool = False
 
 
-@dataclass(frozen=True, slots=True)
-class MarketContext:
+@dataclass
+class PositionContext:
+    """Per-holding analysis input. Never contains full-market breadth or scanners."""
+
     market: str
-    as_of: datetime
-    trading_date: datetime | None
-    session_open: bool
-    regime: str | None = None
-    breadth: dict[str, Any] = field(default_factory=dict)
-    indices: dict[str, Any] = field(default_factory=dict)
-    sectors: dict[str, Any] = field(default_factory=dict)
-    sentiment: dict[str, Any] | None = None
-    warnings: tuple[str, ...] = ()
+    symbol: str
+    position: ResolvedPosition
+    quote: QuoteView | None
+    five_minute_bars: Sequence[NormalizedBar] = ()
+    daily_bars: Sequence[Any] = ()
+    technical_indicators: Sequence[BarIndicators] = ()
+    strategy_state: dict[str, Any] = field(default_factory=dict)
+    now: datetime | None = None
+    bars_stale: bool = False
+    latest_expected: datetime | None = None
+    policy: Any = None
+
+    @property
+    def lots(self):
+        return self.position.lots
+
+
+@dataclass(frozen=True, slots=True)
+class TradeSignalCandidate:
+    market: str
+    account_id: str | None
+    position_id: str | None
+    symbol: str | None
+    strategy_key: str
+    strategy_version: str
+    action: CandidateAction
+    suggested_target_quantity: Decimal | None
+    severity: Severity
+    reason: str
+    evidence: dict[str, Any]
+    evaluated_at: datetime
+    signal_key: str
+
+    @property
+    def hard(self) -> bool:
+        return self.severity == "hard" or bool((self.evidence or {}).get("hard"))
+
+
+@dataclass(frozen=True, slots=True)
+class ReviewDecision:
+    decision: ReviewVerdict
+    action: CandidateAction
+    target_quantity: Decimal | None
+    reason: str
+    failed: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,9 +87,12 @@ class TradeSignal:
     account_id: str | None
     position_id: str | None
     symbol: str | None
-    action: Action
+    action: CandidateAction
     suggested_target_quantity: Decimal | None
     reason: str
+    deterministic_reason: str
+    llm_reason: str | None
+    reviewed_by_llm: bool
     evidence: dict[str, Any]
     evaluated_at: datetime
     signal_key: str
@@ -57,7 +103,7 @@ class AggregatedSignal:
     action: Action
     suggested_target_quantity: Decimal | None
     reasons: tuple[str, ...]
-    signals: tuple[TradeSignal, ...]
+    candidates: tuple[TradeSignalCandidate, ...] = ()
 
 
 class PositionTradeStrategy(Protocol):
@@ -65,30 +111,5 @@ class PositionTradeStrategy(Protocol):
     version: str
     market: str | None
 
-    def evaluate(
-        self,
-        position: ResolvedPosition,
-        market_context: MarketContext,
-        quote: QuoteView | None,
-        bars: Sequence,
-        state: dict[str, Any],
-    ) -> list[TradeSignal]:
-        ...
-
-
-class PortfolioTradeStrategy(Protocol):
-    key: str
-    version: str
-    market: str | None
-
-    def evaluate(
-        self,
-        positions: Sequence[ResolvedPosition],
-        quotes: dict[str, QuoteView],
-        market_context: MarketContext,
-        states: dict[str, dict[str, Any]],
-        *,
-        cash: Decimal,
-        policy: Any,
-    ) -> list[TradeSignal]:
+    def evaluate(self, context: PositionContext) -> list[TradeSignalCandidate]:
         ...

@@ -170,6 +170,8 @@ def upgrade():
         sa.Column("action", sa.String(length=16), nullable=False),
         sa.Column("suggested_target_quantity", sa.Numeric(28, 8), nullable=True),
         sa.Column("reason", sa.Text(), nullable=False, server_default=""),
+        sa.Column("llm_reason", sa.Text(), nullable=True),
+        sa.Column("reviewed_by_llm", sa.Boolean(), nullable=False, server_default=sa.false()),
         sa.Column("evidence", JSONB(), nullable=False, server_default=sa.text("'{}'::jsonb")),
         sa.Column("signal_key", sa.String(length=190), nullable=False),
         sa.Column("evaluated_at", sa.DateTime(timezone=True), nullable=False),

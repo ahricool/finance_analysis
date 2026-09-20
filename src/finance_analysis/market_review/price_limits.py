@@ -13,13 +13,13 @@ from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Optional
 
-from finance_analysis.integrations.market_data.codes import (
+from finance_analysis.integrations.market_data.codes import (  # pragma: allowlist secret
     is_bse_code,
     is_etf_code,
     is_st_stock,
     normalize_stock_code,
 )
-from finance_analysis.integrations.market_data.realtime_types import (
+from finance_analysis.integrations.market_data.realtime_types import (  # pragma: allowlist secret
     UnifiedRealtimeQuote,
     safe_float,
 )

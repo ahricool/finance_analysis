@@ -177,8 +177,7 @@ class _ContendedLock:
     [
         TaskAdvisoryLockId.CN_DAILY_MARKET_DATA_SYNC,
         TaskAdvisoryLockId.US_DAILY_MARKET_DATA_SYNC,
-        TaskAdvisoryLockId.CN_INTRADAY_ANALYSIS,
-        TaskAdvisoryLockId.US_INTRADAY_ANALYSIS,
+        TaskAdvisoryLockId.REFERENCE_DATA_SYNC,
     ],
 )
 def test_each_scheduled_lock_contention_marks_task_record_skipped(lock_id) -> None:
@@ -251,8 +250,6 @@ def test_lock_ids_are_stable_and_readable() -> None:
     assert {item.name: item.value for item in TaskAdvisoryLockId} == {
         "CN_DAILY_MARKET_DATA_SYNC": 1,
         "US_DAILY_MARKET_DATA_SYNC": 2,
-        "CN_INTRADAY_ANALYSIS": 3,
-        "US_INTRADAY_ANALYSIS": 4,
         "STOCK_ANALYSIS": 5,
         "REFERENCE_DATA_SYNC": 6,
         "CN_INDUSTRY_STRENGTH": 7,

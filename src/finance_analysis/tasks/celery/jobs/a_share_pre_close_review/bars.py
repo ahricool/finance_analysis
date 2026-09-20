@@ -3,16 +3,52 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, time as time_of_day, timedelta
 from typing import Any, Dict, Iterable, List, Optional, Sequence
 
-from finance_analysis.integrations.market_data.realtime_types import safe_float
+from finance_analysis.integrations.market_data.realtime_types import safe_float  # pragma: allowlist secret
+from finance_analysis.market_review.trading_calendar import ASIA_SHANGHAI  # pragma: allowlist secret
 
-from .market_calendar import (
-    ASIA_SHANGHAI,
-    is_lunch_break_time,
-    parse_a_share_timestamp,
-)
+_LUNCH_START = time_of_day(11, 30)
+_LUNCH_END = time_of_day(13, 0)
+
+
+def parse_a_share_timestamp(value: Any) -> Optional[datetime]:
+    if isinstance(value, datetime):
+        dt = value
+    elif isinstance(value, str) and value.strip():
+        raw = value.strip()
+        if raw.endswith("Z"):
+            raw = f"{raw[:-1]}+00:00"
+        try:
+            dt = datetime.fromisoformat(raw)
+        except ValueError:
+            dt = None
+            for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y/%m/%d %H:%M", "%Y%m%d%H%M"):
+                try:
+                    dt = datetime.strptime(raw, fmt)
+                    break
+                except ValueError:
+                    continue
+            if dt is None:
+                return None
+    else:
+        to_py = getattr(value, "to_pydatetime", None)
+        if not callable(to_py):
+            return None
+        try:
+            dt = to_py()
+        except Exception:
+            return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=ASIA_SHANGHAI)
+    return dt.astimezone(ASIA_SHANGHAI)
+
+
+def is_lunch_break_time(dt: datetime) -> bool:
+    local = dt.astimezone(ASIA_SHANGHAI).time()
+    return _LUNCH_START < local < _LUNCH_END
+
 
 
 def normalize_bars(

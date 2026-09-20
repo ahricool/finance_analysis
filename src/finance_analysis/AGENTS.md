@@ -70,6 +70,8 @@ interfaces/api + tasks/celery/jobs
 | `market_data.py` | Cookie 鉴权的实时行情 WebSocket，以及统一前复权 daily-bars HTTP 查询 |
 | `usage.py` | LLM 用量 |
 | `celery_demo.py` | Celery 连通性演示，不是业务编排入口 |
+| `holdings.py` | DB 持仓买卖/现金、Google Sheet 次级来源 |
+| `trade_engine.py` | 持仓级 Trade Engine 只读结果与管理员手动运行 |
 
 REST 修改至少核对 endpoint、schema、前端 `web/src/api/` 与 `tests/test_*_api*.py`。WebSocket/SSE 还要核对 nginx buffering/upgrade 与断开清理。
 
@@ -186,6 +188,10 @@ Alembic：
 4. payload 必须 JSON 可序列化，敏感内容不能进入 TaskRecord。
 5. 生命周期、重复任务/advisory lock、重试和过期语义。
 6. `tests/test_celery_task_structure.py`、`test_celery_schedule.py`、`test_task_lifecycle.py` 等聚焦测试。
+
+## Holdings / Trade Engine
+
+`portfolio/` 是 STOCK/ETF 真实持仓权威来源；`holdings/` 只读 Google Sheet 次级来源。`trade_engine/` 是持仓级分析器，不是全市场 Scanner。Universe 仅为 `PortfolioResolver` 当前有效持仓。流程：确定性 Strategy → `TradeSignalCandidate` → 无 Candidate 则停止；有 Candidate 才 LLM Review → CONFIRM 后写 `trade_signal` 并通知。硬保护 EXIT 不依赖 LLM。CN/US 启用 `exit_v1`、对应市场的 `cn_position_intraday_v1` / `us_position_intraday_v1`、以及 `portfolio_risk_v1`。详见 `docs/holdings-portfolio-risk.md`。
 
 ## 实时行情 Streamer
 

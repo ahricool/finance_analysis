@@ -124,16 +124,7 @@ def test_deleted_calendar_model_and_intraday_persistence():
     assert not hasattr(models, "CalendarEntry")
     assert not (TIMELINE_ROOT / "database/repositories/calendar.py").exists()
     for job in ("a_share_intraday_analysis", "us_intraday_analysis"):
-        source = "\n".join(p.read_text() for p in (TIMELINE_ROOT / "tasks/celery/jobs" / job).glob("*.py"))
-        for forbidden in (
-            "CalendarRepo",
-            "calendar_id",
-            "record_summary",
-            "record_signal",
-            "TimelineEntry",
-            "NewsAnalysis",
-        ):
-            assert forbidden not in source
+        assert not (TIMELINE_ROOT / "tasks/celery/jobs" / job).exists()
 
 
 def test_timeline_domain_has_no_uid_or_note_left():

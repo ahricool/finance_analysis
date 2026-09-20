@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """ORM for Trade Engine strategy state and signals."""
 
-from sqlalchemy import BigInteger, Column, DateTime, Integer, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import BigInteger, Boolean, Column, DateTime, Integer, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB  # pragma: allowlist secret
 from sqlalchemy import JSON
 
@@ -41,6 +41,8 @@ class TradeSignalRow(Base):
     action = Column(String(16), nullable=False)
     suggested_target_quantity = Column(Numeric(28, 8), nullable=True)
     reason = Column(Text, nullable=False, default="")
+    llm_reason = Column(Text, nullable=True)
+    reviewed_by_llm = Column(Boolean, nullable=False, default=False)
     evidence = Column(JSONB().with_variant(JSON(), "sqlite"), nullable=False, default=dict)
     signal_key = Column(String(190), nullable=False)
     evaluated_at = Column(DateTime(timezone=True), nullable=False)

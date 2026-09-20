@@ -15,7 +15,7 @@ from finance_analysis.database.models import FinanceEvent
 from finance_analysis.database.repositories.market_calendar_event import MarketCalendarEventRepo
 from finance_analysis.integrations.market_data import MarketDataService
 from finance_analysis.llm import LLMClient, LLMRequest
-from finance_analysis.tasks.celery.jobs.us_intraday_analysis.llm import parse_llm_batch_results
+from finance_analysis.llm.json_parse import parse_llm_batch_results  # pragma: allowlist secret
 
 logger = logging.getLogger(__name__)
 

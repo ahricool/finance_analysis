@@ -29,7 +29,17 @@ def _run_market(market: str) -> dict[str, Any]:
         raise TaskSkipped(f"{market} 当前不在常规交易时段，跳过交易引擎")
     result = TradeEngineService().evaluate_market(market, now=now)
     result["elapsed_ms"] = int((time.perf_counter() - started) * 1000)
-    return result
+    return {
+        "market": market,
+        "positions_analyzed": int(result.get("positions_analyzed") or 0),
+        "candidates": int(result.get("candidates") or 0),
+        "llm_reviews": int(result.get("llm_reviews") or 0),
+        "confirmed_signals": int(result.get("confirmed_signals") or 0),
+        "rejected_signals": int(result.get("rejected_signals") or 0),
+        "notifications": int(result.get("notifications") or 0),
+        "elapsed_ms": result["elapsed_ms"],
+        "status": result.get("status") or "OK",
+    }
 
 
 @celery_app.task(

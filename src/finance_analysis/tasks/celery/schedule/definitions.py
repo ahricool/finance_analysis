@@ -459,7 +459,7 @@ SCHEDULED_TASK_DEFINITIONS = (
     ScheduledTaskDefinition(
         job_id=JOB_TRADE_ENGINE_CN,
         name="A股交易引擎",
-        description="交易时段每 5 分钟评估 DB/外部持仓的退出与风险提醒；不自动下单",
+        description="交易时段每 5 分钟只分析当前持仓并复核确定性信号；不是全市场 Scanner，不自动下单",
         task_type="scheduled_trade_engine_cn",
         celery_task_name=celery_task_name(JOB_TRADE_ENGINE_CN),
         schedules=(
@@ -475,7 +475,7 @@ SCHEDULED_TASK_DEFINITIONS = (
     ScheduledTaskDefinition(
         job_id=JOB_TRADE_ENGINE_US,
         name="美股交易引擎",
-        description="交易时段每 5 分钟评估 DB/外部持仓的退出与风险提醒；不自动下单",
+        description="交易时段每 5 分钟只分析当前持仓并复核确定性信号；不是全市场 Scanner，不自动下单",
         task_type="scheduled_trade_engine_us",
         celery_task_name=celery_task_name(JOB_TRADE_ENGINE_US),
         schedules=(

@@ -15,7 +15,7 @@ from bar_fixtures import recover_last_adjacent, session_bars, trading_dates, wea
 from finance_analysis.portfolio.models import ResolvedLot, ResolvedPosition  # pragma: allowlist secret
 from finance_analysis.trade_engine.bars import latest_expected_closed  # pragma: allowlist secret
 from finance_analysis.trade_engine.config import RiskPolicy  # pragma: allowlist secret
-from finance_analysis.trade_engine.models import MarketContext, QuoteView  # pragma: allowlist secret
+from finance_analysis.trade_engine.models import PositionContext, QuoteView  # pragma: allowlist secret
 from finance_analysis.trade_engine.strategies.exit_v1 import ExitV1  # pragma: allowlist secret
 
 SH = ZoneInfo("Asia/Shanghai")
@@ -61,23 +61,23 @@ def _position(core_qty="1000", addon_qty="500", *, core_entry=None, addon_entry=
 def _run(position, *, quote, bars, state=None, now, latest_expected=None):
     strategy = ExitV1()
     payload = {} if state is None else state
-    context = MarketContext(market="CN", as_of=now, trading_date=now, session_open=True)
-    signals = strategy.evaluate(
-        position,
-        context,
-        quote,
-        bars,
-        payload,
-        policy=POLICY,
+    context = PositionContext(
+        market="CN",
+        symbol=position.symbol,
+        position=position,
+        quote=quote,
+        five_minute_bars=bars,
+        strategy_state=payload,
         now=now,
         latest_expected=latest_expected,
+        policy=POLICY,
     )
+    signals = strategy.evaluate(context)
     return signals, payload
 
 
 def _action(signals):
-    persistable = [item for item in signals if item.evidence.get("persist") is not False]
-    return persistable[0] if persistable else signals[0]
+    return signals[0]
 
 
 def test_hard_stop_uses_quote_and_does_not_need_5m():
@@ -128,7 +128,7 @@ def test_soft_reduce_then_same_episode_does_not_rehalve():
         now=later,
         latest_expected=latest_expected_closed("CN", later),
     )
-    persistable = [item for item in again if item.action in {"REDUCE", "EXIT"} and item.evidence.get("persist") is not False]
+    persistable = [item for item in again if item.action in {"REDUCE", "EXIT"}]
     assert persistable == [] or Decimal(str(persistable[0].suggested_target_quantity)) == Decimal("500")
     assert Decimal(str(state.get("last_soft_target"))) == Decimal("500")
 

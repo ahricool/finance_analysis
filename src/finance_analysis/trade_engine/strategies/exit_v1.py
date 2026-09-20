@@ -13,7 +13,7 @@ from finance_analysis.portfolio.models import ResolvedLot, ResolvedPosition  # p
 from finance_analysis.trade_engine.bars import NormalizedBar, adjacent, expected_closed_ends, latest_expected_closed  # pragma: allowlist secret
 from finance_analysis.trade_engine.config import RiskPolicy, get_risk_policy  # pragma: allowlist secret
 from finance_analysis.trade_engine.indicators import annotate, ordinary_weak, recovered, severe_break  # pragma: allowlist secret
-from finance_analysis.trade_engine.models import MarketContext, QuoteView, TradeSignal  # pragma: allowlist secret
+from finance_analysis.trade_engine.models import PositionContext, QuoteView, TradeSignalCandidate  # pragma: allowlist secret  # pragma: allowlist secret
 
 STAGE_A = "A"
 STAGE_B = "B"
@@ -243,21 +243,18 @@ class ExitV1:
     version = VERSION
     market = None
 
-    def evaluate(
-        self,
-        position: ResolvedPosition,
-        market_context: MarketContext,
-        quote: QuoteView | None,
-        bars: Sequence,
-        state: dict[str, Any],
-        *,
-        policy: RiskPolicy | None = None,
-        now: datetime | None = None,
-        latest_expected: datetime | None = None,
-        bars_stale: bool = False,
-    ) -> list[TradeSignal]:
-        policy = policy or get_risk_policy()
-        now = now or market_context.as_of
+    def evaluate(self, context: PositionContext) -> list[TradeSignalCandidate]:
+        position = context.position
+        quote = context.quote
+        bars = context.five_minute_bars
+        state = context.strategy_state
+        policy = context.policy or get_risk_policy()
+        now = context.now
+        latest_expected = context.latest_expected
+        bars_stale = context.bars_stale
+        if now is None:
+            from finance_analysis.core.time import utc_now  # pragma: allowlist secret
+            now = utc_now()
         market = position.market
         lots = position.lots or ()
         annotated = annotate(list(bars), policy=policy, market=market, now=now)
@@ -401,7 +398,7 @@ class ExitV1:
             previous_row = row
 
         current_qty = sum((lot.quantity for lot in lots), start=Decimal("0"))
-        signals: list[TradeSignal] = []
+        signals: list[TradeSignalCandidate] = []
         last_soft_target = _dec(state.get("last_soft_target"))
         target = sum(remaining.values(), start=Decimal("0"))
 
@@ -415,9 +412,8 @@ class ExitV1:
             reasons.extend(_apply_soft_targets(lots, lot_state, remaining, trigger_end))
             target = sum(remaining.values(), start=Decimal("0"))
             action = _action_for(target, current_qty)
-            episode_active = True
             signal_key = f"exit_v1:{position.position_id}:{episode_id}:{action}:{format(target, 'f')}"
-            if signal_key != state.get("last_soft_signal_key"):
+            if action != "HOLD" and signal_key != state.get("last_soft_signal_key"):
                 evidence = _evidence(trigger_row)
                 evidence.update(
                     {
@@ -430,7 +426,7 @@ class ExitV1:
                     }
                 )
                 signals.append(
-                    TradeSignal(
+                    TradeSignalCandidate(
                         strategy_key=KEY,
                         strategy_version=VERSION,
                         market=market,
@@ -439,13 +435,13 @@ class ExitV1:
                         symbol=position.symbol,
                         action=action,  # type: ignore[arg-type]
                         suggested_target_quantity=target,
+                        severity="soft",
                         reason=";".join(reasons) or "soft_exit",
                         evidence=evidence,
                         evaluated_at=now,
                         signal_key=signal_key,
                     )
                 )
-                state["last_soft_signal_key"] = signal_key
             last_soft_target = target
             state["last_soft_target"] = _dump_dec(target)
 
@@ -472,8 +468,12 @@ class ExitV1:
                     }
                     if quote is not None:
                         evidence["price"] = format(quote.price, "f")
+                    evidence["hard"] = True
+                    if action == "HOLD":
+                        action = "EXIT"
+                        target = Decimal("0")
                     signals.append(
-                        TradeSignal(
+                        TradeSignalCandidate(
                             strategy_key=KEY,
                             strategy_version=VERSION,
                             market=market,
@@ -482,6 +482,7 @@ class ExitV1:
                             symbol=position.symbol,
                             action=action,  # type: ignore[arg-type]
                             suggested_target_quantity=target,
+                            severity="hard",
                             reason="hard_stop",
                             evidence=evidence,
                             evaluated_at=now,
@@ -492,28 +493,12 @@ class ExitV1:
                 state["last_hard_target"] = _dump_dec(target)
                 last_hard_target = target
 
-        if recovered_now:
-            signals.append(
-                TradeSignal(
-                    strategy_key=KEY,
-                    strategy_version=VERSION,
-                    market=market,
-                    account_id=position.account_id,
-                    position_id=position.position_id,
-                    symbol=position.symbol,
-                    action="HOLD",
-                    suggested_target_quantity=current_qty,
-                    reason="相邻两根确认恢复",
-                    evidence={"event": "EPISODE_RECOVERED", "five_minute_status": five_status},
-                    evaluated_at=now,
-                    signal_key=f"exit_v1:{position.position_id}:recovered:{_dump_dt(last_bar_end)}",
-                )
-            )
+        # Recovery clears episode in state; HOLD is not a candidate.
 
         if watch_now and not new_soft and not episode_active:
             watch_key = f"exit_v1:{position.position_id}:watch:{_dump_dt(last_bar_end)}"
             signals.append(
-                TradeSignal(
+                TradeSignalCandidate(
                     strategy_key=KEY,
                     strategy_version=VERSION,
                     market=market,
@@ -521,7 +506,8 @@ class ExitV1:
                     position_id=position.position_id,
                     symbol=position.symbol,
                     action="WATCH",
-                    suggested_target_quantity=current_qty,
+                    suggested_target_quantity=None,
+                    severity="soft",
                     reason=";".join(reasons) or "普通走弱观察",
                     evidence={"five_minute_status": five_status, "quote_status": quote_status},
                     evaluated_at=now,
@@ -547,34 +533,6 @@ class ExitV1:
                 "quote_status": quote_status,
             }
         )
-        if not signals:
-            display_target = last_hard_target if last_hard_target is not None else last_soft_target
-            action = _action_for(display_target, current_qty) if display_target is not None and episode_active else "HOLD"
-            if last_hard_target is not None and last_hard_target <= 0:
-                action = "EXIT"
-                display_target = Decimal("0")
-            signals.append(
-                TradeSignal(
-                    strategy_key=KEY,
-                    strategy_version=VERSION,
-                    market=market,
-                    account_id=position.account_id,
-                    position_id=position.position_id,
-                    symbol=position.symbol,
-                    action=action,  # type: ignore[arg-type]
-                    suggested_target_quantity=display_target if action in {"REDUCE", "EXIT"} else None,
-                    reason=";".join(reasons) or "hold",
-                    evidence={
-                        "five_minute_status": five_status,
-                        "quote_status": quote_status,
-                        "profit_stage": state.get("profit_stage"),
-                        "active_stop": state.get("active_stop"),
-                        "persist": False,
-                    },
-                    evaluated_at=now,
-                    signal_key=f"exit_v1:{position.position_id}:hold:{_dump_dt(now)}",
-                )
-            )
         return signals
 
 

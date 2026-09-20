@@ -1,16 +1,17 @@
 # -*- coding: utf-8 -*-
-"""Trade Engine: MarketContext + strategies + signals. Advice only, no order execution."""
+"""Trade Engine: position-level analysis and advice only. No order execution."""
 
 from .config import RiskPolicy, get_risk_policy, reset_risk_policy
-from .models import MarketContext, QuoteView, TradeSignal
+from .models import PositionContext, QuoteView, TradeSignal, TradeSignalCandidate
 from .service import TradeEngineService
 
 __all__ = [
-    "MarketContext",
+    "PositionContext",
     "QuoteView",
     "RiskPolicy",
     "TradeEngineService",
     "TradeSignal",
+    "TradeSignalCandidate",
     "get_risk_policy",
     "reset_risk_policy",
 ]

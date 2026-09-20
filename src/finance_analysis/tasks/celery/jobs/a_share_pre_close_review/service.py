@@ -76,7 +76,7 @@ class ASharePreCloseReviewService:
         rows = self.data_source.get_market_snapshot_rows()
         self._assess_snapshot(rows, run_time, quality)
 
-        from ..a_share_intraday_analysis.domain_service import compute_market_breadth
+        from .metrics import compute_market_breadth
 
         breadth = compute_market_breadth(rows, run_time.date()) if rows else {}
         indices = self._normalize_indices(self.data_source.get_main_indices())
