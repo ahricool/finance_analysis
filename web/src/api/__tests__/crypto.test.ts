@@ -1,16 +1,12 @@
-import { describe, expect, it } from 'vitest';
-import { parseCryptoMessage, cryptoWebSocketUrl } from '../crypto';
-
-describe('BTC API transport', () => {
-  it('converts the unified backend state and preserves decimal strings', () => {
-    const data = parseCryptoMessage(JSON.stringify({ type: 'state', market: {
-      symbol: 'BTCUSDT', stream_mode: 'http_fallback', latest_candle: { close: '123.123456789012', open_time: '2026-09-01T00:00:00Z' },
-      strategy_latest_state: { ema20_1h: '100.123456789012' },
-    } }));
-    expect(data?.latestCandle?.close).toBe('123.123456789012');
-    expect(data?.strategyLatestState?.ema201H).toBe('100.123456789012');
-    expect(parseCryptoMessage('{"type":"other"}')).toBeNull();
-    expect(cryptoWebSocketUrl()).toContain('/api/v1/crypto/ws');
-    expect(cryptoWebSocketUrl()).not.toContain('binance');
-  });
+import { expect, it, vi } from 'vitest';
+import { cryptoApi } from '../crypto';
+const get = vi.hoisted(() => vi.fn());
+vi.mock('../index', () => ({ default: { get } }));
+it('reads only backend strategy and preserves Decimal strings', async () => {
+  get.mockResolvedValueOnce({ data: { symbol: 'BTCUSDT', strategy: { ema20_1h: '100.123456789012' }, state: { position_state: 'LONG' } } });
+  expect((await cryptoApi.overview()).strategy?.ema201H).toBe('100.123456789012');
+  expect(get).toHaveBeenLastCalledWith('/api/v1/crypto/btc/overview');
+  get.mockResolvedValueOnce({ data: { items: [] } });
+  expect(await cryptoApi.signals()).toEqual({ items: [] });
+  expect(get).toHaveBeenLastCalledWith('/api/v1/crypto/btc/signals');
 });

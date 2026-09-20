@@ -4,17 +4,19 @@ from dataclasses import replace
 from datetime import datetime
 from decimal import Decimal
 
-from finance_analysis.crypto.features import aggregate, atr, breakout, contiguous_tail, ema
+from finance_analysis.crypto.features import atr, breakout, contiguous_tail, ema
 from finance_analysis.crypto.models import Kline, StrategyState
 from finance_analysis.crypto.regime import market_regime
 from finance_analysis.crypto.risk import initial_stop, trailing_stop
 
 
-def evaluate(klines: list[Kline], at: datetime, state: StrategyState) -> tuple[StrategyState, dict] | None:
-    quarter = contiguous_tail(aggregate(klines, 15, at))
+def evaluate(
+    quarter: list[Kline], hourly: list[Kline], at: datetime, state: StrategyState
+) -> tuple[StrategyState, dict] | None:
+    quarter = contiguous_tail([bar for bar in quarter if bar.closed and bar.close_time <= at])
     if not quarter or quarter[-1].close_time != at:
         return None
-    hourly = contiguous_tail(aggregate(klines, 60, at))
+    hourly = contiguous_tail([bar for bar in hourly if bar.closed and bar.close_time <= at])
     current = quarter[-1]
     snapshot = dict(
         symbol="BTCUSDT",

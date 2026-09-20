@@ -1,0 +1,22 @@
+import { defineComponent } from 'vue';
+import { flushPromises, mount } from '@vue/test-utils';
+import { afterEach, expect, it, vi } from 'vitest';
+import { useCryptoStrategy } from '../useCryptoStrategy';
+const api = vi.hoisted(() => ({ overview: vi.fn(), signals: vi.fn() }));
+vi.mock('@/api/crypto', () => ({ cryptoApi: api }));
+afterEach(() => { vi.useRealTimers(); vi.clearAllMocks(); });
+it('refreshes strategy independently and stops after unmount', async () => {
+  vi.useFakeTimers();
+  api.overview.mockResolvedValue({ symbol: 'BTCUSDT', strategy: null, state: { positionState: 'FLAT' } });
+  api.signals.mockResolvedValue({ items: [] });
+  let state!: ReturnType<typeof useCryptoStrategy>;
+  const wrapper = mount(defineComponent({ setup() { state = useCryptoStrategy(); return () => null; } }));
+  await flushPromises();
+  expect(state.overview.value?.state.positionState).toBe('FLAT');
+  await vi.advanceTimersByTimeAsync(60_000); expect(api.overview).toHaveBeenCalledTimes(2);
+  api.overview.mockRejectedValueOnce(new Error('offline'));
+  await state.refresh(); expect(state.error.value).not.toBeNull();
+  await state.refresh(); expect(state.error.value).toBeNull();
+  wrapper.unmount();
+  await vi.advanceTimersByTimeAsync(60_000); expect(api.overview).toHaveBeenCalledTimes(4);
+});

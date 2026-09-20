@@ -1,90 +1,81 @@
-# BTC 交易模块 V0.1
+# BTC 行情与策略
 
-独立的 Binance BTCUSDT Spot 行情与确定性策略模块。LONG/FLAT 表示策略信号状态，不代表真实资产、订单或 Paper Trading；不接股票 MarketDataService Provider 链。
+仅支持 Binance Spot BTCUSDT。LONG/FLAT 是共享研究状态，不执行真实交易，不接股票 Provider 链。
 
-## 运行
+## 两条独立链路
 
-```bash
-uv sync
-uv run alembic upgrade head
-uv run finance-analysis-crypto-stream
-```
+- 页面行情：Browser → Binance 公共 REST / WebSocket。
+- 策略：Celery Beat → Binance REST 15m / 1h → evaluate → PostgreSQL 状态与快照 → REST → Browser。
 
-使用与主服务相同的 `DATABASE_URL`、`REDIS_URL`。公开行情无需 API Key。`.env.example` 中：
+`useBinanceBtcMarket()` 使用 `https://data-api.binance.vision/api/v3/klines`，每次加载最近 500 根；周期为
+`1m / 5m / 15m / 1h / 4h / 1d / 1w / 1M`（没有 1Y）。页面只维护一个
+`wss://data-stream.binance.vision/ws` 连接，订阅 `btcusdt@aggTrade` 更新价格，以及当前周期的
+`btcusdt@kline_<interval>` 更新最后一根 K 线。周期切换先读取 REST，再退订旧周期、订阅新周期。
+旧 REST 请求会取消，迟到结果与不匹配周期的事件被忽略；请求期间的实时更新优先于 REST。
 
-| 配置 | 默认值 |
-| --- | --- |
-| CRYPTO_ENABLED | true |
-| CRYPTO_SYMBOL | BTCUSDT（其它值拒绝启动） |
-| BINANCE_REST_BASE_URL | https://api.binance.com |
-| BINANCE_WS_BASE_URL | wss://stream.binance.com:9443 |
-| CRYPTO_HTTP_FALLBACK_INTERVAL_SECONDS | 60 |
-| CRYPTO_WS_RECONNECT_INTERVAL_SECONDS | 60 |
-| CRYPTO_WS_TIMEOUT_SECONDS | 20 |
-| CRYPTO_INITIAL_HISTORY_DAYS | 30（允许 4–90 天） |
+REST 失败显示错误并允许手动重试。WS 断开后 3 秒重连，重连成功读取一次当前周期窗口补齐图表；无 HTTP 轮询兜底。
+浏览器需能访问 Binance 公共域名；后端不代理连接。卸载时取消请求、关闭连接并清理定时器。
 
-dev/prod Compose 均有独立 `crypto-streamer` 服务，`restart: unless-stopped`，依赖 PostgreSQL/Redis，沿用主应用镜像；不在 FastAPI、Beat 或 Celery Worker 内运行。`CRYPTO_ENABLED=false` 时进程等待终止，不采集行情。
+`useCryptoStrategy()` 独立轮询后端策略（60 秒），错误、加载和重试与行情完全分开。首页 BTC 概览显示策略评估价格，非实时行情。
 
-## 存储与计算
+## 后端策略
 
-- `crypto_kline`：仅保存已收盘 BTCUSDT 1m；`UNIQUE(symbol, interval, open_time)` upsert。价格和数量为 `Numeric(30,12)`；JSON 传输为十进制字符串。
-- `crypto_strategy_state`：当前 FLAT/LONG、入场价/时间、入场后最高价与止损。
-- `crypto_strategy_snapshot`：每个完整 15m 评估时间的不可变结果；`UNIQUE(symbol, evaluated_at)`。
-- `0044_crypto_btc` 从 `0043_investment_timeline` 升级，包含三张表及约束。
-- Redis `crypto:BTCUSDT:realtime:v1`（180s TTL）仅为即时视图：当前 K 线、最近5根已收盘线、采集模式、连接/更新时间、最后错误和最新策略。Redis 失败不阻止 PostgreSQL 保存历史与策略。
+`scheduled.crypto_btc_strategy` 使用 `analysis` 队列，在 UTC 每小时 `01/16/31/46` 分执行（每个 15m 收盘后一分钟），
+沿用现有任务生命周期、状态记录和队列路由。HTTP 超时 10 秒，最多 3 次请求尝试；任务失败可再重试 2 次、间隔 30 秒。
 
-所有时间为 aware UTC。内部 `close_time` 是**排他的下一分钟整点**（Binance 的包含式 close time 加 1ms）。聚合区间为 `[00:00,00:15)`、`[00:00,01:00)` 等 UTC 边界；缺少任何一分钟或包含未收盘分钟时，不产生完整聚合线。指标使用最近7天内、截至评估时间的连续完整聚合尾部，缺口不被当作相邻样本。
+任务以 Binance `/api/v3/time` 返回时间确定最近 15m 收盘边界，分别请求：
 
-EMA 使用周期内 SMA 作为种子，之后 `alpha=2/(period+1)`。ATR14 使用前收盘计算 True Range，14个 TR 平均值作为种子，之后 Wilder 平滑。
+- `15m` 最近 100 根：EMA20、ATR14、前 20 根突破与成交量比。
+- `1h` 最近 200 根：EMA20、EMA50、Market Regime。
 
-策略：
+窗口包含指标预热（不是只取 EMA50 的 50 根种子）。与旧 7 天分钟聚合窗口相比，EMA/ATR 种子窗口变化可能造成细微数值差异。
+`endTime` 设置为边界减 1ms；Binance 包含式 close time 加 1ms 转成内部排他收盘边界，并再次剔除未闭合线。
+最近目标 K 线或连续最低指标窗口不足时任务失败，不推进策略状态或快照。无历史行情回填、持久化或本地聚合。
+停机后下一次只评估最新收盘时间，不补造停机期间信号；原 LONG/FLAT 与止损状态保留。
 
-1. 最近完整1h的 EMA20 > EMA50 且 Close > EMA50 为 BULL；反向为 BEAR；其余 RANGE。不足50根连续1h为 UNKNOWN。
-2. 15m Close 严格大于**此前20根** High 最大值，且 Volume 严格大于此前20根 Volume 中位数，为 BREAKOUT；零中位数时 volume ratio 为空。
-3. FLAT 仅在 BULL + BREAKOUT 时 BUY → LONG，其余 WAIT。
-4. BUY 以该15m收盘价记录入场；初始止损 `entry - 2*ATR`。入场前该根K线的高点不计入入场后最高价。
-5. LONG 更新最高价；跟踪止损为 `max(既有跟踪止损, 最高价 - 2.5*ATR)`；有效止损为初始与跟踪止损较大值，初始/跟踪下限为0。
-6. 完整15m Close < EMA20_15m 或 Close <= 有效止损时 EXIT → FLAT，否则 HOLD。即使因数据缺口指标预热不足，已有止损仍有效。
-7. 冷启动同步历史后仅从最新完整15m建立第一条策略快照，初态FLAT，不伪造此前30天交易。已有快照时从上次评估之后按15m顺序补算。旧快照不因历史K线幂等覆盖而重算。
+规则保持：
 
-策略状态行锁及时间去重保证状态与快照同一事务提交；重复/迟到K线不会重复 BUY/EXIT。PostgreSQL session advisory lock 保证只运行一个 BTC 采集主实例。
+1. 1h EMA20 > EMA50 且 Close > EMA50 为 BULL，反向为 BEAR，其余 RANGE。
+2. 15m Close 严格突破此前 20 根最高 High 且 Volume 大于此前 20 根 Volume 中位数为 BREAKOUT。
+3. FLAT 在 BULL + BREAKOUT 时 BUY → LONG，其余 WAIT。
+4. BUY 用 15m 收盘价作为 entry，初始止损 `entry - 2*ATR`。入场前该根高点不计入入场后最高价。
+5. LONG 更新最高价，跟踪止损 `max(既有止损, 最高价 - 2.5*ATR)`，止损不下移，下限为 0。
+6. 15m Close < EMA20 或 Close <= 有效止损时 EXIT → FLAT，否则 HOLD。
 
-## 连接与容灾
+EMA 以 SMA 为种子，alpha=2/(period+1)；ATR 使用 Wilder 平滑。状态行锁与唯一评估时间防重放，状态与快照同事务提交。
 
-启动先按 open_time 升序、每页最多1000根REST补齐。空库默认30天；已有数据从最后提交的分钟重新取一根并向前推进。HTTP请求有超时和最多3次重试，进程循环会继续重试；未完成历史补齐前不会用最近5根推进历史游标而跳过中间缺口。
+## 存储、API 与配置
 
-主采集为 `/ws/btcusdt@kline_1m`。连接、接收超时、无效或过期K线等失败进入 `http_fallback`，每60秒读取最近5根REST行情。期间每60秒尝试一次WS；只有收到有效新鲜K线并完成REST对账才恢复 `websocket`，停止HTTP轮询。长期同时断网后复用分页补齐路径追平缺口。只有一个采集循环写入，没有并行WS/REST摄取任务。
+仅保留 `crypto_strategy_state`、`crypto_strategy_snapshot`。`0059_drop_crypto_kline` 删除 `crypto_kline`，不改策略数据；
+降级只恢复空行情表，不恢复已删除历史。空数据库仍由既有 metadata bootstrap 创建并 stamp 最新 head。
 
-SIGINT/SIGTERM 会中断连接、接收或重试等待，结束正在执行的有界数据库事务后关闭WS/HTTP/Redis，释放主实例锁。Redis和网络故障仅改变可用性，不将其伪装成正常实时行情。
-
-前端不连接 Binance。首次读后端最近1000根已收盘K线，再订阅后端WS，更新当前分钟与最近闭合线；历史数组只在闭合线变化时更新，实时价更新只替换图表的单根当前分钟 series。后端WS失败/15秒无有效消息时，每60秒轮询后端REST；每15秒尝试重连，有效消息恢复后停轮询并对账历史。401/4401/4403停止连接重试。卸载页面清理连接和定时器。
-
-## API 与页面
-
-所有HTTP接口由现有会话中间件保护；WS显式检查Cookie及用户，定期复核会话。行情和策略为全站共享研究事实，不按用户分仓。
+会话保护的只读接口：
 
 | API | 内容 |
 | --- | --- |
-| GET /api/v1/crypto/btc/overview | 最新数据库策略、状态和即时行情 |
-| GET /api/v1/crypto/btc/klines?interval=1m&limit=1000 | 最近已收盘1m，升序；limit 1–1000 |
-| GET /api/v1/crypto/btc/signals?limit=50 | 历史15m快照，降序；limit 1–200 |
-| GET /api/v1/crypto/btc/status | 采集模式和即时状态 |
-| WS /api/v1/crypto/ws | 每2秒 `{type:"state", market: ...}`，相同结构覆盖WS和HTTP来源 |
+| GET /api/v1/crypto/btc/overview | 最新策略快照、当前策略状态 |
+| GET /api/v1/crypto/btc/signals?limit=50 | 近期策略快照，limit 1–200 |
 
-页面 `/crypto/btc` 在“加密货币 → BTC 交易”。显示价、Regime/Setup/Action、EMA、突破/成交量、ATR/止损、LONG/FLAT、1m K线和近期快照。HTTP兜底只显示弱提示。
+已删除 `/btc/klines`、`/btc/status`、`/ws`（此前 `/api/v1/crypto` 前缀），以及行情 Redis、writer leader lock、
+`crypto_stream/`、`crypto/realtime.py`、`finance-analysis-crypto-stream` CLI 与 Compose 采集服务。
 
-V0.1未增加手动backfill API；重启crypto-streamer会自动补齐。没有AI、下单、持仓数量、资金、PnL、多币种或多交易所。
+后端仅保留 `CRYPTO_ENABLED=true`（控制策略任务，页面行情不受影响）和
+`BINANCE_REST_BASE_URL=https://data-api.binance.vision`。公开行情不需要密钥。
+
+部署：`bash deploy.sh` 会更新服务、执行既有启动迁移，并通过 `--remove-orphans` 清理移除的采集容器。
+原生运行的旧采集进程也应停止；无需启动新常驻行情进程。
 
 ## 验证
 
 ```bash
-uv run pytest tests/crypto -q
-# 可选：仅使用专门的临时测试库，测试自行创建和清理独立schema
-CRYPTO_TEST_POSTGRES_URL=postgresql+psycopg2://... uv run pytest tests/crypto/test_postgres.py -q
+uv run pytest tests/crypto tests/test_celery_schedule.py tests/test_celery_task_structure.py -q
 cd web
-pnpm exec vitest run src/composables/__tests__/useCryptoBtc.test.ts src/api/__tests__/crypto.test.ts
-pnpm run build
+pnpm exec vue-tsc -b
+pnpm run test
 pnpm exec playwright test e2e/crypto-btc.spec.ts
 ```
 
-单元测试通过 fake/HTTP mock 验证Binance协议和切换，不访问真实Binance。浏览器测试使用后端API/WS mock。协议参考 [Binance Spot WebSocket](https://developers.binance.com/docs/binance-spot-api-docs/web-socket-streams) 与 [REST Market Data](https://developers.binance.com/docs/binance-spot-api-docs/rest-api/market-data-endpoints)。
+测试通过 HTTP / WebSocket mock 离线验证。可选 PostgreSQL 并发事务测试使用专门临时测试库的
+`CRYPTO_TEST_POSTGRES_URL`，自行创建清理独立 schema，不连接应用数据库。
+协议参考 [Binance WebSocket](https://developers.binance.com/docs/binance-spot-api-docs/web-socket-streams)
+和 [REST Market Data](https://developers.binance.com/docs/binance-spot-api-docs/rest-api/market-data-endpoints)。

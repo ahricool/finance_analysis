@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import MarketKLineChart from '@/components/market-data/MarketKLineChart.vue';
-import type { CryptoKline } from '@/types/crypto';
+import type { BinanceInterval, CryptoKline } from '@/types/binance';
 
-const props = defineProps<{ candles: CryptoKline[]; current: CryptoKline | null }>();
+const props = defineProps<{ interval?: BinanceInterval; candles: CryptoKline[]; current: CryptoKline | null }>();
 function toBar(row: CryptoKline) {
   return { timestamp: Date.parse(row.openTime), open: Number(row.open), high: Number(row.high),
     low: Number(row.low), close: Number(row.close), volume: Number(row.volume), turnover: Number(row.quoteVolume) };
@@ -19,7 +19,7 @@ const current = computed(() => {
 <template>
   <MarketKLineChart
     symbol="BTCUSDT"
-    period="1m"
+    :period="interval ?? '1m'"
     :price-precision="2"
     :bars="bars"
     :current="current"

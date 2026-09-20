@@ -8,18 +8,19 @@ from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
 from finance_analysis.crypto.models import Kline
-from finance_analysis.database.models.crypto import CryptoKline, CryptoStrategySnapshot, CryptoStrategyState
+from finance_analysis.database.models.crypto import CryptoStrategySnapshot, CryptoStrategyState
 
 START = datetime(2026, 8, 1, tzinfo=timezone.utc)
 
 
-def candle(index=0, **changes):
-    start = START + timedelta(minutes=index)
+def candle(index=0, interval="15m", **changes):
+    minutes = 15 if interval == "15m" else 60
+    start = START + timedelta(minutes=index * minutes)
     price = Decimal(100) + Decimal(index) / 100
     return replace(
         Kline(
             start,
-            start + timedelta(minutes=1),
+            start + timedelta(minutes=minutes),
             price,
             price + 1,
             price - 1,
@@ -29,6 +30,7 @@ def candle(index=0, **changes):
             3,
             Decimal("0.5"),
             Decimal(100),
+            interval=interval,
         ),
         **changes,
     )
@@ -39,7 +41,7 @@ class Database:
         self.engine = engine or create_engine(
             "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
         )
-        for model in (CryptoKline, CryptoStrategyState, CryptoStrategySnapshot):
+        for model in (CryptoStrategyState, CryptoStrategySnapshot):
             model.__table__.create(self.engine)
 
     @contextmanager

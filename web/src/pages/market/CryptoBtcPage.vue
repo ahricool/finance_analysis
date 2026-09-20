@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { RefreshCcw } from 'lucide-vue-next';
-import { useCryptoBtc } from '@/composables/useCryptoBtc';
+import { useBinanceBtcMarket } from '@/composables/useBinanceBtcMarket';
+import { useCryptoStrategy } from '@/composables/useCryptoStrategy';
+import { BINANCE_INTERVALS } from '@/types/binance';
 import BtcKlineChart from '@/components/crypto/BtcKlineChart.vue';
 import AppApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
 import { Badge } from '@/components/ui/badge';
@@ -10,9 +12,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Skeleton } from '@/components/ui/skeleton';
 
-const { candles, current, overview, signals, status, connection, loading, error, refresh } = useCryptoBtc();
+const { candles, current, price, interval, connection, loading: marketLoading, restError, wsError, refresh: refreshMarket } = useBinanceBtcMarket();
+const { overview, signals, loading, error, refresh } = useCryptoStrategy();
 const strategy = computed(() => overview.value?.strategy);
-const price = computed(() => current.value?.close ?? candles.value.at(-1)?.close ?? strategy.value?.price);
 const metrics = computed(() => [
   ['Market Regime', strategy.value?.regime ?? '等待数据'],
   ['Setup', strategy.value?.setup ?? '—'],
@@ -26,7 +28,6 @@ const metrics = computed(() => [
   ['Initial Stop', number(strategy.value?.initialStop)],
   ['Trailing Stop', number(strategy.value?.trailingStop)],
 ]);
-const fallback = computed(() => connection.value === 'http_fallback' || status.value?.streamMode === 'http_fallback');
 function number(value: string | null | undefined) {
   return value == null ? '—' : Number(value).toLocaleString('en-US', { maximumFractionDigits: 2 });
 }
@@ -46,7 +47,7 @@ function time(value: string | null | undefined) {
           BTCUSDT <span class="text-sm text-muted-foreground">Binance Spot</span>
         </h2>
         <p class="mt-1 text-sm text-muted-foreground">
-          1m 行情 · 15m 突破策略 · LONG / FLAT 为策略状态，不执行交易
+          Binance 行情 · 15m 突破策略 · LONG / FLAT 为策略状态，不执行交易
         </p>
         <p class="mt-3 text-3xl font-semibold tabular-nums">
           {{ number(price) }} <span class="text-sm text-muted-foreground">USDT</span>
@@ -54,13 +55,13 @@ function time(value: string | null | undefined) {
       </div>
       <div class="flex items-center gap-2">
         <Badge variant="outline">
-          {{ status?.enabled === false ? '已停用' : !status?.ready ? '同步中' : fallback ? 'HTTP 兜底' : connection === 'websocket' ? '实时' : '连接中' }}
+          {{ restError ? '行情加载失败' : connection === 'live' ? '实时' : connection === 'reconnecting' ? '重连中' : '连接中' }}
         </Badge>
         <Button
           variant="outline"
           aria-label="刷新 BTC 行情"
-          :disabled="loading"
-          @click="refresh(1000)"
+          :disabled="marketLoading"
+          @click="refreshMarket()"
         >
           <RefreshCcw class="size-4" />
         </Button>
@@ -71,24 +72,19 @@ function time(value: string | null | undefined) {
       :error="error"
     />
     <p
-      v-if="connection === 'unauthorized'"
-      class="text-sm text-muted-foreground"
+      v-if="restError || wsError"
+      class="text-sm text-destructive"
+      role="alert"
     >
-      登录已失效，请重新登录。
+      {{ restError || wsError }}
     </p>
-    <p
-      v-else-if="fallback"
-      class="text-sm text-muted-foreground"
-      data-testid="crypto-fallback"
+    <Button
+      v-if="error"
+      variant="outline"
+      @click="refresh()"
     >
-      行情实时连接中断，当前使用分钟级备用行情
-    </p>
-    <p
-      v-if="status && !status.ready && status.enabled"
-      class="text-sm text-muted-foreground"
-    >
-      正在等待行情进程同步历史数据。
-    </p>
+      重试策略数据
+    </Button>
     <div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
       <Card
         v-for="[label, value] in metrics"
@@ -110,18 +106,35 @@ function time(value: string | null | undefined) {
     </div>
     <Card>
       <CardHeader>
-        <CardTitle>BTCUSDT · 1m K线</CardTitle>
-        <CardDescription>红涨绿跌 · UTC · 最新行情 {{ time(status?.lastUpdateTime) }} · 可拖动或缩放历史区间</CardDescription>
+        <CardTitle>BTCUSDT · {{ interval }} K线</CardTitle>
+        <CardDescription>红涨绿跌 · UTC · 可拖动或缩放历史区间</CardDescription>
       </CardHeader>
       <CardContent class="min-w-0 px-2 sm:px-6">
+        <div
+          class="mb-4 flex gap-2"
+          data-testid="btc-interval-selector"
+          aria-label="K线周期"
+        >
+          <Button
+            v-for="item in BINANCE_INTERVALS"
+            :key="item"
+            size="sm"
+            :variant="interval === item ? 'default' : 'outline'"
+            :aria-pressed="interval === item"
+            @click="interval = item"
+          >
+            {{ item === '1d' ? '1D' : item === '1w' ? '1W' : item }}
+          </Button>
+        </div>
         <p
-          v-if="!loading && !candles.length && !current"
+          v-if="!marketLoading && !candles.length && !current"
           class="py-12 text-center text-muted-foreground"
         >
-          暂无 K 线，等待行情同步。
+          暂无 K 线，请重试加载。
         </p>
         <BtcKlineChart
           v-else
+          :interval="interval"
           :candles="candles"
           :current="current"
         />

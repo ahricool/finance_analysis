@@ -2,7 +2,7 @@ import { mount } from '@vue/test-utils';
 import { describe, expect, it } from 'vitest';
 import BtcKlineChart from '../BtcKlineChart.vue';
 import MarketKLineChart from '@/components/market-data/MarketKLineChart.vue';
-import type { CryptoKline } from '@/types/crypto';
+import type { CryptoKline } from '@/types/binance';
 
 const row: CryptoKline = {
   symbol: 'BTCUSDT', interval: '1m', source: 'binance', openTime: '2026-09-01T00:00:00Z',

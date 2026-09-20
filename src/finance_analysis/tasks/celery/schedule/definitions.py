@@ -10,6 +10,7 @@ from typing import Literal, Optional
 from celery.schedules import crontab
 
 from .constants import (
+    JOB_CRYPTO_BTC_STRATEGY,
     JOB_INDUSTRY_STRENGTH_CN,
     JOB_MARKET_SENTIMENT_CN,
     EXPIRES_CALENDAR,
@@ -103,6 +104,18 @@ class ScheduledTaskDefinition:
 
 
 SCHEDULED_TASK_DEFINITIONS = (
+    ScheduledTaskDefinition(
+        job_id=JOB_CRYPTO_BTC_STRATEGY,
+        name="BTC 15m 策略",
+        description="读取 Binance 已收盘 15m/1h K 线，保存 LONG/FLAT 研究状态",
+        task_type="scheduled_crypto_btc_strategy",
+        celery_task_name=celery_task_name(JOB_CRYPTO_BTC_STRATEGY),
+        schedules=(CronSchedule(minute="1,16,31,46", timezone="UTC"),),
+        schedule_text="每天每小时 01/16/31/46 分 UTC（15m 收盘后）",
+        timezone="UTC",
+        queue=QUEUE_ANALYSIS,
+        expires=14 * 60,
+    ),
     ScheduledTaskDefinition(
         job_id=JOB_MARKET_SENTIMENT_CN,
         name="市场情绪 CN",

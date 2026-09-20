@@ -2,6 +2,7 @@
 """Explicit task packages loaded by the Celery application."""
 
 TASK_PACKAGES = (
+    "finance_analysis.tasks.celery.jobs.crypto_strategy",
     "finance_analysis.tasks.celery.jobs.market_sentiment",
     "finance_analysis.tasks.celery.jobs.industry_strength",
     "finance_analysis.tasks.celery.jobs.market_structure",

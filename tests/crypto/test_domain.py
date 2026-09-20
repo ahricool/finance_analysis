@@ -4,25 +4,13 @@ from decimal import Decimal as D
 
 import pytest
 
-from finance_analysis.crypto.features import aggregate, atr, breakout, ema
+from finance_analysis.crypto.features import atr, breakout, ema
 from finance_analysis.crypto.models import StrategyState
 from finance_analysis.crypto.regime import market_regime
 from finance_analysis.crypto.risk import initial_stop, trailing_stop
 from finance_analysis.crypto.strategy import evaluate
+
 from .helpers import START, candle
-
-
-def test_utc_aggregation_requires_closed_complete_minutes_and_deduplicates():
-    rows = [candle(i) for i in range(61)]
-    end = START + timedelta(hours=1)
-    assert len(aggregate(rows, 15, end)) == 4
-    hourly = aggregate(rows, 60, end)
-    assert len(hourly) == 1 and hourly[0].open_time == START and hourly[0].close_time == end
-    assert hourly[0].volume == sum(row.volume for row in rows[:60])
-    assert aggregate(rows[1:], 60, end) == []
-    assert aggregate([*rows[:59], replace(rows[59], closed=False)], 60, end) == []
-    assert aggregate(rows, 60, end - timedelta(seconds=1)) == []
-    assert aggregate([*rows, rows[0]], 60, end) == hourly
 
 
 def test_ema_seed_and_regime_strict_comparisons():
@@ -34,7 +22,7 @@ def test_ema_seed_and_regime_strict_comparisons():
 
 
 def test_breakout_excludes_current_high_and_requires_volume_above_median():
-    bars = aggregate([candle(i) for i in range(21 * 15)], 15, START + timedelta(minutes=21 * 15))
+    bars = [candle(i) for i in range(21)]
     level = max(row.high for row in bars[:-1])
     bars[-1] = replace(bars[-1], high=level + 100, close=level + 1, volume=bars[-2].volume * 2)
     setup, actual, ratio = breakout(bars)
@@ -46,11 +34,7 @@ def test_breakout_excludes_current_high_and_requires_volume_above_median():
 
 
 def test_wilder_atr_and_stops_never_retreat():
-    bars = aggregate(
-        [candle(i, open=D(100), high=D(102), low=D(98), close=D(100)) for i in range(16 * 15)],
-        15,
-        START + timedelta(minutes=16 * 15),
-    )
+    bars = [candle(i, open=D(100), high=D(102), low=D(98), close=D(100)) for i in range(16)]
     assert atr(bars) == 4
     assert initial_stop(D(100), D(4)) == 92
     stop = trailing_stop(D(120), D(4), D(92))
@@ -59,17 +43,18 @@ def test_wilder_atr_and_stops_never_retreat():
 
 
 def warm_rows():
-    rows = [candle(i) for i in range(60 * 60)]
+    rows = [candle(i) for i in range(240)]
     rows[-1] = replace(rows[-1], close=D(150), high=D(151), volume=D(100))
     return rows
 
 
 def test_flat_long_flat_and_determinism_only_at_closed_quarter():
     rows = warm_rows()
+    hourly = [candle(i, interval="1h") for i in range(60)]
     at = rows[-1].close_time
-    assert evaluate(rows, at - timedelta(seconds=1), StrategyState()) is None
-    assert evaluate([*rows[:-1], replace(rows[-1], closed=False)], at, StrategyState()) is None
-    state, snapshot = evaluate(rows, at, StrategyState())
+    assert evaluate(rows, hourly, at - timedelta(seconds=1), StrategyState()) is None
+    assert evaluate([*rows[:-1], replace(rows[-1], closed=False)], hourly, at, StrategyState()) is None
+    state, snapshot = evaluate(rows, hourly, at, StrategyState())
     assert (snapshot["regime"], snapshot["setup"], snapshot["action"], state.position_state) == (
         "BULL",
         "BREAKOUT",
@@ -77,20 +62,20 @@ def test_flat_long_flat_and_determinism_only_at_closed_quarter():
         "LONG",
     )
     assert state.highest_price_since_entry == state.entry_price == D(150)
-    assert evaluate(rows, at, StrategyState()) == (state, snapshot)
-    next_rows = [candle(i, open=D(151), high=D(152), low=D(149), close=D(151)) for i in range(3600, 3615)]
-    held, hold = evaluate(rows + next_rows, next_rows[-1].close_time, state)
+    assert evaluate(rows, hourly, at, StrategyState()) == (state, snapshot)
+    next_rows = [candle(i, open=D(151), high=D(152), low=D(149), close=D(151)) for i in range(240, 241)]
+    held, hold = evaluate(rows + next_rows, hourly, next_rows[-1].close_time, state)
     assert held.position_state == "LONG" and hold["action"] == "HOLD"
     assert held.trailing_stop >= state.trailing_stop
-    exit_rows = [candle(i, open=D(100), high=D(101), low=D(99), close=D(100)) for i in range(3615, 3630)]
-    flat, exit_signal = evaluate(rows + next_rows + exit_rows, exit_rows[-1].close_time, held)
+    exit_rows = [candle(i, open=D(100), high=D(101), low=D(99), close=D(100)) for i in range(241, 242)]
+    flat, exit_signal = evaluate(rows + next_rows + exit_rows, hourly, exit_rows[-1].close_time, held)
     assert exit_signal["action"] == "EXIT" and flat.position_state == "FLAT"
     assert flat.entry_price is None and exit_signal["initial_stop"] == held.initial_stop
 
 
 def test_insufficient_history_records_wait_without_fake_regime():
-    rows = [candle(i) for i in range(15)]
-    state, signal = evaluate(rows, rows[-1].close_time, StrategyState())
+    rows = [candle(i) for i in range(1)]
+    state, signal = evaluate(rows, [], rows[-1].close_time, StrategyState())
     assert signal["regime"] == "UNKNOWN" and signal["action"] == "WAIT"
     assert state.position_state == "FLAT"
 
@@ -105,7 +90,7 @@ def test_invalid_candle_rejected():
 
 
 def test_existing_stop_still_exits_after_indicator_history_gap():
-    rows = [candle(i, open=D(90), high=D(91), low=D(89), close=D(90)) for i in range(15)]
+    rows = [candle(i, open=D(90), high=D(91), low=D(89), close=D(90)) for i in range(1)]
     state = StrategyState(
         position_state="LONG",
         entry_price=D(100),
@@ -114,6 +99,6 @@ def test_existing_stop_still_exits_after_indicator_history_gap():
         initial_stop=D(92),
         trailing_stop=D(95),
     )
-    flat, snapshot = evaluate(rows, rows[-1].close_time, state)
+    flat, snapshot = evaluate(rows, [], rows[-1].close_time, state)
     assert snapshot["action"] == "EXIT" and snapshot["regime"] == "UNKNOWN"
     assert flat.position_state == "FLAT"

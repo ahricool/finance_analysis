@@ -1,10 +1,3 @@
-export interface CryptoKline {
-  symbol: 'BTCUSDT'; interval: '1m'; source: 'binance';
-  openTime: string; closeTime: string;
-  open: string; high: string; low: string; close: string; volume: string;
-  quoteVolume: string; tradeCount: number; takerBuyVolume: string; takerBuyQuoteVolume: string;
-  closed: boolean;
-}
 export interface CryptoSnapshot {
   symbol: 'BTCUSDT'; evaluatedAt: string; regime: 'BULL' | 'BEAR' | 'RANGE' | 'UNKNOWN';
   setup: 'BREAKOUT' | 'NONE'; action: 'BUY' | 'WAIT' | 'HOLD' | 'EXIT'; price: string;
@@ -19,13 +12,6 @@ export interface CryptoState {
   entryTime: string | null; highestPriceSinceEntry: string | null;
   initialStop: string | null; trailingStop: string | null; updatedAt: string | null;
 }
-export interface CryptoStatus {
-  symbol: 'BTCUSDT'; enabled: boolean; ready: boolean;
-  streamMode: 'websocket' | 'http_fallback'; websocketConnected: boolean;
-  lastUpdateTime: string | null; lastWebsocketMessageTime: string | null; lastError: string | null;
-  latestCandle: CryptoKline | null; recentClosed: CryptoKline[];
-  strategyLatestState: CryptoSnapshot | null;
-}
 export interface CryptoOverview {
-  symbol: 'BTCUSDT'; strategy: CryptoSnapshot | null; state: CryptoState; market: CryptoStatus;
+  symbol: 'BTCUSDT'; strategy: CryptoSnapshot | null; state: CryptoState;
 }

@@ -1,6 +1,6 @@
 """Validated domain values. Candle close_time is the exclusive UTC boundary."""
 
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Literal
@@ -21,19 +21,20 @@ class Kline:
     taker_buy_quote_volume: Decimal
     closed: bool = True
     symbol: str = "BTCUSDT"
-    interval: str = "1m"
+    interval: str = "15m"
     source: str = "binance"
 
     def __post_init__(self):
-        if self.symbol != "BTCUSDT" or self.interval != "1m" or self.source != "binance":
-            raise ValueError("Only Binance BTCUSDT 1m candles are accepted")
+        if self.symbol != "BTCUSDT" or self.interval not in ("15m", "1h") or self.source != "binance":
+            raise ValueError("Only Binance BTCUSDT 15m/1h candles are accepted")
         for timestamp in (self.open_time, self.close_time):
             if timestamp.tzinfo is None or timestamp.utcoffset() != timedelta(0):
                 raise ValueError("Kline timestamps must be aware UTC")
-        if self.open_time.second or self.open_time.microsecond:
+        minutes = 15 if self.interval == "15m" else 60
+        if self.open_time.minute % minutes or self.open_time.second or self.open_time.microsecond:
             raise ValueError("Kline must start at a UTC minute boundary")
-        if self.close_time != self.open_time + timedelta(minutes=1):
-            raise ValueError("Kline must cover exactly one minute")
+        if self.close_time != self.open_time + timedelta(minutes=minutes):
+            raise ValueError("Kline duration must match interval")
         for name in (
             "open",
             "high",
@@ -55,22 +56,6 @@ class Kline:
             or self.taker_buy_quote_volume > self.quote_volume
         ):
             raise ValueError("Invalid volume/trade count")
-
-    def storage_values(self):
-        values = asdict(self)
-        values.pop("closed")
-        return values
-
-
-@dataclass(frozen=True)
-class Bar:
-    open_time: datetime
-    close_time: datetime
-    open: Decimal
-    high: Decimal
-    low: Decimal
-    close: Decimal
-    volume: Decimal
 
 
 @dataclass(frozen=True)

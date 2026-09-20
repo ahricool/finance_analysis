@@ -295,9 +295,10 @@ pnpm run test:smoke
 
 ## BTC V0.1
 
-`crypto/` 是独立 BTCUSDT Spot 领域，`integrations/crypto/binance.py` 仅负责公开Binance传输；不要接股票 Provider 链。
-`finance-analysis-crypto-stream` / Compose `crypto-streamer` 独立采集，PostgreSQL保存1m闭合K线和策略状态/快照，Redis仅为实时视图。
-API `/api/v1/crypto` 与页面 `/crypto/btc` 统一走 `CryptoService`，详见 `docs/crypto-btc.md`；测试位于 `tests/crypto/`。
+`crypto/` 仅负责 BTCUSDT 策略；`integrations/crypto/binance.py` 是薄公共 REST client，不接股票 Provider 链。
+页面行情由浏览器直接访问 Binance REST / 单一 WS（八档周期），策略通过后端 REST 独立读取。
+Beat `crypto_btc_strategy` 每 15m 收盘后读取原生 15m/1h 闭合线，只保存策略状态与快照；不保存行情，不使用行情 Redis 或后端 WS。
+详见 `docs/crypto-btc.md`；测试位于 `tests/crypto/`。
 
 ## 消息边界
 
