@@ -10,7 +10,7 @@ import StrategyChanges from '@/components/dashboard/StrategyChanges.vue';
 import { feedSummary, regimeText, regimeTone, upcomingEvents } from '@/components/dashboard/dashboardFormat';
 import { importanceNames, kindLabel, marketLabel, sessionLabel } from '@/components/timeline/timelineFormat';
 import { formatDateTimeInDisplayTimezone, getDisplayTimezone } from '@/utils/format';
-import { formatPercent, formatScore } from '@/utils/quant';
+import { formatScore } from '@/utils/quant';
 
 const { markets, latest, upcoming, btc } = useMarketDashboard();
 const now = useCurrentTime();
@@ -48,61 +48,11 @@ const number = (value: string | undefined) => value && Number.isFinite(Number(va
     </header>
 
     <section
-      class="overflow-hidden rounded-xl border bg-muted/20"
-      aria-label="Market Pulse"
-    >
-      <div class="flex items-center justify-between border-b px-6 py-3">
-        <h2 class="text-xs font-semibold tracking-[0.18em]">
-          MARKET PULSE
-        </h2>
-        <span class="text-xs text-muted-foreground">Quant 市场状态 · 最新交易日</span>
-      </div>
-      <div class="grid grid-cols-2 divide-x">
-        <div
-          v-for="entry in markets"
-          :key="entry.market"
-          class="px-7 py-5"
-        >
-          <DashboardState
-            :state="entry.regime"
-            :empty="!entry.regime.data"
-            @retry="entry.regime.refresh"
-          >
-            <div class="mb-4 flex justify-between text-sm">
-              <strong>{{ marketLabel(entry.market) }}</strong><span class="text-xs tabular-nums text-muted-foreground">{{ entry.regime.data?.tradeDate }}</span>
-            </div>
-            <div class="flex items-end justify-between gap-4">
-              <div>
-                <p
-                  class="text-3xl font-semibold tracking-tight"
-                  :class="regimeTone(entry.regime.data?.regime)"
-                >
-                  {{ regimeText(entry.regime.data?.regime) }}
-                </p>
-                <p class="mt-3 text-xs text-muted-foreground">
-                  最大风险敞口 <strong class="ml-1 text-foreground">{{ formatPercent(entry.regime.data?.maxEquityExposure) }}</strong>
-                </p>
-              </div>
-              <div class="text-right">
-                <p class="text-5xl font-light tracking-tight tabular-nums">
-                  {{ formatScore(entry.regime.data ? entry.regime.data.marketScore * 100 : null, 1) }}
-                </p>
-                <p class="mt-2 text-[10px] tracking-wider text-muted-foreground">
-                  MARKET SCORE / 100
-                </p>
-              </div>
-            </div>
-          </DashboardState>
-        </div>
-      </div>
-    </section>
-
-    <section
       aria-label="Market Structure"
       class="rounded-xl border"
     >
       <h2 class="border-b px-6 py-3 text-sm font-semibold">
-        市场结构 / Market Structure
+        市场结构 / MARKET STRUCTURE
       </h2>
       <div class="grid grid-cols-2 divide-x">
         <div
@@ -126,13 +76,143 @@ const number = (value: string | undefined) => value && Number.isFinite(Number(va
               {{ entry.market }} · 暂无今日市场结构数据
             </p>
           </DashboardState>
-          <div v-if="entry.trend.data?.features?.lifecycleCounts" class="mt-4 border-t pt-3 text-xs text-muted-foreground">
-            <p class="mb-2">趋势概览 · {{ entry.trend.data.tradeDate }}</p>
+          <div
+            v-if="entry.trend.data?.features?.lifecycleCounts"
+            class="mt-4 border-t pt-3 text-xs text-muted-foreground"
+          >
+            <p class="mb-2">
+              趋势概览 · {{ entry.trend.data.tradeDate }}
+            </p>
             <div class="flex flex-wrap gap-x-4 gap-y-2">
-              <span v-for="(count, stage) in entry.trend.data.features.lifecycleCounts" :key="stage">{{ stage.toUpperCase() }} <strong class="text-foreground">{{ count }}</strong></span>
+              <span
+                v-for="(count, stage) in entry.trend.data.features.lifecycleCounts"
+                :key="stage"
+              >{{ stage.toUpperCase() }} <strong class="text-foreground">{{ count }}</strong></span>
             </div>
-            <p class="mt-2">High Fragility Trends: {{ entry.trend.data.features.highFragilityCount ?? '—' }}</p>
+            <p class="mt-2">
+              High Fragility Trends: {{ entry.trend.data.features.highFragilityCount ?? '—' }}
+            </p>
           </div>
+        </div>
+      </div>
+    </section>
+
+    <section
+      class="overflow-hidden rounded-xl border bg-muted/20"
+      aria-label="Market Regime"
+    >
+      <div class="flex items-center justify-between border-b px-6 py-3">
+        <h2 class="text-xs font-semibold tracking-[0.18em]">
+          市场环境 / MARKET REGIME
+        </h2>
+        <span class="text-xs text-muted-foreground">Trend Following · 最新交易日</span>
+      </div>
+      <div class="grid grid-cols-2 divide-x">
+        <div
+          v-for="entry in markets"
+          :key="entry.market"
+          class="px-7 py-5"
+        >
+          <DashboardState
+            :state="entry.trend"
+            :empty="!entry.trend.data"
+            @retry="entry.trend.refresh"
+          >
+            <div class="mb-4 flex justify-between text-sm">
+              <strong>{{ marketLabel(entry.market) }}</strong><span class="text-xs tabular-nums text-muted-foreground">数据日期 {{ entry.trend.data?.tradeDate }}</span>
+            </div>
+            <div class="flex items-end justify-between gap-4">
+              <div>
+                <p
+                  class="text-3xl font-semibold tracking-tight"
+                  :class="regimeTone(entry.trend.data?.marketRegime)"
+                >
+                  {{ regimeText(entry.trend.data?.marketRegime) }}
+                </p>
+              </div>
+              <div class="text-right">
+                <p class="text-5xl font-light tracking-tight tabular-nums">
+                  {{ formatScore(entry.trend.data?.marketScore, 1) }}
+                </p>
+                <p class="mt-2 text-[10px] tracking-wider text-muted-foreground">
+                  MARKET SCORE / 100
+                </p>
+              </div>
+            </div>
+            <div class="mt-4 flex gap-6 text-xs text-muted-foreground">
+              <span
+                v-for="(label, key) in { trend: '趋势', breadth: '宽度', risk: '风险' }"
+                :key="key"
+              >
+                {{ label }} <strong class="ml-1 text-foreground">{{ formatScore(entry.trend.data?.scoreBreakdown?.[key], 0) }}</strong>
+              </span>
+            </div>
+          </DashboardState>
+        </div>
+      </div>
+    </section>
+
+    <section
+      aria-label="What's Changed"
+      class="rounded-xl bg-muted/25 px-5 py-4"
+    >
+      <div class="flex items-center justify-between gap-3">
+        <h2 class="text-lg font-semibold">
+          策略变化
+        </h2>
+        <div
+          class="flex gap-1"
+          aria-label="策略市场"
+        >
+          <button
+            v-for="market in ['CN', 'US']"
+            :key="market"
+            class="rounded-md px-2.5 py-1 text-xs"
+            :class="strategyMarket === market ? 'bg-foreground text-background' : 'text-muted-foreground hover:bg-muted'"
+            :aria-pressed="strategyMarket === market"
+            @click="strategyMarket = market"
+          >
+            {{ marketLabel(market) }}
+          </button>
+        </div>
+      </div>
+      <p class="mt-1 text-xs text-muted-foreground">
+        WHAT'S CHANGED · 最新交易日与前一交易日对比
+      </p>
+      <div
+        v-for="entry in strategyMarkets"
+        :key="entry.market"
+        class="mt-5 space-y-5"
+      >
+        <div class="border-t pt-4">
+          <RouterLink
+            :to="{ path: '/research/etf-rotation', query: { market: entry.market } }"
+            class="mb-3 flex items-center justify-between text-sm font-semibold"
+          >
+            {{ marketLabel(entry.market) }} · ETF 动量轮动 <ArrowUpRight class="size-4" />
+          </RouterLink>
+          <DashboardState
+            :state="entry.etf"
+            :empty="!entry.etf.data"
+            @retry="entry.etf.refresh"
+          >
+            <StrategyChanges :etf="entry.etf.data" />
+          </DashboardState>
+        </div>
+        <div class="border-t pt-4">
+          <RouterLink
+            :to="{ path: '/research/trend-following', query: { market: entry.market } }"
+            class="mb-3 flex items-center justify-between text-sm font-semibold"
+          >
+            {{ marketLabel(entry.market) }} · 趋势跟踪 <ArrowUpRight class="size-4" />
+          </RouterLink>
+          <DashboardState
+            :state="entry.trend"
+            :empty="!entry.trend.data"
+            @retry="entry.trend.refresh"
+          >
+            <StrategyChanges :trend="entry.trend.data" />
+          </DashboardState>
         </div>
       </div>
     </section>
@@ -200,144 +280,6 @@ const number = (value: string | undefined) => value && Number.isFinite(Number(va
       </section>
 
       <section
-        aria-label="What's Changed"
-        class="rounded-xl bg-muted/25 px-5 py-4"
-      >
-        <div class="flex items-center justify-between gap-3">
-          <h2 class="text-lg font-semibold">
-            策略变化
-          </h2>
-          <div
-            class="flex gap-1"
-            aria-label="策略市场"
-          >
-            <button
-              v-for="market in ['CN', 'US']"
-              :key="market"
-              class="rounded-md px-2.5 py-1 text-xs"
-              :class="strategyMarket === market ? 'bg-foreground text-background' : 'text-muted-foreground hover:bg-muted'"
-              :aria-pressed="strategyMarket === market"
-              @click="strategyMarket = market"
-            >
-              {{ marketLabel(market) }}
-            </button>
-          </div>
-        </div>
-        <p class="mt-1 text-xs text-muted-foreground">
-          WHAT'S CHANGED · 最新交易日与前一交易日对比
-        </p>
-        <div
-          v-for="entry in strategyMarkets"
-          :key="entry.market"
-          class="mt-5 space-y-5"
-        >
-          <div class="border-t pt-4">
-            <RouterLink
-              :to="{ path: '/research/etf-rotation', query: { market: entry.market } }"
-              class="mb-3 flex items-center justify-between text-sm font-semibold"
-            >
-              {{ marketLabel(entry.market) }} · ETF 动量轮动 <ArrowUpRight class="size-4" />
-            </RouterLink>
-            <DashboardState
-              :state="entry.etf"
-              :empty="!entry.etf.data"
-              @retry="entry.etf.refresh"
-            >
-              <StrategyChanges :etf="entry.etf.data" />
-            </DashboardState>
-          </div>
-          <div class="border-t pt-4">
-            <RouterLink
-              :to="{ path: '/research/trend-following', query: { market: entry.market } }"
-              class="mb-3 flex items-center justify-between text-sm font-semibold"
-            >
-              {{ marketLabel(entry.market) }} · 趋势跟踪 <ArrowUpRight class="size-4" />
-            </RouterLink>
-            <DashboardState
-              :state="entry.trend"
-              :empty="!entry.trend.data"
-              @retry="entry.trend.refresh"
-            >
-              <StrategyChanges :trend="entry.trend.data" />
-            </DashboardState>
-          </div>
-        </div>
-      </section>
-
-      <section
-        aria-label="Model Pulse"
-        class="min-w-0 border-t pt-5"
-      >
-        <h2 class="text-lg font-semibold">
-          模型脉搏 <span class="ml-2 text-xs font-normal text-muted-foreground">MODEL PULSE</span>
-        </h2>
-        <div class="mt-4 grid grid-cols-2 divide-x">
-          <div
-            v-for="entry in markets"
-            :key="entry.market"
-            class="pr-5 last:pl-5 last:pr-0"
-          >
-            <RouterLink
-              :to="{ path: '/research/quant', query: { market: entry.market } }"
-              class="flex items-center justify-between text-sm font-semibold"
-            >
-              {{ marketLabel(entry.market) }} · Quant <ArrowUpRight class="size-4" />
-            </RouterLink>
-            <DashboardState
-              :state="entry.signals"
-              :empty="!entry.signals.data?.items.length"
-              @retry="entry.signals.refresh"
-            >
-              <p class="my-3 text-xs text-muted-foreground">
-                {{ entry.signals.data?.tradeDate }} · {{ regimeText(entry.regime.data?.regime) }} · Top 3
-              </p>
-              <RouterLink
-                v-for="(item, index) in entry.signals.data?.items.slice(0, 3)"
-                :key="item.code"
-                :to="{ path: '/research/quant', query: { market: entry.market } }"
-                class="flex items-center gap-3 py-2 text-sm"
-              >
-                <span class="text-xs tabular-nums text-muted-foreground">0{{ index + 1 }}</span><span class="min-w-0 flex-1 truncate font-medium">{{ item.name || item.code }}</span><span class="tabular-nums">{{ formatScore(item.finalScore) }}</span>
-              </RouterLink>
-            </DashboardState>
-          </div>
-        </div>
-        <div class="mt-5 rounded-lg border px-5 py-4">
-          <RouterLink
-            to="/crypto/btc"
-            class="flex items-center gap-2 text-sm font-semibold"
-          >
-            <Bitcoin class="size-4" /> BTCUSDT <span class="ml-auto text-xs font-normal text-muted-foreground">24 / 7</span><ArrowUpRight class="size-4" />
-          </RouterLink>
-          <DashboardState
-            :state="btc"
-            :empty="!btc.data"
-            @retry="btc.refresh"
-          >
-            <div class="mt-4 flex items-end justify-between gap-4">
-              <div>
-                <p class="text-3xl font-semibold tabular-nums">
-                  {{ number(btcPrice) }} <span class="text-xs font-normal text-muted-foreground">USDT</span>
-                </p><p class="mt-2 text-xs text-muted-foreground">
-                  {{ btcDelayed ? '行情更新延迟' : '行情快照 · 每30秒更新' }}
-                </p>
-              </div>
-              <div class="text-right">
-                <p
-                  class="text-xl font-semibold"
-                  :class="regimeTone(btc.data?.strategy?.regime)"
-                >
-                  {{ btc.data?.strategy?.regime ?? '等待数据' }}
-                </p><p class="mt-2 text-xs">
-                  {{ btc.data?.strategy?.setup ?? '—' }} · {{ btc.data?.strategy?.action ?? '—' }} · {{ btc.data?.strategy?.positionState ?? '—' }}
-                </p>
-              </div>
-            </div>
-          </DashboardState>
-        </div>
-      </section>
-
-      <section
         aria-label="What's Next"
         class="border-t pt-5"
       >
@@ -378,5 +320,78 @@ const number = (value: string | undefined) => value && Number.isFinite(Number(va
         </RouterLink>
       </section>
     </div>
+
+    <section
+      aria-label="Model Pulse"
+      class="min-w-0 border-t pt-5"
+    >
+      <h2 class="text-lg font-semibold">
+        模型研究信号 <span class="ml-2 text-xs font-normal text-muted-foreground">MODEL PULSE</span>
+      </h2>
+      <div class="mt-4 grid grid-cols-2 divide-x">
+        <div
+          v-for="entry in markets"
+          :key="entry.market"
+          class="pr-5 last:pl-5 last:pr-0"
+        >
+          <RouterLink
+            :to="{ path: '/research/quant', query: { market: entry.market } }"
+            class="flex items-center justify-between text-sm font-semibold"
+          >
+            {{ marketLabel(entry.market) }} · Quant <ArrowUpRight class="size-4" />
+          </RouterLink>
+          <DashboardState
+            :state="entry.signals"
+            :empty="!entry.signals.data?.items.length"
+            @retry="entry.signals.refresh"
+          >
+            <p class="my-3 text-xs text-muted-foreground">
+              {{ entry.signals.data?.tradeDate }} · Research Signal · Top 3
+            </p>
+            <RouterLink
+              v-for="(item, index) in entry.signals.data?.items.slice(0, 3)"
+              :key="item.code"
+              :to="{ path: '/research/quant', query: { market: entry.market } }"
+              class="flex items-center gap-3 py-2 text-sm"
+            >
+              <span class="text-xs tabular-nums text-muted-foreground">0{{ index + 1 }}</span><span class="min-w-0 flex-1 truncate font-medium">{{ item.name || item.code }}</span><span class="tabular-nums">{{ formatScore(item.finalScore) }}</span>
+            </RouterLink>
+          </DashboardState>
+        </div>
+      </div>
+      <div class="mt-5 rounded-lg border px-5 py-4">
+        <RouterLink
+          to="/crypto/btc"
+          class="flex items-center gap-2 text-sm font-semibold"
+        >
+          <Bitcoin class="size-4" /> BTCUSDT <span class="ml-auto text-xs font-normal text-muted-foreground">24 / 7</span><ArrowUpRight class="size-4" />
+        </RouterLink>
+        <DashboardState
+          :state="btc"
+          :empty="!btc.data"
+          @retry="btc.refresh"
+        >
+          <div class="mt-4 flex items-end justify-between gap-4">
+            <div>
+              <p class="text-3xl font-semibold tabular-nums">
+                {{ number(btcPrice) }} <span class="text-xs font-normal text-muted-foreground">USDT</span>
+              </p><p class="mt-2 text-xs text-muted-foreground">
+                {{ btcDelayed ? '行情更新延迟' : '行情快照 · 每30秒更新' }}
+              </p>
+            </div>
+            <div class="text-right">
+              <p
+                class="text-xl font-semibold"
+                :class="regimeTone(btc.data?.strategy?.regime)"
+              >
+                {{ btc.data?.strategy?.regime ?? '等待数据' }}
+              </p><p class="mt-2 text-xs">
+                {{ btc.data?.strategy?.setup ?? '—' }} · {{ btc.data?.strategy?.action ?? '—' }} · {{ btc.data?.strategy?.positionState ?? '—' }}
+              </p>
+            </div>
+          </div>
+        </DashboardState>
+      </div>
+    </section>
   </div>
 </template>

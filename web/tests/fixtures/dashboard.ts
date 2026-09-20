@@ -16,9 +16,6 @@ export function dashboardResponse(url: URL): object {
       member_count: 800, universe_size: 800, data_coverage: 1, benchmark_code: '510300.SH' },
   };
   if (path === '/api/v1/auth/status') return { loggedIn: true, user: { uid: 1, username: 'Reviewer', role: 'user', extra: {} } };
-  if (path === '/api/v1/quant/market-regime/latest') return {
-    market, trade_date: '2026-09-09', regime: market === 'CN' ? 'risk_on' : 'neutral', market_score: market === 'CN' ? 0.724 : 0.532, max_equity_exposure: market === 'CN' ? 0.7 : 0.5,
-  };
   if (path === '/api/v1/quant/signals/ranking') return {
     market, trade_date: '2026-09-09', items: [name, market === 'CN' ? '北方华创' : 'Broadcom', market === 'CN' ? '立讯精密' : 'Micron'].map((name, i) => ({ code: `${code}-${i}`, name, final_score: 87.4 - i * 3.2 })),
   };
@@ -27,7 +24,9 @@ export function dashboardResponse(url: URL): object {
     changes: { previous_trade_date: '2026-09-08', new_buys: [{ ...change, previousAction: 'HOLD', current: { code: 'ETF1', name: market === 'CN' ? '半导体 ETF' : 'Semiconductor ETF', action: 'BUY' } }], new_exits: [{ ...change, current: { code: 'ETF2', name: market === 'CN' ? '银行 ETF' : 'Bank ETF', action: 'EXIT' } }], rank_movers: [change, change] },
   };
   if (path === '/api/v1/trend-following/ranking') return {
-    market, trade_date: '2026-09-09', market_regime: 'RISK_ON', market_score: 75, items: [],
+    market, trade_date: market === 'CN' ? '2026-09-18' : '2026-09-17',
+    market_regime: market === 'CN' ? 'RISK_ON' : 'NEUTRAL', market_score: market === 'CN' ? 72.4 : 53.2,
+    score_breakdown: market === 'CN' ? { trend: 76, breadth: 71, risk: 68 } : { trend: 56, breadth: 51, risk: 48 }, items: [],
     features: { lifecycle_counts: { IGNITION: 12, EMERGING: 35, EXPANSION: 64, MATURE: 81, EXHAUSTION: 17, BROKEN: 40 }, high_fragility_count: 23 },
     changes: { previous_trade_date: '2026-09-08', transitions: [
       { code, name, previousState: 'CANDIDATE', currentState: 'TRENDING' },
