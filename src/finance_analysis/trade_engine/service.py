@@ -3,9 +3,10 @@
 
 from __future__ import annotations
 
+import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from copy import deepcopy
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any
 
@@ -13,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from ..core.time import utc_now  # pragma: allowlist secret
 from ..database.repositories.holdings import HoldingsRepository  # pragma: allowlist secret
-from ..database.repositories.portfolio import PortfolioRepository, _dec  # pragma: allowlist secret
+from ..database.repositories.portfolio import PortfolioRepository  # pragma: allowlist secret
 from ..database.repositories.trade_engine import TradeEngineRepository  # pragma: allowlist secret
 from ..database.session import DatabaseManager  # pragma: allowlist secret
 from ..notification.service import NotificationService  # pragma: allowlist secret
@@ -25,6 +26,10 @@ from .notify import push_after_commit, render_trade_message, render_warning_mess
 from .position_risk import compute_position_risk  # pragma: allowlist secret
 from .registry import portfolio_strategies, position_strategies, strategies_for  # pragma: allowlist secret
 from .resolver import TradeDecisionResolver, serialize_proposal  # pragma: allowlist secret
+from .strategies.exit_v1 import EXIT_REVIEW_COOLDOWN  # pragma: allowlist secret
+from .valuation import build_market_portfolio_context  # pragma: allowlist secret
+
+logger = logging.getLogger(__name__)
 
 
 def _empty_stats(market: str, **extra: Any) -> dict[str, Any]:
@@ -32,6 +37,7 @@ def _empty_stats(market: str, **extra: Any) -> dict[str, Any]:
         "status": "OK",
         "market": market,
         "positions_analyzed": 0,
+        "valuation_positions": 0,
         "candidates": 0,
         "proposals": 0,
         "llm_reviews": 0,
@@ -40,15 +46,46 @@ def _empty_stats(market: str, **extra: Any) -> dict[str, Any]:
         "resolved_no_action": 0,
         "warnings": 0,
         "notifications": 0,
+        "strategy_errors": [],
+        "strategy_error_count": 0,
+        "valuation_complete": True,
         "elapsed_ms": 0,
     }
     payload.update(extra)
     return payload
 
 
-def _run_strategy(strategy, context: PositionContext) -> tuple[str, str, list[StrategyProposal], dict[str, Any]]:
-    produced = [item for item in strategy.evaluate(context) if item.action in TRADE_ACTIONS]
-    return strategy.key, strategy.version, produced, context.strategy_state
+def _parse_dt(value: Any) -> datetime | None:
+    if value is None or value == "":
+        return None
+    if isinstance(value, datetime):
+        parsed = value
+    else:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
+def _run_strategy(strategy, context: PositionContext) -> dict[str, Any]:
+    try:
+        produced = [item for item in strategy.evaluate(context) if item.action in TRADE_ACTIONS]
+        return {
+            "key": strategy.key,
+            "version": strategy.version,
+            "proposals": produced,
+            "state": context.strategy_state,
+            "error_type": None,
+        }
+    except Exception as exc:
+        logger.exception("trade_engine strategy failed strategy=%s symbol=%s", strategy.key, context.symbol)
+        return {
+            "key": strategy.key,
+            "version": strategy.version,
+            "proposals": [],
+            "state": context.strategy_state,
+            "error_type": type(exc).__name__,
+        }
 
 
 class TradeEngineService:
@@ -90,11 +127,13 @@ class TradeEngineService:
         uids = [uid] if uid is not None else self._active_uids(market)
         totals = _empty_stats(market)
         users = 0
+        error_rows: list[dict[str, str]] = []
         for user in uids:
             result = self.evaluate_uid(user, market=market, now=current)
             users += 1
             for key in (
                 "positions_analyzed",
+                "valuation_positions",
                 "candidates",
                 "proposals",
                 "llm_reviews",
@@ -103,19 +142,24 @@ class TradeEngineService:
                 "resolved_no_action",
                 "warnings",
                 "notifications",
+                "strategy_error_count",
             ):
                 totals[key] += int(result.get(key) or 0)
+            error_rows.extend(result.get("strategy_errors") or [])
+            if result.get("valuation_complete") is False:
+                totals["valuation_complete"] = False
         totals["users"] = users
         totals["evaluated"] = users
+        totals["strategy_errors"] = error_rows
         return totals
 
     def evaluate_uid(self, uid: int, *, market: str, now: datetime | None = None) -> dict[str, Any]:
         current = now or utc_now()
         portfolio = self.resolver.get_resolved_portfolio(uid, market=market)
-        eligible = list(portfolio.stock_positions(market))
-        if not eligible:
+        valuation_positions = list(portfolio.valuation_positions(market))
+        if not valuation_positions:
             return _empty_stats(market, uid=uid)
-        symbols = list(dict.fromkeys(item.symbol for item in eligible))
+        symbols = list(dict.fromkeys(item.symbol for item in valuation_positions))
         quotes = self.market.quotes(symbols, now=current)
         policy = get_risk_policy()
         source = self.sources.get_for_uid(uid)
@@ -123,24 +167,27 @@ class TradeEngineService:
             policy = policy.merge(source.risk_policy)
         start = (current - timedelta(days=policy.daily_lookback_days)).date()
         daily = self.market.daily_bars(symbols, start=start, end=current.date(), now=current)
-        cash = sum((_dec(item.cash) for item in portfolio.accounts if item.market == market), start=Decimal("0"))
-        nav_value = cash
-        for position in eligible:
-            quote = quotes.get(position.symbol)
-            if quote is not None and quote.valid and not quote.stale:
-                nav_value += position.quantity * quote.price
+        book = build_market_portfolio_context(portfolio, market=market, quotes=quotes, daily=daily)
+        if not book.valuation_complete:
+            logger.warning(
+                "trade_engine valuation incomplete market=%s uid=%s missing=%s",
+                market,
+                uid,
+                ",".join(book.incomplete_symbols),
+            )
 
         def write(session: Session):
             next_states: dict[tuple[str, str, str], dict[str, Any]] = {}
             used_versions: dict[str, str] = {}
             contexts: dict[str, PositionContext] = {}
             proposals: list[StrategyProposal] = []
-            risk_states: dict[str, dict[str, Any]] = {}
+            risk_map = {}
+            strategy_errors: list[dict[str, str]] = []
             strats = list(self._position_strategy_loader(market))
             portfolio_strats = list(self._portfolio_strategy_loader(market))
             for item in list(strats) + list(portfolio_strats):
                 used_versions[item.key] = item.version
-            for position in eligible:
+            for position in book.positions:
                 exit_row = self.states.get_state(
                     session,
                     uid=uid,
@@ -151,10 +198,11 @@ class TradeEngineService:
                 exit_state = deepcopy(exit_row.state) if exit_row is not None and isinstance(exit_row.state, dict) else {}
                 bars = daily.get(position.symbol, [])
                 quote = quotes.get(position.symbol)
-                price = quote.price if quote is not None and quote.valid else (bars[-1].close if bars else Decimal("0"))
                 risk, _lots = compute_position_risk(position, bars, exit_state, policy)
-                risk_states[position.position_id] = risk.dump
-                position_value = position.quantity * price
+                risk_map[position.position_id] = risk
+                if not position.trade_engine_eligible:
+                    continue
+                position_value = book.market_values.get(position.position_id, Decimal("0"))
                 pending_jobs = []
                 for strategy in strats:
                     row = self.states.get_state(
@@ -175,9 +223,11 @@ class TradeEngineService:
                         risk=risk,
                         now=current,
                         policy=policy,
-                        cash=cash,
-                        market_nav=nav_value,
+                        cash=book.cash,
+                        market_nav=book.nav or Decimal("0"),
                         position_value=position_value,
+                        valuation_source=book.valuation_sources.get(position.position_id),
+                        valuation_complete=book.valuation_complete,
                     )
                     pending_jobs.append((strategy, ctx))
                 produced_here: list[StrategyProposal] = []
@@ -186,10 +236,20 @@ class TradeEngineService:
                     with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="te-strat") as pool:
                         futures = [pool.submit(_run_strategy, strategy, ctx) for strategy, ctx in pending_jobs]
                         for future in as_completed(futures):
-                            key, version, produced, state = future.result()
-                            used_versions[key] = version
-                            next_states[(position.account_id, position.position_id, key)] = state
-                            produced_here.extend(produced)
+                            payload = future.result()
+                            key = payload["key"]
+                            used_versions[key] = payload["version"]
+                            if payload["error_type"]:
+                                strategy_errors.append(
+                                    {
+                                        "symbol": position.symbol,
+                                        "strategy": key,
+                                        "error_type": payload["error_type"],
+                                    }
+                                )
+                                continue
+                            next_states[(position.account_id, position.position_id, key)] = payload["state"]
+                            produced_here.extend(payload["proposals"])
                 contexts[position.position_id] = pending_jobs[0][1] if pending_jobs else PositionContext(
                     market=position.market,
                     symbol=position.symbol,
@@ -199,9 +259,11 @@ class TradeEngineService:
                     risk=risk,
                     now=current,
                     policy=policy,
-                    cash=cash,
-                    market_nav=nav_value,
+                    cash=book.cash,
+                    market_nav=book.nav or Decimal("0"),
                     position_value=position_value,
+                    valuation_source=book.valuation_sources.get(position.position_id),
+                    valuation_complete=book.valuation_complete,
                 )
                 proposals.extend(sorted(produced_here, key=lambda item: item.strategy_key))
 
@@ -217,11 +279,8 @@ class TradeEngineService:
                 portfolio_state = deepcopy(row.state) if row is not None and isinstance(row.state, dict) else {}
                 warnings.extend(
                     strategy.evaluate_portfolio(
-                        eligible,
-                        quotes,
-                        risk_states,
-                        cash=cash,
-                        market=market,
+                        book,
+                        risk_map,
                         now=current,
                         policy=policy,
                         strategy_state=portfolio_state,
@@ -237,6 +296,8 @@ class TradeEngineService:
                 )
                 resolved = set(state.get("resolved_proposal_keys") or [])
                 if item.proposal_key in resolved:
+                    continue
+                if self._exit_cooling(item, state, current):
                     continue
                 if self.states.has_signal(session, uid=uid, signal_key=item.proposal_key):
                     resolved.add(item.proposal_key)
@@ -261,9 +322,7 @@ class TradeEngineService:
                     state = next_states.setdefault(
                         (item.account_id or "", item.position_id or "", item.strategy_key), {}
                     )
-                    keys = set(state.get("resolved_proposal_keys") or [])
-                    keys.add(item.proposal_key)
-                    state["resolved_proposal_keys"] = sorted(keys)
+                    self._remember_review(item, state, current, decision.action)
                 if decision.action == "NO_ACTION":
                     resolved_no_action += 1
                     continue
@@ -338,7 +397,8 @@ class TradeEngineService:
             return {
                 **_empty_stats(market),
                 "uid": uid,
-                "positions_analyzed": len(eligible),
+                "positions_analyzed": len(book.strategy_positions),
+                "valuation_positions": len(book.positions),
                 "candidates": len(trade_proposals),
                 "proposals": len(trade_proposals),
                 "llm_reviews": llm_reviews,
@@ -346,6 +406,15 @@ class TradeEngineService:
                 "resolved_no_action": resolved_no_action,
                 "warnings": len(warning_created),
                 "notifications": len(pushes),
+                "strategy_errors": strategy_errors,
+                "strategy_error_count": len(strategy_errors),
+                "valuation_complete": book.valuation_complete,
+                "valuation_source": {
+                    position.position_id: book.valuation_sources.get(position.position_id)
+                    for position in book.positions
+                },
+                "nav": None if book.nav is None else format(book.nav, "f"),
+                "cash": format(book.cash, "f"),
                 "pushes": pushes,
                 "symbols": symbols,
             }
@@ -441,6 +510,25 @@ class TradeEngineService:
         return sorted(uids)
 
     @staticmethod
+    def _exit_cooling(item: StrategyProposal, state: dict[str, Any], now: datetime) -> bool:
+        if item.strategy_key != "exit_v1":
+            return False
+        if state.get("exit_review_key") != item.proposal_key:
+            return False
+        reviewed = _parse_dt(state.get("exit_review_at"))
+        return reviewed is not None and now - reviewed < EXIT_REVIEW_COOLDOWN
+
+    @staticmethod
+    def _remember_review(item: StrategyProposal, state: dict[str, Any], now: datetime, action: str) -> None:
+        if item.strategy_key == "exit_v1" and action == "NO_ACTION":
+            state["exit_review_at"] = now.isoformat()
+            state["exit_review_key"] = item.proposal_key
+            return
+        keys = set(state.get("resolved_proposal_keys") or [])
+        keys.add(item.proposal_key)
+        state["resolved_proposal_keys"] = sorted(keys)
+
+    @staticmethod
     def _extras(proposals: list[StrategyProposal], context: PositionContext | None) -> dict[str, Any]:
         extras: dict[str, Any] = {"proposals": [serialize_proposal(item) for item in proposals]}
         if context is None:
@@ -458,6 +546,8 @@ class TradeEngineService:
                 "had_addon": position.had_addon,
                 "cash": format(context.cash, "f"),
                 "market_nav": format(context.market_nav, "f"),
+                "valuation_complete": context.valuation_complete,
+                "valuation_source": context.valuation_source,
             }
         )
         return extras

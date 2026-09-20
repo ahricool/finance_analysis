@@ -188,6 +188,17 @@ def existing_position_risk(lots: Sequence[ResolvedLot], lot_state: dict[str, dic
     return total
 
 
+def open_position_risk(risk: PositionRisk, price: Decimal) -> Decimal:
+    """Per-lot open risk. CORE and ADDON stops are never collapsed to one max stop."""
+
+    total = Decimal("0")
+    for lot in risk.lots:
+        if lot.active_stop is None:
+            continue
+        total += lot.quantity * max(price - lot.active_stop, Decimal("0"))
+    return total
+
+
 def compute_position_risk(
     position: ResolvedPosition,
     bars: Sequence[DailyBar],

@@ -3,11 +3,12 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from decimal import ROUND_DOWN, Decimal
 from statistics import median
 from typing import Sequence
 
+from ..market_review.trading_calendar import get_completed_trading_days  # pragma: allowlist secret
 from .models import DailyBar  # pragma: allowlist secret
 
 
@@ -72,6 +73,17 @@ def last_complete_date(bars: Sequence[DailyBar]) -> date | None:
     if not bars:
         return None
     return bars[-1].trade_date
+
+
+def latest_completed_trading_day(market: str, now: datetime) -> date | None:
+    days = get_completed_trading_days(market.lower(), 1, current_time=now)
+    return days[-1] if days else None
+
+
+def completed_daily_bars(bars: Sequence[DailyBar], cutoff: date | None) -> list[DailyBar]:
+    if cutoff is None:
+        return []
+    return [bar for bar in bars if bar.trade_date <= cutoff]
 
 
 def legalize_quantity(quantity: Decimal, market: str) -> Decimal:

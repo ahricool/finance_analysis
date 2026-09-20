@@ -7,7 +7,7 @@
 ## 数据模型
 
 - `portfolio_account`：每个市场一个默认账户（A股账户/CN、美股账户/US）。不存 currency，货币由 `market` 推断。CN 与 US 的 cash / NAV / 仓位 / 风险必须分开计算，禁止混合。
-- `portfolio_position`：当前实际持仓。V1 只支持 STOCK/ETF，数量单位是股（NUMERIC，兼容碎股），canonical symbol 如 `600519.SH` / `AAPL.US`。`trade_engine_enabled` 默认 true；关闭后该持仓不进入 quotes / daily / strategy / LLM。
+- `portfolio_position`：当前实际持仓。V1 只支持 STOCK/ETF，数量单位是股（NUMERIC，兼容碎股），canonical symbol 如 `600519.SH` / `AAPL.US`。`trade_engine_enabled` 默认 true；关闭后该持仓不进入 Strategy / LLM，但仍计入账户 NAV、仓位和风险。
 - `position_lot`：CORE/ADDON 风险归因，不是税务 lot。第一次买入建 CORE，继续买入建 ADDON，卖出 newest ADDON → older ADDON → CORE。只要本轮 position 曾经有过 ADDON（即使 remaining=0），`add_v1` 视为已经加仓过。
 - `trade_operation`：BUY/SELL 操作记录。日K BST 由此动态聚合，不另建 BST 表。
 - `cash_operation`：DEPOSIT/WITHDRAW。买入/卖出的现金变化由 trade_operation 解释，不复制成 cash_operation。
@@ -70,7 +70,12 @@ Portfolio Risk
 直接通知
 ```
 
-Universe 是 `PortfolioResolver.stock_positions()`：普通股票/ETF、数量>0，且 `trade_engine_enabled=true`。过滤发生在 quotes / daily / strategy / LLM 之前。
+Universe 分成两层：
+
+- Account Valuation Universe：`ResolvedPortfolio.valuation_positions()`，当前市场全部 `quantity > 0` 的 STOCK/ETF，无论 `trade_engine_enabled`。参与 NAV、gross exposure、symbol weight、risk budget 和 Portfolio Warning。
+- Strategy Universe：`ResolvedPortfolio.trade_engine_positions()`，仅 `trade_engine_enabled=true`。只对这些持仓运行 `exit_v1` / `add_v1` / 未来 entry 和 LLM Resolver。
+
+Trade Engine 现金只取 DB `portfolio_account`；Google cash 不进入 NAV。报价优先级是有效 realtime quote → 已完成日线收盘价（`DAILY_FALLBACK`）→ unavailable。任一实际持仓估值 unavailable 时账户 valuation incomplete，不产生依赖错误 NAV 的 warning 或 ADD sizing。
 
 当前注册的 Position Strategies：
 
@@ -120,7 +125,11 @@ Strategy 内部可以判断 HOLD/WATCH，但对引擎外部等价于无交易信
 
 ### Portfolio Warning
 
-`portfolio_risk_v1` 不是 Strategy Proposal。按当前 market/account 独立计算 max_symbol_weight、risk_per_symbol、max_gross_exposure、total_open_risk。直接通知，不交给 LLM。首次超限通知，持续超限不重复，恢复后 clear，再次超限使用新 episode key 再次通知。
+`portfolio_risk_v1` 不是 Strategy Proposal。按当前 market 独立计算 max_symbol_weight、risk_per_symbol、max_gross_exposure、total_open_risk。计划风险按每个 lot 的 `qty * max(price - active_stop, 0)` 加总，不得把整个 position 压成最高 stop。直接通知，不交给 LLM。首次超限通知，持续超限不重复，恢复后 clear，再次超限使用新 episode key 再次通知。
+
+日线只保留 `trade_date <= latest_completed_trading_day(market, now)`。盘中远端 daily 不得进入 `add_v1` 或 position_risk watermark。Quote 只用于检查已经形成的 active stop。
+
+`exit_v1` 在 LLM `NO_ACTION` 后使用 30 分钟 cooldown，同一保护条件可以再次进入 Resolver；`add_v1` 同一根完整日线 Setup 只 resolve 一次。单个 Strategy 异常记入 `strategy_errors`，不拖死同持仓其它 Strategy。
 
 ## 调度
 

@@ -13,6 +13,7 @@ from ..portfolio.models import ResolvedPosition  # pragma: allowlist secret
 TradeAction = Literal["BUY", "ADD", "REDUCE", "EXIT"]
 FinalAction = Literal["BUY", "ADD", "REDUCE", "EXIT", "NO_ACTION"]
 TRADE_ACTIONS = frozenset({"BUY", "ADD", "REDUCE", "EXIT"})
+ValuationSource = Literal["QUOTE", "DAILY_FALLBACK", "UNAVAILABLE"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,6 +55,22 @@ class PositionRisk:
     dump: dict[str, Any] = field(default_factory=dict)
 
 
+@dataclass(frozen=True, slots=True)
+class MarketPortfolioContext:
+    """One market's account valuation. Shared by add_v1 and portfolio_risk_v1."""
+
+    market: str
+    cash: Decimal
+    positions: tuple[ResolvedPosition, ...]
+    strategy_positions: tuple[ResolvedPosition, ...]
+    valuation_prices: dict[str, Decimal]
+    valuation_sources: dict[str, ValuationSource]
+    market_values: dict[str, Decimal]
+    nav: Decimal | None
+    valuation_complete: bool
+    incomplete_symbols: tuple[str, ...] = ()
+
+
 @dataclass
 class PositionContext:
     """Per-holding analysis input. Never contains full-market breadth or scanners."""
@@ -70,6 +87,8 @@ class PositionContext:
     cash: Decimal = Decimal("0")
     market_nav: Decimal = Decimal("0")
     position_value: Decimal = Decimal("0")
+    valuation_source: ValuationSource | None = None
+    valuation_complete: bool = True
 
     @property
     def lots(self):

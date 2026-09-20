@@ -15,6 +15,7 @@ from ..position_risk import compute_position_risk, position_stage, position_stop
 KEY = "exit_v1"
 VERSION = "1"
 QUOTE_FUTURE_SKEW = timedelta(seconds=5)
+EXIT_REVIEW_COOLDOWN = timedelta(minutes=30)
 
 
 def _dec(value: Any) -> Decimal | None:
@@ -97,7 +98,6 @@ class ExitV1:
         action = _action_for(target, current_qty)
         episode = int(state.get("stop_episode") or 0)
         active = bool(state.get("stop_episode_active"))
-        last_key = state.get("last_proposal_key")
         proposals: list[StrategyProposal] = []
         if action is None:
             state["stop_episode_active"] = False
@@ -106,7 +106,13 @@ class ExitV1:
                 episode += 1
             proposal_key = f"exit_v1:{position.position_id}:{episode}:{action}:{format(target, 'f')}"
             resolved = set(state.get("resolved_proposal_keys") or [])
-            if proposal_key not in resolved and proposal_key != last_key:
+            last_review = _dt(state.get("exit_review_at"))
+            cooling = (
+                state.get("exit_review_key") == proposal_key
+                and last_review is not None
+                and now - last_review < EXIT_REVIEW_COOLDOWN
+            )
+            if proposal_key not in resolved and not cooling:
                 evidence = {
                     "rule_version": policy.rule_version,
                     "quote_status": quote_status,

@@ -191,7 +191,7 @@ Alembic：
 
 ## Holdings / Trade Engine
 
-`portfolio/` 是 STOCK/ETF 真实持仓权威来源；`holdings/` 只读 Google Sheet 次级来源。`trade_engine/` 是中线持仓分析器，不是全市场 Scanner，也不是日内交易系统。Universe 为 `PortfolioResolver.stock_positions()`，并在拉行情前排除 `trade_engine_enabled=false` 的 DB 持仓。适用 Position Strategy（当前 `exit_v1`、`add_v1`）并行运行，互不读取对方 Proposal。正式动作只有 BUY/ADD/REDUCE/EXIT；HOLD/WATCH 等于无信号。有 Proposal 时一次 LLM Resolver + Web Search 给出最终 BUY/ADD/REDUCE/EXIT/NO_ACTION。`portfolio_risk_v1` 是按市场隔离的账户 Warning，直接通知，不进 LLM。详见 `docs/holdings-portfolio-risk.md`。
+`portfolio/` 是 STOCK/ETF 真实持仓权威来源；`holdings/` 只读 Google Sheet 次级来源。`trade_engine/` 是中线持仓分析器，不是全市场 Scanner，也不是日内交易系统。账户估值使用全部实际 STOCK/ETF 持仓；`trade_engine_enabled=false` 只退出 Strategy / LLM，不退出 NAV。适用 Position Strategy（当前 `exit_v1`、`add_v1`）并行运行，互不读取对方 Proposal。正式动作只有 BUY/ADD/REDUCE/EXIT；HOLD/WATCH 等于无信号。有 Proposal 时一次 LLM Resolver + Web Search 给出最终 BUY/ADD/REDUCE/EXIT/NO_ACTION。`portfolio_risk_v1` 是按市场隔离的账户 Warning，直接通知，不进 LLM。详见 `docs/holdings-portfolio-risk.md`。
 
 ## 实时行情 Streamer
 

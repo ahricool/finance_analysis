@@ -132,7 +132,7 @@ def test_all_lots_stopped_emit_exit():
     assert signals[0].suggested_target_quantity == Decimal("0")
 
 
-def test_same_stop_episode_does_not_repeat_proposal():
+def test_same_stop_episode_cools_down_then_reviews_again():
     now = datetime(2026, 9, 16, 10, 0, tzinfo=SH)
     position = _position(addon_qty=None)
     first, state = _run(
@@ -142,7 +142,40 @@ def test_same_stop_episode_does_not_repeat_proposal():
         now=now,
     )
     assert first[0].action == "EXIT"
+    state["exit_review_at"] = now.isoformat()
+    state["exit_review_key"] = first[0].proposal_key
     later = now + timedelta(minutes=5)
+    again, _ = _run(
+        position,
+        quote=QuoteView(price=Decimal("95"), quote_as_of=later, valid=True),
+        bars=_bars([100] * 20),
+        state=state,
+        now=later,
+    )
+    assert again == []
+    reopened = now + timedelta(minutes=31)
+    third, _ = _run(
+        position,
+        quote=QuoteView(price=Decimal("95"), quote_as_of=reopened, valid=True),
+        bars=_bars([100] * 20),
+        state=state,
+        now=reopened,
+    )
+    assert len(third) == 1
+    assert third[0].proposal_key == first[0].proposal_key
+
+
+def test_confirmed_exit_episode_stays_resolved():
+    now = datetime(2026, 9, 16, 10, 0, tzinfo=SH)
+    position = _position(addon_qty=None)
+    first, state = _run(
+        position,
+        quote=QuoteView(price=Decimal("95"), quote_as_of=now, valid=True),
+        bars=_bars([100] * 20),
+        now=now,
+    )
+    state["resolved_proposal_keys"] = [first[0].proposal_key]
+    later = now + timedelta(minutes=31)
     again, _ = _run(
         position,
         quote=QuoteView(price=Decimal("95"), quote_as_of=later, valid=True),

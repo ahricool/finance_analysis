@@ -38,6 +38,8 @@ class AddV1:
         now = context.now or utc_now()
         state = context.strategy_state
         bars = list(context.daily_bars or ())
+        if not context.valuation_complete or context.market_nav <= 0:
+            return []
         if position.source != "DB":
             return []
         if position.quantity <= 0 or position.asset_type.upper() not in {"STOCK", "ETF"}:

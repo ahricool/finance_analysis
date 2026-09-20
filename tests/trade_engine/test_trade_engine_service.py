@@ -179,10 +179,12 @@ def _position(symbol="AAPL.US", position_id="11", quantity="1000", *, enabled=Tr
     )
 
 
-def _portfolio(*positions, cash="1000000", market="US"):
+def _portfolio(*positions, cash="1000000", market="US", accounts=None):
+    if accounts is None:
+        accounts = (ResolvedAccount("DB", 1, "1", market, market, Decimal(cash), "USD" if market == "US" else "CNY"),)
     return ResolvedPortfolio(
         uid=1,
-        accounts=(ResolvedAccount("DB", 1, "1", market, market, Decimal(cash), "USD" if market == "US" else "CNY"),),
+        accounts=accounts,
         positions=positions,
     )
 
@@ -324,7 +326,7 @@ def test_warning_rearm_uses_new_unique_key():
     assert new_keys
 
 
-def test_disabled_position_is_filtered_before_quotes():
+def test_disabled_position_stays_in_nav_but_skips_strategies():
     market = FakeMarket()
     market.quotes_map = {
         "AAPL.US": QuoteView(Decimal("200"), NOW, True),
@@ -332,15 +334,23 @@ def test_disabled_position_is_filtered_before_quotes():
     }
     spy = Spy(HoldExit())
     service = _service(
-        _portfolio(_position("AAPL.US", "11", enabled=True), _position("NVDA.US", "12", "50", enabled=False)),
+        _portfolio(
+            _position("AAPL.US", "11", "2500", enabled=False),
+            _position("NVDA.US", "12", "5000", enabled=True),
+            cash="0",
+        ),
         market=market,
         strats=[spy],
     )
     result = service.evaluate_uid(1, market="US", now=NOW)
-    assert market.quote_calls == [["AAPL.US"]]
-    assert market.daily_calls == [["AAPL.US"]]
+    assert market.quote_calls == [["AAPL.US", "NVDA.US"]]
+    assert market.daily_calls == [["AAPL.US", "NVDA.US"]]
     assert spy.calls == 1
+    assert spy.inner is not None
     assert result["positions_analyzed"] == 1
+    assert result["valuation_positions"] == 2
+    assert Decimal(result["nav"]) == Decimal("1000000")
+    assert Decimal(result["cash"]) == Decimal("0")
 
 
 def test_empty_portfolio_skips_market_and_llm():
@@ -364,3 +374,199 @@ def test_daily_add_proposal_is_resolved_once():
     second = service.evaluate_uid(1, market="US", now=LATER)
     assert second["llm_reviews"] == 0
     assert len(resolver.calls) == 1
+
+
+class BoomAdd(AddV1):
+    def evaluate(self, context):
+        raise RuntimeError("add failed")
+
+
+class BoomExit(ExitV1):
+    def evaluate(self, context):
+        raise RuntimeError("exit failed")
+
+
+class Recording:
+    def __init__(self, inner):
+        self.inner = inner
+        self.key = inner.key
+        self.version = inner.version
+        self.bars = []
+        self.cash = None
+        self.nav = None
+        self.calls = 0
+
+    def evaluate(self, context):
+        self.calls += 1
+        self.bars.append(list(context.daily_bars))
+        self.cash = context.cash
+        self.nav = context.market_nav
+        return self.inner.evaluate(context)
+
+
+def test_google_cash_is_not_added_to_trade_engine_nav():
+    market = FakeMarket()
+    market.quotes_map = {"AAPL.US": QuoteView(Decimal("200"), NOW, True)}
+    recorder = Recording(HoldExit())
+    accounts = (
+        ResolvedAccount("DB", 1, "1", "US", "US", Decimal("100000"), "USD"),
+        ResolvedAccount("GOOGLE", 1, "g1", "IB", "US", Decimal("100000"), "USD"),
+    )
+    service = _service(
+        _portfolio(_position(), accounts=accounts),
+        market=market,
+        strats=[recorder],
+    )
+    result = service.evaluate_uid(1, market="US", now=NOW)
+    assert Decimal(result["cash"]) == Decimal("100000")
+    assert recorder.cash == Decimal("100000")
+    assert Decimal(result["nav"]) == Decimal("100000") + Decimal("200000")
+
+
+def test_missing_quote_uses_daily_close_for_nav():
+    market = FakeMarket()
+    from datetime import date
+
+    from finance_analysis.trade_engine.models import DailyBar  # pragma: allowlist secret
+
+    market.daily_map = {
+        "AAPL.US": [DailyBar(date(2026, 9, 18), Decimal("40"), Decimal("41"), Decimal("39"), Decimal("40"), 10)]
+    }
+    service = _service(_portfolio(_position(quantity="1000"), cash="0"), market=market, strats=[HoldExit()])
+    result = service.evaluate_uid(1, market="US", now=NOW)
+    assert result["valuation_complete"] is True
+    assert result["valuation_source"]["11"] == "DAILY_FALLBACK"
+    assert Decimal(result["nav"]) == Decimal("40000")
+
+
+def test_incomplete_valuation_skips_nav_warnings():
+    market = FakeMarket()
+    market.quotes_map = {"AAPL.US": QuoteView(Decimal("200"), NOW, True)}
+    service = _service(
+        _portfolio(
+            _position("AAPL.US", "11", "10000"),
+            _position("NVDA.US", "12", "10"),
+            cash="0",
+        ),
+        market=market,
+        strats=[HoldExit()],
+        portfolio_strats=[PortfolioRiskV1()],
+    )
+    result = service.evaluate_uid(1, market="US", now=NOW)
+    assert result["valuation_complete"] is False
+    assert result["warnings"] == 0
+    assert result["nav"] is None
+
+
+def test_strategy_exception_does_not_drop_sibling_proposal():
+    market = FakeMarket()
+    market.quotes_map = {"AAPL.US": QuoteView(Decimal("200"), NOW, True)}
+    resolver = ScriptedResolver("REDUCE", "700")
+    service = _service(
+        _portfolio(_position()),
+        resolver=resolver,
+        market=market,
+        strats=[ReduceExit(), BoomAdd()],
+    )
+    result = service.evaluate_uid(1, market="US", now=NOW)
+    assert result["strategy_error_count"] == 1
+    assert result["strategy_errors"] == [{"symbol": "AAPL.US", "strategy": "add_v1", "error_type": "RuntimeError"}]
+    assert result["status"] == "OK"
+    assert result["llm_reviews"] == 1
+    assert resolver.calls[0][0].action == "REDUCE"
+    assert result["confirmed_signals"] == 1
+
+
+def test_exit_exception_keeps_add_proposal():
+    market = FakeMarket()
+    market.quotes_map = {"AAPL.US": QuoteView(Decimal("200"), NOW, True)}
+    resolver = ScriptedResolver("ADD", "1200", quantity="200")
+    service = _service(
+        _portfolio(_position()),
+        resolver=resolver,
+        market=market,
+        strats=[BoomExit(), AddOnly()],
+    )
+    result = service.evaluate_uid(1, market="US", now=NOW)
+    assert result["strategy_error_count"] == 1
+    assert result["strategy_errors"][0]["strategy"] == "exit_v1"
+    assert resolver.calls[0][0].action == "ADD"
+    assert result["confirmed_signals"] == 1
+
+
+def test_exit_no_action_is_not_permanently_silenced():
+    market = FakeMarket()
+    market.quotes_map = {"AAPL.US": QuoteView(Decimal("200"), NOW, True)}
+    resolver = ScriptedResolver("NO_ACTION", None, reason="观望")
+    service = _service(_portfolio(_position()), resolver=resolver, market=market, strats=[ReduceExit()])
+    first = service.evaluate_uid(1, market="US", now=NOW)
+    assert first["resolved_no_action"] == 1
+    cooled = service.evaluate_uid(1, market="US", now=LATER)
+    assert cooled["llm_reviews"] == 0
+    later = datetime(2026, 9, 16, 14, 31, tzinfo=timezone.utc)
+    third = service.evaluate_uid(1, market="US", now=later)
+    assert third["llm_reviews"] == 1
+    assert len(resolver.calls) == 2
+
+
+def test_add_no_action_stays_resolved_for_same_daily_setup():
+    market = FakeMarket()
+    market.quotes_map = {"AAPL.US": QuoteView(Decimal("200"), NOW, True)}
+    resolver = ScriptedResolver("NO_ACTION", None, reason="观望")
+    service = _service(_portfolio(_position()), resolver=resolver, market=market, strats=[AddOnly()])
+    first = service.evaluate_uid(1, market="US", now=NOW)
+    later = datetime(2026, 9, 16, 14, 31, tzinfo=timezone.utc)
+    second = service.evaluate_uid(1, market="US", now=later)
+    assert first["llm_reviews"] == 1
+    assert second["llm_reviews"] == 0
+    assert len(resolver.calls) == 1
+
+
+def test_completed_daily_cutoff_reaches_add_and_exit(monkeypatch):
+    from datetime import date
+
+    from finance_analysis.integrations.market_data.models import Adjustment, BatchBarResult, Market, MarketBar  # pragma: allowlist secret
+    from finance_analysis.trade_engine.market import RiskMarketGateway  # pragma: allowlist secret
+
+    class DailySource:
+        def get_realtime_quotes(self, symbols, providers=None):
+            return type("R", (), {"data": {}})()
+
+        def get_daily_bars(self, symbols, start, end, **kwargs):
+            result = BatchBarResult()
+            for symbol in symbols:
+                result.data[symbol] = [
+                    MarketBar(
+                        symbol=symbol,
+                        market=Market.US,
+                        interval="1d",
+                        trade_date=day,
+                        bar_time=datetime(day.year, day.month, day.day, tzinfo=timezone.utc),
+                        open=10,
+                        high=11,
+                        low=9,
+                        close=10,
+                        volume=100,
+                        amount=None,
+                        currency="USD",
+                        adjustment=Adjustment.FORWARD,
+                        provider="db",
+                    )
+                    for day in (date(2026, 9, 18), date(2026, 9, 21))
+                ]
+            return result
+
+    monkeypatch.setattr(
+        "finance_analysis.trade_engine.market.latest_completed_trading_day",  # pragma: allowlist secret
+        lambda market, now: date(2026, 9, 18),
+    )
+    recorder = Recording(HoldExit())
+    service = _service(
+        _portfolio(_position()),
+        market=RiskMarketGateway(market_data=DailySource()),
+        strats=[recorder],
+    )
+    service.evaluate_uid(1, market="US", now=NOW)
+    assert recorder.bars
+    assert recorder.bars[0][-1].trade_date == date(2026, 9, 18)
+    assert [bar.trade_date for bar in recorder.bars[0]] == [date(2026, 9, 18)]

@@ -186,3 +186,24 @@ def test_same_daily_bar_does_not_repeat():
     assert first
     again, _ = _run(bars, state=state)
     assert again == []
+
+
+def test_incomplete_valuation_does_not_size_add():
+    bars = _breakout_bars()
+    position = _position()
+    ctx = PositionContext(
+        market="CN",
+        symbol=position.symbol,
+        position=position,
+        quote=QuoteView(bars[-1].close, NOW, True),
+        daily_bars=bars,
+        strategy_state={},
+        risk=_risk(),
+        now=NOW,
+        policy=POLICY,
+        cash=Decimal("1000000"),
+        market_nav=Decimal("2000000"),
+        position_value=position.quantity * bars[-1].close,
+        valuation_complete=False,
+    )
+    assert AddV1().evaluate(ctx) == []
