@@ -102,3 +102,36 @@ def test_existing_stop_still_exits_after_indicator_history_gap():
     flat, snapshot = evaluate(rows, [], rows[-1].close_time, state)
     assert snapshot["action"] == "EXIT" and snapshot["regime"] == "UNKNOWN"
     assert flat.position_state == "FLAT"
+
+
+def test_actions_indicators_and_stops_match_pre_position_revision():
+    """Golden results captured from d8732c8, before the position model extension."""
+    import json
+    from pathlib import Path
+
+    expected = json.loads((Path(__file__).parent / "fixtures/strategy_before_positions.json").read_text())
+    q, h = warm_rows(), [candle(i, interval="1h") for i in range(60)]
+    first = [candle()]
+    _, wait = evaluate(first, [], first[-1].close_time, StrategyState())
+    state, buy = evaluate(q, h, q[-1].close_time, StrategyState())
+    assert (buy["position_before"], buy["position_after"], buy["position_delta"], buy["average_entry_price"]) == (
+        0,
+        1,
+        1,
+        D(150),
+    )
+    q += [candle(240, open=D(151), high=D(152), low=D(149), close=D(151))]
+    state, hold = evaluate(q, h, q[-1].close_time, state)
+    q += [candle(241, open=D(100), high=D(101), low=D(99), close=D(100))]
+    state, exit = evaluate(q, h, q[-1].close_time, state)
+    for actual, baseline in zip([wait, buy, hold, exit], expected):
+        old_fields = {key: actual[key] for key in baseline}
+        assert json.loads(json.dumps(old_fields, default=str)) == baseline
+    assert (wait["position_before"], wait["position_after"], wait["position_delta"]) == (0, 0, 0)
+    assert (hold["position_before"], hold["position_after"], hold["position_delta"]) == (1, 1, 0)
+    assert (exit["position_before"], exit["position_after"], exit["position_delta"], exit["average_entry_price"]) == (
+        1,
+        0,
+        -1,
+        None,
+    )

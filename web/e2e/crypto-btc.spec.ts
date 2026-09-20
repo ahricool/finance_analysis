@@ -7,6 +7,7 @@ const snapshot = {
   symbol: 'BTCUSDT', evaluated_at: '2026-09-01T03:15:00Z', regime: 'BULL', setup: 'BREAKOUT', action: 'BUY',
   price: '60600', ema20_1h: '60500', ema50_1h: '60000', ema20_15m: '60550', breakout_level_15m: '60580',
   volume_ratio_15m: '1.5', atr14_15m: '150', initial_stop: '60300', trailing_stop: '60300',
+  position_before: '0', position_after: '1', position_delta: '1', average_entry_price: '60600',
   position_state: 'LONG', reason: '1h 多头，15m 放量突破',
 };
 for (const width of [1280, 1440, 1920]) {
@@ -19,6 +20,14 @@ for (const width of [1280, 1440, 1920]) {
       let body: object = {};
       if (path.endsWith('/auth/status')) body = { loggedIn: true, user: { uid: 1, role: 'user', username: 'Tester', extra: {} } };
       else if (path.endsWith('/crypto/btc/overview')) body = { symbol: 'BTCUSDT', strategy: snapshot, state: { position_state: 'LONG' } };
+      else if (path.endsWith('/crypto/btc/performance')) body = {
+        performance_start_at: snapshot.evaluated_at, performance_end_at: snapshot.evaluated_at,
+        current_position: { position_pct: '1', average_entry_price: '60600' }, execution_count: 1,
+        completed_cycles: 0, win_count: 0, loss_count: 0, win_rate: null, average_return: null,
+        cumulative_return: '0', max_drawdown: '0', best_trade: null, worst_trade: null,
+        recent_executions: [snapshot], recent_trades: [],
+        equity_curve: [{ evaluated_at: snapshot.evaluated_at, equity: '1', drawdown: '0' }],
+      };
       else if (path.endsWith('/crypto/btc/signals')) body = { items: [snapshot] };
       await route.fulfill({ json: body });
     });
@@ -36,6 +45,7 @@ for (const width of [1280, 1440, 1920]) {
     await page.goto('/crypto/btc');
     await expect(page.getByTestId('crypto-btc-page')).toBeVisible();
     await expect(page.getByText('EMA20 · 1h', { exact: true })).toBeVisible();
+    await expect(page.getByTestId('btc-performance')).toBeVisible();
     const chart = page.getByTestId('btc-kline-chart');
     await chart.scrollIntoViewIfNeeded();
     expect(errors).toEqual([]);
@@ -52,8 +62,12 @@ for (const width of [1280, 1440, 1920]) {
       await expect(chart.locator('canvas').first()).toBeVisible();
     }
     expect(subscriptions.some(item => item.method === 'UNSUBSCRIBE' && item.params[0] === 'btcusdt@kline_1m')).toBe(true);
+    await page.getByTestId('btc-interval-selector').getByRole('button', { name: '15m', exact: true }).click();
+    await expect.poll(() => subscriptions.at(-1)?.params).toEqual(['btcusdt@kline_15m']);
     await chart.scrollIntoViewIfNeeded();
     await page.screenshot({ path: testInfo.outputPath('btc-chart.png') });
+    await page.getByTestId('btc-performance').scrollIntoViewIfNeeded();
+    await page.screenshot({ path: testInfo.outputPath('btc-performance.png') });
     websocket!.close({ code: 1011, reason: 'Test disconnect' });
     await expect(page.getByText('重连中', { exact: true })).toBeVisible();
     expect(errors).toEqual([]);

@@ -8,5 +8,5 @@ it('reads only backend strategy and preserves Decimal strings', async () => {
   expect(get).toHaveBeenLastCalledWith('/api/v1/crypto/btc/overview');
   get.mockResolvedValueOnce({ data: { items: [] } });
   expect(await cryptoApi.signals()).toEqual({ items: [] });
-  expect(get).toHaveBeenLastCalledWith('/api/v1/crypto/btc/signals');
+  expect(get).toHaveBeenLastCalledWith('/api/v1/crypto/btc/signals', undefined);
 });

@@ -18,9 +18,28 @@ def test_snapshot_and_state_atomic_and_replay_does_not_duplicate(repository):
     assert repository.state().updated_at == at
 
     def broken(_):
-        return StrategyState(position_state="LONG", updated_at=at + timedelta(minutes=15)), {"symbol": "BTCUSDT"}
+        state, snapshot = evaluate([candle(15)], [], at + timedelta(minutes=15), StrategyState())
+        snapshot["reason"] = None  # Fail at INSERT after applying state, not during validation.
+        return state, snapshot
 
     with pytest.raises(Exception):
         repository.evaluate_once(at + timedelta(minutes=15), broken)
     assert repository.state().position_state == "FLAT"
     assert len(repository.signals()) == 1
+
+
+def test_rejects_skipped_time_and_rolls_back_state_update_failure(repository):
+    from dataclasses import replace
+
+    at = candle().close_time
+    repository.evaluate_once(at, lambda state: evaluate([candle()], [], at, state))
+    with pytest.raises(ValueError, match="skip"):
+        repository.evaluate_once(at + timedelta(minutes=30), lambda _: pytest.fail("must not calculate"))
+
+    def broken(state):
+        updated, snapshot = evaluate([candle(1)], [], at + timedelta(minutes=15), state)
+        return replace(updated, updated_at=None), snapshot
+
+    with pytest.raises(Exception):
+        repository.evaluate_once(at + timedelta(minutes=15), broken)
+    assert len(repository.signals()) == 1 and repository.state().updated_at == at

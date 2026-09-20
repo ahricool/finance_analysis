@@ -50,6 +50,13 @@ def test_postgres_migration_and_concurrent_evaluation():
             conn.execute(text(f'SET LOCAL search_path TO "{schema}"'))
             migration.op = Operations(MigrationContext.configure(conn))
             migration.upgrade()
+            position_spec = importlib.util.spec_from_file_location(
+                "positions_pg", Path(__file__).resolve().parents[2] / "alembic/versions/0060_crypto_positions.py"
+            )
+            positions = importlib.util.module_from_spec(position_spec)
+            position_spec.loader.exec_module(positions)
+            positions.op = migration.op
+            positions.upgrade()
             for model in (CryptoStrategySnapshot, CryptoStrategyState):
                 assert set(c["name"] for c in inspect(conn).get_columns(model.__tablename__, schema=schema)) == set(
                     model.__table__.columns.keys()
@@ -63,6 +70,16 @@ def test_postgres_migration_and_concurrent_evaluation():
             )
         assert sum(result is not None for result in results) == 1
         assert len(repo.signals()) == 1
+
+        def catchup(_):
+            for index in range(15, 18):
+                bar = candle(index)
+                repo.evaluate_once(bar.close_time, lambda state: evaluate([bar], [], bar.close_time, state))
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            list(pool.map(catchup, range(2)))
+        assert len(repo.signals()) == 4
+        assert repo.state().updated_at == candle(17).close_time
         with engine.begin() as conn:
             conn.execute(text(f'SET LOCAL search_path TO "{schema}"'))
             migration.op = Operations(MigrationContext.configure(conn))
@@ -74,8 +91,10 @@ def test_postgres_migration_and_concurrent_evaluation():
             drop.op = migration.op
             drop.upgrade()
             assert "crypto_kline" not in inspect(conn).get_table_names(schema=schema)
-            assert conn.execute(text("SELECT count(*) FROM crypto_strategy_snapshot")).scalar() == 1
+            assert conn.execute(text("SELECT count(*) FROM crypto_strategy_snapshot")).scalar() == 4
             drop.downgrade()
+            positions.op = migration.op
+            positions.downgrade()
             migration.downgrade()
             assert inspect(conn).get_table_names(schema=schema) == []
     finally:

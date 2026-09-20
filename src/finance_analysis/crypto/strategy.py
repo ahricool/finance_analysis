@@ -6,6 +6,7 @@ from decimal import Decimal
 
 from finance_analysis.crypto.features import atr, breakout, contiguous_tail, ema
 from finance_analysis.crypto.models import Kline, StrategyState
+from finance_analysis.crypto.position import change_position
 from finance_analysis.crypto.regime import market_regime
 from finance_analysis.crypto.risk import initial_stop, trailing_stop
 
@@ -17,6 +18,8 @@ def evaluate(
     if not quarter or quarter[-1].close_time != at:
         return None
     hourly = contiguous_tail([bar for bar in hourly if bar.closed and bar.close_time <= at])
+    before = state.position_pct
+    original_state = state
     current = quarter[-1]
     snapshot = dict(
         symbol="BTCUSDT",
@@ -24,7 +27,7 @@ def evaluate(
         price=current.close,
         regime="UNKNOWN",
         setup="NONE",
-        action="HOLD" if state.position_state == "LONG" else "WAIT",
+        action="HOLD" if state.position_pct > 0 else "WAIT",
         ema20_1h=None,
         ema50_1h=None,
         ema20_15m=None,
@@ -45,7 +48,7 @@ def evaluate(
         setup, level, ratio = breakout(quarter)
         snapshot.update(setup=setup, breakout_level_15m=level, volume_ratio_15m=ratio)
 
-    if state.position_state == "FLAT":
+    if state.position_pct == 0:
         if snapshot["regime"] == "BULL" and snapshot["setup"] == "BREAKOUT" and atr14 is not None:
             stop = initial_stop(current.close, atr14)
             # Entry is at this bar's close: its earlier high was before entry.
@@ -76,6 +79,24 @@ def evaluate(
         initial_stop=state.initial_stop,
         trailing_stop=state.trailing_stop,
     )
-    if snapshot["action"] == "EXIT":
-        state = StrategyState(updated_at=at)
+    target = (
+        Decimal(1) if snapshot["action"] == "BUY" else Decimal(0) if snapshot["action"] in ("EXIT", "WAIT") else before
+    )
+    position = change_position(original_state, target, current.close, at)
+    state = replace(
+        state,
+        position_pct=position.position_pct,
+        average_entry_price=position.average_entry_price,
+        entry_price=position.entry_price,
+        entry_time=position.entry_time,
+        position_state=position.position_state,
+    )
+    if target == 0:
+        state = position
+    snapshot.update(
+        position_before=before,
+        position_after=target,
+        position_delta=target - before,
+        average_entry_price=position.average_entry_price,
+    )
     return replace(state, updated_at=at), snapshot

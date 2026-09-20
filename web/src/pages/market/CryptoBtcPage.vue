@@ -4,6 +4,7 @@ import { RefreshCcw } from 'lucide-vue-next';
 import { useBinanceBtcMarket } from '@/composables/useBinanceBtcMarket';
 import { useCryptoStrategy } from '@/composables/useCryptoStrategy';
 import { BINANCE_INTERVALS } from '@/types/binance';
+import BtcPerformance from '@/components/crypto/BtcPerformance.vue';
 import BtcKlineChart from '@/components/crypto/BtcKlineChart.vue';
 import AppApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
 import { Badge } from '@/components/ui/badge';
@@ -13,7 +14,13 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Skeleton } from '@/components/ui/skeleton';
 
 const { candles, current, price, interval, connection, loading: marketLoading, restError, wsError, refresh: refreshMarket } = useBinanceBtcMarket();
-const { overview, signals, loading, error, refresh } = useCryptoStrategy();
+const markerRange = computed(() => {
+  const first = candles.value[0] ?? current.value;
+  const last = current.value ?? candles.value.at(-1);
+  return first && last ? { start: first.openTime, end: last.closeTime } : null;
+});
+const { overview, signals, loading, error, refresh, performance, performanceError, refreshPerformance,
+  markers, markerError, refreshMarkers } = useCryptoStrategy(markerRange);
 const strategy = computed(() => overview.value?.strategy);
 const metrics = computed(() => [
   ['Market Regime', strategy.value?.regime ?? '等待数据'],
@@ -85,25 +92,6 @@ function time(value: string | null | undefined) {
     >
       重试策略数据
     </Button>
-    <div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
-      <Card
-        v-for="[label, value] in metrics"
-        :key="label"
-      >
-        <CardHeader class="pb-2">
-          <CardDescription>{{ label }}</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Skeleton
-            v-if="loading"
-            class="h-6 w-20"
-          /><strong
-            v-else
-            class="text-lg tabular-nums"
-          >{{ value }}</strong>
-        </CardContent>
-      </Card>
-    </div>
     <Card>
       <CardHeader>
         <CardTitle>BTCUSDT · {{ interval }} K线</CardTitle>
@@ -132,14 +120,48 @@ function time(value: string | null | undefined) {
         >
           暂无 K 线，请重试加载。
         </p>
+        <AppApiErrorAlert
+          v-if="markerError"
+          :error="markerError"
+        />
+        <Button
+          v-if="markerError"
+          variant="outline"
+          @click="refreshMarkers()"
+        >
+          重试策略标记
+        </Button>
         <BtcKlineChart
-          v-else
+          v-if="candles.length || current"
           :interval="interval"
+          :signals="markers"
           :candles="candles"
           :current="current"
         />
       </CardContent>
     </Card>
+    <h3 class="text-lg font-semibold">
+      Strategy
+    </h3>
+    <div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <Card
+        v-for="[label, value] in metrics"
+        :key="label"
+      >
+        <CardHeader class="pb-2">
+          <CardDescription>{{ label }}</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Skeleton
+            v-if="loading"
+            class="h-6 w-20"
+          /><strong
+            v-else
+            class="text-lg tabular-nums"
+          >{{ value }}</strong>
+        </CardContent>
+      </Card>
+    </div>
     <Card>
       <CardHeader><CardTitle>Recent Signals</CardTitle><CardDescription>{{ strategy?.reason ?? '等待完整 1h EMA50 与 15m 指标预热。' }} · 每 15 分钟收盘后评估</CardDescription></CardHeader>
       <CardContent class="min-w-0 overflow-x-auto">
@@ -170,5 +192,21 @@ function time(value: string | null | undefined) {
         </Table>
       </CardContent>
     </Card>
+    <AppApiErrorAlert
+      v-if="performanceError"
+      :error="performanceError"
+    />
+    <Button
+      v-if="performanceError"
+      variant="outline"
+      @click="refreshPerformance()"
+    >
+      重试绩效
+    </Button>
+    <BtcPerformance
+      v-if="performance"
+      :performance="performance"
+      :price="price"
+    />
   </div>
 </template>

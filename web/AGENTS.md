@@ -245,6 +245,7 @@ Cookie 会话，`apiClient` 设了 `withCredentials: true`。
 ## BTC 页面
 
 `/crypto/btc` 位于一级“加密货币”导航。`useBinanceBtcMarket()` 直接访问 Binance REST 与单一 WS，支持1m/5m/15m/1h/4h/1D/1W/1M，断线自动重连，无 HTTP 轮询兜底。`useCryptoStrategy()` 独立读取后端策略，传输、错误、加载状态不得与行情混合。
+`BtcKlineChart` 使用已加载K线映射BUY/EXIT overlay，点击查看策略详情；Performance由后端快照派生，当前浮盈用浏览器Binance price计算。
 `BtcKlineChart` 是 `MarketKLineChart` 的轻量 wrapper，已闭合 history 与单根 current 分开传入。统一图表使用 KLineChart 10.x 的 data loader / subscription API，卸载时 dispose。单证券日 K 使用 `DailyKLineCard` 独立请求 `/api/v1/market-data/daily-bars/{symbol}`；历史策略详情必须传返回快照的 tradeDate 作为 endDate。
 
 ## 消息中心

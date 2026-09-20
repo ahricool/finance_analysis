@@ -56,16 +56,28 @@ class BinanceClient:
     async def klines(self, *, interval: str, end: datetime, limit: int):
         if interval not in ("15m", "1h"):
             raise ValueError("Strategy only uses 15m/1h candles")
-        rows = await self._get(
-            "/api/v3/klines",
-            {
-                "symbol": "BTCUSDT",
-                "interval": interval,
-                "limit": limit,
-                "endTime": int(end.timestamp() * 1000) - 1,
-            },
-        )
-        if not isinstance(rows, list):
-            raise ValueError("Invalid Binance kline response")
-        candles = [parse_rest(row, end, interval) for row in rows]
-        return sorted((row for row in candles if row.closed), key=lambda row: row.open_time)
+        candles = []
+        cursor = end
+        while len(candles) < limit:
+            size = min(1000, limit - len(candles))
+            rows = await self._get(
+                "/api/v3/klines",
+                {
+                    "symbol": "BTCUSDT",
+                    "interval": interval,
+                    "limit": size,
+                    "endTime": int(cursor.timestamp() * 1000) - 1,
+                },
+            )
+            if not isinstance(rows, list):
+                raise ValueError("Invalid Binance kline response")
+            page = sorted((parse_rest(row, end, interval) for row in rows), key=lambda row: row.open_time)
+            page = [row for row in page if row.closed and row.close_time <= cursor]
+            candles = page + candles
+            if len(page) < size:
+                break
+            following = page[0].open_time
+            if following >= cursor:
+                raise ValueError("Binance history did not advance")
+            cursor = following
+        return candles

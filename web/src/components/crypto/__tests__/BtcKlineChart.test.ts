@@ -2,6 +2,7 @@ import { mount } from '@vue/test-utils';
 import { describe, expect, it } from 'vitest';
 import BtcKlineChart from '../BtcKlineChart.vue';
 import MarketKLineChart from '@/components/market-data/MarketKLineChart.vue';
+import type { CryptoSnapshot } from '@/types/crypto';
 import type { CryptoKline } from '@/types/binance';
 
 const row: CryptoKline = {
@@ -29,4 +30,19 @@ describe('BTC chart data mapping', () => {
     expect(chart.props('current')).toBeNull();
     wrapper.unmount();
   });
+  it('creates BUY/EXIT overlays and reveals details on click', async () => {
+    const signal = { action: 'BUY', evaluatedAt: row.openTime, price: '101', positionBefore: '0', positionAfter: '1',
+      regime: 'BULL', setup: 'BREAKOUT', reason: 'test entry' } as CryptoSnapshot;
+    const wrapper = mount(BtcKlineChart, { props: { candles: [row], current: null, signals: [signal] },
+      global: { stubs: { MarketKLineChart: true } } });
+    const overlay = wrapper.getComponent(MarketKLineChart).props('overlays')![0]!;
+    expect(overlay.points).toEqual([{ timestamp: Date.parse(row.openTime), value: 101 }]);
+    expect((overlay.extendData as { label: string }).label).toBe('↑ BUY');
+    overlay.onClick!({} as never); await wrapper.vm.$nextTick();
+    expect(wrapper.get('[data-testid="btc-signal-detail"]').text()).toContain('test entry');
+    await wrapper.setProps({ signals: [{ ...signal, action: 'EXIT' }] });
+    expect((wrapper.getComponent(MarketKLineChart).props('overlays')![0]!.extendData as { label: string }).label).toBe('↓ EXIT');
+    wrapper.unmount();
+  });
+
 });

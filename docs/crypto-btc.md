@@ -31,7 +31,12 @@ REST 失败显示错误并允许手动重试。WS 断开后 3 秒重连，重连
 窗口包含指标预热（不是只取 EMA50 的 50 根种子）。与旧 7 天分钟聚合窗口相比，EMA/ATR 种子窗口变化可能造成细微数值差异。
 `endTime` 设置为边界减 1ms；Binance 包含式 close time 加 1ms 转成内部排他收盘边界，并再次剔除未闭合线。
 最近目标 K 线或连续最低指标窗口不足时任务失败，不推进策略状态或快照。无历史行情回填、持久化或本地聚合。
-停机后下一次只评估最新收盘时间，不补造停机期间信号；原 LONG/FLAT 与止损状态保留。
+冷启动没有历史快照时只计算最新闭合15m，不制造历史信号。已有快照时，从最后 `evaluated_at + 15m` 到当前收盘依次补算。
+先统一获取含最早缺失周期预热窗口的原生15m/1h数据，再按 `close_time <= evaluation_at` 切片，每次取最多100/200根；
+因此每一步指标与当时正常运行采用相同窗口，不使用未来K线。通常每个interval只请求一次；超过Binance单次1000根上限时按页取完需要的窗口，
+不逐个evaluation请求，也不保存这些行情。
+每个evaluation独立通过 `evaluate_once()` 原子提交。中途失败后保留已成功的快照，下次从断点继续；
+数据库状态行锁内再次检查最新快照，拒绝跨过15m缺口，同时间点只会写入一次。
 
 规则保持：
 
@@ -46,7 +51,7 @@ EMA 以 SMA 为种子，alpha=2/(period+1)；ATR 使用 Wilder 平滑。状态�
 
 ## 存储、API 与配置
 
-仅保留 `crypto_strategy_state`、`crypto_strategy_snapshot`。`0059_drop_crypto_kline` 删除 `crypto_kline`，不改策略数据；
+仅保留 `crypto_strategy_state`、`crypto_strategy_snapshot`。状态与snapshot的新增仓位字段见下节。`0059_drop_crypto_kline` 删除 `crypto_kline`，不改策略数据；
 降级只恢复空行情表，不恢复已删除历史。空数据库仍由既有 metadata bootstrap 创建并 stamp 最新 head。
 
 会话保护的只读接口：
@@ -55,6 +60,8 @@ EMA 以 SMA 为种子，alpha=2/(period+1)；ATR 使用 Wilder 平滑。状态�
 | --- | --- |
 | GET /api/v1/crypto/btc/overview | 最新策略快照、当前策略状态 |
 | GET /api/v1/crypto/btc/signals?limit=50 | 近期策略快照，limit 1–200 |
+| GET /api/v1/crypto/btc/signals?start=…&end=…&actions_only=true | 当前图表时间范围内全部 BUY/EXIT，UTC aware边界，不受近期50条限制 |
+| GET /api/v1/crypto/btc/performance | 当前仓位、派生绩效、近期执行/完整周期、净值曲线 |
 
 已删除 `/btc/klines`、`/btc/status`、`/ws`（此前 `/api/v1/crypto` 前缀），以及行情 Redis、writer leader lock、
 `crypto_stream/`、`crypto/realtime.py`、`finance-analysis-crypto-stream` CLI 与 Compose 采集服务。
@@ -64,6 +71,58 @@ EMA 以 SMA 为种子，alpha=2/(period+1)；ATR 使用 Wilder 平滑。状态�
 
 部署：`bash deploy.sh` 会更新服务、执行既有启动迁移，并通过 `--remove-orphans` 清理移除的采集容器。
 原生运行的旧采集进程也应停止；无需启动新常驻行情进程。
+
+## 仓位与迁移
+
+`0060_crypto_positions` 在0059之后，只修改现有两张策略表，不新增execution或trade表：
+
+| 表 | 新字段 | 语义 |
+| --- | --- | --- |
+| state | position_pct | Decimal，0–1；真正的当前仓位 |
+| state | average_entry_price | 当前平均成本；空仓为null |
+| snapshot | position_before / position_after / position_delta | 评估前后仓位与差值，非零delta就是一次虚拟执行 |
+| snapshot | average_entry_price | 操作后的平均成本；EXIT为null |
+
+保留 `position_state` 与 `entry_price` 兼容字段，随仓位/平均成本同步；`position_pct > 0` 为LONG，0为FLAT。
+首次入场时间、入场后最高价、止损仍在state中。当前规则的BUY固定0→1、HOLD保持仓位、EXIT→0、WAIT为0；
+没有新增加仓、减仓条件。`change_position()` 的纯函数为未来部分仓位提供成本计算：
+
+- 加仓：`(old_pct * old_avg + (new_pct-old_pct) * price) / new_pct`。
+- 减仓：平均成本不变；首次entry_time保留。
+- 清仓：平均成本、entry_time、最高价、止损清空。
+
+迁移已有LONG state为1、成本取entry_price，FLAT为0/null。旧snapshot只根据原position_state填position_after，
+其before/delta/成本保持null，不根据BUY/EXIT猜测历史。新snapshot由仓储要求完整填写仓位变化，state更新与snapshot插入同事务。
+数据库约束限制0–1与delta差值。回滚0060删除新增列与约束，保留原状态/快照及兼容字段；部署时Beat/Worker/API需一起升级，避免旧Worker继续写旧格式。
+
+## 绩效口径
+
+绩效为快照的动态派生视图，不持久化equity/return/drawdown，无缓存，也不访问实时Binance价格。
+从最新连续且仓位字段完整的一段快照计算，遇到缺失15m、仓位不连续或旧不完整字段就重新确定有效起点。
+API明确返回 `performance_start_at` 和 `performance_end_at`；无法确认入场的旧open cycle不计完整交易。
+
+- 初始equity=1；`equity *= 1 + previous.position_after * (price / previous.price - 1)`。
+- cumulative_return = 最后equity−1，包含未退出持仓截至最新15m的浮动损益。
+- drawdown = `1 - equity / running_peak`；max_drawdown取所有15m快照最大值，以正数比例返回，包含持有期回撤。
+- 完整cycle从0→正仓位开始，首次正仓位→0结束；中间可有部分仓位变动。
+- cycle realized_return = 退出时equity / 入场时equity−1，体现中间仓位比例；平均成本为清仓前平均成本，另返退出价格及持有秒数。
+- win/loss分别为完整cycle收益>0/<0；0收益为平手。win_rate = wins / completed_cycles（分母含平手）；未完成/未知入场cycle不参与。
+- average_return为完整cycle收益算术平均；best_trade/worst_trade为其最大/最小收益比例；没有完整cycle时这四个指标为null。
+- execution_count计算有效区间内非零delta快照；recent_executions/recent_trades倒序最多50条；equity_curve包含有效区间所有15m净值点。
+
+Performance API还返回 `current_position: {position_pct, average_entry_price}`、completed_cycles、win_count、loss_count等，Decimal序列化为字符串。
+前端根据独立的Binance实时price计算 `price/average_entry_price - 1`，以及 `position_pct * price_return` 浮动贡献；
+它们是当前成本视角的显示值，不替代15m净值曲线。
+
+## K线标记
+
+页面按Market、Strategy、Performance展示。K线仅显示 `↑ BUY` / `↓ EXIT`，不会为WAIT/HOLD打标。
+标记使用已有策略snapshot的evaluated_at和price，点击展示原始时间、操作、价格、前后仓位、regime/setup/reason。
+1m/5m/15m按精确evaluated_at定位；1h/4h/1d/1w/1M映射至已经加载的Binance candle `[openTime, closeTime)`，
+月线/周线直接采用返回的真实边界，不假定固定月长。范围外标记不显示。同一大周期内多个信号保留并错开文字。
+标记仅请求后端信号范围，不触发行情请求；行情、策略/绩效的错误互不影响。
+
+当前明确不实现账户、资金、BTC数量、订单/fill、费用/滑点、杠杆、真实交易、仓位优化规则、回测框架或独立execution/trade表。
 
 ## 验证
 
