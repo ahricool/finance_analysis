@@ -11,7 +11,7 @@ import pandas as pd
 from finance_analysis.integrations.market_data.codes import normalize_stock_code
 from finance_analysis.integrations.market_data import MarketDataService
 
-from ..a_share_intraday_analysis.bars import normalize_bars
+from .bars import normalize_bars
 
 logger = logging.getLogger(__name__)
 

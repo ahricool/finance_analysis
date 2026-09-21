@@ -20,7 +20,7 @@ describe('MarketPage', () => {
   it('renders market tabs with the current tab selected', async () => {
     const wrapper = await mountMarket('/market/holdings');
 
-    expect(wrapper.text()).toContain('管理自选股和投资组合。');
+    expect(wrapper.text()).toContain('管理自选股，并维护数据库中的实际持仓。');
     expect(wrapper.get('[data-testid="module-tabs"]').attributes('aria-label')).toBe('市场页面导航');
     expect(wrapper.get('[data-testid="module-tabs"]').findAll('a')).toHaveLength(2);
     expect(wrapper.findAll('a[href="/market/watch-list"]')).toHaveLength(1);

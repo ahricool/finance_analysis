@@ -13,6 +13,7 @@ class LLMRequest:
     timeout: float | None = None
     call_type: str = "generic"
     uid: int | None = None
+    web_search: bool = False
 
 
 @dataclass

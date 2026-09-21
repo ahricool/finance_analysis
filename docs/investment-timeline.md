@@ -128,7 +128,7 @@ CSS Columns 按列流动而非逐行左右交替；追加数据或高度变化�
 | `analysis_a_share_pre_close_review` | notification | TaskRecord + 原聚合通知 |
 | `analysis_us_premarket` | notification | TaskRecord + 原分析流程通知 |
 | `analysis_us_postmarket_review` | notification | TaskRecord + 原报告通知 |
-| A股/美股盘中 | notification | TaskRecord 统计 |
+| `trade_engine_cn` / `trade_engine_us` | notification | 仅确认后的 TradeSignal |
 | 财经同步/重要度任务 | finance_events | TaskRecord；同步摘要不进入 Timeline |
 | `analysis_us_premarket_news` | news_intel + usage + news_analysis | TaskRecord 统计 + Top 新闻通知 |
 | `analysis_daily` | notification | 执行统计只进 TaskRecord |
@@ -163,8 +163,8 @@ Longbridge Content API 是唯一的外部新闻消息源，其他 Provider 只�
   业绩信息缺失时直接说明，不生成无来源的新闻摘要、利好催化或分析师评级。
 - 大盘复盘仅使用行情、市场宽度、板块和内部结构化数据；数据缺失直接说明，仍可生成报告。
 - 美股收盘复盘只读取已持久化的新闻，空列表是正常状态，不阻断 LLM、报告或通知。
-- Longbridge 新闻由美股盘前新闻与美股盘中分析任务直接调用。
-  盘前任务持久化原文与使用关联，再写逐条结构化判断；盘中任务使用 Longbridge 新闻上下文。
+- Longbridge 新闻由美股盘前新闻任务直接调用。
+  盘前任务持久化原文与使用关联，再写逐条结构化判断。
 - `NewsIntel` 保存原始新闻，`NewsIntelUsage` 保存使用关联，`NewsAnalysis` 保存逐条分析。
   Timeline 读取新闻及逐条分析；美股盘前、收盘和历史关联查询继续使用新闻存储。
 - 新闻入库接收 `database.news.NewsItem` 列表和来源，保留 URL 去重与观察时间语义。

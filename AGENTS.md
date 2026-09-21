@@ -7,8 +7,9 @@
 - 隔离 Qlib Worker：`qlib_worker/AGENTS.md`
 
 现有 `README.md` 主要是 reference data / daily sync 升级运维备忘，不是完整快速开始。
-专题细节见 `docs/market-streamer.md`、`docs/quant-research.md` 和
-`docs/etf-rotation.md`；其中时间表和迁移步骤可能落后，易变事实仍以代码为准。
+专题细节见 `docs/market-streamer.md`、`docs/quant-research.md`、
+专题细节见 `docs/market-streamer.md`、`docs/quant-research.md`、
+`docs/etf-rotation.md` 和 `docs/holdings-portfolio-risk.md`；其中时间表和迁移步骤可能落后，易变事实仍以代码为准。
 
 ## 系统概览
 
@@ -137,6 +138,7 @@ static/                    Web 构建产物，由 `web/vite.config.ts` 生成
 - `/calendar`：日历记录和财经事件。
 - `/tasks`：周期定义、手动触发及任务运行记录。
 - `/quant`、`/etf-rotation`、`/trend-following`：研究结果与运行入口；趋势预演为 `GET /trend-following/preview`。
+- `/holdings`：DB 持仓买卖/现金、`PATCH /positions/{id}` 交易提醒开关；页面 `/market/holdings`。`/trade-engine` 只读正式信号与管理员手动运行。
 - `/market-data/ws`：基于 Cookie 的用户自选股实时 WebSocket。
 - `/usage`：LLM 使用统计；`/celery` 是演示/诊断端点。
 
@@ -282,6 +284,7 @@ pnpm run test:smoke
 | 新通知渠道 | `notification/senders/` + config/routing/diagnostics |
 | 新前端功能 | 见 `web/AGENTS.md` |
 | 新 Qlib 模型/协议 | 见 `qlib_worker/AGENTS.md`，同时核对主应用 quant 边界 |
+| DB 持仓 / Trade Engine | `portfolio/`、`trade_engine/` |
 
 ## 提交前检查
 
@@ -326,6 +329,12 @@ BTC 多策略以 `strategy_key + symbol` 隔离，代码注册表当前仅 `btc_
 复用行业目录、指数历史、当前成分三个 CN capability；`FUYAO_API_KEY` 仅后端读取。
 `industry_strength_cn` 在上海19:10检查收盘、行业/成分覆盖率后保存独立快照；禁止用当前成分回填历史 Breadth。
 页面 `/research/industry-strength`，指标和口径见 `docs/industry-strength.md`。
+
+## Holdings / Trade Engine
+
+`portfolio/` 是普通股票/ETF 唯一持仓事实源：账户现金、当前持仓、CORE/ADDON lot 和买卖/出入金操作写 PostgreSQL。`trade_engine_enabled` 默认 true；关闭后该持仓不运行 Strategy，LLM target 必须等于 current，但仍计入账户 NAV 与 Portfolio Risk。`exit_v1` / `add_v1` 完全无状态，每 30 分钟可重复输出相同 Strategy Signal。`portfolio_risk_v1` 输出 Portfolio Risk Facts，不单独通知。每个市场每轮最多一次 LLM，结合持仓、15d K、今日 OHLCV、调仓历史、风险事实与 `trade_llm_state` 给出 Target Position。CN/US 现金、NAV、风险与 LLM 状态隔离。 <!-- pragma: allowlist secret -->
+`trade_engine/` Beat 每 30 分钟触发，不在 evaluation window 则 skip。有实际持仓就调用 Market-level LLM；空仓且无 Entry Strategy 则 skip LLM。正式 TradeSignal 只在 target ≠ current 时创建。任务复用 `alerts`（`trade_engine_cn/us`），不新增专用 worker。
+通知复用现有全局 Telegram/ntfy：先与 `trade_signal` 同事务写入站内消息，再 `push_existing`。`add_v1` 独立使用完整历史 + 实时临时日K，Risk/EXIT 仍只用完整日K形成 stop。Market LLM 按 uid+market 持 PostgreSQL session advisory lock，网络调用在业务事务外；通知按市场当地日期、股票、action 每日一次，不抑制 LLM/state/信号历史。详见 `docs/holdings-portfolio-risk.md`。
 
 ## Market Sentiment
 

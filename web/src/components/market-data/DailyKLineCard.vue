@@ -5,8 +5,11 @@ import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import AppApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
 import StockMembershipTags from '@/components/stocks/StockMembershipTags.vue';
 import MarketKLineChart from './MarketKLineChart.vue';
+import { tradeMarkerOverlays } from './tradeMarkerOverlay';
+import type { TradeMarker } from '@/lib/tradeMarkers';
 
-const props = defineProps<{ symbol: string; endDate?: string }>();
+const props = defineProps<{ symbol: string; endDate?: string; markers?: TradeMarker[]; markerCaption?: string }>();
+const selected = ref<TradeMarker | null>(null);
 const loading = ref(false);
 const error = ref<ParsedApiError | null>(null);
 const data = ref<DailyBarsResponse | null>(null);
@@ -15,7 +18,10 @@ const bars = computed(() => (data.value?.items ?? [])
   .filter(row => !props.endDate || row.tradeDate <= props.endDate)
   .map(row => ({ timestamp: Date.parse(`${row.tradeDate}T00:00:00Z`), open: row.open,
     high: row.high, low: row.low, close: row.close, volume: row.volume, turnover: row.amount ?? undefined })));
-// Use displayed OHLC only; cap at four places and ignore floating-point noise beyond that.
+const overlays = computed(() => tradeMarkerOverlays(props.markers ?? [], timestamp => {
+  const bar = bars.value.find(item => item.timestamp === timestamp) ?? bars.value.at(-1);
+  return bar?.close ?? 0;
+}, marker => { selected.value = marker; }));
 const pricePrecision = computed(() => bars.value.reduce((precision, bar) => {
   for (const value of [bar.open, bar.high, bar.low, bar.close]) {
     if (!Number.isFinite(value)) continue;
@@ -41,6 +47,7 @@ async function load() {
   }
 }
 watch(() => [props.symbol, props.endDate], load, { immediate: true });
+watch(() => props.markers, () => { selected.value = null; });
 onBeforeUnmount(() => controller?.abort());
 </script>
 
@@ -79,8 +86,22 @@ onBeforeUnmount(() => controller?.abort());
       :symbol="data?.symbol ?? symbol"
       period="1d"
       :price-precision="pricePrecision"
+      :overlays="overlays"
       :bars="bars"
       :source-key="`${symbol}:${endDate ?? 'latest'}`"
     />
+    <div
+      v-if="selected"
+      class="mt-3 rounded border p-3 text-sm"
+      data-testid="trade-marker-detail"
+    >
+      <strong>{{ markerCaption || '操作 BST' }} · {{ selected.type }}</strong>
+      <p
+        v-for="(item, index) in selected.operations"
+        :key="index"
+      >
+        {{ item.executedAt }} {{ item.side === 'BUY' ? '买入' : item.side === 'SELL' ? '卖出' : item.side }}{{ item.quantity ? item.quantity : '' }}{{ item.price ? ` @${item.price}` : '' }}
+      </p>
+    </div>
   </section>
 </template>

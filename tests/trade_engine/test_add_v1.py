@@ -1,0 +1,296 @@
+"""add_v1 medium-term ADD setups. Stateless: same complete daily setup repeats ADD."""
+
+from datetime import date, datetime, timedelta, timezone
+from decimal import Decimal
+
+from finance_analysis.portfolio.models import ResolvedLot, ResolvedPosition  # pragma: allowlist secret
+from finance_analysis.trade_engine.config import RiskPolicy  # pragma: allowlist secret
+from finance_analysis.trade_engine.models import DailyBar, PositionContext, PositionRisk, LotRisk, QuoteView  # pragma: allowlist secret
+from finance_analysis.trade_engine.strategies.add_v1 import AddV1, BREAKOUT, PULLBACK  # pragma: allowlist secret
+
+NOW = datetime(2026, 9, 16, 14, 0, tzinfo=timezone.utc)
+POLICY = RiskPolicy()
+
+
+def _bars(closes, volumes=None, start=date(2026, 6, 1), width=Decimal("3")):
+    rows = []
+    day = start
+    for index, close in enumerate(closes):
+        while day.weekday() >= 5:
+            day += timedelta(days=1)
+        price = Decimal(str(close))
+        volume = 1000
+        if volumes is not None:
+            volume = volumes[index]
+        rows.append(DailyBar(day, price, price + width, price - width, price, volume))
+        day += timedelta(days=1)
+    return rows
+
+
+def _trend(n=40, start=100, step=0.2):
+    return [start + i * step for i in range(n)]
+
+
+def _position(*, quantity="1000", cost="100", had_addon=False):
+    return ResolvedPosition(
+        source="DB",
+        coverage="DB",
+        uid=1,
+        market="CN",
+        account_id="1",
+        position_id="11",
+        symbol="600519.SH",
+        asset_type="STOCK",
+        quantity=Decimal(quantity),
+        average_cost=Decimal(cost),
+        lots=(ResolvedLot("core", "CORE", Decimal(quantity), Decimal(cost), NOW),),
+        had_addon=had_addon,
+    )
+
+
+def _risk(*, stage="A", stop="106"):
+    return PositionRisk(
+        lots=(
+            LotRisk(
+                "core",
+                "CORE",
+                Decimal("1000"),
+                Decimal("100"),
+                Decimal("108"),
+                stage,
+                Decimal(stop),
+                Decimal("95"),
+            ),
+        ),
+        profit_stage=stage,
+        active_stop=Decimal(stop),
+        high_watermark=Decimal("108"),
+    )
+
+
+def _run(bars, *, position=None, risk=None, cash="1000000", nav="2000000", now=NOW):
+    position = position or _position()
+    ctx = PositionContext(
+        market="CN",
+        symbol=position.symbol,
+        position=position,
+        quote=QuoteView(bars[-1].close, now, True, today_open=bars[-1].open,
+                        today_high=bars[-1].high, today_low=bars[-1].low, today_volume=bars[-1].volume),
+        daily_bars=bars[:-1],
+        risk=risk or _risk(),
+        now=now,
+        policy=POLICY,
+        cash=Decimal(cash),
+        market_nav=Decimal(nav),
+        position_value=position.quantity * bars[-1].close,
+    )
+    return AddV1().evaluate(ctx)
+
+
+def _breakout_bars():
+    body = _trend(36, 100, 0.2)
+    consol = [107.2, 107.1, 107.3, 107.0, 107.2]
+    volumes = [1000] * 36 + [1000] * 5 + [2000]
+    return _bars(body + consol + [111.0], volumes=volumes)
+
+
+def _pullback_bars():
+    body = _trend(36, 100, 0.25)
+    pull = [108.5, 108.2, 108.0]
+    volumes = [1000] * 36 + [400, 350, 300, 1200]
+    return _bars(body + pull + [112.5], volumes=volumes)
+
+
+def test_loss_does_not_add():
+    assert _run(_breakout_bars(), position=_position(cost="200")) == []
+
+
+def test_one_percent_profit_does_not_add():
+    last = _breakout_bars()[-1].close
+    cost = format(last / Decimal("1.01"), "f")
+    assert _run(_breakout_bars(), position=_position(cost=cost)) == []
+
+
+def test_stage_c_blocks_add():
+    assert _run(_breakout_bars(), risk=_risk(stage="C")) == []
+
+
+def test_extension_blocks_add():
+    body = _trend(40, 100, 0.2)
+    stretched = body[:-1] + [body[-2] + 20]
+    assert _run(_bars(stretched, width=Decimal("0.5"))) == []
+
+
+def test_historical_addon_blocks_second_add():
+    assert _run(_breakout_bars(), position=_position(had_addon=True)) == []
+
+
+def test_breakout_continuation_emits_add():
+    signals = _run(_breakout_bars())
+    assert len(signals) == 1
+    assert signals[0].action == "ADD"
+    assert signals[0].evidence["setup"] == BREAKOUT
+    assert signals[0].suggested_quantity > 0
+    assert signals[0].suggested_target_quantity == Decimal("1000") + signals[0].suggested_quantity
+
+
+def test_pullback_reentry_emits_add():
+    signals = _run(_pullback_bars())
+    assert len(signals) == 1
+    assert signals[0].action == "ADD"
+    assert signals[0].evidence["setup"] == PULLBACK
+
+
+def test_risk_sizing_takes_the_minimum():
+    signals = _run(
+        _breakout_bars(),
+        cash="55500",
+        nav="1110000",
+        position=_position(quantity="100"),
+        risk=PositionRisk(
+            lots=(
+                LotRisk("core", "CORE", Decimal("100"), Decimal("100"), Decimal("108"), "A", Decimal("106"), Decimal("95")),
+            ),
+            profit_stage="A",
+            active_stop=Decimal("106"),
+        ),
+    )
+    assert signals
+    evidence = signals[0].evidence
+    qty_pos = Decimal(str(evidence["qty_by_position"]))
+    qty_risk = Decimal(str(evidence["qty_by_risk"]))
+    qty_cash = Decimal(str(evidence["qty_by_cash"]))
+    assert signals[0].suggested_quantity == min(qty_pos, qty_risk, qty_cash)
+
+
+def test_add_quantity_uses_tightest_capacity():
+    from finance_analysis.trade_engine.daily import legalize_quantity  # pragma: allowlist secret
+
+    assert legalize_quantity(min(Decimal("300"), Decimal("120"), Decimal("500")), "CN") == Decimal("120")
+
+
+def test_same_daily_bar_repeats_add():
+    bars = _breakout_bars()
+    first = _run(bars)
+    second = _run(bars)
+    third = _run(bars)
+    assert [len(item) for item in (first, second, third)] == [1, 1, 1]
+    assert first[0].suggested_target_quantity == second[0].suggested_target_quantity == third[0].suggested_target_quantity
+
+
+def test_incomplete_valuation_does_not_size_add():
+    bars = _breakout_bars()
+    position = _position()
+    ctx = PositionContext(
+        market="CN",
+        symbol=position.symbol,
+        position=position,
+        quote=QuoteView(bars[-1].close, NOW, True),
+        daily_bars=bars,
+        risk=_risk(),
+        now=NOW,
+        policy=POLICY,
+        cash=Decimal("1000000"),
+        market_nav=Decimal("2000000"),
+        position_value=position.quantity * bars[-1].close,
+        valuation_complete=False,
+    )
+    assert AddV1().evaluate(ctx) == []
+
+
+def _live_context():
+    bars = _breakout_bars()
+    last = bars[-1]
+    return PositionContext(
+        market="CN", symbol="600519.SH", position=_position(),
+        quote=QuoteView(last.close, NOW, True, today_open=last.open, today_high=last.high,
+                        today_low=last.low, today_volume=last.volume),
+        daily_bars=bars[:-1], risk=_risk(), now=NOW, policy=POLICY,
+        cash=Decimal("1000000"), market_nav=Decimal("2000000"),
+    )
+
+
+def test_provisional_bar_ohlcv_and_history_are_independent():
+    from dataclasses import replace
+    from finance_analysis.trade_engine.strategies.add_v1 import provisional_evaluation_bars
+
+    ctx = _live_context()
+    ctx.quote = replace(ctx.quote, price=Decimal("105"), today_open=Decimal("100"),
+                        today_high=Decimal("106"), today_low=Decimal("99"), today_volume=123456)
+    original = list(ctx.daily_bars)
+    bars = provisional_evaluation_bars(ctx, NOW)
+    assert bars[-1] == DailyBar(NOW.date(), Decimal("100"), Decimal("106"),
+                                Decimal("99"), Decimal("105"), 123456)
+    assert list(ctx.daily_bars) == original
+    assert bars[:-1] == original
+
+
+def test_invalid_or_incomplete_quote_never_uses_yesterday_setup():
+    from dataclasses import replace
+
+    ctx = _live_context()
+    assert AddV1().evaluate(ctx)
+    quote = ctx.quote
+    for bad in [None, replace(quote, valid=False), replace(quote, stale=True),
+                replace(quote, price=None),
+                replace(quote, today_open=None), replace(quote, today_high=None),
+                replace(quote, today_low=None), replace(quote, today_volume=None),
+                replace(quote, quote_as_of=None),
+                replace(quote, quote_as_of=NOW - timedelta(days=1))]:
+        ctx.quote = bad
+        assert AddV1().evaluate(ctx) == []
+
+
+def test_live_115_sizes_cash_at_115_not_completed_100(monkeypatch):
+    from dataclasses import replace
+    import finance_analysis.trade_engine.strategies.add_v1 as module
+
+    ctx = _live_context()
+    ctx.daily_bars = _bars([100] * 40, width=Decimal("5"))
+    ctx.position = _position(quantity="10", cost="90")
+    ctx.quote = replace(ctx.quote, price=Decimal("115"), today_open=Decimal("100"),
+                        today_high=Decimal("116"), today_low=Decimal("99"))
+    ctx.cash = Decimal("11500")
+    ctx.policy = replace(POLICY, max_extension_atr=Decimal("10"))
+    # Isolate sizing from setup selection; indicators and all capacity math remain real.
+    monkeypatch.setattr(module, "_pullback", lambda *args: {
+        "setup": PULLBACK, "reason": "test", "suggested_stop": Decimal("105"),
+    })
+    signals = AddV1().evaluate(ctx)
+    assert len(signals) == 1
+    assert signals[0].evidence["suggested_entry_price"] == "115"
+    assert Decimal(signals[0].evidence["qty_by_cash"]) == 100
+    assert signals[0].suggested_quantity <= 100
+
+
+def test_breakout_volume_is_conservative_cumulative_not_projected():
+    from dataclasses import replace
+
+    ctx = _live_context()
+    ctx.quote = replace(ctx.quote, today_volume=100)
+    assert AddV1().evaluate(ctx) == []
+    ctx.quote = replace(ctx.quote, today_volume=2000)
+    result = AddV1().evaluate(ctx)
+    assert result[0].evidence["today_volume"] == 2000
+    assert "no projection" in result[0].evidence["volume_basis"]
+
+
+def test_add_setup_receives_provisional_close_and_market_local_date(monkeypatch):
+    from dataclasses import replace
+    from finance_analysis.trade_engine.strategies import add_v1
+
+    ctx = _live_context()
+    ctx.market = "US"
+    ctx.now = datetime(2026, 9, 17, 0, 30, tzinfo=timezone.utc)
+    ctx.quote = replace(ctx.quote, quote_as_of=ctx.now, price=Decimal("105"), today_open=Decimal("100"),
+                        today_high=Decimal("106"), today_low=Decimal("99"), today_volume=123456)
+    seen = []
+
+    def setup(context, bars, policy):
+        seen.extend(bars)
+        return None
+
+    monkeypatch.setattr(add_v1, "evaluate_add_setup", setup)
+    AddV1().evaluate(ctx)
+    assert seen[-1] == DailyBar(date(2026, 9, 16), Decimal("100"), Decimal("106"),
+                                Decimal("99"), Decimal("105"), 123456)

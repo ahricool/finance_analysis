@@ -6,6 +6,7 @@ requires-python = ">=3.13,<3.14"
 dependencies = [
     "akshare>=1.18.64",
     "celery[redis]>=5.6.3",
+    "cryptography>=44.0.0",
     "easyquotation>=0.7.7",
     "exchange-calendars>=4.5.0",
     "fastapi>=0.136.0",

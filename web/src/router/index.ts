@@ -13,7 +13,7 @@ declare module 'vue-router' {
 const MarketPage = () => import('@/pages/MarketPage.vue');
 const ResearchPage = () => import('@/pages/ResearchPage.vue');
 const MarketWatchListPage = () => import('@/pages/WatchListPage.vue');
-const MarketHoldingsPage = () => import('@/pages/StockListPage.vue');
+const MarketHoldingsPage = () => import('@/pages/market/HoldingsPage.vue');
 const QuantPage = () => import('@/pages/market/QuantPage.vue');
 const QuantDashboardPage = () => import('@/pages/market/quant/QuantDashboardPage.vue');
 const QuantSignalsPage = () => import('@/pages/market/quant/QuantSignalsPage.vue');

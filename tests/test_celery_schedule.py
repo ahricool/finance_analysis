@@ -6,8 +6,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
-from finance_analysis.tasks.celery.app import celery_app
-from finance_analysis.tasks.celery.schedule import (
+from finance_analysis.tasks.celery.app import celery_app  # pragma: allowlist secret
+from finance_analysis.tasks.celery.schedule import (  # pragma: allowlist secret
     ALL_QUEUES,
     build_beat_schedule,
     build_task_routes,
@@ -15,7 +15,7 @@ from finance_analysis.tasks.celery.schedule import (
     get_scheduled_task_definition,
     get_scheduled_task_definitions,
 )
-from finance_analysis.tasks.celery.schedule.cron import LocalizedCrontab, compute_next_run, next_run_for_crontab
+from finance_analysis.tasks.celery.schedule.cron import LocalizedCrontab, compute_next_run, next_run_for_crontab  # pragma: allowlist secret
 
 EXPECTED_JOBS = {
     "crypto_btc_strategy": ("scheduled_crypto_btc_strategy", "UTC"),
@@ -27,12 +27,10 @@ EXPECTED_JOBS = {
     "market_calendar": ("scheduled_market_calendar", "America/New_York"),
     "analysis_us_premarket_news": ("scheduled_us_premarket_news", "America/New_York"),
     "analysis_us_premarket": ("scheduled_us_premarket", "America/New_York"),
-    "analysis_us_intraday": ("scheduled_us_intraday", "America/New_York"),
     "analysis_us_postmarket_review": ("scheduled_us_postmarket_review", "America/New_York"),
     "reference_data_sync": ("scheduled_reference_data_sync", "Asia/Shanghai"),
     "market_data_sync_cn": ("scheduled_market_data_sync_cn", "Asia/Shanghai"),
     "market_data_sync_us": ("scheduled_market_data_sync_us", "America/New_York"),
-    "analysis_a_share_intraday": ("scheduled_a_share_intraday", "Asia/Shanghai"),
     "analysis_a_share_pre_close_review": ("scheduled_a_share_pre_close_review", "Asia/Shanghai"),
     "quant_daily_pipeline_us": ("scheduled_quant_daily_us", "America/New_York"),
     "quant_daily_pipeline_cn": ("scheduled_quant_daily_cn", "Asia/Shanghai"),
@@ -44,6 +42,8 @@ EXPECTED_JOBS = {
     "trend_following_us": ("scheduled_trend_following_us", "America/New_York"),
     "trend_following_preview_cn": ("scheduled_trend_following_preview_cn", "Asia/Shanghai"),
     "trend_following_preview_us": ("scheduled_trend_following_preview_us", "America/New_York"),
+    "trade_engine_cn": ("scheduled_trade_engine_cn", "Asia/Shanghai"),
+    "trade_engine_us": ("scheduled_trade_engine_us", "America/New_York"),
 }
 
 
@@ -65,10 +65,10 @@ def test_all_original_jobs_enter_beat_schedule():
         definition = get_scheduled_task_definition(job_id)
         if definition.enabled:
             assert celery_task_name(job_id) in task_names
-    a_share_entries = [k for k in schedule if k.startswith("analysis_a_share_intraday")]
-    assert len(a_share_entries) == 2
-    us_intraday_entries = [k for k in schedule if k.startswith("analysis_us_intraday")]
-    assert len(us_intraday_entries) == 2
+    cn_entries = [k for k in schedule if k.startswith("trade_engine_cn")]
+    assert len(cn_entries) == 1
+    us_entries = [k for k in schedule if k.startswith("trade_engine_us")]
+    assert len(us_entries) == 1
 
 
 def test_beat_entries_carry_scheduler_kwargs_queue_and_expires():
@@ -81,29 +81,27 @@ def test_beat_entries_carry_scheduler_kwargs_queue_and_expires():
 
 
 def test_intraday_expires_is_short():
-    definition = get_scheduled_task_definition("analysis_us_intraday")
-    assert definition.expires <= 10 * 60
+    definition = get_scheduled_task_definition("trade_engine_us")
+    assert definition.expires == 20 * 60
 
 
-def test_us_intraday_uses_new_york_offset_windows():
-    definition = get_scheduled_task_definition("analysis_us_intraday")
+def test_us_trade_engine_uses_new_york_thirty_minute_windows():
+    definition = get_scheduled_task_definition("trade_engine_us")
 
     assert definition.timezone == "America/New_York"
-    assert definition.expires == 4 * 60
+    assert definition.expires == 20 * 60
     schedules = {(item.hour, item.minute, item.day_of_week, item.timezone) for item in definition.schedules}
-    assert ("9", "45", "mon-fri", "America/New_York") in schedules
-    assert ("10-15", "15,45", "mon-fri", "America/New_York") in schedules
-    assert "每30分钟" in definition.schedule_text
+    assert schedules == {("*", "*/30", "mon-fri", "America/New_York")}
+    assert "每 30 分钟" in definition.schedule_text
 
 
-def test_a_share_intraday_uses_hourly_windows_and_skips_lunch():
-    definition = get_scheduled_task_definition("analysis_a_share_intraday")
+def test_cn_trade_engine_uses_thirty_minute_beat_and_session_skip():
+    definition = get_scheduled_task_definition("trade_engine_cn")
 
     assert definition.timezone == "Asia/Shanghai"
-    schedules = {(item.hour, item.minute, item.day_of_week, item.timezone) for item in definition.schedules}
-    assert ("9-10", "45", "mon-fri", "Asia/Shanghai") in schedules
-    assert ("13-15", "0", "mon-fri", "Asia/Shanghai") in schedules
-    assert "午休不运行" in definition.schedule_text
+    assert all(item.minute == "*/30" for item in definition.schedules)
+    assert "每 30 分钟" in definition.schedule_text
+    assert "跳过" in definition.schedule_text
 
 
 def test_a_share_pre_close_review_runs_once_at_1430():
@@ -158,23 +156,20 @@ def test_next_run_rolls_over_to_next_day():
 
 
 def test_a_share_window_skips_weekend():
-    definition = get_scheduled_task_definition("analysis_a_share_intraday")
-    # Friday 2026-06-26 16:00 Shanghai (08:00 UTC) -> next is Monday morning.
-    friday_evening = datetime(2026, 6, 26, 8, 0, tzinfo=timezone.utc)
-    nxt = definition.next_run_time(now=friday_evening)
+    definition = get_scheduled_task_definition("trade_engine_cn")
+    saturday = datetime(2026, 6, 27, 8, 0, tzinfo=timezone.utc)
+    nxt = definition.next_run_time(now=saturday)
     local = nxt.astimezone(ZoneInfo("Asia/Shanghai"))
     assert local.isoweekday() == 1  # Monday
-    assert (local.hour, local.minute) == (9, 45)
+    assert local.minute in {0, 30}
 
 
-def test_multi_cron_takes_earliest_window():
-    definition = get_scheduled_task_definition("analysis_a_share_intraday")
-    # Monday 2026-06-22 12:00 Shanghai (04:00 UTC): morning window finished at
-    # 11:45, so the next fire is the afternoon window opener at 13:00.
+def test_cn_trade_engine_thirty_minute_interval():
+    definition = get_scheduled_task_definition("trade_engine_cn")
     monday_noon = datetime(2026, 6, 22, 4, 0, tzinfo=timezone.utc)
     nxt = definition.next_run_time(now=monday_noon)
     local = nxt.astimezone(ZoneInfo("Asia/Shanghai"))
-    assert (local.hour, local.minute) == (13, 0)
+    assert (local.hour, local.minute) == (12, 30)
 
 
 def test_us_postmarket_review_follows_new_york_dst():
@@ -256,14 +251,14 @@ def test_cn_quant_runs_one_hour_after_cn_daily_sync_on_analysis_queue():
     }
 
 
-def test_us_intraday_schedule_follows_new_york_dst():
-    definition = get_scheduled_task_definition("analysis_us_intraday")
+def test_us_trade_engine_schedule_follows_new_york_dst():
+    definition = get_scheduled_task_definition("trade_engine_us")
 
     summer = datetime(2026, 7, 1, 13, 44, tzinfo=timezone.utc)
     winter = datetime(2026, 1, 5, 14, 44, tzinfo=timezone.utc)
 
-    assert definition.next_run_time(now=summer) == datetime(2026, 7, 1, 13, 45, tzinfo=timezone.utc)
-    assert definition.next_run_time(now=winter) == datetime(2026, 1, 5, 14, 45, tzinfo=timezone.utc)
+    assert definition.next_run_time(now=summer) == datetime(2026, 7, 1, 14, 0, tzinfo=timezone.utc)
+    assert definition.next_run_time(now=winter) == datetime(2026, 1, 5, 15, 0, tzinfo=timezone.utc)
 
 
 def test_trend_following_preview_schedules_use_market_timezones_and_dst():
@@ -310,7 +305,7 @@ def test_compute_next_run_handles_localized_per_schedule_timezone():
 
 
 def test_scheduled_celery_tasks_are_lifecycle_tracked():
-    from finance_analysis.tasks.lifecycle import is_tracked_callable
+    from finance_analysis.tasks.lifecycle import is_tracked_callable  # pragma: allowlist secret
 
     celery_app.loader.import_default_modules()
     tasks = {
@@ -325,7 +320,7 @@ def test_scheduled_celery_tasks_are_lifecycle_tracked():
 def test_before_publish_creates_single_pending_record_with_scheduler_metadata():
     from unittest.mock import patch
 
-    from finance_analysis.tasks.celery import app as app_module
+    from finance_analysis.tasks.celery import app as app_module  # pragma: allowlist secret
 
     events = []
 
@@ -353,7 +348,7 @@ def test_before_publish_creates_single_pending_record_with_scheduler_metadata():
 def test_before_publish_carries_manual_trigger_metadata():
     from unittest.mock import patch
 
-    from finance_analysis.tasks.celery import app as app_module
+    from finance_analysis.tasks.celery import app as app_module  # pragma: allowlist secret
 
     events = []
 
@@ -385,7 +380,7 @@ def test_before_publish_carries_manual_trigger_metadata():
 def test_before_publish_skips_internal_quant_callback_record():
     from unittest.mock import MagicMock, patch
 
-    from finance_analysis.tasks.celery import app as app_module
+    from finance_analysis.tasks.celery import app as app_module  # pragma: allowlist secret
 
     service = MagicMock()
     with patch.object(app_module, "get_task_lifecycle_service", return_value=service):
@@ -401,7 +396,7 @@ def test_before_publish_skips_internal_quant_callback_record():
 def test_before_publish_uses_importance_task_metadata():
     from unittest.mock import patch
 
-    from finance_analysis.tasks.celery import app as app_module
+    from finance_analysis.tasks.celery import app as app_module  # pragma: allowlist secret
 
     events = []
 

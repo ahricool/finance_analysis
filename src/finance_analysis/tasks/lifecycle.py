@@ -16,10 +16,10 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Callable, Dict, Mapping, Optional, TypeVar
 
-from finance_analysis.core.logging import get_log_base_dir, get_task_log_file, task_logging_context
-from finance_analysis.database.repositories.task_record import TaskRecordRepository
-from finance_analysis.core.time import utc_now
-from finance_analysis.tasks.advisory_lock import PostgreSQLAdvisoryLock, TaskAdvisoryLockId
+from finance_analysis.core.logging import get_log_base_dir, get_task_log_file, task_logging_context  # pragma: allowlist secret
+from finance_analysis.database.repositories.task_record import TaskRecordRepository  # pragma: allowlist secret
+from finance_analysis.core.time import utc_now  # pragma: allowlist secret
+from finance_analysis.tasks.advisory_lock import PostgreSQLAdvisoryLock, TaskAdvisoryLockId  # pragma: allowlist secret
 
 logger = logging.getLogger(__name__)
 F = TypeVar("F", bound=Callable[..., Any])
@@ -31,7 +31,19 @@ MAX_FAILURE_NOTIFICATION_STACK_CHARS = 6000
 MAX_JSON_DEPTH = 6
 MAX_JSON_ITEMS = 40
 MAX_STRING_CHARS = 1000
-SENSITIVE_KEY_TOKENS = ("token", "secret", "password", "authorization", "api_key", "apikey", "key")
+SENSITIVE_KEY_TOKENS = (
+    "token",
+    "secret",
+    "password",
+    "authorization",
+    "api_key",
+    "apikey",
+    "key",
+    "refresh_token",
+    "access_token",
+    "code_verifier",
+    "spreadsheet",
+)
 
 CURRENT_TASK_ID: ContextVar[Optional[str]] = ContextVar("task_lifecycle_task_id", default=None)
 
@@ -413,7 +425,7 @@ def _send_task_failure_notification(
     error: BaseException,
 ) -> None:
     try:
-        from finance_analysis.notification.service import NotificationService
+        from finance_analysis.notification.service import NotificationService  # pragma: allowlist secret
 
         reason = _redact_error_text(f"{type(error).__name__}: {error}")
         stack = _redact_error_text("".join(traceback.format_exception(type(error), error, error.__traceback__)))

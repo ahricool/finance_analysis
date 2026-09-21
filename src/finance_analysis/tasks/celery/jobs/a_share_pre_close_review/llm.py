@@ -10,7 +10,7 @@ from typing import Any, Optional, Sequence
 
 from finance_analysis.llm import LLMClient, LLMRequest
 
-from ..a_share_intraday_analysis.llm import parse_llm_json_response
+from finance_analysis.llm.json_parse import parse_llm_json_response  # pragma: allowlist secret
 from .config import ALLOWED_HOLDING_ACTIONS, PreCloseReviewConfig
 from .models import DataQuality, SecurityReview
 

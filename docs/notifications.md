@@ -6,7 +6,7 @@
 
 `send()` 返回 `NotificationResult`：`notification_id` 非空表示消息已入库；`push_attempted` 表示实际尝试了外推；`push_sent` 表示至少一个渠道成功。后两个字段只存在于返回值中，不写入数据库。
 
-业务状态仅依据 `notification_id is not None` 推进。A股/美股盘中信号入库后即标记已处理，同一 generation 不会因为推送失败而再次生成消息。`push=False`、无渠道和 Noise Control suppress 均返回未尝试推送，不产生任务异常；外推失败仅记录日志。入库失败仍可尝试推送，但不能标记业务消息已处理。
+业务状态仅依据 `notification_id is not None` 推进。`push=False`、无渠道和 Noise Control suppress 均返回未尝试推送，不产生任务异常；外推失败仅记录日志。入库失败仍可尝试推送，但不能标记业务消息已处理。
 
 `content` 始终保存完整正文；可选 `push_content` 供渠道推送及原有 Noise Control 内容哈希使用，未传则使用 `content`。显式 dedup/cooldown key 语义不变。A股收盘前保存完整报告，外推简版摘要。
 
@@ -36,7 +36,7 @@ API 从认证会话取得 uid；列表和详情均只允许 `uid = 当前用户 
 
 ## 业务边界
 
-A股/美股盘中提醒、A股收盘前复核、美股盘前分析及新闻报告、美股盘后复盘、市场复盘、单股/汇总分析和任务错误统一使用 NotificationService。已知用户归属向下传 uid；无法确定时保持 NULL。一次业务消息只调用一次 send，渠道循环不写库。原先绕过 NotificationService 的分析汇总推送已统一入口。
+Trade Engine 确认信号、A股收盘前复核、美股盘前分析及新闻报告、美股盘后复盘、市场复盘、单股/汇总分析和任务错误统一使用 NotificationService。已知用户归属向下传 uid；无法确定时保持 NULL。一次业务消息只调用一次 send，渠道循环不写库。原先绕过 NotificationService 的分析汇总推送已统一入口。
 
 报告不再自动写本地文件或 timeline_entries。Timeline 保留真实财经事件和逐条新闻结构化判断；旧 timeline_entries 表暂时保留，无报告读写入口。分析历史、新闻原文/结构化研究结果和任务执行统计仍属于各自业务领域，不作为消息中心的数据来源。
 

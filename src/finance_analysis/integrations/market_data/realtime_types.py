@@ -18,6 +18,7 @@ import logging
 import time
 from threading import RLock
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Optional, Dict, Any, Union
 from enum import Enum
 
@@ -142,6 +143,7 @@ class UnifiedRealtimeQuote:
     change_60d: Optional[float] = None      # 60日涨跌幅(%)
     high_52w: Optional[float] = None        # 52周最高
     low_52w: Optional[float] = None         # 52周最低
+    quote_time: Optional[datetime] = None   # 行情事件时间；缺失时不得用 now 冒充
     
     def to_dict(self) -> Dict[str, Any]:
         """转换为字典（过滤 None 值）"""
@@ -156,10 +158,12 @@ class UnifiedRealtimeQuote:
             'volume_ratio', 'turnover_rate', 'amplitude',
             'open_price', 'high', 'low', 'pre_close',
             'pe_ratio', 'pb_ratio', 'total_mv', 'circ_mv',
-            'change_60d', 'high_52w', 'low_52w'
+            'change_60d', 'high_52w', 'low_52w', 'quote_time', 'event_time'
         ]
         for f in optional_fields:
             val = getattr(self, f, None)
+            if f == "event_time":
+                val = self.quote_time
             if val is not None:
                 result[f] = val
         return result

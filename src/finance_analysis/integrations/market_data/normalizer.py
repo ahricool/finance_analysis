@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from datetime import date, datetime, time, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Any, Iterable, Mapping
 from zoneinfo import ZoneInfo
 
@@ -140,6 +140,17 @@ def bars_from_frame(
         if None in (open_price, high, low, close, volume):
             continue
         amount = _number(_value(row, "amount", "turnover", "Turnover", "成交额"))
+        bar_start = bar_end = None
+        if bar_time is not None and interval != "1d":
+            minutes = int("".join(ch for ch in interval if ch.isdigit()) or "0")
+            if minutes > 0:
+                delta = timedelta(minutes=minutes)
+                if provider == "sina_minute":
+                    bar_end = bar_time
+                    bar_start = bar_time - delta
+                else:
+                    bar_start = bar_time
+                    bar_end = bar_time + delta
         bars.append(
             MarketBar(
                 symbol=canonical,
@@ -157,6 +168,8 @@ def bars_from_frame(
                 adjustment=adjustment,
                 provider=provider,
                 amount_estimated=amount_estimated,
+                bar_start=bar_start,
+                bar_end=bar_end,
             )
         )
     identity = (lambda bar: bar.trade_date) if interval == "1d" else (lambda bar: bar.bar_time)
@@ -173,7 +186,7 @@ def quote_from_value(value: Any, *, symbol: str, provider: str) -> MarketQuote |
     if price is None or price <= 0:
         return None
     volume = _number(_value(source, "volume"))
-    quote_time_value = _value(source, "quote_time", "snapshot_time", "timestamp", "time")
+    quote_time_value = _value(source, "quote_time", "snapshot_time", "timestamp", "time", "event_time")
     quote_time = None
     if quote_time_value is not None:
         parsed = pd.to_datetime(quote_time_value, errors="coerce", utc=True)

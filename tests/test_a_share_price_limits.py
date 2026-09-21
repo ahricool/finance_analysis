@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from finance_analysis.tasks.celery.jobs.a_share_intraday_analysis.price_limits import (
+from finance_analysis.market_review.price_limits import (  # pragma: allowlist secret
     BOARD_BSE,
     BOARD_CHINEXT,
     BOARD_CONVERTIBLE_BOND,

@@ -18,7 +18,7 @@ interfaces/api + tasks/celery/jobs
 
 - `interfaces/` 是传输边界：解析请求、鉴权、选择依赖、序列化响应，不应承载核心计算。
 - `tasks/celery/jobs/` 是异步适配层：解析 payload、记录生命周期、调用领域服务。
-- 顶层领域包（`analysis`、`quant`、`etf_rotation`、`trend_following`、`market_review`）拥有业务规则。
+- 顶层领域包（`analysis`、`quant`、`etf_rotation`、`trend_following`、`market_review`、`portfolio`、`trade_engine`）拥有业务规则。
 - `database/repositories/` 封装查询和事务；领域代码不应散落 SQL。
 - `integrations/` 封装外部行情；`llm/`、`notification/` 同样是共享基础能力。
 - 为避免循环导入和高成本启动，现有代码有意在函数内延迟导入数据库、Provider和任务组件；修改前先确认初始化顺序。
@@ -70,6 +70,8 @@ interfaces/api + tasks/celery/jobs
 | `market_data.py` | Cookie 鉴权的实时行情 WebSocket，以及统一前复权 daily-bars HTTP 查询 |
 | `usage.py` | LLM 用量 |
 | `celery_demo.py` | Celery 连通性演示，不是业务编排入口 |
+| `holdings.py` | DB 持仓买卖/现金与交易提醒开关 |
+| `trade_engine.py` | 持仓级 Trade Engine 只读结果与管理员手动运行 |
 
 REST 修改至少核对 endpoint、schema、前端 `web/src/api/` 与 `tests/test_*_api*.py`。WebSocket/SSE 还要核对 nginx buffering/upgrade 与断开清理。
 
@@ -186,6 +188,10 @@ Alembic：
 4. payload 必须 JSON 可序列化，敏感内容不能进入 TaskRecord。
 5. 生命周期、重复任务/advisory lock、重试和过期语义。
 6. `tests/test_celery_task_structure.py`、`test_celery_schedule.py`、`test_task_lifecycle.py` 等聚焦测试。
+
+## Holdings / Trade Engine
+
+`portfolio/` 是 STOCK/ETF 唯一持仓事实源。`trade_engine/` 是中线持仓决策系统，不是全市场 Scanner，也不是日内交易系统。Strategy 完全无状态；Portfolio Risk 输出事实给 LLM；每个市场每 30 分钟最多一次 Market-level LLM，状态写入 `trade_llm_state`。`trade_engine_enabled=false` 不运行 Strategy，LLM target 必须等于 current，但仍计入 NAV 与风险。详见 `docs/holdings-portfolio-risk.md`。
 
 ## 实时行情 Streamer
 

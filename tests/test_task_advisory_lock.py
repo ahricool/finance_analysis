@@ -177,8 +177,7 @@ class _ContendedLock:
     [
         TaskAdvisoryLockId.CN_DAILY_MARKET_DATA_SYNC,
         TaskAdvisoryLockId.US_DAILY_MARKET_DATA_SYNC,
-        TaskAdvisoryLockId.CN_INTRADAY_ANALYSIS,
-        TaskAdvisoryLockId.US_INTRADAY_ANALYSIS,
+        TaskAdvisoryLockId.REFERENCE_DATA_SYNC,
     ],
 )
 def test_each_scheduled_lock_contention_marks_task_record_skipped(lock_id) -> None:
@@ -251,8 +250,6 @@ def test_lock_ids_are_stable_and_readable() -> None:
     assert {item.name: item.value for item in TaskAdvisoryLockId} == {
         "CN_DAILY_MARKET_DATA_SYNC": 1,
         "US_DAILY_MARKET_DATA_SYNC": 2,
-        "CN_INTRADAY_ANALYSIS": 3,
-        "US_INTRADAY_ANALYSIS": 4,
         "STOCK_ANALYSIS": 5,
         "REFERENCE_DATA_SYNC": 6,
         "CN_INDUSTRY_STRENGTH": 7,
@@ -282,8 +279,6 @@ def test_lock_declarations_are_exactly_seven_nonblocking_scheduled_and_one_block
         "reference_data_sync": (TaskAdvisoryLockId.REFERENCE_DATA_SYNC, False),
         "market_data_sync_cn": (TaskAdvisoryLockId.CN_DAILY_MARKET_DATA_SYNC, False),
         "market_data_sync_us": (TaskAdvisoryLockId.US_DAILY_MARKET_DATA_SYNC, False),
-        "analysis_a_share_intraday": (TaskAdvisoryLockId.CN_INTRADAY_ANALYSIS, False),
-        "analysis_us_intraday": (TaskAdvisoryLockId.US_INTRADAY_ANALYSIS, False),
     }
     stock_run = celery_app.tasks[STOCK_ANALYSIS_TASK.celery_name].run
     assert stock_run._finance_advisory_lock_id is TaskAdvisoryLockId.STOCK_ANALYSIS

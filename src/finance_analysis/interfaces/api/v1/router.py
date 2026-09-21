@@ -11,7 +11,7 @@ API v1 路由聚合
 
 from fastapi import APIRouter
 
-from finance_analysis.interfaces.api.v1.endpoints import (
+from finance_analysis.interfaces.api.v1.endpoints import (  # pragma: allowlist secret
     notifications,
     crypto,
     auth,
@@ -84,6 +84,12 @@ router.include_router(macro.router, prefix="/macro", tags=["US Macro"])
 
 from .endpoints import industry_strength
 router.include_router(industry_strength.router, prefix="/industry-strength", tags=["Industry Strength"])
+
+from .endpoints import holdings
+router.include_router(holdings.router, prefix="/holdings", tags=["Holdings"])
+
+from .endpoints import trade_engine
+router.include_router(trade_engine.router, prefix="/trade-engine", tags=["Trade Engine"])
 
 from .endpoints import market_sentiment
 router.include_router(market_sentiment.router, prefix="/market-sentiment", tags=["Market Sentiment"])

@@ -7,10 +7,13 @@ from typing import Any, Optional, Sequence
 
 import pandas as pd
 
-from finance_analysis.integrations.market_data.codes import normalize_stock_code
-from finance_analysis.integrations.market_data.realtime_types import safe_float
-
-from ..a_share_intraday_analysis.domain_service import compute_market_breadth
+from finance_analysis.integrations.market_data.codes import is_etf_code, normalize_stock_code  # pragma: allowlist secret
+from finance_analysis.integrations.market_data.realtime_types import safe_float  # pragma: allowlist secret
+from finance_analysis.market_review.price_limits import (  # pragma: allowlist secret
+    _limit_ratio_for,
+    _structural_board,
+    is_risk_warning,
+)
 from .models import SectorReview
 
 
@@ -191,3 +194,83 @@ def unrealized_pct(price: Optional[float], avg_cost: Optional[float]) -> Optiona
     if price is None or avg_cost is None or price <= 0 or avg_cost <= 0:
         return None
     return round((price / avg_cost - 1) * 100, 3)
+
+def compute_market_breadth(rows: Sequence[dict[str, Any]], trading_date: date) -> dict[str, Any]:
+    """Deterministic A-share market breadth from a snapshot. Used by pre-close review."""
+    del trading_date
+    up = down = flat = 0
+    limit_up = limit_down = 0
+    touched_up = opened_up = 0
+    touched_down = 0
+    up5 = down5 = 0
+    high_open_low = 0
+    total_amount = 0.0
+    counted = 0
+
+    for row in rows:
+        code = normalize_stock_code(str(row.get("code") or ""))
+        name = str(row.get("name") or "")
+        if not code or is_etf_code(code):
+            continue
+        price = safe_float(row.get("price"))
+        pre_close = safe_float(row.get("pre_close"))
+        amount = safe_float(row.get("amount"))
+        change_pct = safe_float(row.get("change_pct"))
+        if amount is not None:
+            total_amount += amount
+        if price is None or pre_close is None or price <= 0 or pre_close <= 0:
+            continue
+        counted += 1
+        if price > pre_close:
+            up += 1
+        elif price < pre_close:
+            down += 1
+        else:
+            flat += 1
+        if change_pct is not None:
+            if change_pct >= 5:
+                up5 += 1
+            elif change_pct <= -5:
+                down5 += 1
+        ratio = _limit_ratio_for(_structural_board(code), is_risk_warning(name))
+        if ratio is None:
+            continue
+        limit_up_price = round(pre_close * (1 + ratio), 2)
+        limit_down_price = round(pre_close * (1 - ratio), 2)
+        high = safe_float(row.get("high"))
+        low = safe_float(row.get("low"))
+        open_price = safe_float(row.get("open"))
+        is_lu = abs(price - limit_up_price) / limit_up_price * 100 <= 0.05
+        is_ld = abs(price - limit_down_price) / limit_down_price * 100 <= 0.05
+        if is_lu:
+            limit_up += 1
+        if is_ld:
+            limit_down += 1
+        if high is not None and high >= limit_up_price - 0.005:
+            touched_up += 1
+            if not is_lu:
+                opened_up += 1
+        if low is not None and low <= limit_down_price + 0.005:
+            touched_down += 1
+        if open_price is not None and open_price > pre_close * 1.015 and price < open_price * 0.99:
+            high_open_low += 1
+
+    break_rate = (opened_up / touched_up) if touched_up > 0 else None
+    return {
+        "counted_symbols": counted,
+        "up_count": up,
+        "down_count": down,
+        "flat_count": flat,
+        "limit_up_count": limit_up,
+        "limit_down_count": limit_down,
+        "touched_limit_up_count": touched_up,
+        "opened_from_limit_up_count": opened_up,
+        "touched_limit_down_count": touched_down,
+        "up_over_5_count": up5,
+        "down_over_5_count": down5,
+        "high_open_low_count": high_open_low,
+        "break_rate": break_rate,
+        "total_amount": round(total_amount / 1e8, 4) if total_amount else 0.0,
+        "up_ratio": round(up / counted, 4) if counted else None,
+        "down_ratio": round(down / counted, 4) if counted else None,
+    }

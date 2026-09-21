@@ -306,7 +306,7 @@ class FuyaoProvider:
                 high=number(row.get("high_price")),
                 low=number(row.get("low_price")),
                 pre_close=number(row.get("prev_price")),
-                quote_time=timestamp(as_of),
+                quote_time=timestamp(as_of) or datetime.now(timezone.utc),
                 amplitude=number(row.get("price_amplitude_ratio_pct")),
                 turnover_rate=number(row.get("turnover_ratio_pct")),
             )

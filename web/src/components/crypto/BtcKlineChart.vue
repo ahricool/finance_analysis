@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import { registerOverlay, type OverlayCreate } from 'klinecharts';
 import type { CryptoSnapshot } from '@/types/crypto';
 import { btcMarkers } from './btcMarkers';
+import { tradeMarkerOverlays } from '@/components/market-data/tradeMarkerOverlay';
 import MarketKLineChart from '@/components/market-data/MarketKLineChart.vue';
 import type { BinanceInterval, CryptoKline } from '@/types/binance';
+import type { TradeMarker } from '@/lib/tradeMarkers';
 
 const props = defineProps<{ strategyKey?: string; strategyName?: string; signals?: CryptoSnapshot[]; interval?: BinanceInterval; candles: CryptoKline[]; current: CryptoKline | null }>();
 function toBar(row: CryptoKline) {
@@ -17,35 +18,22 @@ const current = computed(() => {
   const latest = props.candles.at(-1);
   return row && !row.closed && (!latest || Date.parse(row.openTime) > Date.parse(latest.openTime)) ? toBar(row) : null;
 });
-
-const selected = ref<CryptoSnapshot | null>(null);
+const selected = ref<TradeMarker | null>(null);
 watch(() => props.strategyKey, () => { selected.value = null; });
-registerOverlay<{ label: string; buy: boolean; offset: number }>({
-  name: 'btcSignal', totalStep: 1, needDefaultPointFigure: false,
-  needDefaultXAxisFigure: false, needDefaultYAxisFigure: false,
-  createPointFigures: ({ coordinates, overlay }) => {
-    const point = coordinates[0];
-    if (!point) return [];
-    const { label, buy, offset } = overlay.extendData;
-    return [{ type: 'text', attrs: { x: point.x, y: point.y + (buy ? 18 + offset : -18 - offset), text: label, align: 'center', baseline: 'middle' },
-      styles: { color: buy ? '#dc2626' : '#16854e', size: 12, weight: 'bold', backgroundColor: '#ffffff', paddingLeft: 3, paddingRight: 3 } }];
-  },
-});
-const overlays = computed<OverlayCreate[]>(() => {
+const markers = computed(() => {
   const rows = [...props.candles, ...(props.current ? [props.current] : [])];
-  const offsets = new Map<number, number>();
-  return btcMarkers(props.signals ?? [], rows).map(({ signal, timestamp }) => {
-    const offset = offsets.get(timestamp) ?? 0;
-    offsets.set(timestamp, offset + 16);
-    return { name: 'btcSignal', id: `btc-${signal.strategyKey}-${signal.evaluatedAt}`, groupId: 'strategy-markers', lock: true,
-      points: [{ timestamp, value: Number(signal.price) }],
-      extendData: { label: signal.action === 'BUY' ? '↑ BUY' : '↓ EXIT', buy: signal.action === 'BUY', offset },
-      onClick: () => { selected.value = signal; return true; } };
-  });
+  return btcMarkers(props.signals ?? [], rows, props.strategyKey);
 });
+const overlays = computed(() => tradeMarkerOverlays(markers.value, timestamp => {
+  const bar = [...bars.value, ...(current.value ? [current.value] : [])].find(item => item.timestamp === timestamp);
+  return bar?.close ?? Number(props.signals?.[0]?.price ?? 0);
+}, marker => { selected.value = marker; }));
 </script>
 
 <template>
+  <p class="mb-2 text-xs text-muted-foreground">
+    策略 BST / Strategy Signal · {{ strategyName ?? strategyKey ?? '当前策略' }}（不是真实成交）
+  </p>
   <MarketKLineChart
     symbol="BTCUSDT"
     :period="interval ?? '1m'"
@@ -60,8 +48,12 @@ const overlays = computed<OverlayCreate[]>(() => {
     class="mt-3 rounded border p-3 text-sm"
     data-testid="btc-signal-detail"
   >
-    <strong>{{ strategyName ?? selected.strategyKey }} · {{ selected.action }} · {{ selected.evaluatedAt }} · {{ selected.price }} USDT</strong>
-    <p>仓位 {{ selected.positionBefore == null ? '未知' : `${Number(selected.positionBefore) * 100}%` }} → {{ selected.positionAfter == null ? '未知' : `${Number(selected.positionAfter) * 100}%` }} · {{ selected.regime }} · {{ selected.setup }}</p>
-    <p>{{ selected.reason }}</p>
+    <strong>{{ strategyName ?? strategyKey }} · 策略 BST {{ selected.type }}</strong>
+    <p
+      v-for="(item, index) in selected.operations"
+      :key="index"
+    >
+      {{ item.executedAt }} {{ item.label || item.side }} {{ item.price }} USDT
+    </p>
   </div>
 </template>

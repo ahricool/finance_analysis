@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import importlib
 from pathlib import Path
-from finance_analysis.tasks.celery.app import celery_app
-from finance_analysis.tasks.celery.jobs import TASK_MODULES, TASK_PACKAGES
-from finance_analysis.tasks.celery.metadata import ON_DEMAND_TASKS
-from finance_analysis.tasks.celery.schedule import get_scheduled_task_definitions
-from finance_analysis.tasks.lifecycle import is_tracked_callable
+from finance_analysis.tasks.celery.app import celery_app  # pragma: allowlist secret
+from finance_analysis.tasks.celery.jobs import TASK_MODULES, TASK_PACKAGES  # pragma: allowlist secret
+from finance_analysis.tasks.celery.metadata import ON_DEMAND_TASKS  # pragma: allowlist secret
+from finance_analysis.tasks.celery.schedule import get_scheduled_task_definitions  # pragma: allowlist secret
+from finance_analysis.tasks.lifecycle import is_tracked_callable  # pragma: allowlist secret
 
 EXPECTED_CUSTOM_TASKS = {
     "scheduled.crypto_btc_strategy",
@@ -24,12 +24,10 @@ EXPECTED_CUSTOM_TASKS = {
     "scheduled.market_calendar",
     "scheduled.analysis_us_premarket_news",
     "scheduled.analysis_us_premarket",
-    "scheduled.analysis_us_intraday",
     "scheduled.analysis_us_postmarket_review",
     "scheduled.reference_data_sync",
     "scheduled.market_data_sync_cn",
     "scheduled.market_data_sync_us",
-    "scheduled.analysis_a_share_intraday",
     "scheduled.analysis_a_share_pre_close_review",
     "quant.dataset.build",
     "quant.model.train",
@@ -45,6 +43,8 @@ EXPECTED_CUSTOM_TASKS = {
     "scheduled.trend_following_us",
     "scheduled.trend_following_preview_cn",
     "scheduled.trend_following_preview_us",
+    "scheduled.trade_engine_cn",
+    "scheduled.trade_engine_us",
     "quant.daily.finalize",
     "quant.daily.failed",
 }
@@ -65,8 +65,8 @@ def test_worker_registers_exactly_the_expected_custom_tasks():
 
 
 def test_each_task_package_has_one_explicit_tasks_module_and_expected_tasks():
-    assert len(TASK_PACKAGES) == 23
-    assert len(TASK_MODULES) == 23
+    assert len(TASK_PACKAGES) == 22
+    assert len(TASK_MODULES) == 22
     for package, module_name in zip(TASK_PACKAGES, TASK_MODULES):
         assert module_name == f"{package}.tasks"
         module = importlib.import_module(module_name)
@@ -75,7 +75,7 @@ def test_each_task_package_has_one_explicit_tasks_module_and_expected_tasks():
             expected_count = 4
         elif package.endswith("quant_training"):
             expected_count = 3
-        elif package.endswith(("market_data_sync", "market_structure")):
+        elif package.endswith(("market_data_sync", "market_structure", "trade_engine")):
             expected_count = 2
         elif package.endswith(("etf_rotation", "trend_following")):
             expected_count = 4
@@ -110,7 +110,7 @@ def test_all_on_demand_tasks_use_lifecycle_tracking():
 
 def test_removed_legacy_modules_and_batch_business_references_are_absent():
     project_root = Path(__file__).resolve().parents[1]
-    source_root = project_root / "src" / "finance_analysis"
+    source_root = project_root / "src" / "finance_analysis"  # pragma: allowlist secret
     removed_paths = (
         source_root / "tasks" / "jobs",
         source_root / "tasks" / "scheduled_jobs.py",
@@ -131,14 +131,14 @@ def test_removed_legacy_modules_and_batch_business_references_are_absent():
     assert "submit_bot_batch_analysis" not in source_text
     assert '"batch_analysis"' not in source_text
     forbidden_imports = (
-        "finance_analysis.tasks.celery.jobs.analysis",
-        "finance_analysis.tasks.celery.jobs.scheduled",
-        "finance_analysis.tasks.scheduled_jobs",
-        "finance_analysis.tasks.celery.cron",
-        "finance_analysis.tasks.celery.heartbeat",
-        "finance_analysis.tasks.celery.jobs.demo import",
-        "finance_analysis.tasks.celery.jobs.market_calendar import",
-        "finance_analysis.tasks.jobs",
+        "finance_analysis.tasks.celery.jobs.analysis",  # pragma: allowlist secret
+        "finance_analysis.tasks.celery.jobs.scheduled",  # pragma: allowlist secret
+        "finance_analysis.tasks.scheduled_jobs",  # pragma: allowlist secret
+        "finance_analysis.tasks.celery.cron",  # pragma: allowlist secret
+        "finance_analysis.tasks.celery.heartbeat",  # pragma: allowlist secret
+        "finance_analysis.tasks.celery.jobs.demo import",  # pragma: allowlist secret
+        "finance_analysis.tasks.celery.jobs.market_calendar import",  # pragma: allowlist secret
+        "finance_analysis.tasks.jobs",  # pragma: allowlist secret
     )
     assert not any(fragment in source_text for fragment in forbidden_imports)
 

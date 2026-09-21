@@ -6,10 +6,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from finance_analysis.tasks.celery.jobs.a_share_intraday_analysis import service as a_share_module
 from finance_analysis.tasks.celery.jobs.daily_analysis import service as daily_module
 from finance_analysis.tasks.celery.jobs.market_calendar_sync import service as calendar_module
-from finance_analysis.tasks.celery.jobs.us_intraday_analysis import service as us_intraday_module
 from finance_analysis.tasks.celery.jobs.us_postmarket_review import service as postmarket_module
 from finance_analysis.tasks.celery.jobs.us_premarket_analysis import service as premarket_module
 from finance_analysis.tasks.celery.jobs.us_premarket_news import service as premarket_news_module
@@ -110,58 +108,6 @@ def test_us_postmarket_service_returns_domain_summary():
     service_class.assert_called_once_with(config=config.return_value)
     domain_service.run.assert_called_once_with(send_notification=True)
     assert result["market_regime"] == "risk_on"
-
-
-def test_us_intraday_service_sleeps_and_runs_domain_service():
-    summary = MagicMock(
-        market_open=True,
-        total_symbols=2,
-        processed_symbols=2,
-        stale_symbols=0,
-        skipped_symbols=0,
-        candidate_count=1,
-        llm_candidate_count=1,
-        signal_results=[],
-        notification_count=0,
-        timings={"duration_seconds": 1.2},
-        filter_failure_counts={},
-    )
-    summary.to_dict.return_value = {"processed_symbols": 2}
-    domain_service = MagicMock()
-    domain_service.run.return_value = summary
-    with (
-        patch.object(us_intraday_module, "sleep_random_start_delay") as delay,
-        patch("finance_analysis.analysis.pipeline_config.get_pipeline_config", return_value=MagicMock()),
-        patch(
-            "finance_analysis.database.repositories.watch_list.get_watch_list_codes_by_market",
-            return_value=["AAPL", "TSLA"],
-        ),
-        patch(
-            "finance_analysis.tasks.celery.jobs.us_intraday_analysis.domain_service.USIntradayAnalysisService",
-            return_value=domain_service,
-        ),
-    ):
-        result = us_intraday_module.USIntradayAnalysisTaskService().run()
-
-    delay.assert_called_once_with(task_name="美股盘中分析任务")
-    domain_service.run.assert_called_once_with(["AAPL", "TSLA"])
-    assert result["processed_symbols"] == 2
-
-
-def test_a_share_intraday_service_returns_summary_with_notifications_enabled():
-    domain_service = MagicMock()
-    domain_service.run.return_value.to_dict.return_value = {"market_regime": "divergent"}
-    with (
-        patch("finance_analysis.analysis.pipeline_config.get_pipeline_config", return_value=MagicMock()),
-        patch(
-            "finance_analysis.tasks.celery.jobs.a_share_intraday_analysis.domain_service.AShareIntradayAnalysisService",
-            return_value=domain_service,
-        ),
-    ):
-        result = a_share_module.AShareIntradayAnalysisTaskService().run()
-
-    domain_service.run.assert_called_once_with(send_notification=True)
-    assert result["market_regime"] == "divergent"
 
 
 def test_intraday_start_delay_is_bounded():

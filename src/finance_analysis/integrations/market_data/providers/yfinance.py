@@ -10,9 +10,9 @@ from typing import Any
 
 import pandas as pd
 
-from finance_analysis.integrations.market_data.batch_pacing import before_daily_batch, daily_batch_scope
+from finance_analysis.integrations.market_data.batch_pacing import before_daily_batch, daily_batch_scope  # pragma: allowlist secret
 
-from finance_analysis.integrations.market_data.models import (
+from finance_analysis.integrations.market_data.models import (  # pragma: allowlist secret
     Adjustment,
     BatchBarResult,
     BatchInstrumentResult,
@@ -26,7 +26,7 @@ from finance_analysis.integrations.market_data.models import (
     MinuteBarsRequest,
     QuoteRequest,
 )
-from finance_analysis.integrations.market_data.normalizer import (
+from finance_analysis.integrations.market_data.normalizer import (  # pragma: allowlist secret
     bars_from_frame,
     canonical_symbol,
     currency_for_market,
@@ -208,17 +208,28 @@ class YFinanceProvider:
         symbols = [canonical_symbol(value) for value in request.symbols]
         provider_symbols = [self.to_yfinance_symbol(symbol) for symbol in symbols]
         result = BatchBarResult()
+        download_kwargs: dict[str, Any] = {
+            "interval": request.interval,
+            "actions": False,
+            "auto_adjust": False,
+            "back_adjust": False,
+            "timeout": 8,
+        }
+        if request.period:
+            download_kwargs["period"] = request.period
+        else:
+            download_kwargs["start"] = request.start_time
+            download_kwargs["end"] = request.end_time
         try:
-            raw = self._download(
-                provider_symbols,
-                start=request.start_time,
-                end=request.end_time,
-                interval=request.interval,
-                actions=False,
-            )
+            raw = self._download(provider_symbols, **download_kwargs)
         except Exception as exc:
             return BatchBarResult(failed_symbols={symbol: str(exc) for symbol in symbols})
         for symbol, provider_symbol in zip(symbols, provider_symbols):
+            error = raw.attrs.get("request_errors", {}).get(provider_symbol)
+            if error:
+                result.failed_symbols[symbol] = error
+                result.request_errors[symbol] = error
+                continue
             frame = self._ticker_frame(raw, provider_symbol).reset_index()
             bars = bars_from_frame(frame, symbol=symbol, provider=self.name, interval=request.interval)
             if bars:
@@ -294,10 +305,12 @@ class YFinanceProvider:
             try:
                 ticker = yf.Ticker(self.to_yfinance_symbol(symbol))
                 fast = dict(ticker.fast_info)
+                fetched_at = datetime.now(timezone.utc)
                 previous = fast.get("previous_close")
                 price = fast.get("last_price")
                 payload = {
                     "name": "",
+                    "quote_time": fetched_at,
                     "price": price,
                     "pre_close": previous,
                     "change_amount": price - previous if price is not None and previous is not None else None,

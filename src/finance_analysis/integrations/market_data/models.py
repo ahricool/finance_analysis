@@ -62,6 +62,7 @@ class MinuteBarsRequest:
     start_time: datetime
     end_time: datetime
     interval: str = "1m"
+    period: str | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "symbols", _symbols(self.symbols))
@@ -73,6 +74,8 @@ class MinuteBarsRequest:
             raise ValueError("start_time must be before end_time")
         if self.interval not in {"1m", "2m", "3m", "5m", "10m", "15m", "20m", "30m", "45m", "60m"}:
             raise ValueError(f"Unsupported minute interval: {self.interval}")
+        if self.period is not None:
+            object.__setattr__(self, "period", str(self.period).strip() or None)
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,6 +111,8 @@ class MarketBar:
     adjustment: Adjustment
     provider: str
     amount_estimated: bool = False
+    bar_start: datetime | None = None
+    bar_end: datetime | None = None
 
     def to_dict(self) -> dict[str, Any]:
         value = asdict(self)
@@ -125,6 +130,7 @@ class BatchBarResult:
     # Sticky request failures survive retries/fallbacks. Full-history writers
     # must reject these symbols, even when some bars were recovered later.
     request_errors: dict[str, str] = field(default_factory=dict)
+    fetched_at: datetime | None = None
 
 
 @dataclass(frozen=True, slots=True)

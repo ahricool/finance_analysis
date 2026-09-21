@@ -30,8 +30,8 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 
-from finance_analysis.integrations.market_data.codes import is_bse_code, normalize_stock_code
-from finance_analysis.integrations.market_data.models import (
+from finance_analysis.integrations.market_data.codes import is_bse_code, normalize_stock_code  # pragma: allowlist secret
+from finance_analysis.integrations.market_data.models import (  # pragma: allowlist secret
     Adjustment,
     BatchBarResult,
     BatchInstrumentResult,
@@ -44,7 +44,7 @@ from finance_analysis.integrations.market_data.models import (
     MinuteBarsRequest,
     QuoteRequest,
 )
-from finance_analysis.integrations.market_data.normalizer import (
+from finance_analysis.integrations.market_data.normalizer import (  # pragma: allowlist secret
     STANDARD_COLUMNS,
     bars_from_frame,
     canonical_symbol,
@@ -52,14 +52,15 @@ from finance_analysis.integrations.market_data.normalizer import (
     infer_market,
     quote_from_value,
 )
-from finance_analysis.integrations.market_data.realtime_types import UnifiedRealtimeQuote, RealtimeSource, safe_float
-from finance_analysis.integrations.market_data.providers.longbridge.normalizer import (
+from finance_analysis.integrations.market_data.realtime_types import UnifiedRealtimeQuote, RealtimeSource, safe_float  # pragma: allowlist secret
+from finance_analysis.integrations.market_data.providers.longbridge.normalizer import (  # pragma: allowlist secret
     longbridge_datetime_to_utc,
     longbridge_market_from_symbol,
     normalize_longbridge_volume,
+    try_parse_longbridge_datetime,
 )
-from finance_analysis.integrations.market_data.providers.us_index_mapping import is_us_stock_code, is_us_index_code
-from finance_analysis.core.logging import log_external_call_exception
+from finance_analysis.integrations.market_data.providers.us_index_mapping import is_us_stock_code, is_us_index_code  # pragma: allowlist secret
+from finance_analysis.core.logging import log_external_call_exception  # pragma: allowlist secret
 
 logger = logging.getLogger(__name__)
 
@@ -195,7 +196,7 @@ def _longbridge_config_kwargs() -> Dict[str, Any]:
 
     if "language" in params:
         try:
-            from finance_analysis.reporting.localization import normalize_report_language
+            from finance_analysis.reporting.localization import normalize_report_language  # pragma: allowlist secret
 
             rl = normalize_report_language(os.getenv("REPORT_LANGUAGE"), default="zh")
             if rl == "zh":
@@ -228,7 +229,7 @@ def build_longbridge_config() -> Any:
 
     _sanitize_longbridge_env()
     try:
-        from finance_analysis.integrations.market_data.config import get_data_provider_config
+        from finance_analysis.integrations.market_data.config import get_data_provider_config  # pragma: allowlist secret
 
         app_config = get_data_provider_config()
         app_key = app_config.longbridge_app_key
@@ -340,7 +341,7 @@ def _to_longbridge_symbol(stock_code: str) -> Optional[str]:
 
 def to_longbridge_symbol(code: str) -> str:
     """Longbridge already uses the application's canonical symbol format."""
-    from finance_analysis.database.models.stock import validate_instrument_code
+    from finance_analysis.database.models.stock import validate_instrument_code  # pragma: allowlist secret
 
     canonical = str(code or "").strip().upper()
     if canonical.endswith(".US"):
@@ -769,7 +770,7 @@ class LongbridgeProvider:
         if self._available is not None:
             return self._available
         try:
-            from finance_analysis.integrations.market_data.config import get_data_provider_config
+            from finance_analysis.integrations.market_data.config import get_data_provider_config  # pragma: allowlist secret
 
             config = get_data_provider_config()
             has_creds = bool(
@@ -1107,6 +1108,7 @@ class LongbridgeProvider:
             if not quotes:
                 return None
             q = quotes[0]
+            fetched_at = datetime.now(timezone.utc)
         except Exception as e:
             log_external_call_exception(
                 logger,
@@ -1215,6 +1217,7 @@ class LongbridgeProvider:
             pb_ratio=pb_ratio,
             total_mv=total_mv,
             circ_mv=circ_mv,
+            quote_time=try_parse_longbridge_datetime(getattr(q, "timestamp", None)) or fetched_at,
         )
 
         logger.info(
