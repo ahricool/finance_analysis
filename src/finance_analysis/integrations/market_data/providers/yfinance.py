@@ -304,13 +304,27 @@ class YFinanceProvider:
             symbol = canonical_symbol(value)
             try:
                 ticker = yf.Ticker(self.to_yfinance_symbol(symbol))
-                fast = dict(ticker.fast_info)
-                fetched_at = datetime.now(timezone.utc)
+                if infer_market(symbol) is Market.US:
+                    # Keep OHLCV and its actual regular-session timestamp from one payload.
+                    info = ticker.info
+                    stamp = info.get("regularMarketTime")
+                    quote_time = datetime.fromtimestamp(stamp, timezone.utc) if stamp else None
+                    fast = {
+                        "previous_close": info.get("regularMarketPreviousClose"),
+                        "last_price": info.get("regularMarketPrice"),
+                        "open": info.get("regularMarketOpen"),
+                        "day_high": info.get("regularMarketDayHigh"),
+                        "day_low": info.get("regularMarketDayLow"),
+                        "last_volume": info.get("regularMarketVolume"),
+                    }
+                else:
+                    fast = dict(ticker.fast_info)
+                    quote_time = datetime.now(timezone.utc)
                 previous = fast.get("previous_close")
                 price = fast.get("last_price")
                 payload = {
                     "name": "",
-                    "quote_time": fetched_at,
+                    "quote_time": quote_time,
                     "price": price,
                     "pre_close": previous,
                     "change_amount": price - previous if price is not None and previous is not None else None,

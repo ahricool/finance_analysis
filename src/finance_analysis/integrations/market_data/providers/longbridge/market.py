@@ -1217,7 +1217,10 @@ class LongbridgeProvider:
             pb_ratio=pb_ratio,
             total_mv=total_mv,
             circ_mv=circ_mv,
-            quote_time=try_parse_longbridge_datetime(getattr(q, "timestamp", None)) or fetched_at,
+            quote_time=(
+                try_parse_longbridge_datetime(getattr(q, "timestamp", None))
+                or (fetched_at if symbol.endswith(".HK") else None)
+            ),
         )
 
         logger.info(
