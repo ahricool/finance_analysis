@@ -80,7 +80,7 @@ Strategy 主要基于持仓事实、Lot、完整日线、中线结构、当前�
 `exit_v1` / `add_v1` 不保存、不读取任何 state。同样输入得到同样输出。每 30 分钟重复相同 REDUCE/ADD 是正确行为。
 
 - `exit_v1`：从 Position + Lots + 完整日线重算 lot high watermark、Stage A/B/C、capital / structure / profit stop，`active_stop = max(...)`。有效报价 `<= active_stop` 则 REDUCE 或 EXIT。
-- `add_v1`：历史完整日K + 今日临时K判断 BREAKOUT_CONTINUATION / PULLBACK_REENTRY。临时K日期取市场当地日期，O/H/L/volume 来自实时行情，C 为实时现价；只保留今日之前的完整历史，避免同日重复。所有 sizing（市值、仓位容量、风险和现金容量、建议入场价）使用该实时现价。MarketData 负责数值清洗与质量校验；Trade Engine 只检查报价、正价格、时间存在与 stale。ADD 信任标准 DTO，仅要求报价 valid/non-stale、OHLCV/时间齐全且属于当前市场当地日期，不重复检查 finite/OHLC 范围，不以昨日 close 替代。Streaming quote_time 使用 event_time 或 received_at，两者相同也有效。
+- `add_v1`：历史完整日K + 今日临时K判断 BREAKOUT_CONTINUATION / PULLBACK_REENTRY。临时K日期取市场当地日期，O/H/L/volume 来自实时行情，C 为实时现价；只保留今日之前的完整历史，避免同日重复。所有 sizing（市值、仓位容量、风险和现金容量、建议入场价）使用该实时现价。MarketData 负责数值清洗与质量校验；Trade Engine 只检查报价、正价格、时间存在与 stale。ADD 信任标准 DTO，仅要求报价 valid/non-stale、OHLCV/时间齐全且属于当前市场当地日期，不重复检查 finite/OHLC 范围，不以昨日 close 替代。Streaming quote_time 使用 event_time 或 received_at，两者相同也有效。成功 realtime MarketQuote 必须有 UTC 时间：优先 provider 行情时间，缺失时使用 snapshot 获取时间；yfinance fast_info 直接使用 fetched_at，Longbridge/Fuyao 在 provider timestamp 缺失时回退获取时间，不增加额外请求。
 - 临时K只在 ADD 内存副本中使用，不进入 PositionRisk、EXIT high watermark/stage/stop，也不持久化。今日成交量是盘中累计量；突破仍保守要求累计量已经达到完整日历史中位量门槛，不预测全日量，早盘可能不发信号。回踩的缩量判断仍使用之前的完整日K。evidence 标注临时K和成交量口径。
 - 本轮不实现 `entry_v1`。没有 BUY Strategy Signal 时 LLM 不能凭空新开仓。
 

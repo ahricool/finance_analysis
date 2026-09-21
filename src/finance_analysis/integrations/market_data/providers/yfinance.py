@@ -305,10 +305,12 @@ class YFinanceProvider:
             try:
                 ticker = yf.Ticker(self.to_yfinance_symbol(symbol))
                 fast = dict(ticker.fast_info)
+                fetched_at = datetime.now(timezone.utc)
                 previous = fast.get("previous_close")
                 price = fast.get("last_price")
                 payload = {
                     "name": "",
+                    "quote_time": fetched_at,
                     "price": price,
                     "pre_close": previous,
                     "change_amount": price - previous if price is not None and previous is not None else None,

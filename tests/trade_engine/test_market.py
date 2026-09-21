@@ -151,3 +151,81 @@ def test_fresh_streaming_quote_retains_received_time_through_market_data(monkeyp
         assert source.get_quote("AAPL.US", now=now).quote_time == state.received_at
     finally:
         source.close()
+
+
+def test_us_yfinance_fallback_has_snapshot_time(monkeypatch):
+    from datetime import timezone
+    from types import SimpleNamespace
+    import yfinance
+
+    from finance_analysis.integrations.market_data.models import BatchQuoteResult, QuoteRequest
+    from finance_analysis.integrations.market_data.providers.yfinance import YFinanceProvider
+    from finance_analysis.integrations.market_data.registry import ProviderRegistry, REALTIME_QUOTES
+    from finance_analysis.integrations.market_data.service import MarketDataService
+
+    monkeypatch.setattr(yfinance, "Ticker", lambda symbol: SimpleNamespace(fast_info={
+        "last_price": 100, "previous_close": 99, "open": 99,
+        "day_high": 101, "day_low": 98, "last_volume": 123456,
+    }))
+    provider = YFinanceProvider()
+    before = datetime.now(timezone.utc)
+    quote = provider.fetch_quotes(QuoteRequest(("AAPL.US",))).data["AAPL.US"]
+    assert before <= quote.quote_time <= datetime.now(timezone.utc)
+    assert quote.quote_time.utcoffset().total_seconds() == 0
+
+    calls = []
+
+    class Missing:
+        def __init__(self, name):
+            self.name = name
+
+        def fetch_quotes(self, request):
+            calls.append(self.name)
+            return BatchQuoteResult(missing_symbols=list(request.symbols))
+
+    registry = ProviderRegistry()
+    registry.register("streaming", Missing("streaming"), capabilities={REALTIME_QUOTES})
+    registry.register("longbridge", Missing("longbridge"), capabilities={REALTIME_QUOTES})
+    registry.register("yfinance", provider, capabilities={REALTIME_QUOTES})
+    service = MarketDataService(registry=registry)
+    result = service.get_realtime_quotes(["AAPL.US"])
+    assert result.providers_used["AAPL.US"] == "yfinance"
+    assert calls == ["streaming", "longbridge"]
+    view = RiskMarketGateway(market_data=service).quotes(["AAPL.US"])["AAPL.US"]
+    assert view.valid is True
+    assert view.quote_as_of is not None
+
+
+def test_longbridge_pull_preserves_timestamp_or_uses_fetch_time(monkeypatch):
+    from datetime import timezone
+    from types import SimpleNamespace
+    from finance_analysis.integrations.market_data.providers.longbridge.market import LongbridgeProvider
+
+    provider = object.__new__(LongbridgeProvider)
+    raw = SimpleNamespace(last_done=100, timestamp=None)
+    monkeypatch.setattr(provider, "is_available_for_request", lambda request: True)
+    monkeypatch.setattr(provider, "_get_ctx", lambda: SimpleNamespace(quote=lambda symbols: [raw]))
+    monkeypatch.setattr(provider, "_get_static_info", lambda symbol: None)
+    monkeypatch.setattr(provider, "_compute_volume_ratio", lambda symbol, volume: None)
+    before = datetime.now(timezone.utc)
+    quote = provider.get_realtime_quote("AAPL.US")
+    assert before <= quote.quote_time <= datetime.now(timezone.utc)
+    assert quote.quote_time.utcoffset().total_seconds() == 0
+    raw.timestamp = datetime(2026, 9, 16, 14, 0, tzinfo=timezone.utc)
+    assert provider.get_realtime_quote("AAPL.US").quote_time == raw.timestamp
+
+
+def test_fuyao_snapshot_preserves_timestamp_or_uses_fetch_time(monkeypatch):
+    from datetime import timezone
+    from finance_analysis.integrations.market_data.models import QuoteRequest
+    from finance_analysis.integrations.market_data.providers.fuyao import FuyaoProvider
+
+    provider = FuyaoProvider(api_key="test")
+    payload = {"item": [{"thscode": "600519.SH", "last_price": 100, "asset_type": "a-share"}]}
+    monkeypatch.setattr(provider, "_get", lambda *args, **kwargs: payload)
+    before = datetime.now(timezone.utc)
+    quote = provider.fetch_quotes(QuoteRequest(("600519.SH",))).data["600519.SH"]
+    assert before <= quote.quote_time <= datetime.now(timezone.utc)
+    stamp = datetime(2026, 9, 16, 7, 0, tzinfo=timezone.utc)
+    payload["timestamp"] = int(stamp.timestamp() * 1000)
+    assert provider.fetch_quotes(QuoteRequest(("600519.SH",))).data["600519.SH"].quote_time == stamp

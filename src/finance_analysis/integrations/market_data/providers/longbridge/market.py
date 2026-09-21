@@ -1108,6 +1108,7 @@ class LongbridgeProvider:
             if not quotes:
                 return None
             q = quotes[0]
+            fetched_at = datetime.now(timezone.utc)
         except Exception as e:
             log_external_call_exception(
                 logger,
@@ -1216,7 +1217,7 @@ class LongbridgeProvider:
             pb_ratio=pb_ratio,
             total_mv=total_mv,
             circ_mv=circ_mv,
-            quote_time=try_parse_longbridge_datetime(getattr(q, "timestamp", None)),
+            quote_time=try_parse_longbridge_datetime(getattr(q, "timestamp", None)) or fetched_at,
         )
 
         logger.info(
