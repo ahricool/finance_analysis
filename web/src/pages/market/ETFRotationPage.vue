@@ -20,10 +20,9 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Table, TableBody, TableCell, TableHeader, TableRow } from '@/components/ui/table';
 import type {
   ETFAction,
   ETFChange,
@@ -74,7 +73,24 @@ const detailChartHistory = computed(() => selected.value
 const detailMode = ref<ResearchDataMode>('official');
 const route = useRoute();
 const market = ref<ETFMarket>(route?.query.market === 'US' ? 'US' : 'CN');
-const sortKey = ref<'compositeScore' | 'momentumStrengthScore' | 'trendQualityScore' | 'relativeStrengthScore' | 'entryScore' | 'trendDurationDays'>('compositeScore');
+const rankingColumns = [
+  { key: 'rank', label: 'Rank', description: undefined },
+  { key: 'name', label: 'ETF', description: undefined },
+  { key: 'state', label: 'State', description: descriptions.state },
+  { key: 'trendDurationDays', label: '持续天数', description: descriptions.trendDuration },
+  { key: 'compositeScore', label: 'Composite', description: descriptions.composite },
+  { key: 'momentumStrengthScore', label: 'Momentum', description: descriptions.momentum },
+  { key: 'trendQualityScore', label: 'Trend Quality', description: descriptions.trendQuality },
+  { key: 'relativeStrengthScore', label: 'Relative Strength', description: descriptions.relativeStrength },
+  { key: 'action', label: 'Action', description: descriptions.action },
+  { key: 'ret5D', label: '5D', description: descriptions.return },
+  { key: 'ret20D', label: '20D', description: descriptions.return },
+  { key: 'rankChange1D', label: 'Rank Δ 1D', description: descriptions.rankChange },
+  { key: 'rankChange3D', label: 'Rank Δ 3D', description: descriptions.rankChange },
+  { key: 'rankChange5D', label: 'Rank Δ 5D', description: descriptions.rankChange },
+] as const;
+type SortKey = typeof rankingColumns[number]['key'] | 'entryScore';
+const sortKey = ref<SortKey>('compositeScore');
 const sortDirection = ref<'asc' | 'desc'>('desc');
 const dataMode = ref<ResearchDataMode>('official');
 const modeChosenByUser = ref(false);
@@ -92,22 +108,24 @@ const showingStrategyBody = computed(() => dataMode.value === 'official' || show
 const sortedItems = computed(() => [...items.value].sort((a, b) => {
   const left = a[sortKey.value];
   const right = b[sortKey.value];
-  if (left == null) return right == null ? 0 : 1;
+  if (left == null) return right == null ? a.code.localeCompare(b.code) : 1;
   if (right == null) return -1;
-  const comparison = Number(left) - Number(right);
+  const comparison = typeof left === 'string' || typeof right === 'string'
+    ? String(left).localeCompare(String(right)) : left - right;
   return (sortDirection.value === 'asc' ? comparison : -comparison) || a.code.localeCompare(b.code);
 }));
-function toggleDurationSort() {
-  if (sortKey.value === 'trendDurationDays') {
-    sortDirection.value = sortDirection.value === 'asc' ? 'desc' : 'asc';
-    return;
-  }
-  sortKey.value = 'trendDurationDays';
-  sortDirection.value = 'desc';
+function defaultSortDirection(key: SortKey) {
+  return ['rank', 'name', 'state', 'action'].includes(key) ? 'asc' : 'desc';
 }
-watch(sortKey, (key) => {
-  if (key !== 'trendDurationDays') sortDirection.value = 'desc';
-});
+function toggleSort(key: SortKey) {
+  sortDirection.value = sortKey.value === key
+    ? (sortDirection.value === 'asc' ? 'desc' : 'asc') : defaultSortDirection(key);
+  sortKey.value = key;
+}
+function selectSort(event: Event) {
+  sortKey.value = (event.target as HTMLSelectElement).value as SortKey;
+  sortDirection.value = defaultSortDirection(sortKey.value);
+}
 const changeGroups = computed(() => [
   { label: 'NEW BUY', items: changes.value?.newBuys ?? [], variant: 'success' as const, transition: 'action' as const },
   { label: 'NEW EXIT', items: changes.value?.newExits ?? [], variant: 'destructive' as const, transition: 'action' as const },
@@ -715,90 +733,43 @@ onMounted(() => void load(true, { autoSelectMode: true }));
       <CardHeader class="flex-row flex-wrap items-center justify-between gap-3">
         <div><CardTitle>Rotation Ranking</CardTitle><CardDescription>比较核心得分、状态和 5D / 20D 收益；点击 ETF 查看完整指标。</CardDescription></div>
         <NativeSelect
-          v-model="sortKey"
+          :model-value="sortKey"
+          aria-label="排名排序字段"
           size="sm"
+          @change="selectSort"
         >
-          <NativeSelectOption value="compositeScore">
-            Composite
-          </NativeSelectOption><NativeSelectOption value="momentumStrengthScore">
-            Momentum
-          </NativeSelectOption><NativeSelectOption value="trendQualityScore">
-            Trend Quality
-          </NativeSelectOption><NativeSelectOption value="relativeStrengthScore">
-            Relative Strength
-          </NativeSelectOption><NativeSelectOption value="entryScore">
-            Entry
+          <NativeSelectOption
+            v-for="column in rankingColumns"
+            :key="column.key"
+            :value="column.key"
+          >
+            {{ column.label }}
           </NativeSelectOption>
-          <NativeSelectOption value="trendDurationDays">
-            持续天数
+          <NativeSelectOption value="entryScore">
+            Entry
           </NativeSelectOption>
         </NativeSelect>
       </CardHeader>
       <CardContent class="px-0">
-        <ScrollArea class="w-full">
+        <div
+          class="max-h-[680px] w-full overflow-auto [&_[data-slot=table-container]]:overflow-visible"
+          data-testid="etf-ranking-scroll"
+          tabindex="0"
+          aria-label="ETF 排名，滚动查看全部指标"
+        >
           <Table class="w-full">
-            <TableHeader>
+            <TableHeader class="sticky top-0 z-30 bg-background">
               <TableRow>
-                <TableHead>Rank</TableHead>
-                <TableHead>ETF</TableHead>
-                <TableHead>
-                  <IndicatorLabel
-                    label="State"
-                    :description="descriptions.state"
-                  />
-                </TableHead>
                 <SortableTableHeader
-                  label="持续天数"
-                  :description="descriptions.trendDuration"
-                  :active="sortKey === 'trendDurationDays'"
+                  v-for="column in rankingColumns"
+                  :key="column.key"
+                  :label="column.label"
+                  :description="column.description"
+                  :class="column.key === 'name' ? 'sticky left-0 z-20 min-w-48 bg-background' : ''"
+                  :active="sortKey === column.key"
                   :direction="sortDirection"
-                  @sort="toggleDurationSort"
+                  @sort="toggleSort(column.key)"
                 />
-                <TableHead>
-                  <IndicatorLabel
-                    label="Composite"
-                    :description="descriptions.composite"
-                  />
-                </TableHead>
-                <TableHead>
-                  <IndicatorLabel
-                    label="Momentum"
-                    :description="descriptions.momentum"
-                  />
-                </TableHead>
-                <TableHead>
-                  <IndicatorLabel
-                    label="Trend Quality"
-                    :description="descriptions.trendQuality"
-                  />
-                </TableHead>
-                <TableHead>
-                  <IndicatorLabel
-                    label="Relative Strength"
-                    :description="descriptions.relativeStrength"
-                  />
-                </TableHead>
-                <TableHead>
-                  <IndicatorLabel
-                    label="Action"
-                    :description="descriptions.action"
-                  />
-                </TableHead>
-                <TableHead
-                  v-for="window in [5,20]"
-                  :key="window"
-                >
-                  <IndicatorLabel
-                    :label="`${window}D`"
-                    :description="descriptions.return"
-                  />
-                </TableHead>
-                <TableHead>
-                  <IndicatorLabel
-                    label="Rank Δ 1/3/5D"
-                    :description="descriptions.rankChange"
-                  />
-                </TableHead>
               </TableRow>
             </TableHeader><TableBody>
               <TableRow
@@ -809,7 +780,10 @@ onMounted(() => void load(true, { autoSelectMode: true }));
                 @click="openDetail(item)"
               >
                 <TableCell>#{{ item.rank ?? '—' }}</TableCell>
-                <TableCell class="max-w-44">
+                <TableCell
+                  class="sticky left-0 z-10 min-w-48 max-w-60 bg-background"
+                  data-column="name"
+                >
                   <strong class="block break-words">{{ item.name }}</strong><span class="font-mono text-xs text-muted-foreground">{{ item.code }}</span>
                 </TableCell>
                 <TableCell>
@@ -835,13 +809,16 @@ onMounted(() => void load(true, { autoSelectMode: true }));
                 >
                   {{ pct(item[key]) }}
                 </TableCell>
-                <TableCell>{{ rankChange(item.rankChange1D) }} / {{ rankChange(item.rankChange3D) }} / {{ rankChange(item.rankChange5D) }}</TableCell>
+                <TableCell
+                  v-for="key in (['rankChange1D', 'rankChange3D', 'rankChange5D'] as const)"
+                  :key="key"
+                >
+                  {{ rankChange(item[key]) }}
+                </TableCell>
               </TableRow>
             </TableBody>
-          </Table><template #horizontal-scrollbar>
-            <ScrollBar orientation="horizontal" />
-          </template>
-        </ScrollArea>
+          </Table>
+        </div>
       </CardContent>
     </Card>
     </div>

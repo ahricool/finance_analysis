@@ -240,7 +240,7 @@ describe('ETFRotationPage', () => {
     await flushPromises();
 
     expect(document.body.textContent).toContain('科创50ETF');
-    expect(wrapper.findAll('thead th')).toHaveLength(12);
+    expect(wrapper.findAll('thead th')).toHaveLength(14);
     expect(wrapper.text()).toContain('持续天数');
     await wrapper.get('tbody tr').trigger('click');
     await flushPromises();
@@ -599,6 +599,45 @@ describe('ETFRotationPage', () => {
     await header!.trigger('click');
     expect(order()).toEqual(['C.SH', 'A.SH', 'B.SH', 'D.SH']);
   });
+  it.each([
+    ['Rank', 'rank', 2, 10, 'asc'],
+    ['ETF', 'name', 'Alpha', 'Beta', 'asc'],
+    ['State', 'state', 'EMERGING', 'WEAK', 'asc'],
+    ['Action', 'action', 'BUY', 'HOLD', 'asc'],
+    ['Composite', 'compositeScore', 2, 10, 'desc'],
+    ['Momentum', 'momentumStrengthScore', 2, 10, 'desc'],
+    ['Trend Quality', 'trendQualityScore', 2, 10, 'desc'],
+    ['Relative Strength', 'relativeStrengthScore', 2, 10, 'desc'],
+    ['5D', 'ret5D', -0.1, 0.2, 'desc'],
+    ['20D', 'ret20D', -0.1, 0.2, 'desc'],
+    ['Rank Δ 1D', 'rankChange1D', -2, 10, 'desc'],
+    ['Rank Δ 3D', 'rankChange3D', -2, 10, 'desc'],
+    ['Rank Δ 5D', 'rankChange5D', -2, 10, 'desc'],
+  ] as const)('sorts %s in both directions with stable ties and missing values last', async (label, key, low, high, direction) => {
+    apiMocks.ranking.mockResolvedValueOnce({
+      ...rankingPayload('CN', '2026-08-25', snapshot()),
+      items: [
+        snapshot({ code: 'B.SH', [key]: low }),
+        snapshot({ code: 'D.SH', [key]: null }),
+        snapshot({ code: 'C.SH', [key]: high }),
+        snapshot({ code: 'A.SH', [key]: low }),
+      ],
+    });
+    const wrapper = mount(ETFRotationPage);
+    await flushPromises();
+    const header = wrapper.findAll('th').find(th => th.find('button').text() === label)!;
+    const order = () => wrapper.findAll('[data-testid="etf-ranking-row"] span.font-mono').map(cell => cell.text());
+    if (label !== 'Composite') await header.get('button').trigger('click');
+    const ascending = ['A.SH', 'B.SH', 'C.SH', 'D.SH'];
+    const descending = ['C.SH', 'A.SH', 'B.SH', 'D.SH'];
+    expect(order()).toEqual(direction === 'asc' ? ascending : descending);
+    expect(header.attributes('aria-sort')).toBe(direction === 'asc' ? 'ascending' : 'descending');
+    await header.get('button').trigger('click');
+    expect(order()).toEqual(direction === 'asc' ? descending : ascending);
+    expect(apiMocks.detail).not.toHaveBeenCalled();
+    wrapper.unmount();
+  });
+
   it('loads only status for official, lazily downloads Preview once, and refreshes the visible mode', async () => {
     mockPreview({ ...rankingPayload('CN', '2026-08-25', snapshot()), status: 'completed', previewTime: '2026-08-25T06:00:00Z', dataAsOf: null, provider: 'yfinance' });
     const wrapper = mount(ETFRotationPage);

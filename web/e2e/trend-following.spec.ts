@@ -158,7 +158,9 @@ test('full universe has no pagination and remains sortable', async ({ page }) =>
     expect(after.x).toBeLessThan(before.x);
     await scroll.evaluate(el => { el.scrollLeft = 0; });
   }
+  const headerTop = (await scroll.locator('thead').boundingBox())!.y;
   await scroll.evaluate(el => { el.scrollTop = el.scrollHeight; });
+  expect(Math.abs((await scroll.locator('thead').boundingBox())!.y - headerTop)).toBeLessThan(1);
   await expect(page.getByTestId('trend-row').last()).toContainText('TEST3799');
   await scroll.evaluate(el => { el.scrollTop = 0; });
   console.log('full-universe render milliseconds', Date.now() - rankingStarted);
