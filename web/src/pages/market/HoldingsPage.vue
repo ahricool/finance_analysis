@@ -3,7 +3,6 @@ import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import {
   holdingsApi,
   tradeEngineApi,
-  type HoldingsSource,
   type PortfolioAccount,
   type PortfolioPosition,
   type TradeEnginePosition,
@@ -19,9 +18,7 @@ import { Label } from '@/components/ui/label';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import type { TradeMarker } from '@/lib/tradeMarkers';
 import { computed, onMounted, ref } from 'vue';
-import { useRoute } from 'vue-router';
 
-const route = useRoute();
 const market = ref<'CN' | 'US'>('CN');
 const loading = ref(false);
 const error = ref<ParsedApiError | null>(null);
@@ -32,11 +29,6 @@ const marketValue = ref('0');
 const totalAsset = ref('0');
 const exposure = ref<string | null>(null);
 const engine = ref<TradeEnginePosition[]>([]);
-const source = ref<HoldingsSource | null>(null);
-const spreadsheetId = ref('');
-const connecting = ref(false);
-const syncing = ref(false);
-const googleOpen = ref(false);
 const formOpen = ref(false);
 const formKind = ref<'buy' | 'sell' | 'deposit' | 'withdraw'>('buy');
 const formSymbol = ref('');
@@ -48,7 +40,6 @@ const saving = ref(false);
 const detail = ref<PortfolioPosition | null>(null);
 const operations = ref<Array<{ executedAt: string; side: string; quantity: string; price: string }>>([]);
 const markers = ref<TradeMarker[]>([]);
-const googleStatus = computed(() => String(route.query.google || ''));
 const account = computed(() => accounts.value[0] || null);
 
 onMounted(() => {
@@ -74,10 +65,9 @@ async function load() {
   loading.value = true;
   error.value = null;
   try {
-    const [summary, views, google] = await Promise.all([
+    const [summary, views] = await Promise.all([
       holdingsApi.summary(market.value),
       tradeEngineApi.positions(market.value).catch(() => []),
-      holdingsApi.source().catch(() => null),
     ]);
     accounts.value = summary.accounts;
     positions.value = summary.positions;
@@ -86,7 +76,6 @@ async function load() {
     totalAsset.value = summary.totalAsset;
     exposure.value = summary.grossExposure;
     engine.value = views;
-    source.value = google;
   } catch (err) {
     error.value = getParsedApiError(err);
   } finally {
@@ -155,29 +144,6 @@ function onTradeEngineChange(event: Event) {
   void toggleTradeEngine(target.checked);
 }
 
-async function connectGoogle() {
-  connecting.value = true;
-  try {
-    const result = await holdingsApi.connect(spreadsheetId.value);
-    window.location.assign(result.authorization_url);
-  } catch (err) {
-    error.value = getParsedApiError(err);
-    connecting.value = false;
-  }
-}
-
-async function syncGoogle() {
-  syncing.value = true;
-  try {
-    await holdingsApi.sync();
-    await load();
-  } catch (err) {
-    error.value = getParsedApiError(err);
-  } finally {
-    syncing.value = false;
-  }
-}
-
 function closeDetail() {
   detail.value = null;
 }
@@ -188,7 +154,7 @@ function closeDetail() {
     <div class="flex flex-wrap items-center justify-between gap-3">
       <div>
         <h1 class="text-xl font-semibold">投资组合</h1>
-        <p class="text-sm text-muted-foreground">数据库是普通股票/ETF真实持仓来源，Trade Engine 只给建议。</p>
+        <p class="text-sm text-muted-foreground">数据库是唯一真实持仓来源，Trade Engine 每 30 分钟给出中线建议。</p>
       </div>
       <div class="flex gap-2">
         <Button
@@ -212,12 +178,6 @@ function closeDetail() {
       v-if="error"
       :error="error"
     />
-    <p
-      v-if="googleStatus"
-      class="text-sm text-muted-foreground"
-    >
-      Google 授权状态：{{ googleStatus }}
-    </p>
 
     <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
       <Card><CardHeader><CardDescription>总资产</CardDescription><CardTitle data-testid="total-asset">{{ fmt(totalAsset) }}</CardTitle></CardHeader></Card>
@@ -284,29 +244,11 @@ function closeDetail() {
       </CardContent>
     </Card>
 
-    <Card>
-      <CardHeader class="flex flex-row items-center justify-between">
-        <div>
-          <CardTitle>外部持仓 / Google Sheet</CardTitle>
-          <CardDescription>补充来源，不覆盖数据库里已有的同一股票。</CardDescription>
-        </div>
-        <Button variant="ghost" data-testid="toggle-google" @click="googleOpen = !googleOpen">{{ googleOpen ? '收起' : '展开' }}</Button>
-      </CardHeader>
-      <CardContent v-if="googleOpen" class="space-y-3">
-        <p class="text-sm">状态 {{ source?.authStatus || '未连接' }} / {{ source?.syncStatus || 'IDLE' }}</p>
-        <Input v-model="spreadsheetId" placeholder="Spreadsheet ID 或 Google Sheet URL" />
-        <div class="flex gap-2">
-          <Button :disabled="connecting" @click="connectGoogle">连接 Google</Button>
-          <Button variant="outline" :disabled="syncing" @click="syncGoogle">同步</Button>
-        </div>
-      </CardContent>
-    </Card>
-
     <Dialog :open="formOpen" @update:open="formOpen = $event">
       <DialogContent class="max-w-md">
         <DialogHeader>
           <DialogTitle>{{ { buy: '买入', sell: '卖出', deposit: '入金', withdraw: '出金' }[formKind] }}</DialogTitle>
-          <DialogDescription>立即写入数据库真实持仓，不经过 Google Sheet。</DialogDescription>
+          <DialogDescription>立即写入数据库真实持仓。</DialogDescription>
         </DialogHeader>
         <div class="space-y-3">
           <template v-if="formKind === 'buy' || formKind === 'sell'">
@@ -353,7 +295,7 @@ function closeDetail() {
             />
             <span>
               <span class="font-medium">交易提醒</span>
-              <span class="mt-1 block text-xs text-muted-foreground">关闭后，该持仓不会参与5分钟 Trade Engine 分析，也不会产生 Trade Signal 或通知。</span>
+              <span class="mt-1 block text-xs text-muted-foreground">关闭后，该持仓不运行 Strategy，系统也不会主动给出调仓指令，但仍计入账户 NAV 与组合风险。</span>
             </span>
           </label>
           <p>适用策略 {{ (engineView?.strategies || ['exit_v1', 'add_v1']).join(' / ') }} · 允许 Trade Engine {{ detail.tradeEngineEnabled === false ? '关闭' : '开启' }}</p>

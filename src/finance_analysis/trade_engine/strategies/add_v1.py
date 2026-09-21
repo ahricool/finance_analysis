@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""add_v1: one medium-term ADD after a complete daily setup. No averaging down."""
+"""add_v1: stateless medium-term ADD. Same complete daily setup → same ADD every run."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from typing import Any, Sequence
 from ...core.time import utc_now  # pragma: allowlist secret
 from ..config import RiskPolicy, get_risk_policy  # pragma: allowlist secret
 from ..daily import atr, extension_atr, last_complete_date, legalize_quantity, ma_slope, sma_series, volume_median
-from ..models import DailyBar, PositionContext, StrategyProposal  # pragma: allowlist secret
+from ..models import DailyBar, PositionContext, StrategySignal  # pragma: allowlist secret
 
 KEY = "add_v1"
 VERSION = "1"
@@ -32,53 +32,37 @@ class AddV1:
     version = VERSION
     market = None
 
-    def evaluate(self, context: PositionContext) -> list[StrategyProposal]:
+    def evaluate(self, context: PositionContext) -> list[StrategySignal]:
         position = context.position
         policy = context.policy or get_risk_policy()
         now = context.now or utc_now()
-        state = context.strategy_state
         bars = list(context.daily_bars or ())
         if not context.valuation_complete or context.market_nav <= 0:
-            return []
-        if position.source != "DB":
             return []
         if position.quantity <= 0 or position.asset_type.upper() not in {"STOCK", "ETF"}:
             return []
         if position.had_addon:
             return []
-        complete = last_complete_date(bars)
-        if complete is None:
-            return []
-        if state.get("last_setup_date") == complete.isoformat():
+        if last_complete_date(bars) is None:
             return []
         setup = evaluate_add_setup(context, bars, policy)
-        state["last_setup_date"] = complete.isoformat()
         if setup is None:
             return []
-        proposal_key = (
-            f"add_v1:{position.position_id}:{setup['setup']}:{complete.isoformat()}:"
-            f"{format(setup['suggested_target_quantity'], 'f')}"
-        )
-        resolved = set(state.get("resolved_proposal_keys") or [])
-        if proposal_key in resolved or state.get("last_proposal_key") == proposal_key:
-            return []
-        state["last_proposal_key"] = proposal_key
         evidence = {key: _dump(value) if isinstance(value, Decimal) else value for key, value in setup.items()}
         return [
-            StrategyProposal(
+            StrategySignal(
+                strategy_key=KEY,
+                strategy_version=VERSION,
                 market=position.market,
                 account_id=position.account_id,
                 position_id=position.position_id,
                 symbol=position.symbol,
-                strategy_key=KEY,
-                strategy_version=VERSION,
                 action="ADD",
                 suggested_quantity=setup["suggested_add_quantity"],
                 suggested_target_quantity=setup["suggested_target_quantity"],
                 reason=setup["reason"],
                 evidence=evidence,
                 evaluated_at=now,
-                proposal_key=proposal_key,
             )
         ]
 

@@ -11,10 +11,10 @@ from typing import Literal
 from finance_analysis.integrations.market_data.normalizer import MARKET_CURRENCIES  # pragma: allowlist secret
 from finance_analysis.integrations.market_data.models import Market  # pragma: allowlist secret
 
-PositionSource = Literal["DB", "GOOGLE"]
-Coverage = Literal["DB", "EXTERNAL", "EXTERNAL_ONLY"]
+PositionSource = Literal["DB"]
+Coverage = Literal["DB"]
 LotRole = Literal["CORE", "ADDON"]
-AssetType = Literal["STOCK", "ETF", "OPTION"]
+AssetType = Literal["STOCK", "ETF"]
 
 
 def currency_for_market(market: str) -> str:
@@ -82,7 +82,6 @@ class ResolvedPortfolio:
     accounts: tuple[ResolvedAccount, ...]
     positions: tuple[ResolvedPosition, ...]
     warnings: tuple[str, ...] = ()
-    google_generation: int | None = None
 
     def positions_for_market(self, market: str) -> tuple[ResolvedPosition, ...]:
         return tuple(item for item in self.positions if item.market == market)
@@ -96,10 +95,7 @@ class ResolvedPortfolio:
         return tuple(item for item in rows if item.trade_engine_eligible)
 
     def db_cash(self, market: str) -> Decimal:
-        return sum(
-            (item.cash for item in self.accounts if item.market == market and item.source == "DB"),
-            start=Decimal("0"),
-        )
+        return sum((item.cash for item in self.accounts if item.market == market), start=Decimal("0"))
 
 
 @dataclass(frozen=True, slots=True)

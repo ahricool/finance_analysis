@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""DB portfolio facts plus Google Sheet as a secondary source."""
+"""DB portfolio facts. The database is the only holdings source."""
 
 from .context import render_portfolio_context
 from .errors import InsufficientCashError, InsufficientQuantityError, PortfolioError

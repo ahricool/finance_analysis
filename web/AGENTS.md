@@ -104,7 +104,7 @@ layout（Shell / PageHeader / ModuleTabs）+ ui/app 组件
 
 要点：
 
-- `/market/holdings` 使用 `pages/market/HoldingsPage.vue`。DB 是普通股票/ETF 真实持仓来源；Google Sheet 只是次级外部持仓。API 为 `/api/v1/holdings` 与 `/api/v1/trade-engine`。个股详情可关闭 `trade_engine_enabled`（交易提醒），关闭后该持仓不进 Strategy / LLM，但仍计入账户 NAV。适用策略并行运行；页面展示最新正式 BUY/ADD/REDUCE/EXIT 与 LLM 最终判断。日K BST 来自 `trade_operation`，BTC BST 来自策略快照。
+- `/market/holdings` 使用 `pages/market/HoldingsPage.vue`。DB 是普通股票/ETF 唯一真实持仓来源。API 为 `/api/v1/holdings` 与 `/api/v1/trade-engine`。个股详情可关闭 `trade_engine_enabled`（交易提醒），关闭后该持仓不进 Strategy / 主动 LLM 调仓，但仍计入账户 NAV 与 Portfolio Risk。页面展示最新正式 BUY/ADD/REDUCE/EXIT 与 LLM 最终判断。日K BST 来自 `trade_operation`，BTC BST 来自策略快照。
 - `meta.public === true` 才是公开页（目前只有登录）。
 - `meta.title` 用于 `document.title`（`「页面名 - Finance Analysis」`）。嵌套路由取最近一层有 title 的记录。
 - 研究走 `/research/**`，市场走 `/market/**`。加密货币走 `/crypto/**`。不要把 Quant / ETF / 趋势跟踪 / BTC 再挂到 `/market`。

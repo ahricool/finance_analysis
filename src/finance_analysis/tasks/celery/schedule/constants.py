@@ -57,12 +57,10 @@ JOB_TREND_FOLLOWING_CN = "trend_following_cn"
 JOB_TREND_FOLLOWING_US = "trend_following_us"
 JOB_TREND_FOLLOWING_PREVIEW_CN = "trend_following_preview_cn"
 JOB_TREND_FOLLOWING_PREVIEW_US = "trend_following_preview_us"
-JOB_HOLDINGS_SYNC = "holdings_sync"
 JOB_TRADE_ENGINE_CN = "trade_engine_cn"
 JOB_TRADE_ENGINE_US = "trade_engine_us"
 
-EXPIRES_HOLDINGS_SYNC = 4 * 60
-EXPIRES_TRADE_ENGINE = 4 * 60
+EXPIRES_TRADE_ENGINE = 20 * 60
 
 
 def celery_task_name(job_id: str) -> str:

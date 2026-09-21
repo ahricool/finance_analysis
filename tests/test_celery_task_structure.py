@@ -43,7 +43,6 @@ EXPECTED_CUSTOM_TASKS = {
     "scheduled.trend_following_us",
     "scheduled.trend_following_preview_cn",
     "scheduled.trend_following_preview_us",
-    "scheduled.holdings_sync",
     "scheduled.trade_engine_cn",
     "scheduled.trade_engine_us",
     "quant.daily.finalize",
@@ -66,8 +65,8 @@ def test_worker_registers_exactly_the_expected_custom_tasks():
 
 
 def test_each_task_package_has_one_explicit_tasks_module_and_expected_tasks():
-    assert len(TASK_PACKAGES) == 23
-    assert len(TASK_MODULES) == 23
+    assert len(TASK_PACKAGES) == 22
+    assert len(TASK_MODULES) == 22
     for package, module_name in zip(TASK_PACKAGES, TASK_MODULES):
         assert module_name == f"{package}.tasks"
         module = importlib.import_module(module_name)

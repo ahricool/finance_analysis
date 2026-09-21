@@ -3,13 +3,16 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import ROUND_DOWN, Decimal
 from statistics import median
-from typing import Sequence
+from typing import Iterable, Sequence
 
 from ..market_review.trading_calendar import get_completed_trading_days  # pragma: allowlist secret
-from .models import DailyBar  # pragma: allowlist secret
+from ..portfolio.models import ResolvedPosition  # pragma: allowlist secret
+from .models import DailyBar, LLM_DAILY_BARS  # pragma: allowlist secret
+
+HISTORY_WARMUP_DAYS = 30
 
 
 def sma(values: Sequence[Decimal], period: int) -> Decimal | None:
@@ -97,3 +100,42 @@ def extension_atr(close: Decimal, ma_fast: Decimal, atr_value: Decimal) -> Decim
     if atr_value <= 0:
         return None
     return (close - ma_fast) / atr_value
+
+
+def history_start_date(
+    positions: Iterable[ResolvedPosition],
+    *,
+    now: datetime,
+    lookback_days: int,
+) -> date:
+    floor = now.date() - timedelta(days=lookback_days)
+    starts = [floor]
+    for position in positions:
+        if position.opened_at is not None:
+            starts.append(position.opened_at.date() - timedelta(days=HISTORY_WARMUP_DAYS))
+        for lot in position.lots:
+            starts.append(lot.entry_time.date() - timedelta(days=HISTORY_WARMUP_DAYS))
+    return min(starts)
+
+
+def llm_daily_bars(bars: Sequence[DailyBar], limit: int = LLM_DAILY_BARS) -> list[DailyBar]:
+    return list(bars)[-limit:]
+
+
+def bar_indicators(bars: Sequence[DailyBar]) -> dict[str, Decimal | None]:
+    closes = [bar.close for bar in bars]
+    ma5 = sma(closes, 5)
+    ma10 = sma(closes, 10)
+    ma20 = sma(closes, 20)
+    atr14 = atr(bars, 14)
+    window = list(bars)[-LLM_DAILY_BARS:]
+    high = max((bar.high for bar in window), default=None)
+    low = min((bar.low for bar in window), default=None)
+    return {
+        "MA5": ma5,
+        "MA10": ma10,
+        "MA20": ma20,
+        "ATR14": atr14,
+        "high_15d": high,
+        "low_15d": low,
+    }

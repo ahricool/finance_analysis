@@ -11,7 +11,7 @@ from .models import DailyBar, MarketPortfolioContext, QuoteView, ValuationSource
 
 
 def quote_usable(quote: QuoteView | None) -> bool:
-    return quote is not None and quote.valid and not quote.stale
+    return quote is not None and quote.valid and not quote.stale and quote.price is not None
 
 
 def valuation_price(

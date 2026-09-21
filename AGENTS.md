@@ -138,7 +138,7 @@ static/                    Web 构建产物，由 `web/vite.config.ts` 生成
 - `/calendar`：日历记录和财经事件。
 - `/tasks`：周期定义、手动触发及任务运行记录。
 - `/quant`、`/etf-rotation`、`/trend-following`：研究结果与运行入口；趋势预演为 `GET /trend-following/preview`。
-- `/holdings`：DB 持仓买卖/现金、`PATCH /positions/{id}` 交易提醒开关、Google Sheet 次级来源；页面 `/market/holdings`。`/trade-engine` 只读正式信号与管理员手动运行。
+- `/holdings`：DB 持仓买卖/现金、`PATCH /positions/{id}` 交易提醒开关；页面 `/market/holdings`。`/trade-engine` 只读正式信号与管理员手动运行。
 - `/market-data/ws`：基于 Cookie 的用户自选股实时 WebSocket。
 - `/usage`：LLM 使用统计；`/celery` 是演示/诊断端点。
 
@@ -284,7 +284,7 @@ pnpm run test:smoke
 | 新通知渠道 | `notification/senders/` + config/routing/diagnostics |
 | 新前端功能 | 见 `web/AGENTS.md` |
 | 新 Qlib 模型/协议 | 见 `qlib_worker/AGENTS.md`，同时核对主应用 quant 边界 |
-| Google Sheet 持仓 / Trade Engine | `holdings/`、`portfolio/`、`trade_engine/`、`integrations/google_sheets/`、`integrations/market_data/providers/sina_minute.py` |
+| DB 持仓 / Trade Engine | `portfolio/`、`trade_engine/` |
 
 ## 提交前检查
 
@@ -332,11 +332,9 @@ BTC 多策略以 `strategy_key + symbol` 隔离，代码注册表当前仅 `btc_
 
 ## Holdings / Trade Engine
 
-`portfolio/` 是普通股票/ETF 真实持仓（Primary）：账户现金、当前持仓、CORE/ADDON lot 和买卖/出入金操作写 PostgreSQL。`trade_engine_enabled` 默认 true，关闭后该持仓不进 Strategy / LLM，但仍计入账户 NAV。Google Sheet 继续由 `holdings/` 读取，但只作为 Secondary 外部持仓；相同 `market + canonical symbol` 时 DB 覆盖 Google，不合并数量，Google cash 不进入 Trade Engine NAV。OPTION 只保留为 `EXTERNAL_ONLY`，不进 DB 持仓，也不进 Trade Engine。同一持仓并行运行 `exit_v1` 与 `add_v1`；正式交易动作只有 BUY/ADD/REDUCE/EXIT，由 LLM Resolver 一次裁决。`portfolio_risk_v1` 是账户级 Warning，不进 LLM。CN/US 现金、NAV 与风险隔离。 <!-- pragma: allowlist secret -->
-`trade_engine/` 每 5 分钟只分析 `PortfolioResolver` 返回的当前持仓（不是全市场 Scanner）。适用 Strategy 并行产生 BUY/ADD/REDUCE/EXIT Proposal；没有 Proposal 则 0 LLM / 0 signal / 0 交易通知。有 Proposal 时一次 LLM Resolver 裁决。账户 Warning 独立通知。删除 ActivePlan 与 A/US 旧盘中分析任务。
-任务复用 `ingestion`（`holdings_sync` 每 5 分钟）和 `alerts`（`trade_engine_cn/us` 每 5 分钟），不新增专用 worker。
-通知复用现有全局 Telegram/ntfy：先与 `trade_signal` 同事务写入站内消息，再 `push_existing`。
-Google token、OAuth code/state 和完整表格不得进入日志、API 或通知。详见 `docs/holdings-portfolio-risk.md`。
+`portfolio/` 是普通股票/ETF 唯一持仓事实源：账户现金、当前持仓、CORE/ADDON lot 和买卖/出入金操作写 PostgreSQL。`trade_engine_enabled` 默认 true；关闭后该持仓不运行 Strategy，LLM target 必须等于 current，但仍计入账户 NAV 与 Portfolio Risk。`exit_v1` / `add_v1` 完全无状态，每 30 分钟可重复输出相同 Strategy Signal。`portfolio_risk_v1` 输出 Portfolio Risk Facts，不单独通知。每个市场每轮最多一次 LLM，结合持仓、15d K、今日 OHLCV、调仓历史、风险事实与 `trade_llm_state` 给出 Target Position。CN/US 现金、NAV、风险与 LLM 状态隔离。 <!-- pragma: allowlist secret -->
+`trade_engine/` Beat 每 30 分钟触发，不在 evaluation window 则 skip。有实际持仓就调用 Market-level LLM；空仓且无 Entry Strategy 则 skip LLM。正式 TradeSignal 只在 target ≠ current 时创建。任务复用 `alerts`（`trade_engine_cn/us`），不新增专用 worker。
+通知复用现有全局 Telegram/ntfy：先与 `trade_signal` 同事务写入站内消息，再 `push_existing`。详见 `docs/holdings-portfolio-risk.md`。
 
 ## Market Sentiment
 

@@ -42,7 +42,6 @@ EXPECTED_JOBS = {
     "trend_following_us": ("scheduled_trend_following_us", "America/New_York"),
     "trend_following_preview_cn": ("scheduled_trend_following_preview_cn", "Asia/Shanghai"),
     "trend_following_preview_us": ("scheduled_trend_following_preview_us", "America/New_York"),
-    "holdings_sync": ("scheduled_holdings_sync", "Asia/Shanghai"),
     "trade_engine_cn": ("scheduled_trade_engine_cn", "Asia/Shanghai"),
     "trade_engine_us": ("scheduled_trade_engine_us", "America/New_York"),
 }
@@ -67,7 +66,7 @@ def test_all_original_jobs_enter_beat_schedule():
         if definition.enabled:
             assert celery_task_name(job_id) in task_names
     cn_entries = [k for k in schedule if k.startswith("trade_engine_cn")]
-    assert len(cn_entries) == 3
+    assert len(cn_entries) == 1
     us_entries = [k for k in schedule if k.startswith("trade_engine_us")]
     assert len(us_entries) == 1
 
@@ -83,28 +82,26 @@ def test_beat_entries_carry_scheduler_kwargs_queue_and_expires():
 
 def test_intraday_expires_is_short():
     definition = get_scheduled_task_definition("trade_engine_us")
-    assert definition.expires <= 10 * 60
+    assert definition.expires == 20 * 60
 
 
-def test_us_trade_engine_uses_new_york_five_minute_windows():
+def test_us_trade_engine_uses_new_york_thirty_minute_windows():
     definition = get_scheduled_task_definition("trade_engine_us")
 
     assert definition.timezone == "America/New_York"
-    assert definition.expires == 4 * 60
+    assert definition.expires == 20 * 60
     schedules = {(item.hour, item.minute, item.day_of_week, item.timezone) for item in definition.schedules}
-    assert ("9-16", "*/5", "mon-fri", "America/New_York") in schedules
-    assert "每5分钟" in definition.schedule_text
+    assert schedules == {("*", "*/30", "mon-fri", "America/New_York")}
+    assert "每 30 分钟" in definition.schedule_text
 
 
-def test_cn_trade_engine_uses_five_minute_windows_and_skips_lunch():
+def test_cn_trade_engine_uses_thirty_minute_beat_and_session_skip():
     definition = get_scheduled_task_definition("trade_engine_cn")
 
     assert definition.timezone == "Asia/Shanghai"
-    schedules = {(item.hour, item.minute, item.day_of_week, item.timezone) for item in definition.schedules}
-    assert ("9-11", "*/5", "mon-fri", "Asia/Shanghai") in schedules
-    assert ("13-14", "*/5", "mon-fri", "Asia/Shanghai") in schedules
-    assert ("15", "0,5", "mon-fri", "Asia/Shanghai") in schedules
-    assert "午休不运行" in definition.schedule_text
+    assert all(item.minute == "*/30" for item in definition.schedules)
+    assert "每 30 分钟" in definition.schedule_text
+    assert "跳过" in definition.schedule_text
 
 
 def test_a_share_pre_close_review_runs_once_at_1430():
@@ -160,19 +157,19 @@ def test_next_run_rolls_over_to_next_day():
 
 def test_a_share_window_skips_weekend():
     definition = get_scheduled_task_definition("trade_engine_cn")
-    friday_evening = datetime(2026, 6, 26, 8, 0, tzinfo=timezone.utc)
-    nxt = definition.next_run_time(now=friday_evening)
+    saturday = datetime(2026, 6, 27, 8, 0, tzinfo=timezone.utc)
+    nxt = definition.next_run_time(now=saturday)
     local = nxt.astimezone(ZoneInfo("Asia/Shanghai"))
     assert local.isoweekday() == 1  # Monday
-    assert (local.hour, local.minute) == (9, 0)
+    assert local.minute in {0, 30}
 
 
-def test_multi_cron_takes_earliest_window():
+def test_cn_trade_engine_thirty_minute_interval():
     definition = get_scheduled_task_definition("trade_engine_cn")
     monday_noon = datetime(2026, 6, 22, 4, 0, tzinfo=timezone.utc)
     nxt = definition.next_run_time(now=monday_noon)
     local = nxt.astimezone(ZoneInfo("Asia/Shanghai"))
-    assert (local.hour, local.minute) == (13, 0)
+    assert (local.hour, local.minute) == (12, 30)
 
 
 def test_us_postmarket_review_follows_new_york_dst():
@@ -260,8 +257,8 @@ def test_us_trade_engine_schedule_follows_new_york_dst():
     summer = datetime(2026, 7, 1, 13, 44, tzinfo=timezone.utc)
     winter = datetime(2026, 1, 5, 14, 44, tzinfo=timezone.utc)
 
-    assert definition.next_run_time(now=summer) == datetime(2026, 7, 1, 13, 45, tzinfo=timezone.utc)
-    assert definition.next_run_time(now=winter) == datetime(2026, 1, 5, 14, 45, tzinfo=timezone.utc)
+    assert definition.next_run_time(now=summer) == datetime(2026, 7, 1, 14, 0, tzinfo=timezone.utc)
+    assert definition.next_run_time(now=winter) == datetime(2026, 1, 5, 15, 0, tzinfo=timezone.utc)
 
 
 def test_trend_following_preview_schedules_use_market_timezones_and_dst():

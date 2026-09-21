@@ -28,7 +28,7 @@ class FakeMarket:
         return type("R", (), {"data": {}})()
 
     def get_daily_bars(self, symbols, start, end, **kwargs):
-        self.daily_calls.append({"symbols": list(symbols), "start": start, "end": end})
+        self.daily_calls.append({"symbols": list(symbols), "start": start, "end": end, "source_policy": kwargs.get("source_policy")})
         result = BatchBarResult()
         for symbol in symbols:
             result.data[symbol] = list(self.daily_rows)
@@ -66,10 +66,46 @@ def test_intraday_remote_daily_is_dropped_before_strategies(monkeypatch):
     now = datetime(2026, 9, 21, 14, 0, tzinfo=ZoneInfo("America/New_York"))
     bars = gateway.daily_bars(["AAPL.US"], start=date(2026, 9, 1), end=now.date(), now=now)
     assert [bar.trade_date for bar in bars["AAPL.US"]] == [date(2026, 9, 18)]
+    assert fake.daily_calls[0]["source_policy"] == "db_latest"
 
 
 def test_quotes_mark_missing_as_invalid_instead_of_zero_price_valid():
     gateway = RiskMarketGateway(market_data=FakeMarket())
     now = datetime(2026, 9, 16, 14, 0, tzinfo=UTC)
     quotes = gateway.quotes(["AAPL.US"], now=now)
-    assert quotes["AAPL.US"] == QuoteView(price=Decimal("0"), quote_as_of=None, valid=False)
+    assert quotes["AAPL.US"].price is None
+    assert quotes["AAPL.US"].valid is False
+    assert quotes["AAPL.US"].today_open is None
+    assert quotes["AAPL.US"].today_volume is None
+    assert quotes["AAPL.US"].today_turnover is None
+    assert quotes["AAPL.US"].today_high is None
+    assert quotes["AAPL.US"].today_low is None
+
+
+def test_quote_missing_ohlcv_stays_null_instead_of_zero():
+    class FakeQuote:
+        price = 200
+        quote_time = datetime(2026, 9, 16, 14, 0, tzinfo=UTC)
+        open_price = None
+        high = None
+        low = None
+        volume = None
+        amount = None
+        pre_close = None
+        change_pct = None
+
+    class WithQuote(FakeMarket):
+        def get_realtime_quotes(self, symbols, providers=None):
+            return type("R", (), {"data": {symbols[0]: FakeQuote()}})()
+
+    gateway = RiskMarketGateway(market_data=WithQuote())
+    now = datetime(2026, 9, 16, 14, 0, tzinfo=UTC)
+    quote = gateway.quotes(["AAPL.US"], now=now)["AAPL.US"]
+    assert quote.price == Decimal("200")
+    assert quote.today_open is None
+    assert quote.today_high is None
+    assert quote.today_low is None
+    assert quote.today_volume is None
+    assert quote.today_turnover is None
+    assert quote.pre_close is None
+    assert quote.change_pct is None

@@ -18,7 +18,7 @@ interfaces/api + tasks/celery/jobs
 
 - `interfaces/` 是传输边界：解析请求、鉴权、选择依赖、序列化响应，不应承载核心计算。
 - `tasks/celery/jobs/` 是异步适配层：解析 payload、记录生命周期、调用领域服务。
-- 顶层领域包（`analysis`、`quant`、`etf_rotation`、`trend_following`、`market_review`、`holdings`、`portfolio`、`trade_engine`）拥有业务规则。
+- 顶层领域包（`analysis`、`quant`、`etf_rotation`、`trend_following`、`market_review`、`portfolio`、`trade_engine`）拥有业务规则。
 - `database/repositories/` 封装查询和事务；领域代码不应散落 SQL。
 - `integrations/` 封装外部行情；`llm/`、`notification/` 同样是共享基础能力。
 - 为避免循环导入和高成本启动，现有代码有意在函数内延迟导入数据库、Provider和任务组件；修改前先确认初始化顺序。
@@ -70,7 +70,7 @@ interfaces/api + tasks/celery/jobs
 | `market_data.py` | Cookie 鉴权的实时行情 WebSocket，以及统一前复权 daily-bars HTTP 查询 |
 | `usage.py` | LLM 用量 |
 | `celery_demo.py` | Celery 连通性演示，不是业务编排入口 |
-| `holdings.py` | DB 持仓买卖/现金、Google Sheet 次级来源 |
+| `holdings.py` | DB 持仓买卖/现金与交易提醒开关 |
 | `trade_engine.py` | 持仓级 Trade Engine 只读结果与管理员手动运行 |
 
 REST 修改至少核对 endpoint、schema、前端 `web/src/api/` 与 `tests/test_*_api*.py`。WebSocket/SSE 还要核对 nginx buffering/upgrade 与断开清理。
@@ -191,7 +191,7 @@ Alembic：
 
 ## Holdings / Trade Engine
 
-`portfolio/` 是 STOCK/ETF 真实持仓权威来源；`holdings/` 只读 Google Sheet 次级来源。`trade_engine/` 是中线持仓分析器，不是全市场 Scanner，也不是日内交易系统。账户估值使用全部实际 STOCK/ETF 持仓；`trade_engine_enabled=false` 只退出 Strategy / LLM，不退出 NAV。适用 Position Strategy（当前 `exit_v1`、`add_v1`）并行运行，互不读取对方 Proposal。正式动作只有 BUY/ADD/REDUCE/EXIT；HOLD/WATCH 等于无信号。有 Proposal 时一次 LLM Resolver + Web Search 给出最终 BUY/ADD/REDUCE/EXIT/NO_ACTION。`portfolio_risk_v1` 是按市场隔离的账户 Warning，直接通知，不进 LLM。详见 `docs/holdings-portfolio-risk.md`。
+`portfolio/` 是 STOCK/ETF 唯一持仓事实源。`trade_engine/` 是中线持仓决策系统，不是全市场 Scanner，也不是日内交易系统。Strategy 完全无状态；Portfolio Risk 输出事实给 LLM；每个市场每 30 分钟最多一次 Market-level LLM，状态写入 `trade_llm_state`。`trade_engine_enabled=false` 不运行 Strategy，LLM target 必须等于 current，但仍计入 NAV 与风险。详见 `docs/holdings-portfolio-risk.md`。
 
 ## 实时行情 Streamer
 

@@ -1,4 +1,4 @@
-"""Five-minute CN/US Trade Engine on the alerts queue. No dedicated worker."""
+"""CN/US Trade Engine every 30 minutes on the alerts queue. No dedicated worker."""
 
 from __future__ import annotations
 
@@ -38,7 +38,6 @@ def _run_market(market: str) -> dict[str, Any]:
         "confirmed_signals": int(result.get("confirmed_signals") or 0),
         "rejected_signals": int(result.get("rejected_signals") or 0),
         "resolved_no_action": int(result.get("resolved_no_action") or 0),
-        "warnings": int(result.get("warnings") or 0),
         "notifications": int(result.get("notifications") or 0),
         "elapsed_ms": result["elapsed_ms"],
         "status": result.get("status") or "OK",
@@ -47,8 +46,8 @@ def _run_market(market: str) -> dict[str, Any]:
 
 @celery_app.task(
     name=CN_DEFINITION.celery_task_name,
-    time_limit=240,
-    soft_time_limit=200,
+    time_limit=600,
+    soft_time_limit=540,
     expires=CN_DEFINITION.expires,
 )
 @track_task(
@@ -68,8 +67,8 @@ def run_trade_engine_cn(scheduler_job_id: Optional[str] = None, **_: Any) -> dic
 
 @celery_app.task(
     name=US_DEFINITION.celery_task_name,
-    time_limit=240,
-    soft_time_limit=200,
+    time_limit=600,
+    soft_time_limit=540,
     expires=US_DEFINITION.expires,
 )
 @track_task(

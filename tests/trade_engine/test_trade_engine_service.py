@@ -1,47 +1,58 @@
-"""Trade Engine service: parallel strategies, LLM resolver, warnings, enabled filter."""
+"""Trade Engine service: one market-level LLM, stateless signals, LLM state, notifications."""
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from types import SimpleNamespace
 
 from finance_analysis.portfolio.models import ResolvedAccount, ResolvedLot, ResolvedPortfolio, ResolvedPosition  # pragma: allowlist secret
-from finance_analysis.trade_engine.models import FinalDecision, QuoteView, StrategyAssessment, StrategyProposal  # pragma: allowlist secret
+from finance_analysis.trade_engine.models import (  # pragma: allowlist secret
+    DailyBar,
+    MarketDecision,
+    PositionTarget,
+    QuoteView,
+    StrategySignal,
+)
 from finance_analysis.trade_engine.service import TradeEngineService  # pragma: allowlist secret
 from finance_analysis.trade_engine.strategies.add_v1 import AddV1  # pragma: allowlist secret
 from finance_analysis.trade_engine.strategies.exit_v1 import ExitV1  # pragma: allowlist secret
-from finance_analysis.trade_engine.strategies.portfolio_risk_v1 import PortfolioRiskV1  # pragma: allowlist secret
 
 NOW = datetime(2026, 9, 16, 14, 0, tzinfo=timezone.utc)
-LATER = datetime(2026, 9, 16, 14, 5, tzinfo=timezone.utc)
 
 
-class NullSources:
-    def get_for_uid(self, uid):
-        return None
+class _Null:
+    def __enter__(self):
+        return self
 
-    def list_enabled(self):
-        return []
+    def __exit__(self, *args):
+        return False
 
 
 class FakeDB:
     def _run_write_transaction(self, name, write):
         return write(object())
 
+    def get_session(self):
+        return _Null()
+
 
 class FakeStates:
     def __init__(self):
         self.signals = []
-        self.saved_states = {}
+        self.llm_state = None
         self.notifications = []
 
-    def get_state(self, session, **kwargs):
-        key = (kwargs["account_id"], kwargs["position_id"], kwargs["strategy_key"])
-        payload = self.saved_states.get(key)
-        if payload is None:
-            return None
-        return SimpleNamespace(state=payload)
+    def get_llm_state(self, session, *, uid, market):
+        return self.llm_state
+
+    def upsert_llm_state(self, session, **payload):
+        self.llm_state = SimpleNamespace(
+            summary=payload["summary"],
+            last_decision=payload["last_decision"],
+            last_decision_at=payload["decided_at"],
+        )
+        return self.llm_state
 
     def has_signal(self, session, *, uid, signal_key):
         return any(item["signal_key"] == signal_key for item in self.signals)
@@ -50,9 +61,8 @@ class FakeStates:
         self.signals.append(payload)
         return SimpleNamespace(**payload)
 
-    def upsert_state(self, session, **payload):
-        key = (payload["account_id"], payload["position_id"], payload["strategy_key"])
-        self.saved_states[key] = payload["state"]
+    def list_signals(self, session, **payload):
+        return []
 
     def create_notification(self, session, **payload):
         self.notifications.append(payload)
@@ -71,7 +81,7 @@ class FakeMarket:
         return {symbol: self.quotes_map[symbol] for symbol in symbols if symbol in self.quotes_map}
 
     def daily_bars(self, symbols, **kwargs):
-        self.daily_calls.append(list(symbols))
+        self.daily_calls.append({"symbols": list(symbols), "start": kwargs.get("start"), "end": kwargs.get("end")})
         return {symbol: self.daily_map.get(symbol, []) for symbol in symbols}
 
 
@@ -84,52 +94,61 @@ class FakeResolver:
 
 
 class ScriptedResolver:
-    def __init__(self, action="REDUCE", target="700", quantity=None, reason="ok", failed=False):
-        self.action = action
-        self.target = target
-        self.quantity = quantity
+    def __init__(self, targets=None, summary="B", reason="ok", failed=False):
+        self.targets = targets
+        self.summary = summary
         self.reason = reason
         self.failed = failed
         self.calls = []
 
-    def resolve(self, proposals, extras=None):
-        self.calls.append(list(proposals))
+    def decide(self, context):
+        self.calls.append(context)
         if self.failed:
-            return FinalDecision(proposals[0].position_id or "", proposals[0].symbol, "NO_ACTION", None, None, "llm_failed", failed=True)
-        target = None if self.target is None else Decimal(self.target)
-        quantity = None if self.quantity is None else Decimal(self.quantity)
-        assessments = tuple(
-            StrategyAssessment(item.strategy_key, item.action, "ACCEPT" if item.action == self.action else "REJECT", item.reason)
-            for item in proposals
-        )
-        return FinalDecision(
-            proposals[0].position_id or "",
-            proposals[0].symbol,
-            self.action,  # type: ignore[arg-type]
-            quantity,
-            target,
-            self.reason,
-            assessments,
-        )
+            return MarketDecision(context.market, "llm_failed", (), "", failed=True)
+        rows = []
+        if self.targets is not None:
+            planned = {item["symbol"]: item for item in self.targets}
+        else:
+            planned = {}
+        for item in context.positions:
+            symbol = item["symbol"]
+            current = Decimal(str(item["quantity"]))
+            payload = planned.get(symbol, {"target": format(current, "f"), "reason": "keep"})
+            target = Decimal(str(payload["target"]))
+            action = "NO_ACTION"
+            if target == 0 and current > 0:
+                action = "EXIT"
+            elif 0 < target < current:
+                action = "REDUCE"
+            elif target > current:
+                action = "ADD"
+            rows.append(
+                PositionTarget(
+                    position_id=str(item["position_id"]),
+                    symbol=symbol,
+                    current_quantity=current,
+                    target_quantity=target,
+                    action=action,  # type: ignore[arg-type]
+                    reason=payload.get("reason") or self.reason,
+                )
+            )
+        return MarketDecision(context.market, self.reason, tuple(rows), self.summary)
 
 
-def _proposal(context, *, key, action, quantity=None, target=None, reason="x"):
-    qty = None if quantity is None else Decimal(quantity)
-    tgt = None if target is None else Decimal(target)
-    return StrategyProposal(
+def _signal(context, *, key, action, quantity=None, target=None, reason="x"):
+    return StrategySignal(
+        strategy_key=key,
+        strategy_version="1",
         market=context.market,
         account_id=context.position.account_id,
         position_id=context.position.position_id,
         symbol=context.position.symbol,
-        strategy_key=key,
-        strategy_version="1",
         action=action,
-        suggested_quantity=qty,
-        suggested_target_quantity=tgt,
+        suggested_quantity=None if quantity is None else Decimal(quantity),
+        suggested_target_quantity=None if target is None else Decimal(target),
         reason=reason,
         evidence={"current_quantity": format(context.position.quantity, "f")},
         evaluated_at=context.now or NOW,
-        proposal_key=f"{key}:{context.position.position_id}:{action}:{target or quantity}:{(context.now or NOW).date().isoformat()}",
     )
 
 
@@ -140,26 +159,12 @@ class HoldExit(ExitV1):
 
 class ReduceExit(ExitV1):
     def evaluate(self, context):
-        return [_proposal(context, key="exit_v1", action="REDUCE", target="700", reason="保护")]
+        return [_signal(context, key="exit_v1", action="REDUCE", target="700", reason="保护")]
 
 
 class AddOnly(AddV1):
     def evaluate(self, context):
-        return [_proposal(context, key="add_v1", action="ADD", quantity="200", target="1200", reason="买点")]
-
-
-class Spy:
-    def __init__(self, inner):
-        self.inner = inner
-        self.key = inner.key
-        self.version = inner.version
-        self.calls = 0
-        self.seen_other = []
-
-    def evaluate(self, context):
-        self.calls += 1
-        self.seen_other.append(list(context.strategy_state.get("other_results") or []))
-        return self.inner.evaluate(context)
+        return [_signal(context, key="add_v1", action="ADD", quantity="200", target="1200", reason="买点")]
 
 
 def _position(symbol="AAPL.US", position_id="11", quantity="1000", *, enabled=True, market="US"):
@@ -174,399 +179,201 @@ def _position(symbol="AAPL.US", position_id="11", quantity="1000", *, enabled=Tr
         asset_type="STOCK",
         quantity=Decimal(quantity),
         average_cost=Decimal("190"),
+        opened_at=NOW,
         lots=(ResolvedLot("core", "CORE", Decimal(quantity), Decimal("190"), NOW),),
         trade_engine_enabled=enabled,
     )
 
 
-def _portfolio(*positions, cash="1000000", market="US", accounts=None):
-    if accounts is None:
-        accounts = (ResolvedAccount("DB", 1, "1", market, market, Decimal(cash), "USD" if market == "US" else "CNY"),)
+def _portfolio(*positions, cash="1000000", market="US"):
     return ResolvedPortfolio(
         uid=1,
-        accounts=accounts,
+        accounts=(ResolvedAccount("DB", 1, "1", market, market, Decimal(cash), "USD" if market == "US" else "CNY"),),
         positions=positions,
     )
 
 
-def _service(portfolio, *, resolver=None, strats=None, portfolio_strats=None, market=None):
+def _service(portfolio, *, resolver=None, strats=None, market=None):
     service = TradeEngineService(
         resolver=FakeResolver(portfolio),
         market=market or FakeMarket(),
         db=FakeDB(),
         decision_resolver=resolver or ScriptedResolver(),
         position_strategy_loader=lambda m: tuple(strats or (HoldExit(),)),
-        portfolio_strategy_loader=lambda m: tuple(portfolio_strats or ()),
+        portfolio_strategy_loader=lambda m: (),
     )
-    service.sources = NullSources()
     service.states = FakeStates()
+    service.portfolio_repo = SimpleNamespace(list_operations_for_symbols=lambda session, **kwargs: [])
     return service
 
 
-def test_no_proposal_means_zero_llm_zero_signal_zero_notification():
+def test_holdings_without_strategy_signals_still_call_llm_once():
     market = FakeMarket()
-    market.quotes_map = {"AAPL.US": QuoteView(Decimal("200"), NOW, True)}
+    market.quotes_map = {
+        "AAPL.US": QuoteView(Decimal("200"), NOW, True, today_open=Decimal("198"), today_high=Decimal("201"), today_low=Decimal("197"), today_volume=10, today_turnover=Decimal("2000"), pre_close=Decimal("199"), change_pct=Decimal("0.5")),
+        "NVDA.US": QuoteView(Decimal("100"), NOW, True),
+        "MSFT.US": QuoteView(Decimal("400"), NOW, True),
+    }
     resolver = ScriptedResolver()
-    service = _service(_portfolio(_position()), resolver=resolver, market=market, strats=[HoldExit()])
-    result = service.evaluate_uid(1, market="US", now=NOW)
-    assert result["proposals"] == 0
-    assert result["llm_reviews"] == 0
-    assert result["confirmed_signals"] == 0
-    assert result["notifications"] == 0
-    assert resolver.calls == []
-    assert service.states.signals == []
-    assert market.quote_calls == [["AAPL.US"]]
-    assert market.daily_calls == [["AAPL.US"]]
-
-
-def test_parallel_strategies_do_not_read_each_other():
-    market = FakeMarket()
-    market.quotes_map = {"AAPL.US": QuoteView(Decimal("200"), NOW, True)}
-    exit_spy = Spy(ReduceExit())
-    add_spy = Spy(AddOnly())
-    resolver = ScriptedResolver("REDUCE", "700")
-    service = _service(_portfolio(_position()), resolver=resolver, market=market, strats=[exit_spy, add_spy])
-    service.evaluate_uid(1, market="US", now=NOW)
-    assert exit_spy.calls == 1
-    assert add_spy.calls == 1
-    assert exit_spy.seen_other == [[]]
-    assert add_spy.seen_other == [[]]
-
-
-def test_conflict_proposals_go_to_one_llm_call():
-    market = FakeMarket()
-    market.quotes_map = {"AAPL.US": QuoteView(Decimal("200"), NOW, True)}
-    resolver = ScriptedResolver("REDUCE", "700", reason="综合退出保护")
-    service = _service(_portfolio(_position()), resolver=resolver, market=market, strats=[ReduceExit(), AddOnly()])
-    result = service.evaluate_uid(1, market="US", now=NOW)
-    assert result["llm_reviews"] == 1
-    assert len(resolver.calls) == 1
-    actions = {item.action for item in resolver.calls[0]}
-    assert actions == {"REDUCE", "ADD"}
-    row = service.states.signals[0]
-    assert row["action"] == "REDUCE"
-    assert Decimal(str(row["suggested_target_quantity"])) == Decimal("700")
-    body = service.states.notifications[0]["content"]
-    assert "exit_v1" in body
-    assert "add_v1" in body
-    assert "REDUCE" in body
-    assert "综合退出保护" in body
-
-
-def test_no_action_does_not_create_trade_signal_or_trade_notification():
-    market = FakeMarket()
-    market.quotes_map = {"AAPL.US": QuoteView(Decimal("200"), NOW, True)}
-    resolver = ScriptedResolver("NO_ACTION", None, reason="观望")
-    service = _service(_portfolio(_position()), resolver=resolver, market=market, strats=[ReduceExit(), AddOnly()])
-    result = service.evaluate_uid(1, market="US", now=NOW)
-    assert result["resolved_no_action"] == 1
-    assert result["confirmed_signals"] == 0
-    assert [item for item in service.states.signals if item["action"] != "WARNING"] == []
-    assert service.states.notifications == []
-
-
-def test_portfolio_warning_skips_llm():
-    market = FakeMarket()
-    market.quotes_map = {"600519.SH": QuoteView(Decimal("100"), NOW, True)}
-    resolver = ScriptedResolver()
-    position = _position("600519.SH", "21", "10000", market="CN")
-    portfolio = _portfolio(position, cash="0", market="CN")
     service = _service(
-        portfolio,
+        _portfolio(_position(), _position("NVDA.US", "12", "500"), _position("MSFT.US", "13", "200")),
         resolver=resolver,
         market=market,
         strats=[HoldExit()],
-        portfolio_strats=[PortfolioRiskV1()],
     )
-    result = service.evaluate_uid(1, market="CN", now=NOW)
-    assert result["llm_reviews"] == 0
-    assert result["warnings"] >= 1
-    assert result["notifications"] == 1
+    result = service.evaluate_uid(1, market="US", now=NOW)
+    assert result["llm_reviews"] == 1
+    assert len(resolver.calls) == 1
+    assert [item["symbol"] for item in resolver.calls[0].positions] == ["AAPL.US", "NVDA.US", "MSFT.US"]
+    assert resolver.calls[0].portfolio_risk.gross_exposure is not None
+    today = resolver.calls[0].positions[0]["today"]
+    assert today["open"] == "198"
+    assert today["current"] == "200"
+    assert today["volume"] == 10
+    assert result["confirmed_signals"] == 0
+    assert service.states.notifications == []
+    assert service.states.llm_state.summary == "B"
+
+
+def test_empty_market_skips_llm():
+    resolver = ScriptedResolver()
+    service = _service(_portfolio(), resolver=resolver)
+    result = service.evaluate_uid(1, market="US", now=NOW)
+    assert result["skipped_llm"] is True
     assert resolver.calls == []
-    assert service.states.notifications[0]["title"] == "A股账户风险"
 
 
-def test_warning_rearm_uses_new_unique_key():
+def test_portfolio_risk_facts_enter_llm_without_exit_signal():
     market = FakeMarket()
-    market.quotes_map = {"600519.SH": QuoteView(Decimal("100"), NOW, True)}
-    position = _position("600519.SH", "21", "10000", market="CN")
-    service = _service(
-        _portfolio(position, cash="0", market="CN"),
-        resolver=ScriptedResolver(),
-        market=market,
-        strats=[HoldExit()],
-        portfolio_strats=[PortfolioRiskV1()],
-    )
-    first = service.evaluate_uid(1, market="CN", now=NOW)
-    keys = {item["signal_key"] for item in service.states.signals}
-    assert first["warnings"] >= 1
-    again = service.evaluate_uid(1, market="CN", now=NOW)
-    assert again["warnings"] == 0
-    service2 = _service(
-        _portfolio(position, cash="10000000", market="CN"),
-        resolver=ScriptedResolver(),
-        market=market,
-        strats=[HoldExit()],
-        portfolio_strats=[PortfolioRiskV1()],
-    )
-    service2.states = service.states
-    recovered = service2.evaluate_uid(1, market="CN", now=LATER)
-    assert recovered["warnings"] == 0
-    service3 = _service(
-        _portfolio(position, cash="0", market="CN"),
-        resolver=ScriptedResolver(),
-        market=market,
-        strats=[HoldExit()],
-        portfolio_strats=[PortfolioRiskV1()],
-    )
-    service3.states = service.states
-    restarted = service3.evaluate_uid(1, market="CN", now=LATER)
-    new_keys = {item["signal_key"] for item in service3.states.signals} - keys
-    assert restarted["warnings"] >= 1
-    assert new_keys
+    market.quotes_map = {"AAPL.US": QuoteView(Decimal("200"), NOW, True)}
+    resolver = ScriptedResolver(targets=[{"symbol": "AAPL.US", "target": "700", "reason": "超限"}])
+    service = _service(_portfolio(_position(), cash="0"), resolver=resolver, market=market, strats=[HoldExit()])
+    # Override cash via portfolio already 1_000_000; force high exposure via quantity.
+    result = service.evaluate_uid(1, market="US", now=NOW)
+    risk = resolver.calls[0].portfolio_risk
+    assert risk.max_gross_exposure == Decimal("0.50")
+    assert result["confirmed_signals"] == 1
+    assert service.states.signals[0]["action"] == "REDUCE"
+    assert "0.50" in service.states.notifications[0]["content"] or "50" in service.states.notifications[0]["content"]
 
 
-def test_disabled_position_stays_in_nav_but_skips_strategies():
+def test_one_reduce_signal_and_no_action_position():
     market = FakeMarket()
     market.quotes_map = {
         "AAPL.US": QuoteView(Decimal("200"), NOW, True),
         "NVDA.US": QuoteView(Decimal("100"), NOW, True),
     }
-    spy = Spy(HoldExit())
-    service = _service(
-        _portfolio(
-            _position("AAPL.US", "11", "2500", enabled=False),
-            _position("NVDA.US", "12", "5000", enabled=True),
-            cash="0",
-        ),
-        market=market,
-        strats=[spy],
-    )
-    result = service.evaluate_uid(1, market="US", now=NOW)
-    assert market.quote_calls == [["AAPL.US", "NVDA.US"]]
-    assert market.daily_calls == [["AAPL.US", "NVDA.US"]]
-    assert spy.calls == 1
-    assert spy.inner is not None
-    assert result["positions_analyzed"] == 1
-    assert result["valuation_positions"] == 2
-    assert Decimal(result["nav"]) == Decimal("1000000")
-    assert Decimal(result["cash"]) == Decimal("0")
-
-
-def test_empty_portfolio_skips_market_and_llm():
-    market = FakeMarket()
-    resolver = ScriptedResolver()
-    service = _service(_portfolio(), resolver=resolver, market=market)
-    result = service.evaluate_uid(1, market="US", now=NOW)
-    assert result["positions_analyzed"] == 0
-    assert market.quote_calls == []
-    assert market.daily_calls == []
-    assert resolver.calls == []
-
-
-def test_daily_add_proposal_is_resolved_once():
-    market = FakeMarket()
-    market.quotes_map = {"AAPL.US": QuoteView(Decimal("200"), NOW, True)}
-    resolver = ScriptedResolver("ADD", "1200", quantity="200")
-    service = _service(_portfolio(_position()), resolver=resolver, market=market, strats=[AddOnly()])
-    first = service.evaluate_uid(1, market="US", now=NOW)
-    assert first["llm_reviews"] == 1
-    second = service.evaluate_uid(1, market="US", now=LATER)
-    assert second["llm_reviews"] == 0
-    assert len(resolver.calls) == 1
-
-
-class BoomAdd(AddV1):
-    def evaluate(self, context):
-        raise RuntimeError("add failed")
-
-
-class BoomExit(ExitV1):
-    def evaluate(self, context):
-        raise RuntimeError("exit failed")
-
-
-class Recording:
-    def __init__(self, inner):
-        self.inner = inner
-        self.key = inner.key
-        self.version = inner.version
-        self.bars = []
-        self.cash = None
-        self.nav = None
-        self.calls = 0
-
-    def evaluate(self, context):
-        self.calls += 1
-        self.bars.append(list(context.daily_bars))
-        self.cash = context.cash
-        self.nav = context.market_nav
-        return self.inner.evaluate(context)
-
-
-def test_google_cash_is_not_added_to_trade_engine_nav():
-    market = FakeMarket()
-    market.quotes_map = {"AAPL.US": QuoteView(Decimal("200"), NOW, True)}
-    recorder = Recording(HoldExit())
-    accounts = (
-        ResolvedAccount("DB", 1, "1", "US", "US", Decimal("100000"), "USD"),
-        ResolvedAccount("GOOGLE", 1, "g1", "IB", "US", Decimal("100000"), "USD"),
+    resolver = ScriptedResolver(
+        targets=[
+            {"symbol": "AAPL.US", "target": "700", "reason": "保护"},
+            {"symbol": "NVDA.US", "target": "500", "reason": "保持"},
+        ]
     )
     service = _service(
-        _portfolio(_position(), accounts=accounts),
+        _portfolio(_position(), _position("NVDA.US", "12", "500")),
+        resolver=resolver,
         market=market,
-        strats=[recorder],
+        strats=[ReduceExit()],
     )
     result = service.evaluate_uid(1, market="US", now=NOW)
-    assert Decimal(result["cash"]) == Decimal("100000")
-    assert recorder.cash == Decimal("100000")
-    assert Decimal(result["nav"]) == Decimal("100000") + Decimal("200000")
+    assert result["confirmed_signals"] == 1
+    assert service.states.signals[0]["symbol"] == "AAPL.US"
+    assert service.states.signals[0]["action"] == "REDUCE"
+    body = service.states.notifications[0]["content"]
+    assert "exit_v1" in body
+    assert "REDUCE" in body
+    assert "700" in body
 
 
-def test_missing_quote_uses_daily_close_for_nav():
+def test_disabled_position_skips_strategy_but_stays_in_context():
     market = FakeMarket()
-    from datetime import date
-
-    from finance_analysis.trade_engine.models import DailyBar  # pragma: allowlist secret
-
-    market.daily_map = {
-        "AAPL.US": [DailyBar(date(2026, 9, 18), Decimal("40"), Decimal("41"), Decimal("39"), Decimal("40"), 10)]
+    market.quotes_map = {
+        "AAPL.US": QuoteView(Decimal("200"), NOW, True),
+        "NVDA.US": QuoteView(Decimal("100"), NOW, True),
     }
-    service = _service(_portfolio(_position(quantity="1000"), cash="0"), market=market, strats=[HoldExit()])
-    result = service.evaluate_uid(1, market="US", now=NOW)
-    assert result["valuation_complete"] is True
-    assert result["valuation_source"]["11"] == "DAILY_FALLBACK"
-    assert Decimal(result["nav"]) == Decimal("40000")
-
-
-def test_incomplete_valuation_skips_nav_warnings():
-    market = FakeMarket()
-    market.quotes_map = {"AAPL.US": QuoteView(Decimal("200"), NOW, True)}
+    exit_strategy = ReduceExit()
+    resolver = ScriptedResolver()
     service = _service(
-        _portfolio(
-            _position("AAPL.US", "11", "10000"),
-            _position("NVDA.US", "12", "10"),
-            cash="0",
-        ),
-        market=market,
-        strats=[HoldExit()],
-        portfolio_strats=[PortfolioRiskV1()],
-    )
-    result = service.evaluate_uid(1, market="US", now=NOW)
-    assert result["valuation_complete"] is False
-    assert result["warnings"] == 0
-    assert result["nav"] is None
-
-
-def test_strategy_exception_does_not_drop_sibling_proposal():
-    market = FakeMarket()
-    market.quotes_map = {"AAPL.US": QuoteView(Decimal("200"), NOW, True)}
-    resolver = ScriptedResolver("REDUCE", "700")
-    service = _service(
-        _portfolio(_position()),
+        _portfolio(_position(enabled=False), _position("NVDA.US", "12", "500")),
         resolver=resolver,
         market=market,
-        strats=[ReduceExit(), BoomAdd()],
-    )
-    result = service.evaluate_uid(1, market="US", now=NOW)
-    assert result["strategy_error_count"] == 1
-    assert result["strategy_errors"] == [{"symbol": "AAPL.US", "strategy": "add_v1", "error_type": "RuntimeError"}]
-    assert result["status"] == "OK"
-    assert result["llm_reviews"] == 1
-    assert resolver.calls[0][0].action == "REDUCE"
-    assert result["confirmed_signals"] == 1
-
-
-def test_exit_exception_keeps_add_proposal():
-    market = FakeMarket()
-    market.quotes_map = {"AAPL.US": QuoteView(Decimal("200"), NOW, True)}
-    resolver = ScriptedResolver("ADD", "1200", quantity="200")
-    service = _service(
-        _portfolio(_position()),
-        resolver=resolver,
-        market=market,
-        strats=[BoomExit(), AddOnly()],
-    )
-    result = service.evaluate_uid(1, market="US", now=NOW)
-    assert result["strategy_error_count"] == 1
-    assert result["strategy_errors"][0]["strategy"] == "exit_v1"
-    assert resolver.calls[0][0].action == "ADD"
-    assert result["confirmed_signals"] == 1
-
-
-def test_exit_no_action_is_not_permanently_silenced():
-    market = FakeMarket()
-    market.quotes_map = {"AAPL.US": QuoteView(Decimal("200"), NOW, True)}
-    resolver = ScriptedResolver("NO_ACTION", None, reason="观望")
-    service = _service(_portfolio(_position()), resolver=resolver, market=market, strats=[ReduceExit()])
-    first = service.evaluate_uid(1, market="US", now=NOW)
-    assert first["resolved_no_action"] == 1
-    cooled = service.evaluate_uid(1, market="US", now=LATER)
-    assert cooled["llm_reviews"] == 0
-    later = datetime(2026, 9, 16, 14, 31, tzinfo=timezone.utc)
-    third = service.evaluate_uid(1, market="US", now=later)
-    assert third["llm_reviews"] == 1
-    assert len(resolver.calls) == 2
-
-
-def test_add_no_action_stays_resolved_for_same_daily_setup():
-    market = FakeMarket()
-    market.quotes_map = {"AAPL.US": QuoteView(Decimal("200"), NOW, True)}
-    resolver = ScriptedResolver("NO_ACTION", None, reason="观望")
-    service = _service(_portfolio(_position()), resolver=resolver, market=market, strats=[AddOnly()])
-    first = service.evaluate_uid(1, market="US", now=NOW)
-    later = datetime(2026, 9, 16, 14, 31, tzinfo=timezone.utc)
-    second = service.evaluate_uid(1, market="US", now=later)
-    assert first["llm_reviews"] == 1
-    assert second["llm_reviews"] == 0
-    assert len(resolver.calls) == 1
-
-
-def test_completed_daily_cutoff_reaches_add_and_exit(monkeypatch):
-    from datetime import date
-
-    from finance_analysis.integrations.market_data.models import Adjustment, BatchBarResult, Market, MarketBar  # pragma: allowlist secret
-    from finance_analysis.trade_engine.market import RiskMarketGateway  # pragma: allowlist secret
-
-    class DailySource:
-        def get_realtime_quotes(self, symbols, providers=None):
-            return type("R", (), {"data": {}})()
-
-        def get_daily_bars(self, symbols, start, end, **kwargs):
-            result = BatchBarResult()
-            for symbol in symbols:
-                result.data[symbol] = [
-                    MarketBar(
-                        symbol=symbol,
-                        market=Market.US,
-                        interval="1d",
-                        trade_date=day,
-                        bar_time=datetime(day.year, day.month, day.day, tzinfo=timezone.utc),
-                        open=10,
-                        high=11,
-                        low=9,
-                        close=10,
-                        volume=100,
-                        amount=None,
-                        currency="USD",
-                        adjustment=Adjustment.FORWARD,
-                        provider="db",
-                    )
-                    for day in (date(2026, 9, 18), date(2026, 9, 21))
-                ]
-            return result
-
-    monkeypatch.setattr(
-        "finance_analysis.trade_engine.market.latest_completed_trading_day",  # pragma: allowlist secret
-        lambda market, now: date(2026, 9, 18),
-    )
-    recorder = Recording(HoldExit())
-    service = _service(
-        _portfolio(_position()),
-        market=RiskMarketGateway(market_data=DailySource()),
-        strats=[recorder],
+        strats=[exit_strategy],
     )
     service.evaluate_uid(1, market="US", now=NOW)
-    assert recorder.bars
-    assert recorder.bars[0][-1].trade_date == date(2026, 9, 18)
-    assert [bar.trade_date for bar in recorder.bars[0]] == [date(2026, 9, 18)]
+    context = resolver.calls[0]
+    by_symbol = {item["symbol"]: item for item in context.positions}
+    assert by_symbol["AAPL.US"]["trade_engine_enabled"] is False
+    assert by_symbol["NVDA.US"]["trade_engine_enabled"] is True
+    assert all(item.symbol != "AAPL.US" for item in context.strategy_signals)
+
+
+def test_trade_history_enters_llm():
+    market = FakeMarket()
+    market.quotes_map = {"AAPL.US": QuoteView(Decimal("200"), NOW, True)}
+    resolver = ScriptedResolver()
+    service = _service(_portfolio(_position()), resolver=resolver, market=market)
+    service.portfolio_repo = SimpleNamespace(
+        list_operations_for_symbols=lambda session, **kwargs: [
+            SimpleNamespace(
+                position_id="11",
+                side="BUY",
+                quantity=Decimal("1000"),
+                price=Decimal("190"),
+                executed_at=NOW,
+                note="open core",
+            )
+        ]
+    )
+    service.evaluate_uid(1, market="US", now=NOW)
+    history = resolver.calls[0].positions[0]["trade_history"]
+    assert history[0]["side"] == "BUY"
+    assert history[0]["quantity"] == "1000"
+    assert history[0]["price"] == "190"
+    assert history[0]["note"] == "open core"
+
+
+def test_llm_state_round_trip():
+    market = FakeMarket()
+    market.quotes_map = {"AAPL.US": QuoteView(Decimal("200"), NOW, True)}
+    first = ScriptedResolver(summary="A")
+    service = _service(_portfolio(_position()), resolver=first, market=market)
+    service.evaluate_uid(1, market="US", now=NOW)
+    assert service.states.llm_state.summary == "A"
+    second = ScriptedResolver(summary="B")
+    service.decision_resolver = second
+    service.evaluate_uid(1, market="US", now=NOW)
+    assert second.calls[0].previous.summary == "A"
+    assert service.states.llm_state.summary == "B"
+
+
+def test_llm_daily_bars_are_last_15_completed_only():
+    market = FakeMarket()
+    market.quotes_map = {"AAPL.US": QuoteView(Decimal("200"), NOW, True)}
+    rows = []
+    day = date(2026, 8, 1)
+    for index in range(20):
+        rows.append(DailyBar(day, Decimal("10"), Decimal("11"), Decimal("9"), Decimal("10"), 100))
+        day = date.fromordinal(day.toordinal() + 1)
+    market.daily_map = {"AAPL.US": rows}
+    resolver = ScriptedResolver()
+    service = _service(_portfolio(_position()), resolver=resolver, market=market)
+    service.evaluate_uid(1, market="US", now=NOW)
+    bars = resolver.calls[0].positions[0]["daily_bars_15"]
+    assert len(bars) == 15
+    assert bars[0]["date"] == rows[-15].trade_date.isoformat()
+    assert bars[-1]["date"] == rows[-1].trade_date.isoformat()
+
+
+def test_strategy_error_does_not_block_other_strategy_or_llm():
+    class Boom(ExitV1):
+        def evaluate(self, context):
+            raise RuntimeError("boom")
+
+    market = FakeMarket()
+    market.quotes_map = {"AAPL.US": QuoteView(Decimal("200"), NOW, True)}
+    resolver = ScriptedResolver(targets=[{"symbol": "AAPL.US", "target": "700", "reason": "risk"}])
+    service = _service(_portfolio(_position()), resolver=resolver, market=market, strats=[Boom(), AddOnly()])
+    result = service.evaluate_uid(1, market="US", now=NOW)
+    assert result["strategy_error_count"] == 1
+    assert result["llm_reviews"] == 1
+    assert any(item.strategy_key == "add_v1" for item in resolver.calls[0].strategy_signals)

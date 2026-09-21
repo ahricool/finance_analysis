@@ -13,11 +13,6 @@ const mocks = vi.hoisted(() => ({
   operations: vi.fn(),
   markers: vi.fn(),
   updatePosition: vi.fn(),
-  source: vi.fn(),
-  connect: vi.fn(),
-  disconnect: vi.fn(),
-  sync: vi.fn(),
-  snapshot: vi.fn(),
   positions: vi.fn(),
   signals: vi.fn(),
   strategies: vi.fn(),
@@ -34,11 +29,6 @@ vi.mock('@/api/holdings', () => ({
     operations: mocks.operations,
     markers: mocks.markers,
     updatePosition: mocks.updatePosition,
-    source: mocks.source,
-    connect: mocks.connect,
-    disconnect: mocks.disconnect,
-    sync: mocks.sync,
-    snapshot: mocks.snapshot,
   },
   tradeEngineApi: {
     positions: mocks.positions,
@@ -103,7 +93,6 @@ describe('HoldingsPage', () => {
   beforeEach(() => {
     mocks.summary.mockResolvedValue(summary);
     mocks.positions.mockResolvedValue([{ symbol: '600519.SH', action: 'HOLD', profitStage: 'A', activeStop: '9.6' }]);
-    mocks.source.mockResolvedValue({ authStatus: 'DISCONNECTED', syncStatus: 'IDLE' });
     mocks.deposit.mockResolvedValue({});
     mocks.buy.mockResolvedValue({});
     mocks.operations.mockResolvedValue([]);

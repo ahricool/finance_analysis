@@ -23,7 +23,6 @@ TASK_PACKAGES = (
     "finance_analysis.tasks.celery.jobs.quant_daily",  # pragma: allowlist secret
     "finance_analysis.tasks.celery.jobs.etf_rotation",  # pragma: allowlist secret
     "finance_analysis.tasks.celery.jobs.trend_following",  # pragma: allowlist secret
-    "finance_analysis.tasks.celery.jobs.holdings_sync",  # pragma: allowlist secret
     "finance_analysis.tasks.celery.jobs.trade_engine",  # pragma: allowlist secret
 )
 TASK_MODULES = tuple(f"{package}.tasks" for package in TASK_PACKAGES)

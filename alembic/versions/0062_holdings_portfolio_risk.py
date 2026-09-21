@@ -1,4 +1,4 @@
-"""DB portfolio, Google Sheet source, and Trade Engine state."""
+"""DB portfolio and Trade Engine LLM state."""
 from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import JSONB  # pragma: allowlist secret
@@ -10,42 +10,6 @@ depends_on = None
 
 
 def upgrade():
-    op.create_table(
-        "holding_source",
-        sa.Column("id", sa.Integer(), primary_key=True, autoincrement=True),
-        sa.Column("uid", sa.Integer(), nullable=False),
-        sa.Column("spreadsheet_id", sa.String(length=128), nullable=True),
-        sa.Column("accounts_range", sa.String(length=64), nullable=False, server_default="Accounts"),
-        sa.Column("positions_range", sa.String(length=64), nullable=False, server_default="Positions"),
-        sa.Column("schema_version", sa.String(length=32), nullable=False, server_default="v1"),
-        sa.Column("encrypted_credentials", sa.LargeBinary(), nullable=True),
-        sa.Column("auth_status", sa.String(length=32), nullable=False, server_default="NOT_CONFIGURED"),
-        sa.Column("sync_status", sa.String(length=32), nullable=False, server_default="IDLE"),
-        sa.Column("enabled", sa.Boolean(), nullable=False, server_default=sa.false()),
-        sa.Column("last_attempt_at", sa.DateTime(timezone=True), nullable=True),
-        sa.Column("last_success_at", sa.DateTime(timezone=True), nullable=True),
-        sa.Column("last_error_code", sa.String(length=64), nullable=True),
-        sa.Column("published_generation", sa.Integer(), nullable=False, server_default="0"),
-        sa.Column("content_hash", sa.String(length=64), nullable=True),
-        sa.Column("config_version", sa.Integer(), nullable=False, server_default="1"),
-        sa.Column("published_snapshot", JSONB(), nullable=True),
-        sa.Column("risk_policy", JSONB(), nullable=False, server_default=sa.text("'{}'::jsonb")),
-        sa.Column("policy_version", sa.Integer(), nullable=False, server_default="1"),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
-        sa.UniqueConstraint("uid", name="uix_holding_source_uid"),
-        sa.CheckConstraint(
-            "auth_status IN ('NOT_CONFIGURED','DISCONNECTED','PENDING','CONNECTED',"
-            "'CONNECTED_NO_OFFLINE','NEEDS_REAUTH')",
-            name="ck_holding_source_auth_status",
-        ),
-        sa.CheckConstraint(
-            "sync_status IN ('IDLE','SYNCING','OK','REJECTED','UNAVAILABLE')",
-            name="ck_holding_source_sync_status",
-        ),
-    )
-    op.create_index("ix_holding_source_uid", "holding_source", ["uid"], unique=True)
-
     op.create_table(
         "portfolio_account",
         sa.Column("id", sa.Integer(), primary_key=True, autoincrement=True),
@@ -144,19 +108,19 @@ def upgrade():
     op.create_index("ix_cash_operation_account_id", "cash_operation", ["account_id"])
 
     op.create_table(
-        "trade_strategy_state",
+        "trade_llm_state",
         sa.Column("id", sa.Integer(), primary_key=True, autoincrement=True),
         sa.Column("uid", sa.Integer(), nullable=False),
-        sa.Column("account_id", sa.String(length=64), nullable=False),
-        sa.Column("position_id", sa.String(length=64), nullable=False),
-        sa.Column("strategy_key", sa.String(length=64), nullable=False),
-        sa.Column("strategy_version", sa.String(length=32), nullable=False),
-        sa.Column("state", JSONB(), nullable=False, server_default=sa.text("'{}'::jsonb")),
-        sa.Column("last_evaluated_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("market", sa.String(length=8), nullable=False),
+        sa.Column("summary", sa.Text(), nullable=False, server_default=""),
+        sa.Column("last_decision", JSONB(), nullable=False, server_default=sa.text("'{}'::jsonb")),
+        sa.Column("last_decision_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
-        sa.UniqueConstraint("uid", "account_id", "position_id", "strategy_key", name="uix_trade_strategy_state"),
+        sa.CheckConstraint("market IN ('CN','US')", name="ck_trade_llm_state_market"),
+        sa.UniqueConstraint("uid", "market", name="uix_trade_llm_state_uid_market"),
     )
-    op.create_index("ix_trade_strategy_state_uid", "trade_strategy_state", ["uid"])
+    op.create_index("ix_trade_llm_state_uid", "trade_llm_state", ["uid"])
 
     op.create_table(
         "trade_signal",
@@ -179,6 +143,7 @@ def upgrade():
         sa.Column("evaluated_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("notification_id", sa.Integer(), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.CheckConstraint("action IN ('BUY','ADD','REDUCE','EXIT')", name="ck_trade_signal_action"),
         sa.UniqueConstraint("uid", "signal_key", name="uix_trade_signal_uid_key"),
     )
     op.create_index("ix_trade_signal_uid", "trade_signal", ["uid"])
@@ -186,10 +151,9 @@ def upgrade():
 
 def downgrade():
     op.drop_table("trade_signal")
-    op.drop_table("trade_strategy_state")
+    op.drop_table("trade_llm_state")
     op.drop_table("cash_operation")
     op.drop_table("trade_operation")
     op.drop_table("position_lot")
     op.drop_table("portfolio_position")
     op.drop_table("portfolio_account")
-    op.drop_table("holding_source")

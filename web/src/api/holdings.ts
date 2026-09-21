@@ -1,34 +1,6 @@
 import apiClient from './index';
 import { toCamelCase } from './utils';
 
-export type HoldingsAuthStatus =
-  | 'NOT_CONFIGURED'
-  | 'DISCONNECTED'
-  | 'PENDING'
-  | 'CONNECTED'
-  | 'CONNECTED_NO_OFFLINE'
-  | 'NEEDS_REAUTH';
-
-export interface HoldingsSource {
-  googleConfigured: boolean;
-  holdingsEnabled: boolean;
-  missingConfig: string[];
-  sourceId: number | null;
-  spreadsheetId: string | null;
-  schemaVersion: string | null;
-  authStatus: HoldingsAuthStatus;
-  syncStatus: string | null;
-  enabled: boolean;
-  lastAttemptAt: string | null;
-  lastSuccessAt: string | null;
-  lastErrorCode: string | null;
-  publishedGeneration: number;
-  contentHash: string | null;
-  configVersion: number;
-  policyVersion: number;
-  canBackgroundSync: boolean;
-}
-
 export interface PortfolioAccount {
   id: number;
   name: string;
@@ -133,29 +105,6 @@ export const holdingsApi = {
     if (body.tradeEngineEnabled !== undefined) payload.trade_engine_enabled = body.tradeEngineEnabled;
     const { data } = await apiClient.patch(`/api/v1/holdings/positions/${positionId}`, payload);
     return toCamelCase(data) as PortfolioPosition;
-  },
-  async source(): Promise<HoldingsSource> {
-    const { data } = await apiClient.get('/api/v1/holdings/google/source');
-    return toCamelCase(data);
-  },
-  async connect(spreadsheetId: string, returnPath = '/market/holdings') {
-    const { data } = await apiClient.post('/api/v1/holdings/google/connect', {
-      spreadsheet_id: spreadsheetId,
-      return_path: returnPath,
-    });
-    return data as { authorization_url: string; return_path: string; auth_status: string };
-  },
-  async disconnect() {
-    const { data } = await apiClient.post('/api/v1/holdings/google/disconnect');
-    return data;
-  },
-  async sync() {
-    const { data } = await apiClient.post('/api/v1/holdings/google/sync');
-    return data as { task_id: string | null; status: string; changed?: boolean; generation?: number };
-  },
-  async snapshot() {
-    const { data } = await apiClient.get('/api/v1/holdings/snapshot');
-    return { status: data.status, snapshot: data.snapshot ? toCamelCase(data.snapshot) : null };
   },
 };
 

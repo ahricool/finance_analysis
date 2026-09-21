@@ -36,7 +36,7 @@ Summary 删除 `suggested_max_exposure` 和 entry/add/hold/reduce/exit 计数，
 删除 `/trend-following/portfolio`、ranking 的 portfolio、所有 action 和 pending 字段。
 changes 仅比较状态/排名/评分，以 `new_broken` 替代旧动作分类。前端删除理论组合、敞口进度、
 交易日期/价格/止损/加减仓展示；排名、详情、历史、热力图、Dashboard 统一使用六态。
-没有新增 Portfolio/Holding 抽象，也没有接入 Google Sheet。
+没有新增 Portfolio/Holding 抽象。
 
 ## 快照写入与失败恢复
 

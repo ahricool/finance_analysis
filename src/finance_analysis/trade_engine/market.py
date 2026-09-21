@@ -19,6 +19,25 @@ from finance_analysis.trade_engine.models import DailyBar, QuoteView  # pragma: 
 logger = logging.getLogger(__name__)
 
 
+def _optional_dec(value) -> Decimal | None:
+    if value is None or value == "":
+        return None
+    try:
+        number = Decimal(str(value))
+    except Exception:
+        return None
+    return number
+
+
+def _optional_int(value) -> int | None:
+    if value is None or value == "":
+        return None
+    try:
+        return int(value)
+    except Exception:
+        return None
+
+
 class RiskMarketGateway:
     def __init__(
         self,
@@ -43,28 +62,37 @@ class RiskMarketGateway:
             batch = self.market_data.get_realtime_quotes(codes)
             for symbol in codes:
                 quote = batch.data.get(symbol)
-                if quote is None or quote.price is None:
-                    result[symbol] = QuoteView(price=Decimal("0"), quote_as_of=None, valid=False)
-                    continue
-                quote_time = quote.quote_time
-                if quote_time is None:
-                    result[symbol] = QuoteView(
-                        price=Decimal(str(quote.price)), quote_as_of=None, valid=False, stale=True
-                    )
-                    continue
-                if quote_time > current + timedelta(seconds=5):
-                    result[symbol] = QuoteView(
-                        price=Decimal(str(quote.price)), quote_as_of=quote_time, valid=False, stale=False
-                    )
-                    continue
-                stale = current - quote_time > self.quote_max_age
-                result[symbol] = QuoteView(
-                    price=Decimal(str(quote.price)),
-                    quote_as_of=quote_time,
-                    valid=quote.price > 0 and not stale,
-                    stale=stale,
-                )
+                result[symbol] = self._quote_view(quote, current)
         return result
+
+    def _quote_view(self, quote, current: datetime) -> QuoteView:
+        if quote is None:
+            return QuoteView(price=None, quote_as_of=None, valid=False)
+        price = _optional_dec(quote.price)
+        quote_time = getattr(quote, "quote_time", None)
+        extras = dict(
+            today_open=_optional_dec(getattr(quote, "open_price", None)),
+            today_high=_optional_dec(getattr(quote, "high", None)),
+            today_low=_optional_dec(getattr(quote, "low", None)),
+            today_volume=_optional_int(getattr(quote, "volume", None)),
+            today_turnover=_optional_dec(getattr(quote, "amount", None)),
+            pre_close=_optional_dec(getattr(quote, "pre_close", None)),
+            change_pct=_optional_dec(getattr(quote, "change_pct", None)),
+        )
+        if price is None:
+            return QuoteView(price=None, quote_as_of=quote_time, valid=False, **extras)
+        if quote_time is None:
+            return QuoteView(price=price, quote_as_of=None, valid=False, stale=True, **extras)
+        if quote_time > current + timedelta(seconds=5):
+            return QuoteView(price=price, quote_as_of=quote_time, valid=False, stale=False, **extras)
+        stale = current - quote_time > self.quote_max_age
+        return QuoteView(
+            price=price,
+            quote_as_of=quote_time,
+            valid=price > 0 and not stale,
+            stale=stale,
+            **extras,
+        )
 
     def daily_bars(
         self,
@@ -84,7 +112,7 @@ class RiskMarketGateway:
                 start,
                 end,
                 adjustment=Adjustment.FORWARD,
-                source_policy="db_first",
+                source_policy="db_latest",
             )
         except Exception:
             logger.exception("trade_engine daily bars failed")

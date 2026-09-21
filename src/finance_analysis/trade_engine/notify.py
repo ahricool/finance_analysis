@@ -1,102 +1,78 @@
 # -*- coding: utf-8 -*-
-"""Format Trade Engine alerts. Trade decisions and portfolio warnings stay distinct."""
+"""Format one market-level Trade Engine notification when targets actually change."""
 
 from __future__ import annotations
 
+from decimal import Decimal
 from typing import Any, Sequence
 
 from ..notification.service import NotificationResult, NotificationService  # pragma: allowlist secret
-from .models import PortfolioWarning, TradeSignal  # pragma: allowlist secret
+from .models import PortfolioRiskFacts, StrategySignal, TradeSignal  # pragma: allowlist secret
 
 
 def _qty(value) -> str:
     return format(value, "f") if value is not None else "-"
 
 
+def _pct(value: Decimal | None) -> str:
+    if value is None:
+        return "-"
+    return f"{(value * 100):.1f}%"
+
+
 def render_trade_message(
     *,
     market: str,
     signals: Sequence[TradeSignal],
+    strategy_signals: Sequence[StrategySignal] | None = None,
+    portfolio_risk: PortfolioRiskFacts | None = None,
     contexts: dict[str, Any] | None = None,
     quotes: dict[str, Any] | None = None,
 ) -> tuple[str, str]:
-    contexts = contexts or {}
-    quotes = quotes or {}
-    lines: list[str] = []
+    del contexts, quotes
+    lines = [f"【Trade Engine · {market}】", ""]
+    if portfolio_risk is not None:
+        lines.append("Portfolio:")
+        lines.append(f"当前总仓位 {_pct(portfolio_risk.gross_exposure)}")
+        lines.append(f"目标风险上限 {_pct(portfolio_risk.max_gross_exposure)}")
+        lines.append("")
+    grouped: dict[str, list[StrategySignal]] = {}
+    for item in strategy_signals or ():
+        grouped.setdefault(item.symbol or "", []).append(item)
     for item in signals:
-        context = contexts.get(item.position_id or "")
-        position = None if context is None else context.position
-        quote = quotes.get(item.symbol or "")
-        price = None if quote is None else quote.price
-        cost = None if position is None else position.average_cost
-        qty = None if position is None else position.quantity
-        lines.append(f"【Trade Engine · {item.symbol or '-'}】")
-        if qty is not None and price is not None:
-            lines.append(f"当前持仓：{_qty(qty)}股 @ {price}")
-        elif qty is not None:
-            lines.append(f"当前持仓：{_qty(qty)}股")
-        if cost is not None:
-            lines.append(f"平均成本：{cost}")
-        lines.append("策略信号：")
-        proposals = (item.evidence or {}).get("proposals") or []
-        if not proposals:
-            lines.append(f"• {item.strategy_key}")
-            lines.append(f"  {item.action} → {_qty(item.suggested_target_quantity)}股")
-            lines.append(f"  原因：{item.reason}")
-        for proposal in proposals:
-            action = proposal.get("action")
-            target = proposal.get("target_quantity")
-            quantity = proposal.get("quantity")
-            if action in {"ADD", "BUY"} and quantity:
-                detail = f"{action} +{quantity}股"
-            elif target is not None:
-                detail = f"{action} → {target}股"
+        lines.append(item.symbol or "-")
+        current = (item.evidence or {}).get("current_quantity")
+        target = _qty(item.suggested_target_quantity)
+        lines.append(f"当前：{current or '-'}股")
+        lines.append(f"目标：{target}股")
+        lines.append(f"动作：{item.action}")
+        lines.append("")
+        lines.append("Strategy意见：")
+        opinions = grouped.get(item.symbol or "") or []
+        if not opinions:
+            lines.append("• 本轮无机械交易信号")
+        for proposal in opinions:
+            if proposal.action in {"ADD", "BUY"} and proposal.suggested_quantity is not None:
+                detail = f"{proposal.action} +{_qty(proposal.suggested_quantity)}"
+            elif proposal.suggested_target_quantity is not None:
+                detail = f"{proposal.action} → {_qty(proposal.suggested_target_quantity)}"
             else:
-                detail = str(action)
-            lines.append(f"• {proposal.get('strategy')}")
-            lines.append(f"  {detail}")
-            lines.append(f"  原因：{proposal.get('reason') or '-'}")
-        final = item.action
-        if item.suggested_target_quantity is not None:
-            final = f"{item.action} → {_qty(item.suggested_target_quantity)}股"
-        elif item.suggested_quantity is not None:
-            final = f"{item.action} +{_qty(item.suggested_quantity)}股"
-        lines.append("LLM最终判断：")
-        lines.append(final)
+                detail = proposal.action
+            lines.append(f"• {proposal.strategy_key}：{detail}")
+            lines.append(f"  {proposal.reason}")
+        facts = None if portfolio_risk is None else portfolio_risk.positions.get(item.symbol or "")
+        lines.append("Portfolio Risk：")
+        if facts is None:
+            lines.append("• 无单独持仓风险事实")
+        else:
+            lines.append(f"• 当前权重{_pct(facts.weight)}，限制{_pct(facts.max_weight)}")
+            lines.append(f"• 当前open risk {_pct(facts.open_risk)}，限制{_pct(facts.risk_limit)}")
+        lines.append("LLM最终：")
+        lines.append(f"{item.action} → {target}")
         lines.append("理由：")
         lines.append(item.llm_reason or item.reason)
         lines.append("")
-    body = _scrub("\n".join(lines).strip())
-    return "交易引擎", body
-
-
-def render_warning_message(*, market: str, warnings: Sequence[PortfolioWarning]) -> tuple[str, str]:
-    title = "A股账户风险" if market == "CN" else "美股账户风险"
-    lines = [f"【{title}】", ""]
-    for item in warnings:
-        current_pct = f"{(item.current * 100):.0f}%"
-        limit_pct = f"{(item.limit * 100):.0f}%"
-        if item.kind == "max_gross_exposure":
-            lines.append(f"总仓位：{current_pct}")
-            lines.append(f"限制：{limit_pct}")
-        elif item.kind == "max_symbol_weight":
-            lines.append(f"{item.symbol or '-'}仓位：{current_pct}")
-            lines.append(f"限制：{limit_pct}")
-        elif item.kind == "risk_per_symbol":
-            lines.append(f"{item.symbol or '-'}计划风险：{current_pct}")
-            lines.append(f"限制：{limit_pct}")
-        else:
-            lines.append(f"{item.reason}：{current_pct} / 限制 {limit_pct}")
-        lines.append("")
-    return title, _scrub("\n".join(lines).strip())
-
-
-def _scrub(body: str) -> str:
-    lowered = body.lower()
-    for forbidden in ("refresh_token", "access_token", "code_verifier", "spreadsheet", "oauth"):
-        if forbidden in lowered:
-            return "交易引擎提醒已生成，详情见站内消息。"
-    return body
+    return "交易引擎", "\n".join(lines).strip()
 
 
 def push_after_commit(

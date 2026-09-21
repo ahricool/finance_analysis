@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Registered Position Strategies run in parallel. Portfolio Warning is separate."""
+"""Registered Position Strategies run in parallel. Portfolio Risk Facts are separate."""
 
 from .strategies.add_v1 import AddV1  # pragma: allowlist secret
 from .strategies.exit_v1 import ExitV1  # pragma: allowlist secret

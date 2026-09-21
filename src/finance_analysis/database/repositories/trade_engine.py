@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Repositories for Trade Engine strategy state and signals."""
+"""Repositories for Trade Engine LLM state and official signals."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from finance_analysis.core.time import utc_now  # pragma: allowlist secret
 from finance_analysis.database.models.notification import Notification  # pragma: allowlist secret
-from finance_analysis.database.models.trade_engine import TradeSignalRow, TradeStrategyState  # pragma: allowlist secret
+from finance_analysis.database.models.trade_engine import TradeLLMState, TradeSignalRow  # pragma: allowlist secret
 from finance_analysis.database.session import DatabaseManager  # pragma: allowlist secret
 from finance_analysis.notification.noise_control import normalize_notification_severity  # pragma: allowlist secret
 
@@ -20,69 +20,41 @@ class TradeEngineRepository:
     def __init__(self, db: Optional[DatabaseManager] = None) -> None:
         self.db = db or DatabaseManager.get_instance()
 
-    def get_state(
-        self,
-        session: Session,
-        *,
-        uid: int,
-        account_id: str,
-        position_id: str,
-        strategy_key: str,
-    ) -> TradeStrategyState | None:
+    def get_llm_state(self, session: Session, *, uid: int, market: str) -> TradeLLMState | None:
         return session.execute(
-            select(TradeStrategyState).where(
-                TradeStrategyState.uid == uid,
-                TradeStrategyState.account_id == account_id,
-                TradeStrategyState.position_id == position_id,
-                TradeStrategyState.strategy_key == strategy_key,
-            )
+            select(TradeLLMState).where(TradeLLMState.uid == uid, TradeLLMState.market == market)
         ).scalar_one_or_none()
 
-    def upsert_state(
+    def upsert_llm_state(
         self,
         session: Session,
         *,
         uid: int,
-        account_id: str,
-        position_id: str,
-        strategy_key: str,
-        strategy_version: str,
-        state: dict[str, Any],
-        evaluated_at: datetime,
-    ) -> TradeStrategyState:
-        row = self.get_state(
-            session,
-            uid=uid,
-            account_id=account_id,
-            position_id=position_id,
-            strategy_key=strategy_key,
-        )
+        market: str,
+        summary: str,
+        last_decision: dict[str, Any],
+        decided_at: datetime,
+    ) -> TradeLLMState:
+        row = self.get_llm_state(session, uid=uid, market=market)
         now = utc_now()
         if row is None:
-            row = TradeStrategyState(
+            row = TradeLLMState(
                 uid=uid,
-                account_id=account_id,
-                position_id=position_id,
-                strategy_key=strategy_key,
-                strategy_version=strategy_version,
-                state=state,
-                last_evaluated_at=evaluated_at,
+                market=market,
+                summary=summary,
+                last_decision=last_decision,
+                last_decision_at=decided_at,
+                created_at=now,
                 updated_at=now,
             )
             session.add(row)
         else:
-            row.strategy_version = strategy_version
-            row.state = state
-            row.last_evaluated_at = evaluated_at
+            row.summary = summary
+            row.last_decision = last_decision
+            row.last_decision_at = decided_at
             row.updated_at = now
         session.flush()
         return row
-
-    def list_states(self, session: Session, *, uid: int, market: str | None = None) -> list[TradeStrategyState]:
-        query = select(TradeStrategyState).where(TradeStrategyState.uid == uid)
-        rows = list(session.execute(query).scalars())
-        del market
-        return rows
 
     def has_signal(self, session: Session, *, uid: int, signal_key: str) -> bool:
         return (

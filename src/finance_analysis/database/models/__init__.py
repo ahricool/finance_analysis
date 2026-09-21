@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 """ORM model exports."""
 
-from finance_analysis.database.models.holdings import HoldingSource  # pragma: allowlist secret
 from finance_analysis.database.models.portfolio import (  # pragma: allowlist secret
     CashOperation,
     PortfolioAccount,
@@ -9,7 +8,7 @@ from finance_analysis.database.models.portfolio import (  # pragma: allowlist se
     PositionLot,
     TradeOperation,
 )
-from finance_analysis.database.models.trade_engine import TradeSignalRow, TradeStrategyState  # pragma: allowlist secret
+from finance_analysis.database.models.trade_engine import TradeLLMState, TradeSignalRow  # pragma: allowlist secret
 from finance_analysis.database.models.industry_strength import IndustryStrengthConstituent, IndustryStrengthSnapshot  # pragma: allowlist secret
 from finance_analysis.database.models.market_sentiment import MarketSentimentSnapshot, MarketSentimentSourceSnapshot  # pragma: allowlist secret
 
@@ -46,13 +45,12 @@ from finance_analysis.database.models.watch_list import WatchListItem  # pragma:
 from finance_analysis.database.models.crypto import CryptoStrategySnapshot, CryptoStrategyState  # pragma: allowlist secret
 
 __all__ = [
-    "HoldingSource",
     "PortfolioAccount",
     "PortfolioPosition",
     "PositionLot",
     "TradeOperation",
     "CashOperation",
-    "TradeStrategyState",
+    "TradeLLMState",
     "TradeSignalRow",
     "MarketSentimentSnapshot",
     "MarketSentimentSourceSnapshot",
