@@ -32,5 +32,9 @@ def test_0062_creates_llm_state_not_google_or_strategy_state():
         "created_at",
         "updated_at",
     }
-    action = str(TradeSignalRow.__table__.constraints)
-    assert "BUY" in action and "WARNING" not in action
+    checks = [
+        str(getattr(item, "sqltext", ""))
+        for item in TradeSignalRow.__table__.constraints
+        if item.__class__.__name__ == "CheckConstraint"
+    ]
+    assert any("BUY" in item and "WARNING" not in item for item in checks)

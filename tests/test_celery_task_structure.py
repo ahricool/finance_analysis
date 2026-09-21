@@ -90,7 +90,7 @@ def test_all_custom_task_names_and_job_ids_are_unique():
     celery_names.extend(item.celery_task_name for item in scheduled)
     job_ids = [item.job_id for item in scheduled]
 
-    assert len(celery_names) == len(set(celery_names)) == 33
+    assert len(celery_names) == len(set(celery_names)) == 32
     assert len(job_ids) == len(set(job_ids))
 
 

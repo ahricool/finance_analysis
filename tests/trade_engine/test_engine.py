@@ -53,7 +53,7 @@ def _book(positions, *, cash="0", market="CN", quotes=None, daily=None):
 
 
 def _facts(*, cash="0", market="CN", positions=None, price="100", risks=None, quotes=None, daily=None):
-    positions = positions or [_position(market=market)]
+    positions = [_position(market=market)] if positions is None else positions
     quotes = quotes or {item.symbol: QuoteView(price=Decimal(price), quote_as_of=NOW, valid=True) for item in positions}
     book = _book(positions, cash=cash, market=market, quotes=quotes, daily=daily or {})
     return PortfolioRiskV1().evaluate_portfolio(book, risks or {}, policy=POLICY), book
