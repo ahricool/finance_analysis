@@ -32,11 +32,12 @@ class TaskAdvisoryLockId(IntEnum):
 class PostgreSQLAdvisoryLock:
     """A session-level advisory lock held by one connection without an open transaction."""
 
-    lock_id: TaskAdvisoryLockId
+    lock_id: TaskAdvisoryLockId | int
     db_manager: DatabaseManager | None = None
     blocking: bool = False
     connection: Any = None
     acquired: bool = False
+    namespace: int = TASK_MUTEX_NAMESPACE
 
     def acquire(self) -> bool:
         if self.connection is not None:
@@ -47,7 +48,7 @@ class PostgreSQLAdvisoryLock:
             function_name = "pg_advisory_lock" if self.blocking else "pg_try_advisory_lock"
             result = self.connection.execute(
                 text(f"SELECT {function_name}(:namespace, :lock_id)"),
-                {"namespace": TASK_MUTEX_NAMESPACE, "lock_id": int(self.lock_id)},
+                {"namespace": self.namespace, "lock_id": int(self.lock_id)},
             )
             value = result.scalar_one()
             self.acquired = True if self.blocking else bool(value)
@@ -74,12 +75,12 @@ class PostgreSQLAdvisoryLock:
                 unlocked = bool(
                     connection.execute(
                         text("SELECT pg_advisory_unlock(:namespace, :lock_id)"),
-                        {"namespace": TASK_MUTEX_NAMESPACE, "lock_id": int(self.lock_id)},
+                        {"namespace": self.namespace, "lock_id": int(self.lock_id)},
                     ).scalar_one()
                 )
                 connection.commit()
                 if not unlocked:
-                    logger.warning("PostgreSQL advisory lock was not held at release: lock_id=%s", self.lock_id.name)
+                    logger.warning("PostgreSQL advisory lock was not held at release: lock_id=%s", self.lock_id)
         except Exception:
             self._invalidate_and_close(connection)
             raise

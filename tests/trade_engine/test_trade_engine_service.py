@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
+from contextlib import contextmanager
+from zoneinfo import ZoneInfo
+
+import pytest
 from decimal import Decimal
 from types import SimpleNamespace
 
@@ -22,6 +26,8 @@ NOW = datetime(2026, 9, 16, 14, 0, tzinfo=timezone.utc)
 
 
 class _Null:
+    acquired = True
+
     def __enter__(self):
         return self
 
@@ -30,11 +36,23 @@ class _Null:
 
 
 class FakeDB:
-    def _run_write_transaction(self, name, write):
-        return write(object())
+    writing = False
+    reading = False
 
+    def _run_write_transaction(self, name, write):
+        self.writing = True
+        try:
+            return write(object())
+        finally:
+            self.writing = False
+
+    @contextmanager
     def get_session(self):
-        return _Null()
+        self.reading = True
+        try:
+            yield object()
+        finally:
+            self.reading = False
 
 
 class FakeStates:
@@ -63,6 +81,12 @@ class FakeStates:
 
     def list_signals(self, session, **payload):
         return []
+
+    def notified_actions_for_date(self, session, *, uid, market, local_date):
+        zone = ZoneInfo("America/New_York" if market == "US" else "Asia/Shanghai")
+        return {(r["symbol"], r["action"]) for r in self.signals
+                if r["uid"] == uid and r["market"] == market and r["notification_id"] is not None
+                and r["evaluated_at"].astimezone(zone).date() == local_date}
 
     def create_notification(self, session, **payload):
         self.notifications.append(payload)
@@ -198,6 +222,7 @@ def _service(portfolio, *, resolver=None, strats=None, market=None):
         resolver=FakeResolver(portfolio),
         market=market or FakeMarket(),
         db=FakeDB(),
+        lock_factory=lambda *args: _Null(),
         decision_resolver=resolver or ScriptedResolver(),
         position_strategy_loader=lambda m: tuple(strats or (HoldExit(),)),
         portfolio_strategy_loader=lambda m: (),
@@ -377,3 +402,90 @@ def test_strategy_error_does_not_block_other_strategy_or_llm():
     assert result["strategy_error_count"] == 1
     assert result["llm_reviews"] == 1
     assert any(item.strategy_key == "add_v1" for item in resolver.calls[0].strategy_signals)
+
+
+@pytest.fixture(autouse=True)
+def no_external_push(monkeypatch):
+    monkeypatch.setattr("finance_analysis.trade_engine.service.push_after_commit", lambda **kwargs: None)
+
+
+def test_llm_outside_read_and_write_sessions():
+    resolver = ScriptedResolver()
+    service = _service(_portfolio(_position()), resolver=resolver)
+    original = resolver.decide
+
+    def decide(context):
+        assert not service.db.writing
+        assert not service.db.reading
+        return original(context)
+
+    resolver.decide = decide
+    service.evaluate_uid(1, market="US", now=NOW)
+
+
+def test_daily_notification_dedupe_preserves_decisions_and_state():
+    resolver = ScriptedResolver(targets=[{"symbol": "AAPL.US", "target": "700"}], summary="first")
+    service = _service(_portfolio(_position()), resolver=resolver)
+    first = service.evaluate_uid(1, market="US", now=NOW)
+    resolver.summary = "second"
+    second = service.evaluate_uid(1, market="US", now=NOW + timedelta(minutes=30))
+    assert first["notifications"] == 1
+    assert second["notifications"] == 0
+    assert second["confirmed_signals"] == 1
+    assert len(resolver.calls) == 2
+    assert service.states.llm_state.summary == "second"
+    assert [r["notification_id"] for r in service.states.signals] == [1, None]
+    resolver.targets = [{"symbol": "AAPL.US", "target": "0"}]
+    assert service.evaluate_uid(1, market="US", now=NOW + timedelta(hours=1))["notifications"] == 1
+    resolver.targets = [{"symbol": "AAPL.US", "target": "700"}]
+    assert service.evaluate_uid(1, market="US", now=NOW + timedelta(days=1))["notifications"] == 1
+
+
+def test_us_utc_midnight_does_not_reset_notification_day():
+    resolver = ScriptedResolver(targets=[{"symbol": "AAPL.US", "target": "700"}])
+    service = _service(_portfolio(_position()), resolver=resolver)
+    first = datetime(2026, 9, 16, 23, 30, tzinfo=timezone.utc)
+    assert service.evaluate_uid(1, market="US", now=first)["notifications"] == 1
+    assert service.evaluate_uid(1, market="US", now=first + timedelta(hours=1))["notifications"] == 0
+
+
+def test_multi_symbol_message_only_contains_new_actions():
+    resolver = ScriptedResolver(targets=[{"symbol": "AAPL.US", "target": "700"}])
+    service = _service(_portfolio(_position(), _position("NVDA.US", "12")), resolver=resolver)
+    service.evaluate_uid(1, market="US", now=NOW)
+    resolver.targets.append({"symbol": "NVDA.US", "target": "700"})
+    result = service.evaluate_uid(1, market="US", now=NOW + timedelta(minutes=30))
+    assert result["confirmed_signals"] == 2
+    assert result["notifications"] == 1
+    body = service.states.notifications[-1]["content"]
+    assert "NVDA.US" in body and "AAPL.US" not in body
+
+
+def test_provisional_add_does_not_mutate_exit_history_or_risk():
+    from dataclasses import replace
+    from finance_analysis.trade_engine.strategies.add_v1 import provisional_evaluation_bars
+
+    market = FakeMarket()
+    market.daily_map = {"AAPL.US": [DailyBar(NOW.date() - timedelta(days=1), Decimal("100"), Decimal("101"),
+                                            Decimal("99"), Decimal("100"), 1000)]}
+    market.quotes_map = {"AAPL.US": QuoteView(Decimal("120"), NOW, True, today_open=Decimal("100"),
+                                             today_high=Decimal("120"), today_low=Decimal("99"), today_volume=1000)}
+    seen = []
+
+    class ObserveAdd(AddV1):
+        def evaluate(self, context):
+            provisional_evaluation_bars(context, context.now)
+            return []
+
+    class ObserveExit(ExitV1):
+        def evaluate(self, context):
+            seen.append(context)
+            return []
+
+    position = _position()
+    position = replace(position, opened_at=NOW - timedelta(days=2),
+                       lots=(replace(position.lots[0], entry_time=NOW - timedelta(days=2)),))
+    service = _service(_portfolio(position), market=market, strats=[ObserveAdd(), ObserveExit()])
+    service.evaluate_uid(1, market="US", now=NOW)
+    assert seen[0].risk.high_watermark == Decimal("100")
+    assert seen[0].daily_bars[-1].close == Decimal("100")

@@ -157,3 +157,24 @@ def test_disabled_position_target_forced_to_current():
     )
     assert decision.positions[0].target_quantity == Decimal("1000")
     assert decision.positions[0].action == "NO_ACTION"
+
+
+def test_prompt_contains_portfolio_and_repeat_advice_guidance():
+    from finance_analysis.trade_engine.resolver import _SYSTEM, serialize_context
+
+    for text in ("previous_llm_state", "last_decision", "recent_trade_signals", "NO_ACTION",
+                 "避免机械重复", "风险明显恶化", "所有加仓合计现金", "max_symbol_weight",
+                 "total open risk/total risk limit", "最终执行决定由用户负责"):
+        assert text in _SYSTEM
+    payload = serialize_context(_context(signals=[_signal()]))
+    assert payload["cash"] == "350000"
+    assert payload["nav"] == "1000000"
+    assert payload["strategy_signals"]
+    risk = payload["portfolio_risk"]
+    assert risk["gross_exposure"] == "0.65"
+    assert risk["max_gross_exposure"] == "0.50"
+    assert risk["total_open_risk"] == "0.018"
+    assert risk["total_open_risk_limit"] == "0.02"
+    assert risk["positions"]["AAPL.US"] == {
+        "weight": "0.18", "max_weight": "0.10", "open_risk": "0.008", "risk_limit": "0.005",
+    }

@@ -3,12 +3,15 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Any, Optional
+
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from finance_analysis.market_review.trading_calendar import MARKET_TIMEZONE
 from finance_analysis.core.time import utc_now  # pragma: allowlist secret
 from finance_analysis.database.models.notification import Notification  # pragma: allowlist secret
 from finance_analysis.database.models.trade_engine import TradeLLMState, TradeSignalRow  # pragma: allowlist secret
@@ -85,6 +88,22 @@ class TradeEngineRepository:
         if position_id:
             query = query.where(TradeSignalRow.position_id == position_id)
         return list(session.execute(query.order_by(TradeSignalRow.id.desc()).limit(limit)).scalars())
+
+    def notified_actions_for_date(
+        self, session: Session, *, uid: int, market: str, local_date: date,
+    ) -> set[tuple[str, str]]:
+        zone = ZoneInfo(MARKET_TIMEZONE[market.lower()])
+        start = datetime.combine(local_date, time.min, tzinfo=zone).astimezone(timezone.utc)
+        end = datetime.combine(local_date + timedelta(days=1), time.min, tzinfo=zone).astimezone(timezone.utc)
+        return set(session.execute(
+            select(TradeSignalRow.symbol, TradeSignalRow.action).where(
+                TradeSignalRow.uid == uid,
+                TradeSignalRow.market == market,
+                TradeSignalRow.notification_id.is_not(None),
+                TradeSignalRow.evaluated_at >= start,
+                TradeSignalRow.evaluated_at < end,
+            ).distinct()
+        ).all())
 
     def create_notification(
         self,

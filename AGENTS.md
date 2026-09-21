@@ -334,7 +334,7 @@ BTC 多策略以 `strategy_key + symbol` 隔离，代码注册表当前仅 `btc_
 
 `portfolio/` 是普通股票/ETF 唯一持仓事实源：账户现金、当前持仓、CORE/ADDON lot 和买卖/出入金操作写 PostgreSQL。`trade_engine_enabled` 默认 true；关闭后该持仓不运行 Strategy，LLM target 必须等于 current，但仍计入账户 NAV 与 Portfolio Risk。`exit_v1` / `add_v1` 完全无状态，每 30 分钟可重复输出相同 Strategy Signal。`portfolio_risk_v1` 输出 Portfolio Risk Facts，不单独通知。每个市场每轮最多一次 LLM，结合持仓、15d K、今日 OHLCV、调仓历史、风险事实与 `trade_llm_state` 给出 Target Position。CN/US 现金、NAV、风险与 LLM 状态隔离。 <!-- pragma: allowlist secret -->
 `trade_engine/` Beat 每 30 分钟触发，不在 evaluation window 则 skip。有实际持仓就调用 Market-level LLM；空仓且无 Entry Strategy 则 skip LLM。正式 TradeSignal 只在 target ≠ current 时创建。任务复用 `alerts`（`trade_engine_cn/us`），不新增专用 worker。
-通知复用现有全局 Telegram/ntfy：先与 `trade_signal` 同事务写入站内消息，再 `push_existing`。详见 `docs/holdings-portfolio-risk.md`。
+通知复用现有全局 Telegram/ntfy：先与 `trade_signal` 同事务写入站内消息，再 `push_existing`。`add_v1` 独立使用完整历史 + 实时临时日K，Risk/EXIT 仍只用完整日K形成 stop。Market LLM 按 uid+market 持 PostgreSQL session advisory lock，网络调用在业务事务外；通知按市场当地日期、股票、action 每日一次，不抑制 LLM/state/信号历史。详见 `docs/holdings-portfolio-risk.md`。
 
 ## Market Sentiment
 

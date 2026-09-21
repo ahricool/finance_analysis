@@ -1,14 +1,16 @@
 # -*- coding: utf-8 -*-
-"""add_v1: stateless medium-term ADD. Same complete daily setup → same ADD every run."""
+"""Stateless ADD from completed history plus a private provisional realtime daily bar."""
 
 from __future__ import annotations
 
+from datetime import datetime
 from decimal import Decimal
 from typing import Any, Sequence
 
 from ...core.time import utc_now  # pragma: allowlist secret
+from ..bars import market_zone
 from ..config import RiskPolicy, get_risk_policy  # pragma: allowlist secret
-from ..daily import atr, extension_atr, last_complete_date, legalize_quantity, ma_slope, sma_series, volume_median
+from ..daily import atr, extension_atr, legalize_quantity, ma_slope, sma_series, volume_median
 from ..models import DailyBar, PositionContext, StrategySignal  # pragma: allowlist secret
 
 KEY = "add_v1"
@@ -36,18 +38,24 @@ class AddV1:
         position = context.position
         policy = context.policy or get_risk_policy()
         now = context.now or utc_now()
-        bars = list(context.daily_bars or ())
+        bars = provisional_evaluation_bars(context, now)
+        if not bars:
+            return []
         if not context.valuation_complete or context.market_nav <= 0:
             return []
         if position.quantity <= 0 or position.asset_type.upper() not in {"STOCK", "ETF"}:
             return []
         if position.had_addon:
             return []
-        if last_complete_date(bars) is None:
-            return []
         setup = evaluate_add_setup(context, bars, policy)
         if setup is None:
             return []
+        setup.update({
+            "bar_type": "PROVISIONAL_TODAY",
+            "volume_basis": "intraday cumulative; breakout requires full-day median threshold; no projection",
+            "today_volume": bars[-1].volume,
+            "quote_time": context.quote.quote_as_of.isoformat(),
+        })
         evidence = {key: _dump(value) if isinstance(value, Decimal) else value for key, value in setup.items()}
         return [
             StrategySignal(
@@ -65,6 +73,31 @@ class AddV1:
                 evaluated_at=now,
             )
         ]
+
+
+def provisional_evaluation_bars(context: PositionContext, now: datetime) -> list[DailyBar]:
+    """ADD-only copy. Missing OHLCV suppresses ADD instead of fabricating a candle."""
+    quote = context.quote
+    if quote is None or not quote.valid or quote.stale or quote.quote_as_of is None:
+        return []
+    values = (quote.price, quote.today_open, quote.today_high, quote.today_low)
+    if any(value is None or not value.is_finite() or value <= 0 for value in values):
+        return []
+    zone = market_zone(context.market)
+    today = now.astimezone(zone).date()
+    if quote.quote_as_of.astimezone(zone).date() != today:
+        return []
+    if quote.today_volume is None or quote.today_volume < 0:
+        return []
+    if not (quote.today_low <= min(quote.today_open, quote.price)
+            <= max(quote.today_open, quote.price) <= quote.today_high):
+        return []
+    historical = sorted((bar for bar in context.daily_bars if bar.trade_date < today), key=lambda bar: bar.trade_date)
+    if not historical:
+        return []
+    return [*historical, DailyBar(
+        today, quote.today_open, quote.today_high, quote.today_low, quote.price, quote.today_volume,
+    )]
 
 
 def evaluate_add_setup(
@@ -212,7 +245,7 @@ def _breakout(
             continue
         return {
             "setup": BREAKOUT,
-            "reason": "整理后日线突破确认",
+            "reason": "整理后盘中临时日K突破（累计量已超过完整日量门槛）",
             "suggested_stop": min(bar.low for bar in window),
         }
     return None
@@ -263,7 +296,7 @@ def _pullback(
             continue
         return {
             "setup": PULLBACK,
-            "reason": "盈利后健康回踩再转强",
+            "reason": "盈利后健康回踩、盘中临时日K再转强",
             "suggested_stop": min(lows),
         }
     return None

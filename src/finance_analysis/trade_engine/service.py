@@ -17,8 +17,10 @@ from ..database.repositories.trade_engine import TradeEngineRepository  # pragma
 from ..database.session import DatabaseManager  # pragma: allowlist secret
 from ..notification.service import NotificationService  # pragma: allowlist secret
 from ..portfolio.resolver import PortfolioResolver  # pragma: allowlist secret
+from .bars import market_zone
 from .config import get_risk_policy  # pragma: allowlist secret
 from .daily import bar_indicators, history_start_date, llm_daily_bars  # pragma: allowlist secret
+from .locking import market_decision_lock
 from .market import RiskMarketGateway  # pragma: allowlist secret
 from .models import (  # pragma: allowlist secret
     LLM_SUMMARY_MAX,
@@ -119,6 +121,7 @@ class TradeEngineService:
         decision_resolver: MarketDecisionResolver | None = None,
         position_strategy_loader=None,
         portfolio_strategy_loader=None,
+        lock_factory=market_decision_lock,
     ) -> None:
         self.db = db or DatabaseManager.get_instance()
         self.resolver = resolver or PortfolioResolver()
@@ -126,6 +129,7 @@ class TradeEngineService:
         self.states = TradeEngineRepository(self.db)
         self.portfolio_repo = PortfolioRepository(self.db)
         self.notifier = notifier
+        self._lock_factory = lock_factory
         self.decision_resolver = decision_resolver or reviewer or MarketDecisionResolver()
         self._position_strategy_loader = position_strategy_loader or position_strategies
         self._portfolio_strategy_loader = portfolio_strategy_loader or portfolio_strategies
@@ -145,10 +149,12 @@ class TradeEngineService:
         uids = [uid] if uid is not None else self._active_uids(market)
         totals = _empty_stats(market)
         users = 0
+        locked_users = 0
         error_rows: list[dict[str, str]] = []
         for user in uids:
             result = self.evaluate_uid(user, market=market, now=current)
             users += 1
+            locked_users += result.get("status") == "SKIPPED_LOCKED"
             for key in (
                 "positions_analyzed",
                 "valuation_positions",
@@ -165,12 +171,22 @@ class TradeEngineService:
             error_rows.extend(result.get("strategy_errors") or [])
             if result.get("valuation_complete") is False:
                 totals["valuation_complete"] = False
+        totals["locked_users"] = locked_users
+        if users and locked_users == users:
+            totals["status"] = "SKIPPED_LOCKED"
         totals["users"] = users
         totals["evaluated"] = users
         totals["strategy_errors"] = error_rows
         return totals
 
     def evaluate_uid(self, uid: int, *, market: str, now: datetime | None = None) -> dict[str, Any]:
+        market = market.upper()
+        with self._lock_factory(self.db, uid, market) as lock:
+            if not lock.acquired:
+                return _empty_stats(market, uid=uid, status="SKIPPED_LOCKED", skipped_llm=True)
+            return self._evaluate_uid_locked(uid, market=market, now=now)
+
+    def _evaluate_uid_locked(self, uid: int, *, market: str, now: datetime | None = None) -> dict[str, Any]:
         current = now or utc_now()
         portfolio = self.resolver.get_resolved_portfolio(uid, market=market)
         valuation_positions = list(portfolio.valuation_positions(market))
@@ -191,96 +207,99 @@ class TradeEngineService:
             )
         operations = self._trade_history(uid, symbols)
 
-        def write(session: Session):
-            contexts: dict[str, PositionContext] = {}
-            signals: list[StrategySignal] = []
-            risk_map = {}
-            strategy_errors: list[dict[str, str]] = []
-            strats = list(self._position_strategy_loader(market))
-            for position in book.positions:
-                bars = daily.get(position.symbol, [])
-                quote = quotes.get(position.symbol)
-                risk = compute_position_risk(position, bars, policy)
-                risk_map[position.position_id] = risk
-                position_value = book.market_values.get(position.position_id, Decimal("0"))
-                history = operations.get(position.position_id, ())
-                ctx = PositionContext(
-                    market=position.market,
-                    symbol=position.symbol,
-                    position=position,
-                    quote=quote,
-                    daily_bars=tuple(bars),
-                    risk=risk,
-                    now=current,
-                    policy=policy,
-                    cash=book.cash,
-                    market_nav=book.nav or Decimal("0"),
-                    position_value=position_value,
-                    valuation_source=book.valuation_sources.get(position.position_id),
-                    valuation_complete=book.valuation_complete,
-                    trade_history=history,
-                )
-                contexts[position.position_id] = ctx
-                if not position.trade_engine_eligible:
-                    continue
-                pending_jobs = [(strategy, ctx) for strategy in strats]
-                produced_here: list[StrategySignal] = []
-                if pending_jobs:
-                    workers = max(1, min(len(pending_jobs), 4))
-                    with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="te-strat") as pool:
-                        futures = [pool.submit(_run_strategy, strategy, job_ctx) for strategy, job_ctx in pending_jobs]
-                        for future in as_completed(futures):
-                            payload = future.result()
-                            if payload["error_type"]:
-                                strategy_errors.append(
-                                    {
-                                        "symbol": position.symbol,
-                                        "strategy": payload["key"],
-                                        "error_type": payload["error_type"],
-                                    }
-                                )
-                                continue
-                            produced_here.extend(payload["signals"])
-                signals.extend(sorted(produced_here, key=lambda item: item.strategy_key))
+        contexts: dict[str, PositionContext] = {}
+        signals: list[StrategySignal] = []
+        risk_map = {}
+        strategy_errors: list[dict[str, str]] = []
+        strats = list(self._position_strategy_loader(market))
+        for position in book.positions:
+            bars = daily.get(position.symbol, [])
+            quote = quotes.get(position.symbol)
+            risk = compute_position_risk(position, bars, policy)
+            risk_map[position.position_id] = risk
+            position_value = book.market_values.get(position.position_id, Decimal("0"))
+            history = operations.get(position.position_id, ())
+            ctx = PositionContext(
+                market=position.market,
+                symbol=position.symbol,
+                position=position,
+                quote=quote,
+                daily_bars=tuple(bars),
+                risk=risk,
+                now=current,
+                policy=policy,
+                cash=book.cash,
+                market_nav=book.nav or Decimal("0"),
+                position_value=position_value,
+                valuation_source=book.valuation_sources.get(position.position_id),
+                valuation_complete=book.valuation_complete,
+                trade_history=history,
+            )
+            contexts[position.position_id] = ctx
+            if not position.trade_engine_eligible:
+                continue
+            pending_jobs = [(strategy, ctx) for strategy in strats]
+            produced_here: list[StrategySignal] = []
+            if pending_jobs:
+                workers = max(1, min(len(pending_jobs), 4))
+                with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="te-strat") as pool:
+                    futures = [pool.submit(_run_strategy, strategy, job_ctx) for strategy, job_ctx in pending_jobs]
+                    for future in as_completed(futures):
+                        payload = future.result()
+                        if payload["error_type"]:
+                            strategy_errors.append(
+                                {
+                                    "symbol": position.symbol,
+                                    "strategy": payload["key"],
+                                    "error_type": payload["error_type"],
+                                }
+                            )
+                            continue
+                        produced_here.extend(payload["signals"])
+            signals.extend(sorted(produced_here, key=lambda item: item.strategy_key))
 
-            facts = compute_portfolio_risk_facts(book, risk_map, policy=policy)
+        facts = compute_portfolio_risk_facts(book, risk_map, policy=policy)
+        with self.db.get_session() as session:
             llm_row = self.states.get_llm_state(session, uid=uid, market=market)
             previous = PreviousLLMState(
                 summary="" if llm_row is None else (llm_row.summary or ""),
                 last_decision={} if llm_row is None or not isinstance(llm_row.last_decision, dict) else llm_row.last_decision,
                 last_decision_at=None if llm_row is None else llm_row.last_decision_at,
             )
-            client = getattr(self.decision_resolver, "_client_or_none", lambda: None)()
-            search_ok = web_search_supported(client)
-            decision_context = MarketTradeDecisionContext(
-                market=market,
-                cash=book.cash,
-                nav=book.nav,
-                gross_exposure=facts.gross_exposure,
-                policy={
-                    "max_symbol_weight": format(policy.max_symbol_weight, "f"),
-                    "risk_per_symbol": format(policy.risk_per_symbol, "f"),
-                    "total_open_risk": format(policy.total_open_risk, "f"),
-                    "max_gross_exposure": format(policy.max_gross_exposure, "f"),
-                },
-                positions=tuple(
-                    self._llm_position(
-                        contexts[position.position_id],
-                        book,
-                        daily.get(position.symbol, []),
-                        quotes.get(position.symbol),
-                    )
-                    for position in book.positions
-                ),
-                strategy_signals=tuple(signals),
-                portfolio_risk=facts,
-                previous=previous,
-                recent_signals=tuple(self._recent_official_signals(session, uid=uid, market=market)),
-                web_search_available=search_ok,
-                evaluated_at=current,
-            )
-            decision = self.decision_resolver.decide(decision_context)
-            llm_reviews = 0 if decision.failed else 1
+            recent_signals = tuple(self._recent_official_signals(session, uid=uid, market=market))
+        client = getattr(self.decision_resolver, "_client_or_none", lambda: None)()
+        search_ok = web_search_supported(client)
+        decision_context = MarketTradeDecisionContext(
+            market=market,
+            cash=book.cash,
+            nav=book.nav,
+            gross_exposure=facts.gross_exposure,
+            policy={
+                "max_symbol_weight": format(policy.max_symbol_weight, "f"),
+                "risk_per_symbol": format(policy.risk_per_symbol, "f"),
+                "total_open_risk": format(policy.total_open_risk, "f"),
+                "max_gross_exposure": format(policy.max_gross_exposure, "f"),
+            },
+            positions=tuple(
+                self._llm_position(
+                    contexts[position.position_id],
+                    book,
+                    daily.get(position.symbol, []),
+                    quotes.get(position.symbol),
+                )
+                for position in book.positions
+            ),
+            strategy_signals=tuple(signals),
+            portfolio_risk=facts,
+            previous=previous,
+            recent_signals=recent_signals,
+            web_search_available=search_ok,
+            evaluated_at=current,
+        )
+        decision = self.decision_resolver.decide(decision_context)
+        llm_reviews = 0 if decision.failed else 1
+
+        def write(session: Session):
             created: list[TradeSignal] = []
             if not decision.failed:
                 last_decision = {
@@ -315,36 +334,41 @@ class TradeEngineService:
                     created.append(signal)
 
             pushes: list[tuple[int, str, str]] = []
-            if created:
+            notified = self.states.notified_actions_for_date(
+                session, uid=uid, market=market, local_date=current.astimezone(market_zone(market)).date(),
+            ) if created else set()
+            notify_signals = [item for item in created if (item.symbol, item.action) not in notified]
+            notification_id = None
+            if notify_signals:
                 title, body = render_trade_message(
                     market=market,
-                    signals=created,
+                    signals=notify_signals,
                     strategy_signals=signals,
                     portfolio_risk=facts,
                 )
                 notification_id = self.states.create_notification(session, uid=uid, title=title, content=body)
                 pushes.append((notification_id, title, body))
-                for signal in created:
-                    self.states.add_signal(
-                        session,
-                        uid=uid,
-                        market=signal.market,
-                        account_id=signal.account_id,
-                        position_id=signal.position_id,
-                        symbol=signal.symbol,
-                        strategy_key=signal.strategy_key,
-                        strategy_version=signal.strategy_version,
-                        action=signal.action,
-                        suggested_quantity=signal.suggested_quantity,
-                        suggested_target_quantity=signal.suggested_target_quantity,
-                        reason=signal.reason,
-                        llm_reason=signal.llm_reason,
-                        reviewed_by_llm=signal.reviewed_by_llm,
-                        evidence=signal.evidence,
-                        signal_key=signal.signal_key,
-                        evaluated_at=signal.evaluated_at,
-                        notification_id=notification_id,
-                    )
+            for signal in created:
+                self.states.add_signal(
+                    session,
+                    uid=uid,
+                    market=signal.market,
+                    account_id=signal.account_id,
+                    position_id=signal.position_id,
+                    symbol=signal.symbol,
+                    strategy_key=signal.strategy_key,
+                    strategy_version=signal.strategy_version,
+                    action=signal.action,
+                    suggested_quantity=signal.suggested_quantity,
+                    suggested_target_quantity=signal.suggested_target_quantity,
+                    reason=signal.reason,
+                    llm_reason=signal.llm_reason,
+                    reviewed_by_llm=signal.reviewed_by_llm,
+                    evidence=signal.evidence,
+                    signal_key=signal.signal_key,
+                    evaluated_at=signal.evaluated_at,
+                    notification_id=notification_id if (signal.symbol, signal.action) not in notified else None,
+                )
             no_action = 0 if decision.failed else sum(1 for item in decision.positions if item.action == "NO_ACTION")
             return {
                 **_empty_stats(market),

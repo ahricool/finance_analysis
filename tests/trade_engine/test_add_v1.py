@@ -74,8 +74,9 @@ def _run(bars, *, position=None, risk=None, cash="1000000", nav="2000000", now=N
         market="CN",
         symbol=position.symbol,
         position=position,
-        quote=QuoteView(bars[-1].close, now, True),
-        daily_bars=bars,
+        quote=QuoteView(bars[-1].close, now, True, today_open=bars[-1].open,
+                        today_high=bars[-1].high, today_low=bars[-1].low, today_volume=bars[-1].volume),
+        daily_bars=bars[:-1],
         risk=risk or _risk(),
         now=now,
         policy=POLICY,
@@ -195,3 +196,100 @@ def test_incomplete_valuation_does_not_size_add():
         valuation_complete=False,
     )
     assert AddV1().evaluate(ctx) == []
+
+
+def _live_context():
+    bars = _breakout_bars()
+    last = bars[-1]
+    return PositionContext(
+        market="CN", symbol="600519.SH", position=_position(),
+        quote=QuoteView(last.close, NOW, True, today_open=last.open, today_high=last.high,
+                        today_low=last.low, today_volume=last.volume),
+        daily_bars=bars[:-1], risk=_risk(), now=NOW, policy=POLICY,
+        cash=Decimal("1000000"), market_nav=Decimal("2000000"),
+    )
+
+
+def test_provisional_bar_ohlcv_and_history_are_independent():
+    from dataclasses import replace
+    from finance_analysis.trade_engine.strategies.add_v1 import provisional_evaluation_bars
+
+    ctx = _live_context()
+    ctx.quote = replace(ctx.quote, price=Decimal("105"), today_open=Decimal("100"),
+                        today_high=Decimal("106"), today_low=Decimal("99"), today_volume=123456)
+    original = list(ctx.daily_bars)
+    bars = provisional_evaluation_bars(ctx, NOW)
+    assert bars[-1] == DailyBar(NOW.date(), Decimal("100"), Decimal("106"),
+                                Decimal("99"), Decimal("105"), 123456)
+    assert list(ctx.daily_bars) == original
+    assert bars[:-1] == original
+
+
+def test_invalid_or_incomplete_quote_never_uses_yesterday_setup():
+    from dataclasses import replace
+
+    ctx = _live_context()
+    assert AddV1().evaluate(ctx)
+    quote = ctx.quote
+    for bad in [None, replace(quote, valid=False), replace(quote, stale=True),
+                replace(quote, price=Decimal("0")), replace(quote, price=None),
+                replace(quote, today_open=None), replace(quote, today_high=None),
+                replace(quote, today_low=None), replace(quote, today_volume=None),
+                replace(quote, quote_as_of=NOW - timedelta(days=1))]:
+        ctx.quote = bad
+        assert AddV1().evaluate(ctx) == []
+
+
+def test_live_115_sizes_cash_at_115_not_completed_100(monkeypatch):
+    from dataclasses import replace
+    import finance_analysis.trade_engine.strategies.add_v1 as module
+
+    ctx = _live_context()
+    ctx.daily_bars = _bars([100] * 40, width=Decimal("5"))
+    ctx.position = _position(quantity="10", cost="90")
+    ctx.quote = replace(ctx.quote, price=Decimal("115"), today_open=Decimal("100"),
+                        today_high=Decimal("116"), today_low=Decimal("99"))
+    ctx.cash = Decimal("11500")
+    ctx.policy = replace(POLICY, max_extension_atr=Decimal("10"))
+    # Isolate sizing from setup selection; indicators and all capacity math remain real.
+    monkeypatch.setattr(module, "_pullback", lambda *args: {
+        "setup": PULLBACK, "reason": "test", "suggested_stop": Decimal("105"),
+    })
+    signals = AddV1().evaluate(ctx)
+    assert len(signals) == 1
+    assert signals[0].evidence["suggested_entry_price"] == "115"
+    assert Decimal(signals[0].evidence["qty_by_cash"]) == 100
+    assert signals[0].suggested_quantity <= 100
+
+
+def test_breakout_volume_is_conservative_cumulative_not_projected():
+    from dataclasses import replace
+
+    ctx = _live_context()
+    ctx.quote = replace(ctx.quote, today_volume=100)
+    assert AddV1().evaluate(ctx) == []
+    ctx.quote = replace(ctx.quote, today_volume=2000)
+    result = AddV1().evaluate(ctx)
+    assert result[0].evidence["today_volume"] == 2000
+    assert "no projection" in result[0].evidence["volume_basis"]
+
+
+def test_add_setup_receives_provisional_close_and_market_local_date(monkeypatch):
+    from dataclasses import replace
+    from finance_analysis.trade_engine.strategies import add_v1
+
+    ctx = _live_context()
+    ctx.market = "US"
+    ctx.now = datetime(2026, 9, 17, 0, 30, tzinfo=timezone.utc)
+    ctx.quote = replace(ctx.quote, quote_as_of=ctx.now, price=Decimal("105"), today_open=Decimal("100"),
+                        today_high=Decimal("106"), today_low=Decimal("99"), today_volume=123456)
+    seen = []
+
+    def setup(context, bars, policy):
+        seen.extend(bars)
+        return None
+
+    monkeypatch.setattr(add_v1, "evaluate_add_setup", setup)
+    AddV1().evaluate(ctx)
+    assert seen[-1] == DailyBar(date(2026, 9, 16), Decimal("100"), Decimal("106"),
+                                Decimal("99"), Decimal("105"), 123456)
