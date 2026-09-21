@@ -779,8 +779,7 @@ onMounted(() => void load(true, { autoSelectMode: true }));
           <div
             v-else
             ref="rankingViewport"
-            class="w-full overflow-auto [&_[data-slot=table-container]]:overflow-visible"
-            :class="virtualRanking ? 'max-h-[680px]' : ''"
+            class="max-h-[680px] w-full overflow-auto [&_[data-slot=table-container]]:overflow-visible"
             data-testid="trend-ranking-scroll"
             tabindex="0"
             aria-label="完整趋势排名，滚动查看全部股票"
@@ -790,7 +789,7 @@ onMounted(() => void load(true, { autoSelectMode: true }));
               class="w-full"
               :aria-rowcount="sortedItems.length + 2"
             >
-              <TableHeader>
+              <TableHeader class="sticky top-0 z-30 bg-background">
                 <TableRow>
                   <th
                     v-for="group in rankingGroups"
