@@ -80,17 +80,13 @@ def provisional_evaluation_bars(context: PositionContext, now: datetime) -> list
     quote = context.quote
     if quote is None or not quote.valid or quote.stale or quote.quote_as_of is None:
         return []
-    values = (quote.price, quote.today_open, quote.today_high, quote.today_low)
-    if any(value is None or not value.is_finite() or value <= 0 for value in values):
+    # MarketData owns numeric/OHLC quality; ADD only needs a complete current candle.
+    values = (quote.price, quote.today_open, quote.today_high, quote.today_low, quote.today_volume)
+    if any(value is None for value in values):
         return []
     zone = market_zone(context.market)
     today = now.astimezone(zone).date()
     if quote.quote_as_of.astimezone(zone).date() != today:
-        return []
-    if quote.today_volume is None or quote.today_volume < 0:
-        return []
-    if not (quote.today_low <= min(quote.today_open, quote.price)
-            <= max(quote.today_open, quote.price) <= quote.today_high):
         return []
     historical = sorted((bar for bar in context.daily_bars if bar.trade_date < today), key=lambda bar: bar.trade_date)
     if not historical:

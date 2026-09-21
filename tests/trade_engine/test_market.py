@@ -109,3 +109,45 @@ def test_quote_missing_ohlcv_stays_null_instead_of_zero():
     assert quote.today_turnover is None
     assert quote.pre_close is None
     assert quote.change_pct is None
+
+
+def test_fresh_streaming_quote_retains_received_time_through_market_data(monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from finance_analysis.integrations.market_data.realtime_state.data_source import (
+        RealtimeMarketDataSource,
+        SyncRealtimeMarketDataSource,
+    )
+    from finance_analysis.integrations.market_data.realtime_state.models import QuoteState
+    from finance_analysis.integrations.market_data.registry import ProviderRegistry, REALTIME_QUOTES
+    from finance_analysis.integrations.market_data.service import MarketDataService, _StreamingStateProvider
+
+    now = datetime(2026, 9, 16, 14, 0, tzinfo=UTC)
+    state = QuoteState(
+        symbol="AAPL.US", trading_date=now.date(), last_price=Decimal("105"),
+        open=Decimal("100"), high=Decimal("106"), low=Decimal("99"), volume=123456,
+        event_time=now, received_at=now,
+    )
+    repository = SimpleNamespace(
+        get_heartbeat=AsyncMock(return_value={"status": "READY", "updated_at": now.isoformat()}),
+        get_subscription=AsyncMock(return_value={"status": "ACTIVE", "market_type": "US"}),
+        get_quote=AsyncMock(return_value=state),
+        close=AsyncMock(),
+    )
+    monkeypatch.setattr("finance_analysis.integrations.market_data.realtime_state.data_source.utc_now", lambda: now)
+    source = SyncRealtimeMarketDataSource(lambda: RealtimeMarketDataSource(repository))
+    try:
+        unified = source.get_quote("AAPL.US", now=now)
+        assert unified.quote_time == state.received_at
+        registry = ProviderRegistry()
+        registry.register("streaming", _StreamingStateProvider(source), capabilities={REALTIME_QUOTES})
+        gateway = RiskMarketGateway(market_data=MarketDataService(registry=registry))
+        view = gateway.quotes(["AAPL.US"], now=now)["AAPL.US"]
+        assert view.valid is True
+        assert view.quote_as_of == state.received_at
+        # Missing exchange time uses the same internal receive timestamp.
+        state.event_time = None
+        assert source.get_quote("AAPL.US", now=now).quote_time == state.received_at
+    finally:
+        source.close()

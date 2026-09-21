@@ -492,9 +492,7 @@ def _quote_to_unified(quote: QuoteState, *, requested_symbol: str) -> UnifiedRea
     amplitude = None
     if previous and quote.high is not None and quote.low is not None:
         amplitude = (float(quote.high) - float(quote.low)) / previous * 100
-    quote_time = quote.event_time
-    if quote.event_time is not None and quote.received_at is not None and quote.event_time == quote.received_at:
-        quote_time = None
+    quote_time = quote.event_time or quote.received_at
     return UnifiedRealtimeQuote(
         code=requested_symbol,
         source=RealtimeSource.MARKET_STREAMER,

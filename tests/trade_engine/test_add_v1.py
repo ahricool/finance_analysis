@@ -232,9 +232,10 @@ def test_invalid_or_incomplete_quote_never_uses_yesterday_setup():
     assert AddV1().evaluate(ctx)
     quote = ctx.quote
     for bad in [None, replace(quote, valid=False), replace(quote, stale=True),
-                replace(quote, price=Decimal("0")), replace(quote, price=None),
+                replace(quote, price=None),
                 replace(quote, today_open=None), replace(quote, today_high=None),
                 replace(quote, today_low=None), replace(quote, today_volume=None),
+                replace(quote, quote_as_of=None),
                 replace(quote, quote_as_of=NOW - timedelta(days=1))]:
         ctx.quote = bad
         assert AddV1().evaluate(ctx) == []

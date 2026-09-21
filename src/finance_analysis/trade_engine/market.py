@@ -19,23 +19,9 @@ from finance_analysis.trade_engine.models import DailyBar, QuoteView  # pragma: 
 logger = logging.getLogger(__name__)
 
 
-def _optional_dec(value) -> Decimal | None:
-    if value is None or value == "":
-        return None
-    try:
-        number = Decimal(str(value))
-    except Exception:
-        return None
-    return number
-
-
-def _optional_int(value) -> int | None:
-    if value is None or value == "":
-        return None
-    try:
-        return int(value)
-    except Exception:
-        return None
+def _optional_dec(value: float | None) -> Decimal | None:
+    """Convert the trusted MarketQuote numeric representation, preserving missing fields."""
+    return None if value is None else Decimal(str(value))
 
 
 class RiskMarketGateway:
@@ -69,22 +55,20 @@ class RiskMarketGateway:
         if quote is None:
             return QuoteView(price=None, quote_as_of=None, valid=False)
         price = _optional_dec(quote.price)
-        quote_time = getattr(quote, "quote_time", None)
+        quote_time = quote.quote_time
         extras = dict(
-            today_open=_optional_dec(getattr(quote, "open_price", None)),
-            today_high=_optional_dec(getattr(quote, "high", None)),
-            today_low=_optional_dec(getattr(quote, "low", None)),
-            today_volume=_optional_int(getattr(quote, "volume", None)),
-            today_turnover=_optional_dec(getattr(quote, "amount", None)),
-            pre_close=_optional_dec(getattr(quote, "pre_close", None)),
-            change_pct=_optional_dec(getattr(quote, "change_pct", None)),
+            today_open=_optional_dec(quote.open_price),
+            today_high=_optional_dec(quote.high),
+            today_low=_optional_dec(quote.low),
+            today_volume=quote.volume,
+            today_turnover=_optional_dec(quote.amount),
+            pre_close=_optional_dec(quote.pre_close),
+            change_pct=_optional_dec(quote.change_pct),
         )
         if price is None:
             return QuoteView(price=None, quote_as_of=quote_time, valid=False, **extras)
         if quote_time is None:
             return QuoteView(price=price, quote_as_of=None, valid=False, stale=True, **extras)
-        if quote_time > current + timedelta(seconds=5):
-            return QuoteView(price=price, quote_as_of=quote_time, valid=False, stale=False, **extras)
         stale = current - quote_time > self.quote_max_age
         return QuoteView(
             price=price,
