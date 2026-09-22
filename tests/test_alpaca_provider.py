@@ -110,6 +110,23 @@ def test_auth_failure_stops_remaining_batches(status, caplog):
     assert "test-secret" not in caplog.text
 
 
+@pytest.mark.parametrize(("status", "body", "category"), [
+    (401, {"message": "invalid credentials test-secret"}, "credentials_invalid"),
+    (403, {"message": "authentication failed test-secret"}, "credentials_invalid"),
+    (403, {"message": "subscription does not permit querying recent SIP data test-secret"}, "sip_permission_denied"),
+    (403, {"message": "access denied test-secret"}, "access_forbidden"),
+    (403, None, "access_forbidden"),
+])
+def test_auth_error_classification_preserved_through_fallback(status, body, category, caplog):
+    response = httpx.Response(status, json=body) if body is not None else httpx.Response(status, text="not JSON")
+    data, _ = service(provider(lambda _: response))
+    result = data.get_daily_bars(["NVDA.US"], DAY, DAY, adjustment="forward", source_policy="remote_only")
+    assert category in result.fallback_reasons["NVDA.US"][0]
+    assert f"HTTP {status}" in result.fallback_reasons["NVDA.US"][0]
+    assert "test-secret" not in str(result.fallback_reasons) and "test-secret" not in caplog.text
+    assert result.fallback_count == 1
+
+
 @pytest.mark.parametrize("broken", [row(c=20), row(v=-1), row(v=0.5), row(t="2025-01-02"), {"bad": 1}])
 def test_single_bad_symbol_isolated(broken):
     result = provider(lambda _: httpx.Response(200, json={"bars": {"NVDA": [row()], "MU": [broken]}})).fetch_daily_bars(
@@ -187,6 +204,20 @@ def test_fallback_only_requests_failed_symbols_and_preserves_final_error():
     assert calls == [("MU.US",)]
     assert result.providers_used == {"NVDA.US": "alpaca", "MU.US": "yfinance"}
     assert "MU.US" in result.request_errors  # full refresh must still refuse this incomplete fallback.
+    assert result.fallback_count == 0 and result.fallback_symbols == []
+
+
+def test_successful_fallback_chain_counts_recovery_not_remaining_failures(caplog):
+    first = provider(lambda _: httpx.Response(200, json={"bars": {"A": [row()], "B": [row(c=50)]}}))
+    data, calls = service(first)
+    with caplog.at_level("INFO"):
+        result = data.get_daily_bars(["A.US", "B.US"], DAY, DAY, adjustment="forward", source_policy="remote_only")
+    assert calls == [("B.US",)]
+    assert result.providers_used == {"A.US": "alpaca", "B.US": "yfinance"}
+    assert len(result.data) == 2 and not result.failed_symbols and not result.request_errors
+    assert result.fallback_reasons == {"B.US": ["alpaca: invalid_daily_bars"]}
+    assert result.fallback_count == 1 and result.fallback_symbols == ["B.US"]
+    assert "fallback_count=1 fallback_symbols=['B.US']" in caplog.text
 
 
 def test_full_sync_can_persist_complete_fallback_and_records_metrics(caplog):
@@ -211,6 +242,7 @@ def test_full_sync_can_persist_complete_fallback_and_records_metrics(caplog):
     assert result["sync_status"] == "success"
     assert result["provider_counts"] == {"yfinance": 1}
     assert result["fallback_count"] == 1 and result["final_coverage"] == 1
+    assert result["fallback_symbols"] == ["NVDA.US"]
     assert stored[1][0]["data_source"] == "yfinance"
     assert "fallback_count=1" in caplog.text and "elapsed_seconds=" in caplog.text
 
@@ -270,4 +302,5 @@ def test_sync_saves_success_when_other_symbol_fails_both_providers(monkeypatch):
     assert result["sync_status"] == "partial"
     assert result["success_symbols"] == result["failed_symbols"] == 1
     assert result["remaining_missing_symbols"] == ["MU.US"]
+    assert result["fallback_count"] == 0 and result["fallback_symbols"] == []
     assert set(stored) == {1} and stored[1][0]["data_source"] == "alpaca"

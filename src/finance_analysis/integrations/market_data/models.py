@@ -136,6 +136,11 @@ class BatchBarResult:
 
     # Recovered maintenance-provider failures are diagnostic, not incomplete final downloads.
     fallback_reasons: dict[str, list[str]] = field(default_factory=dict)
+    fallback_symbols: list[str] = field(default_factory=list)
+
+    @property
+    def fallback_count(self) -> int:
+        return len(self.fallback_symbols)
 
 
 @dataclass(frozen=True, slots=True)

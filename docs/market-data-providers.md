@@ -62,7 +62,11 @@ Router 不拼接两家 Provider 的单个股票日线，避免混用复权基准
 
 输出仍为 `BatchBarResult / MarketBar`，由现有同步服务写 `stock_daily`，
 不新增表或迁移。任务日志含 provider、请求/成功/失败/缺失/fallback 数量与耗时；
-任务结果增加 `fallback_count`、`elapsed_seconds` 并保留已有覆盖率和失败列表。
+任务结果的 `fallback_count` / `fallback_symbols` 仅统计首选源失败、后续源成功且已成功保存的标的；
+两家都失败或最终结果仍不完整不计入成功降级。Provider 调用日志以 `fallback_pending_count`
+表示待降级数；失败原因仍保留在 `fallback_reasons`。`elapsed_seconds` 记录同步耗时。
+401 分类为凭据错误；403 按响应区分凭据错误、SIP 权限不足，无法明确识别时标为访问拒绝，
+提示检查凭据及行情权限。日志保留分类和 HTTP 状态，不输出响应原文或凭据。
 
 官方契约：[Historical bars](https://docs.alpaca.markets/us/reference/stockbars)、
 [Market Data FAQ](https://docs.alpaca.markets/us/docs/market-data-faq)。离线测试：

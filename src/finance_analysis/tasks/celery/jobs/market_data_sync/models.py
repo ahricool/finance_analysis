@@ -27,6 +27,7 @@ class DailyResult:
     automatic_full_refresh: bool = False
     reason: str = ""
     fallback_reasons: list[str] = field(default_factory=list)
+    fallback_succeeded: bool = False
 
 
 @dataclass

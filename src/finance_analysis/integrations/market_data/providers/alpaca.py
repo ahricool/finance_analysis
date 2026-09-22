@@ -24,6 +24,30 @@ BAR_URL = "https://data.alpaca.markets/v2/stocks/bars"
 US_TIMEZONE = ZoneInfo("America/New_York")
 
 
+class AlpacaHTTPError(ValueError):
+    def __init__(self, response: httpx.Response):
+        self.status_code = response.status_code
+        category = "request_failed"
+        if self.status_code == 401:
+            category = "credentials_invalid: check ALPACA_API_KEY and ALPACA_SECRET_KEY"
+        elif self.status_code == 403:
+            try:
+                payload = response.json()
+                message = str(payload.get("message", "")).lower() if isinstance(payload, dict) else ""
+            except ValueError:
+                message = ""
+            if "sip" in message and any(word in message for word in ("subscription", "permit", "permission")):
+                category = "sip_permission_denied: check SIP subscription and historical request end time"
+            elif any(
+                word in message for word in ("credential", "api key", "api-key", "unauthorized", "authentication")
+            ):
+                category = "credentials_invalid: check ALPACA_API_KEY and ALPACA_SECRET_KEY"
+            else:
+                category = "access_forbidden: check credentials and market-data permissions"
+        # Only emit our classification, never the upstream body (which may contain secrets).
+        super().__init__(f"{category} (Alpaca HTTP {self.status_code})")
+
+
 class AlpacaProvider:
     name = "alpaca"
 
@@ -58,7 +82,7 @@ class AlpacaProvider:
 
     def _fetch_batch(self, client, symbols, request, start, end):
         params = {
-            "symbols": ",".join(symbol[:-3] for symbol in symbols),
+            "symbols": ",".join(symbol.removesuffix(".US") for symbol in symbols),
             "timeframe": "1Day", "start": start.isoformat(), "end": end.isoformat(),
             "feed": "sip", "adjustment": "all", "sort": "asc", "limit": 10000,
         }
@@ -69,12 +93,12 @@ class AlpacaProvider:
             response = client.get(BAR_URL, params=params)
             if response.status_code != 200:
                 # Do not expose headers or untrusted upstream response bodies in task logs.
-                raise ValueError(f"Alpaca HTTP {response.status_code}")
+                raise AlpacaHTTPError(response)
             payload = response.json()
             if not isinstance(payload, dict) or not isinstance(payload.get("bars"), dict):
                 raise ValueError("Invalid Alpaca bars response")
             for symbol in symbols:
-                values = payload["bars"].get(symbol[:-3], [])
+                values = payload["bars"].get(symbol.removesuffix(".US"), [])
                 if not isinstance(values, list):
                     invalid.add(symbol)
                 else:
@@ -149,7 +173,7 @@ class AlpacaProvider:
                             reason = str(exc) if isinstance(exc, ValueError) else type(exc).__name__
                             # Discard incomplete pages: fallback fetches the entire symbol window.
                             result.failed_symbols.update({symbol: reason for symbol in batch})
-                            if isinstance(exc, ValueError) and reason in {"Alpaca HTTP 401", "Alpaca HTTP 403"}:
+                            if isinstance(exc, AlpacaHTTPError) and exc.status_code in {401, 403}:
                                 result.failed_symbols.update({symbol: reason for symbol in supported[offset:]})
                                 break
                             continue
@@ -160,7 +184,7 @@ class AlpacaProvider:
         logger.log(
             logging.WARNING if result.failed_symbols or result.missing_symbols else logging.INFO,
             "provider=alpaca market=US symbol_count=%s success_count=%s failed_count=%s missing_count=%s "
-            "fallback_count=%s elapsed_seconds=%.3f",
+            "fallback_pending_count=%s elapsed_seconds=%.3f",
             len(symbols), len(result.data), len(result.failed_symbols), len(result.missing_symbols),
             len(symbols) - len(result.data), monotonic() - started,
         )

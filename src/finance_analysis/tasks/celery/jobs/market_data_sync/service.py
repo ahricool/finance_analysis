@@ -104,9 +104,10 @@ class MarketDataSyncService:
         summary["elapsed_seconds"] = round(monotonic() - started, 3)
         logger.info(
             "market=%s job=market_data_sync providers=%s symbol_count=%s success_count=%s "
-            "partial_count=%s failed_count=%s fallback_count=%s elapsed_seconds=%s",
+            "partial_count=%s failed_count=%s fallback_count=%s fallback_symbols=%s elapsed_seconds=%s",
             self.market, summary["provider_counts"], len(symbols), summary["success_symbols"],
-            summary["partial_symbols"], summary["failed_symbols"], summary["fallback_count"], summary["elapsed_seconds"],
+            summary["partial_symbols"], summary["failed_symbols"], summary["fallback_count"],
+            summary["fallback_symbols"], summary["elapsed_seconds"],
         )
         if summary["success_symbols"] + summary["partial_symbols"] == 0:
             raise MarketDataSyncError(f"All {len(symbols)} {self.market} symbols failed; see task log")
@@ -529,6 +530,7 @@ class MarketDataSyncService:
                 fallback_reasons=fallback_reasons + (
                     [routed.failed_symbols[symbol.code]] if symbol.code in routed.failed_symbols else []
                 ),
+                fallback_succeeded=symbol.code in routed.fallback_symbols and not failure,
             )
         except Exception as exc:
             logger.exception("market=%s code=%s daily persistence failed", self.market, symbol.code)
@@ -552,6 +554,9 @@ class MarketDataSyncService:
             if statuses[result.code] != "success"
         ]
         provider_counts = Counter(provider for result in results for provider in result.daily.providers)
+        fallback_symbols = sorted({
+            result.code for result in results if result.daily.fallback_succeeded and result.daily.status == "success"
+        })
         return {
             "sync_status": "partial" if failures else "success",
             "sync_mode": self.sync_mode,
@@ -563,7 +568,8 @@ class MarketDataSyncService:
             "inserted_rows": sum(result.daily.inserted_rows for result in results),
             "updated_rows": sum(result.daily.updated_rows for result in results),
             "provider_counts": dict(provider_counts),
-            "fallback_count": sum(bool(result.daily.fallback_reasons) for result in results),
+            "fallback_count": len(fallback_symbols),
+            "fallback_symbols": fallback_symbols,
             "missing_amount_symbols": sorted(result.code for result in results if result.daily.missing_amount),
             "fallback_reasons": fallback_reasons[:MAX_RESULT_ITEMS],
             "fallback_reasons_truncated": len(fallback_reasons) > MAX_RESULT_ITEMS,

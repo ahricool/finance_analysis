@@ -142,6 +142,8 @@ class MarketDataRouter:
                     if complete_fallback and not failure:
                         # A fresh full-window response replaces a failed primary, not a partial-page merge.
                         result.request_errors.pop(symbol, None)
+                        if result.fallback_reasons.get(symbol):
+                            result.fallback_symbols.append(symbol)
                 else:
                     reason = provider_result.failed_symbols.get(symbol)
                     if reason:
@@ -154,7 +156,7 @@ class MarketDataRouter:
             if complete_fallback:
                 logger.info(
                     "provider=%s market=%s symbol_count=%s success_count=%s failed_count=%s "
-                    "fallback_count=%s elapsed_seconds=%.3f",
+                    "fallback_pending_count=%s elapsed_seconds=%.3f",
                     registration.name, market.value, len(pending), len(pending) - len(next_pending),
                     len(next_pending), len(next_pending), monotonic() - started,
                 )
@@ -164,6 +166,12 @@ class MarketDataRouter:
                 result.failed_symbols[symbol] = "; ".join(errors[symbol])
             else:
                 result.missing_symbols.append(symbol)
+        if complete_fallback:
+            result.fallback_symbols.sort()
+            logger.info(
+                "market=%s fallback_count=%s fallback_symbols=%s",
+                market.value, result.fallback_count, result.fallback_symbols,
+            )
         return result
 
     def route_quotes(self, request: QuoteRequest, providers: Iterable[str] | None = None) -> BatchQuoteResult:
