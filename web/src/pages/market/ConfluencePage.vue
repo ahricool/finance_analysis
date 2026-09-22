@@ -33,7 +33,7 @@ let generation = 0;
 async function load(reset = false) {
   const token = ++generation; loading.value = true; error.value = null; result.value = null;
   selected.value = null; dialogOpen.value = false;
-  if (reset) { tradeDate.value = ''; dates.value = []; }
+  if (reset) { tradeDate.value = ''; dates.value = []; minSignals.value = undefined; }
   try {
     const [ranking, availableDates] = await Promise.all([
       api.ranking({ market: market.value, trade_date: tradeDate.value || undefined, min_score: Number(minScore.value),
@@ -108,6 +108,7 @@ onBeforeUnmount(() => { ++generation; });
         v-model="tradeDate"
         aria-label="快照日期"
         class="block h-9 rounded-md border bg-background px-3"
+        @change="minSignals = undefined"
       ><option value="">最新</option><option
         v-for="day in dates"
         :key="day"

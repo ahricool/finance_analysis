@@ -64,3 +64,40 @@ test('filters, partial US coverage and failed request clear old data', async ({ 
   await page.getByRole('button', { name: '刷新', exact: true }).click();
   await expect(page.getByRole('table')).toHaveCount(0);
 });
+
+test('snapshot changes restore saved default signal count while manual filters remain explicit', async ({ page }) => {
+  const requests: URLSearchParams[] = [];
+  await page.route('**/api/v1/**', route => {
+    const url = new URL(route.request().url());
+    if (url.pathname.endsWith('/auth/status')) return route.fulfill({ json: { loggedIn: true, user: { uid: 1, username: 'Tester', role: 'user', extra: {} } } });
+    if (url.pathname.endsWith('/dates')) return route.fulfill({ json: ['2026-09-22', '2026-09-21'] });
+    if (url.pathname.endsWith('/ranking')) {
+      requests.push(url.searchParams);
+      const historical = url.searchParams.get('trade_date') === '2026-09-21';
+      return route.fulfill({ json: { ...raw, trade_date: historical ? '2026-09-21' : '2026-09-22',
+        rules: { ...raw.rules, min_signals: historical ? 3 : 4 } } });
+    }
+    return route.fulfill({ json: {} });
+  });
+  await page.goto('/research/confluence');
+  const signals = page.getByLabel('最低有效维度', { exact: true });
+  await expect(signals).toHaveValue('4');
+  expect(requests[0]?.has('min_signals')).toBe(false);
+
+  await page.getByRole('combobox', { name: '快照日期', exact: true }).selectOption('2026-09-21');
+  await page.getByRole('button', { name: '筛选', exact: true }).click();
+  await expect(signals).toHaveValue('3');
+  expect(requests.at(-1)?.get('trade_date')).toBe('2026-09-21');
+  expect(requests.at(-1)?.has('min_signals')).toBe(false);
+
+  await signals.fill('5');
+  await page.getByRole('button', { name: '筛选', exact: true }).click();
+  await expect.poll(() => requests.at(-1)?.get('min_signals')).toBe('5');
+  await expect(page.getByRole('button', { name: '筛选', exact: true })).toBeEnabled();
+  await expect(signals).toHaveValue('5');
+
+  await page.getByRole('combobox', { name: '市场', exact: true }).selectOption('US');
+  await expect(signals).toHaveValue('4');
+  expect(requests.at(-1)?.get('market')).toBe('US');
+  expect(requests.at(-1)?.has('min_signals')).toBe(false);
+});

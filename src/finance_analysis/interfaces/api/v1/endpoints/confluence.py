@@ -2,7 +2,6 @@
 
 from datetime import date
 from fastapi import APIRouter, Depends, HTTPException, Query
-from finance_analysis.confluence import config
 from finance_analysis.confluence.service import ConfluenceService
 from finance_analysis.interfaces.api.deps import require_admin, require_current_user
 from finance_analysis.interfaces.api.v1.schemas.confluence import Market, Ranking, Detail, RunRequest
@@ -19,7 +18,7 @@ def ranking(
     market: Market = "CN",
     trade_date: date | None = None,
     min_score: float = Query(0, ge=0, le=100),
-    min_signals: int = Query(config.MIN_SIGNALS, ge=1, le=5),
+    min_signals: int | None = Query(None, ge=1, le=5),
     industry: str | None = None,
     lifecycle: str | None = None,
     early_only: bool = False,

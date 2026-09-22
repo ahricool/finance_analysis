@@ -1,17 +1,13 @@
 """Bounded formal-source reads and atomic confluence generations."""
 
-from datetime import datetime, time, timedelta
-from zoneinfo import ZoneInfo
-
 from sqlalchemy import select, func, delete, text, and_
 from finance_analysis.database.models.confluence import ConfluenceRun, ConfluenceSnapshot
-from finance_analysis.database.models.industry_strength import IndustryStrengthConstituent
+from finance_analysis.database.models.industry_strength import IndustryStrengthConstituent, IndustryStrengthSnapshot
 from finance_analysis.database.models.trend_following import TrendFollowingSnapshot
 from finance_analysis.database.models.quant import ModelSignal
 from finance_analysis.database.models.stock import Instrument
 from finance_analysis.quant.markets import DEFAULT_QUANT_UNIVERSES
 from finance_analysis.core.time import coerce_aware_utc
-from finance_analysis.database.repositories.industry_strength import IndustryStrengthRepository
 from finance_analysis.database.repositories.quant import QuantRepository
 
 
@@ -101,25 +97,29 @@ class ConfluenceRepository:
     def industry(self, market, day):
         if market != "CN":
             return []
-        repo = IndustryStrengthRepository(self.db)
-        dates = repo.dates(end=day, limit=1)
-        if not dates:
-            return []
-        snapshots = {r["industry_code"]: r for r in repo.ranking(dates[0])}
-        # This table is latest-only. A member observed after the target day cannot establish past membership.
-        cutoff = datetime.combine(day + timedelta(days=1), time.min, ZoneInfo("Asia/Shanghai"))
-        with self.db.get_session() as session:
-            members = list(
-                session.scalars(
-                    select(IndustryStrengthConstituent).where(IndustryStrengthConstituent.updated_at < cutoff)
-                )
+        # Formal Industry save refreshes snapshots and latest-only members atomically
+        # with the same updated_at. This proves one generation, not historical membership.
+        latest = select(func.max(IndustryStrengthSnapshot.trade_date)).scalar_subquery()
+        query = (
+            select(IndustryStrengthSnapshot, IndustryStrengthConstituent)
+            .join(
+                IndustryStrengthConstituent,
+                and_(
+                    IndustryStrengthSnapshot.industry_code == IndustryStrengthConstituent.industry_code,
+                    IndustryStrengthSnapshot.updated_at == IndustryStrengthConstituent.updated_at,
+                ),
             )
+            .where(
+                IndustryStrengthSnapshot.trade_date == latest,
+                IndustryStrengthSnapshot.trade_date == day,
+                IndustryStrengthSnapshot.members_observed_at.is_not(None),
+            )
+        )
+        with self.db.get_session() as session:
+            pairs = session.execute(query).all()
             result = []
-            for member in members:
-                row = snapshots.get(member.industry_code)
-                if row is None:
-                    continue
-                # Preserve the exact member observation date separately from the industry result date.
+            for snapshot, member in pairs:
+                row = {column.name: getattr(snapshot, column.name) for column in snapshot.__table__.columns}
                 result.append(
                     {
                         k: row[k]
@@ -265,10 +265,11 @@ class ConfluenceRepository:
                     generated_at=None,
                     algorithm_version=None,
                     source_availability={},
+                    rules=None,
                     items=[],
                 )
             return dict(
-                values(rows[0][0], "market trade_date generated_at algorithm_version source_availability"),
+                values(rows[0][0], "market trade_date generated_at algorithm_version source_availability rules"),
                 items=[
                     dict(
                         values(
