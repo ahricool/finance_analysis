@@ -9,9 +9,10 @@ Telegram 发送提醒服务
 import logging
 from typing import Optional
 import requests
-import time
 import re
 
+
+from finance_analysis.core.retry import retry_call, transient_response
 
 logger = logging.getLogger(__name__)
 
@@ -104,61 +105,25 @@ class TelegramSender:
         if message_thread_id:
             payload['message_thread_id'] = message_thread_id
 
-        max_retries = 3
-        for attempt in range(1, max_retries + 1):
-            try:
-                response = requests.post(api_url, json=payload, timeout=timeout_seconds or 10)
-            except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
-                if attempt < max_retries:
-                    delay = 2 ** attempt  # 2s, 4s
-                    logger.warning(f"Telegram request failed (attempt {attempt}/{max_retries}): {e}, "
-                                   f"retrying in {delay}s...")
-                    time.sleep(delay)
-                    continue
-                else:
-                    logger.error(f"Telegram request failed after {max_retries} attempts: {e}")
-                    return False
-        
-            if response.status_code == 200:
-                result = response.json()
-                if result.get('ok'):
-                    logger.info("Telegram 消息发送成功")
-                    return True
-                else:
-                    error_desc = result.get('description', '未知错误')
-                    logger.error(f"Telegram 返回错误: {error_desc}")
-                    
-                    # If Markdown parsing failed, fall back to plain text
-                    if self._should_fallback_to_plain_text(error_desc=error_desc):
-                        if self._send_plain_text_fallback(api_url, payload, text, timeout_seconds=timeout_seconds):
-                            return True
-                    
-                    return False
-            elif response.status_code == 429:
-                # Rate limited — respect Retry-After header
-                retry_after = int(response.headers.get('Retry-After', 2 ** attempt))
-                if attempt < max_retries:
-                    logger.warning(f"Telegram rate limited, retrying in {retry_after}s "
-                                   f"(attempt {attempt}/{max_retries})...")
-                    time.sleep(retry_after)
-                    continue
-                else:
-                    logger.error(f"Telegram rate limited after {max_retries} attempts")
-                    return False
-            else:
-                if attempt < max_retries and response.status_code >= 500:
-                    delay = 2 ** attempt
-                    logger.warning(f"Telegram server error HTTP {response.status_code} "
-                                   f"(attempt {attempt}/{max_retries}), retrying in {delay}s...")
-                    time.sleep(delay)
-                    continue
-                if self._should_fallback_to_plain_text(response_text=response.text):
-                    if self._send_plain_text_fallback(api_url, payload, text, timeout_seconds=timeout_seconds):
-                        return True
-                logger.error(f"Telegram 请求失败: HTTP {response.status_code}")
-                logger.error(f"响应内容: {response.text}")
-                return False
-
+        try:
+            response = retry_call(
+                lambda: requests.post(api_url, json=payload, timeout=timeout_seconds or 10),
+                retry_result=transient_response,
+            )
+        except requests.exceptions.RequestException:
+            logger.error("Telegram request failed after retries")
+            return False
+        if response.status_code == 200:
+            result = response.json()
+            if result.get("ok"):
+                logger.info("Telegram 消息发送成功")
+                return True
+            error_desc = result.get("description", "")
+        else:
+            error_desc = ""
+        if self._should_fallback_to_plain_text(error_desc=error_desc, response_text=response.text):
+            return self._send_plain_text_fallback(api_url, payload, text, timeout_seconds=timeout_seconds)
+        logger.error("Telegram 请求失败: HTTP %s", response.status_code)
         return False
 
     @staticmethod
@@ -190,7 +155,10 @@ class TelegramSender:
         plain_payload['text'] = text
 
         try:
-            response = requests.post(api_url, json=plain_payload, timeout=timeout_seconds or 10)
+            response = retry_call(
+                lambda: requests.post(api_url, json=plain_payload, timeout=timeout_seconds or 10),
+                retry_result=transient_response,
+            )
         except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
             logger.error(f"Telegram plain-text fallback failed: {e}")
             return False
@@ -275,7 +243,10 @@ class TelegramSender:
             if message_thread_id:
                 data['message_thread_id'] = message_thread_id
             files = {"photo": ("report.png", image_bytes, "image/png")}
-            response = requests.post(api_url, data=data, files=files, timeout=30)
+            response = retry_call(
+                lambda: requests.post(api_url, data=data, files=files, timeout=30),
+                retry_result=transient_response,
+            )
             if response.status_code == 200 and response.json().get('ok'):
                 logger.info("Telegram 图片发送成功")
                 return True

@@ -10,6 +10,7 @@ from typing import Any
 
 import pandas as pd
 
+from finance_analysis.core.retry import retry_call, transient_error, wait_before_retry
 from finance_analysis.integrations.market_data.batch_pacing import before_daily_batch, daily_batch_scope  # pragma: allowlist secret
 
 from finance_analysis.integrations.market_data.models import (  # pragma: allowlist secret
@@ -55,7 +56,7 @@ YFINANCE_SYMBOL_OVERRIDES = {symbol: ticker for symbol, ticker, _ in (*_US_INDIC
 class YFinanceProvider:
     name = "yfinance"
 
-    def __init__(self, *, batch_size: int = 100, max_workers: int = 3, max_retries: int = 2) -> None:
+    def __init__(self, *, batch_size: int = 100, max_workers: int = 3, max_retries: int = 3) -> None:
         if batch_size < 1:
             raise ValueError("batch_size must be at least 1")
         if max_workers < 1:
@@ -64,7 +65,7 @@ class YFinanceProvider:
             raise ValueError("max_retries must be at least 0")
         self.batch_size = batch_size
         self.max_workers = max_workers
-        self.max_retries = max_retries
+        self.max_retries = min(max_retries, 3)
 
     @staticmethod
     def to_yfinance_symbol(code: str) -> str:
@@ -137,6 +138,36 @@ class YFinanceProvider:
         frame.attrs["request_errors"] = errors
         return frame
 
+    def _download_retried(self, symbols: list[str], **kwargs: Any) -> pd.DataFrame:
+        """Retain successful tickers and retry only missing/failed Yahoo batch members."""
+        pending = list(symbols)
+        frames = {}
+        errors = {}
+        for attempt in range(self.max_retries + 1):
+            if not pending:
+                break
+            if attempt:
+                wait_before_retry(attempt - 1)
+            try:
+                raw = self._download(pending, **kwargs)
+            except Exception as exc:
+                if not transient_error(exc):
+                    raise
+                errors.update({symbol: type(exc).__name__ for symbol in pending})
+                continue
+            reported = raw.attrs.get("request_errors", {})
+            for symbol in list(pending):
+                frame = self._ticker_frame(raw, symbol).dropna(how="all")
+                if symbol in reported:
+                    errors[symbol] = reported[symbol]
+                elif not frame.empty:
+                    frames[symbol] = frame
+                    pending.remove(symbol)
+                    errors.pop(symbol, None)
+        result = pd.concat(frames, axis=1) if frames else pd.DataFrame()
+        result.attrs["request_errors"] = errors
+        return result
+
     def _batches(self, values: list[tuple[str, str]]) -> list[list[tuple[str, str]]]:
         return [values[index : index + self.batch_size] for index in range(0, len(values), self.batch_size)]
 
@@ -154,6 +185,8 @@ class YFinanceProvider:
             for _attempt in range(self.max_retries + 1):
                 if not pending:
                     break
+                if _attempt:
+                    wait_before_retry(_attempt - 1)
                 try:
                     raw = self._download(
                         [provider_symbol for _, provider_symbol in pending],
@@ -221,7 +254,7 @@ class YFinanceProvider:
             download_kwargs["start"] = request.start_time
             download_kwargs["end"] = request.end_time
         try:
-            raw = self._download(provider_symbols, **download_kwargs)
+            raw = self._download_retried(provider_symbols, **download_kwargs)
         except Exception as exc:
             return BatchBarResult(failed_symbols={symbol: str(exc) for symbol in symbols})
         for symbol, provider_symbol in zip(symbols, provider_symbols):
@@ -247,7 +280,7 @@ class YFinanceProvider:
         for batch in self._batches(list(zip(canonical, provider_symbols))):
             pending = list(batch)
             try:
-                raw = self._download(
+                raw = self._download_retried(
                     [provider_symbol for _, provider_symbol in pending],
                     interval="5m",
                     period="1d",
@@ -306,7 +339,7 @@ class YFinanceProvider:
                 ticker = yf.Ticker(self.to_yfinance_symbol(symbol))
                 if infer_market(symbol) is Market.US:
                     # Keep OHLCV and its actual regular-session timestamp from one payload.
-                    info = ticker.info
+                    info = retry_call(lambda: ticker.info)
                     stamp = info.get("regularMarketTime")
                     quote_time = datetime.fromtimestamp(stamp, timezone.utc) if stamp else None
                     fast = {
@@ -318,7 +351,7 @@ class YFinanceProvider:
                         "last_volume": info.get("regularMarketVolume"),
                     }
                 else:
-                    fast = dict(ticker.fast_info)
+                    fast = retry_call(lambda: dict(ticker.fast_info))
                     quote_time = datetime.now(timezone.utc)
                 previous = fast.get("previous_close")
                 price = fast.get("last_price")
@@ -353,7 +386,7 @@ class YFinanceProvider:
             symbol = canonical_symbol(value)
             market = infer_market(symbol)
             try:
-                info = yf.Ticker(self.to_yfinance_symbol(symbol)).get_info()
+                info = retry_call(lambda: yf.Ticker(self.to_yfinance_symbol(symbol)).get_info())
                 name = str(info.get("longName") or info.get("shortName") or "").strip()
                 if not name:
                     result.missing_symbols.append(symbol)
@@ -379,7 +412,7 @@ class YFinanceProvider:
         result: list[MarketIndex] = []
         for symbol, _provider_symbol, name in mappings:
             try:
-                fast = dict(yf.Ticker(self.to_yfinance_symbol(symbol)).fast_info)
+                fast = retry_call(lambda: dict(yf.Ticker(self.to_yfinance_symbol(symbol)).fast_info))
                 price = float(fast.get("last_price") or 0)
                 previous = float(fast.get("previous_close") or 0)
                 if price <= 0:

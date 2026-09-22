@@ -20,6 +20,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Sequence
 
+from finance_analysis.core.retry import retry_call
+
 from finance_analysis.integrations.market_data.providers.longbridge.market import (
     LongbridgeProvider,
     _longbridge_config_kwargs,
@@ -214,7 +216,7 @@ class LongbridgeNewsFetcher:
                 lb_config = self._build_config()
                 if lb_config is None:
                     return None
-                self._ctx = ContentContext(lb_config)
+                self._ctx = retry_call(lambda: ContentContext(lb_config))
                 logger.info("[LongbridgeNews] ContentContext 初始化成功")
                 return self._ctx
             except Exception as exc:
@@ -247,7 +249,7 @@ class LongbridgeNewsFetcher:
 
         api_start = time.time()
         try:
-            raw_items = ctx.news(symbol) or []
+            raw_items = retry_call(lambda: ctx.news(symbol)) or []
         except Exception as exc:
             log_external_call_exception(
                 logger,

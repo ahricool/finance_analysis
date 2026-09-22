@@ -8,8 +8,8 @@
                 └ cli → Paramiko SSH → Host AGY / Codex
 ```
 
-没有跨 backend 或模型 fallback。`LLM_MAX_RETRIES` 只允许 0 或 1；LiteLLM 的
-`num_retries=0`。JSON 校验失败也使用同一个重试预算。`LLM_TIMEOUT`（默认 180 秒）
+没有跨 backend 或模型 fallback。`LLM_MAX_RETRIES` 默认 3，允许 0–3，重试前分别退避 2、4、8 秒；LiteLLM 的
+`num_retries=0`。等待和 JSON 校验失败也使用同一个总时间与重试预算。`LLM_TIMEOUT`（默认 180 秒）
 是含 retry 的总时间预算，业务可以通过 request.timeout 覆盖。
 
 所有 CLI 请求在 `LLMClient._complete_cli()` 中使用同一把 PostgreSQL session-level advisory lock

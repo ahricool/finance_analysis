@@ -146,16 +146,16 @@ def test_forward_daily_units_dates_validation_and_partial_failure():
         httpx.Response(200, json={"code": 0, "data": None}),
     ],
 )
-def test_http_and_envelope_errors_retry_only_rate_limits_without_leaking_key(response, monkeypatch):
+def test_http_and_envelope_errors_retry_transient_failures_without_leaking_key(response, monkeypatch):
     delays = []
-    monkeypatch.setattr("finance_analysis.integrations.market_data.providers.fuyao.sleep", delays.append)
+    monkeypatch.setattr("finance_analysis.core.retry.sleep", delays.append)
     p, calls = provider(lambda path, params: response)
     result = p.fetch_quotes(QuoteRequest((SYMBOL,)))
     assert SYMBOL in result.failed_symbols
     assert "test-key" not in result.failed_symbols[SYMBOL]
-    limited = response.status_code == 429 or (response.status_code == 200 and response.json().get("code") == 4001)
+    limited = response.status_code in {429, 503} or (response.status_code == 200 and response.json().get("code") == 4001)
     assert len(calls) == (4 if limited else 1)
-    assert delays == ([1, 2, 4] if limited else [])
+    assert delays == ([2, 4, 8] if limited else [])
     assert "test-key" not in repr(DataProviderConfig(fuyao_api_key="test-key"))
 
 
@@ -596,7 +596,7 @@ def test_cache_failure_retries_without_erasing_successful_dragon_days(monkeypatc
     failures[0] = False
     second = FuyaoFundamentalAdapter(p).get_dragon_tiger_flag(SYMBOL)
     assert second["status"] == "ok" and second["recent_count"] == 2
-    assert len(calls) == 3
+    assert len(calls) == 6
 
 
 def test_sector_cache_failure_is_fail_open_and_not_cached():
@@ -610,7 +610,7 @@ def test_sector_cache_failure_is_fail_open_and_not_cached():
     assert service.get_board_context(SYMBOL)["status"] == "failed"
     failures[0] = False
     assert service.get_board_context("000001.SZ")["status"] == "ok"
-    assert len(calls) == 4
+    assert len(calls) == 7
 
 
 def test_cache_expiration_and_single_flight(monkeypatch):
@@ -689,7 +689,7 @@ def test_budget_reuses_existing_quote_without_starting_quote_chain(monkeypatch):
 @pytest.mark.parametrize("business_code", [False, True])
 def test_rate_limit_recovers_and_stops_retrying(monkeypatch, business_code):
     delays = []
-    monkeypatch.setattr("finance_analysis.integrations.market_data.providers.fuyao.sleep", delays.append)
+    monkeypatch.setattr("finance_analysis.core.retry.sleep", delays.append)
     responses = iter([
         httpx.Response(200, json={"code": 4001}) if business_code else httpx.Response(429),
         httpx.Response(429),
@@ -698,14 +698,14 @@ def test_rate_limit_recovers_and_stops_retrying(monkeypatch, business_code):
     p, calls = provider(lambda *_: next(responses))
     result = p.fetch_quotes(QuoteRequest((SYMBOL,)))
     assert SYMBOL in result.data
-    assert len(calls) == 3 and delays == [1, 2]
+    assert len(calls) == 3 and delays == [2, 4]
 
 
 def test_rate_limit_does_not_sleep_or_retry_beyond_budget(monkeypatch):
     from finance_analysis.integrations.market_data.request_budget import BudgetExhausted
 
     delays = []
-    monkeypatch.setattr("finance_analysis.integrations.market_data.providers.fuyao.sleep", delays.append)
+    monkeypatch.setattr("finance_analysis.core.retry.sleep", delays.append)
     monkeypatch.setattr("finance_analysis.integrations.market_data.providers.fuyao.remaining_seconds", lambda: 1.5)
     p, calls = provider(lambda *_: httpx.Response(429))
     with pytest.raises(BudgetExhausted):
@@ -719,7 +719,7 @@ def test_default_snapshot_fallback_to_tencent(monkeypatch, failure):
     from finance_analysis.integrations.market_data.providers.easyquotation import EasyQuotationProvider
 
     delays, tencent_calls = [], []
-    monkeypatch.setattr("finance_analysis.integrations.market_data.providers.fuyao.sleep", delays.append)
+    monkeypatch.setattr("finance_analysis.core.retry.sleep", delays.append)
 
     def handler(path, params):
         if failure == "limited":
@@ -752,7 +752,7 @@ def test_default_snapshot_fallback_to_tencent(monkeypatch, failure):
     assert (quote.volume, quote.amount) == (10000, 105000)
     assert quote.quote_time.tzinfo is not None
     assert tencent_calls == [True]
-    assert delays == ([1, 2, 4] if failure == "limited" else [])
+    assert delays == ([2, 4, 8] if failure in {"limited", "http_error"} else [])
     if failure == "limited":
         assert len(calls) == 4
 
@@ -774,7 +774,7 @@ def test_snapshot_primary_success_never_calls_fallback():
 def test_both_snapshot_providers_fail_preserves_errors(monkeypatch):
     from types import SimpleNamespace
 
-    monkeypatch.setattr("finance_analysis.integrations.market_data.providers.fuyao.sleep", lambda _: None)
+    monkeypatch.setattr("finance_analysis.core.retry.sleep", lambda _: None)
     p, _ = provider(lambda *_: httpx.Response(429))
 
     def fail(_):

@@ -11,6 +11,8 @@ from zoneinfo import ZoneInfo
 
 import httpx
 
+from finance_analysis.core.retry import retry_call, transient_response
+
 from finance_analysis.core.time import day_bounds_utc, utc_now
 from finance_analysis.market_review.trading_calendar import get_trading_days_between
 
@@ -90,7 +92,7 @@ class AlpacaProvider:
         invalid = set()
         seen_tokens = set()
         for _ in range(1000):
-            response = client.get(BAR_URL, params=params)
+            response = retry_call(lambda: client.get(BAR_URL, params=params), retry_result=transient_response)
             if response.status_code != 200:
                 # Do not expose headers or untrusted upstream response bodies in task logs.
                 raise AlpacaHTTPError(response)

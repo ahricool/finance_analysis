@@ -86,13 +86,13 @@ def test_http_batches_are_bounded_and_failed_batch_does_not_drop_successes():
     def handler(req):
         symbols = req.url.params["symbols"].split(",")
         calls.append(symbols)
-        if len(calls) == 2:
+        if symbols[0] == "S100":
             return httpx.Response(500)
         return httpx.Response(200, json={"bars": {s: [row()] for s in symbols}})
 
     symbols = tuple(f"S{i}.US" for i in range(205))
     result = provider(handler).fetch_daily_bars(request(symbols))
-    assert [len(c) for c in calls] == [100, 100, 5]
+    assert [len(c) for c in calls] == [100, 100, 100, 100, 100, 5]
     assert len(result.data) == 105
     assert set(result.failed_symbols) == set(symbols[100:200])
 
@@ -155,7 +155,7 @@ def test_incomplete_pagination_never_returns_truncated_history(failure):
         return httpx.Response(200, json={"bars": {"MU": [row()]}, "next_page_token": "same"})
 
     result = provider(handler).fetch_daily_bars(request())
-    assert len(calls) == 2
+    assert len(calls) == (5 if failure == "http" else 2)
     assert not result.data and len(result.failed_symbols) == 2
 
 

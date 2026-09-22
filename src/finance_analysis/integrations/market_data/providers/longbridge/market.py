@@ -30,6 +30,8 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 
+from finance_analysis.core.retry import retry_call
+
 from finance_analysis.integrations.market_data.codes import is_bse_code, normalize_stock_code  # pragma: allowlist secret
 from finance_analysis.integrations.market_data.models import (  # pragma: allowlist secret
     Adjustment,
@@ -514,13 +516,13 @@ class LongbridgeProvider:
         ctx = self._get_ctx()
         if ctx is None:
             raise RuntimeError("Longbridge context unavailable")
-        securities = ctx.security_list(getattr(SDKMarket, normalized))
+        securities = retry_call(lambda: ctx.security_list(getattr(SDKMarket, normalized)))
         if not securities:
             raise ValueError(f"Longbridge returned no {normalized} directory")
         records = []
         for offset in range(0, len(securities), 100):
             batch = securities[offset : offset + 100]
-            infos = ctx.static_info([item.symbol for item in batch])
+            infos = retry_call(lambda: ctx.static_info([item.symbol for item in batch]))
             for info in infos:
                 kind = self._security_type(info)
                 if kind is None:
@@ -644,7 +646,7 @@ class LongbridgeProvider:
             while cursor > start_time:
                 # SDK 4.3.2 signature is positional-only:
                 # (symbol, period, adjust_type, forward, count, time, trade_sessions).
-                page = ctx.history_candlesticks_by_offset(
+                page = retry_call(lambda: ctx.history_candlesticks_by_offset(
                     provider_symbol,
                     period,
                     AdjustType.NoAdjust,
@@ -652,7 +654,7 @@ class LongbridgeProvider:
                     self._HISTORY_PAGE_SIZE,
                     cursor,
                     TradeSessions.Intraday,
-                )
+                ))
                 if not page:
                     break
                 oldest: Optional[datetime] = None
@@ -798,7 +800,7 @@ class LongbridgeProvider:
                 from longbridge.openapi import QuoteContext
 
                 self._config = build_longbridge_config()
-                self._ctx = QuoteContext(self._config)
+                self._ctx = retry_call(lambda: QuoteContext(self._config))
                 logger.info("[Longbridge] QuoteContext 初始化成功")
                 return self._ctx
             except Exception as e:
@@ -831,7 +833,7 @@ class LongbridgeProvider:
             return None
         api_start = time.time()
         try:
-            infos = ctx.static_info([symbol])
+            infos = retry_call(lambda: ctx.static_info([symbol]))
             if infos:
                 info = infos[0]
                 if ttl > 0:
@@ -889,7 +891,7 @@ class LongbridgeProvider:
         price = None
         api_start = time.time()
         try:
-            quotes = ctx.quote([symbol])
+            quotes = retry_call(lambda: ctx.quote([symbol]))
             if quotes:
                 price = safe_float(getattr(quotes[0], "last_done", None))
         except Exception as e:
@@ -950,14 +952,14 @@ class LongbridgeProvider:
         try:
             from longbridge.openapi import Period, AdjustType
 
-            candles = ctx.history_candlesticks_by_offset(
+            candles = retry_call(lambda: ctx.history_candlesticks_by_offset(
                 symbol,
                 Period.Day,
                 AdjustType.NoAdjust,
                 False,
                 6,
                 datetime.now(),
-            )
+            ))
             if not candles or len(candles) < 2:
                 return None
 
@@ -1061,13 +1063,13 @@ class LongbridgeProvider:
                 15: Period.Min_15,
             }
             trade_sessions = TradeSessions.All if include_extended else TradeSessions.Intraday
-            candles = ctx.candlesticks(
+            candles = retry_call(lambda: ctx.candlesticks(
                 symbol,
                 period_map[interval],
                 max(1, min(int(count), 1000)),
                 AdjustType.NoAdjust,
                 trade_sessions,
-            )
+            ))
             market = longbridge_market_from_symbol(symbol)
             return [self._candle_to_dict(candle, market=market) for candle in sorted(candles, key=self._ts_sort_key)]
         except Exception as e:
@@ -1104,7 +1106,7 @@ class LongbridgeProvider:
 
         api_start = time.time()
         try:
-            quotes = ctx.quote([symbol])
+            quotes = retry_call(lambda: ctx.quote([symbol]))
             if not quotes:
                 return None
             q = quotes[0]
