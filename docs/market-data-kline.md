@@ -15,14 +15,14 @@ DailyKLineCard 从展示的 OHLC 推导 2～4 位小数（12.35 → 2、1.237 �
 
 - `symbol` 使用现有 canonicalization，响应如 `600519.SH`、`AAPL.US`。
 - `start_date`、`end_date` 为可选 ISO 日期，含首尾。
-- end 默认 UTC 当日；start 默认 end 前 365 个自然日。
+- CN/US 的 end 默认市场本地当日，HK 保持 UTC 当日；start 默认 end 前 365 个自然日。
 - start 晚于 end 或非法日期返回 422。
 - 返回 `symbol/market/interval/adjustment/source/items`；interval 固定 `1d`，
-  adjustment 固定 `forward`，source 为 `database` 或实际 provider，空结果可为 null。
+  adjustment 固定 `forward`，source 表示历史 K 来源（`database` 或实际 provider），空结果可为 null；不代表今日临时 K 来源。
 - items 按日期升序，包含 `trade_date/open/high/low/close/volume/amount`。
-- 无数据返回空 items；上游失败且没有恢复到数据时返回 503。
+- 无数据返回空 items；历史日 K 上游失败且没有恢复到数据时返回 503。今日行情失败不导致 503。
 
-入口只调用 `MarketDataService.get_daily_bars(source_policy="db_latest", adjustment="forward")`：
+历史已完成日 K（DB/provider finalized daily bars）继续调用 `MarketDataService.get_daily_bars(source_policy="db_latest", adjustment="forward")`：
 
 1. 复用现有市场交易日历，在市场时区以 `min(当前时刻, end_date 当天结束)`
    求最近一个已完成交易日。历史请求使用历史截止日，盘中不要求当天的收盘 K。
@@ -46,6 +46,25 @@ DailyKLineCard 从展示的 OHLC 推导 2～4 位小数（12.35 → 2、1.237 �
 
 所有查询均不写库，不调用 Celery / sync task，不刷新 DB，不补 gap 或 DB tail。
 旧 `/stocks/{stock_code}/history` 保留，新 UI 不使用它。
+
+## 今日实时日 K
+
+历史查询完成后，同一个接口通过 `MarketDataService.get_intraday_daily_bar()` 在内存中补充今日 K：
+
+- 复用市场时区、`market_trading_date` 和交易日历；仅当请求首尾范围包含市场本地今天、
+  且今天为交易日时尝试。周末、节假日、历史区间不请求实时行情，HK 保持现状。
+- 此场景显式指定 CN：**Fuyao → Longbridge**，US：**yfinance → Longbridge**。
+  不改变全局 REALTIME_QUOTES、DAILY_BARS 或 Streamer 的优先级。
+- Quote 的 `quote_time` 必须带时区，转换到市场本地日期后等于今天。
+  US yfinance 使用同一 regularMarket payload 的行情时间和 OHLCV，不能用请求时间冒充行情时间；
+  Fuyao 和 CN/US Longbridge 缺少源时间时保留为空。昨日残留或时间缺失不可构造今日 K。
+- `open/high/low/close` 分别取 `open_price/high/low/price`，必须有限、为正，
+  且 high/low 包含 open/close；volume/amount 直接来自 Quote，并通过日 K 校验。
+- 主 Provider 失败、缺数据、时间过期或 OHLC 无效均继续尝试 Longbridge；
+  全部失败则保留历史结果。已有当天历史 K 时由有效实时 K 覆盖，按 trade_date 去重、升序返回。
+- **今日 K 仅在查询时动态构造，不入库**，不触发 daily sync、Celery、补 gap，
+  不参与或改变 `db_latest` 的 freshness 判断。历史 DB 仍只保存 finalized daily bars。
+- `DailyKLineCard.vue` 直接绘制响应 items，无需额外行情请求或前端合并。
 
 ## 页面
 

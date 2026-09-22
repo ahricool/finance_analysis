@@ -485,6 +485,66 @@ class MarketDataService:
     ) -> BatchQuoteResult:
         return self.router.route_quotes(QuoteRequest(self._canonical_symbols(symbols)), providers)
 
+    def get_intraday_daily_bar(
+        self, symbol: str, start_date: date, end_date: date, *, now: datetime | None = None
+    ) -> MarketBar | None:
+        """Read-only chart overlay; invalid or unavailable quotes fall through per provider."""
+        from finance_analysis.market_review.trading_calendar import get_trading_days_between
+        from finance_analysis.market_stream.config import market_trading_date
+
+        from .validator import validate_bars
+
+        code = canonical_symbol(symbol)
+        market = infer_market(code)
+        providers = {
+            Market.CN: ("fuyao", "longbridge"),
+            Market.US: ("yfinance", "longbridge"),
+        }.get(market)
+        if providers is None:
+            return None
+        try:
+            today = market_trading_date(now or utc_now(), market.value)
+            if not start_date <= today <= end_date:
+                return None
+            if today not in get_trading_days_between(market.value.lower(), today, today):
+                return None
+        except Exception:
+            logger.warning("Intraday daily calendar unavailable: %s", code, exc_info=True)
+            return None
+        # Route separately so chart-specific freshness/OHLC rejection also falls back.
+        for provider in providers:
+            try:
+                quote = self.get_realtime_quotes([code], providers=(provider,)).data.get(code)
+                if quote is None or quote.quote_time is None:
+                    continue
+                if market_trading_date(quote.quote_time, market.value) != today:
+                    continue
+                if (
+                    quote.open_price is None or quote.high is None or quote.low is None
+                    or quote.price is None or quote.volume is None
+                ):
+                    continue
+                bar = MarketBar(
+                    symbol=code,
+                    market=market,
+                    interval="1d",
+                    trade_date=today,
+                    bar_time=None,
+                    open=quote.open_price,
+                    high=quote.high,
+                    low=quote.low,
+                    close=quote.price,
+                    volume=quote.volume,
+                    amount=quote.amount,
+                    currency=quote.currency,
+                    adjustment=Adjustment.FORWARD,
+                    provider=quote.provider,
+                )
+                return validate_bars([bar])[0]
+            except Exception:
+                logger.warning("Intraday daily quote unavailable: %s provider=%s", code, provider, exc_info=True)
+        return None
+
     def get_market_snapshot(self, market: Market | str, *, providers: Iterable[str] | None = None) -> BatchQuoteResult:
         return self.router.route_market_snapshot(market_from_value(market), providers)
 

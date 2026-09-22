@@ -44,17 +44,19 @@ PUSH_INTERVAL_SECONDS = 5
 @router.get("/daily-bars/{symbol}", response_model=DailyBarsResponse)
 def daily_bars(symbol: str, start_date: date | None = None, end_date: date | None = None) -> DailyBarsResponse:
     """Serve a bounded daily window without persisting provider results."""
-    end = end_date or utc_now().date()
-    start = start_date or end - timedelta(days=365)
-    if start > end:
-        raise HTTPException(status_code=422, detail="start_date must not be after end_date")
     try:
         code = canonical_symbol(symbol)
         market = infer_market(code)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    now = utc_now()
+    end = end_date or (now.date() if market.value == "HK" else market_trading_date(now, market.value))
+    start = start_date or end - timedelta(days=365)
+    if start > end:
+        raise HTTPException(status_code=422, detail="start_date must not be after end_date")
     try:
-        result = MarketDataService().get_daily_bars(
+        service = MarketDataService()
+        result = service.get_daily_bars(
             [code], start, end, adjustment="forward", source_policy="db_latest"
         )
     except Exception as exc:
@@ -63,6 +65,13 @@ def daily_bars(symbol: str, start_date: date | None = None, end_date: date | Non
     bars = result.data.get(code, [])
     if not bars and (code in result.failed_symbols or code in result.request_errors):
         raise HTTPException(status_code=503, detail="日 K 数据暂时不可用，请稍后重试")
+    by_date = {bar.trade_date: bar for bar in bars}
+    try:
+        today_bar = service.get_intraday_daily_bar(code, start, end, now=now)
+        if today_bar is not None:
+            by_date[today_bar.trade_date] = today_bar
+    except Exception:
+        logger.warning("Intraday daily overlay unavailable: %s", code, exc_info=True)
     return DailyBarsResponse(
         symbol=code,
         market=market.value,
@@ -77,7 +86,7 @@ def daily_bars(symbol: str, start_date: date | None = None, end_date: date | Non
                 volume=bar.volume,
                 amount=bar.amount,
             )
-            for bar in sorted(bars, key=lambda bar: bar.trade_date)
+            for bar in sorted(by_date.values(), key=lambda bar: bar.trade_date)
             if start <= bar.trade_date <= end
         ],
     )
