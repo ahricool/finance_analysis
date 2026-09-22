@@ -105,7 +105,8 @@ export interface MarketRegime {
   scoreBreakdown: MarketScoreBreakdown | null;
 }
 export interface QuantSignal { id: number; tradeDate: string; market: QuantMarket; code: string; name:string|null; modelVersion: string; finalScore: number; marketScore: number|null; timeSeriesScore: number|null; crossSectionScore: number|null; riskPenalty: number; universeRank: number|null; predictedReturn: number|null; signal: string; reasons: string[]; scoreComponents: Record<string, unknown> }
-export interface SignalRanking { tradeDate: string|null; market: QuantMarket; universe: string; modelVersion: string|null; marketRegime: string|null; maxEquityExposure: number|null; items: QuantSignal[] }
+export interface QuantSignalReturns { return3D: number|null; return5D: number|null; returnSince: number|null; returnAsOf: string|null }
+export interface SignalRanking { tradeDate: string|null; market: QuantMarket; universe: string; modelVersion: string|null; marketRegime: string|null; maxEquityExposure: number|null; items: (QuantSignal & QuantSignalReturns)[] }
 export interface ModelRun {
   id: number;
   modelKey: string;

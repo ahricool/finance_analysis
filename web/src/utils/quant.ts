@@ -56,3 +56,7 @@ export function scalarMetrics(metrics: Record<string, unknown> | null | undefine
     return [];
   });
 }
+
+export function formatRealizedReturn(value: number | null | undefined): string {
+  return value == null || !Number.isFinite(value) ? '--' : `${value > 0 ? '+' : ''}${(value * 100).toFixed(2)}%`;
+}

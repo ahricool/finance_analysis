@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Any, Iterable
 
-from sqlalchemy import delete, desc, func, select, update
+from sqlalchemy import and_, case, delete, desc, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from finance_analysis.core.time import utc_now
@@ -131,6 +131,36 @@ class QuantRepository:
                         StockDaily.date.between(start, end),
                     )
                     .order_by(Instrument.code, StockDaily.date)
+                ).mappings()
+            )
+
+    def load_return_daily_rows(self, codes: set[str], signal_date: date | None) -> list[Any]:
+        """Read T0..T5 and the latest valid close for all requested symbols in one query."""
+        if not codes or signal_date is None:
+            return []
+        latest_valid_date = func.max(
+            case((and_(StockDaily.close > 0, StockDaily.close < float("inf")), StockDaily.date))
+        ).over(partition_by=StockDaily.instrument_id)
+        ranked = (
+            select(
+                Instrument.code,
+                StockDaily.date,
+                StockDaily.close,
+                func.row_number()
+                .over(partition_by=StockDaily.instrument_id, order_by=StockDaily.date)
+                .label("ordinal"),
+                latest_valid_date.label("latest_valid_date"),
+            )
+            .join(StockDaily, StockDaily.instrument_id == Instrument.id)
+            .where(Instrument.code.in_(codes), StockDaily.date >= signal_date)
+            .subquery()
+        )
+        with self.db.get_session() as session:
+            return list(
+                session.execute(
+                    select(ranked)
+                    .where(or_(ranked.c.ordinal <= 6, ranked.c.date == ranked.c.latest_valid_date))
+                    .order_by(ranked.c.code, ranked.c.date)
                 ).mappings()
             )
 

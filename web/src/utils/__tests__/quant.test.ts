@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   MODEL_TARGET_COPY,
   formatPercent,
+  formatRealizedReturn,
   formatPredictedReturn,
   formatScore,
   primaryMetricValue,
@@ -9,6 +10,13 @@ import {
 } from '../quant';
 
 describe('quant formatters', () => {
+  it('formats realized returns as signed percentages and preserves missing values', () => {
+    expect(formatRealizedReturn(0.0321)).toBe('+3.21%');
+    expect(formatRealizedReturn(-0.0142)).toBe('-1.42%');
+    expect(formatRealizedReturn(0)).toBe('0.00%');
+    expect(formatRealizedReturn(null)).toBe('--');
+    expect(formatRealizedReturn(undefined)).toBe('--');
+  });
   it('does not render missing values as zero', () => {
     expect(formatScore(null)).toBe('—');
     expect(formatPercent(undefined)).toBe('—');
