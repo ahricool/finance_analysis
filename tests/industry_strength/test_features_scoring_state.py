@@ -96,6 +96,7 @@ def test_ranking_direction_weight_ties_and_exact_session_deltas():
     "state,updates,previous",
     [
         ("EMERGING", {"rank_change_3d": 8, "acceleration_percentile": 95}, None),
+        ("NEUTRAL", {"rank_change_3d": 8, "acceleration_percentile": 95, "turnover_ratio_5d": 0.8}, None),
         ("STRONG", {"strength_score": 90, "strength_rank": 1}, {"strength_score": 85}),
         ("COOLING", {"strength_score": 90, "momentum_acceleration_5d": -0.01}, {"strength_score": 90}),
         ("WEAK", {"strength_score": 10, "rs_5d": -0.1, "rs_10d": -0.1, "up_ratio": 0.2, "above_ma20_ratio": 0.2}, None),

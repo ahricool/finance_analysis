@@ -85,6 +85,7 @@ class Constituent(BaseModel):
 
 
 class ConstituentsResponse(BaseModel):
+    trend_rank_date: date | None = None
     industry_code: str
     updated_at: datetime | None
     constituent_count: int
@@ -94,3 +95,22 @@ class ConstituentsResponse(BaseModel):
     ma20_valid_count: int
     above_ma20_count: int
     items: list[Constituent] = Field(default_factory=list)
+
+
+class PreviewResult(RankingResponse):
+    generated_at: datetime
+    data_as_of: datetime
+    data_latest_at: datetime
+    constituents: dict[str, ConstituentsResponse]
+
+
+class PreviewResponse(BaseModel):
+    status: str = "unavailable"
+    error: str | None = None
+    failed_at: datetime | None = None
+    result: PreviewResult | None = None
+
+
+class PreviewRunResponse(BaseModel):
+    task_id: str
+    status: str = "pending"

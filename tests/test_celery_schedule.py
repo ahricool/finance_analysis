@@ -18,6 +18,7 @@ from finance_analysis.tasks.celery.schedule import (  # pragma: allowlist secret
 from finance_analysis.tasks.celery.schedule.cron import LocalizedCrontab, compute_next_run, next_run_for_crontab  # pragma: allowlist secret
 
 EXPECTED_JOBS = {
+    "industry_strength_preview_cn": ("scheduled_industry_strength_preview_cn", "Asia/Shanghai"),
     "crypto_btc_strategy": ("scheduled_crypto_btc_strategy", "UTC"),
     "market_sentiment_cn": ("scheduled_market_sentiment_cn", "Asia/Shanghai"),
     "industry_strength_cn": ("scheduled_industry_strength_cn", "Asia/Shanghai"),
@@ -415,3 +416,10 @@ def test_before_publish_uses_importance_task_metadata():
     assert metadata.task_type == "market_calendar_importance"
     assert metadata.task_name == "财经日历重要性评分"
     assert metadata.source == "celery"
+
+
+def test_industry_preview_matches_etf_preview_schedule():
+    industry = get_scheduled_task_definition("industry_strength_preview_cn")
+    etf = get_scheduled_task_definition("etf_rotation_preview_cn")
+    assert industry.schedules == etf.schedules
+    assert industry.queue == etf.queue

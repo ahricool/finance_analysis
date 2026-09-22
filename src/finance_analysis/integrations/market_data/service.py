@@ -40,6 +40,7 @@ from .registry import (
     LIMIT_BREAK_POOL,
     LIMIT_UP_LADDER,
     INDUSTRY_CATALOG,
+    INDEX_QUOTES,
     INDEX_HISTORY,
     INDEX_CONSTITUENTS,
     DAILY_BARS,
@@ -202,7 +203,7 @@ def build_default_registry(
         FuyaoProvider(api_key=resolved_config.fuyao_api_key, timeout=resolved_config.fuyao_timeout_seconds),
         capabilities={DAILY_BARS, REALTIME_QUOTES, LATEST_MARKET_SNAPSHOT, MARKET_INDICES,
                       MARKET_STATS, SECTOR_RANKINGS, INSTRUMENT_INFO,
-                      INDUSTRY_CATALOG, INDEX_HISTORY, INDEX_CONSTITUENTS,
+                      INDUSTRY_CATALOG, INDEX_HISTORY, INDEX_CONSTITUENTS, INDEX_QUOTES,
                       LIMIT_UP_POOL, LIMIT_DOWN_POOL, LIMIT_BREAK_POOL, LIMIT_UP_LADDER},
     )
     registry.register(
@@ -253,6 +254,9 @@ class MarketDataService:
 
     def get_industry_catalog(self, market="CN"):
         return self.router.route_index_reference(market, INDUSTRY_CATALOG)
+
+    def get_index_quotes(self, codes, market="CN"):
+        return self.router.route_index_reference(market, INDEX_QUOTES, codes)
 
     def get_index_history(self, code, start, end, market="CN"):
         return self.router.route_index_reference(market, INDEX_HISTORY, code, start, end)

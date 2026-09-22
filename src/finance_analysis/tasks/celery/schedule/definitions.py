@@ -12,6 +12,7 @@ from celery.schedules import crontab
 from .constants import (
     JOB_CRYPTO_BTC_STRATEGY,
     JOB_INDUSTRY_STRENGTH_CN,
+    JOB_INDUSTRY_STRENGTH_PREVIEW_CN,
     JOB_MARKET_SENTIMENT_CN,
     EXPIRES_CALENDAR,
     EXPIRES_DAILY,
@@ -127,6 +128,23 @@ SCHEDULED_TASK_DEFINITIONS = (
         timezone=SCHEDULE_TIMEZONE,
         queue=QUEUE_ANALYSIS,
         expires=EXPIRES_ETF_ROTATION,
+    ),
+    ScheduledTaskDefinition(
+        job_id=JOB_INDUSTRY_STRENGTH_PREVIEW_CN,
+        name="行业强度盘中预览 CN",
+        description="最新行业指数、沪深300及成分股行情构造临时日线，结果只写 Redis",
+        task_type="scheduled_industry_strength_preview_cn",
+        celery_task_name=celery_task_name(JOB_INDUSTRY_STRENGTH_PREVIEW_CN),
+        schedules=(
+            CronSchedule(minute="5", hour="11", day_of_week="mon-fri"),
+            CronSchedule(minute="5", hour="14", day_of_week="mon-fri"),
+            CronSchedule(minute="35", hour="14", day_of_week="mon-fri"),
+        ),
+        schedule_text="周一至周五 11:05、14:05、14:35 Asia/Shanghai",
+        timezone=SCHEDULE_TIMEZONE,
+        queue=QUEUE_ANALYSIS,
+        expires=EXPIRES_ETF_ROTATION_PREVIEW,
+        allow_manual_run=True,
     ),
     ScheduledTaskDefinition(
         job_id=JOB_INDUSTRY_STRENGTH_CN,

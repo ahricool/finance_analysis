@@ -1,7 +1,9 @@
+import { tasksApi } from '@/api/tasks';
 import { computed, onBeforeUnmount, ref, shallowRef } from 'vue';
 import {
   industryStrengthApi as api,
   type Constituents,
+  type IndustryPreview,
   type IndustryDetail,
   type IndustryHistory,
   type IndustryRanking,
@@ -20,6 +22,13 @@ export function detailMatchesQuery(
 }
 
 export function useIndustryStrength() {
+  const previewMode = ref(false);
+  const preview = shallowRef<IndustryPreview | null>(null);
+  const taskStatus = ref('');
+  let pollTimer: ReturnType<typeof setTimeout> | undefined;
+  let activeTask = '';
+  let disposed = false;
+  let cacheTimer: ReturnType<typeof setTimeout> | undefined;
   const ranking = shallowRef<IndustryRanking | null>(null);
   const history = shallowRef<IndustryHistory>({ dates: [], items: [] });
   const historyEndTradeDate = ref<string | null>(null);
@@ -105,7 +114,7 @@ export function useIndustryStrength() {
     historyLoading.value = true;
     historyError.value = null;
     try {
-      const result = await api.history(tradeDate);
+      const result = await api.history(previewMode.value ? undefined : tradeDate);
       if (token !== historySeq) return;
       history.value = result;
       historyEndTradeDate.value = tradeDate;
@@ -126,8 +135,16 @@ export function useIndustryStrength() {
     detailLoading.value = true;
     detailError.value = null;
     dropMismatchedDetail(code, tradeDate);
+    if (previewMode.value && !rows.value.some(row => row.industryCode === code)) {
+      detail.value = null;
+      missingSelected.value = true;
+      detailLoading.value = false;
+      return;
+    }
     try {
-      const data = await api.detail(code, tradeDate ?? undefined);
+      const result = await api.detail(code, previewMode.value ? undefined : tradeDate ?? undefined);
+      const current = previewMode.value ? rows.value.find(r => r.industryCode === code) : null;
+      const data = current ? { current, history: result.history } : result;
       if (token !== detailSeq) return;
       if (!detailMatchesQuery(data, code, tradeDate)) return;
       detail.value = data;
@@ -142,6 +159,12 @@ export function useIndustryStrength() {
   }
 
   async function loadConstituents(code: string, force = false) {
+    if (previewMode.value) {
+      constituents.value = preview.value?.result?.constituents[code] ?? null;
+      membersError.value = null;
+      membersLoading.value = false;
+      return;
+    }
     const token = ++membersSeq;
     if (constituents.value?.industryCode !== code) constituents.value = null;
     membersError.value = null;
@@ -200,7 +223,20 @@ export function useIndustryStrength() {
     void loadDates();
 
     try {
-      const data = await api.ranking(requestedDate.value || undefined);
+      let data: IndustryRanking;
+      if (previewMode.value) {
+        const result = await api.preview();
+        if (token !== rankingSeq) return;
+        preview.value = result;
+        taskStatus.value = result.status;
+        clearTimeout(cacheTimer);
+        if (result.status === 'processing' && !activeTask) {
+          cacheTimer = setTimeout(() => { if (!disposed && previewMode.value) void loadRanking('refresh'); }, 3000);
+        }
+        data = result.result ?? { tradeDate: null, expectedTradeDate: '', source: '盘中预览', items: [] };
+      } else {
+        data = await api.ranking(requestedDate.value || undefined);
+      }
       if (token !== rankingSeq) return;
       ranking.value = data;
       stale.value = false;
@@ -238,6 +274,58 @@ export function useIndustryStrength() {
         refreshing.value = false;
         dateSwitching.value = false;
       }
+    }
+  }
+
+  async function switchMode() {
+    clearTimeout(cacheTimer);
+    previewMode.value = !previewMode.value;
+    preview.value = null;
+    rankingSeq += 1;
+    detailSeq += 1;
+    invalidateConstituents();
+    invalidateHistory();
+    detail.value = null;
+    ranking.value = null;
+    history.value = { dates: [], items: [] };
+    setDialogOpen(false);
+    await loadRanking('initial');
+  }
+
+  async function pollTask() {
+    try {
+      const task = await tasksApi.getTaskRunDetail(activeTask);
+      if (disposed) return;
+      taskStatus.value = task.status;
+      if (['pending', 'processing', 'retrying'].includes(task.status)) {
+        pollTimer = setTimeout(() => { void pollTask(); }, 2000);
+        return;
+      }
+      activeTask = '';
+      if (previewMode.value) await loadRanking('refresh');
+      taskStatus.value = task.status;
+      if (task.status === 'failed') refreshError.value = getParsedApiError(new Error(task.error || '预览任务失败'));
+    } catch (cause) {
+      refreshError.value = getParsedApiError(cause);
+      activeTask = '';
+    } finally {
+      if (!activeTask) refreshing.value = false;
+    }
+  }
+
+  async function refresh() {
+    if (activeTask) return;
+    if (!previewMode.value) return loadRanking('refresh');
+    refreshing.value = true;
+    refreshError.value = null;
+    try {
+      const task = await api.runPreview();
+      activeTask = task.taskId;
+      taskStatus.value = 'pending';
+      await pollTask();
+    } catch (cause) {
+      refreshError.value = getParsedApiError(cause);
+      refreshing.value = false;
     }
   }
 
@@ -283,6 +371,10 @@ export function useIndustryStrength() {
   }
 
   onBeforeUnmount(() => {
+    disposed = true;
+    clearTimeout(cacheTimer);
+    clearTimeout(pollTimer);
+    activeTask = '';
     rankingSeq += 1;
     historySeq += 1;
     detailSeq += 1;
@@ -290,6 +382,7 @@ export function useIndustryStrength() {
   });
 
   return {
+    previewMode, preview, taskStatus, switchMode,
     ranking,
     history,
     historyEndTradeDate,
@@ -339,6 +432,6 @@ export function useIndustryStrength() {
       requestedDate.value = value;
       void loadRanking('date');
     },
-    refresh: () => loadRanking('refresh'),
+    refresh,
   };
 }

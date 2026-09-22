@@ -94,3 +94,25 @@ def test_unified_provider_identity_and_existing_routes_unchanged():
     for capability in (INDUSTRY_CATALOG, INDEX_HISTORY, INDEX_CONSTITUENTS):
         assert capability in registry.capabilities("fuyao")
         assert DEFAULT_PROVIDER_ORDER[Market.CN, capability] == ("fuyao",)
+
+
+def test_index_preview_quotes_batch_native_ti_and_benchmark(monkeypatch):
+    from finance_analysis.integrations.market_data.registry import INDEX_QUOTES
+    seen = []
+
+    def handle(request):
+        assert request.url.path == '/api/a-share-index/prices/snapshot'
+        codes = request.url.params['thscodes'].split(',')
+        seen.extend(codes)
+        return httpx.Response(200, json={'code': 0, 'data': {
+            'timestamp': 1789531200000,
+            'item': [{'thscode': code, 'last_price': 123, 'turnover': 500, 'volume': 100} for code in codes],
+        }})
+
+    registry = ProviderRegistry()
+    registry.register('fuyao', provider(monkeypatch, handle), capabilities={INDEX_QUOTES})
+    data = MarketDataService(registry=registry).get_index_quotes(['881101.TI', '000300.SH', '881101.TI'])
+    assert seen == ['881101.TI', '000300.SH']
+    assert data['881101.TI'].price == 123
+    assert data['000300.SH'].amount == 500
+    assert data['881101.TI'].quote_time.tzinfo is not None

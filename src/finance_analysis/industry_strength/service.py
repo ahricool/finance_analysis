@@ -1,4 +1,4 @@
-"""A-share close-only orchestration. HTTP reads never calculate the cross-section."""
+"""Shared A-share cross-section calculation; only the formal run persists to PostgreSQL."""
 
 import logging
 from datetime import date, timedelta
@@ -52,6 +52,9 @@ class IndustryStrengthService:
             )
         if historical and any(r.get("members_observed_at") is not None for r in self.repository.ranking(day)):
             raise IndustryReadinessError("Saved historical breadth must not be overwritten by index-only backfill")
+        return self.calculate(day, historical)
+
+    def calculate(self, day, historical, *, persist=True, member_histories=None):
         sessions = self.sessions(day)
         catalog = self.market_data.get_industry_catalog()
         if not catalog:
@@ -96,7 +99,9 @@ class IndustryStrengthService:
         codes = sorted({m["thscode"] for r in ready for m in memberships[r["industry_code"]]})
         # Retain the existing history fetch path; breadth failure cannot discard valid indices.
         try:
-            stocks = self.load_member_history(codes, sessions) if codes else {}
+            stocks = member_histories
+            if stocks is None:
+                stocks = self.load_member_history(codes, sessions) if codes else {}
         except Exception as exc:
             stocks = {}
             breadth_failures["history"] = str(exc)
@@ -145,6 +150,8 @@ class IndustryStrengthService:
             }
         if not historical and get_market_now("cn").date() != day:
             raise IndustryReadinessError("Collection crossed the Shanghai date boundary; no snapshot written")
+        if not persist:
+            return valid, current_constituents
         self.repository.save(day, valid, constituents=None if historical else current_constituents)
         return {
             "status": "completed",

@@ -78,6 +78,10 @@ class IndustryStrengthRepository:
                 for r in session.execute(query.order_by(Snapshot.trade_date, Snapshot.industry_code)).scalars()
             ]
 
+    def latest_cn_trend_date(self):
+        with self.db.get_session() as session:
+            return session.scalar(select(func.max(TrendSnapshot.trade_date)).where(TrendSnapshot.market == "CN"))
+
     def latest_cn_trend_ranks(self, codes):
         """One query at the latest formal CN date, independent of the industry date."""
         codes = sorted(set(codes))

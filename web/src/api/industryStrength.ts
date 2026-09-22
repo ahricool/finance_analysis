@@ -21,10 +21,27 @@ export interface Constituent {
   code: string; name: string; price: number | null; changePct: number | null; volume: number | null;
   amount: number | null; trendRank: number | null; aboveMa5: boolean | null; aboveMa20: boolean | null;
 }
-export interface Constituents { industryCode: string; updatedAt: string | null;
+export interface Constituents { trendRankDate?: string | null; industryCode: string; updatedAt: string | null;
   constituentCount: number; dailyValidCount: number; ma5ValidCount: number; aboveMa5Count: number; ma20ValidCount: number; aboveMa20Count: number; items: Constituent[] }
+export interface IndustryPreview {
+  status: string; error: string | null;
+  result: (IndustryRanking & { generatedAt: string; dataAsOf: string; dataLatestAt: string; constituents: Record<string, Constituents> }) | null;
+}
 const base = '/api/v1/industry-strength';
 export const industryStrengthApi = {
+  async preview(): Promise<IndustryPreview> {
+    const result = toCamelCase<IndustryPreview>((await apiClient.get(`${base}/preview`)).data);
+    if (result.result) {
+      // Dynamic symbol keys must not be camel-cased (881101.TI -> 881101Ti).
+      result.result.constituents = Object.fromEntries(
+        Object.values(result.result.constituents).map(item => [item.industryCode, item]),
+      );
+    }
+    return result;
+  },
+  async runPreview(): Promise<{ taskId: string }> {
+    return toCamelCase((await apiClient.post(`${base}/preview/run`)).data);
+  },
   async ranking(tradeDate?: string): Promise<IndustryRanking> {
     return toCamelCase((await apiClient.get(`${base}/ranking`, { params: { trade_date: tradeDate } })).data);
   },

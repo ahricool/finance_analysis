@@ -1,11 +1,13 @@
-"""Authenticated shared A-share observations; all reads are database-only."""
+"""Authenticated shared A-share observations; reads use official DB snapshots or isolated Preview Redis."""
 
 from datetime import date
 from fastapi import APIRouter, Depends, HTTPException, Query
 from finance_analysis.database.repositories.industry_strength import IndustryStrengthRepository, SORT_FIELDS
-from finance_analysis.interfaces.api.deps import require_current_user
+from finance_analysis.interfaces.api.deps import require_current_user, require_admin
 from finance_analysis.interfaces.api.v1.schemas.industry_strength import (
     RankingResponse,
+    PreviewResponse,
+    PreviewRunResponse,
     DetailResponse,
     HistoryResponse,
     ConstituentsResponse,
@@ -60,6 +62,37 @@ def history(
     day = leaders[0]["trade_date"]
     rows = repo.history(day, [r["industry_code"] for r in leaders], limit)
     return {"dates": sorted(repo.dates(day, limit)), "items": [public(r) for r in rows]}
+
+
+@router.get("/preview", response_model=PreviewResponse)
+def preview():
+    from finance_analysis.industry_strength.preview import PreviewCache
+    from finance_analysis.market_review.trading_calendar import get_market_now
+
+    payload = PreviewCache().read() or {}
+    result = payload.get("result")
+    if result and result["trade_date"] != get_market_now("cn").date().isoformat():
+        payload = {**payload, "result": None}
+    return payload
+
+
+@router.post("/preview/run", status_code=202, response_model=PreviewRunResponse)
+def run_preview(user=Depends(require_admin)):
+    from finance_analysis.industry_strength.preview import current_day
+    from finance_analysis.tasks.celery.jobs.industry_strength.tasks import run_industry_strength_preview_cn, PREVIEW
+
+    try:
+        current_day()
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from None
+    try:
+        task = run_industry_strength_preview_cn.apply_async(
+            kwargs={"_trigger_source": "manual", "_triggered_by_uid": user.id},
+            queue=PREVIEW.queue, expires=PREVIEW.expires,
+        )
+    except Exception:
+        raise HTTPException(503, "行业强度预览任务提交失败") from None
+    return {"task_id": task.id}
 
 
 @router.get("/{industry_code}/constituents", response_model=ConstituentsResponse)

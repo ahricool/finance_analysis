@@ -11,6 +11,7 @@ from finance_analysis.tasks.celery.schedule import get_scheduled_task_definition
 from finance_analysis.tasks.lifecycle import is_tracked_callable  # pragma: allowlist secret
 
 EXPECTED_CUSTOM_TASKS = {
+    "scheduled.industry_strength_preview_cn",
     "scheduled.crypto_btc_strategy",
     "scheduled.industry_strength_cn",
     "scheduled.market_sentiment_cn",
@@ -75,7 +76,7 @@ def test_each_task_package_has_one_explicit_tasks_module_and_expected_tasks():
             expected_count = 4
         elif package.endswith("quant_training"):
             expected_count = 3
-        elif package.endswith(("market_data_sync", "market_structure", "trade_engine")):
+        elif package.endswith(("market_data_sync", "market_structure", "trade_engine", "industry_strength")):
             expected_count = 2
         elif package.endswith(("etf_rotation", "trend_following")):
             expected_count = 4
@@ -90,7 +91,7 @@ def test_all_custom_task_names_and_job_ids_are_unique():
     celery_names.extend(item.celery_task_name for item in scheduled)
     job_ids = [item.job_id for item in scheduled]
 
-    assert len(celery_names) == len(set(celery_names)) == 32
+    assert len(celery_names) == len(set(celery_names)) == 33
     assert len(job_ids) == len(set(job_ids))
 
 

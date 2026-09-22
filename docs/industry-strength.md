@@ -11,11 +11,12 @@
 协议依据 [官方指数接口文档](https://fuyao.aicubes.cn/docs/api-reference/a-share-index/)。
 
 `integrations/market_data/providers/fuyao.py::FuyaoProvider` 是独立、可复用的数据 Provider，
-不导入行业强度业务。它注册三个 CN capability，经现有 registry / router / `MarketDataService` 访问：
+不导入行业强度业务。它注册四个 CN capability，经现有 registry / router / `MarketDataService` 访问：
 
 | 门面 | Capability | 扶摇 endpoint |
 | --- | --- | --- |
 | `get_industry_catalog()` | `industry_catalog` | `GET /api/a-share-index/catalog/ths-index-list?tag=industry` |
+| `get_index_quotes(codes)` | `index_quotes` | `GET /api/a-share-index/prices/snapshot`（批量，支持 .TI） |
 | `get_index_history(code, start, end)` | `index_history` | `GET /api/a-share-index/prices/historical` |
 | `get_index_constituents(code)` | `index_constituents` | `GET /api/a-share-index/constituents/ths-stock-list` |
 
@@ -209,3 +210,32 @@ pnpm exec playwright test e2e/industry-strength.spec.ts
 迁移 `0055_industry_history` 允许未观测成分的历史记录不填成分观察时间，不能虚构历史观测时间进行降级。
 页面使用日历选择器查看已保存日期，清空选择返回最新快照；没有快照的日期不可选。
 日期目录返回全部已存日期，详情和热力图的窗口仍按现有 API 限制读取。
+
+
+## 盘中 Preview
+
+页面顶部按钮切换「收盘 / 盘中预览」，默认收盘；历史日期仅用于收盘模式。
+预览刷新由管理员通过 `POST /api/v1/industry-strength/preview/run` 异步触发，
+`GET /api/v1/industry-strength/preview` 仅读 Redis，不计算、不访问行情。
+任务 `industry_strength_preview_cn` 在周一至周五 **11:05 / 14:05 / 14:35 Asia/Shanghai**
+运行，与 A 股 ETF Preview 同时（趋势 Preview 提前5分钟），复用 `analysis` 队列与任务中心生命周期。
+非交易日跳过；开盘前拒绝。收盘后仍可用当天行情预览，无需等待正式行业快照。
+
+- 指数历史截至上一交易日，行业指数和沪深300同步使用最新点位构造今日临时线；已有今日线先移除再替换。
+  全部有效行业统一复用正式的 5/10/20 日收益、RS、Strength、排名、加速度与 State。
+  Δ1/3/5D 和持续强势的历史依据仍取对应交易日的正式快照，缺失保持空值，不读取旧 Preview。
+- 当前目录、成分和历史窗口按交易日缓存于 Redis `industry_strength:preview:v1:inputs:*`，TTL 24小时；
+  每次刷新主要批量获取行业指数、基准及去重后的成分股行情。新交易日重新读取历史和成分。
+- 成分 MA5/MA20 包含今日价；缓存历史前复权 close 以行情 `pre_close / 历史末日 close` 统一缩放到今日价格口径。
+  无可靠昨收锚点时不拼接跨口径 MA；缺失行情或历史仍遵守正式版95%覆盖门槛，不填零、不冒充今日。
+- **成交脉冲为盘中累计口径**：今日成交额使用截至行情时点的累计值，保留 mean(5)/mean(20) 原公式，
+  不线性外推。State 不跳过 EMERGING 的成交确认条件，因此盘中状态可能变化，成交确认可能滞后。
+- 全截面、成分详情、时间和质量整体写入 `industry_strength:preview:v1`（TTL 24小时），
+  失败保留上批结果及原始生成时间并附失败信息。HTTP 屏蔽跨交易日缓存；不把昨日预览显示为今日。
+  此流程不写正式行业快照、正式成分表或股票日线，也不增加表、迁移或 LLM。
+- 排行榜、摘要、矩阵、详情及成分均使用页面读取的同一批 Preview；历史热力图和详情历史只显示正式快照，
+  不附加今日预览列。Trend Rank 仍来自最新 CN 正式排名，并显示其日期。
+
+首次刷新需要预热全部行业与成分历史，可能较慢；当日缓存的目录/成分在下一交易日更新。
+行情不是交易所原子快照，页面展示该批有效行情的最早至最晚时间，以及独立的预览生成时间。
+缓存到期、过日或当日尚未成功计算时展示空态；任务失败可在页面及任务中心查看。

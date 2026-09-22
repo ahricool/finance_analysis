@@ -535,6 +535,25 @@ class FuyaoProvider:
         self._validate_index(code)
         return self._members("constituents/ths-stock-list", r"\d{6}\.(SH|SZ|BJ)", thscode=code)
 
+    def get_index_quotes(self, codes):
+        """Native index identifiers include .TI and must bypass stock normalization."""
+        result = {}
+        codes = list(dict.fromkeys(codes))
+        for code in codes:
+            self._validate_index(code)
+        for offset in range(0, len(codes), 100):
+            batch = codes[offset:offset + 100]
+            data = self._get("/api/a-share-index/prices/snapshot", thscodes=",".join(batch))
+            for row in self._items(data):
+                code = row["thscode"]
+                if code in batch:
+                    result[code] = MarketQuote(
+                        symbol=code, market=Market.CN, provider=self.name, currency="CNY",
+                        price=number(row.get("last_price")), amount=number(row.get("turnover")),
+                        volume=number(row.get("volume")), quote_time=timestamp(data.get("timestamp")),
+                    )
+        return result
+
     def get_index_history(self, code, start, end):
         self._validate_index(code)
         data = self._get(
