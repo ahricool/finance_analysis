@@ -14,7 +14,7 @@ import { formatDateTime } from '@/utils/format';
 
 const { currentUser } = useAuth();
 const market = ref<Market>('CN'); const tradeDate = ref(''); const dates = ref<string[]>([]);
-const minSignals = ref<number | null>(null); const minScore = ref(0); const industry = ref(''); const lifecycle = ref('');
+const minSignals = ref<number>(); const minScore = ref(0); const industry = ref(''); const lifecycle = ref('');
 const earlyOnly = ref(false); const topIndustry = ref(false); const strongOnly = ref(false);
 const result = shallowRef<ConfluenceRanking | null>(null); const selected = shallowRef<ConfluenceItem | null>(null);
 const error = shallowRef<ParsedApiError | null>(null); const loading = ref(false); const submitting = ref(false);
@@ -37,13 +37,13 @@ async function load(reset = false) {
   try {
     const [ranking, availableDates] = await Promise.all([
       api.ranking({ market: market.value, trade_date: tradeDate.value || undefined, min_score: Number(minScore.value),
-        min_signals: minSignals.value === null ? undefined : Number(minSignals.value), industry: industry.value || undefined, lifecycle: lifecycle.value || undefined,
+        min_signals: minSignals.value === undefined ? undefined : Number(minSignals.value), industry: industry.value || undefined, lifecycle: lifecycle.value || undefined,
         early_only: earlyOnly.value, top_industry: topIndustry.value, strong_only: strongOnly.value, limit: 200 }),
       api.dates(market.value),
     ]);
     if (token !== generation) return;
     result.value = ranking; dates.value = availableDates;
-    if (minSignals.value === null) minSignals.value = ranking.rules.minSignals;
+    if (minSignals.value === undefined) minSignals.value = ranking.rules.minSignals;
   } catch (cause) { if (token === generation) error.value = getParsedApiError(cause); }
   finally { if (token === generation) loading.value = false; }
 }
