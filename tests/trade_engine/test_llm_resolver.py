@@ -178,3 +178,14 @@ def test_prompt_contains_portfolio_and_repeat_advice_guidance():
     assert risk["positions"]["AAPL.US"] == {
         "weight": "0.18", "max_weight": "0.10", "open_risk": "0.008", "risk_limit": "0.005",
     }
+
+
+
+def test_global_fallback_timeout_preserves_trade_engine_budget():
+    client = FakeClient('{"market":"US","positions":[],"portfolio_reason":"keep","state_summary":"keep"}')
+    client.config.timeout = 600
+    MarketDecisionResolver(client=client).decide(_context(signals=()))
+    assert client.requests[-1].timeout == 180
+    client.config.timeout = 60
+    MarketDecisionResolver(client=client).decide(_context(signals=()))
+    assert client.requests[-1].timeout == 60

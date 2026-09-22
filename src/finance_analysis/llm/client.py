@@ -1,7 +1,8 @@
-"""Backend selection, a single retry budget, attempt audit and usage statistics."""
+"""Ordered provider fallback with bounded retries, deadlines and safe attempt audit."""
 
 import json
 import logging
+import math
 import os
 import re
 import time
@@ -11,8 +12,10 @@ from typing import Callable
 
 from finance_analysis.core.retry import RETRY_DELAYS, wait_before_retry
 from finance_analysis.core.time import utc_now
+
 from . import api, remote_cli
 from .config import LLMConfig, get_llm_config
+from .failures import ProviderFailure, classify_exception
 from .types import LLMRequest, LLMResult
 
 logger = logging.getLogger(__name__)
@@ -36,96 +39,144 @@ class LLMClient:
 
     def complete_text(self, request: LLMRequest, validator: Callable[[str], None] | None = None) -> LLMResult:
         if not self.is_available():
-            raise LLMError("Selected LLM backend is not configured")
-        if request.timeout is not None and request.timeout <= 0:
-            raise ValueError("Request timeout must be positive")
+            raise LLMError("No configured LLM provider is available")
+        total = self.config.timeout if request.timeout is None else request.timeout
+        if not math.isfinite(total) or total <= 0:
+            raise ValueError("Request timeout must be positive and finite")
+        if not isinstance(request.prompt, str) or not request.prompt.strip():
+            raise ValueError("Request prompt must be nonempty text")
         request_id = uuid.uuid4().hex
-        # Timeout is the total call budget, including the optional retry.
-        deadline = time.monotonic() + (request.timeout or self.config.timeout)
-        last_error = "LLM call failed"
-        for attempt in range(1, self.config.max_retries + 2):
+        deadline = time.monotonic() + total
+        providers = self.config.providers()
+        failures = []
+        attempt = 0
+        for index, config in enumerate(providers):
+            name = config.cli_engine if config.backend == "cli" else "api"
+            if not config.is_available():
+                failures.append(f"{name}:not_configured")
+                self._record(request, None, request_id, attempt, 0, "not_configured", config=config, skipped=True)
+                continue
             remaining = deadline - time.monotonic()
             if remaining <= 0:
+                failures.append(f"{name}:deadline_exceeded")
                 break
-            if attempt > 1:
-                if remaining <= RETRY_DELAYS[attempt - 2]:
-                    break
-                wait_before_retry(attempt - 2)
-                remaining = deadline - time.monotonic()
+            later = sum(c.is_available() for c in providers[index + 1 :])
+            # Reserve a first attempt for each remaining configured provider.
+            reserve = later * min(self.config.attempt_timeout, max(0, remaining) / (later + 1))
+            stage_deadline = deadline - reserve
+            failure = None
+            for provider_attempt in range(config.max_retries + 1):
+                if provider_attempt:
+                    delay = max(RETRY_DELAYS[provider_attempt - 1], failure.retry_after or 0)
+                    if stage_deadline - time.monotonic() <= delay:
+                        break
+                    wait_before_retry(provider_attempt - 1)
+                    extra = delay - RETRY_DELAYS[provider_attempt - 1]
+                    if extra > 0:
+                        time.sleep(extra)
+                remaining = stage_deadline - time.monotonic()
                 if remaining <= 0:
                     break
-            started = time.monotonic()
-            result = None
-            error = None
-            try:
-                if self.config.backend == "api":
-                    result = api.complete(self.config, replace(request, timeout=remaining))
-                else:
-                    result = self._complete_cli(request, deadline)
-                if validator:
-                    validator(result.text)
-            except Exception as exc:
-                # Never stringify a vendor exception: it may include keys, headers or host diagnostics.
-                error = f"{self.config.backend} call failed ({type(exc).__name__})"
-                last_error = error
-            duration_ms = round((time.monotonic() - started) * 1000)
-            if result:
-                result.duration_ms = duration_ms
-            self._record(request, result, request_id, attempt, duration_ms, error)
-            if error is None:
-                return result
-        raise LLMError(last_error) from None
+                attempt_deadline = stage_deadline
+                if self.config.fallback_chain:
+                    attempt_deadline = min(stage_deadline, time.monotonic() + self.config.attempt_timeout)
+                attempt += 1
+                started = time.monotonic()
+                result = None
+                failure = None
+                try:
+                    if config.backend == "api":
+                        result = api.complete(config, replace(request, timeout=attempt_deadline - time.monotonic()))
+                    else:
+                        result = self._complete_cli(request, attempt_deadline, config)
+                    if time.monotonic() >= attempt_deadline:
+                        raise ProviderFailure("timeout")
+                    if not result.text.strip():
+                        raise ProviderFailure("empty_response", retryable=True)
+                    if validator:
+                        try:
+                            validator(result.text)
+                        except ValueError:
+                            raise ProviderFailure("invalid_output", retryable=True) from None
+                except Exception as exc:
+                    failure = classify_exception(exc)
+                duration_ms = round((time.monotonic() - started) * 1000)
+                if result:
+                    result.duration_ms = duration_ms
+                self._record(
+                    request, result, request_id, attempt, duration_ms, failure.code if failure else None, config=config
+                )
+                if failure is None:
+                    return result
+                failures.append(f"{name}:{failure.code}")
+                if failure.fatal:
+                    raise LLMError("LLM failed: " + " → ".join(failures)) from None
+                if not failure.retryable:
+                    break
+        raise LLMError("LLM failed: " + " → ".join(failures or ["deadline_exceeded"])) from None
 
-    def _complete_cli(self, request: LLMRequest, deadline: float) -> LLMResult:
+    def _complete_cli(self, request: LLMRequest, deadline: float, config: LLMConfig | None = None) -> LLMResult:
         """Serialize one attempt on a pinned PostgreSQL session, within its budget."""
+        config = config or self.config
         from sqlalchemy import text
 
         from finance_analysis.database import DatabaseManager
 
-        with DatabaseManager.get_instance().connect() as connection:
-            # No idle transaction while waiting or executing SSH. A session lock
-            # survives autocommit and belongs to this checked-out connection.
-            connection.execution_options(isolation_level="AUTOCOMMIT")
-            acquired = False
-            params = {"key": CLI_ADVISORY_LOCK_KEY}
-            try:
-                while not acquired:
+        try:
+            with DatabaseManager.get_instance().connect() as connection:
+                # No idle transaction while waiting or executing SSH. A session lock
+                # survives autocommit and belongs to this checked-out connection.
+                connection.execution_options(isolation_level="AUTOCOMMIT")
+                acquired = False
+                params = {"key": CLI_ADVISORY_LOCK_KEY}
+                try:
+                    while not acquired:
+                        remaining = deadline - time.monotonic()
+                        if remaining <= 0:
+                            raise ProviderFailure("lock_wait_timeout", fatal=True)
+                        try:
+                            acquired = bool(
+                                connection.execute(
+                                    text("SELECT pg_try_advisory_lock(:key)"),
+                                    params,
+                                ).scalar_one()
+                            )
+                        except BaseException:
+                            # An interrupted query may have acquired the lock on the
+                            # server. Never return that uncertain session to the pool.
+                            connection.invalidate()
+                            raise
+                        if not acquired:
+                            time.sleep(min(CLI_LOCK_POLL_SECONDS, max(0, deadline - time.monotonic())))
                     remaining = deadline - time.monotonic()
                     if remaining <= 0:
-                        raise TimeoutError("CLI advisory lock deadline exceeded")
+                        raise ProviderFailure("lock_wait_timeout", fatal=True)
                     try:
-                        acquired = bool(connection.execute(
-                            text("SELECT pg_try_advisory_lock(:key)"), params,
-                        ).scalar_one())
-                    except BaseException:
-                        # An interrupted query may have acquired the lock on the
-                        # server. Never return that uncertain session to the pool.
-                        connection.invalidate()
-                        raise
-                    if not acquired:
-                        time.sleep(min(CLI_LOCK_POLL_SECONDS, max(0, deadline - time.monotonic())))
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    raise TimeoutError("CLI advisory lock deadline exceeded")
-                return remote_cli.complete(self.config, replace(request, timeout=remaining))
-            finally:
-                if acquired:
-                    try:
-                        if not connection.execute(text("SELECT pg_advisory_unlock(:key)"), params).scalar_one():
-                            raise RuntimeError("CLI advisory lock was lost")
-                    except BaseException:
-                        # close()/rollback alone would leave a session lock in
-                        # the pool. Discard the physical connection on failure.
-                        connection.invalidate()
-                        raise
+                        return remote_cli.complete(config, replace(request, timeout=remaining))
+                    except Exception as exc:
+                        raise classify_exception(exc) from None
+                finally:
+                    if acquired:
+                        try:
+                            if not connection.execute(text("SELECT pg_advisory_unlock(:key)"), params).scalar_one():
+                                raise RuntimeError("CLI advisory lock was lost")
+                        except BaseException:
+                            # close()/rollback alone would leave a session lock in
+                            # the pool. Discard the physical connection on failure.
+                            connection.invalidate()
+                            raise
+        except ProviderFailure:
+            raise
+        except Exception:
+            raise ProviderFailure("lock_unavailable", fatal=True) from None
 
-    def _record(self, request, result, request_id, attempt, duration_ms, error):
-        config = self.config
+    def _record(self, request, result, request_id, attempt, duration_ms, error, *, config=None, skipped=False):
+        config = config or self.config
         now = utc_now()
         usage = result.usage if result else {}
         model = result.model if result else (config.model if config.backend == "api" else config.cli_model or None)
         engine = config.cli_engine if config.backend == "cli" else None
-        status = "failed" if error else "success"
+        status = "skipped" if skipped else "failed" if error else "success"
         record = dict(
             timestamp=now.isoformat(),
             request_id=request_id,
@@ -169,6 +220,8 @@ class LLMClient:
                 handle.write(payload + "\n")
         except Exception:
             logger.warning("LLM attempt audit could not be written")
+        if skipped:
+            return  # No paid/model attempt; preserve usage call counts.
         try:
             from finance_analysis.database import DatabaseManager
 

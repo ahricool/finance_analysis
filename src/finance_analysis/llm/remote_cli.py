@@ -3,17 +3,21 @@
 import json
 import shlex
 import time
+from pathlib import Path
 
 import paramiko
 
+from .cli_runner import RECEIPT
 from .config import LLMConfig
+from .failures import ProviderFailure
 from .types import LLMRequest, LLMResult
 
 
 def build_command(config: LLMConfig, timeout: float) -> str:
     if config.cli_engine == "agy":
         command = (
-            "/usr/local/bin/agy --input-format stream-json --output-format stream-json --sandbox --disable-slash-commands"
+            shlex.quote(config.cli_agy_path)
+            + " --input-format stream-json --output-format stream-json --sandbox --disable-slash-commands"
         )
         command += f" --print-timeout {timeout:g}s"
         if config.cli_model:
@@ -22,7 +26,7 @@ def build_command(config: LLMConfig, timeout: float) -> str:
             command += " --effort " + shlex.quote(config.cli_effort)
     else:
         command = (
-            "/usr/local/bin/codex exec --json --sandbox read-only --skip-git-repo-check --ephemeral"
+            shlex.quote(config.cli_codex_path) + " exec --json --sandbox read-only --skip-git-repo-check --ephemeral"
             " --ignore-user-config --ignore-rules -c approval_policy=never"
         )
         if config.cli_model:
@@ -30,8 +34,50 @@ def build_command(config: LLMConfig, timeout: float) -> str:
         if config.cli_effort:
             command += " -c " + shlex.quote("model_reasoning_effort=" + json.dumps(config.cli_effort))
         command += " -"
-    workdir = shlex.quote(config.cli_remote_workdir)
-    return f"umask 077; mkdir -p {workdir} && cd {workdir} && exec {command}"
+    return command
+
+
+def supervised_command(config: LLMConfig, timeout: float) -> str:
+    # Only trusted supervisor source/config go into argv. Prompt stays on stdin.
+    source = Path(__file__).with_name("cli_runner.py").read_text()
+    args = [
+        shlex.split(build_command(config, timeout)),
+        config.cli_engine,
+        max(0.01, timeout - 0.5),
+        config.cli_remote_workdir,
+    ]
+    return "exec " + shlex.join([config.cli_python_path, "-c", source, json.dumps(args)])
+
+
+SAFE_CODES = {
+    "quota_exhausted",
+    "authentication_failed",
+    "model_unavailable",
+    "rate_limited",
+    "service_unavailable",
+    "timeout",
+    "output_too_large",
+    "cli_failed",
+    "executable_missing",
+    "interrupted",
+    "supervisor_failed",
+    "cleanup_failed",
+}
+
+
+def read_receipt(stderr: bytes):
+    receipts = []
+    for line in stderr.decode("utf-8", errors="replace").splitlines():
+        if line.startswith(RECEIPT):
+            try:
+                value = json.loads(line[len(RECEIPT) :])
+            except ValueError:
+                continue
+            if isinstance(value, dict) and value.get("code") in SAFE_CODES | {None}:
+                receipts.append(value)
+    if len(receipts) != 1 or receipts[0].get("cleaned") is not True:
+        raise ProviderFailure("cleanup_unconfirmed", fatal=True)
+    return receipts[0]
 
 
 def parse_agy(stdout: str, model: str | None = None) -> LLMResult:
@@ -91,6 +137,7 @@ def complete(config: LLMConfig, request: LLMRequest) -> LLMResult:
         prompt = request.system_prompt + "\n\n---\n\n" + prompt
     client = paramiko.SSHClient()
     channel = None
+    launched = False
     try:
         client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
         client.connect(
@@ -109,7 +156,8 @@ def complete(config: LLMConfig, request: LLMRequest) -> LLMResult:
             raise TimeoutError("SSH connection deadline exceeded")
         channel = client.get_transport().open_session(timeout=remaining)
         channel.settimeout(remaining)
-        channel.exec_command(build_command(config, remaining))
+        launched = True
+        channel.exec_command(supervised_command(config, remaining))
         # Interleave writes and both output streams to avoid SSH window deadlocks.
         if config.cli_engine == "agy":
             prompt = (
@@ -123,9 +171,10 @@ def complete(config: LLMConfig, request: LLMRequest) -> LLMResult:
         offset = 0
         eof = False
         output = bytearray()
+        diagnostics = bytearray()
         while True:
             if time.monotonic() >= deadline:
-                raise TimeoutError("Remote CLI command timed out")
+                raise ProviderFailure("cleanup_unconfirmed", fatal=True)
             channel.settimeout(max(0.001, deadline - time.monotonic()))
             if offset < len(data) and channel.send_ready():
                 sent = channel.send(data[offset : offset + 32768])
@@ -138,19 +187,37 @@ def complete(config: LLMConfig, request: LLMRequest) -> LLMResult:
             if channel.recv_ready():
                 output.extend(channel.recv(65536))
             if channel.recv_stderr_ready():
-                channel.recv_stderr(65536)  # Drain; never propagate credential-bearing CLI diagnostics.
+                diagnostics.extend(channel.recv_stderr(65536))
+                diagnostics = diagnostics[-65536:]  # Bounded; only allowlisted receipt is consumed.
             if len(output) > 16 * 1024 * 1024:
                 raise ValueError("Remote CLI output exceeds 16 MiB")
             if channel.exit_status_ready() and not channel.recv_ready() and not channel.recv_stderr_ready():
                 break
             time.sleep(0.01)
         status = channel.recv_exit_status()
+        receipt = read_receipt(bytes(diagnostics))
+        if receipt["code"]:
+            code = receipt["code"]
+            raise ProviderFailure(
+                code,
+                retryable=code in {"rate_limited", "service_unavailable", "cli_failed"},
+                fatal=code in {"cleanup_failed", "supervisor_failed", "interrupted"},
+            )
         if status != 0:
-            raise RuntimeError(f"Remote CLI exited with status {status}")
+            raise ProviderFailure("cli_failed", retryable=True)
         if not output.strip():
-            raise ValueError("Remote CLI stdout is empty")
+            raise ProviderFailure("empty_response", retryable=True)
         parser = parse_agy if config.cli_engine == "agy" else parse_codex
-        return parser(output.decode("utf-8"), config.cli_model or None)
+        try:
+            return parser(output.decode("utf-8"), config.cli_model or receipt.get("model") or None)
+        except (ValueError, TypeError, KeyError):
+            raise ProviderFailure("invalid_output", retryable=True) from None
+    except ProviderFailure:
+        raise
+    except Exception as exc:
+        if launched:
+            raise ProviderFailure("cleanup_unconfirmed", fatal=True) from None
+        raise exc
     finally:
         if channel is not None:
             channel.close()

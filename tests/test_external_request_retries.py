@@ -169,7 +169,7 @@ def test_llm_budget_includes_backoff(monkeypatch, tmp_path, external_retry_waits
     from finance_analysis.llm.config import LLMConfig
 
     client = LLMClient(LLMConfig(model="test", api_key="test", timeout=1, log_dir=tmp_path))
-    monkeypatch.setattr(client, "_record", lambda *args: None)
+    monkeypatch.setattr(client, "_record", lambda *args, **kwargs: None)
     operation = Mock(side_effect=TimeoutError())
     monkeypatch.setattr(api, "complete", operation)
     with pytest.raises(LLMError):

@@ -11,6 +11,7 @@ import pytest
 from finance_analysis.llm import LLMClient, LLMError, LLMRequest, LLMResult
 from finance_analysis.llm import api, remote_cli
 from finance_analysis.llm.config import LLMConfig, get_llm_config
+from finance_analysis.llm.failures import ProviderFailure
 
 
 @pytest.fixture
@@ -36,7 +37,7 @@ def test_attempt_budget_and_no_backend_fallback(config, monkeypatch, backend, fa
         cli_ssh_password="private-ssh-secret",
     )
     result = LLMResult("ok", backend, model="test")
-    call = Mock(side_effect=[RuntimeError("private-api-secret Authorization: Bearer x")] * failures + [result])
+    call = Mock(side_effect=[ConnectionError("private-api-secret Authorization: Bearer x")] * failures + [result])
     other = Mock(side_effect=AssertionError("Must not switch backend"))
     monkeypatch.setattr(api if backend == "api" else remote_cli, "complete", call)
     monkeypatch.setattr(remote_cli if backend == "api" else api, "complete", other)
@@ -84,7 +85,7 @@ def test_api_conversion_and_sdk_retries_disabled(config, monkeypatch):
     call.return_value = {"choices": [{"message": {"content": [{"text": "part"}]}}]}
     assert api.complete(config, LLMRequest("user")).text == "part"
     call.return_value = {"choices": []}
-    with pytest.raises(ValueError, match="empty"):
+    with pytest.raises(ProviderFailure, match="empty_response"):
         api.complete(config, LLMRequest("user"))
 
 
@@ -98,9 +99,14 @@ def test_json_validation_consumes_same_retry_budget(config, monkeypatch):
 
 
 def test_no_retry_after_deadline(config, monkeypatch):
-    clock = Mock(side_effect=[0, 0, 0, 181, 181])
-    monkeypatch.setattr("finance_analysis.llm.client.time.monotonic", clock)
-    call = Mock(side_effect=TimeoutError())
+    now = [0.0]
+    monkeypatch.setattr("finance_analysis.llm.client.time.monotonic", lambda: now[0])
+
+    def timeout(*_):
+        now[0] = 181
+        raise TimeoutError()
+
+    call = Mock(side_effect=timeout)
     monkeypatch.setattr(api, "complete", call)
     with pytest.raises(LLMError):
         LLMClient(config).complete_text(LLMRequest("prompt"))
@@ -196,7 +202,7 @@ class Channel:
         self.input = bytearray()
         self.command = ""
         self.eof = self.closed = False
-        self.err = b"diagnostic secret"
+        self.err = (remote_cli.RECEIPT + json.dumps(dict(code=None, cleaned=True, model=None)) + "\n").encode()
 
     def settimeout(self, timeout):
         pass
@@ -255,7 +261,7 @@ def test_ssh_stdin_and_command(config, monkeypatch):
     assert result.text == "answer"
     assert json.loads(bytes(channel.input))["message"]["content"] == "system\n\n---\n\n" + prompt
     assert prompt not in channel.command
-    assert "--input-format stream-json" in channel.command and "--sandbox" in channel.command
+    assert "stream-json" in channel.command and "--sandbox" in channel.command
     assert "/tmp/finance-analysis-llm" in channel.command
     assert channel.closed
     client.close.assert_called_once()
@@ -275,8 +281,8 @@ def test_ssh_connection_errors_close(config, monkeypatch, error):
     "channel,exception",
     [
         (Channel(status=1), RuntimeError),
-        (Channel(output=""), ValueError),
-        (Channel(hanging=True), TimeoutError),
+        (Channel(output=""), ProviderFailure),
+        (Channel(hanging=True), ProviderFailure),
     ],
 )
 def test_ssh_execution_failures(config, monkeypatch, channel, exception):
@@ -344,7 +350,7 @@ def test_long_unicode_prompt_stays_on_ssh_stdin(config, monkeypatch):
     prompt = ('中文\n"quotes" $() `shell` ' * 10000) + "\n\n"
     remote_cli.complete(config, LLMRequest(prompt, timeout=5))
     assert json.loads(channel.input)["message"]["content"] == prompt
-    assert len(channel.command) < 500
+    assert len(channel.command) < 20000
 
 
 def test_stock_analyzer_uses_shared_client_and_preserves_owner(config, monkeypatch):
@@ -426,7 +432,7 @@ def test_cli_lock_wait_exhausts_total_deadline(cli_lock):
     ctx = cli_lock
     ctx.connection.execute.side_effect = None
     ctx.connection.execute.return_value.scalar_one.return_value = False
-    with pytest.raises(LLMError, match="TimeoutError"):
+    with pytest.raises(LLMError, match="lock_wait_timeout"):
         LLMClient(replace(ctx.config, max_retries=1)).complete_text(LLMRequest("prompt", timeout=0.25))
     assert ctx.clock.now == pytest.approx(0.25)
     ctx.call.assert_not_called()
@@ -455,7 +461,7 @@ def test_cli_acquired_at_deadline_releases_without_call(cli_lock):
         return SimpleNamespace(scalar_one=lambda: True)
 
     ctx.connection.execute.side_effect = execute
-    with pytest.raises(LLMError, match="TimeoutError"):
+    with pytest.raises(LLMError, match="lock_wait_timeout"):
         LLMClient(ctx.config).complete_text(LLMRequest("prompt", timeout=300))
     ctx.call.assert_not_called()
     assert ctx.events == ["SELECT pg_try_advisory_lock(:key)", "SELECT pg_advisory_unlock(:key)"]
@@ -471,12 +477,13 @@ def test_cli_retry_acquires_and_releases_each_attempt(cli_lock, validation_failu
         if ctx.call.call_count == 1:
             if validation_failure:
                 return LLMResult("invalid", "cli")
-            raise RuntimeError()
+            raise ConnectionError()
         return LLMResult("{}", "cli")
 
     ctx.call.side_effect = complete
     LLMClient(replace(ctx.config, max_retries=1)).complete_text(
-        LLMRequest("prompt", timeout=300), validator=json.loads,
+        LLMRequest("prompt", timeout=300),
+        validator=json.loads,
     )
     assert ctx.events == ["acquire", "call", "release"] * 2
     assert [call.args[1].timeout for call in ctx.call.call_args_list] == [300, 290]
@@ -487,9 +494,7 @@ def test_cli_retry_acquires_and_releases_each_attempt(cli_lock, validation_failu
 def test_cli_lock_sql_failure_discards_connection(cli_lock, failure_at):
     ctx = cli_lock
     success = SimpleNamespace(scalar_one=lambda: True)
-    ctx.connection.execute.side_effect = (
-        [RuntimeError()] if failure_at == "acquire" else [success, RuntimeError()]
-    )
+    ctx.connection.execute.side_effect = [RuntimeError()] if failure_at == "acquire" else [success, RuntimeError()]
     with pytest.raises(LLMError):
         LLMClient(ctx.config).complete_text(LLMRequest("prompt"))
     ctx.connection.invalidate.assert_called_once()

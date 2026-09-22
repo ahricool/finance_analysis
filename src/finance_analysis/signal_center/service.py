@@ -3,7 +3,7 @@
 import json
 from finance_analysis.core.time import utc_now
 from finance_analysis.database.repositories.signal_center import SignalCenterRepository
-from finance_analysis.llm import LLMClient
+from finance_analysis.llm import LLMClient, LLMError
 from finance_analysis.llm.types import LLMRequest
 from finance_analysis.signal_center.prompt import (
     PROMPT_VERSION,
@@ -87,13 +87,14 @@ class SignalCenterService:
                     selected_symbol=analysis["symbol"],
                     confidence=analysis["confidence"],
                     model=model_identity(result),
-                    backend=result.backend,
+                    backend=(f"cli/{result.engine}" if result.backend == "cli" else result.backend),
                     raw_response=result.text,
                     error=None,
                     completed_at=utc_now(),
                 )
             except Exception as exc:
-                self.repo.finish(market, day, status="failed", error=f"LLM synthesis failed ({type(exc).__name__})")
+                error = str(exc) if isinstance(exc, LLMError) else f"LLM synthesis failed ({type(exc).__name__})"
+                self.repo.finish(market, day, status="failed", error=error)
                 raise
             return dict(
                 status="completed",
@@ -152,7 +153,7 @@ class SignalCenterService:
                     output=parsed,
                     raw_response=result.text,
                     model=model_identity(result),
-                    backend=result.backend,
+                    backend=(f"cli/{result.engine}" if result.backend == "cli" else result.backend),
                     created_at=utc_now().isoformat(),
                 )
             )
