@@ -10,6 +10,7 @@ from typing import Literal, Optional
 from celery.schedules import crontab
 
 from .constants import (
+    JOB_DRAGON_TIGER_FLOW_CN,
     JOB_CRYPTO_BTC_STRATEGY,
     JOB_INDUSTRY_STRENGTH_CN,
     JOB_INDUSTRY_STRENGTH_PREVIEW_CN,
@@ -105,6 +106,18 @@ class ScheduledTaskDefinition:
 
 
 SCHEDULED_TASK_DEFINITIONS = (
+    ScheduledTaskDefinition(
+        job_id=JOB_DRAGON_TIGER_FLOW_CN,
+        name="龙虎榜资金流向 CN",
+        description="盘后采集龙虎榜，按概念分摊净额并保存可追溯证据",
+        task_type="scheduled_dragon_tiger_flow_cn",
+        celery_task_name=celery_task_name(JOB_DRAGON_TIGER_FLOW_CN),
+        schedules=(CronSchedule(minute="30", hour="19", day_of_week="mon-fri", timezone=SCHEDULE_TIMEZONE),),
+        schedule_text="周一至周五 19:30 Asia/Shanghai",
+        timezone=SCHEDULE_TIMEZONE,
+        queue=QUEUE_ANALYSIS,
+        expires=EXPIRES_ETF_ROTATION,
+    ),
     ScheduledTaskDefinition(
         job_id=JOB_CRYPTO_BTC_STRATEGY,
         name="BTC 15m 策略",

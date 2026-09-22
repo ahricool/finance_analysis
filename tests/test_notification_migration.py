@@ -74,4 +74,4 @@ def test_cleanup_postgresql(monkeypatch):
 
 def test_single_head():
     script = ScriptDirectory.from_config(Config("alembic.ini"))
-    assert script.get_heads() == ["0063_portfolio_mutation"]
+    assert script.get_heads() == ["0064_dragon_tiger_flow"]

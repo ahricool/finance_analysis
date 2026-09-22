@@ -6,11 +6,12 @@ import PageHeader from '@/components/layout/PageHeader.vue';
 import { Separator } from '@/components/ui/separator';
 import { researchNavItems } from '@/config/mainNav';
 
-type ResearchTab = 'market-sentiment' | 'industry-strength' | 'macro' | 'quant' | 'etf-rotation' | 'trend-following';
+type ResearchTab = 'dragon-tiger-flow' | 'market-sentiment' | 'industry-strength' | 'macro' | 'quant' | 'etf-rotation' | 'trend-following';
 
 const route = useRoute();
 
 const activeTab = computed<ResearchTab>(() => {
+  if (route.path.startsWith('/research/dragon-tiger-flow')) return 'dragon-tiger-flow';
   if (route.path.startsWith('/research/market-sentiment')) return 'market-sentiment';
   if (route.path.startsWith('/research/industry-strength')) return 'industry-strength';
   if (route.path.startsWith('/research/macro')) return 'macro';
@@ -24,7 +25,7 @@ const activeTab = computed<ResearchTab>(() => {
   <div class="space-y-6 py-4 sm:py-6">
     <PageHeader
       title="研究"
-      description="研究量化模型、ETF 动量轮动、趋势跟踪、行业强度、市场情绪与宏观环境。"
+      description="研究量化模型、ETF 动量轮动、趋势跟踪、行业强度、龙虎榜资金、市场情绪与宏观环境。"
     />
     <ModuleTabs
       :items="researchNavItems"

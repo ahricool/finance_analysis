@@ -290,3 +290,9 @@ Beat `crypto_btc_strategy` 每15m收盘后一分钟执行，只读闭合K线，�
 正式任务和 Preview 共用计算流程：行业指数历史请求 API，个股历史 DB 优先，完整窗口不足时 API 只读补取；不缓存计算输入，
 不写 `stock_daily`，不修改 ETF Universe。
 正式 Breadth 仅当日收盘计算，不做当前成分历史回填。配置、状态和覆盖规则见 `docs/industry-strength.md`。
+
+## 龙虎榜资金流向
+
+`dragon_tiger_flow/` 使用 CN `dragon_tiger_board` 新能力，完整来源不复用旧基本面代码列表缓存。
+`dragon_tiger_flow_batch` 每日一个原子代次，日记录保存概念观测，窗口只读派生；新旧来源不混合。
+机构用 `org_net_value`，游资股票级值与游资席位明细分开，禁止重复累计。详见 `../../docs/dragon-tiger-flow.md`。

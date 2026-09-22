@@ -7,6 +7,7 @@ from types import MappingProxyType
 from typing import Any, Iterable, Mapping
 
 
+DRAGON_TIGER_BOARD = "dragon_tiger_board"
 LIMIT_UP_POOL = "limit_up_pool"
 LIMIT_DOWN_POOL = "limit_down_pool"
 LIMIT_BREAK_POOL = "limit_break_pool"
@@ -28,6 +29,7 @@ INSTRUMENT_INFO = "instrument_info"
 
 CAPABILITY_METHODS: Mapping[str, str] = MappingProxyType(
     {
+        DRAGON_TIGER_BOARD: "get_dragon_tiger_board",
         LIMIT_UP_POOL: "get_limit_up_pool",
         LIMIT_DOWN_POOL: "get_limit_down_pool",
         LIMIT_BREAK_POOL: "get_limit_break_pool",

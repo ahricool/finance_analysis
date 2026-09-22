@@ -9,6 +9,7 @@ from finance_analysis.config.env_parsing import env_int, env_str  # pragma: allo
 
 from .models import Market, market_from_value
 from .registry import (
+    DRAGON_TIGER_BOARD,
     LIMIT_UP_POOL,
     LIMIT_DOWN_POOL,
     LIMIT_BREAK_POOL,
@@ -33,6 +34,7 @@ FIVE_YEAR_HISTORY_DAYS = 5 * 365
 US_DAILY_SYNC_PROVIDERS = ("alpaca", "yfinance")
 
 DEFAULT_PROVIDER_ORDER: dict[tuple[Market, str], tuple[str, ...]] = {
+    (Market.CN, DRAGON_TIGER_BOARD): ("fuyao",),
     (Market.CN, LIMIT_UP_POOL): ("fuyao",),
     (Market.CN, LIMIT_DOWN_POOL): ("fuyao",),
     (Market.CN, LIMIT_BREAK_POOL): ("fuyao",),

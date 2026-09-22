@@ -99,6 +99,17 @@ class FuyaoProvider:
         self._transport = transport
         self._asset_types: dict[str, tuple[float, str]] = {}
 
+    def get_dragon_tiger_board(self, trade_date, board_type="all"):
+        from ..dragon_tiger import normalize_source
+        if board_type not in {"all", "org", "hot_money"}:
+            raise ValueError("Unsupported Dragon Tiger board")
+        data = self._get("/api/a-share/special-data/dragon-tiger-list",
+                         date=trade_date.isoformat(), board_type=board_type)
+        try:
+            return normalize_source(data, trade_date, board_type)
+        except (ValueError, TypeError, KeyError):
+            raise FuyaoError("Invalid or incomplete Dragon Tiger response") from None
+
     def cached(self, key, ttl, load):
         """Single-flight process-local cache shared by all adapters using this provider.
 

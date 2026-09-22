@@ -45,7 +45,10 @@ from finance_analysis.database.models.watch_list import WatchListItem  # pragma:
 
 from finance_analysis.database.models.crypto import CryptoStrategySnapshot, CryptoStrategyState  # pragma: allowlist secret
 
+from .dragon_tiger_flow import DragonTigerFlowBatch
+
 __all__ = [
+    "DragonTigerFlowBatch",
     "PortfolioAccount",
     "PortfolioPosition",
     "PositionLot",

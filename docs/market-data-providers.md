@@ -206,3 +206,11 @@ Yahoo 吞掉错误的批请求以返回的失败/缺失标的重试，保留已�
 Telegram（文本、纯文本降级、图片）与 ntfy 复用相同请求策略；发送超时后重试可能重复送达，
 因为上游可能已接收请求但响应丢失。LLM 使用同样退避并保留统一调用/JSON 校验总预算，
 LiteLLM 内部重试仍关闭。
+
+## 龙虎榜完整榜单能力
+
+`MarketDataService.get_dragon_tiger_board(trade_date, board_type)` 注册为 CN `dragon_tiger_board`，
+读取扶摇 `all/org/hot_money` 并校验日期、类型、数量、金额及唯一粒度；不复用或覆盖
+基本面 `dragon_tiger:*` 的仅代码缓存。完整每日来源由显式领域任务持久化。
+游资分组是有限明细，顶层 count 不能用作明细条数；机构净额与普通 net_value 不同。
+来源实测、口径及边界见 [龙虎榜资金流向](dragon-tiger-flow.md)。

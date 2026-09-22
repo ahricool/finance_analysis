@@ -349,3 +349,11 @@ BTC 多策略以 `strategy_key + symbol` 隔离，代码注册表当前仅 `btc_
 可选独立只读账号增强隔离；保留 SQL / Redis 只读限制，禁止新增业务/写入/命令执行 tool。
 文件 jail 固定 `/data`，生产 server 只读挂载现有数据目录。权限、资源限制和部署步骤见
 `docs/mcp.md`，离线/临时服务测试位于 `tests/mcp/`。
+
+## Dragon Tiger Flow
+
+`dragon_tiger_flow/` 独立观察 A 股龙虎榜概念净额，页面 `/research/dragon-tiger-flow`。
+Beat `dragon_tiger_flow_cn` 上海19:30，经 `MarketDataService` 的 CN `dragon_tiger_board` 能力采集三类扶摇榜单，
+原子保存每日 PostgreSQL 批次；GET只读，管理员可异步补最多31交易日。
+1日榜支持5/10/20日累计，3日榜仅独立截面；概念等分到分、未分类守恒，缺日不填零。
+机构与游资独立观察，游资明细是有限样本，不构造互斥资金来源或交易动作。见 `docs/dragon-tiger-flow.md`。
