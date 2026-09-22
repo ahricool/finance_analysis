@@ -15,6 +15,10 @@ MONEY_FIELDS = (
     "hot_money_net_value",
     "hot_money_item_net_value",
 )
+OBSERVATION_PERIODS = (1, 3)
+# Extended abnormal-movement boards are valid upstream records, but not inputs
+# to the 1-day cumulative / 3-day cross-sectional research views.
+AUDIT_ONLY_PERIODS = (10, 30)
 
 
 def amount(value):
@@ -34,7 +38,7 @@ def amount(value):
 def normalize_row(row):
     if not isinstance(row, dict) or not re.fullmatch(r"\d{6}\.(SH|SZ|BJ)", str(row.get("thscode", ""))):
         raise ValueError("Invalid Dragon Tiger stock code")
-    if type(row.get("range_days")) is not int or row["range_days"] not in (1, 3):
+    if type(row.get("range_days")) is not int or row["range_days"] not in OBSERVATION_PERIODS + AUDIT_ONLY_PERIODS:
         raise ValueError("Invalid Dragon Tiger period")
     concepts = row.get("concept_list") or []
     if not isinstance(concepts, list) or any(
@@ -96,6 +100,11 @@ def normalize_source(data, day: date, board: str):
     timestamp = data.get("timestamp")
     if not isinstance(timestamp, (int, float)) or isinstance(timestamp, bool) or not math.isfinite(timestamp):
         raise ValueError("Invalid Dragon Tiger source timestamp")
+    # Partition only after validating counts, fields and duplicate conflicts for
+    # the complete response. Keep excluded evidence in the persisted source.
+    excluded_rows = [r for r in rows.values() if r["range_days"] in AUDIT_ONLY_PERIODS]
+    excluded_details = [r for r in details.values() if r["range_days"] in AUDIT_ONLY_PERIODS]
+    excluded = excluded_details if board == "hot_money" else excluded_rows
     return deepcopy(
         {
             "board": board,
@@ -103,12 +112,17 @@ def normalize_source(data, day: date, board: str):
             "source_timestamp_ms": timestamp,
             "upstream_count": data["count"],
             "upstream_stock_count": data["stock_count"],
-            "rows": list(rows.values()),
-            "details": list(details.values()),
+            "rows": [r for r in rows.values() if r["range_days"] in OBSERVATION_PERIODS],
+            "details": [r for r in details.values() if r["range_days"] in OBSERVATION_PERIODS],
+            "excluded_rows": excluded_rows,
+            "excluded_details": excluded_details,
             "quality": {
                 "duplicates_removed": duplicates,
                 "conflicts": 0,
                 "detail_scope": "limited_named_groups" if board == "hot_money" else "stock_board",
+                "excluded_period_counts": {
+                    str(period): sum(r["range_days"] == period for r in excluded) for period in AUDIT_ONLY_PERIODS
+                },
             },
         }
     )
