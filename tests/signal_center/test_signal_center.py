@@ -211,7 +211,7 @@ def test_wait_then_partial_deadline_freezes_input_and_completed_is_idempotent():
     repo.sources["trend"] = []
     assert service.run("CN", DAY, deadline=True)["status"] == "completed"
     assert repo.run_record == saved
-    assert [c.call_type for c in client.calls] == ["signal_center_screen", "signal_center"]
+    assert [c.call_type for c in client.calls] == ["signal_center_screen"] * 5 + ["signal_center"]
     assert all(c.web_search is False for c in client.calls)
 
 
@@ -221,14 +221,14 @@ def test_failed_final_reuses_frozen_snapshot_and_completed_screening():
     with pytest.raises(RuntimeError):
         service.run("CN", DAY, deadline=True)
     before = deepcopy(repo.run_record)
-    assert before["status"] == "failed" and len(before["screening"]) == 1
+    assert before["status"] == "failed" and len(before["screening"]) == 5
     reads = repo.reads
     repo.sources["trend"] = RuntimeError("must not reread")
     client.fail_final = False
     assert service.run("CN", DAY, deadline=True)["status"] == "completed"
     assert repo.reads == reads
     assert repo.run_record["candidate_snapshot"] == before["candidate_snapshot"]
-    assert len([c for c in client.calls if c.call_type == "signal_center_screen"]) == 1
+    assert len([c for c in client.calls if c.call_type == "signal_center_screen"]) == 5
 
 
 def test_core_missing_is_skipped_never_no_trade():
@@ -263,6 +263,93 @@ def test_batched_screening_covers_every_top_five_percent_candidate():
     service = SignalCenterService(repo, client, lock)
     service.run("CN", DAY, deadline=True)
     calls = [json.loads(c.prompt) for c in client.calls if c.call_type == "signal_center_screen"]
-    assert [len(c["candidates"]) for c in calls] == [40, 40, 15]
-    assert len(repo.run_record["screening"]) == 3
-    assert len(json.loads(repo.run_record["final_prompt"])["candidates"]) == 9  # six screened + Quant3
+    assert [len(c["candidates"]) for c in calls] == [19] * 5
+    assert len(repo.run_record["screening"]) == 5
+    assert len(json.loads(repo.run_record["final_prompt"])["candidates"]) == 13  # ten screened + Quant3
+
+
+@pytest.mark.parametrize("size", [0, 1, 3, 5, 6, 51, 210])
+def test_five_buckets_distribute_rank_not_symbol_without_loss(size):
+    from finance_analysis.signal_center.snapshot import screening_plan
+
+    candidates = [
+        dict(symbol=f"{size-rank:06d}.SH", nominated_by=["trend"], trend={"rank": rank}) for rank in range(1, size + 1)
+    ]
+    plan = screening_plan(list(reversed(candidates)))
+    assert plan["bucket_count"] == 5
+    assert len(plan["buckets"]) == 5
+    by_symbol = {c["symbol"]: c["trend"]["rank"] for c in candidates}
+    assert [[by_symbol[s] for s in bucket] for bucket in plan["buckets"]] == [
+        list(range(i + 1, size + 1, 5)) for i in range(5)
+    ]
+    flattened = [s for bucket in plan["buckets"] for s in bucket]
+    assert len(flattened) == len(set(flattened)) == size
+    sizes = [len(b) for b in plan["buckets"]]
+    assert max(sizes) - min(sizes) <= 1
+
+
+def test_tied_ranks_are_stable_and_nontrend_nominees_stay_out_of_buckets():
+    from finance_analysis.signal_center.snapshot import screening_plan
+
+    candidates = [dict(symbol=s, nominated_by=["trend"], trend={"rank": 1}) for s in ["B.US", "A.US"]]
+    candidates.append(dict(symbol="Q.US", nominated_by=["quant"], trend=None))
+    assert screening_plan(candidates)["buckets"] == [["A.US"], ["B.US"], [], [], []]
+
+
+def test_empty_buckets_do_not_call_llm():
+    repo, client = Repo(size=40), Client()  # Top5% = 2 nominees, three empty buckets.
+    SignalCenterService(repo, client, lock).run("CN", DAY, deadline=True)
+    assert len([c for c in client.calls if c.call_type == "signal_center_screen"]) == 2
+    assert len(repo.run_record["candidate_snapshot"]["screening_plan"]["buckets"]) == 5
+
+
+def test_failed_bucket_resumes_frozen_plan_and_skips_completed_buckets():
+    class FailingClient(Client):
+        fail = True
+
+        def complete_text(self, request, validator):
+            if self.fail and len(self.calls) == 2:
+                raise RuntimeError("third bucket failed")
+            return super().complete_text(request, validator)
+
+    repo, client = Repo(size=1900), FailingClient()
+    service = SignalCenterService(repo, client, lock)
+    with pytest.raises(RuntimeError):
+        service.run("CN", DAY, deadline=True)
+    frozen = deepcopy(repo.run_record["candidate_snapshot"])
+    assert len(repo.run_record["screening"]) == 2
+    repo.sources["trend"] = RuntimeError("must not reread")
+    client.fail = False
+    service.run("CN", DAY, deadline=True)
+    assert repo.run_record["candidate_snapshot"] == frozen
+    calls = [json.loads(c.prompt) for c in client.calls if c.call_type == "signal_center_screen"]
+    assert [[c["symbol"] for c in p["candidates"]] for p in calls] == frozen["screening_plan"]["buckets"]
+    assert len(repo.run_record["screening"]) == 5
+
+
+def test_legacy_frozen_run_retains_original_batches():
+    repo, client = Repo(size=1900), Client(fail_final=True)
+    snapshot = collect(repo, "CN", DAY)
+    snapshot.pop("screening_plan")
+    from finance_analysis.signal_center.prompt import SYSTEM_PROMPT
+
+    repo.create(
+        "CN",
+        DAY,
+        status="pending",
+        candidate_snapshot=snapshot,
+        prompt_version="signal-center-v1",
+        system_prompt=SYSTEM_PROMPT,
+    )
+    service = SignalCenterService(repo, client, lock)
+    with pytest.raises(RuntimeError):
+        service.run("CN", DAY, deadline=True)
+    assert [len(json.loads(c.prompt)["candidates"]) for c in client.calls if c.call_type == "signal_center_screen"] == [
+        40,
+        40,
+        15,
+    ]
+    assert all(a["prompt_version"] == "signal-center-v1" for a in repo.run_record["screening"])
+    client.fail_final = False
+    service.run("CN", DAY, deadline=True)
+    assert len([c for c in client.calls if c.call_type == "signal_center_screen"]) == 3

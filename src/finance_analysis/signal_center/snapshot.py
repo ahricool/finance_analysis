@@ -16,6 +16,19 @@ DEPENDENCIES = {
 }
 
 
+def screening_plan(candidates):
+    """Five rank-stratified buckets; tied ranks use canonical symbol as a stable tie-break."""
+    ranked = sorted(
+        (c for c in candidates if "trend" in c["nominated_by"]),
+        key=lambda c: (c["trend"]["rank"], c["symbol"]),
+    )
+    return dict(
+        method="rank_round_robin_v1",
+        bucket_count=5,
+        buckets=[[c["symbol"] for c in ranked[index::5]] for index in range(5)],
+    )
+
+
 def collect(repo, market, day):
     dependencies = repo.dependencies(market, day)
     instruments = repo.instruments(market)
@@ -128,6 +141,7 @@ def collect(repo, market, day):
                 etf_context_top=10,
             ),
             candidates=[candidate_context(c) for c in candidates],
+            screening_plan=screening_plan(candidates),
             market_regime=sources["regime"],
             etf_context=sources["etf"],
             limitations=[

@@ -104,11 +104,18 @@ class SignalCenterService:
         snapshot = run["candidate_snapshot"]
         trend = [c for c in snapshot["candidates"] if "trend" in c["nominated_by"]]
         audit = list(run.get("screening") or [])
-        # Stable symbol-order batches avoid a rank-first truncation. Calls remain sequential via LLMClient.
-        for index, offset in enumerate(range(0, len(trend), 40)):
-            if index < len(audit):
+        plan = snapshot.get("screening_plan")
+        if plan is not None:
+            by_symbol = {c["symbol"]: c for c in trend}
+            batches = [[by_symbol[symbol] for symbol in bucket] for bucket in plan["buckets"]]
+        elif run["prompt_version"] == "signal-center-v1":
+            # Resume an already-frozen legacy run without reassigning completed batches.
+            batches = [trend[offset : offset + 40] for offset in range(0, len(trend), 40)]
+        else:
+            raise ValueError("Missing frozen screening plan")
+        for index, batch in enumerate(batches):
+            if not batch or index < len(audit):
                 continue
-            batch = trend[offset : offset + 40]
             evidence = [dict(symbol=c["symbol"], name=c["name"], trend=candidate_context(c)["trend"]) for c in batch]
             prompt = json.dumps(
                 dict(
@@ -138,7 +145,7 @@ class SignalCenterService:
                     batch=index,
                     prompt=prompt,
                     system_prompt=SCREEN_SYSTEM_PROMPT,
-                    prompt_version=PROMPT_VERSION,
+                    prompt_version=run["prompt_version"],
                     output=parsed,
                     raw_response=result.text,
                     model=model_identity(result),
@@ -149,6 +156,7 @@ class SignalCenterService:
             self.repo.finish(market, day, screening=audit)
         selected = {s for a in audit for s in a["output"]["symbols"]}
         final = dict(snapshot)
+        final.pop("screening_plan", None)  # Full bucket membership remains in the immutable input only.
         final["candidates"] = [
             candidate_context(c)
             for c in snapshot["candidates"]

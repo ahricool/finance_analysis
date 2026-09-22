@@ -38,13 +38,16 @@ US 2026-09-21 有 918 个排名，前 5% 为 46 只。近两周样本中：
 弱状态指 IDLE / WEAKENING / BROKEN。范围选择用于兼顾过热风险与候选覆盖，**不是收益回测或已验证最优阈值**。
 不盲目扩到全部前 10%，只补充其中的显著上升股票。前次快照日期、前次总体数量明确提供，排名变化不声称恒为 1D。
 实际 dry run 初始去重池 CN 213 只、US 54 只，包含其他模块候选。
+其中 Trend 提名 CN210、US51；改为5桶后分别为42/42/42/42/42与11/10/10/10/10。
+正常每市场5次初筛+1次最终判断，两市场共12次（未计请求重试）；不足5个非空桶时更少。
 
 ## 两阶段 LLM
 
 所有调用经现有 `LLMClient.complete_text`，复用 API/CLI backend、重试、usage/audit 和 CLI 全局 PostgreSQL advisory lock。
 Signal Center 不引入第二套 LLM 并发机制。自身每天每市场复用 `PostgreSQLAdvisoryLock` 防止重复运行；业务事务不跨 LLM 网络调用。
 
-1. Trend 扩展池每 40 只一批，顺序初筛，各批保留 0–5 只；每只都送入初筛，不先截成 Top20。
+1. Trend 扩展池按原始 `rank` 升序（同 rank 按代码）固定轮流分入5桶：排序第1/6/11…进第1桶，第2/7/12…进第2桶，以此类推。桶内保持 rank 顺序，各桶人数最多相差1；不足5只时保留空桶、不调用空桶 LLM。每个非空桶顺序初筛，仍保留0–5只，不先截成Top20。
+   `candidate_snapshot.screening_plan` 冻结 `rank_round_robin_v1` 方法和5桶完整代码列表，失败重试复用原分桶与已完成结果。旧版已冻结任务保持旧40只批次，不重新解释历史初筛。
 2. 初筛选择与 Quant3 / Industry 候选求并集，发送最终跨模块上下文。所有原始初筛输入仍保留在每日快照。
 3. 严格输出一个对象：`market/signal_date/decision/symbol/confidence/thesis/positive_signals/risks/invalidations`。
    `BUY` 必须恰好一个候选代码且具有依据、风险、失效条件；`NO_TRADE` 必须 `symbol=null`。
@@ -53,7 +56,7 @@ Signal Center 不引入第二套 LLM 并发机制。自身每天每市场复用 
 4. 输入不足为 `skipped`；LLM/校验失败为 `failed`，不能伪装成 `NO_TRADE`。
 
 Prompt 强調共振、冲突、追高/过热、生命周期、行业边际变化及市场环境；不联网、不推断股票ETF关系、不做仓位建议。
-版本为 `signal-center-v1`。精简掉重复诊断字段后，CN/US 的真实 CLI dry run 均完成且通过结构校验。
+新任务版本为 `signal-center-v1.1-rank-buckets`。精简掉重复诊断字段后，CN/US 的真实 CLI dry run 均完成且通过结构校验。
 若 CLI 使用默认模型且 transport 未回传名称，明确保存 `unreported:cli/agy`，不伪造模型名称；
 需要精确模型可复现性时应在现有 LLM 配置中显式指定 `LLM_CLI_MODEL`。API 则使用返回的模型名称。
 

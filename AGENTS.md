@@ -375,7 +375,7 @@ GET `/api/v1/confluence/*` 只读快照，管理员 `/run` 异步生成；页面
 
 ## Unified Signal Center
 
-`signal_center/` 主动读取同日正式 Trend/Quant/Industry/ETF 结果，Trend前5%与显著上升补充池先经LLM初筛，
+`signal_center/` 主动读取同日正式 Trend/Quant/Industry/ETF 结果，Trend前5%与显著上升补充池按rank升序轮流进入固定5桶，分别经LLM初筛，
 Quant仅Top3；CN/US各自最多一个BUY或NO_TRADE。输入不足为skipped，不伪装NO_TRADE。
 复用LLMClient与advisory lock；`signal_center_run`按market+signal_date冻结输入并保存初筛/最终调用证据，成功结果不覆盖。
 Beat复用analysis队列，CN20:40–21:50、US23:10–23:50每10分钟主动检查；不由生产者推送。
