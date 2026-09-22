@@ -5,11 +5,13 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Optional
+from uuid import UUID
 
 from pydantic import BaseModel
 
 
 class TradeRequest(BaseModel):
+    operation_id: UUID
     symbol: Optional[str] = None
     account_id: Optional[int] = None
     position_id: Optional[int] = None
@@ -21,6 +23,7 @@ class TradeRequest(BaseModel):
 
 
 class CashRequest(BaseModel):
+    operation_id: UUID
     account_id: int
     amount: str
 

@@ -13,6 +13,7 @@ from sqlalchemy.pool import StaticPool
 from finance_analysis.database.models.portfolio import (  # pragma: allowlist secret
     CashOperation,
     PortfolioAccount,
+    PortfolioMutation,
     PortfolioPosition,
     PositionLot,
     TradeOperation,
@@ -26,7 +27,7 @@ from finance_analysis.portfolio.service import PortfolioService  # pragma: allow
 class Database:
     def __init__(self):
         self.engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
-        for model in (Instrument, PortfolioAccount, PortfolioPosition, PositionLot, TradeOperation, CashOperation):
+        for model in (Instrument, PortfolioAccount, PortfolioPosition, PositionLot, TradeOperation, CashOperation, PortfolioMutation):
             model.__table__.create(self.engine)
 
     @contextmanager
@@ -174,3 +175,61 @@ def test_update_position_toggles_trade_engine_without_changing_lots():
     again = service.update_position(9, opened["id"], trade_engine_enabled=True)
     assert again["trade_engine_enabled"] is True
     assert "strategy_key" not in again
+
+
+def test_mutation_replay_preserves_original_result_after_later_trades():
+    from uuid import uuid4
+    service = _service()
+    account = service.ensure_accounts(1)[0]
+    operation_id = str(uuid4())
+    payload = dict(account_id=account["id"], symbol="600519.SH", quantity="10", price="4", operation_id=operation_id)
+    first = service.buy(1, **payload)
+    service.buy(1, account_id=account["id"], symbol="600519.SH", quantity="5", price="5")
+    assert service.buy(1, **payload) == first
+    assert service.get_position(1, first["id"])["quantity"] == 15
+    assert len(service.list_operations(1, first["id"])) == 2
+    # Numerically equivalent values are the same request.
+    assert service.buy(1, **{**payload, "quantity": "10.00"}) == first
+
+
+def test_closed_position_sell_replay_and_conflict():
+    from uuid import uuid4
+    from finance_analysis.portfolio.errors import OperationConflictError
+    service = _service()
+    account = service.ensure_accounts(1)[0]
+    bought = service.buy(1, account_id=account["id"], symbol="600519.SH", quantity="10", price="4")
+    payload = dict(position_id=bought["id"], quantity="10", price="5", operation_id=str(uuid4()))
+    first = service.sell(1, **payload)
+    assert service.sell(1, **payload) == first
+    with pytest.raises(OperationConflictError):
+        service.sell(1, **{**payload, "price": "6"})
+    assert len(service.list_operations(1, bought["id"])) == 2
+
+
+def test_failed_mutation_rolls_back_receipt_and_cash_retry_does_not_overwrite_new_value():
+    from uuid import uuid4
+    from sqlalchemy import select
+    service = _service()
+    account = service.ensure_accounts(1)[0]
+    key = str(uuid4())
+    with pytest.raises(PortfolioError):
+        service.buy(1, account_id=account["id"], symbol="999999.SH", quantity="1", price="4", operation_id=key)
+    with service.repository.db.get_session() as session:
+        assert session.execute(select(PortfolioMutation)).scalars().all() == []
+    first = service.set_cash(1, account_id=account["id"], amount="10", operation_id=key)
+    service.set_cash(1, account_id=account["id"], amount="20", operation_id=str(uuid4()))
+    assert service.set_cash(1, account_id=account["id"], amount="10", operation_id=key) == first
+    assert service.list_accounts(1, market="CN")[0]["cash"] == 20
+
+
+def test_receipts_are_user_scoped_and_cannot_bypass_ownership():
+    from uuid import uuid4
+    service = _service()
+    account = service.ensure_accounts(1)[0]
+    other = service.ensure_accounts(2)[0]
+    key = str(uuid4())
+    original = service.set_cash(1, account_id=account["id"], amount="10", operation_id=key)
+    with pytest.raises(PortfolioError):
+        service.set_cash(2, account_id=account["id"], amount="10", operation_id=key)
+    result = service.set_cash(2, account_id=other["id"], amount="30", operation_id=key)
+    assert result["id"] != original["id"]

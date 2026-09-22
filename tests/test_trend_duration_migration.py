@@ -18,7 +18,7 @@ def test_trend_duration_is_current_head_and_nullable_on_orm() -> None:
     config = Config(str(PROJECT_ROOT / "alembic.ini"))
     config.set_main_option("script_location", str(PROJECT_ROOT / "alembic"))
     script = ScriptDirectory.from_config(config)
-    assert script.get_current_head() == "0062_holdings_portfolio_risk"
+    assert script.get_current_head() == "0063_portfolio_mutation"
     assert ETFMomentumSnapshot.__table__.c.trend_duration_days.nullable is True
     assert TrendFollowingSnapshot.__table__.c.trend_duration_days.nullable is True
 

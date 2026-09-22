@@ -13,6 +13,7 @@ from finance_analysis.core.time import utc_now  # pragma: allowlist secret
 from finance_analysis.database.models.portfolio import (  # pragma: allowlist secret
     CashOperation,
     PortfolioAccount,
+    PortfolioMutation,
     PortfolioPosition,
     PositionLot,
     TradeOperation,
@@ -37,6 +38,32 @@ class PortfolioRepository:
 
     def run_write(self, name: str, operation):
         return self.db._run_write_transaction(name, operation)
+
+    def run_idempotent_write(self, name, uid, operation_id, request_hash, operation):
+        from finance_analysis.portfolio.errors import OperationConflictError
+        from finance_analysis.portfolio.receipts import encode_receipt, decode_receipt
+
+        def write(session):
+            if session.bind.dialect.name == "postgresql":
+                from sqlalchemy.dialects.postgresql import insert
+            else:
+                from sqlalchemy.dialects.sqlite import insert
+            # The unique insert waits for a concurrent owner to commit/rollback.
+            # Receipt and business changes always share this transaction.
+            session.execute(insert(PortfolioMutation).values(
+                uid=uid, operation_id=operation_id, request_hash=request_hash,
+            ).on_conflict_do_nothing(index_elements=["uid", "operation_id"]))
+            receipt = session.get(PortfolioMutation, (uid, operation_id))
+            if receipt.request_hash != request_hash:
+                raise OperationConflictError()
+            if receipt.response_json is not None:
+                return decode_receipt(receipt.response_json)
+            result = operation(session)
+            receipt.response_json = encode_receipt(result)
+            session.flush()
+            return result
+
+        return self.run_write(name, write)
 
     def lock_account(self, session: Session, *, uid: int, account_id: int) -> PortfolioAccount | None:
         return session.execute(

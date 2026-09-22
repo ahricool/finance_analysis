@@ -6,6 +6,9 @@ from __future__ import annotations
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any
+from uuid import UUID
+
+from finance_analysis.portfolio.receipts import request_hash
 
 from sqlalchemy.orm import Session
 
@@ -69,6 +72,14 @@ class PortfolioService:
     def __init__(self, repository: PortfolioRepository | None = None) -> None:
         self.repository = repository or PortfolioRepository()
 
+    def _mutate(self, kind, uid, operation_id, payload, write):
+        if operation_id is None:  # Internal callers may explicitly perform a fresh operation.
+            return self.repository.run_write(f"portfolio.{kind}", write)
+        operation_id = str(UUID(str(operation_id)))
+        return self.repository.run_idempotent_write(
+            f"portfolio.{kind}", uid, operation_id, request_hash({"kind": kind, **payload}), write,
+        )
+
     def ensure_accounts(self, uid: int) -> list[dict[str, Any]]:
         def write(session: Session):
             return [self._account_view(row) for row in self.repository.ensure_default_accounts(session, uid)]
@@ -81,7 +92,7 @@ class PortfolioService:
             return [self._account_view(row) for row in self.repository.list_accounts(session, uid=uid, market=market)]
 
     def set_cash(
-        self, uid: int, *, account_id: int, amount: Decimal | str | int | float,
+        self, uid: int, *, account_id: int, amount: Decimal | str | int | float, operation_id: str | None = None,
     ) -> dict[str, Any]:
         try:
             value = _dec(amount)
@@ -99,7 +110,7 @@ class PortfolioService:
             session.flush()
             return self._account_view(account)
 
-        return self.repository.run_write("portfolio.set_cash", write)
+        return self._mutate("cash", uid, operation_id, {"account_id": account_id, "amount": str(value.normalize())}, write)
 
     def buy(
         self,
@@ -112,6 +123,7 @@ class PortfolioService:
         executed_at: datetime | None = None,
         note: str | None = None,
         asset_type: str = "STOCK",
+        operation_id: str | None = None,
     ) -> dict[str, Any]:
         qty = _qty(quantity)
         px = _price(price)
@@ -187,7 +199,11 @@ class PortfolioService:
             session.flush()
             return self._position_view(session, position)
 
-        return self.repository.run_write("portfolio.buy", write)
+        return self._mutate("buy", uid, operation_id, {
+            "account_id": account_id, "symbol": canonical, "quantity": str(qty.normalize()),
+            "price": str(px.normalize()), "asset_type": asset, "note": note,
+            "executed_at": _when(executed_at) if executed_at is not None else None,
+        }, write)
 
     def sell(
         self,
@@ -198,6 +214,7 @@ class PortfolioService:
         price: Decimal | str | int | float,
         executed_at: datetime | None = None,
         note: str | None = None,
+        operation_id: str | None = None,
     ) -> dict[str, Any]:
         qty = _qty(quantity)
         px = _price(price)
@@ -255,7 +272,10 @@ class PortfolioService:
             session.flush()
             return self._position_view(session, position)
 
-        return self.repository.run_write("portfolio.sell", write)
+        return self._mutate("sell", uid, operation_id, {
+            "position_id": position_id, "quantity": str(qty.normalize()), "price": str(px.normalize()), "note": note,
+            "executed_at": _when(executed_at) if executed_at is not None else None,
+        }, write)
 
     def update_position(
         self,

@@ -677,6 +677,18 @@ describe('ETFRotationPage', () => {
     wrapper.unmount();
   });
 
+  it('opens a dated official source link without switching to Preview', async () => {
+    const { createMemoryHistory, createRouter } = await import('vue-router');
+    const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/source', component: ETFRotationPage }] });
+    await router.push('/source?market=CN&symbol=588000.SH&tradeDate=2026-08-25');
+    await router.isReady();
+    const wrapper = mount(ETFRotationPage, { global: { plugins: [router] } });
+    await flushPromises();
+    expect(apiMocks.ranking).toHaveBeenCalledWith('CN', '2026-08-25');
+    expect(apiMocks.detail).toHaveBeenCalledWith('588000.SH', 'CN', 60, '2026-08-25');
+    expect(apiMocks.preview).not.toHaveBeenCalled();
+    wrapper.unmount();
+  });
 });
 
 
@@ -690,4 +702,6 @@ it('keeps the ranking table usable when rank history fails', async () => {
   expect(wrapper.get('[data-testid="etf-rank-history"]').text()).toContain('重试排名历史');
   expect(wrapper.findAll('tr').some(row => row.text().includes('588000.SH'))).toBe(true);
   wrapper.unmount();
+
+
 });

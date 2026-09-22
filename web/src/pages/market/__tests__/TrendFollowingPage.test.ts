@@ -738,4 +738,17 @@ describe('TrendFollowingPage', () => {
     expect(document.body.querySelector('[data-testid="trend-detail"]')).not.toBeNull();
     wrapper.unmount();
   });
+  it('opens a dated official source link without switching to Preview', async () => {
+    const { createMemoryHistory, createRouter } = await import('vue-router');
+    const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/source', component: TrendFollowingPage }] });
+    await router.push('/source?market=CN&symbol=000001.SZ&tradeDate=2026-08-28');
+    await router.isReady();
+    const wrapper = mount(TrendFollowingPage, { global: { plugins: [router] } });
+    await flushPromises();
+    expect(apiMocks.ranking).toHaveBeenCalledWith('CN', '2026-08-28');
+    expect(apiMocks.detail).toHaveBeenCalledWith('000001.SZ', 'CN', 60, '2026-08-28');
+    expect(apiMocks.preview).not.toHaveBeenCalled();
+    wrapper.unmount();
+  });
+
 });

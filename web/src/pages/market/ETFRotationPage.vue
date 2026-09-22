@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { parseDate } from '@internationalized/date';
 import DailyKLineCard from '@/components/market-data/DailyKLineCard.vue';
 import { detailChartHistory as buildDetailChartHistory } from '@/utils/detailChartHistory';
 import ResearchMarketToggle from '@/components/research/ResearchMarketToggle.vue';
@@ -44,7 +45,7 @@ import {
   type ResearchDataMode,
 } from '@/utils/researchPreview';
 import { RefreshCcw } from 'lucide-vue-next';
-import { computed, onMounted, ref, shallowRef, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
 import { toast } from 'vue-sonner';
 
 const items = shallowRef<ETFMomentumSnapshot[]>([]);
@@ -361,7 +362,19 @@ function setMarket(target: ETFMarket) {
   if (market.value === target) return;
   market.value = target;
 }
-onMounted(() => void load(true, { autoSelectMode: true }));
+let entryDisposed = false;
+onBeforeUnmount(() => { entryDisposed = true; });
+onMounted(async () => {
+  const symbol = typeof route?.query?.symbol === 'string' ? route.query.symbol : '';
+  let date = '';
+  try { if (typeof route?.query?.tradeDate === 'string') date = parseDate(route.query.tradeDate).toString(); } catch { /* Ignore invalid links. */ }
+  const entryMarket = market.value;
+  if (date) { selectedDate.value = date; dataMode.value = 'official'; modeChosenByUser.value = true; }
+  await load(true, { autoSelectMode: !date });
+  if (!entryDisposed && symbol && date && market.value === entryMarket && selectedDate.value === date) {
+    await openDetail({ code: symbol });
+  }
+});
 </script>
 
 <template>

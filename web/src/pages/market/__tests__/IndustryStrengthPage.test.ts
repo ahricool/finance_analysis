@@ -34,9 +34,9 @@ const rows = [row(), row('881102.TI', '行业乙', 2)];
 
 let wrapper: VueWrapper | undefined;
 
-async function render() {
+async function render(query = '') {
   const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/research/industry-strength', component: IndustryStrengthPage }] });
-  await router.push('/research/industry-strength');
+  await router.push('/research/industry-strength' + query);
   await router.isReady();
   wrapper = mount(IndustryStrengthPage, {
     attachTo: document.body,
@@ -455,4 +455,12 @@ describe('Industry Strength', () => {
     expect(wrapper.text()).not.toContain('完整截面');
     wrapper.unmount();
   });
+});
+
+it('opens the industry source at the linked official date', async () => {
+  await render('?industry=881101.TI&tradeDate=2026-09-16');
+  await flushPromises();
+  expect(api.ranking).toHaveBeenCalledWith('2026-09-16');
+  expect(api.detail).toHaveBeenCalledWith('881101.TI', '2026-09-16');
+  expect(detailText()).toContain('行业甲');
 });

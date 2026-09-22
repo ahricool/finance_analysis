@@ -38,6 +38,20 @@ class IndustryStrengthRepository:
             db_manager = DatabaseManager.get_instance()
         self.db = db_manager
 
+    def stock_context(self, code):
+        """Latest membership only; never infer historical membership from this table."""
+        day = select(func.max(Snapshot.trade_date)).scalar_subquery()
+        query = (
+            select(Snapshot.industry_code, Snapshot.industry_name, Snapshot.trade_date,
+                   Snapshot.state, Snapshot.strength_score, Snapshot.strength_rank,
+                   Constituent.updated_at.label("members_observed_at"))
+            .join(Constituent, Constituent.industry_code == Snapshot.industry_code)
+            .where(Constituent.stock_code == code, Snapshot.trade_date == day)
+            .order_by(Snapshot.strength_rank, Snapshot.industry_code)
+        )
+        with self.db.get_session() as session:
+            return [dict(row) for row in session.execute(query).mappings()]
+
     def dates(self, end=None, limit=250):
         query = select(Snapshot.trade_date).distinct()
         if end is not None:

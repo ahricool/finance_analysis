@@ -116,3 +116,14 @@ class CashOperation(Base):
         CheckConstraint("type IN ('DEPOSIT','WITHDRAW')", name="ck_cash_operation_type"),
         CheckConstraint("amount > 0", name="ck_cash_operation_amount"),
     )
+
+
+class PortfolioMutation(Base):
+    """A committed mutation receipt, scoped to the authenticated user."""
+
+    __tablename__ = "portfolio_mutation"
+    uid = Column(Integer, primary_key=True)
+    operation_id = Column(String(36), primary_key=True)
+    request_hash = Column(String(64), nullable=False)
+    response_json = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)

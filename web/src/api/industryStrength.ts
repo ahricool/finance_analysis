@@ -28,7 +28,14 @@ export interface IndustryPreview {
   result: (IndustryRanking & { generatedAt: string; dataAsOf: string; dataLatestAt: string; constituents: Record<string, Constituents> }) | null;
 }
 const base = '/api/v1/industry-strength';
+export interface StockIndustryContext {
+  industryCode: string; industryName: string; tradeDate: string; state: IndustryState;
+  strengthScore: number | null; strengthRank: number | null; membersObservedAt: string;
+}
 export const industryStrengthApi = {
+  async stockContext(code: string): Promise<StockIndustryContext[]> {
+    return toCamelCase((await apiClient.get(`${base}/stocks/${encodeURIComponent(code)}/context`)).data);
+  },
   async preview(): Promise<IndustryPreview> {
     const result = toCamelCase<IndustryPreview>((await apiClient.get(`${base}/preview`)).data);
     if (result.result) {

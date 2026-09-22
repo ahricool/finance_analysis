@@ -7,11 +7,11 @@ from finance_analysis.core.paths import PROJECT_ROOT  # pragma: allowlist secret
 from finance_analysis.database.models.trade_engine import TradeLLMState, TradeSignalRow  # pragma: allowlist secret
 
 
-def test_alembic_head_is_0062():
+def test_alembic_head_is_0063():
     config = Config(str(PROJECT_ROOT / "alembic.ini"))
     config.set_main_option("script_location", str(PROJECT_ROOT / "alembic"))
     script = ScriptDirectory.from_config(config)
-    assert script.get_current_head() == "0062_holdings_portfolio_risk"
+    assert script.get_current_head() == "0063_portfolio_mutation"
 
 
 def test_0062_creates_llm_state_not_google_or_strategy_state():

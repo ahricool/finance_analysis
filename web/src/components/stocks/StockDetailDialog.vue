@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import ResearchEvidence from './ResearchEvidence.vue';
 import DailyKLineCard from '@/components/market-data/DailyKLineCard.vue';
 import type { RealtimeQuote } from '@/api/realtimeMarket';
 import type { MarketType } from '@/api/watchList';
@@ -191,6 +192,7 @@ function movementClass(value: number | null | undefined): string {
           </section>
 
           <DailyKLineCard :symbol="stock.code" />
+          <ResearchEvidence :key="stock.code" :symbol="stock.code" :market="stock.market_type" />
 
           <section>
             <h3 class="mb-3 text-sm font-semibold text-foreground">
