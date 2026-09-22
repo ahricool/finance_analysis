@@ -34,6 +34,7 @@ class Data:
     def __init__(self):
         self.stock_calls = []
         self.stock_history_end = DAYS[-2]
+        self.missing_stock_history = False
         self.history_calls = 0
         self.catalog_calls = 0
         self.member_calls = 0
@@ -56,8 +57,11 @@ class Data:
 
     def get_daily_bars(self, codes, start, end, **kwargs):
         assert start == DAYS[0] and end == self.stock_history_end
-        assert kwargs == {"adjustment": "forward", "source_policy": "db_only"}
+        assert kwargs["adjustment"] == "forward"
+        assert kwargs["source_policy"] in ("db_only", "remote_only")
         self.stock_calls.append((codes, kwargs))
+        if self.missing_stock_history and kwargs["source_policy"] == "db_only":
+            return Obj(data={})
         return Obj(data={c: [Obj(trade_date=d, close=100, amount=100, volume=10) for d in DAYS] for c in codes})
 
     def get_index_quotes(self, codes):
@@ -216,10 +220,12 @@ def test_next_run_recovers_after_upstream_history_is_repaired():
     assert set(cache.client.values) == {module.KEY}
 
 
-def test_preview_and_formal_calculations_match_for_identical_daily_inputs():
+@pytest.mark.parametrize("missing_db", [False, True])
+def test_preview_and_formal_calculations_match_for_identical_daily_inputs(missing_db):
     from finance_analysis.industry_strength.service import IndustryStrengthService
 
     data = Data()
+    data.missing_stock_history = missing_db
 
     def index_quotes(codes):
         return {code: Obj(**{**vars(quote(120)), "amount": 100, "volume": 10}) for code in codes}
@@ -240,3 +246,19 @@ def test_preview_and_formal_calculations_match_for_identical_daily_inputs():
             k: v for k, v in intraday.items() if k != "members_observed_at"
         }
     assert formal_members == preview_members
+    policies = [call[1]["source_policy"] for call in data.stock_calls]
+    assert policies == (["db_only", "remote_only"] if missing_db else ["db_only"]) * 2
+
+
+def test_preview_fallback_is_reloaded_each_run_and_only_results_are_saved():
+    data, cache = Data(), PreviewCache(Redis())
+    data.missing_stock_history = True
+    repo = Repo()
+    service = IndustryPreviewService(repo, data, cache=cache)
+    service.run_preview()
+    service.run_preview()
+    assert [call[1]["source_policy"] for call in data.stock_calls] == ["db_only", "remote_only"] * 2
+    assert all(call[0] == ["600001.SH"] for call in data.stock_calls)
+    assert cache.read()["result"]["items"][0]["above_ma20_ratio"] == 1
+    assert set(cache.client.values) == {module.KEY}
+    assert repo.saved == [] and repo.members is None

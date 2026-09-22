@@ -33,9 +33,10 @@ class Repository:
 
 
 class MarketData:
-    def __init__(self, broken=0, stale=False):
+    def __init__(self, broken=0, stale=False, partial_stock=False):
         self.broken = broken
         self.stale = stale
+        self.partial_stock = partial_stock
         self.stock_calls = []
 
     def get_industry_catalog(self):
@@ -55,6 +56,8 @@ class MarketData:
     def get_daily_bars(self, codes, start, end, **kwargs):
         self.stock_calls.append((codes, kwargs))
         rows = [Obj(trade_date=d, close=100, amount=100, volume=10) for d in DAYS]
+        if self.partial_stock and kwargs["source_policy"] == "db_only":
+            rows = rows[-2:]
         return Obj(data={"600001.SH": rows}, request_errors={})
 
 
@@ -97,10 +100,10 @@ def test_stale_benchmark_blocks_all_publication():
     assert repo.saved == []
 
 
-def test_formal_run_reads_complete_db_history_without_remote_fallback():
-    repo, data = Repository(), MarketData()
+def test_missing_stock_history_uses_existing_provider_without_persisting():
+    repo, data = Repository(), MarketData(partial_stock=True)
     IndustryStrengthService(repo, data).run()
-    assert [call[1]["source_policy"] for call in data.stock_calls] == ["db_only"]
+    assert [call[1]["source_policy"] for call in data.stock_calls] == ["db_only", "remote_only"]
     assert len(repo.saved) == 1
 
 
@@ -145,20 +148,12 @@ def test_constituent_api_failure_does_not_remove_valid_indices():
     assert repo.saved[0][1][0]["quality"]["breadth_errors"]
 
 
-def test_formal_runs_always_read_full_db_window():
+def test_failed_remote_history_preserves_usable_short_stored_window():
     data = MarketData()
-    calls = []
-
-    def fetch(codes, start, end, **kwargs):
-        calls.append((codes, start, end, kwargs))
-        return Obj(data={})
-
-    data.get_daily_bars = fetch
-    service = IndustryStrengthService(Repository(), data)
-    service.run()
-    service.run()
-    assert calls == [(["600001.SH"], DAYS[0], DAYS[-1],
-                      {"adjustment": "forward", "source_policy": "db_only"})] * 2
+    short = [Obj(trade_date=d, close=100, amount=100, volume=10) for d in DAYS[-10:]]
+    data.get_daily_bars = lambda *a, **kw: Obj(data={"600001.SH": short} if kw["source_policy"] == "db_only" else {})
+    result = IndustryStrengthService(Repository(), data).load_member_history(["600001.SH"], DAYS)
+    assert len(result["600001.SH"]) == 10
 
 
 def test_explicit_historical_run_saves_index_only_without_current_members(monkeypatch):

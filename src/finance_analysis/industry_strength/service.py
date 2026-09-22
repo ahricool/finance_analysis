@@ -209,11 +209,32 @@ class IndustryStrengthService:
             )
 
     def load_member_history(self, codes, sessions):
-        """Read the full forward-adjusted stock window from DB for either run mode."""
-        return self.market_data.get_daily_bars(
+        day = sessions[-1]
+        stored = self.market_data.get_daily_bars(
             codes,
             sessions[0],
-            sessions[-1],
+            day,
             adjustment="forward",
             source_policy="db_only",
         ).data
+        missing = []
+        for code in codes:
+            try:
+                aligned_closes(stored.get(code, []), sessions[-20:])
+            except ValueError:
+                missing.append(code)
+        # cn_daily_sync intentionally covers a narrower universe than all THS constituents.
+        # Fetch missing full windows through the existing provider chain, without DB writes.
+        if missing:
+            remote = self.market_data.get_daily_bars(
+                missing,
+                sessions[0],
+                day,
+                adjustment="forward",
+                source_policy="remote_only",
+            )
+            for code in missing:
+                # A validated, complete fallback is sufficient for a read-only calculation.
+                # Sticky errors are a full-history persistence guard, not a ban on fallback reads.
+                stored[code] = remote.data.get(code) or stored.get(code, [])
+        return stored
