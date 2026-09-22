@@ -225,6 +225,16 @@ def test_failed_final_reuses_frozen_snapshot_and_completed_screening():
     reads = repo.reads
     repo.sources["trend"] = RuntimeError("must not reread")
     client.fail_final = False
+    complete = client.complete_text
+
+    def inspect_retry(request, validator):
+        assert repo.run_record["status"] == "pending"
+        assert repo.run_record["error"] is None
+        assert repo.run_record["candidate_snapshot"] == before["candidate_snapshot"]
+        assert repo.run_record["screening"] == before["screening"]
+        return complete(request, validator)
+
+    client.complete_text = inspect_retry
     assert service.run("CN", DAY, deadline=True)["status"] == "completed"
     assert repo.reads == reads
     assert repo.run_record["candidate_snapshot"] == before["candidate_snapshot"]
@@ -310,6 +320,9 @@ def test_failed_bucket_resumes_frozen_plan_and_skips_completed_buckets():
         def complete_text(self, request, validator):
             if self.fail and len(self.calls) == 2:
                 raise RuntimeError("third bucket failed")
+            if not self.fail:
+                assert repo.run_record["status"] == "pending"
+                assert repo.run_record["error"] is None
             return super().complete_text(request, validator)
 
     repo, client = Repo(size=1900), FailingClient()
@@ -353,3 +366,27 @@ def test_legacy_frozen_run_retains_original_batches():
     client.fail_final = False
     service.run("CN", DAY, deadline=True)
     assert len([c for c in client.calls if c.call_type == "signal_center_screen"]) == 3
+
+
+
+def test_retry_failure_is_recorded_again_without_losing_saved_screening():
+    repo, client = Repo(), Client(fail_final=True)
+    service = SignalCenterService(repo, client, lock)
+    with pytest.raises(RuntimeError):
+        service.run("CN", DAY, deadline=True)
+    saved = deepcopy(repo.run_record)
+    complete = client.complete_text
+
+    def failing_retry(request, validator):
+        assert repo.run_record["status"] == "pending"
+        assert repo.run_record["error"] is None
+        return complete(request, validator)
+
+    client.complete_text = failing_retry
+    with pytest.raises(RuntimeError):
+        service.run("CN", DAY, deadline=True)
+    assert repo.run_record["status"] == "failed"
+    assert repo.run_record["error"]
+    assert repo.run_record["candidate_snapshot"] == saved["candidate_snapshot"]
+    assert repo.run_record["screening"] == saved["screening"]
+    assert len([c for c in client.calls if c.call_type == "signal_center_screen"]) == 5

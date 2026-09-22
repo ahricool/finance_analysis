@@ -60,6 +60,9 @@ class SignalCenterService:
                 if not enough:
                     return dict(status="skipped", reason=run["error"])
             try:
+                if run["status"] == "failed":
+                    # Publish recovery before any slow LLM call; keep the frozen evidence and completed buckets.
+                    self.repo.finish(market, day, status="pending", error=None)
                 final_snapshot = self.screen(market, day, run)
                 final_prompt = json.dumps(final_snapshot, ensure_ascii=False, allow_nan=False)
                 self.repo.finish(market, day, final_prompt=final_prompt)
