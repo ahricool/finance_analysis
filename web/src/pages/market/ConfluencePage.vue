@@ -14,7 +14,7 @@ import { formatDateTime } from '@/utils/format';
 
 const { currentUser } = useAuth();
 const market = ref<Market>('CN'); const tradeDate = ref(''); const dates = ref<string[]>([]);
-const minSignals = ref(3); const minScore = ref(0); const industry = ref(''); const lifecycle = ref('');
+const minSignals = ref<number | null>(null); const minScore = ref(0); const industry = ref(''); const lifecycle = ref('');
 const earlyOnly = ref(false); const topIndustry = ref(false); const strongOnly = ref(false);
 const result = shallowRef<ConfluenceRanking | null>(null); const selected = shallowRef<ConfluenceItem | null>(null);
 const error = shallowRef<ParsedApiError | null>(null); const loading = ref(false); const submitting = ref(false);
@@ -37,12 +37,13 @@ async function load(reset = false) {
   try {
     const [ranking, availableDates] = await Promise.all([
       api.ranking({ market: market.value, trade_date: tradeDate.value || undefined, min_score: Number(minScore.value),
-        min_signals: Number(minSignals.value), industry: industry.value || undefined, lifecycle: lifecycle.value || undefined,
+        min_signals: minSignals.value === null ? undefined : Number(minSignals.value), industry: industry.value || undefined, lifecycle: lifecycle.value || undefined,
         early_only: earlyOnly.value, top_industry: topIndustry.value, strong_only: strongOnly.value, limit: 200 }),
       api.dates(market.value),
     ]);
     if (token !== generation) return;
     result.value = ranking; dates.value = availableDates;
+    if (minSignals.value === null) minSignals.value = ranking.rules.minSignals;
   } catch (cause) { if (token === generation) error.value = getParsedApiError(cause); }
   finally { if (token === generation) loading.value = false; }
 }
@@ -161,7 +162,7 @@ onBeforeUnmount(() => { ++generation; });
       </Button>
     </div>
     <p class="text-sm text-muted-foreground">
-      正向贡献全权重，中性贡献一半，负向为 0；无数据不参与分母。至少 3 个有效维度进入默认榜单。V1 启发式规则，未经回测验证。
+      正向贡献全权重，中性贡献一半，负向为 0；无数据不参与分母。至少 {{ result?.rules.minSignals ?? '—' }} 个有效维度进入默认榜单。V1 启发式规则，未经回测验证。
     </p>
     <p
       v-if="loading"
@@ -177,7 +178,7 @@ onBeforeUnmount(() => { ++generation; });
           </p><p class="text-2xl font-semibold">
             {{ result.summary.strongConfluence }}
           </p><p class="text-xs text-muted-foreground">
-            至少 4 维 / 3 正向 / 75 分
+            至少 {{ result.rules.strongMinSignals }} 维 / {{ result.rules.strongMinPositive }} 正向 / {{ result.rules.strongMinScore }} 分
           </p>
         </div>
         <div class="rounded-lg border p-4">

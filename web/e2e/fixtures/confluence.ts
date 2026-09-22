@@ -11,5 +11,6 @@ export default {
   market: 'CN', trade_date: '2026-09-22', generated_at: row.generated_at, algorithm_version: 'confluence_v1',
   source_availability: Object.fromEntries(Object.entries(signals).map(([key, s]) => [key, { status: s.status === 'unavailable' ? 'unavailable' : 'available', count: s.status === 'unavailable' ? 0 : 1, trade_date: s.trade_date, reason: s.status === 'unavailable' ? s.reasons[0] : undefined }])),
   summary: { total: 1, eligible: 1, strong_confluence: 1, ignition_industry_strong: 1, top_industry_confluence: 1 },
+  rules: { min_signals: 3, strong_min_signals: 4, strong_min_positive: 3, strong_min_score: 75 },
   total: 1, items: [row],
 };

@@ -18,6 +18,7 @@ export interface ConfluenceRanking {
   market: Market; tradeDate: string | null; generatedAt: string | null; algorithmVersion: string | null;
   sourceAvailability: Record<SignalKey, { status: string; count: number; tradeDate: string | null; reason?: string }>;
   summary: { total: number; eligible: number; strongConfluence: number; ignitionIndustryStrong: number; topIndustryConfluence: number };
+  rules: { minSignals: number; strongMinSignals: number; strongMinPositive: number; strongMinScore: number };
   total: number; items: ConfluenceItem[];
 }
 export interface RankingParams {

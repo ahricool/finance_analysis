@@ -40,6 +40,7 @@ class Ranking(BaseModel):
     algorithm_version: str | None
     source_availability: dict[str, Any]
     summary: dict[str, int]
+    rules: dict[str, int]
     total: int
     items: list[ConfluenceItem]
 

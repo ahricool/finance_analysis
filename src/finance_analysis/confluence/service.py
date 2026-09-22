@@ -115,6 +115,12 @@ class ConfluenceService:
     ):
         response = self.repo.read(market, day)
         rows = response["items"]
+        response["rules"] = dict(
+            min_signals=c.MIN_SIGNALS,
+            strong_min_signals=c.STRONG_MIN_SIGNALS,
+            strong_min_positive=c.STRONG_MIN_POSITIVE,
+            strong_min_score=c.STRONG_MIN_SCORE,
+        )
 
         def industry_top(row):
             rank = row["signals"]["industry"]["evidence"].get("strength_rank")
