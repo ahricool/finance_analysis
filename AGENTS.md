@@ -380,3 +380,5 @@ Quant仅Top3；CN/US各自最多一个BUY或NO_TRADE。输入不足为skipped，
 复用LLMClient与advisory lock；`signal_center_run`按market+signal_date冻结输入并保存初筛/最终调用证据，成功结果不覆盖。
 Beat复用analysis队列，CN20:40–21:50、US23:10–23:50每10分钟主动检查；不由生产者推送。
 页面`/research/signal-center`，历史GET只读已存快照。详见`docs/signal-center.md`。
+
+Signal Center 历史 BUY 在 GET 时复用 DB 前复权日线批量计算 1/3/5/10D、前10日 MFE/MAE 与收盘回撤；基准是实际生成后首个可用交易日开盘。交易日精确对齐，缺日不顺延，评价与不可变分析分开，不新增任务/迁移。见 `docs/signal-center.md`。

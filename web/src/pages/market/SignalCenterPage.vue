@@ -5,6 +5,7 @@ import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import PageHeader from '@/components/layout/PageHeader.vue';
 import AppApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
 import SignalCard from '@/components/signal-center/SignalCard.vue';
+import { horizonText, returnClass } from '@/components/signal-center/evaluation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
@@ -73,7 +74,7 @@ onBeforeUnmount(() => { ++generation; ++detailGeneration; });
       >
         刷新
       </Button>
-      <span class="text-xs text-muted-foreground">今天按各市场当地日期显示；历史结果不会随当前行情变化。</span>
+      <span class="text-xs text-muted-foreground">今天按各市场当地日期显示；历史分析保持不变，收益随已入库日线更新。</span>
     </div>
     <AppApiErrorAlert
       v-if="error"
@@ -114,8 +115,20 @@ onBeforeUnmount(() => { ++generation; ++detailGeneration; });
       <h2 class="text-lg font-semibold">
         历史 Signal
       </h2>
+      <p class="text-xs text-muted-foreground">
+        收益以信号发布后首个交易日开盘为基准，第1日为买入日收盘。未到期与行情缺失分别标注，详情含前10日波动与回撤。
+      </p>
       <Table>
-        <TableHeader><TableRow><TableHead>日期</TableHead><TableHead>市场</TableHead><TableHead>股票</TableHead><TableHead>Decision</TableHead><TableHead>Confidence</TableHead><TableHead>详情</TableHead></TableRow></TableHeader>
+        <TableHeader>
+          <TableRow>
+            <TableHead>日期</TableHead><TableHead>市场</TableHead><TableHead>股票</TableHead><TableHead>Decision</TableHead><TableHead>Confidence</TableHead><TableHead
+              v-for="days in [1, 3, 5, 10]"
+              :key="days"
+            >
+              {{ days }}D 收益
+            </TableHead><TableHead>详情</TableHead>
+          </TableRow>
+        </TableHeader>
         <TableBody>
           <TableRow
             v-for="row in history"
@@ -123,6 +136,13 @@ onBeforeUnmount(() => { ++generation; ++detailGeneration; });
           >
             <TableCell>{{ row.signalDate }}</TableCell><TableCell>{{ names[row.market] }}</TableCell><TableCell>{{ row.selectedSymbol || '—' }}</TableCell>
             <TableCell>{{ row.decision || ({ pending: '分析中', failed: '失败', skipped: '跳过', completed: '已完成' }[row.status]) }}</TableCell><TableCell>{{ row.confidence || '—' }}</TableCell>
+            <TableCell
+              v-for="days in [1, 3, 5, 10]"
+              :key="days"
+              :class="returnClass(row.evaluation?.horizons.find(h => h.days === days)?.value)"
+            >
+              {{ horizonText(row.evaluation, days) }}
+            </TableCell>
             <TableCell>
               <Button
                 variant="ghost"
@@ -159,7 +179,7 @@ onBeforeUnmount(() => { ++generation; ++detailGeneration; });
     </section>
     <Dialog v-model:open="open">
       <DialogContent class="max-h-[85vh] overflow-y-auto sm:max-w-3xl">
-        <DialogHeader><DialogTitle>历史信号分析</DialogTitle><DialogDescription>仅展示当时保存的输入和判断。</DialogDescription></DialogHeader>
+        <DialogHeader><DialogTitle>历史信号分析</DialogTitle><DialogDescription>分析来自当时快照；收益单独使用之后的已入库日线计算。</DialogDescription></DialogHeader>
         <p v-if="detailLoading">
           正在读取历史分析…
         </p><AppApiErrorAlert

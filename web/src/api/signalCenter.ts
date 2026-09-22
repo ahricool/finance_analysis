@@ -2,10 +2,19 @@ import apiClient from './index';
 import { toCamelCase } from './utils';
 
 export type SignalMarket = 'CN' | 'US';
+export interface ReturnHorizon {
+  days: number; targetDate: string; status: 'pending' | 'missing' | 'available'; value: number | null;
+}
+export interface SignalEvaluation {
+  method: string; status: 'not_applicable' | 'pending' | 'partial' | 'complete' | 'unavailable';
+  reason: string | null; entryDate: string | null; entryPrice: number | null; asOf: string | null;
+  observedSessions: number; missingDates: string[]; horizons: ReturnHorizon[];
+  mfe: number | null; mae: number | null; maxDrawdownClose: number | null; evaluatedAt: string;
+}
 export interface SignalSummary {
   market: SignalMarket; signalDate: string; status: 'pending' | 'completed' | 'failed' | 'skipped';
   selectedSymbol: string | null; decision: 'BUY' | 'NO_TRADE' | null; confidence: string | null;
-  createdAt: string; completedAt: string | null;
+  createdAt: string; completedAt: string | null; evaluation?: SignalEvaluation;
 }
 export interface SignalDetail extends SignalSummary {
   analysis: { thesis: string; positiveSignals: string[]; risks: string[]; invalidations: string[] } | null;

@@ -58,3 +58,38 @@ def test_intraday_and_weekend_do_not_read_sources(monkeypatch):
         monkeypatch.setattr(tasks, "get_market_now", lambda *_: now)
         with pytest.raises(TaskSkipped):
             tasks._run("CN")
+
+
+def test_history_includes_separate_typed_evaluation_without_mutating_analysis(monkeypatch):
+    from datetime import timezone
+    from finance_analysis.signal_center import evaluation
+
+    monkeypatch.setattr(evaluation, "utc_now", lambda: datetime(2026, 9, 23, 12, tzinfo=timezone.utc))
+    saved = dict(
+        market="US",
+        signal_date="2026-09-18",
+        status="completed",
+        decision="BUY",
+        selected_symbol="TEST.US",
+        confidence="high",
+        created_at="2026-09-19T03:00:00Z",
+        completed_at="2026-09-19T03:20:00Z",
+    )
+    queries = []
+    repo = SimpleNamespace(
+        history=lambda *_: [saved],
+        load_evaluation_bars=lambda pairs: queries.append(pairs)
+        or [dict(code=code, date=day, open=100, high=120, low=90, close=110, volume=10) for code, day in pairs],
+    )
+    app = FastAPI()
+    app.include_router(api.router)
+    app.dependency_overrides[api.get_repository] = lambda: repo
+    app.dependency_overrides[require_current_user] = lambda: SimpleNamespace(id=1)
+    response = TestClient(app).get("/history")
+    assert response.status_code == 200
+    result = response.json()[0]
+    assert "evaluation" not in saved
+    assert len(queries) == 1
+    assert result["evaluation"]["entry_date"] == "2026-09-21"
+    assert result["evaluation"]["horizons"][0]["value"] == pytest.approx(0.1)
+    assert result["evaluation"]["horizons"][1]["status"] == "pending"

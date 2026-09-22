@@ -165,3 +165,35 @@ def test_industry_requires_matching_latest_generation(repo):
         row = s.query(IndustryStrengthConstituent).one()
         row.updated_at = now + timedelta(seconds=1)
     assert repo.industry("CN", day) == []
+
+
+def test_evaluation_query_reads_only_requested_symbol_dates(repo):
+    from finance_analysis.database.models.stock import StockDaily
+
+    day = date(2026, 9, 21)
+    with repo.db.session_scope() as s:
+        for i, code in [(1, "TEST.US"), (2, "OTHER.US")]:
+            s.add(
+                Instrument(
+                    id=i,
+                    market="US",
+                    code=code,
+                    native_code=code.split(".")[0],
+                    name=code,
+                    instrument_type="STOCK",
+                    currency="USD",
+                    source="test",
+                )
+            )
+        s.flush()
+        for i in (1, 2):
+            for d in (day, day + timedelta(days=1)):
+                s.add(
+                    StockDaily(
+                        instrument_id=i, date=d, open=100, high=120, low=90, close=110, volume=100, data_source="test"
+                    )
+                )
+    rows = repo.load_evaluation_bars({("TEST.US", day)})
+    assert len(rows) == 1
+    assert rows[0]["code"] == "TEST.US" and rows[0]["date"] == day and rows[0]["open"] == 100
+    assert repo.load_evaluation_bars(set()) == []

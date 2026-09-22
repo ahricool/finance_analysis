@@ -2,6 +2,7 @@
 import type { SignalDetail } from '@/api/signalCenter';
 import { formatDateTime } from '@/utils/format';
 import { Badge } from '@/components/ui/badge';
+import SignalEvaluation from './SignalEvaluation.vue';
 defineProps<{ signal: SignalDetail }>();
 const statuses = { pending: '分析中', completed: '已完成', failed: '分析失败，未产生信号', skipped: '数据不足，跳过' };
 const sourceNames: Record<string, string> = { trend: 'Trend', quant: 'Quant', industry: '行业强度', etf: 'ETF', regime: '市场环境' };
@@ -58,6 +59,10 @@ const confidence: Record<string, string> = { high: '高', medium: '中', low: '�
     >
       {{ signal.status === 'skipped' ? signal.error : statuses[signal.status] }}
     </p>
+    <SignalEvaluation
+      v-if="signal.evaluation && signal.decision === 'BUY'"
+      :evaluation="signal.evaluation"
+    />
     <div class="border-t pt-3 text-xs text-muted-foreground space-y-1">
       <p>交易日期：{{ signal.signalDate }} · 生成时间：{{ signal.completedAt ? formatDateTime(signal.completedAt) : '尚未完成' }}</p>
       <p>输入采集：{{ formatDateTime(signal.candidateSnapshot.capturedAt) }} · 候选 {{ signal.candidateSnapshot.candidates.length }} 只</p>

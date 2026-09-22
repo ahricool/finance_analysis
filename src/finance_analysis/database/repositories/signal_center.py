@@ -2,12 +2,13 @@
 
 from datetime import datetime, time, timedelta
 from zoneinfo import ZoneInfo
-from sqlalchemy import select, and_, func
+from sqlalchemy import select, and_, func, tuple_
 from finance_analysis.database.models.signal_center import SignalCenterRun
 from finance_analysis.database.models.trend_following import TrendFollowingSnapshot, TrendFollowingSummary
 from finance_analysis.database.models.etf_rotation import ETFMomentumSnapshot, ETFMarketRotationSnapshot
 from finance_analysis.database.models.industry_strength import IndustryStrengthSnapshot, IndustryStrengthConstituent
 from finance_analysis.database.models.task import TaskRecord
+from finance_analysis.database.models.stock import Instrument, StockDaily
 from finance_analysis.database.repositories.confluence import ConfluenceRepository, values
 from finance_analysis.confluence.service import json_safe
 
@@ -175,6 +176,25 @@ class SignalCenterRepository(ConfluenceRepository):
                     .limit(limit)
                 )
             ]
+
+    def load_evaluation_bars(self, pairs):
+        if not pairs:
+            return []
+        query = (
+            select(
+                Instrument.code,
+                StockDaily.date,
+                StockDaily.open,
+                StockDaily.high,
+                StockDaily.low,
+                StockDaily.close,
+                StockDaily.volume,
+            )
+            .join(Instrument, Instrument.id == StockDaily.instrument_id)
+            .where(tuple_(Instrument.code, StockDaily.date).in_(sorted(pairs)))
+        )
+        with self.db.get_session() as session:
+            return [dict(row._mapping) for row in session.execute(query)]
 
     def create(self, market, day, **fields):
         # The service holds a session advisory lock. The composite PK is the final race guard.
