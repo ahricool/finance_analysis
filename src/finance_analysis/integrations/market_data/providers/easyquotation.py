@@ -5,8 +5,11 @@ from __future__ import annotations
 import logging
 import math
 from datetime import datetime
+from time import sleep
 from typing import Any, Callable, Iterable, Mapping
 from zoneinfo import ZoneInfo
+
+from requests.exceptions import ConnectionError, SSLError, Timeout
 
 from finance_analysis.integrations.market_data.models import BatchQuoteResult, Market, MarketQuote  # pragma: allowlist secret
 from finance_analysis.integrations.market_data.normalizer import currency_for_market  # pragma: allowlist secret
@@ -17,6 +20,7 @@ CN_TZ = ZoneInfo("Asia/Shanghai")
 PROVIDER_NAME = "easyquotation"
 PROVIDER_LABEL = "easyquotation_tencent"
 REQUEST_TIMEOUT_SECONDS = 30
+REQUEST_RETRY_DELAYS = (1.0, 2.0)
 
 
 def tencent_code_to_canonical(raw_code: str) -> str | None:
@@ -133,7 +137,20 @@ class EasyQuotationProvider:
 
             def get_with_timeout(*args: Any, **kwargs: Any) -> Any:
                 kwargs.setdefault("timeout", REQUEST_TIMEOUT_SECONDS)
-                return original_get(*args, **kwargs)
+                for attempt in range(len(REQUEST_RETRY_DELAYS) + 1):
+                    try:
+                        return original_get(*args, **kwargs)
+                    except SSLError:
+                        raise
+                    except (ConnectionError, Timeout) as exc:
+                        if attempt == len(REQUEST_RETRY_DELAYS):
+                            raise
+                        delay = REQUEST_RETRY_DELAYS[attempt]
+                        logger.warning(
+                            "provider=%s request_retry=%s delay_seconds=%s error_type=%s",
+                            PROVIDER_LABEL, attempt + 1, delay, type(exc).__name__,
+                        )
+                        sleep(delay)
 
             session.get = get_with_timeout
             client._preview_timeout_patched = True
