@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { dispose, init, type Chart, type OverlayCreate, type KLineData } from 'klinecharts';
+import { dispose, init, type Chart, type OverlayCreate, type KLineData,
+  type CandleTooltipLegendsCustomCallback } from 'klinecharts';
 import { useTheme } from '@/composables/useTheme';
 
 const props = defineProps<{
@@ -18,6 +19,34 @@ let chart: Chart | null = null;
 let observer: ResizeObserver | undefined;
 let pushBar: ((bar: KLineData) => void) | undefined;
 
+const candleTooltipLegends: CandleTooltipLegendsCustomCallback = ({ current }, styles) => {
+  const { defaultValue, color } = styles.tooltip.legend;
+  const { upColor, downColor, noChangeColor } = styles.bar;
+  let changeText = defaultValue;
+  let amplitudeText = defaultValue;
+  let changeColor = color;
+  if (current && Number.isFinite(current.open) && current.open > 0) {
+    // Both percentages describe this candle; the built-in {change} uses the previous close.
+    const change = (current.close - current.open) / current.open * 100;
+    const amplitude = (current.high - current.low) / current.open * 100;
+    if (Number.isFinite(change)) {
+      changeText = `${change > 0 ? '+' : ''}${change.toFixed(2)}%`;
+      changeColor = change > 0 ? upColor : change < 0 ? downColor : noChangeColor;
+    }
+    if (Number.isFinite(amplitude)) amplitudeText = `${amplitude.toFixed(2)}%`;
+  }
+  return [
+    { title: '时间', value: '{time}' },
+    { title: '开盘', value: '{open}' },
+    { title: '最高', value: '{high}' },
+    { title: '最低', value: '{low}' },
+    { title: '收盘', value: '{close}' },
+    { title: '涨跌', value: { text: changeText, color: changeColor } },
+    { title: '振幅', value: amplitudeText },
+    { title: '成交量', value: '{volume}' },
+  ];
+};
+
 function liveBar() {
   const bar = props.current;
   const last = props.bars.at(-1);
@@ -32,7 +61,9 @@ function styles() {
   const colors = { upColor, downColor, noChangeColor: '#888888' };
   chart.setStyles({
     candle: { bar: { ...colors, upBorderColor: upColor, downBorderColor: downColor,
-      upWickColor: upColor, downWickColor: downColor }, priceMark: { last: colors } },
+      upWickColor: upColor, downWickColor: downColor }, priceMark: { last: colors },
+    tooltip: { showRule: 'follow_cross', showType: 'rect',
+      legend: { defaultValue: '--', template: candleTooltipLegends } } },
     indicator: { bars: [colors] },
   });
 }
