@@ -96,3 +96,5 @@ router.include_router(market_sentiment.router, prefix="/market-sentiment", tags=
 
 from .endpoints import dragon_tiger_flow
 router.include_router(dragon_tiger_flow.router, prefix="/dragon-tiger-flow", tags=["Dragon Tiger Flow"])
+from .endpoints import confluence
+router.include_router(confluence.router, prefix="/confluence", tags=["Confluence"])

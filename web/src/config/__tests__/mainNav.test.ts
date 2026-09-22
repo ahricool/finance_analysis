@@ -33,6 +33,7 @@ describe('main navigation', () => {
       children: marketNavItems,
     });
     expect(researchNavItems).toMatchObject([
+      { key: 'confluence', to: '/research/confluence' },
       { key: 'etf-rotation', to: '/research/etf-rotation' },
       { key: 'trend-following', to: '/research/trend-following' },
       { key: 'industry-strength', label: '行业强度', to: '/research/industry-strength' },
@@ -46,6 +47,7 @@ describe('main navigation', () => {
       'watch-list',
       'holdings',
       'timeline',
+      'confluence',
       'etf-rotation',
       'trend-following',
       'industry-strength',

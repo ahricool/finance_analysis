@@ -11,6 +11,8 @@ from celery.schedules import crontab
 
 from .constants import (
     JOB_DRAGON_TIGER_FLOW_CN,
+    JOB_CONFLUENCE_CN,
+    JOB_CONFLUENCE_US,
     JOB_CRYPTO_BTC_STRATEGY,
     JOB_INDUSTRY_STRENGTH_CN,
     JOB_INDUSTRY_STRENGTH_PREVIEW_CN,
@@ -117,6 +119,22 @@ SCHEDULED_TASK_DEFINITIONS = (
         timezone=SCHEDULE_TIMEZONE,
         queue=QUEUE_ANALYSIS,
         expires=EXPIRES_ETF_ROTATION,
+    ),
+    ScheduledTaskDefinition(
+        job_id=JOB_CONFLUENCE_US, name="多信号共振 US",
+        description="聚合截至目标日期的正式研究结果，缺失来源保持缺失",
+        task_type="scheduled_confluence_us", celery_task_name=celery_task_name(JOB_CONFLUENCE_US),
+        schedules=(CronSchedule(minute="30", hour="23", day_of_week="mon-fri", timezone=US_TIMEZONE),),
+        schedule_text="周一至周五 23:30 America/New_York",
+        timezone=US_TIMEZONE, queue=QUEUE_ANALYSIS, expires=EXPIRES_QUANT, allow_manual_run=True,
+    ),
+    ScheduledTaskDefinition(
+        job_id=JOB_CONFLUENCE_CN, name="多信号共振 CN",
+        description="聚合截至目标日期的正式研究结果，缺失来源保持缺失",
+        task_type="scheduled_confluence_cn", celery_task_name=celery_task_name(JOB_CONFLUENCE_CN),
+        schedules=(CronSchedule(minute="30", hour="20", day_of_week="mon-fri", timezone=SCHEDULE_TIMEZONE),),
+        schedule_text="周一至周五 20:30 Asia/Shanghai",
+        timezone=SCHEDULE_TIMEZONE, queue=QUEUE_ANALYSIS, expires=EXPIRES_QUANT, allow_manual_run=True,
     ),
     ScheduledTaskDefinition(
         job_id=JOB_CRYPTO_BTC_STRATEGY,

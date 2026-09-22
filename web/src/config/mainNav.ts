@@ -32,6 +32,7 @@ export const marketNavItems: NavDestination[] = [
 ];
 
 export const researchNavItems: NavDestination[] = [
+  { key: 'confluence', label: '多信号共振', to: '/research/confluence', icon: ChartNoAxesCombined },
   {
     key: 'etf-rotation',
     label: 'ETF 动量轮动',
