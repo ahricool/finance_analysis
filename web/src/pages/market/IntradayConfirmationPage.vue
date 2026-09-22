@@ -160,9 +160,10 @@ onBeforeUnmount(() => { ++generation; });
               <TableCell>
                 <Badge :variant="row.state === 'FAILED' ? 'destructive' : 'secondary'">
                   {{ row.state }}
-                </Badge><p>{{ row.confirmationScore.toFixed(1) }}</p>
+                </Badge><p>{{ row.confirmationScore == null ? 'unavailable' : row.confirmationScore.toFixed(1) }}</p>
+                <p class="text-xs text-muted-foreground">有效权重 {{ row.availableScoreWeight ?? 0 }}/100</p>
               </TableCell>
-              <TableCell :class="row.chaseRisk === 'HIGH' ? 'font-semibold text-destructive' : ''">
+              <TableCell :class="row.chaseRisk === 'HIGH' ? 'font-semibold text-destructive' : row.chaseRisk === 'UNKNOWN' ? 'text-muted-foreground' : ''">
                 {{ row.chaseRisk }}
               </TableCell>
               <TableCell>{{ pct(row.metrics.gapPct) }}</TableCell>

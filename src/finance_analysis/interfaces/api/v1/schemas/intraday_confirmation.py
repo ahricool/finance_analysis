@@ -22,13 +22,14 @@ class Confirmation(BaseModel):
     candidate_reason: list[str]
     source_generated_at: datetime
     state: State
-    confirmation_score: float
-    chase_risk: Literal["LOW", "MEDIUM", "HIGH"]
+    confirmation_score: float | None
+    available_score_weight: float = 0
+    chase_risk: Literal["LOW", "MEDIUM", "HIGH", "UNKNOWN"]
     reasons: list[Reason]
     state_reasons: list[Reason] = Field(default_factory=list)
     metrics: dict[str, Any]
     trend: dict[str, Any]
-    score_breakdown: dict[str, float] = Field(default_factory=dict)
+    score_breakdown: dict[str, float | None] = Field(default_factory=dict)
     first_confirmed_at: datetime | None = None
     failed_at: datetime | None = None
     max_confirmation_score: float = 0

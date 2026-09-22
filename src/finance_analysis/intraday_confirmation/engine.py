@@ -188,6 +188,12 @@ def decision(m, trend):
         )
     )
     risk = "HIGH" if chase else "MEDIUM" if m["gap_pct"] is not None and m["gap_pct"] >= c.GAP_OBVIOUS else "LOW"
+    # Gap, distance from previous close and VWAP are required for a current risk assessment.
+    # The completed 30m window adds evidence only once it is available.
+    if not m["data_fresh"] or any(v is None for v in (m["gap_pct"], m["return_from_previous_close"], vwap)):
+        risk = "UNKNOWN"
+    if risk == "UNKNOWN":
+        reason("chase_unavailable", "当前数据不足，追高风险 unavailable")
     if above:
         reason("opening_breakout", f"连续{c.BREAK_BARS}根闭合5分钟线突破开盘区间高点（buffer {c.BREAK_BUFFER:.1%}）")
     if below:
@@ -209,25 +215,38 @@ def decision(m, trend):
         reason("data_unavailable", "行情过期或闭合分钟线不足，不推进确认状态")
     if not confirm and not fail:
         reason("waiting", "等待价格结构、相对强度、量能及趋势共同确认；缺失数据不视为负向")
+    # Each price subcomponent has one third of the configured price weight.
+    # Missing evidence contributes neither points nor denominator weight.
     components = {
-        "price": (
-            (0.5 if above is None else float(above))
-            + (0.5 if vwap is None else float(vwap > 0))
-            + (0.5 if m["return_15m"] is None else float(healthy_window))
-        )
-        / 3,
-        "relative_strength": 0.5 if rs is None else float(rs >= c.RS_CONFIRM),
-        "volume": 0.5 if volume is None else min(1, volume / c.VOLUME_EXPANDING),
-        "trend": 0.5 if trend.get("impact") == "unavailable" else float(intact),
+        "price": [
+            None if above is None else float(above),
+            None if vwap is None else float(vwap > 0),
+            None if m["return_15m"] is None else float(healthy_window),
+        ],
+        "relative_strength": [None if rs is None else float(rs >= c.RS_CONFIRM)],
+        "volume": [None if volume is None else min(1, volume / c.VOLUME_EXPANDING)],
+        "trend": [None if trend.get("impact") in {None, "unavailable"} else float(intact)],
     }
-    scores = {f"{key}_score": round(value * c.SCORE_WEIGHTS[key], 2) for key, value in components.items()}
-    scores["risk_penalty"] = c.RISK_PENALTY[risk]
-    score = max(0, min(100, sum(v for k, v in scores.items() if k != "risk_penalty") - scores["risk_penalty"]))
+    scores = {}
+    available_weight = 0
+    for key, values in components.items():
+        available = [v for v in values if v is not None] if m["data_fresh"] else []
+        unit_weight = c.SCORE_WEIGHTS[key] / len(values)
+        available_weight += len(available) * unit_weight
+        scores[f"{key}_score"] = round(sum(available) * unit_weight, 2) if available else None
+    scores["risk_penalty"] = c.RISK_PENALTY.get(risk)
+    points = sum(v for k, v in scores.items() if k != "risk_penalty" and v is not None)
+    score = (
+        round(max(0, min(100, points * 100 / available_weight - (scores["risk_penalty"] or 0))), 2)
+        if available_weight
+        else None
+    )
     raw = "FAILED" if fail else "CONFIRMED" if confirm else "WAIT"
     return dict(
         proposed_state=raw if m["data_fresh"] else "WAIT",
         reasons=reasons,
-        confirmation_score=round(score, 2),
+        confirmation_score=score,
+        available_score_weight=round(available_weight, 2),
         score_breakdown=scores,
         chase_risk=risk,
     )
@@ -270,7 +289,7 @@ def stabilize(current, previous, observation, now):
         last_observation=max(filter(None, (stamp, old.get("last_observation"))), default=None),
         first_confirmed_at=old.get("first_confirmed_at") or (now.isoformat() if state == "CONFIRMED" else None),
         failed_at=old.get("failed_at") or (now.isoformat() if state == "FAILED" else None),
-        max_confirmation_score=max(old.get("max_confirmation_score", 0), current["confirmation_score"]),
+        max_confirmation_score=max(old.get("max_confirmation_score", 0), current["confirmation_score"] or 0),
         state_reasons=current["reasons"][:] if changed else old.get("state_reasons", []),
         current_price_recovered=current.get("current_price_recovered", False),
     )

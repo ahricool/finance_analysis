@@ -6,8 +6,8 @@ export type Source = 'confluence' | 'trend' | 'quant';
 export interface Reason { code: string; text: string }
 export interface Confirmation {
   code: string; name: string; candidateSource: Source; candidateTradeDate: string;
-  candidateReason: string[]; sourceGeneratedAt: string; state: State; confirmationScore: number;
-  chaseRisk: 'LOW' | 'MEDIUM' | 'HIGH'; reasons: Reason[]; stateReasons: Reason[];
+  candidateReason: string[]; sourceGeneratedAt: string; state: State; confirmationScore: number | null; availableScoreWeight: number;
+  chaseRisk: 'LOW' | 'MEDIUM' | 'HIGH' | 'UNKNOWN'; reasons: Reason[]; stateReasons: Reason[];
   metrics: Record<string, number | string | boolean | null>;
   trend: Record<string, number | string | null>;
   firstConfirmedAt: string | null; failedAt: string | null; generatedAt: string | null;

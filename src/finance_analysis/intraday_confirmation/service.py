@@ -48,7 +48,8 @@ class ConfirmationService:
         rows.sort(
             key=lambda r: (
                 {"CONFIRMED": 0, "WAIT": 1, "FAILED": 2}[r["state"]],
-                -r.get("confirmation_score", 0),
+                r.get("confirmation_score") is None,
+                -(r.get("confirmation_score") or 0),
                 {"LOW": 0, "MEDIUM": 1, "HIGH": 2}.get(r.get("chase_risk"), 3),
                 r["code"],
             )
@@ -80,8 +81,9 @@ class ConfirmationService:
                 for row in rows:
                     row.update(
                         state="WAIT",
-                        confirmation_score=0,
-                        chase_risk="LOW",
+                        confirmation_score=None,
+                        available_score_weight=0,
+                        chase_risk="UNKNOWN",
                         metrics={},
                         trend={},
                         reasons=[dict(code="preopen", text="昨日正式候选已冻结，等待开盘确认")],

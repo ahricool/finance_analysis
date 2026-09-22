@@ -200,6 +200,8 @@ def test_freeze_only_before_open_candidate_not_expanded(monkeypatch):
     assert service.run("US", OPEN + timedelta(minutes=5))["status"] == "skipped"
     assert not calls
     assert service.run("US", OPEN - timedelta(minutes=5))["status"] == "frozen"
+    assert cache.value["items"][0]["confirmation_score"] is None
+    assert cache.value["items"][0]["chase_risk"] == "UNKNOWN"
     assert calls[0][1] == SESSION.previous_date
     assert service.run("US", OPEN - timedelta(minutes=1))["status"] == "already_frozen"
     assert len(calls) == 1
@@ -305,8 +307,9 @@ def test_get_api_read_only_filters_and_post_admin(monkeypatch):
                 candidate_reason=["昨日趋势"],
                 source_generated_at=OPEN.isoformat(),
                 state="WAIT",
-                confirmation_score=0,
-                chase_risk="LOW",
+                confirmation_score=None,
+                available_score_weight=0,
+                chase_risk="UNKNOWN",
                 reasons=[],
                 metrics={},
                 trend={},
@@ -331,7 +334,11 @@ def test_get_api_read_only_filters_and_post_admin(monkeypatch):
         assert client.get("/intraday-confirmation?market=US").json()["summary"]["total"] == 1
         assert client.get("/intraday-confirmation?market=US&state=FAILED").json()["items"] == []
         assert client.get("/intraday-confirmation?market=HK").status_code == 422
-        assert client.get("/intraday-confirmation/ABC.US?market=US").status_code == 200
+        detail = client.get("/intraday-confirmation/ABC.US?market=US")
+        assert detail.status_code == 200
+        assert detail.json()["confirmation_score"] is None
+        assert detail.json()["available_score_weight"] == 0
+        assert detail.json()["chase_risk"] == "UNKNOWN"
         assert client.get("/intraday-confirmation/ROCKET.US?market=US").status_code == 404
         assert client.post("/intraday-confirmation/run", json={"market": "US"}).status_code == 403
         app.dependency_overrides[api.require_admin] = lambda: SimpleNamespace(id=1)
@@ -402,3 +409,68 @@ def test_network_elapsed_time_is_used_for_quotes(monkeypatch):
     row = cache.value["items"][0]
     assert row["metrics"]["quote_usable"] and row["metrics"]["data_fresh"]
     assert datetime.fromisoformat(row["generated_at"]) == now + timedelta(seconds=10)
+
+
+@pytest.mark.parametrize("missing", ["quote", "minutes", "stale"])
+def test_unavailable_observation_has_no_score_or_low_risk(missing):
+    now = OPEN + timedelta(minutes=15)
+    q = None if missing == "quote" else quote()
+    bars = [] if missing == "minutes" else [bar(OPEN + timedelta(minutes=i)) for i in (0, 5, 10)]
+    if missing == "stale":
+        now += timedelta(hours=1)
+    m = metrics(q, bars, None, history(), SESSION, now)
+    result = decision(m, {"impact": "intact"})
+    assert result["chase_risk"] == "UNKNOWN"
+    assert result["confirmation_score"] is None
+    assert result["available_score_weight"] == 0
+    assert all(v is None for v in result["score_breakdown"].values())
+    assert "data_unavailable" in [r["code"] for r in result["reasons"]]
+
+
+def test_partial_score_excludes_missing_dimensions_without_penalizing_them():
+    m = inputs()
+    m.update(relative_to_market=None, volume_ratio=None)
+    result = decision(m, {"impact": "unavailable"})
+    assert result["available_score_weight"] == 45
+    assert result["confirmation_score"] == 100
+    assert result["score_breakdown"]["relative_strength_score"] is None
+    assert result["proposed_state"] == "WAIT"
+    m.update(break_above_opening_range=None, vwap_distance_pct=None, return_15m=None)
+    result = decision(m, {"impact": "unavailable"})
+    assert result["confirmation_score"] is None
+    assert result["available_score_weight"] == 0
+    assert result["chase_risk"] == "UNKNOWN"
+    m["relative_to_market"] = -0.02
+    result = decision(m, {"impact": "unavailable"})
+    assert result["confirmation_score"] == 0  # Observed weakness, not missing evidence.
+    assert result["available_score_weight"] == 25
+
+
+@pytest.mark.parametrize("state", ["CONFIRMED", "FAILED"])
+def test_outage_preserves_latched_state_and_recovery_recomputes_score(state):
+    now = OPEN + timedelta(minutes=15)
+    old = {"state": state, "max_confirmation_score": 95}
+    m = metrics(None, [], None, [], SESSION, now)
+    outage = stabilize(decision(m, {"impact": "unavailable"}), old, None, now)
+    assert outage["state"] == state
+    assert outage["chase_risk"] == "UNKNOWN"
+    assert outage["confirmation_score"] is None
+    assert outage["max_confirmation_score"] == 95
+    recovered = stabilize(decision(inputs(), {"impact": "intact"}), outage, now, now)
+    assert recovered["state"] == state
+    assert recovered["chase_risk"] == "LOW"
+    assert recovered["confirmation_score"] == 100
+    assert recovered["available_score_weight"] == 100
+
+
+def test_null_score_sorts_after_observed_zero_within_state():
+    cache = Cache()
+    cache.value = {
+        "items": [
+            {"code": "A.US", "state": "CONFIRMED", "confirmation_score": None, "chase_risk": "UNKNOWN"},
+            {"code": "B.US", "state": "CONFIRMED", "confirmation_score": 0, "chase_risk": "LOW"},
+            {"code": "C.US", "state": "WAIT", "confirmation_score": 100, "chase_risk": "LOW"},
+        ]
+    }
+    result = ConfirmationService(cache=cache, repository=object(), market_data=object()).read("US", now=OPEN)
+    assert [r["code"] for r in result["items"]] == ["B.US", "A.US", "C.US"]

@@ -29,6 +29,22 @@ describe('intraday confirmation page', () => {
     expect(api.read).toHaveBeenLastCalledWith('CN', 'FAILED', undefined);
     wrapper.unmount();
   });
+  it('renders an unavailable current observation without implying low risk or losing confirmation', async () => {
+    vi.mocked(api.read).mockResolvedValue({ ...snapshot, items: [{ ...snapshot.items[0],
+      confirmationScore: null, availableScoreWeight: 0, chaseRisk: 'UNKNOWN',
+      reasons: [{ code: 'data_unavailable', text: '行情不可用' }],
+    }] } as never);
+    const wrapper = mount(Page);
+    await flushPromises();
+    const row = wrapper.get('tbody tr');
+    expect(row.text()).toContain('CONFIRMED');
+    expect(row.text()).toContain('unavailable');
+    expect(row.text()).toContain('有效权重 0/100');
+    const risk = row.findAll('td').find(cell => cell.text() === 'UNKNOWN');
+    expect(risk?.classes()).toContain('text-muted-foreground');
+    expect(row.text()).not.toContain('LOW');
+    wrapper.unmount();
+  });
   it('shows missed preopen freeze as an empty pool', async () => {
     vi.mocked(api.read).mockResolvedValue({ ...snapshot, status: 'not_frozen', items: [] } as never);
     const wrapper = mount(Page);

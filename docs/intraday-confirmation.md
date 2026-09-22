@@ -91,7 +91,7 @@ Trend Score delta 因而是**固定昨日横截面基线下的临时变化**，�
 同一根线反复手动运行不累计。缺数据/中断条件重置 pending。CONFIRMED 保持到稳定 FAILED；
 FAILED 当天锁定，恢复时仅显示 `current_price_recovered`。保存状态变更理由与当前观察理由，避免混淆。
 
-确认分按 Price 45 / RS 25 / Volume 20 / Trend 10 加总，减追高 penalty（0/5/10），限制 0–100。
+确认分使用 Price 45 / RS 25 / Volume 20 / Trend 10 权重，仅按可用证据归一化，减已知追高 penalty（0/5/10），限制 0–100。
 分数用于排序，不决定状态。数据缺失不生成负向理由。
 
 Gap≥5%、距昨收≥8%、距 VWAP≥3.5% 或开盘30m≥5% 任一触发 HIGH chase risk；否则 Gap≥2% 为 MEDIUM。
@@ -122,3 +122,11 @@ V1 不新增 DB 业务表，也不保存跨日确认历史。优点是小而独�
 `pytest tests/intraday_confirmation -q` 覆盖冻结日期、非候选排除、窗口完整性、VWAP 缺失、真实闭合突破、
 失败组合、不同 bar 的稳定机制、FAILED 锁定、延迟时间、只读 GET、管理员任务、日历及 Tencent 定向路由。
 前端测试覆盖 API snake/camel 转换、null 与数据时间、筛选、候选理由、独立追高风险和空池提示。
+
+### 缺失数据展示
+
+本轮 Quote 过期或闭合分钟线不足时，确认分为 null、有效权重为 0、追高风险为 UNKNOWN；已有 CONFIRMED / FAILED 状态保留。
+行情 fresh 时，评分只按实际可用维度归一化到 100 分，再扣除已知风险罚分；价格的三个子项各占价格权重的三分之一。
+`available_score_weight` 显示参与评分的原始权重（满额 100），缺失子项不加分也不扣分；完全无可用维度时返回 null。
+追高风险需要 fresh 行情及 Gap、相对昨收收益、VWAP 距离；30m 完整窗口可用后补充判断。必要数据缺失时返回 UNKNOWN，使用中性样式。
+盘前冻结结果同样为 null / UNKNOWN，排序时同状态的 null 分数放在有分数的结果之后。
