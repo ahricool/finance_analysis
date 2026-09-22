@@ -281,3 +281,15 @@ Supporting point-in-time membership would need at least:
 
 Do not retrofit this as a large Universe rewrite until a historical data source
 exists.
+
+### 选股列表的事后收益
+
+`GET /api/v1/quant/signals/ranking` 在每次请求时批量读取 `stock_daily` 前复权收盘价，
+为每个 item 返回 `return_3d`、`return_5d`、`return_since` 和 `return_as_of`，不持久化收益。
+所有收益以所查看结果的 `ModelSignal.trade_date` 当天收盘价（T0）为基准，缺少或无效则全部收益为 null，
+不顺延基准、不使用过去的涨跌幅。3D / 5D 分别取 T0 之后第 3 / 5 根已存日 K 的收盘价，
+计算 close(T3或T5) / close(T0) - 1；不按自然日加减，也不补齐缺失日线或跳过无效目标价格。
+“至今收益”终点为 DB 中 T0 之后最新有效收盘价的日期；没有后续有效日线则为 null。
+`return_as_of` 为该终点日期；没有可计算的至今收益时为 null。不同股票的终点可能不同。
+当天新信号只有 T0 行情时，三项收益均为 null，页面显示 `--`。真实已实现零收益仍显示 `0.00%`。
+一次批量窗口查询每股最多返回 T0..T5 加最新有效日 K（七行），不会逐股查询。

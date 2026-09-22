@@ -25,6 +25,14 @@ describe('quant API market scope', () => {
     });
   });
 
+  it('maps realized-return fields without changing ratio units or nulls', async () => {
+    vi.mocked(apiClient.get).mockResolvedValue({ data: { items: [{
+      return_3d: 0.0321, return_5d: null, return_since: -0.0142, return_as_of: '2026-09-22',
+    }] } });
+    const result = await quantApi.signals('CN');
+    expect(result.items[0]).toEqual({ return3D: 0.0321, return5D: null, returnSince: -0.0142, returnAsOf: '2026-09-22' });
+  });
+
   it('selects signal ranking by market without exposing a universe selector', async () => {
     await quantApi.signals('CN');
 

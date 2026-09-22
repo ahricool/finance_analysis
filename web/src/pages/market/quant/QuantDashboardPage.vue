@@ -11,7 +11,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useQuantMarket } from '@/composables/useQuantMarket';
 import type { MarketRegime, QuantCapabilities, SignalRanking } from '@/types/quant';
-import { formatPercent, formatPredictedReturn, formatScore, regimeLabels } from '@/utils/quant';
+import { formatPercent, formatPredictedReturn, formatRealizedReturn, formatScore, regimeLabels } from '@/utils/quant';
 import { formatSecurityLabel } from '@/utils/security';
 import { ref, watch } from 'vue';
 
@@ -181,6 +181,9 @@ watch(
                   <TableHead>横截面</TableHead>
                   <TableHead>时间序列</TableHead>
                   <TableHead>预测收益</TableHead>
+                  <TableHead>3D收益</TableHead>
+                  <TableHead>5D收益</TableHead>
+                  <TableHead>至今收益</TableHead>
                   <TableHead>信号</TableHead>
                 </TableRow>
               </TableHeader>
@@ -205,6 +208,9 @@ watch(
                   <TableCell>{{ formatScore(item.crossSectionScore) }}</TableCell>
                   <TableCell>{{ formatScore(item.timeSeriesScore) }}</TableCell>
                   <TableCell>{{ formatPredictedReturn(item.predictedReturn) }}</TableCell>
+                  <TableCell>{{ formatRealizedReturn(item.return3D) }}</TableCell>
+                  <TableCell>{{ formatRealizedReturn(item.return5D) }}</TableCell>
+                  <TableCell>{{ formatRealizedReturn(item.returnSince) }}</TableCell>
                   <TableCell>{{ item.signal }}</TableCell>
                 </TableRow>
               </TableBody>

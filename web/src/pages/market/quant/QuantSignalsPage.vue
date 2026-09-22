@@ -10,7 +10,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useQuantMarket } from '@/composables/useQuantMarket';
 import type { SignalRanking } from '@/types/quant';
-import { formatPredictedReturn, formatScore } from '@/utils/quant';
+import { formatPredictedReturn, formatRealizedReturn, formatScore } from '@/utils/quant';
 import { formatSecurityLabel } from '@/utils/security';
 import { computed, ref, watch } from 'vue';
 
@@ -94,7 +94,7 @@ watch(
               <TableRow>
                 <TableHead>排名</TableHead><TableHead class="min-w-[220px]">
                   股票
-                </TableHead><TableHead>最终得分</TableHead><TableHead>横截面</TableHead><TableHead>时间序列</TableHead><TableHead>风险扣分</TableHead><TableHead>预测收益</TableHead><TableHead>信号</TableHead>
+                </TableHead><TableHead>最终得分</TableHead><TableHead>横截面</TableHead><TableHead>时间序列</TableHead><TableHead>风险扣分</TableHead><TableHead>预测收益</TableHead><TableHead>3D收益</TableHead><TableHead>5D收益</TableHead><TableHead>至今收益</TableHead><TableHead>信号</TableHead>
               </TableRow>
             </TableHeader><TableBody>
               <TableRow
@@ -109,7 +109,11 @@ watch(
                   >
                     {{ formatSecurityLabel(item.code, item.name) }}
                   </RouterLink>
-                </TableCell><TableCell>{{ formatScore(item.finalScore) }}</TableCell><TableCell>{{ formatScore(item.crossSectionScore) }}</TableCell><TableCell>{{ formatScore(item.timeSeriesScore) }}</TableCell><TableCell>{{ formatScore(item.riskPenalty) }}</TableCell><TableCell>{{ formatPredictedReturn(item.predictedReturn) }}</TableCell><TableCell>
+                </TableCell><TableCell>{{ formatScore(item.finalScore) }}</TableCell><TableCell>{{ formatScore(item.crossSectionScore) }}</TableCell><TableCell>{{ formatScore(item.timeSeriesScore) }}</TableCell><TableCell>{{ formatScore(item.riskPenalty) }}</TableCell><TableCell>{{ formatPredictedReturn(item.predictedReturn) }}</TableCell>
+                <TableCell>{{ formatRealizedReturn(item.return3D) }}</TableCell>
+                <TableCell>{{ formatRealizedReturn(item.return5D) }}</TableCell>
+                <TableCell>{{ formatRealizedReturn(item.returnSince) }}</TableCell>
+                <TableCell>
                   <Badge variant="outline">
                     {{ item.signal }}
                   </Badge>
