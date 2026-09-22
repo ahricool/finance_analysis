@@ -28,6 +28,9 @@ from .registry import (
 
 FIVE_YEAR_HISTORY_DAYS = 5 * 365
 
+# Maintenance-only ordering; interactive/history/preview reads keep their existing routing.
+US_DAILY_SYNC_PROVIDERS = ("alpaca", "yfinance")
+
 DEFAULT_PROVIDER_ORDER: dict[tuple[Market, str], tuple[str, ...]] = {
     (Market.CN, LIMIT_UP_POOL): ("fuyao",),
     (Market.CN, LIMIT_DOWN_POOL): ("fuyao",),
@@ -83,6 +86,8 @@ def provider_order(market: Market | str, capability: str) -> tuple[str, ...]:
 
 @dataclass(frozen=True, slots=True)
 class DataProviderConfig:
+    alpaca_api_key: str | None = field(default=None, repr=False)
+    alpaca_secret_key: str | None = field(default=None, repr=False)
     fuyao_api_key: str | None = field(default=None, repr=False)
     fuyao_timeout_seconds: float = 10.0
     longbridge_app_key: str | None = None
@@ -116,6 +121,8 @@ class DataProviderConfig:
 @lru_cache(maxsize=1)
 def get_data_provider_config() -> DataProviderConfig:
     return DataProviderConfig(
+        alpaca_api_key=env_str("ALPACA_API_KEY") or None,
+        alpaca_secret_key=env_str("ALPACA_SECRET_KEY") or None,
         fuyao_api_key=env_str("FUYAO_API_KEY") or None,
         fuyao_timeout_seconds=env_int("FUYAO_TIMEOUT_SECONDS", 10, minimum=1),
         longbridge_app_key=env_str("LONGBRIDGE_APP_KEY") or None,

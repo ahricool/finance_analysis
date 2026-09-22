@@ -68,7 +68,9 @@ def provider(handler):
 
 def test_registry_exact_external_inventory_internal_readers_and_order():
     registry = build_default_registry(DataProviderConfig())
-    assert set(registry.names()) == {"tickflow", "yfinance", "longbridge", "fuyao", "easyquotation"}
+    assert set(registry.names()) == {
+        "alpaca", "tickflow", "yfinance", "longbridge", "fuyao", "easyquotation", "sina_minute",
+    }
     assert set(registry.names(include_internal=True)) - set(registry.names()) == {"database", "streaming"}
     assert registry.capabilities("fuyao") == {
         DAILY_BARS,

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import replace
+from time import monotonic
 from typing import Callable, Iterable, TypeVar
 
 from .config import provider_order
@@ -88,13 +89,15 @@ class MarketDataRouter:
             raise ProviderConfigurationError("one request cannot mix symbols from different markets")
         return markets.pop()
 
-    def route_daily(self, request: DailyBarsRequest, providers: Iterable[str] | None = None) -> BatchBarResult:
-        return self._route_bars(request, DAILY_BARS, "fetch_daily_bars", providers)
+    def route_daily(
+        self, request: DailyBarsRequest, providers: Iterable[str] | None = None, *, complete_fallback: bool = False,
+    ) -> BatchBarResult:
+        return self._route_bars(request, DAILY_BARS, "fetch_daily_bars", providers, complete_fallback=complete_fallback)
 
     def route_minute(self, request: MinuteBarsRequest, providers: Iterable[str] | None = None) -> BatchBarResult:
         return self._route_bars(request, MINUTE_BARS, "fetch_minute_bars", providers)
 
-    def _route_bars(self, request, capability: str, method_name: str, providers) -> BatchBarResult:
+    def _route_bars(self, request, capability: str, method_name: str, providers, *, complete_fallback=False) -> BatchBarResult:
         market = self._market_for_symbols(request.symbols)
         registrations = self._providers(market=market, capability=capability, providers=providers)
         pending = list(request.symbols)
@@ -104,6 +107,7 @@ class MarketDataRouter:
             if not pending:
                 break
             provider_request = replace(request, symbols=tuple(pending))
+            started = monotonic()
             try:
                 provider_result = getattr(registration.provider, method_name)(provider_request)
             except Exception as exc:
@@ -111,6 +115,8 @@ class MarketDataRouter:
                 for symbol in pending:
                     errors[symbol].append(f"{registration.name}: {exc}")
                     result.request_errors[symbol] = f"{registration.name}: {exc}"
+                    if complete_fallback:
+                        result.fallback_reasons.setdefault(symbol, []).append(f"{registration.name}: {exc}")
                 continue
             next_pending: list[str] = []
             for symbol in pending:
@@ -126,16 +132,32 @@ class MarketDataRouter:
                         )
                 except Exception as exc:
                     errors[symbol].append(f"{registration.name}: {exc}")
+                    if complete_fallback:
+                        result.fallback_reasons.setdefault(symbol, []).append(f"{registration.name}: {exc}")
                     next_pending.append(symbol)
                     continue
                 if bars:
                     result.data[symbol] = bars
                     result.providers_used[symbol] = registration.name
+                    if complete_fallback and not failure:
+                        # A fresh full-window response replaces a failed primary, not a partial-page merge.
+                        result.request_errors.pop(symbol, None)
                 else:
                     reason = provider_result.failed_symbols.get(symbol)
                     if reason:
                         errors[symbol].append(f"{registration.name}: {reason}")
                     next_pending.append(symbol)
+                if complete_fallback and not bars:
+                    reason = failure or "empty_response"
+                    result.fallback_reasons.setdefault(symbol, []).append(f"{registration.name}: {reason}")
+                    logger.warning("provider=%s symbol=%s fallback_reason=%s", registration.name, symbol, reason)
+            if complete_fallback:
+                logger.info(
+                    "provider=%s market=%s symbol_count=%s success_count=%s failed_count=%s "
+                    "fallback_count=%s elapsed_seconds=%.3f",
+                    registration.name, market.value, len(pending), len(pending) - len(next_pending),
+                    len(next_pending), len(next_pending), monotonic() - started,
+                )
             pending = next_pending
         for symbol in pending:
             if errors[symbol]:

@@ -86,7 +86,9 @@ def test_unified_provider_identity_and_existing_routes_unchanged():
     from finance_analysis.integrations.market_data.config import DEFAULT_PROVIDER_ORDER
     from finance_analysis.integrations.market_data.service import build_default_registry
     registry = build_default_registry()
-    assert set(registry.names()) == {"tickflow", "yfinance", "longbridge", "fuyao", "easyquotation"}
+    assert set(registry.names()) == {
+        "alpaca", "tickflow", "yfinance", "longbridge", "fuyao", "easyquotation", "sina_minute",
+    }
     assert type(registry.get("fuyao").provider) is FuyaoProvider
     from finance_analysis.integrations.market_data.models import Market
     for capability in (INDUSTRY_CATALOG, INDEX_HISTORY, INDEX_CONSTITUENTS):

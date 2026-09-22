@@ -13,7 +13,7 @@ from finance_analysis.core.time import utc_now  # pragma: allowlist secret
 from finance_analysis.database.repositories.stock import InstrumentRepository, StockRepository  # pragma: allowlist secret
 from finance_analysis.market_review.trading_calendar import get_completed_trading_days, get_market_now  # pragma: allowlist secret
 
-from .config import DataProviderConfig, get_data_provider_config
+from .config import DataProviderConfig, US_DAILY_SYNC_PROVIDERS, get_data_provider_config
 from .models import (
     Adjustment,
     BatchBarResult,
@@ -169,6 +169,7 @@ def build_default_registry(
     instrument_repository: InstrumentRepository | None = None,
     streaming_source: Any = None,
 ) -> ProviderRegistry:
+    from .providers.alpaca import AlpacaProvider
     from .providers.fuyao import FuyaoProvider
     from .providers.easyquotation import EasyQuotationProvider
     from .providers.tickflow import TickFlowFreeProvider
@@ -177,6 +178,11 @@ def build_default_registry(
 
     resolved_config = config or get_data_provider_config()
     registry = ProviderRegistry()
+    registry.register(
+        "alpaca",
+        AlpacaProvider(api_key=resolved_config.alpaca_api_key, secret_key=resolved_config.alpaca_secret_key),
+        capabilities={DAILY_BARS},
+    )
     registry.register_internal("database", _DatabaseInstrumentProvider(instrument_repository), capabilities={INSTRUMENT_INFO})
     registry.register_internal(
         "streaming",
@@ -269,7 +275,9 @@ class MarketDataService:
         instrument_repository: InstrumentRepository | None = None,
         stock_repository: StockRepository | None = None,
         streaming_source: Any = None,
+        daily_sync: bool = False,
     ) -> None:
+        self.daily_sync = daily_sync
         self.config = config or get_data_provider_config()
         self.registry = registry or build_default_registry(
             self.config,
@@ -322,6 +330,8 @@ class MarketDataService:
                 missing_symbols=[code for code in canonical if code not in data],
             )
         if source_policy == "remote_only":
+            if self.daily_sync and all(infer_market(code) is Market.US for code in canonical):
+                return self.router.route_daily(request, providers or US_DAILY_SYNC_PROVIDERS, complete_fallback=True)
             return self.router.route_daily(request, providers)
         if source_policy == "db_fresh":
             return self._get_fresh_daily(request, providers)

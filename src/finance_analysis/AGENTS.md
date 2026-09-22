@@ -123,6 +123,8 @@ LLM 调用统一进入 `llm/LLMClient`，由 `LLM_BACKEND=api|cli` 二选一。�
 - 一个批请求不能混合市场。
 - 业务标识使用 canonical `ticker.region`，不要依赖裸代码猜市场。
 - 日线只接受/返回前复权；`stock_daily` 是持久化权威数据。
+- US 日线维护使用 `MarketDataService(daily_sync=True)`：Alpaca SIP `adjustment=all` 优先，yfinance 降级。
+  凭据为 `ALPACA_API_KEY` / `ALPACA_SECRET_KEY`；普通查询和实时路由不变。详见 `docs/market-data-providers.md`。
 - `get_daily_bars()` 查询不写库。只有 `tasks/celery/jobs/market_data_sync` 等维护任务能写日线。
 - `db_only` 只读数据库；`db_first` 本地有任何历史就使用，否则远程；`db_fresh` 比较最新日期并批量补尾部到内存；`remote_only` 绕过 DB。
 - Provider 顺序来自 `integrations/market_data/config.py::provider_order()`，不要在调用方硬编码 fallback。

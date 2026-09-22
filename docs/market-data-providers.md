@@ -1,7 +1,7 @@
 # 股票 Market Data Provider
 
-外部 Provider 仅有 `tickflow`、`yfinance`、`longbridge`、`fuyao` 和
-`easyquotation`。`ProviderRegistry.names()` 返回外部列表；数据库和 Streamer Redis
+外部 Provider 有 `alpaca`、`tickflow`、`yfinance`、`longbridge`、`fuyao`、
+`easyquotation` 和 `sina_minute`。`ProviderRegistry.names()` 返回外部列表；数据库和 Streamer Redis
 读取器是内部来源，`names(include_internal=True)` 可用于检查完整路由。
 
 `USIndexConstituentProvider` 是独立 Reference Data Source，不属于 Market Data Provider，
@@ -31,6 +31,42 @@ ReferenceDataSyncService 独立路由这两类来源。请求失败或返回空�
 的优先级。easyquotation 用于 Tencent CN Trend Following / ETF Rotation Preview，
 并作为 CN 全市场快照的备用来源；不参与逐股 Quote、指数或板块排行 fallback。
 TickFlow → Longbridge 的证券主数据同步顺序不变。
+
+## Alpaca 美股日线同步
+
+显式日线维护任务使用 `MarketDataService(daily_sync=True)`，US 的 `remote_only`
+调用按配置 `US_DAILY_SYNC_PROVIDERS` 选择 **alpaca → yfinance**。这条同步链不再用
+TickFlow 补缺口；上表普通行情查询的路由不变。Alpaca 只注册 `DAILY_BARS`，不用于
+Quote、分钟线、盘中预演或 Longbridge Streamer。
+
+在 `.env` 或进程环境中配置 `ALPACA_API_KEY` 和 `ALPACA_SECRET_KEY`；均按现有
+配置加载并隐藏于配置 repr。开发/生产 Compose 已挂载 `.env`，无需增加容器配置。
+新配置在 Worker 重启后生效；缺少任一凭据会跳过 Alpaca 网络请求并降级。
+
+调用官方 `https://data.alpaca.markets/v2/stocks/bars`，每批最多100个 symbols，
+每页最多10000条，完整追踪 `next_page_token`。批次复用已有10秒节流，分页串行，
+连接复用、每个请求超时20秒；HTTP错误交给 yfinance 降级，401/403 不再重复请求后续批次。
+使用 `feed=sip` 获取全市场成交量，固定 `timeframe=1Day, adjustment=all`。
+结束时间取纽约交易日结束与当前时间减16分钟的较早者，避免免费账户的近期 SIP 限制。
+
+`NVDA.US → NVDA`，`BRK.B.US → BRK.B`；返回时间先转换到 `America/New_York`
+再取交易日期，日线 `bar_time=None`。OHLC 为 USD 前复权价，拆股成交量由上游调整，
+单位为股。成交额上游未直接提供，保持 `amount=None`，不以调整后 VWAP 乘成交量伪造。
+`all` 包含拆股、分红和分拆调整；不会自行再次计算复权因子。
+
+空数据、不支持的代码、错误 OHLCV、缺失交易日（首条历史以前允许 IPO 空窗）或请求失败
+均按 symbol 降级。分页失败丢弃该批不完整响应，再从 yfinance 拉整个窗口；其他成功批保留。
+Router 不拼接两家 Provider 的单个股票日线，避免混用复权基准。恢复的首选源错误写入
+`fallback_reasons`；最终下载仍有错误则保留 `request_errors`，阻止不完整全量响应覆盖旧库。
+现有复权比例变化检测与自动全量刷新仍生效。
+
+输出仍为 `BatchBarResult / MarketBar`，由现有同步服务写 `stock_daily`，
+不新增表或迁移。任务日志含 provider、请求/成功/失败/缺失/fallback 数量与耗时；
+任务结果增加 `fallback_count`、`elapsed_seconds` 并保留已有覆盖率和失败列表。
+
+官方契约：[Historical bars](https://docs.alpaca.markets/us/reference/stockbars)、
+[Market Data FAQ](https://docs.alpaca.markets/us/docs/market-data-faq)。离线测试：
+`uv run pytest tests/test_alpaca_provider.py tests/test_market_data_service.py -q`。
 
 ## Fuyao 接入
 

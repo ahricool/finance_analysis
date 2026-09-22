@@ -47,7 +47,9 @@ def test_default_reference_routes_do_not_register_wikipedia_as_market_data(monke
     assert service.index_providers["AKSHARE"].fetch_index_members("000300") == [{"code": "600519.SH"}]
     fetch.assert_called_once_with("000300")
     registry = build_default_registry()
-    assert set(registry.names()) == {"tickflow", "yfinance", "longbridge", "fuyao", "easyquotation"}
+    assert set(registry.names()) == {
+        "alpaca", "tickflow", "yfinance", "longbridge", "fuyao", "easyquotation", "sina_minute",
+    }
     assert "wikipedia" not in registry.names(include_internal=True)
 
 
