@@ -99,6 +99,44 @@ def test_conflicts_not_summed_or_silently_discarded():
         normalize_source(bad, DAY, "all")
 
 
+@pytest.mark.parametrize("board", ["all", "org", "hot_money"])
+def test_extended_periods_are_audited_without_entering_observations(board):
+    rows = [row(), row(period=3), row(period=10), row("600002.SH", period=30)]
+    raw = source(rows, board, groups=[{"name": "席位A", "rows": rows}])
+    if board != "hot_money":
+        raw["hot_money_items"] = []
+    normalized = normalize_source(raw, DAY, board)
+    key = "details" if board == "hot_money" else "rows"
+    assert [r["range_days"] for r in normalized[key]] == [1, 3]
+    assert [r["range_days"] for r in normalized["excluded_" + key]] == [10, 30]
+    assert normalized["upstream_count"] == 4
+    assert normalized["upstream_stock_count"] == 2
+    assert normalized["quality"]["excluded_period_counts"] == {"10": 1, "30": 1}
+
+
+@pytest.mark.parametrize("board", ["all", "org", "hot_money"])
+@pytest.mark.parametrize("patch", [{"net_value": "NaN"}, {"value": "200"}])
+def test_extended_periods_still_validate_fields_and_conflicts(board, patch):
+    rows = [row(period=10), row(period=10, **patch)]
+    raw = source(rows, board, groups=[{"name": "席位A", "rows": rows}] if board == "hot_money" else [])
+    with pytest.raises(ValueError):
+        normalize_source(raw, DAY, board)
+
+
+@pytest.mark.parametrize("period", [None, True, "10", 10.0, 0, -1, 2, 5, 20, 60])
+def test_unknown_or_invalid_periods_remain_errors(period):
+    with pytest.raises(ValueError, match="period"):
+        normalize_source(source([row(period=period)]), DAY, "all")
+
+
+def test_extended_periods_do_not_hide_count_mismatches():
+    for field in ("count", "stock_count"):
+        raw = source([row(), row("600002.SH", period=30)])
+        raw[field] -= 1
+        with pytest.raises(ValueError, match="Incomplete"):
+            normalize_source(raw, DAY, "all")
+
+
 def test_hot_money_detail_is_limited_not_stock_total():
     groups = [
         {"name": "席位A", "rows": [row(hot_money_item_net_value="5")]},
@@ -184,6 +222,46 @@ def db():
 
     yield DB()
     engine.dispose()
+
+
+def test_extended_periods_publish_and_preserve_public_schema(db, monkeypatch):
+    from finance_analysis.interfaces.api.v1.schemas.dragon_tiger_flow import Overview
+
+    rows = [row(), row(period=3, value="300"), row(period=10, value="10000"), row(period=30, value="30000")]
+
+    def handler(request):
+        board = request.url.params["board_type"]
+        groups = [{"name": "席位A", "rows": rows}] if board == "hot_money" else []
+        return httpx.Response(200, json={"code": 0, "data": source(rows, board, groups=groups)})
+
+    provider = FuyaoProvider(api_key="test", transport=httpx.MockTransport(handler))
+    repo = DragonTigerFlowRepository(db)
+    monkeypatch.setattr("finance_analysis.dragon_tiger_flow.service.validate_day", lambda day: None)
+    monkeypatch.setattr("finance_analysis.database.repositories.dragon_tiger_flow.sessions_through", lambda d, n: [d])
+    assert DragonTigerFlowService(repo, provider).run(DAY)["status"] == "completed"
+    assert repo.has_complete(DAY)
+    with db.get_session() as session:
+        stored = session.get(Batch, DAY).payload["sources"]
+        assert len(stored["all"]["excluded_rows"]) == 2
+        assert len(stored["org"]["excluded_rows"]) == 2
+        assert len(stored["hot_money"]["excluded_details"]) == 2
+    for board, amounts in (("all", (100.01, 300)), ("org", (20, 20)), ("hot_money", (30, 30))):
+        for period, expected in zip((1, 3), amounts):
+            result = repo.window(DAY, board=board, period=period)
+            Overview.model_validate(result)
+            assert result["complete"]
+            assert result["summary"]["net_value"] == expected
+            assert all(r["range_days"] == period for r in result["evidence"] + result["hot_money_details"])
+            quality = result["source_quality"][0]["sources"][board]["quality"]
+            assert quality["excluded_period_counts"] == {"10": 1, "30": 1}
+
+
+def test_extended_only_source_is_complete_empty_observation():
+    result = calculate({DAY: batch([row(period=10), row(period=30)])}, [DAY])
+    assert result["complete"]
+    assert result["summary"]["net_value"] == 0
+    assert result["summary"]["stock_count"] == 0
+    assert result["evidence"] == []
 
 
 def test_atomic_publication_and_read_only_window(db, monkeypatch):
