@@ -17,6 +17,7 @@ from finance_analysis.database.models.portfolio import (  # pragma: allowlist se
     PositionLot,
     TradeOperation,
 )
+from finance_analysis.database.models.stock import Instrument  # pragma: allowlist secret
 from finance_analysis.database.session import DatabaseManager  # pragma: allowlist secret
 
 DEFAULT_ACCOUNT_NAMES = {"CN": "A股账户", "US": "美股账户"}
@@ -84,6 +85,9 @@ class PortfolioRepository:
         if market:
             query = query.where(PortfolioAccount.market == market)
         return list(session.execute(query.order_by(PortfolioAccount.market, PortfolioAccount.id)).scalars())
+
+    def get_instrument(self, session: Session, *, symbol: str) -> Instrument | None:
+        return session.execute(select(Instrument).where(Instrument.code == symbol)).scalar_one_or_none()
 
     def get_open_position(self, session: Session, *, account_id: int, symbol: str) -> PortfolioPosition | None:
         return session.execute(

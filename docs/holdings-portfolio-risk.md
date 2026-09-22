@@ -51,7 +51,7 @@ CN / US 分别独立执行。
 - `portfolio_position`：当前实际持仓。V1 只支持 STOCK/ETF。`trade_engine_enabled` 默认 true；关闭后该持仓不运行 Strategy，LLM target 强制等于 current，但仍计入账户 NAV、仓位和风险。
 - `position_lot`：CORE/ADDON 风险归因。第一次买入建 CORE，继续买入建 ADDON。只要本轮 position 曾经有过 ADDON（即使 remaining=0），`add_v1` 视为已经加仓过。
 - `trade_operation`：BUY/SELL。日K BST 由此动态聚合。
-- `cash_operation`：DEPOSIT/WITHDRAW。
+- `cash_operation`：仅保留历史 DEPOSIT/WITHDRAW 记录，新操作不再写入。
 - `trade_llm_state`：每个 `uid + market` 一行。保存简洁交易记忆 `summary` 和上一轮 `last_decision`。
 - `trade_signal`：仅在 LLM 最终 `target ≠ current` 时写入 BUY/ADD/REDUCE/EXIT。
 
@@ -61,8 +61,8 @@ CN / US 分别独立执行。
 
 同一事务：
 
-- 入金/出金更新 `cash`，现金不能为负。
-- BUY：写操作、创建/更新持仓、创建 CORE/ADDON、更新数量与剩余 lot 加权平均成本、`cash -= qty * price`。
+- 通过 `PATCH /api/v1/holdings/cash` 按账户设置独立现金余额（可为 0，不可为负）。移除入金/出金入口；现金仅供 NAV、仓位、Trade Engine 与风险计算，买卖不自动改变现金，也不以现金余额限制买入录入。已有现金值原样保留。
+- BUY：写操作、创建/更新持仓、创建 CORE/ADDON、更新数量与剩余 lot 加权平均成本；不修改现金。买入复用证券搜索建议，并由后端校验 instrument 中的代码、市场及 STOCK/ETF 类型，以主数据类型为准。
 - SELL：数量不能超过当前持仓；newest-first 扣 lot；全部卖完后关闭当前 position。再次买入开新一轮。
 
 不考虑手续费。

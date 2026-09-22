@@ -2,14 +2,14 @@ import { flushPromises, mount, type VueWrapper } from '@vue/test-utils';
 import { createPinia } from 'pinia';
 import { createMemoryHistory, createRouter } from 'vue-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import StockAutocomplete from '@/components/StockAutocomplete/StockAutocomplete.vue';
 import HoldingsPage from '../market/HoldingsPage.vue';
 
 const mocks = vi.hoisted(() => ({
   summary: vi.fn(),
   buy: vi.fn(),
   sell: vi.fn(),
-  deposit: vi.fn(),
-  withdraw: vi.fn(),
+  setCash: vi.fn(),
   operations: vi.fn(),
   markers: vi.fn(),
   updatePosition: vi.fn(),
@@ -24,8 +24,7 @@ vi.mock('@/api/holdings', () => ({
     summary: mocks.summary,
     buy: mocks.buy,
     sell: mocks.sell,
-    deposit: mocks.deposit,
-    withdraw: mocks.withdraw,
+    setCash: mocks.setCash,
     operations: mocks.operations,
     markers: mocks.markers,
     updatePosition: mocks.updatePosition,
@@ -77,6 +76,7 @@ async function mountPage() {
       plugins: [createPinia(), router],
       stubs: {
         DailyKLineCard: true,
+        StockAutocomplete: true,
         Dialog: { props: ['open'], template: '<div v-if="open"><slot /></div>' },
         DialogContent: { template: '<div><slot /></div>' },
         DialogHeader: { template: '<div><slot /></div>' },
@@ -91,9 +91,10 @@ async function mountPage() {
 
 describe('HoldingsPage', () => {
   beforeEach(() => {
+    vi.clearAllMocks();
     mocks.summary.mockResolvedValue(summary);
     mocks.positions.mockResolvedValue([{ symbol: '600519.SH', action: 'HOLD', profitStage: 'A', activeStop: '9.6' }]);
-    mocks.deposit.mockResolvedValue({});
+    mocks.setCash.mockResolvedValue({});
     mocks.buy.mockResolvedValue({});
     mocks.operations.mockResolvedValue([]);
     mocks.markers.mockResolvedValue([]);
@@ -101,16 +102,58 @@ describe('HoldingsPage', () => {
   });
   afterEach(() => wrapper?.unmount());
 
-  it('shows DB portfolio totals and lets the user deposit then buy', async () => {
+  it('shows totals and replaces cash with an independently entered balance', async () => {
     await mountPage();
     expect(wrapper.get('[data-testid="cash"]').text()).toContain('90,000');
     expect(wrapper.get('[data-testid="total-asset"]').text()).toContain('100,000');
     expect(wrapper.text()).toContain('600519.SH');
-    await wrapper.get('[data-testid="action-deposit"]').trigger('click');
+    await wrapper.get('[data-testid="action-cash"]').trigger('click');
+    expect((wrapper.get('[data-testid="form-amount"]').element as HTMLInputElement).value).toBe('90000');
+    expect(wrapper.text()).not.toMatch(/入金|出金/);
     await wrapper.get('[data-testid="form-amount"]').setValue('100000');
     await wrapper.get('[data-testid="form-submit"]').trigger('click');
     await flushPromises();
-    expect(mocks.deposit).toHaveBeenCalledWith({ accountId: 1, amount: '100000' });
+    expect(mocks.setCash).toHaveBeenCalledWith({ accountId: 1, amount: '100000' });
+  });
+
+  it('requires a search selection and submits canonical code and instrument type', async () => {
+    await mountPage();
+    await wrapper.get('[data-testid="action-buy"]').trigger('click');
+    expect(wrapper.get('[data-testid="form-submit"]').attributes('disabled')).toBeDefined();
+    const search = wrapper.getComponent(StockAutocomplete);
+    search.vm.$emit('update:modelValue', '510300');
+    search.vm.$emit('submit', '510300.SH', '沪深300ETF', 'autocomplete', 'CN', 'etf');
+    await flushPromises();
+    await wrapper.get('[data-testid="form-quantity"]').setValue('100');
+    await wrapper.get('[data-testid="form-price"]').setValue('4');
+    await wrapper.get('[data-testid="form-submit"]').trigger('click');
+    await flushPromises();
+    expect(mocks.buy).toHaveBeenCalledWith({
+      accountId: 1, symbol: '510300.SH', assetType: 'ETF', quantity: '100', price: '4',
+    });
+    expect(mocks.setCash).not.toHaveBeenCalled();
+  });
+
+  it('invalidates a selection on edits and rejects manual, other market and index selections', async () => {
+    await mountPage();
+    await wrapper.get('[data-testid="action-buy"]').trigger('click');
+    const search = wrapper.getComponent(StockAutocomplete);
+    search.vm.$emit('submit', '600519.SH', '', 'autocomplete', 'CN', 'stock');
+    await flushPromises();
+    expect(wrapper.get('[data-testid="form-submit"]').attributes('disabled')).toBeUndefined();
+    search.vm.$emit('update:modelValue', '600');
+    await flushPromises();
+    expect(wrapper.get('[data-testid="form-submit"]').attributes('disabled')).toBeDefined();
+    for (const args of [
+      ['600519.SH', '', 'manual'],
+      ['AAPL.US', '', 'autocomplete', 'US', 'stock'],
+      ['000001.SH', '', 'autocomplete', 'CN', 'index'],
+    ]) {
+      search.vm.$emit('submit', ...args);
+      await flushPromises();
+      expect(wrapper.get('[data-testid="form-submit"]').attributes('disabled')).toBeDefined();
+    }
+    expect(mocks.buy).not.toHaveBeenCalled();
   });
 
   it('toggles trade engine from the position detail', async () => {

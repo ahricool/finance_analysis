@@ -174,35 +174,12 @@ def sell(body: TradeRequest, request: Request, response: Response, service: Port
         raise HTTPException(status_code=400, detail=str(extra)) from extra
 
 
-@router.post("/cash/deposit")
-def deposit(body: CashRequest, request: Request, response: Response, service: PortfolioService = Depends(_portfolio)):
+@router.patch("/cash")
+def set_cash(body: CashRequest, request: Request, response: Response, service: PortfolioService = Depends(_portfolio)):
     _private(response)
     try:
         return _account_payload(
-            service.deposit(
-                get_effective_uid(request),
-                account_id=body.account_id,
-                amount=body.amount,
-                executed_at=body.executed_at,
-                note=body.note,
-            )
-        )
-    except PortfolioError as extra:
-        raise HTTPException(status_code=400, detail=str(extra)) from extra
-
-
-@router.post("/cash/withdraw")
-def withdraw(body: CashRequest, request: Request, response: Response, service: PortfolioService = Depends(_portfolio)):
-    _private(response)
-    try:
-        return _account_payload(
-            service.withdraw(
-                get_effective_uid(request),
-                account_id=body.account_id,
-                amount=body.amount,
-                executed_at=body.executed_at,
-                note=body.note,
-            )
+            service.set_cash(get_effective_uid(request), account_id=body.account_id, amount=body.amount)
         )
     except PortfolioError as extra:
         raise HTTPException(status_code=400, detail=str(extra)) from extra

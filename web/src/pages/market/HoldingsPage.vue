@@ -7,6 +7,8 @@ import {
   type PortfolioPosition,
   type TradeEnginePosition,
 } from '@/api/holdings';
+import StockAutocomplete from '@/components/StockAutocomplete/StockAutocomplete.vue';
+import type { AssetType, Market } from '@/types/stockIndex';
 import ApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
 import DailyKLineCard from '@/components/market-data/DailyKLineCard.vue';
 import { Button } from '@/components/ui/button';
@@ -30,8 +32,11 @@ const totalAsset = ref('0');
 const exposure = ref<string | null>(null);
 const engine = ref<TradeEnginePosition[]>([]);
 const formOpen = ref(false);
-const formKind = ref<'buy' | 'sell' | 'deposit' | 'withdraw'>('buy');
+const formKind = ref<'buy' | 'sell' | 'cash'>('buy');
 const formSymbol = ref('');
+const selectedSymbol = ref('');
+const selectedAssetType = ref('STOCK');
+const selectionError = ref('');
 const formQuantity = ref('');
 const formPrice = ref('');
 const formAmount = ref('');
@@ -86,22 +91,40 @@ async function load() {
 function openForm(kind: typeof formKind.value, row?: PortfolioPosition) {
   formKind.value = kind;
   formSymbol.value = row?.symbol || '';
+  selectedSymbol.value = row?.symbol || '';
+  selectedAssetType.value = row?.assetType || 'STOCK';
+  selectionError.value = '';
   formQuantity.value = '';
   formPrice.value = row?.currentPrice || '';
-  formAmount.value = '';
+  formAmount.value = kind === 'cash' ? account.value?.cash || '0' : '';
   formPositionId.value = row?.id ?? null;
   formOpen.value = true;
 }
 
+function selectInstrument(code: string, _name?: string, source?: 'manual' | 'autocomplete', selectedMarket?: Market, assetType?: AssetType) {
+  selectedSymbol.value = '';
+  if (source !== 'autocomplete') {
+    selectionError.value = '请从搜索建议中选择股票或 ETF';
+    return;
+  }
+  if (selectedMarket !== market.value || !['stock', 'etf'].includes(assetType || '')) {
+    selectionError.value = '请选择当前市场的股票或 ETF';
+    return;
+  }
+  selectedSymbol.value = code;
+  selectedAssetType.value = assetType!.toUpperCase();
+  selectionError.value = '';
+}
+
 async function submitForm() {
-  if (!account.value) return;
+  if (!account.value || saving.value) return;
+  if (formKind.value === 'buy' && !selectedSymbol.value) return;
   saving.value = true;
   error.value = null;
   try {
-    if (formKind.value === 'deposit') await holdingsApi.deposit({ accountId: account.value.id, amount: formAmount.value });
-    else if (formKind.value === 'withdraw') await holdingsApi.withdraw({ accountId: account.value.id, amount: formAmount.value });
+    if (formKind.value === 'cash') await holdingsApi.setCash({ accountId: account.value.id, amount: formAmount.value });
     else if (formKind.value === 'buy') {
-      await holdingsApi.buy({ accountId: account.value.id, symbol: formSymbol.value, quantity: formQuantity.value, price: formPrice.value });
+      await holdingsApi.buy({ accountId: account.value.id, symbol: selectedSymbol.value, assetType: selectedAssetType.value, quantity: formQuantity.value, price: formPrice.value });
     } else if (formPositionId.value != null) {
       await holdingsApi.sell({ positionId: formPositionId.value, quantity: formQuantity.value, price: formPrice.value });
     }
@@ -187,8 +210,7 @@ function closeDetail() {
     </div>
 
     <div class="flex flex-wrap gap-2">
-      <Button data-testid="action-deposit" @click="openForm('deposit')">入金</Button>
-      <Button variant="outline" data-testid="action-withdraw" @click="openForm('withdraw')">出金</Button>
+      <Button data-testid="action-cash" :disabled="!account || loading" @click="openForm('cash')">修改现金</Button>
       <Button variant="outline" data-testid="action-buy" @click="openForm('buy')">买入</Button>
     </div>
 
@@ -201,7 +223,7 @@ function closeDetail() {
         <Empty v-if="!loading && !positions.length">
           <EmptyHeader>
             <EmptyTitle>暂无持仓</EmptyTitle>
-            <EmptyDescription>先入金，再记录买入。</EmptyDescription>
+            <EmptyDescription>记录买入以添加持仓，现金可独立修改。</EmptyDescription>
           </EmptyHeader>
         </Empty>
         <Table v-else>
@@ -247,14 +269,23 @@ function closeDetail() {
     <Dialog :open="formOpen" @update:open="formOpen = $event">
       <DialogContent class="max-w-md">
         <DialogHeader>
-          <DialogTitle>{{ { buy: '买入', sell: '卖出', deposit: '入金', withdraw: '出金' }[formKind] }}</DialogTitle>
-          <DialogDescription>立即写入数据库真实持仓。</DialogDescription>
+          <DialogTitle>{{ { buy: '买入', sell: '卖出', cash: '修改现金' }[formKind] }}</DialogTitle>
+          <DialogDescription>{{ formKind === 'cash' ? '设置当前现金，用于仓位与风险计算；买卖不会自动改变现金。' : '记录实际持仓变动，不改变现金。' }}</DialogDescription>
         </DialogHeader>
+        <ApiErrorAlert v-if="error" :error="error" />
         <div class="space-y-3">
           <template v-if="formKind === 'buy' || formKind === 'sell'">
             <div v-if="formKind === 'buy'">
               <Label>股票</Label>
-              <Input v-model="formSymbol" data-testid="form-symbol" placeholder="600519.SH" />
+              <StockAutocomplete
+                :model-value="formSymbol"
+                :teleported="false"
+                data-testid="form-symbol"
+                @update:model-value="value => { formSymbol = value; selectedSymbol = ''; selectionError = ''; }"
+                @submit="selectInstrument"
+              />
+              <p v-if="selectionError" class="mt-1 text-sm text-destructive">{{ selectionError }}</p>
+              <p v-else class="mt-1 text-sm text-muted-foreground">{{ selectedSymbol || '输入代码或名称，从建议中选择当前市场的股票或 ETF' }}</p>
             </div>
             <div>
               <Label>数量（股）</Label>
@@ -266,13 +297,13 @@ function closeDetail() {
             </div>
           </template>
           <div v-else>
-            <Label>金额</Label>
+            <Label>现金余额（{{ account?.currency }}）</Label>
             <Input v-model="formAmount" data-testid="form-amount" />
           </div>
         </div>
         <DialogFooter>
           <Button variant="ghost" @click="formOpen = false">取消</Button>
-          <Button data-testid="form-submit" :disabled="saving" @click="submitForm">确认</Button>
+          <Button data-testid="form-submit" :disabled="saving || (formKind === 'buy' && !selectedSymbol)" @click="submitForm">确认</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

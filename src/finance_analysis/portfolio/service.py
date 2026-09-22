@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -17,7 +17,6 @@ from finance_analysis.database.repositories.portfolio import (  # pragma: allowl
 )
 from finance_analysis.integrations.market_data.normalizer import canonical_symbol, infer_market  # pragma: allowlist secret
 from finance_analysis.portfolio.errors import (  # pragma: allowlist secret
-    InsufficientCashError,
     InsufficientQuantityError,
     PortfolioError,
     PositionClosedError,
@@ -81,27 +80,26 @@ class PortfolioService:
         with self.repository.db.get_session() as session:
             return [self._account_view(row) for row in self.repository.list_accounts(session, uid=uid, market=market)]
 
-    def deposit(
-        self,
-        uid: int,
-        *,
-        account_id: int,
-        amount: Decimal | str | int | float,
-        executed_at: datetime | None = None,
-        note: str | None = None,
+    def set_cash(
+        self, uid: int, *, account_id: int, amount: Decimal | str | int | float,
     ) -> dict[str, Any]:
-        return self._cash(uid, account_id=account_id, kind="DEPOSIT", amount=amount, executed_at=executed_at, note=note)
+        try:
+            value = _dec(amount)
+        except (InvalidOperation, ValueError, TypeError) as exc:
+            raise PortfolioError("现金必须是非负有限金额") from exc
+        if not value.is_finite() or value < 0 or value >= Decimal("1e20"):
+            raise PortfolioError("现金必须是非负有限金额且小于 1e20")
 
-    def withdraw(
-        self,
-        uid: int,
-        *,
-        account_id: int,
-        amount: Decimal | str | int | float,
-        executed_at: datetime | None = None,
-        note: str | None = None,
-    ) -> dict[str, Any]:
-        return self._cash(uid, account_id=account_id, kind="WITHDRAW", amount=amount, executed_at=executed_at, note=note)
+        def write(session: Session):
+            account = self.repository.lock_account(session, uid=uid, account_id=account_id)
+            if account is None:
+                raise PortfolioError("账户不存在")
+            account.cash = value
+            account.updated_at = utc_now()
+            session.flush()
+            return self._account_view(account)
+
+        return self.repository.run_write("portfolio.set_cash", write)
 
     def buy(
         self,
@@ -125,7 +123,6 @@ class PortfolioService:
         market = infer_market(canonical).value
         if market not in SUPPORTED_MARKETS:
             raise PortfolioError("当前账户仅支持 A 股与美股")
-        cost = qty * px
 
         def write(session: Session):
             account = self.repository.lock_account(session, uid=uid, account_id=account_id)
@@ -133,9 +130,13 @@ class PortfolioService:
                 raise PortfolioError("账户不存在")
             if account.market != market:
                 raise PortfolioError("标的市场与账户市场不一致")
-            cash = _dec(account.cash)
-            if cash < cost:
-                raise InsufficientCashError()
+            instrument = self.repository.get_instrument(session, symbol=canonical)
+            if instrument is None:
+                raise PortfolioError("请选择证券主数据中存在的股票或 ETF")
+            if instrument.market != market:
+                raise PortfolioError("标的市场与账户市场不一致")
+            if instrument.instrument_type not in SUPPORTED_ASSETS:
+                raise UnsupportedAssetError()
             position = self.repository.get_open_position(session, account_id=account.id, symbol=canonical)
             if position is None:
                 position = self.repository.add_position(
@@ -144,7 +145,7 @@ class PortfolioService:
                     account_id=account.id,
                     market=market,
                     symbol=canonical,
-                    asset_type=asset,
+                    asset_type=instrument.instrument_type,
                     quantity=Decimal("0"),
                     average_cost=Decimal("0"),
                     opened_at=when,
@@ -183,8 +184,6 @@ class PortfolioService:
             position.average_cost = _weighted_average(lots)
             position.closed_at = None
             position.updated_at = when
-            account.cash = cash - cost
-            account.updated_at = utc_now()
             session.flush()
             return self._position_view(session, position)
 
@@ -253,8 +252,6 @@ class PortfolioService:
                 position.quantity = Decimal("0")
                 position.closed_at = when
                 position.average_cost = Decimal("0")
-            account.cash = _dec(account.cash) + qty * px
-            account.updated_at = utc_now()
             session.flush()
             return self._position_view(session, position)
 
@@ -298,43 +295,6 @@ class PortfolioService:
             if position is None:
                 raise PortfolioError("持仓不存在")
             return [self._operation_view(row) for row in self.repository.list_operations(session, uid=uid, position_id=position_id)]
-
-    def _cash(
-        self,
-        uid: int,
-        *,
-        account_id: int,
-        kind: str,
-        amount: Decimal | str | int | float,
-        executed_at: datetime | None,
-        note: str | None,
-    ) -> dict[str, Any]:
-        value = _price(amount)
-        when = _when(executed_at)
-
-        def write(session: Session):
-            account = self.repository.lock_account(session, uid=uid, account_id=account_id)
-            if account is None:
-                raise PortfolioError("账户不存在")
-            cash = _dec(account.cash)
-            if kind == "WITHDRAW" and cash < value:
-                raise InsufficientCashError("现金不足，无法出金")
-            account.cash = cash + value if kind == "DEPOSIT" else cash - value
-            account.updated_at = utc_now()
-            self.repository.add_cash(
-                session,
-                uid=uid,
-                account_id=account.id,
-                type=kind,
-                amount=value,
-                executed_at=when,
-                created_at=utc_now(),
-                note=note,
-            )
-            session.flush()
-            return self._account_view(account)
-
-        return self.repository.run_write(f"portfolio.cash.{kind.lower()}", write)
 
     def _account_view(self, account) -> dict[str, Any]:
         market = account.market
