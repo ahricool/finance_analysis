@@ -13,6 +13,7 @@ LIMIT_BREAK_POOL = "limit_break_pool"
 LIMIT_UP_LADDER = "limit_up_ladder"
 
 INDUSTRY_CATALOG = "industry_catalog"
+INDEX_QUOTES = "index_quotes"
 INDEX_HISTORY = "index_history"
 INDEX_CONSTITUENTS = "index_constituents"
 
@@ -32,6 +33,7 @@ CAPABILITY_METHODS: Mapping[str, str] = MappingProxyType(
         LIMIT_BREAK_POOL: "get_limit_break_pool",
         LIMIT_UP_LADDER: "get_limit_up_ladder",
         INDUSTRY_CATALOG: "get_industry_catalog",
+        INDEX_QUOTES: "get_index_quotes",
         INDEX_HISTORY: "get_index_history",
         INDEX_CONSTITUENTS: "get_index_constituents",
         DAILY_BARS: "fetch_daily_bars",

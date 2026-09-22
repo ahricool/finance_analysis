@@ -2,6 +2,7 @@ import { computed, onBeforeUnmount, ref, shallowRef } from 'vue';
 import {
   industryStrengthApi as api,
   type Constituents,
+  type IndustryPreview,
   type IndustryDetail,
   type IndustryHistory,
   type IndustryRanking,
@@ -20,6 +21,11 @@ export function detailMatchesQuery(
 }
 
 export function useIndustryStrength() {
+  const previewMode = ref(false);
+  const preview = shallowRef<IndustryPreview | null>(null);
+  const taskStatus = ref('');
+  let disposed = false;
+  let cacheTimer: ReturnType<typeof setTimeout> | undefined;
   const ranking = shallowRef<IndustryRanking | null>(null);
   const history = shallowRef<IndustryHistory>({ dates: [], items: [] });
   const historyEndTradeDate = ref<string | null>(null);
@@ -105,7 +111,7 @@ export function useIndustryStrength() {
     historyLoading.value = true;
     historyError.value = null;
     try {
-      const result = await api.history(tradeDate);
+      const result = await api.history(previewMode.value ? undefined : tradeDate);
       if (token !== historySeq) return;
       history.value = result;
       historyEndTradeDate.value = tradeDate;
@@ -126,8 +132,16 @@ export function useIndustryStrength() {
     detailLoading.value = true;
     detailError.value = null;
     dropMismatchedDetail(code, tradeDate);
+    if (previewMode.value && !rows.value.some(row => row.industryCode === code)) {
+      detail.value = null;
+      missingSelected.value = true;
+      detailLoading.value = false;
+      return;
+    }
     try {
-      const data = await api.detail(code, tradeDate ?? undefined);
+      const result = await api.detail(code, previewMode.value ? undefined : tradeDate ?? undefined);
+      const current = previewMode.value ? rows.value.find(r => r.industryCode === code) : null;
+      const data = current ? { current, history: result.history } : result;
       if (token !== detailSeq) return;
       if (!detailMatchesQuery(data, code, tradeDate)) return;
       detail.value = data;
@@ -142,6 +156,12 @@ export function useIndustryStrength() {
   }
 
   async function loadConstituents(code: string, force = false) {
+    if (previewMode.value) {
+      constituents.value = preview.value?.result?.constituents[code] ?? null;
+      membersError.value = null;
+      membersLoading.value = false;
+      return;
+    }
     const token = ++membersSeq;
     if (constituents.value?.industryCode !== code) constituents.value = null;
     membersError.value = null;
@@ -200,7 +220,20 @@ export function useIndustryStrength() {
     void loadDates();
 
     try {
-      const data = await api.ranking(requestedDate.value || undefined);
+      let data: IndustryRanking;
+      if (previewMode.value) {
+        const result = await api.preview();
+        if (token !== rankingSeq) return;
+        preview.value = result;
+        taskStatus.value = result.status;
+        clearTimeout(cacheTimer);
+        if (result.status === 'processing') {
+          cacheTimer = setTimeout(() => { if (!disposed && previewMode.value) void loadRanking('refresh'); }, 3000);
+        }
+        data = result.result ?? { tradeDate: null, expectedTradeDate: '', source: '盘中预览', items: [] };
+      } else {
+        data = await api.ranking(requestedDate.value || undefined);
+      }
       if (token !== rankingSeq) return;
       ranking.value = data;
       stale.value = false;
@@ -239,6 +272,21 @@ export function useIndustryStrength() {
         dateSwitching.value = false;
       }
     }
+  }
+
+  async function switchMode() {
+    clearTimeout(cacheTimer);
+    previewMode.value = !previewMode.value;
+    preview.value = null;
+    rankingSeq += 1;
+    detailSeq += 1;
+    invalidateConstituents();
+    invalidateHistory();
+    detail.value = null;
+    ranking.value = null;
+    history.value = { dates: [], items: [] };
+    setDialogOpen(false);
+    await loadRanking('initial');
   }
 
   function openIndustry(code: string) {
@@ -283,6 +331,8 @@ export function useIndustryStrength() {
   }
 
   onBeforeUnmount(() => {
+    disposed = true;
+    clearTimeout(cacheTimer);
     rankingSeq += 1;
     historySeq += 1;
     detailSeq += 1;
@@ -290,6 +340,7 @@ export function useIndustryStrength() {
   });
 
   return {
+    previewMode, preview, taskStatus, switchMode,
     ranking,
     history,
     historyEndTradeDate,

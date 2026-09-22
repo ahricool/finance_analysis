@@ -153,3 +153,47 @@ test('industry strength ranking and dialog at 390px', async ({ page }, testInfo)
   await expect(dialog).toContainText('5 日超额（百分点）');
   await page.screenshot({ path: testInfo.outputPath('industry-390-dialog.png') });
 });
+
+test('preview switch is read-only and uses same-batch constituent details', async ({ page }, testInfo) => {
+  await mockIndustryApis(page);
+  await page.route('**/api/v1/auth/status', route => route.fulfill({ json: {
+    loggedIn: true, user: { uid: 1, username: 'Admin', role: 'admin', extra: {} },
+  } }));
+  const generation = 1;
+  const writes: string[] = [];
+  page.on('request', request => {
+    if (request.method() === 'POST') writes.push(request.url());
+  });
+  await page.route('**/api/v1/industry-strength/preview', route => route.fulfill({ json: {
+    status: 'completed', error: null,
+    result: {
+      trade_date: day, expected_trade_date: day, source: 'preview',
+      generated_at: `${day}T03:05:00Z`, data_as_of: `${day}T03:00:00Z`, data_latest_at: `${day}T03:00:10Z`,
+      items: rows.map(r => ({ ...r, industry_name: `${r.industry_name}预览${generation}` })),
+      constituents: Object.fromEntries(rows.map(r => [r.industry_code, {
+        industry_code: r.industry_code, updated_at: `${day}T03:05:00Z`, trend_rank_date: dates.at(-2),
+        constituent_count: 1, daily_valid_count: 1, ma5_valid_count: 1, ma20_valid_count: 1,
+        above_ma5_count: 1, above_ma20_count: 1,
+        items: [{ code: '600001.SH', name: '本批预览成分', price: 123, change_pct: .05,
+          amount: 500000, volume: 100, above_ma5: true, above_ma20: true, trend_rank: 8 }],
+      }])),
+    },
+  } }));
+  await page.goto('/research/industry-strength');
+  await expect(page.getByTestId('industry-snapshot-kind')).toHaveText('正式收盘');
+  await page.getByTestId('industry-preview-switch').click();
+  await expect(page.getByTestId('industry-date-picker')).toHaveCount(0);
+  await expect(page.getByTestId('industry-snapshot-kind')).toHaveText('盘中预览');
+  await expect(page.getByTestId('industry-preview-status')).toContainText('盘中累计口径');
+  await page.screenshot({ path: testInfo.outputPath('industry-preview.png'), fullPage: true });
+  await page.getByText('半导体预览1', { exact: true }).first().click();
+  await expect(page.getByTestId('industry-detail-dialog')).toBeVisible();
+  await expect(page.getByTestId('industry-detail-constituents')).toContainText('本批预览成分');
+  await expect(page.getByTestId('industry-detail-constituents')).toContainText(dates.at(-2)!);
+  await page.getByTestId('industry-detail-close').click();
+  await expect(page.getByTestId('industry-refresh')).toHaveCount(0);
+  expect(writes).toEqual([]);
+  await page.getByTestId('industry-preview-switch').click();
+  await expect(page.getByTestId('industry-snapshot-kind')).toHaveText('正式收盘');
+  await expect(page.getByTestId('industry-date-picker')).toBeVisible();
+});

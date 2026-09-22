@@ -263,14 +263,9 @@ describe('Industry Strength', () => {
     wrapper.unmount();
   });
 
-  it('keeps previous content when same-day refresh fails', async () => {
+  it('does not offer a manual refresh button', async () => {
     const wrapper = await render(); await flushPromises();
-    api.ranking.mockRejectedValueOnce(new Error('offline'));
-    await wrapper.get('[data-testid="industry-refresh"]').trigger('click');
-    await flushPromises();
-    expect(wrapper.find('[data-testid="industry-ranking"]').exists()).toBe(true);
-    expect(wrapper.get('[data-testid="industry-stale"]').text()).toContain('仍在展示上一次成功数据');
-    expect(wrapper.get('[data-testid="industry-trade-date"]').text()).toContain('2026-09-16');
+    expect(wrapper.find('[data-testid="industry-refresh"]').exists()).toBe(false);
     wrapper.unmount();
   });
 

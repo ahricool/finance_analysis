@@ -254,6 +254,7 @@ def test_lock_ids_are_stable_and_readable() -> None:
         "REFERENCE_DATA_SYNC": 6,
         "CN_INDUSTRY_STRENGTH": 7,
         "CN_MARKET_SENTIMENT": 8,
+        "CN_INDUSTRY_STRENGTH_PREVIEW": 9,
     }
 
 
@@ -275,6 +276,7 @@ def test_lock_declarations_are_exactly_seven_nonblocking_scheduled_and_one_block
 
     assert locked == {
         "industry_strength_cn": (TaskAdvisoryLockId.CN_INDUSTRY_STRENGTH, False),
+        "industry_strength_preview_cn": (TaskAdvisoryLockId.CN_INDUSTRY_STRENGTH_PREVIEW, False),
         "market_sentiment_cn": (TaskAdvisoryLockId.CN_MARKET_SENTIMENT, False),
         "reference_data_sync": (TaskAdvisoryLockId.REFERENCE_DATA_SYNC, False),
         "market_data_sync_cn": (TaskAdvisoryLockId.CN_DAILY_MARKET_DATA_SYNC, False),

@@ -1,4 +1,4 @@
-"""Authenticated shared A-share observations; all reads are database-only."""
+"""Authenticated shared A-share observations; reads use official DB snapshots or isolated Preview Redis."""
 
 from datetime import date
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -6,6 +6,7 @@ from finance_analysis.database.repositories.industry_strength import IndustryStr
 from finance_analysis.interfaces.api.deps import require_current_user
 from finance_analysis.interfaces.api.v1.schemas.industry_strength import (
     RankingResponse,
+    PreviewResponse,
     DetailResponse,
     HistoryResponse,
     ConstituentsResponse,
@@ -60,6 +61,18 @@ def history(
     day = leaders[0]["trade_date"]
     rows = repo.history(day, [r["industry_code"] for r in leaders], limit)
     return {"dates": sorted(repo.dates(day, limit)), "items": [public(r) for r in rows]}
+
+
+@router.get("/preview", response_model=PreviewResponse)
+def preview():
+    from finance_analysis.industry_strength.preview import PreviewCache
+    from finance_analysis.market_review.trading_calendar import get_market_now
+
+    payload = PreviewCache().read() or {}
+    result = payload.get("result")
+    if result and result["trade_date"] != get_market_now("cn").date().isoformat():
+        payload = {**payload, "result": None}
+    return payload
 
 
 @router.get("/{industry_code}/constituents", response_model=ConstituentsResponse)

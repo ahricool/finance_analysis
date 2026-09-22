@@ -3,12 +3,10 @@ import { onMounted } from 'vue';
 import { useIndustryStrength } from '@/composables/useIndustryStrength';
 import AppApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
 import AppDatePicker from '@/components/app/AppDatePicker.vue';
-import LoadingButton from '@/components/app/LoadingButton.vue';
 import PageHeader from '@/components/layout/PageHeader.vue';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import IndustryRankingTable from '@/components/industry-strength/IndustryRankingTable.vue';
 import IndustryMatrixChart from '@/components/industry-strength/IndustryMatrixChart.vue';
 import IndustryRankHeatmap from '@/components/industry-strength/IndustryRankHeatmap.vue';
@@ -23,13 +21,14 @@ import { formatDateTime } from '@/utils/format';
 
 const page = useIndustryStrength();
 const {
+  previewMode, preview, taskStatus, switchMode,
   ranking, chartHistory, matchedDetail, constituents, dates, requestedDate, selected, selectedLabel,
   dialogOpen, missingSelected, loading, refreshing, dateSwitching,
   historyLoading, detailLoading, membersLoading, stale, error, refreshError,
   dateError, historyError, datesError, detailError, membersError, rows, summary, snapshotMeta,
   actualTradeDate, latestMode, staleLatest, historyMembersUnavailable, selectedRow,
   loadRanking, openIndustry, setDialogOpen, retryRanking, retryHistory,
-  retryDetail, retryConstituents, retryDates, goLatest, changeDate, refresh,
+  retryDetail, retryConstituents, retryDates, goLatest, changeDate,
 } = page;
 
 onMounted(() => loadRanking('initial'));
@@ -46,7 +45,15 @@ onMounted(() => loadRanking('initial'));
     >
       <template #actions>
         <div class="flex flex-wrap items-center gap-2">
+          <Button
+            variant="outline"
+            data-testid="industry-preview-switch"
+            @click="switchMode"
+          >
+            {{ previewMode ? '盘中预览 · 切换收盘' : '收盘 · 切换盘中预览' }}
+          </Button>
           <AppDatePicker
+            v-if="!previewMode"
             :model-value="requestedDate"
             class="w-56"
             data-testid="industry-date-picker"
@@ -55,34 +62,35 @@ onMounted(() => loadRanking('initial'));
             @update:model-value="changeDate"
           />
           <Button
-            v-if="!latestMode"
+            v-if="!previewMode && !latestMode"
             variant="outline"
             data-testid="industry-go-latest"
             @click="goLatest"
           >
             回到最新
           </Button>
-          <TooltipProvider :delay-duration="150">
-            <Tooltip>
-              <TooltipTrigger as-child>
-                <LoadingButton
-                  variant="outline"
-                  :loading="refreshing"
-                  loading-text="更新中…"
-                  data-testid="industry-refresh"
-                  aria-label="刷新已生成快照"
-                  @click="refresh"
-                >
-                  刷新
-                </LoadingButton>
-              </TooltipTrigger>
-              <TooltipContent>重新读取已生成快照，不会触发重新计算</TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
         </div>
       </template>
     </PageHeader>
 
+    <div
+      v-if="previewMode"
+      class="rounded-md border px-3 py-2 text-sm space-y-1"
+      data-testid="industry-preview-status"
+    >
+      <p>任务状态：{{ taskStatus || '暂无预览' }} · 行情有效时间 {{ formatDateTime(preview?.result?.dataAsOf) }} 至 {{ formatDateTime(preview?.result?.dataLatestAt) }}</p>
+      <p>预览生成时间 {{ formatDateTime(preview?.result?.generatedAt) }}。成交脉冲为盘中累计口径，不外推全天；盘中状态可能变化，成交确认可能滞后。</p>
+      <p>历史排名仅展示正式快照。Trend Rank 使用最新正式排名；历史日期选择仅用于收盘模式。</p>
+      <p
+        v-if="preview?.error"
+        class="text-destructive"
+      >
+        定时预览失败：{{ preview.error }}。保留上次结果及原始时间。
+      </p>
+      <p v-if="!preview?.result">
+        当前交易日暂无预览，等待交易日 11:05 / 14:05 / 14:35 定时生成。
+      </p>
+    </div>
     <section
       v-if="ranking || loading"
       class="rounded-md border px-3 py-2 text-sm"
@@ -94,7 +102,7 @@ onMounted(() => loadRanking('initial'));
             快照
           </dt>
           <dd data-testid="industry-snapshot-kind">
-            正式收盘
+            {{ previewMode ? '盘中预览' : '正式收盘' }}
           </dd>
         </div>
         <div class="flex gap-2">
@@ -133,7 +141,7 @@ onMounted(() => loadRanking('initial'));
         class="mt-2 text-xs text-muted-foreground"
         data-testid="industry-refreshing"
       >
-        正在重新读取已生成快照…
+        {{ previewMode ? '正在生成盘中预览，完成前保留上一次结果…' : '正在重新读取已生成快照…' }}
       </p>
       <p
         v-if="dateSwitching || dateError"
@@ -201,8 +209,8 @@ onMounted(() => loadRanking('initial'));
     <AppApiErrorAlert
       v-if="refreshError"
       :error="refreshError"
-      action-label="重试刷新"
-      @action="refresh"
+      action-label="重试读取"
+      @action="retryRanking"
       @dismiss="refreshError = null"
     />
     <AppApiErrorAlert
@@ -244,7 +252,7 @@ onMounted(() => loadRanking('initial'));
       class="rounded-xl border py-16 text-center text-muted-foreground"
       data-testid="industry-empty"
     >
-      所选日期暂无行业强度快照。正式结果由收盘任务生成，覆盖不足时不会发布。
+      {{ previewMode ? '当前交易日暂无盘中预览。仅在交易日 11:05 / 14:05 / 14:35 定时生成，覆盖不足时保留原结果。' : '所选日期暂无行业强度快照。正式结果由收盘任务生成，覆盖不足时不会发布。' }}
     </p>
 
     <template v-if="rows.length">
@@ -389,7 +397,7 @@ onMounted(() => loadRanking('initial'));
           <IndustryRankHeatmap
             v-if="chartHistory.dates.length || !historyLoading"
             class="mt-3"
-            :rows="rows"
+            :rows="previewMode ? chartHistory.items.filter(row => row.tradeDate === chartHistory.dates.at(-1)) : rows"
             :history="chartHistory"
             :selected="selected"
             @select="openIndustry"
@@ -399,6 +407,7 @@ onMounted(() => loadRanking('initial'));
     </template>
 
     <IndustryDetailDialog
+      :preview-mode="previewMode"
       :open="dialogOpen"
       :name="selectedLabel"
       :code="selected"

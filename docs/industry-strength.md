@@ -11,11 +11,12 @@
 协议依据 [官方指数接口文档](https://fuyao.aicubes.cn/docs/api-reference/a-share-index/)。
 
 `integrations/market_data/providers/fuyao.py::FuyaoProvider` 是独立、可复用的数据 Provider，
-不导入行业强度业务。它注册三个 CN capability，经现有 registry / router / `MarketDataService` 访问：
+不导入行业强度业务。它注册四个 CN capability，经现有 registry / router / `MarketDataService` 访问：
 
 | 门面 | Capability | 扶摇 endpoint |
 | --- | --- | --- |
 | `get_industry_catalog()` | `industry_catalog` | `GET /api/a-share-index/catalog/ths-index-list?tag=industry` |
+| `get_index_quotes(codes)` | `index_quotes` | `GET /api/a-share-index/prices/snapshot`（批量，支持 .TI） |
 | `get_index_history(code, start, end)` | `index_history` | `GET /api/a-share-index/prices/historical` |
 | `get_index_constituents(code)` | `index_constituents` | `GET /api/a-share-index/constituents/ths-stock-list` |
 
@@ -36,8 +37,9 @@
 1. 取最新完整 A 股交易日，并要求它等于当前上海日期。只允许收盘后产生正式快照。
 2. 获取最新目录、沪深300与所有行业的指数日线；21 个完整交易日严格对齐交易所日历。
 3. 获取行业当前成分，将跨行业股票代码去重后批量查询 `MarketDataService.get_daily_bars()`。
-4. 先用 `db_only` 复用已有前复权日线。现有 `cn_daily_sync` Universe 小于全部行业成分；
-   对缺少完整 20 个交易日的股票，使用既有 `remote_only` Provider 链批量补取完整窗口到内存。
+4. 正式任务和 Preview 共用原有历史加载逻辑：先 `db_only` 读取个股前复权日线，
+   对不足完整窗口的股票，使用 `remote_only` Provider 链补取完整窗口，仅用于本次内存计算。
+   补取失败仍保留可用 DB 短窗口，并按既有覆盖率规则处理缺失。HTTP 页面查询只读已生成结果。
    不新增股票 Provider，不修改 daily sync Universe，不隐式写入 `stock_daily`。
 5. 行业指数数据完整的行业至少占当次目录 **95%** 才可发布。Breadth 独立记录覆盖率，不影响排名准入；某项 Breadth 覆盖低于 **95%** 时仅将该项比例标记为 null。
    基准任一必需交易日缺失、行业覆盖不达标均拒绝发布；不把缺失记作零、不用前值填充停牌。
@@ -165,7 +167,7 @@ Alembic `0058_industry_constituents` 新建 `industry_strength_constituent`，�
 
 ## 页面
 
-1. 标题、日期选择、刷新，以及紧凑数据状态栏（收盘快照、实际有效日期、生成时间、覆盖数、必要警告）。口径说明可展开。
+1. 标题、日期选择、收盘/盘中预览切换，以及紧凑数据状态栏（收盘快照、实际有效日期、生成时间、覆盖数、必要警告）。口径说明可展开。
 2. 四张摘要卡：最强行业、加速最快、动量降速最大、有效行业上涨占比。前三张打开统一详情 Dialog；摘要始终基于当日有效行业截面。
 3. 三个主视图：行业排行（默认）、强度矩阵、排名历史。切换保留浏览状态，不重复请求。
 4. Ranking Table：搜索、状态筛选、核心/完整列、冻结排名与行业列。排名始终为当日原始强度排名。
@@ -209,3 +211,35 @@ pnpm exec playwright test e2e/industry-strength.spec.ts
 迁移 `0055_industry_history` 允许未观测成分的历史记录不填成分观察时间，不能虚构历史观测时间进行降级。
 页面使用日历选择器查看已保存日期，清空选择返回最新快照；没有快照的日期不可选。
 日期目录返回全部已存日期，详情和热力图的窗口仍按现有 API 限制读取。
+
+
+## 盘中 Preview
+
+页面顶部按钮切换「收盘 / 盘中预览」，默认收盘；历史日期仅用于收盘模式。
+Preview 仅由指定时刻的 Beat 任务生成；页面没有刷新按钮，不提供手动触发 API，任务中心也禁止手动运行。
+`GET /api/v1/industry-strength/preview` 仅读 Redis，不计算、不访问行情。
+任务 `industry_strength_preview_cn` 在周一至周五 **11:05 / 14:05 / 14:35 Asia/Shanghai**
+运行，与 A 股 ETF Preview 同时（趋势 Preview 提前5分钟），复用 `analysis` 队列与任务中心生命周期。
+非交易日跳过；开盘前拒绝。盘中任务无需等待正式行业快照。
+
+- 指数历史截至上一交易日，行业指数和沪深300同步使用最新点位构造今日临时线；已有今日线先移除再替换。
+  全部有效行业统一复用正式的 5/10/20 日收益、RS、Strength、排名、加速度与 State。
+  Δ1/3/5D 和持续强势的历史依据仍取对应交易日的正式快照，缺失保持空值，不读取旧 Preview。
+- 每次定时运行直接通过 `MarketDataService` 请求当前目录、成分名单、行业指数/沪深300完整历史窗口，
+  个股历史日 K 按去重代码优先读 DB，窗口不足时复用正式任务的 API fallback；Preview 今日临时线使用最新行情。不缓存计算输入；上次数据不完整不会阻止下次重新获取。
+- 成分 MA5/MA20 包含今日价；历史前复权 close 以行情 `pre_close / 历史末日 close` 统一缩放到今日价格口径。
+  无可靠昨收锚点时不拼接跨口径 MA；缺失行情或历史仍遵守正式版95%覆盖门槛，不填零、不冒充今日。
+- **成交脉冲为盘中累计口径**：今日成交额使用截至行情时点的累计值，保留 mean(5)/mean(20) 原公式，
+  不线性外推。State 不跳过 EMERGING 的成交确认条件，因此盘中状态可能变化，成交确认可能滞后。
+- 全截面、成分详情、时间和质量整体写入 `industry_strength:preview:v1`（TTL 24小时），
+  失败保留上批结果及原始生成时间并附失败信息。HTTP 屏蔽跨交易日缓存；不把昨日预览显示为今日。
+  此流程不写正式行业快照、正式成分表或股票日线，也不增加表、迁移或 LLM。
+- 排行榜、摘要、矩阵、详情及成分均使用页面读取的同一批 Preview；历史热力图和详情历史只显示正式快照，
+  不附加今日预览列。Trend Rank 仍来自最新 CN 正式排名，并显示其日期。
+
+正式版和 Preview 共用 `IndustryStrengthService.calculate()` 的数据获取、覆盖率、特征、排名和 State 流程；
+Preview 只额外用最新行情构造今日临时线，并将结果发布到 Redis；正式版使用收盘日线并写正式表。
+指数历史与成分名单每次请求 API，个股历史每次 DB 优先、缺失时 API 补取；不缓存计算输入、不写入补取行情。
+Redis 仅保存整批预览结果及状态。
+行情不是交易所原子快照，页面展示该批有效行情的最早至最晚时间，以及独立的预览生成时间。
+缓存到期、过日或当日尚未成功计算时展示空态；任务失败可在页面及任务中心查看。

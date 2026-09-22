@@ -27,6 +27,7 @@ import {
 } from './display';
 
 const props = defineProps<{
+  previewMode?: boolean;
   open: boolean;
   name: string;
   code: string;
@@ -147,7 +148,7 @@ function ma(value: boolean | null) {
               >{{ stateLabels[current.state] }}</span>
             </DialogTitle>
             <DialogDescription class="mt-1">
-              实际查询快照日期 {{ snapshotDate || '—' }} · 行业详情随所选日期，不使用热力图悬浮单元格日期
+              {{ previewMode ? '盘中预览日期' : '实际查询快照日期' }} {{ snapshotDate || '—' }} · 行业详情随所选日期，不使用热力图悬浮单元格日期
             </DialogDescription>
           </div>
           <Button
@@ -353,14 +354,14 @@ function ma(value: boolean | null) {
           data-testid="industry-detail-constituents"
         >
           <h3 class="text-base font-semibold">
-            当前成分股（最新数据）
+            {{ previewMode ? '本次预览成分股' : '当前成分股（最新数据）' }}
           </h3>
           <div
             class="rounded-lg border border-amber-500/40 bg-amber-500/5 px-3 py-3"
             data-testid="industry-constituents-banner"
           >
             <p class="font-medium">
-              最近一次任务生成的成分数据
+              {{ previewMode ? '本次预览生成的成分数据' : '最近一次任务生成的成分数据' }}
             </p>
             <p
               class="mt-1 text-sm"
@@ -369,11 +370,17 @@ function ma(value: boolean | null) {
               更新时间 {{ formatDateTime(constituents?.updatedAt) }}
             </p>
             <p class="mt-1 text-sm text-amber-800 dark:text-amber-200">
-              展示最近一次行业强度任务成功生成的最新成分股及收盘指标，不随上方历史快照日期变化。
+              {{ previewMode ? '与排行榜使用同一批盘中数据，成交额为盘中累计口径。' : '展示最近一次行业强度任务成功生成的最新成分股及收盘指标，不随上方历史快照日期变化。' }}
             </p>
           </div>
           <p class="text-xs leading-6 text-muted-foreground">
-            价格为前复权收盘价。Trend Rank 为写入这份最新成分数据时读取的最新 CN Trend Following 正式快照 Alpha Rank，不对应上方历史日期。
+            {{ previewMode ? '价格为最新点位；历史前复权价格按行情昨收对齐，MA 包含今日。' : '价格为前复权收盘价。' }}Trend Rank 为写入这份最新成分数据时读取的最新 CN Trend Following 正式快照 Alpha Rank，不对应上方历史日期。
+          </p>
+          <p
+            v-if="previewMode"
+            class="text-xs text-muted-foreground"
+          >
+            Trend Rank 正式日期：{{ constituents?.trendRankDate || '—' }}。盘中状态可能变化，成交确认可能滞后。
           </p>
           <AppApiErrorAlert
             v-if="membersError"
@@ -409,7 +416,7 @@ function ma(value: boolean | null) {
                     <SortableTableHeader
                       v-for="column in columns"
                       :key="column.key"
-                      :label="column.label"
+                      :label="previewMode && column.key === 'price' ? '最新价' : column.label"
                       :description="'description' in column ? column.description : undefined"
                       :active="sortKey === column.key"
                       :direction="sortDirection"

@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Constituents, IndustryDetail, IndustryHistory, IndustryRanking, IndustrySnapshot } from '@/api/industryStrength';
 import { useIndustryStrength } from '../useIndustryStrength';
 
-const api = vi.hoisted(() => ({ ranking: vi.fn(), dates: vi.fn(), history: vi.fn(), detail: vi.fn(), constituents: vi.fn() }));
+const api = vi.hoisted(() => ({ preview: vi.fn(), runPreview: vi.fn(), ranking: vi.fn(), dates: vi.fn(), history: vi.fn(), detail: vi.fn(), constituents: vi.fn() }));
 vi.mock('@/api/industryStrength', () => ({ industryStrengthApi: api }));
 
 function row(code = '881101.TI', name = '行业甲', rank = 1, tradeDate = '2026-09-16', overrides: Partial<IndustrySnapshot> = {}): IndustrySnapshot {
@@ -292,5 +292,64 @@ describe('useIndustryStrength races', () => {
     fresh.resolve(members(a.industryCode, 'FRESH-DATE'));
     await flushPromises();
     expect(page.constituents.value?.updatedAt).toBe('FRESH-DATE');
+  });
+});
+
+
+describe('intraday preview', () => {
+  it('switches the full view and uses the same batch for constituents', async () => {
+    const previewRow = { ...a, strengthScore: 42 };
+    const previewMembers = members(a.industryCode, t);
+    api.preview.mockResolvedValue({ status: 'completed', error: null, result: {
+      ...rankingOf(t, [previewRow]), generatedAt: t, dataAsOf: t,
+      constituents: { [a.industryCode]: previewMembers },
+    } });
+    const page = setup();
+    await page.loadRanking('initial');
+    expect(page.previewMode.value).toBe(false);
+    await page.switchMode();
+    await flushPromises();
+    expect(page.rows.value[0]?.strengthScore).toBe(42);
+    expect(api.history).toHaveBeenLastCalledWith(undefined);
+    page.openIndustry(a.industryCode);
+    await flushPromises();
+    expect(page.constituents.value).toEqual(previewMembers);
+    expect(api.constituents).not.toHaveBeenCalled();
+    expect(page.matchedDetail.value?.current.strengthScore).toBe(42);
+    await page.switchMode();
+    expect(page.rows.value[0]?.strengthScore).toBe(a.strengthScore);
+  });
+
+  it('does not substitute a formal row for an industry excluded from the preview', async () => {
+    api.preview.mockResolvedValue({ status: 'completed', error: null, result: {
+      ...rankingOf(t, [b]), generatedAt: t, dataAsOf: t, constituents: {},
+    } });
+    const page = setup();
+    await page.switchMode();
+    page.openIndustry(a.industryCode);
+    await flushPromises();
+    expect(page.matchedDetail.value).toBeNull();
+    expect(page.missingSelected.value).toBe(true);
+    expect(api.detail).not.toHaveBeenCalled();
+  });
+
+  it('does not fall back to closing data when current preview is unavailable', async () => {
+    api.preview.mockResolvedValue({ status: 'unavailable', result: null, error: null });
+    const page = setup();
+    await page.loadRanking('initial');
+    await page.switchMode();
+    expect(page.rows.value).toEqual([]);
+    expect(page.actualTradeDate.value).toBeNull();
+  });
+
+  it('keeps the batch and original timestamp on preview failure', async () => {
+    api.preview.mockResolvedValue({ status: 'failed', error: 'coverage insufficient', result: {
+      ...rankingOf(t, [a]), generatedAt: 'original-time', dataAsOf: t, constituents: {},
+    } });
+    const page = setup();
+    await page.switchMode();
+    expect(page.rows.value).toEqual([a]);
+    expect(page.preview.value?.result?.generatedAt).toBe('original-time');
+    expect(page.taskStatus.value).toBe('failed');
   });
 });

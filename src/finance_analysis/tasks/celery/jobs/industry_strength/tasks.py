@@ -34,3 +34,26 @@ def run_industry_strength_cn(trade_date: str | None = None, **kwargs):
     if trade_date is None and not is_market_open("cn", get_market_now("cn").date()):
         raise TaskSkipped("非 A 股交易日，跳过行业强度")
     return IndustryStrengthService().run(date.fromisoformat(trade_date) if trade_date else None)
+
+
+PREVIEW = require_scheduled_task_definition("industry_strength_preview_cn")
+
+
+@celery_app.task(name=PREVIEW.celery_task_name)
+@track_task(
+    task_type=PREVIEW.task_type,
+    task_name=PREVIEW.name,
+    source="celery",
+    trigger_source="scheduler",
+    scheduler_job_id=PREVIEW.job_id,
+    record_result=True,
+    strip_lifecycle_kwargs=True,
+    advisory_lock_id=TaskAdvisoryLockId.CN_INDUSTRY_STRENGTH_PREVIEW,
+    advisory_lock_blocking=False,
+)
+def run_industry_strength_preview_cn(**kwargs):
+    from finance_analysis.industry_strength.preview import IndustryPreviewService
+
+    if not is_market_open("cn", get_market_now("cn").date()):
+        raise TaskSkipped("非 A 股交易日，跳过行业强度预览")
+    return IndustryPreviewService().run_preview()
