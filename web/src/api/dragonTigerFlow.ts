@@ -2,7 +2,7 @@ import apiClient from './index';
 import { toCamelCase } from './utils';
 
 export type FlowBoard = 'all' | 'org' | 'hot_money';
-export interface FlowFilters { endDate: string; days: 5 | 10 | 20; board: FlowBoard; rangeDays: 1 | 3 }
+export interface FlowFilters { endDate: string; days: 1 | 5 | 10 | 20; board: FlowBoard; rangeDays: 1 | 3 }
 export interface FlowAmounts { netValue: number | null; buyValue: number | null; sellValue: number | null;
   orgNetValue: number | null; hotMoneyNetValue: number | null }
 export interface FlowConcept { id: string; name: string; netValue: number | null; orgNetValue: number | null;

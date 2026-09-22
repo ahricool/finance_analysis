@@ -10,6 +10,8 @@ from typing import Literal, Optional
 from celery.schedules import crontab
 
 from .constants import (
+    JOB_SIGNAL_CENTER_CN,
+    JOB_SIGNAL_CENTER_US,
     JOB_DRAGON_TIGER_FLOW_CN,
     JOB_CONFLUENCE_CN,
     JOB_INTRADAY_CONFIRMATION_CN,
@@ -128,7 +130,23 @@ SCHEDULED_TASK_DEFINITIONS = (
         schedule_text="交易日当地09:20/09:25冻结，交易时段每5分钟确认",
         timezone=US_TIMEZONE, queue=QUEUE_ALERTS, expires=240,
     ),
-
+    ScheduledTaskDefinition(
+        job_id=JOB_SIGNAL_CENTER_CN, name="统一信号中心 CN",
+        description="主动读取当日正式结果，等待依赖就绪；21:50按可用输入生成每日唯一决策",
+        task_type="scheduled_signal_center_cn", celery_task_name=celery_task_name(JOB_SIGNAL_CENTER_CN),
+        schedules=(CronSchedule(minute="40,50", hour="20", day_of_week="mon-fri"),
+                   CronSchedule(minute="0,10,20,30,40,50", hour="21", day_of_week="mon-fri")),
+        schedule_text="交易日 20:40–21:50 每10分钟检查（Asia/Shanghai），成功后幂等跳过",
+        timezone=SCHEDULE_TIMEZONE, queue=QUEUE_ANALYSIS, expires=540,
+    ),
+    ScheduledTaskDefinition(
+        job_id=JOB_SIGNAL_CENTER_US, name="统一信号中心 US",
+        description="主动读取当日正式结果，等待依赖就绪；23:50按可用输入生成每日唯一决策",
+        task_type="scheduled_signal_center_us", celery_task_name=celery_task_name(JOB_SIGNAL_CENTER_US),
+        schedules=(CronSchedule(minute="10,20,30,40,50", hour="23", day_of_week="mon-fri", timezone=US_TIMEZONE),),
+        schedule_text="交易日 23:10–23:50 每10分钟检查（America/New_York），成功后幂等跳过",
+        timezone=US_TIMEZONE, queue=QUEUE_ANALYSIS, expires=540,
+    ),
     ScheduledTaskDefinition(
         job_id=JOB_DRAGON_TIGER_FLOW_CN,
         name="龙虎榜资金流向 CN",

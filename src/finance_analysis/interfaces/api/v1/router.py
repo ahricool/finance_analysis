@@ -101,3 +101,5 @@ router.include_router(confluence.router, prefix="/confluence", tags=["Confluence
 
 from .endpoints import intraday_confirmation
 router.include_router(intraday_confirmation.router, prefix="/intraday-confirmation", tags=["Intraday Confirmation"])
+from .endpoints import signal_center
+router.include_router(signal_center.router, prefix="/signal-center", tags=["Signal Center"])

@@ -18,6 +18,10 @@ for (const width of [1280, 1440, 1920]) {
       await expect(page.getByRole('heading', { name: '龙虎榜资金流向', exact: true })).toBeVisible();
       await expect(page.getByTestId('module-tabs').getByRole('tab', { name: '龙虎榜资金流向' })).toHaveAttribute('data-state', 'active');
       await expect(page.getByTestId('flow-stock-dialog')).toHaveCount(0);
+      await expect(page.getByRole('button', { name: '最近单日', exact: true })).toHaveAttribute('aria-pressed', 'true');
+      await expect(page.getByTestId('flow-all-stocks').locator('tbody tr')).toHaveCount(16);
+      await expect(page.getByTestId('flow-trajectory')).toHaveCount(0);
+      await page.getByRole('button', { name: '5日', exact: true }).click();
       await expect(page.getByTestId('flow-trajectory').locator('canvas')).toHaveCount(1);
       await page.getByTestId('flow-ranking').getByRole('button', { name: /半导体/ }).click();
       await expect(page.getByTestId('flow-paths').locator('canvas')).toHaveCount(2);

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { toCamelCase } from '@/api/utils';
 import type { FlowOverview } from '@/api/dragonTigerFlow';
 import raw from '../../../../e2e/fixtures/dragonTigerFlow';
-import { conceptStocks, signedStocks, stockEvidence, sumKnown } from '../display';
+import { allStocks, conceptStocks, signedStocks, stockEvidence, sumKnown } from '../display';
 const data = toCamelCase<FlowOverview>(raw);
 describe('Dragon Tiger evidence accounting', () => {
   it('conserves selected concept contributions including remaining stocks on both sides', () => {
@@ -24,4 +24,19 @@ describe('Dragon Tiger evidence accounting', () => {
     expect(conceptStocks({ ...data, complete: false }, data.concepts[0]!.id).every(s => s.netValue === null)).toBe(true);
     expect(sumKnown([])).toBe(0);
   });
+});
+
+
+it('shows all stock-level evidence without double-counting concept allocations', () => {
+  const rows = allStocks(data);
+  expect(rows).toHaveLength(data.summary.stockCount);
+  const row = rows.find(r => r.symbol === '600001.SH')!;
+  expect(row.netValue).toBe(4000000000);
+  expect(row.observedDays).toBe(5);
+  expect(row.buyValue).toBe(6000000000);
+  const partial = allStocks({ ...data, complete: false }).find(r => r.symbol === '600001.SH')!;
+  expect(partial.netValue).toBeNull();
+  expect(partial.observedNetValue).toBe(row.netValue);
+  const unknown = allStocks({ ...data, evidence: data.evidence.map(r => ({ ...r, hotMoneyNetValue: null })) });
+  expect(unknown.every(r => r.hotMoneyNetValue === null)).toBe(true);
 });

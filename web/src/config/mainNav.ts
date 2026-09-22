@@ -33,6 +33,7 @@ export const marketNavItems: NavDestination[] = [
 
 export const researchNavItems: NavDestination[] = [
   { key: 'intraday-confirmation', label: '盘中确认', to: '/research/intraday-confirmation', icon: Activity },
+  { key: 'signal-center', label: 'Signal Center', to: '/research/signal-center', icon: Activity },
   { key: 'confluence', label: '多信号共振', to: '/research/confluence', icon: ChartNoAxesCombined },
   {
     key: 'etf-rotation',

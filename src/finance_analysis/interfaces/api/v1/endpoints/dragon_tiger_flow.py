@@ -25,13 +25,13 @@ def get_repository():
 
 def observation(
     end_date: date | None = None,
-    days: int = Query(20, ge=5, le=20),
+    days: int = Query(1, ge=1, le=20),
     board: Board = "all",
     range_days: int = Query(1, ge=1, le=3),
     repo=Depends(get_repository),
 ):
-    if days not in (5, 10, 20) or range_days not in (1, 3):
-        raise HTTPException(422, "窗口只支持5/10/20日，榜单周期只支持1/3日")
+    if days not in (1, 5, 10, 20) or range_days not in (1, 3):
+        raise HTTPException(422, "窗口只支持1/5/10/20日，榜单周期只支持1/3日")
     if end_date is not None and (end_date > expected_date() or end_date not in sessions_through(end_date, 1)):
         raise HTTPException(422, "截止日期必须为已收盘的A股交易日")
     result = repo.window(end_date, days, board, range_days)
