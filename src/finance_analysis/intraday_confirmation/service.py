@@ -9,6 +9,7 @@ from .cache import ConfirmationCache
 from .session import resolve_session
 from .engine import metrics, decision, stabilize
 from .trend import temporary_trend
+from .market_data import collect_data
 
 
 class ConfirmationService:
@@ -116,18 +117,7 @@ class ConfirmationService:
         market = session.market
         benchmark = c.BENCHMARKS[market]
         codes = list(dict.fromkeys([r["code"] for r in payload["items"]] + [benchmark]))
-        quote_provider, minute_provider = c.PROVIDERS[market]
-        quotes = self.market_data.get_realtime_quotes(codes, providers=(quote_provider,)).data
-        minute = self.market_data.get_minute_bars(
-            codes, session.opened, now, interval="5m", providers=(minute_provider,)
-        ).data
-        history = self.market_data.get_daily_bars(
-            codes,
-            session.previous_date - timedelta(days=c.HISTORY_CALENDAR_DAYS),
-            session.previous_date,
-            adjustment="forward",
-            source_policy="db_only",
-        ).data
+        quotes, minute, history = collect_data(self.market_data, codes, session, now)
         # Quotes may advance while network requests run; use completion time, not task start.
         now += timedelta(seconds=monotonic() - started)
         rows = []

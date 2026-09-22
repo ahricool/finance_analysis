@@ -6,13 +6,15 @@ interval=5m for CN symbols via ``ak.stock_zh_a_minute(..., period="5", adjust=""
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
+from functools import partial
 from typing import Any, Callable
 from zoneinfo import ZoneInfo
 
 import pandas as pd
 
-from finance_analysis.core.retry import retry_call
+from finance_analysis.integrations.market_data.bounded_requests import bounded_results, budgeted_retry
 
 from finance_analysis.core.time import utc_now  # pragma: allowlist secret
 from finance_analysis.integrations.market_data.models import (  # pragma: allowlist secret
@@ -26,6 +28,8 @@ from finance_analysis.integrations.market_data.models import Market  # pragma: a
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 INTERVAL = timedelta(minutes=5)
+MINUTE_WORKERS = 6
+_MINUTE_EXECUTOR = ThreadPoolExecutor(max_workers=MINUTE_WORKERS, thread_name_prefix="sina-minute")
 
 
 def to_sina_symbol(code: str) -> str:
@@ -38,16 +42,11 @@ def to_sina_symbol(code: str) -> str:
 
 
 def _akshare_minute(sina_symbol: str) -> pd.DataFrame:
-    import socket
-
     import akshare as ak
 
-    previous = socket.getdefaulttimeout()
-    socket.setdefaulttimeout(8)
-    try:
-        frame = retry_call(lambda: ak.stock_zh_a_minute(symbol=sina_symbol, period="5", adjust=""))
-    finally:
-        socket.setdefaulttimeout(previous)
+    # AKShare owns its transport. Never change process-global socket defaults from
+    # parallel requests; callers enforce their deadline without waiting for late SDK calls.
+    frame = budgeted_retry(lambda: ak.stock_zh_a_minute(symbol=sina_symbol, period="5", adjust=""))
     return pd.DataFrame() if frame is None else frame
 
 
@@ -62,24 +61,27 @@ class SinaMinuteProvider:
             raise ValueError("SinaMinuteProvider only implements interval=5m")
         result = BatchBarResult()
         fetched_at = utc_now()
-        for value in request.symbols:
-            symbol = canonical_symbol(value)
-            try:
-                if infer_market(symbol) is not Market.CN:
-                    raise ValueError(f"SinaMinuteProvider is CN-only, got {symbol}")
-                sina_symbol = to_sina_symbol(symbol)
-                frame = self._fetch_frame(sina_symbol)
-                bars = self._bars_from_frame(frame, symbol=symbol, start=request.start_time, end=request.end_time)
-                if bars:
-                    result.data[symbol] = bars
-                    result.providers_used[symbol] = self.name
-                else:
-                    result.missing_symbols.append(symbol)
-            except Exception as exc:
-                result.failed_symbols[symbol] = str(exc)
-                result.request_errors[symbol] = str(exc)
+        calls = {
+            canonical_symbol(value): partial(self._fetch_symbol, canonical_symbol(value), request)
+            for value in request.symbols
+        }
+        for symbol, bars, error in bounded_results(calls, _MINUTE_EXECUTOR, MINUTE_WORKERS):
+            if error is not None:
+                result.failed_symbols[symbol] = str(error)
+                result.request_errors[symbol] = str(error)
+            elif bars:
+                result.data[symbol] = bars
+                result.providers_used[symbol] = self.name
+            else:
+                result.missing_symbols.append(symbol)
         result.fetched_at = fetched_at
         return result
+
+    def _fetch_symbol(self, symbol, request):
+        if infer_market(symbol) is not Market.CN:
+            raise ValueError(f"SinaMinuteProvider is CN-only, got {symbol}")
+        frame = self._fetch_frame(to_sina_symbol(symbol))
+        return self._bars_from_frame(frame, symbol=symbol, start=request.start_time, end=request.end_time)
 
     def _bars_from_frame(
         self,

@@ -31,6 +31,13 @@ Tencent 已有 `fetch_quotes_for_codes` 通过标准 REALTIME_QUOTES capability 
 - benchmark：复用 Trend 的 CN `510300.SH` / US `SPY.US`。
 - 历史：候选和 benchmark 只读 DB 前复权日线，不补写、不同步、不运行全市场 Preview。
 
+行情获取阶段共用 `MARKET_DATA_BUDGET_SECONDS=210` 秒预算，报价/分钟线/DB 日线读取并行。
+Sina 分钟请求最多 6 个并发；Yahoo 报价沿用 `Ticker.info`，使用已有 max_workers 配置（默认 3，上限 6），
+继续读取真实 `regularMarketTime`。两个 Provider 使用固定共享线程池，并逐股隔离失败。
+Provider 提前 2 秒收集已完成的部分结果，外层总预算到期则停止等待未完成来源；缺失数据走既有 unavailable/WAIT 规则。
+取消未开始的请求，到期不再重试。Python 无法强制中断正在执行的 SDK 调用，这些调用可能在后台结束，
+但不会修改已返回批次或快照；共享线程池限制后续任务的线程数量。Sina 不在并发请求中修改进程级 socket 默认超时。
+
 仅使用当前交易日、常规交易时段、已闭合的 5m 线。重复 bar 按起点去重；未闭合、无效 OHLC 不参与计算。
 
 | 指标 | 口径 |

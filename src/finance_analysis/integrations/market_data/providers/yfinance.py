@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta, timezone
+from functools import partial
 import ast
 import logging
 import threading
@@ -11,6 +13,7 @@ from typing import Any
 import pandas as pd
 
 from finance_analysis.core.retry import retry_call, transient_error, wait_before_retry
+from finance_analysis.integrations.market_data.bounded_requests import bounded_results, budgeted_retry
 from finance_analysis.integrations.market_data.batch_pacing import before_daily_batch, daily_batch_scope  # pragma: allowlist secret
 
 from finance_analysis.integrations.market_data.models import (  # pragma: allowlist secret
@@ -51,6 +54,10 @@ _HK_INDICES = (
 
 
 YFINANCE_SYMBOL_OVERRIDES = {symbol: ticker for symbol, ticker, _ in (*_US_INDICES, *_HK_INDICES)}
+
+
+QUOTE_WORKERS = 6
+_QUOTE_EXECUTOR = ThreadPoolExecutor(max_workers=QUOTE_WORKERS, thread_name_prefix="yfinance-quote")
 
 
 class YFinanceProvider:
@@ -330,53 +337,57 @@ class YFinanceProvider:
         return result
 
     def fetch_quotes(self, request: QuoteRequest) -> BatchQuoteResult:
+        result = BatchQuoteResult()
+        calls = {
+            canonical_symbol(value): partial(self._fetch_quote, canonical_symbol(value)) for value in request.symbols
+        }
+        for symbol, quote, error in bounded_results(calls, _QUOTE_EXECUTOR, min(self.max_workers, QUOTE_WORKERS)):
+            if error is not None:
+                result.failed_symbols[symbol] = str(error)
+            elif quote is None:
+                result.missing_symbols.append(symbol)
+            else:
+                result.data[symbol] = quote
+                result.providers_used[symbol] = self.name
+        return result
+
+    def _fetch_quote(self, symbol):
         import yfinance as yf
 
-        result = BatchQuoteResult()
-        for value in request.symbols:
-            symbol = canonical_symbol(value)
-            try:
-                ticker = yf.Ticker(self.to_yfinance_symbol(symbol))
-                if infer_market(symbol) is Market.US:
-                    # Keep OHLCV and its actual regular-session timestamp from one payload.
-                    info = retry_call(lambda: ticker.info)
-                    stamp = info.get("regularMarketTime")
-                    quote_time = datetime.fromtimestamp(stamp, timezone.utc) if stamp else None
-                    fast = {
-                        "previous_close": info.get("regularMarketPreviousClose"),
-                        "last_price": info.get("regularMarketPrice"),
-                        "open": info.get("regularMarketOpen"),
-                        "day_high": info.get("regularMarketDayHigh"),
-                        "day_low": info.get("regularMarketDayLow"),
-                        "last_volume": info.get("regularMarketVolume"),
-                    }
-                else:
-                    fast = retry_call(lambda: dict(ticker.fast_info))
-                    quote_time = datetime.now(timezone.utc)
-                previous = fast.get("previous_close")
-                price = fast.get("last_price")
-                payload = {
-                    "name": "",
-                    "quote_time": quote_time,
-                    "price": price,
-                    "pre_close": previous,
-                    "change_amount": price - previous if price is not None and previous is not None else None,
-                    "change_pct": ((price / previous - 1) * 100 if price is not None and previous else None),
-                    "open": fast.get("open"),
-                    "high": fast.get("day_high"),
-                    "low": fast.get("day_low"),
-                    "volume": fast.get("last_volume"),
-                    "amount": None,
-                }
-                quote = quote_from_value(payload, symbol=symbol, provider=self.name)
-                if quote is None:
-                    result.missing_symbols.append(symbol)
-                else:
-                    result.data[symbol] = quote
-                    result.providers_used[symbol] = self.name
-            except Exception as exc:
-                result.failed_symbols[symbol] = str(exc)
-        return result
+        ticker = yf.Ticker(self.to_yfinance_symbol(symbol))
+        if infer_market(symbol) is Market.US:
+            # Keep OHLCV and its actual regular-session timestamp from one payload.
+            info = budgeted_retry(lambda: ticker.info)
+            stamp = info.get("regularMarketTime")
+            quote_time = datetime.fromtimestamp(stamp, timezone.utc) if stamp else None
+            fast = {
+                "previous_close": info.get("regularMarketPreviousClose"),
+                "last_price": info.get("regularMarketPrice"),
+                "open": info.get("regularMarketOpen"),
+                "day_high": info.get("regularMarketDayHigh"),
+                "day_low": info.get("regularMarketDayLow"),
+                "last_volume": info.get("regularMarketVolume"),
+            }
+        else:
+            fast = budgeted_retry(lambda: dict(ticker.fast_info))
+            quote_time = datetime.now(timezone.utc)
+        previous = fast.get("previous_close")
+        price = fast.get("last_price")
+        payload = {
+            "name": "",
+            "quote_time": quote_time,
+            "price": price,
+            "pre_close": previous,
+            "change_amount": price - previous if price is not None and previous is not None else None,
+            "change_pct": ((price / previous - 1) * 100 if price is not None and previous else None),
+            "open": fast.get("open"),
+            "high": fast.get("day_high"),
+            "low": fast.get("day_low"),
+            "volume": fast.get("last_volume"),
+            "amount": None,
+        }
+        quote = quote_from_value(payload, symbol=symbol, provider=self.name)
+        return quote
 
     def get_instrument_info(self, request: InstrumentRequest) -> BatchInstrumentResult:
         import yfinance as yf
