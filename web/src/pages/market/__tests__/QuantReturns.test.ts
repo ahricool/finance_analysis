@@ -18,7 +18,7 @@ it('renders realized-return columns including signed percentages and missing val
   const wrapper = mount(QuantSignalsPage, { global: { plugins: [router] } });
   await flushPromises();
   const headings = wrapper.findAll('th').map((cell) => cell.text());
-  expect(headings).toEqual(expect.arrayContaining(['3D收益', '5D收益', '入选至今']));
+  expect(headings).toEqual(expect.arrayContaining(['3D收益', '5D收益', '至今收益']));
   const cells = wrapper.findAll('tbody td').map((cell) => cell.text());
   expect(cells).toEqual(expect.arrayContaining(['+3.21%', '-1.42%', '--']));
 });

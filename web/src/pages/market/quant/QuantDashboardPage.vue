@@ -183,7 +183,7 @@ watch(
                   <TableHead>预测收益</TableHead>
                   <TableHead>3D收益</TableHead>
                   <TableHead>5D收益</TableHead>
-                  <TableHead>入选至今</TableHead>
+                  <TableHead>至今收益</TableHead>
                   <TableHead>信号</TableHead>
                 </TableRow>
               </TableHeader>

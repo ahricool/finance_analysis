@@ -20,25 +20,29 @@ def _return(latest, base) -> float | None:
 
 
 def signal_returns(repo: QuantRepository, codes: set[str], signal_date: date | None) -> dict[str, dict]:
-    """3D/5D include the latest bar: last / first close of the N-bar window.
+    """Forward returns from the selected snapshot's exact trade_date (T0).
 
-    The signal date is the selected snapshot's trade_date, not first-ever selection.
-    Missing/invalid window endpoints stay null; no calendar-day approximation.
+    T3/T5 are the third/fifth stored daily bars after T0, never trailing returns.
+    Missing T0 or unobserved future bars stay null; no substitute baseline.
     """
     histories = defaultdict(list)
-    if codes:
+    if codes and signal_date is not None:
         for row in repo.load_return_daily_rows(codes, signal_date):
             histories[row["code"]].append(row)
     results = {}
     for code in codes:
-        rows = sorted(histories[code], key=lambda row: row["date"], reverse=True)
-        latest = rows[0]["close"] if rows else None
-        recent = {row["recency"]: row["close"] for row in rows}
-        base = next((row["close"] for row in rows if row["date"] == row["first_date"]), None)
+        rows = histories[code]
+        base = next((row["close"] for row in rows if row["date"] == signal_date), None)
+        closes = {row["ordinal"]: row["close"] for row in rows}
+        latest = next(
+            (row for row in rows if row["date"] == row["latest_valid_date"] and row["date"] > signal_date),
+            None,
+        )
+        return_since = _return(latest["close"], base) if latest else None
         results[code] = {
-            "return_3d": _return(latest, recent.get(3)),
-            "return_5d": _return(latest, recent.get(5)),
-            "return_since": _return(latest, base),
-            "return_as_of": rows[0]["date"] if rows else None,
+            "return_3d": _return(closes.get(4), base),
+            "return_5d": _return(closes.get(6), base),
+            "return_since": return_since,
+            "return_as_of": latest["date"] if latest and return_since is not None else None,
         }
     return results

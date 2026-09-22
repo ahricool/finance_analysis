@@ -93,7 +93,7 @@ class FakeQuantRepository:
         self.calls.append(("delete_model_run", run_id, market, universe_id))
         return {"id": run_id, "artifact_uri": f"quant://models/{run_id}"}
 
-    def latest_signals(self, market, universe_id=None, code=None, model_version=None):
+    def latest_signals(self, market, universe_id=None, code=None, model_version=None, trade_date=None):
         self.calls.append(("latest_signals", market, universe_id, code, model_version))
         return self.signal_rows
 
@@ -545,11 +545,11 @@ def test_signal_ranking_serializes_request_time_returns(monkeypatch):
     )]
     repository.load_return_daily_rows = lambda codes, signal_date: [
         {"code": "AAPL.US", "date": date(2026, 7, day), "close": close,
-         "recency": recency, "first_date": date(2026, 7, 22)}
-        for day, close, recency in [(24, 110, 1), (23, 105, 2), (22, 100, 3)]
+         "ordinal": ordinal, "latest_valid_date": date(2026, 7, 27)}
+        for day, close, ordinal in [(22, 100, 1), (23, 105, 2), (24, 108, 3), (27, 110, 4)]
     ]
-    item = client.get("/quant/signals/ranking?market=US").json()["items"][0]
+    item = client.get("/quant/signals/ranking?market=US&trade_date=2026-07-22").json()["items"][0]
     assert item["return_3d"] == pytest.approx(0.1)
     assert item["return_5d"] is None
     assert item["return_since"] == pytest.approx(0.1)
-    assert item["return_as_of"] == "2026-07-24"
+    assert item["return_as_of"] == "2026-07-27"

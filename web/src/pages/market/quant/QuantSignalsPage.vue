@@ -94,7 +94,7 @@ watch(
               <TableRow>
                 <TableHead>排名</TableHead><TableHead class="min-w-[220px]">
                   股票
-                </TableHead><TableHead>最终得分</TableHead><TableHead>横截面</TableHead><TableHead>时间序列</TableHead><TableHead>风险扣分</TableHead><TableHead>预测收益</TableHead><TableHead>3D收益</TableHead><TableHead>5D收益</TableHead><TableHead>入选至今</TableHead><TableHead>信号</TableHead>
+                </TableHead><TableHead>最终得分</TableHead><TableHead>横截面</TableHead><TableHead>时间序列</TableHead><TableHead>风险扣分</TableHead><TableHead>预测收益</TableHead><TableHead>3D收益</TableHead><TableHead>5D收益</TableHead><TableHead>至今收益</TableHead><TableHead>信号</TableHead>
               </TableRow>
             </TableHeader><TableBody>
               <TableRow
