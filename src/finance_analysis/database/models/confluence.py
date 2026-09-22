@@ -16,6 +16,7 @@ class ConfluenceRun(Base):
     generated_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
     algorithm_version = Column(String(32), nullable=False)
     source_availability = Column(JSON_TYPE, nullable=False)
+    rules = Column(JSON_TYPE, nullable=True)
     __table_args__ = (CheckConstraint("market IN ('CN','US')", name="ck_confluence_run_market"),)
 
 

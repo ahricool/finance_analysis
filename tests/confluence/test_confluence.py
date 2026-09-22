@@ -11,7 +11,7 @@ from alembic.migration import MigrationContext
 from alembic.operations import Operations
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, inspect, select
+from sqlalchemy import create_engine, inspect, select, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import Session
@@ -130,7 +130,7 @@ def test_us_normalization_and_negative_precedence():
     result = aggregate(inputs)
     assert result["available_weight"] == 50
     assert result["confluence_score"] == 80
-    assert signal("quant", {"universe_rank": 1, "signal": "sell"})["status"] == "negative"
+    assert signal("quant", {"universe_rank": 1, "signal": "avoid"})["status"] == "negative"
     assert signal("trend", dict(facts()["trend"], fragility_score=80))["status"] == "negative"
     assert signal("trend", dict(facts()["trend"], state="BROKEN"))["status"] == "negative"
 
@@ -146,6 +146,8 @@ def seed(repo):
                 strength_score=90,
                 state="STRONG",
                 data_timestamp=NOW,
+                members_observed_at=NOW,
+                updated_at=NOW,
                 quality={},
             )
         )
@@ -325,10 +327,25 @@ def test_migration_upgrade_downgrade_and_metadata_match():
     spec = importlib.util.spec_from_file_location("confluence_migration", path)
     migration = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(migration)
+    rules_spec = importlib.util.spec_from_file_location(
+        "rules_migration", Path(__file__).parents[2] / "alembic/versions/0066_confluence_rules.py"
+    )
+    rules_migration = importlib.util.module_from_spec(rules_spec)
+    rules_spec.loader.exec_module(rules_migration)
     engine = create_engine("sqlite://")
     with engine.begin() as connection:
         migration.op = Operations(MigrationContext.configure(connection))
         migration.upgrade()
+        connection.execute(
+            text(
+                "INSERT INTO confluence_run "
+                "(market, trade_date, generated_at, algorithm_version, source_availability) "
+                "VALUES ('CN', '2026-09-21', '2026-09-21 12:00:00', 'v1', '{}')"
+            )
+        )
+        rules_migration.op = migration.op
+        rules_migration.upgrade()
+        assert connection.execute(text("SELECT rules FROM confluence_run")).scalar() is None
         for model in (ConfluenceRun, ConfluenceSnapshot):
             assert {c["name"] for c in inspect(connection).get_columns(model.__tablename__)} == set(
                 model.__table__.c.keys()
@@ -338,6 +355,7 @@ def test_migration_upgrade_downgrade_and_metadata_match():
             "trade_date",
             "instrument_id",
         ]
+        rules_migration.downgrade()
         migration.downgrade()
         assert not inspect(connection).get_table_names()
 
@@ -382,3 +400,94 @@ def test_post_is_admin_only_and_enqueues_without_computing(monkeypatch):
         assert sent[0]["kwargs"]["_triggered_by_uid"] == 7
         assert sent[0]["queue"] == "analysis"
         assert client.post("/confluence/run", json={"market": "US", "trade_date": "2099-01-01"}).status_code == 422
+
+
+@pytest.mark.parametrize(
+    "action,rank,expected",
+    [
+        ("buy", 100, "positive"),
+        ("watch", 100, "neutral"),
+        ("hold", 100, "neutral"),
+        ("avoid", 100, "negative"),
+        ("avoid", 1, "negative"),
+        ("watch", 20, "positive"),
+        ("hold", 20, "positive"),
+    ],
+)
+def test_quant_real_contract(action, rank, expected):
+    assert signal("quant", {"signal": action, "universe_rank": rank})["status"] == expected
+
+
+def test_industry_rerun_retains_saved_evidence_after_latest_members_refresh(repo):
+    seed(repo)
+    service = ConfluenceService(repo)
+    service.run("CN", DAY)
+    saved = repo.read("CN", DAY)["items"][0]["signals"]["industry"]
+    assert saved["status"] == "positive"
+    from sqlalchemy import delete
+
+    with repo.db.session_scope() as session:
+        session.execute(delete(IndustryStrengthConstituent))
+        session.add(
+            IndustryStrengthConstituent(
+                industry_code="I2", stock_code="600001.SH", stock_name="Stock", updated_at=NOW + timedelta(days=1)
+            )
+        )
+        session.add(
+            IndustryStrengthSnapshot(
+                trade_date=DAY + timedelta(days=1),
+                industry_code="I2",
+                industry_name="新行业",
+                strength_rank=50,
+                state="WEAK",
+                data_timestamp=NOW + timedelta(days=1),
+                members_observed_at=NOW + timedelta(days=1),
+                updated_at=NOW + timedelta(days=1),
+                quality={},
+            )
+        )
+        session.scalar(select(ModelSignal).where(ModelSignal.id == 2)).signal = "avoid"
+    assert repo.industry("CN", DAY) == []
+    assert repo.industry("CN", DAY + timedelta(days=1))[0]["industry_code"] == "I2"
+    service.run("CN", DAY)
+    result = repo.read("CN", DAY)
+    assert result["items"][0]["signals"]["industry"] == saved
+    assert result["items"][0]["signals"]["quant"]["status"] == "negative"
+    assert result["source_availability"]["industry"]["retained_signal_count"] == 1
+    # Even an industry-only historical row must survive rerunning with no rebuildable sources.
+    with repo.db.session_scope() as session:
+        session.execute(delete(ModelSignal))
+        session.execute(delete(TrendFollowingSnapshot))
+    service.run("CN", DAY)
+    assert repo.read("CN", DAY)["items"][0]["signals"]["industry"] == saved
+
+
+def test_industry_requires_exact_formal_generation_not_old_members(repo):
+    seed(repo)
+    with repo.db.session_scope() as session:
+        session.scalar(select(IndustryStrengthConstituent)).updated_at = NOW - timedelta(days=1)
+    assert repo.industry("CN", DAY) == []
+    ConfluenceService(repo).run("CN", DAY)
+    assert repo.read("CN", DAY)["items"][0]["signals"]["industry"]["status"] == "unavailable"
+
+
+def test_historical_rules_read_from_saved_generation(repo, monkeypatch):
+    from finance_analysis.confluence import config
+
+    seed(repo)
+    service = ConfluenceService(repo)
+    service.run("CN", DAY)
+    monkeypatch.setattr(config, "STRONG_MIN_SCORE", 80)
+    monkeypatch.setattr(config, "MIN_SIGNALS", 4)
+    app = FastAPI()
+    app.include_router(api.router, prefix="/confluence")
+    app.dependency_overrides[api.get_service] = lambda: service
+    app.dependency_overrides[api.require_current_user] = lambda: SimpleNamespace(id=1)
+    with TestClient(app) as client:
+        result = client.get("/confluence/ranking", params={"trade_date": DAY.isoformat()}).json()
+        assert result["rules"]["strong_min_score"] == 75
+        assert result["rules"]["min_signals"] == 3
+        assert result["total"] == 1
+    with repo.db.session_scope() as session:
+        session.get(ConfluenceRun, ("CN", DAY)).rules = None
+    assert service.ranking("CN", DAY)["rules"]["strong_min_score"] == 80

@@ -43,7 +43,7 @@ def signal(key, facts=None, unavailable_reason="截至目标日期无正式数�
         rank, action = facts.get("universe_rank"), facts.get("signal")
         if rank is None and action is None:
             return result
-        if str(action).upper() in {"SELL", "REDUCE", "EXIT"}:
+        if str(action).upper() == "AVOID":
             status = "negative"
         elif str(action).upper() == "BUY" or (rank is not None and rank <= c.TOP_QUANT):
             status = "positive"
@@ -83,7 +83,8 @@ def signal(key, facts=None, unavailable_reason="截至目标日期无正式数�
     )
 
 
-def aggregate(signals):
+def aggregate(signals, rules=None):
+    rules = rules if rules is not None else c.current_rules()
     available = [s for s in signals.values() if s["status"] != "unavailable"]
     weight = sum(s["weight"] for s in available)
     score = round(100 * sum(s["score"] for s in available) / weight, 2) if weight else None
@@ -94,12 +95,12 @@ def aggregate(signals):
         available_weight=weight,
         available_signal_count=count,
         positive_signal_count=positive,
-        eligible=count >= c.MIN_SIGNALS,
+        eligible=count >= rules["min_signals"],
         strong_confluence=(
-            count >= c.STRONG_MIN_SIGNALS
-            and positive >= c.STRONG_MIN_POSITIVE
+            count >= rules["strong_min_signals"]
+            and positive >= rules["strong_min_positive"]
             and score is not None
-            and score >= c.STRONG_MIN_SCORE
+            and score >= rules["strong_min_score"]
         ),
         signals=signals,
         reasons=[

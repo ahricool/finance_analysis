@@ -2,19 +2,27 @@
 
 from datetime import date
 from finance_analysis.confluence.service import ConfluenceService
-from finance_analysis.market_review.trading_calendar import get_market_now, is_market_open
+from finance_analysis.market_review.trading_calendar import (
+    get_market_now,
+    is_market_open,
+    get_effective_trading_date,
+    is_market_session_closed,
+)
 from finance_analysis.tasks.celery.app import celery_app
 from finance_analysis.tasks.celery.schedule import require_scheduled_task_definition
 from finance_analysis.tasks.lifecycle import TaskSkipped, track_task
 
 
 def _run(market, trade_date=None):
-    today = get_market_now(market.lower()).date()
-    day = date.fromisoformat(trade_date) if trade_date else today
+    now = get_market_now(market.lower())
+    today = now.date()
+    day = date.fromisoformat(trade_date) if trade_date else get_effective_trading_date(market.lower(), current_time=now)
     if day > today:
         raise ValueError("Future confluence dates are not supported")
     if not is_market_open(market.lower(), day):
         raise TaskSkipped("非交易日，跳过多信号共振")
+    if not is_market_session_closed(market.lower(), current_time=now, check_date=day):
+        raise TaskSkipped("交易日尚未收盘，跳过正式多信号共振")
     return ConfluenceService().run(market, day)
 
 

@@ -32,6 +32,11 @@ def test_postgres_migration_concurrent_upsert_and_rollback():
     )
     migration = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(migration)
+    rules_spec = importlib.util.spec_from_file_location(
+        "rules_migration", Path(__file__).parents[2] / "alembic/versions/0066_confluence_rules.py"
+    )
+    rules_migration = importlib.util.module_from_spec(rules_spec)
+    rules_spec.loader.exec_module(rules_migration)
 
     class DB:
         fail = False
@@ -68,6 +73,8 @@ def test_postgres_migration_concurrent_upsert_and_rollback():
             connection.execute(text("INSERT INTO instrument VALUES (1)"))
             migration.op = Operations(MigrationContext.configure(connection))
             migration.upgrade()
+            rules_migration.op = migration.op
+            rules_migration.upgrade()
             for model in (ConfluenceRun, ConfluenceSnapshot):
                 assert {c["name"] for c in inspect(connection).get_columns(model.__tablename__, schema=schema)} == set(
                     model.__table__.c.keys()
@@ -101,6 +108,8 @@ def test_postgres_migration_concurrent_upsert_and_rollback():
         with engine.begin() as connection:
             connection.execute(text(f'SET LOCAL search_path TO "{schema}"'))
             migration.op = Operations(MigrationContext.configure(connection))
+            rules_migration.op = migration.op
+            rules_migration.downgrade()
             migration.downgrade()
             assert not inspect(connection).has_table("confluence_run", schema=schema)
     finally:

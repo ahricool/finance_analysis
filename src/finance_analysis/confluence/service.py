@@ -28,6 +28,13 @@ class ConfluenceService:
 
     def run(self, market, day):
         now = utc_now()
+        rules = c.current_rules()
+        previous = {
+            row["instrument_id"]: row["signals"]["industry"]
+            for row in self.repo.read(market, day)["items"]
+            if row["signals"]["industry"]["status"] != "unavailable"
+        }
+        retained_industry = 0
         sources, availability = {}, {}
         for key in ("trend", "quant", "industry", "dragon_tiger"):
             try:
@@ -64,32 +71,43 @@ class ConfluenceService:
                 "quant": quant.get(stock["id"]),
                 "dragon_tiger": flows.get(stock["code"]),
             }
-            if not any(facts.values()):
+            if not any(facts.values()) and stock["id"] not in previous:
                 continue
             signals = {
                 key: signal(
                     key,
                     json_safe(value),
                     availability[key].get("reason")
-                    or ("行业映射缺失、晚于目标日期或存在多个行业" if key == "industry" else "截至目标日期无正式数据"),
+                    or ("无对应正式代次的行业成分或存在多个行业" if key == "industry" else "截至目标日期无正式数据"),
                 )
                 for key, value in facts.items()
             }
+            if signals["industry"]["status"] == "unavailable" and stock["id"] in previous:
+                signals["industry"] = previous[stock["id"]]
+                retained_industry += 1
             for key in ("etf",):
                 signals[key] = signal(key, unavailable_reason=availability[key]["reason"])
             result.append(
                 dict(
                     instrument_id=stock["id"],
-                    **aggregate(signals),
+                    **aggregate(signals, rules),
                     algorithm_version=c.ALGORITHM_VERSION,
                     generated_at=now,
                 )
             )
+        if retained_industry:
+            availability["industry"]["retained_signal_count"] = retained_industry
+            availability["industry"]["reason"] = "无法重建的行业维度保留该日期已保存的正式证据"
         published = self.repo.save(
             market,
             day,
             result,
-            dict(generated_at=now, algorithm_version=c.ALGORITHM_VERSION, source_availability=json_safe(availability)),
+            dict(
+                generated_at=now,
+                algorithm_version=c.ALGORITHM_VERSION,
+                source_availability=json_safe(availability),
+                rules=rules,
+            ),
         )
         return dict(
             status="completed" if published else "superseded",
@@ -105,7 +123,7 @@ class ConfluenceService:
         market,
         day=None,
         min_score=0,
-        min_signals=c.MIN_SIGNALS,
+        min_signals=None,
         industry=None,
         lifecycle=None,
         early_only=False,
@@ -115,12 +133,9 @@ class ConfluenceService:
     ):
         response = self.repo.read(market, day)
         rows = response["items"]
-        response["rules"] = dict(
-            min_signals=c.MIN_SIGNALS,
-            strong_min_signals=c.STRONG_MIN_SIGNALS,
-            strong_min_positive=c.STRONG_MIN_POSITIVE,
-            strong_min_score=c.STRONG_MIN_SCORE,
-        )
+        response["rules"] = response.get("rules") or c.current_rules()
+        if min_signals is None:
+            min_signals = response["rules"]["min_signals"]
 
         def industry_top(row):
             rank = row["signals"]["industry"]["evidence"].get("strength_rank")

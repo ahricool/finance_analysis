@@ -22,3 +22,12 @@ SOURCE_MODULES = {
     "etf": "etf_rotation",
     "dragon_tiger": "dragon_tiger_flow",
 }
+
+
+def current_rules():
+    return dict(
+        min_signals=MIN_SIGNALS,
+        strong_min_signals=STRONG_MIN_SIGNALS,
+        strong_min_positive=STRONG_MIN_POSITIVE,
+        strong_min_score=STRONG_MIN_SCORE,
+    )
