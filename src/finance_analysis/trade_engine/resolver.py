@@ -200,6 +200,9 @@ class MarketDecisionResolver:
                     prompt=_PROMPT.format(payload=json.dumps(payload, ensure_ascii=False, default=str)),
                     system_prompt=_SYSTEM,
                     call_type="trade_engine_market",
+                    # This multi-user task has a 540s soft limit. Preserve its
+                    # existing per-user budget when global fallback is enabled.
+                    timeout=min(getattr(client.config, "timeout", 180), 180),
                     temperature=0,
                     web_search=use_search,
                 ),

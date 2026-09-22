@@ -4,6 +4,7 @@ import re
 from typing import Any
 
 from .config import LLMConfig
+from .failures import ProviderFailure
 from .types import LLMRequest, LLMResult
 
 
@@ -44,7 +45,7 @@ def complete(config: LLMConfig, request: LLMRequest) -> LLMResult:
     if isinstance(content, list):
         content = "".join(_get(part, "text", "") for part in content)
     if not isinstance(content, str) or not content.strip():
-        raise ValueError("LLM returned empty response")
+        raise ProviderFailure("empty_response", retryable=True)
     raw_usage = _get(response, "usage")
     usage = {
         "input_tokens": int(_get(raw_usage, "prompt_tokens", 0) or 0),

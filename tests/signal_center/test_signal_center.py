@@ -390,3 +390,32 @@ def test_retry_failure_is_recorded_again_without_losing_saved_screening():
     assert repo.run_record["candidate_snapshot"] == saved["candidate_snapshot"]
     assert repo.run_record["screening"] == saved["screening"]
     assert len([c for c in client.calls if c.call_type == "signal_center_screen"]) == 5
+
+
+def test_signal_persists_successful_fallback_engine_and_default_model():
+    repo, client = Repo(), Client()
+    complete = client.complete_text
+    def codex(request, validator):
+        result = complete(request, validator)
+        result.backend = 'cli'
+        result.engine = 'codex'
+        result.model = None
+        return result
+    client.complete_text = codex
+    SignalCenterService(repo, client, lock).run('CN', DAY, deadline=True)
+    assert repo.run_record['backend'] == 'cli/codex'
+    assert repo.run_record['model'] == 'unreported:cli/codex'
+    assert all(row['backend'] == 'cli/codex' for row in repo.run_record['screening'])
+
+
+def test_signal_exposes_only_shared_client_safe_failure_chain():
+    from finance_analysis.llm import LLMError
+    repo, client = Repo(), Client()
+    def failed(*args, **kwargs):
+        raise LLMError('LLM failed: agy:quota_exhausted → codex:timeout → api:authentication_failed')
+    client.complete_text = failed
+    with pytest.raises(LLMError):
+        SignalCenterService(repo, client, lock).run('CN', DAY, deadline=True)
+    assert repo.run_record['error'].startswith('LLM failed: agy:quota_exhausted')
+    assert repo.run_record['status'] == 'failed'
+    assert repo.run_record.get('decision') is None
