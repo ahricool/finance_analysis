@@ -5,7 +5,8 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from finance_analysis.industry_strength import preview as module
-from finance_analysis.industry_strength.preview import IndustryPreviewService, PreviewCache, overlay
+from finance_analysis.industry_strength.preview import IndustryPreviewService, PreviewCache
+from finance_analysis.industry_strength.features import overlay
 from finance_analysis.interfaces.api.v1.schemas.industry_strength import PreviewResponse
 
 DAY = date(2026, 9, 16)
@@ -32,21 +33,30 @@ def quote(price=150, stamp=STAMP, pre_close=120):
 class Data:
     def __init__(self):
         self.stock_calls = []
+        self.stock_history_end = DAYS[-2]
         self.history_calls = 0
+        self.catalog_calls = 0
+        self.member_calls = 0
+        self.incomplete_history = False
         self.benchmark_price = 120
         self.stale_benchmark = False
 
     def get_index_history(self, *args):
         self.history_calls += 1
-        return [Obj(trade_date=d, close=100 + i, amount=100, volume=10) for i, d in enumerate(DAYS)], STAMP
+        days = DAYS[:-2] if self.incomplete_history else DAYS
+        return [Obj(trade_date=d, close=100 + i, amount=100, volume=10) for i, d in enumerate(days)], STAMP
 
     def get_industry_catalog(self):
+        self.catalog_calls += 1
         return [{"thscode": f"{i:06d}.TI", "name": str(i)} for i in range(20)]
 
     def get_index_constituents(self, code):
+        self.member_calls += 1
         return [{"thscode": "600001.SH", "name": "共同成分"}]
 
     def get_daily_bars(self, codes, start, end, **kwargs):
+        assert start == DAYS[0] and end == self.stock_history_end
+        assert kwargs == {"adjustment": "forward", "source_policy": "db_only"}
         self.stock_calls.append((codes, kwargs))
         return Obj(data={c: [Obj(trade_date=d, close=100, amount=100, volume=10) for d in DAYS] for c in codes})
 
@@ -111,7 +121,7 @@ def test_overlay_replaces_today_and_rebases_adjusted_history():
     assert len(overlay(bars, quote(stamp=STAMP - timedelta(days=1)), DAY, DAYS[-2])) == 20
 
 
-def test_preview_reuses_inputs_updates_benchmark_and_only_writes_redis():
+def test_preview_refetches_full_inputs_updates_benchmark_and_only_caches_results():
     repo, data, cache = Repo(), Data(), PreviewCache(Redis())
     service = IndustryPreviewService(repo, data, cache=cache)
     service.run_preview()
@@ -131,7 +141,9 @@ def test_preview_reuses_inputs_updates_benchmark_and_only_writes_redis():
     second = cache.read()["result"]
     assert second["items"][0]["rs_5d"] < row["rs_5d"]
     assert second["items"][0]["rank_change_3d"] == 12
-    assert data.history_calls == 21 and len(data.stock_calls) == 1
+    assert data.history_calls == 42 and len(data.stock_calls) == 2
+    assert data.catalog_calls == 2 and data.member_calls == 40
+    assert set(cache.client.values) == {module.KEY}
     PreviewResponse.model_validate(cache.read())
     data.stale_benchmark = True
     with pytest.raises(ValueError, match="benchmark not ready"):
@@ -188,3 +200,43 @@ def test_task_center_cannot_submit_preview():
     service = object.__new__(ScheduledTaskService)
     with pytest.raises(ManualRunNotAllowedError):
         service.run_scheduled_task_now(job_id="industry_strength_preview_cn", triggered_by_uid=7)
+
+
+def test_next_run_recovers_after_upstream_history_is_repaired():
+    data, cache = Data(), PreviewCache(Redis())
+    service = IndustryPreviewService(Repo(), data, cache=cache)
+    data.incomplete_history = True
+    with pytest.raises(ValueError, match="benchmark not ready"):
+        service.run_preview()
+    assert cache.read()["status"] == "failed"
+    data.incomplete_history = False
+    service.run_preview()
+    assert cache.read()["status"] == "completed"
+    assert data.history_calls == 22
+    assert set(cache.client.values) == {module.KEY}
+
+
+def test_preview_and_formal_calculations_match_for_identical_daily_inputs():
+    from finance_analysis.industry_strength.service import IndustryStrengthService
+
+    data = Data()
+
+    def index_quotes(codes):
+        return {code: Obj(**{**vars(quote(120)), "amount": 100, "volume": 10}) for code in codes}
+
+    def stock_quotes(codes):
+        return {code: Obj(**{**vars(quote(100, pre_close=100)), "amount": 100, "volume": 10}) for code in codes}
+
+    data.get_index_quotes = index_quotes
+    data.get_realtime_quotes = lambda codes: Obj(data=stock_quotes(codes))
+    # Formal includes today's stored bar; Preview replaces it with the identical live bar.
+    service = IndustryStrengthService(Repo(), data)
+    data.stock_history_end = DAY
+    formal, formal_members, _ = service.calculate(DAY, False)
+    data.stock_history_end = DAYS[-2]
+    preview, preview_members, _ = service.calculate(DAY, False, preview=True)
+    for official, intraday in zip(formal, preview):
+        assert {k: v for k, v in official.items() if k != "members_observed_at"} == {
+            k: v for k, v in intraday.items() if k != "members_observed_at"
+        }
+    assert formal_members == preview_members

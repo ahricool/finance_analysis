@@ -16,7 +16,7 @@ from finance_analysis.market_review.trading_calendar import (
     is_market_open,
 )
 from .config import DEFAULT_CONFIG
-from .features import aligned_closes, breadth, constituent_observations, index_features
+from .features import aligned_closes, breadth, constituent_observations, index_features, overlay, current_quote
 from .scoring import rank_rows
 from .state import classify
 
@@ -52,14 +52,35 @@ class IndustryStrengthService:
             )
         if historical and any(r.get("members_observed_at") is not None for r in self.repository.ranking(day)):
             raise IndustryReadinessError("Saved historical breadth must not be overwritten by index-only backfill")
-        return self.calculate(day, historical)
+        rows, constituents, _ = self.calculate(day, historical)
+        self.repository.save(day, rows, constituents=None if historical else constituents)
+        return {
+            "status": "completed",
+            "trade_date": day.isoformat(),
+            "industries": len(rows),
+            "catalog_count": rows[0]["quality"]["catalog_count"],
+            "excluded": rows[0]["quality"]["excluded"],
+        }
 
-    def calculate(self, day, historical, *, persist=True, member_histories=None):
+    def calculate(self, day, historical, *, preview=False):
+        """Fetch and calculate one cross-section in memory; callers own publication."""
         sessions = self.sessions(day)
         catalog = self.market_data.get_industry_catalog()
         if not catalog:
             raise IndustryReadinessError("Industry catalog is empty")
-        benchmark, _ = self.market_data.get_index_history(self.config.benchmark, sessions[0], day)
+        history_end = sessions[-2] if preview else day
+        index_quotes = (
+            self.market_data.get_index_quotes([self.config.benchmark] + [item["thscode"] for item in catalog])
+            if preview
+            else {}
+        )
+        stamps = []
+        benchmark, _ = self.market_data.get_index_history(self.config.benchmark, sessions[0], history_end)
+        if preview:
+            quote = index_quotes.get(self.config.benchmark)
+            benchmark = overlay(benchmark, quote, day, sessions[-2])
+            if current_quote(quote, day):
+                stamps.append(quote.quote_time)
         try:
             aligned_closes(benchmark, sessions)
         except ValueError as exc:
@@ -68,8 +89,14 @@ class IndustryStrengthService:
         for item in catalog:
             code = item["thscode"]
             try:
-                bars, timestamp = self.market_data.get_index_history(code, sessions[0], day)
+                bars, timestamp = self.market_data.get_index_history(code, sessions[0], history_end)
+                if preview:
+                    quote = index_quotes.get(code)
+                    bars = overlay(bars, quote, day, sessions[-2])
+                    timestamp = quote.quote_time if current_quote(quote, day) else None
                 features = index_features(bars, benchmark, sessions)
+                if preview:
+                    stamps.append(timestamp)
                 ready.append(
                     {
                         "trade_date": day,
@@ -99,12 +126,21 @@ class IndustryStrengthService:
         codes = sorted({m["thscode"] for r in ready for m in memberships[r["industry_code"]]})
         # Retain the existing history fetch path; breadth failure cannot discard valid indices.
         try:
-            stocks = member_histories
-            if stocks is None:
-                stocks = self.load_member_history(codes, sessions) if codes else {}
+            stocks = self.load_member_history(codes, sessions[:-1] if preview else sessions) if codes else {}
         except Exception as exc:
             stocks = {}
             breadth_failures["history"] = str(exc)
+        if preview and codes:
+            try:
+                quotes = self.market_data.get_realtime_quotes(codes).data
+                stocks = {
+                    code: overlay(stocks.get(code, []), quotes.get(code), day, sessions[-2], stock=True)
+                    for code in codes
+                }
+                stamps.extend(quote.quote_time for quote in quotes.values() if current_quote(quote, day))
+            except Exception as exc:
+                stocks = {}
+                breadth_failures["quotes"] = str(exc)
         trend_ranks = {}
         if codes:
             try:
@@ -117,18 +153,29 @@ class IndustryStrengthService:
             code = row["industry_code"]
             observations = constituent_observations(memberships[code], stocks, sessions)
             for item in observations:
-                current_constituents.append({
-                    "industry_code": code,
-                    "stock_code": item["code"],
-                    "stock_name": item["name"],
-                    **{key: value for key, value in item.items() if key not in {"code", "name"}},
-                    "trend_rank": trend_ranks.get(item["code"]),
-                })
+                current_constituents.append(
+                    {
+                        "industry_code": code,
+                        "stock_code": item["code"],
+                        "stock_name": item["name"],
+                        **{key: value for key, value in item.items() if key not in {"code", "name"}},
+                        "trend_rank": trend_ranks.get(item["code"]),
+                    }
+                )
             row.update(breadth(observations, self.config.minimum_breadth_coverage))
             if historical:
                 row["quality"]["breadth_status"] = "unavailable_historical_members"
-                for key in ("constituent_count", "daily_valid_count", "ma5_valid_count", "ma20_valid_count",
-                            "above_ma5_count", "above_ma20_count", "up_count", "down_count", "flat_count"):
+                for key in (
+                    "constituent_count",
+                    "daily_valid_count",
+                    "ma5_valid_count",
+                    "ma20_valid_count",
+                    "above_ma5_count",
+                    "above_ma20_count",
+                    "up_count",
+                    "down_count",
+                    "flat_count",
+                ):
                     row[key] = None
         past = self.repository.history(sessions[-2], limit=5)
         history = {(r["trade_date"], r["industry_code"]): r for r in past}
@@ -144,22 +191,15 @@ class IndustryStrengthService:
                 "coverage": len(valid) / len(catalog),
                 "excluded": failures,
                 "benchmark": self.config.benchmark,
-                "breadth_basis": "unavailable_historical_members" if historical else "observed_current_members_at_close",
+                "breadth_basis": (
+                    "unavailable_historical_members" if historical else "observed_current_members_at_close"
+                ),
                 "catalog_basis": "current_catalog",
                 "member_codes": [m["thscode"] for m in memberships[row["industry_code"]]],
             }
         if not historical and get_market_now("cn").date() != day:
             raise IndustryReadinessError("Collection crossed the Shanghai date boundary; no snapshot written")
-        if not persist:
-            return valid, current_constituents
-        self.repository.save(day, valid, constituents=None if historical else current_constituents)
-        return {
-            "status": "completed",
-            "trade_date": day.isoformat(),
-            "industries": len(valid),
-            "catalog_count": len(catalog),
-            "excluded": failures,
-        }
+        return valid, current_constituents, stamps
 
     def _coverage(self, count, total, failures):
         if not total or count / total < self.config.minimum_coverage:
@@ -169,32 +209,11 @@ class IndustryStrengthService:
             )
 
     def load_member_history(self, codes, sessions):
-        day = sessions[-1]
-        stored = self.market_data.get_daily_bars(
+        """Read the full forward-adjusted stock window from DB for either run mode."""
+        return self.market_data.get_daily_bars(
             codes,
             sessions[0],
-            day,
+            sessions[-1],
             adjustment="forward",
             source_policy="db_only",
         ).data
-        missing = []
-        for code in codes:
-            try:
-                aligned_closes(stored.get(code, []), sessions[-20:])
-            except ValueError:
-                missing.append(code)
-        # cn_daily_sync intentionally covers a narrower universe than all THS constituents.
-        # Fetch missing full windows through the existing provider chain, without DB writes.
-        if missing:
-            remote = self.market_data.get_daily_bars(
-                missing,
-                sessions[0],
-                day,
-                adjustment="forward",
-                source_policy="remote_only",
-            )
-            for code in missing:
-                # A validated, complete fallback is sufficient for a read-only calculation.
-                # Sticky errors are a full-history persistence guard, not a ban on fallback reads.
-                stored[code] = remote.data.get(code) or stored.get(code, [])
-        return stored

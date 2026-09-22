@@ -1,6 +1,9 @@
 """Pure features aligned to explicit exchange sessions; never forward-fill gaps."""
 
 import math
+from datetime import time
+from types import SimpleNamespace
+from zoneinfo import ZoneInfo
 from statistics import fmean
 
 
@@ -56,7 +59,9 @@ def constituent_observations(members, histories, sessions):
                 prices = aligned_closes(bars, sessions[-window:])
                 row[field] = prices[-1] / prices[-2] - 1 if window == 2 else prices[-1] > fmean(prices)
                 bar = next(b for b in bars if b.trade_date == sessions[-1])
-                row.update(price=prices[-1], volume=finite_nonnegative(bar.volume), amount=finite_nonnegative(bar.amount))
+                row.update(
+                    price=prices[-1], volume=finite_nonnegative(bar.volume), amount=finite_nonnegative(bar.amount)
+                )
             except ValueError:
                 pass
         rows.append(row)
@@ -77,6 +82,7 @@ def breadth(rows, minimum_coverage=0.0):
         "ma5_coverage": len(ma5) / total if total else 0.0,
         "ma20_coverage": len(ma20) / total if total else 0.0,
     }
+
     def usable(n):
         return bool(n and total and n / total >= minimum_coverage)
 
@@ -100,3 +106,41 @@ def breadth(rows, minimum_coverage=0.0):
 
 def finite_nonnegative(value):
     return value if value is not None and math.isfinite(value) and value >= 0 else None
+
+
+SHANGHAI = ZoneInfo("Asia/Shanghai")
+
+
+def current_quote(quote, day):
+    if quote is None or quote.quote_time is None or quote.quote_time.tzinfo is None:
+        return False
+    local = quote.quote_time.astimezone(SHANGHAI)
+    return (
+        local.date() == day
+        and local.time() >= time(9, 30)
+        and quote.price is not None
+        and math.isfinite(quote.price)
+        and quote.price > 0
+    )
+
+
+def bar_record(bar):
+    return {"trade_date": bar.trade_date, "close": bar.close, "volume": bar.volume, "amount": bar.amount}
+
+
+def overlay(bars, quote, day, previous_day, *, stock=False):
+    """Replace today's bar. Rebase old forward-adjusted closes to today's ex-rights basis."""
+    prior = [bar for bar in bars if bar.trade_date < day]
+    if not current_quote(quote, day):
+        return prior
+    if stock:
+        previous = next((b.close for b in prior if b.trade_date == previous_day), None)
+        if previous and quote.pre_close and quote.pre_close > 0:
+            factor = quote.pre_close / previous
+            prior = [SimpleNamespace(**{**bar_record(b), "close": b.close * factor}) for b in prior]
+        else:
+            # Live daily return remains usable, but MA windows require a known adjustment anchor.
+            prior = []
+            if quote.pre_close and quote.pre_close > 0:
+                prior = [SimpleNamespace(trade_date=previous_day, close=quote.pre_close, volume=None, amount=None)]
+    return prior + [SimpleNamespace(trade_date=day, close=quote.price, volume=quote.volume, amount=quote.amount)]
