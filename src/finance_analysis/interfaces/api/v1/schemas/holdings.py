@@ -23,8 +23,6 @@ class TradeRequest(BaseModel):
 class CashRequest(BaseModel):
     account_id: int
     amount: str
-    executed_at: Optional[datetime] = None
-    note: Optional[str] = None
 
 
 class PositionUpdateRequest(BaseModel):

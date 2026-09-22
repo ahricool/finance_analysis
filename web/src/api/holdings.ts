@@ -84,12 +84,8 @@ export const holdingsApi = {
     });
     return toCamelCase(data);
   },
-  async deposit(body: { accountId: number; amount: string }) {
-    const { data } = await apiClient.post('/api/v1/holdings/cash/deposit', { account_id: body.accountId, amount: body.amount });
-    return toCamelCase(data);
-  },
-  async withdraw(body: { accountId: number; amount: string }) {
-    const { data } = await apiClient.post('/api/v1/holdings/cash/withdraw', { account_id: body.accountId, amount: body.amount });
+  async setCash(body: { accountId: number; amount: string }) {
+    const { data } = await apiClient.patch('/api/v1/holdings/cash', { account_id: body.accountId, amount: body.amount });
     return toCamelCase(data);
   },
   async operations(positionId: number) {
