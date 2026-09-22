@@ -20,3 +20,8 @@ This change fixes state reporting; it does not change provider timeouts or claim
 
 Validation: `tests/signal_center` 45 passed / 4 skipped (isolated PostgreSQL tests not enabled for this code-only repair),
 repository flake8 and diff checks passed. The repair is submitted separately for review; it is not deployed in-place.
+
+Production follow-up: CN completed and passed bucket/output/immutability checks. US kept all five completed buckets,
+but final calls timed out twice at180s and once with a one-off360s budget. A minimal CLI probe also timed out at30s.
+No persistent timeout configuration was changed. US final output remains unresolved; this PR does not claim to fix
+CLI availability. The production row remains failed rather than fabricating NO_TRADE.
