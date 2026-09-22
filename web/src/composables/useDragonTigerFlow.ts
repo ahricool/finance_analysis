@@ -4,7 +4,7 @@ import { getParsedApiError } from '@/api/error';
 import { conceptStocks, stockEvidence } from '@/components/dragon-tiger-flow/display';
 
 export function useDragonTigerFlow() {
-  const filters = ref<FlowFilters>({ endDate: '', days: 20, board: 'all', rangeDays: 1 });
+  const filters = ref<FlowFilters>({ endDate: '', days: 1, board: 'all', rangeDays: 1 });
   const data = ref<FlowOverview | null>(null);
   const dates = ref<string[]>([]);
   const error = ref<ReturnType<typeof getParsedApiError> | null>(null);

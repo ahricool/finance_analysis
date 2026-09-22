@@ -5,7 +5,7 @@ import { useAuth } from '@/composables/useAuth';
 import { getParsedApiError } from '@/api/error';
 import { useDragonTigerFlow } from '@/composables/useDragonTigerFlow';
 import { dragonTigerFlowApi, flowBoardLabels, type FlowBoard } from '@/api/dragonTigerFlow';
-import { money, exportObservation } from '@/components/dragon-tiger-flow/display';
+import { money, exportObservation, allStocks } from '@/components/dragon-tiger-flow/display';
 import SortableTableHeader from '@/components/stocks/SortableTableHeader.vue';
 import FlowCharts from '@/components/dragon-tiger-flow/FlowCharts.vue';
 import PageHeader from '@/components/layout/PageHeader.vue';
@@ -43,7 +43,26 @@ function sortStocks(key: 'name' | 'netValue' | 'days') {
   stockSort.value = key;
 }
 const boards: FlowBoard[] = ['all', 'org', 'hot_money'];
-const windows = [5, 10, 20] as const;
+const windows = [1, 5, 10, 20] as const;
+const stockSearch = ref('');
+const allStockSort = ref<'observedNetValue' | 'buyValue' | 'sellValue' | 'orgNetValue' | 'hotMoneyNetValue'>('observedNetValue');
+const allStockDescending = ref(true);
+const allStockRows = computed(() => allStocks(data.value).filter(row =>
+  `${row.symbol} ${row.name} ${row.concepts.join(' ')}`.toLowerCase().includes(stockSearch.value.trim().toLowerCase()),
+).sort((a, b) => {
+  const av = a[allStockSort.value], bv = b[allStockSort.value];
+  return Number(av === null) - Number(bv === null)
+    || (allStockDescending.value ? -1 : 1) * ((av ?? 0) - (bv ?? 0)) || a.symbol.localeCompare(b.symbol);
+}));
+function sortAllStocks(key: typeof allStockSort.value) {
+  allStockDescending.value = allStockSort.value === key ? !allStockDescending.value : true;
+  allStockSort.value = key;
+}
+const amountColumns = [
+  { key: 'observedNetValue', label: '所选口径净额' }, { key: 'buyValue', label: '买入额' },
+  { key: 'sellValue', label: '卖出额' }, { key: 'orgNetValue', label: '机构净额' },
+  { key: 'hotMoneyNetValue', label: '游资净额' },
+] as const;
 const ranking = computed(() => (data.value?.concepts ?? []).filter(c => c.name.includes(search.value)
   && (direction.value === 'all' || (direction.value === 'positive' ? (c.netValue ?? 0) > 0 : (c.netValue ?? 0) < 0)))
   .slice().sort((a, b) => Number(a.netValue === null) - Number(b.netValue === null)
@@ -121,7 +140,7 @@ onMounted(() => { void load(); void loadDates(); });
           :aria-pressed="filters.days === days"
           @click="change({ days })"
         >
-          {{ days }}日
+          {{ days === 1 ? '最近单日' : `${days}日` }}
         </Button>
       </div>
       <Button
@@ -207,7 +226,7 @@ onMounted(() => { void load(); void loadDates(); });
         class="rounded-lg border bg-muted/30 px-4 py-3 text-xs leading-6 text-muted-foreground"
         data-testid="flow-status"
       >
-        <span>{{ data.rangeDays === 3 ? '3日榜独立截面' : '1日榜累计' }} · {{ data.dates[0] }} — {{ data.tradeDate }} · {{ flowBoardLabels[data.board] }} · 有效日期 {{ data.dates.length - data.missingDates.length }}/{{ data.dates.length }}</span>
+        <span>{{ data.rangeDays === 3 ? '3日榜独立截面' : (filters.days === 1 ? '单日榜' : '1日榜累计') }} · {{ data.dates[0] }} — {{ data.tradeDate }} · {{ flowBoardLabels[data.board] }} · 有效日期 {{ data.dates.length - data.missingDates.length }}/{{ data.dates.length }}</span>
         <span v-if="generatedAt"> · 最近生成 {{ formatDateTime(generatedAt) }}</span>
         <p
           v-if="!filters.endDate && data.expectedTradeDate && data.tradeDate !== data.expectedTradeDate"
@@ -222,7 +241,7 @@ onMounted(() => { void load(); void loadDates(); });
           v-if="!data.complete"
           class="text-amber-600 dark:text-amber-400"
         >
-          窗口不完整：{{ data.missingDates.join('、') }}。累计线在缺口处停止，区间总额不补零。
+          窗口不完整：{{ data.missingDates.join('、') }}。累计线在缺口处停止，区间总额不补零。下方股票明细单独展示已采集日合计。
         </p>
         <p v-if="data.excludedUndisclosedCount">
           游资视图仅含明确披露游资净额的股票；{{ data.excludedUndisclosedCount }} 条股票日记录未披露，未视为零。
@@ -269,6 +288,146 @@ onMounted(() => { void load(); void loadDates(); });
           </CardContent>
         </Card>
       </div>
+      <Card>
+        <CardContent class="space-y-3 p-4">
+          <div class="flex items-center justify-between gap-4">
+            <h2 class="font-semibold">
+              全部上榜股票 · {{ data.summary.stockCount }}只
+            </h2>
+            <Input
+              v-model="stockSearch"
+              class="w-80"
+              placeholder="搜索股票代码、名称或概念"
+              aria-label="搜索全部上榜股票"
+            />
+          </div>
+          <p class="text-xs text-muted-foreground">
+            {{ data.complete ? '所选窗口股票原始金额，未按概念拆分。' : '以下金额仅为已采集日合计，不代表完整窗口；缺失不填零。' }}
+            机构、游资为独立口径，未知金额显示 —。点击股票查看每日证据。
+          </p>
+          <div class="max-h-[28rem] overflow-auto rounded-md border">
+            <table
+              class="w-full text-sm"
+              data-testid="flow-all-stocks"
+            >
+              <thead class="sticky top-0 bg-muted">
+                <tr>
+                  <th class="p-3 text-left">
+                    股票
+                  </th>
+                  <SortableTableHeader
+                    v-for="column in amountColumns"
+                    :key="column.key"
+                    :label="!data.complete && column.key === 'observedNetValue' ? '已采集日净额' : column.label"
+                    align="right"
+                    :active="allStockSort === column.key"
+                    :direction="allStockDescending ? 'desc' : 'asc'"
+                    @sort="sortAllStocks(column.key)"
+                  />
+                  <th class="p-3 text-right">
+                    上榜日数
+                  </th><th class="p-3 text-left">
+                    观测概念
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr
+                  v-for="row in allStockRows"
+                  :key="row.symbol"
+                  class="border-t"
+                >
+                  <td class="p-3 whitespace-nowrap">
+                    <Button
+                      variant="link"
+                      class="h-auto p-0"
+                      @click="stock = row.symbol"
+                    >
+                      {{ row.name }} · {{ row.symbol }}
+                    </Button>
+                  </td>
+                  <td
+                    v-for="column in amountColumns"
+                    :key="column.key"
+                    class="p-3 text-right tabular-nums whitespace-nowrap"
+                    :class="moneyClass(row[column.key])"
+                  >
+                    {{ money(row[column.key]) }}
+                  </td>
+                  <td class="p-3 text-right">
+                    {{ row.observedDays }}
+                  </td><td class="max-w-72 p-3 text-xs">
+                    {{ row.concepts.join('、') || '未分类' }}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+            <p
+              v-if="!allStockRows.length"
+              class="p-8 text-center text-muted-foreground"
+            >
+              当前筛选没有股票记录
+            </p>
+          </div>
+          <p class="text-xs text-muted-foreground">
+            显示 {{ allStockRows.length }} / {{ data.summary.stockCount }} 只；可滚动查看全部。
+          </p>
+        </CardContent>
+      </Card>
+      <details
+        class="rounded-lg border p-4"
+        data-testid="flow-all-seats"
+      >
+        <summary class="cursor-pointer font-semibold">
+          游资席位样本 · {{ data.hotMoneyDetails.length }} 条（展开查看全部）
+        </summary>
+        <p class="my-3 text-xs text-muted-foreground">
+          有限已命名席位样本，与股票级游资净额口径独立，不能相加或反推全部游资。
+        </p>
+        <div class="max-h-96 overflow-auto">
+          <table class="w-full text-sm">
+            <thead class="sticky top-0 bg-muted">
+              <tr>
+                <th class="p-2 text-left">
+                  日期
+                </th><th class="p-2 text-left">
+                  股票
+                </th><th class="p-2 text-left">
+                  席位
+                </th><th class="p-2 text-right">
+                  样本净额
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                v-for="(row, i) in data.hotMoneyDetails"
+                :key="`${row.tradeDate}-${row.symbol}-${row.hotMoneyName}-${i}`"
+                class="border-t"
+              >
+                <td class="p-2">
+                  {{ row.tradeDate }}
+                </td><td class="p-2">
+                  <Button
+                    variant="link"
+                    class="h-auto p-0"
+                    @click="stock = row.symbol"
+                  >
+                    {{ row.name }} · {{ row.symbol }}
+                  </Button>
+                </td><td class="p-2">
+                  {{ row.hotMoneyName }}
+                </td><td
+                  class="p-2 text-right"
+                  :class="moneyClass(row.hotMoneyItemNetValue)"
+                >
+                  {{ money(row.hotMoneyItemNetValue) }}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </details>
       <div
         v-if="!data.concepts.length"
         class="rounded-lg border p-16 text-center text-muted-foreground"
@@ -278,9 +437,9 @@ onMounted(() => { void load(); void loadDates(); });
       <template v-else>
         <div
           class="grid gap-4"
-          :class="data.rangeDays === 1 ? 'grid-cols-[minmax(0,2fr)_minmax(320px,1fr)]' : 'grid-cols-1'"
+          :class="data.rangeDays === 1 && filters.days > 1 ? 'grid-cols-[minmax(0,2fr)_minmax(320px,1fr)]' : 'grid-cols-1'"
         >
-          <Card v-if="data.rangeDays === 1">
+          <Card v-if="data.rangeDays === 1 && filters.days > 1">
             <CardContent class="p-4">
               <h2 class="font-semibold">
                 概念累计龙虎榜净额
@@ -299,7 +458,7 @@ onMounted(() => { void load(); void loadDates(); });
           <Card>
             <CardContent class="space-y-3 p-4">
               <h2 class="font-semibold">
-                {{ data.rangeDays === 3 ? '3日榜截面' : '区间净流向' }}排行
+                {{ data.rangeDays === 3 ? '3日榜截面' : (filters.days === 1 ? '单日净流向' : '区间净流向') }}排行 · {{ ranking.length }}个概念
               </h2>
               <Input
                 v-model="search"

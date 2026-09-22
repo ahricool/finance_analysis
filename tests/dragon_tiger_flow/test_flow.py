@@ -324,6 +324,8 @@ def test_api_validation_read_boundary_and_revision(db, monkeypatch):
     )
     assert detail.status_code == 200
     assert client.get("/flow/stocks/600001.SH?end_date=2026-09-21&revision=old").status_code == 409
+    assert client.get("/flow/overview?days=1").status_code == 200
+    assert client.get("/flow/overview?days=2").status_code == 422
     assert client.get("/flow/overview?days=100").status_code == 422
     assert client.get("/flow/overview?board=bogus").status_code == 422
     assert client.get("/flow/stocks/600999.SH?end_date=2026-09-21").status_code == 404

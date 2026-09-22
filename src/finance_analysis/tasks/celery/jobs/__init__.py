@@ -5,6 +5,7 @@ TASK_PACKAGES = (
     "finance_analysis.tasks.celery.jobs.intraday_confirmation",
     "finance_analysis.tasks.celery.jobs.dragon_tiger_flow",
     "finance_analysis.tasks.celery.jobs.confluence",
+    "finance_analysis.tasks.celery.jobs.signal_center",
     "finance_analysis.tasks.celery.jobs.crypto_strategy",  # pragma: allowlist secret
     "finance_analysis.tasks.celery.jobs.market_sentiment",  # pragma: allowlist secret
     "finance_analysis.tasks.celery.jobs.industry_strength",  # pragma: allowlist secret

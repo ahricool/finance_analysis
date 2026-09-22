@@ -76,3 +76,5 @@ JOB_CONFLUENCE_US = "confluence_us"
 
 JOB_INTRADAY_CONFIRMATION_CN = "intraday_confirmation_cn"
 JOB_INTRADAY_CONFIRMATION_US = "intraday_confirmation_us"
+JOB_SIGNAL_CENTER_CN = "signal_center_cn"
+JOB_SIGNAL_CENTER_US = "signal_center_us"

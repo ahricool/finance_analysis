@@ -36,3 +36,24 @@ export function exportObservation(data: FlowOverview) {
   anchor.download = `dragon-tiger-flow-${data.tradeDate}-${data.board}-${data.rangeDays}d.json`;
   anchor.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
+
+
+export interface FlowStockSummary {
+  symbol: string; name: string; netValue: number | null; observedNetValue: number | null;
+  buyValue: number | null; sellValue: number | null; orgNetValue: number | null; hotMoneyNetValue: number | null;
+  observedDays: number; concepts: string[];
+}
+export function allStocks(data: FlowOverview | null): FlowStockSummary[] {
+  const groups = new Map<string, FlowEvidence[]>();
+  for (const row of data?.evidence ?? []) groups.set(row.symbol, [...(groups.get(row.symbol) ?? []), row]);
+  return [...groups].map(([symbol, rows]) => {
+    const daily = new Map(rows.map(r => [r.tradeDate, r]));
+    const observedNetValue = sumKnown([...daily.values()].map(r => r.originalNetValue));
+    // Net is original stock/day evidence; other amounts are summed from all concept allocations once.
+    return { symbol, name: rows[0]!.name, netValue: data?.complete ? observedNetValue : null, observedNetValue,
+      buyValue: sumKnown(rows.map(r => r.buyValue)), sellValue: sumKnown(rows.map(r => r.sellValue)),
+      orgNetValue: sumKnown(rows.map(r => r.orgNetValue)), hotMoneyNetValue: sumKnown(rows.map(r => r.hotMoneyNetValue)),
+      observedDays: daily.size, concepts: [...new Set(rows.flatMap(r => r.concepts))],
+    };
+  });
+}

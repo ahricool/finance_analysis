@@ -97,3 +97,6 @@ __all__ = [
 ]
 
 from finance_analysis.database.models.confluence import ConfluenceRun, ConfluenceSnapshot
+
+from .signal_center import SignalCenterRun
+__all__.append("SignalCenterRun")

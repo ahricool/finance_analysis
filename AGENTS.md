@@ -355,7 +355,7 @@ BTC 多策略以 `strategy_key + symbol` 隔离，代码注册表当前仅 `btc_
 `dragon_tiger_flow/` 独立观察 A 股龙虎榜概念净额，页面 `/research/dragon-tiger-flow`。
 Beat `dragon_tiger_flow_cn` 上海19:30，经 `MarketDataService` 的 CN `dragon_tiger_board` 能力采集三类扶摇榜单，
 原子保存每日 PostgreSQL 批次；GET只读，管理员可异步补最多31交易日。
-1日榜支持5/10/20日累计，3日榜仅独立截面；概念等分到分、未分类守恒，缺日不填零。
+1日榜默认单日，支持5/10/20日累计，3日榜仅独立截面；概念等分到分、未分类守恒，缺日不填零。
 机构与游资独立观察，游资明细是有限样本，不构造互斥资金来源或交易动作。见 `docs/dragon-tiger-flow.md`。
 
 ## Signal Confluence
@@ -371,3 +371,12 @@ GET `/api/v1/confluence/*` 只读快照，管理员 `/run` 异步生成；页面
 复用 alerts 队列；CN Tencent 定向报价 + 既有 Sina 5m，US yfinance。候选/当天状态仅存 Redis，午夜过期，
 缺少冻结池则盘中不补建；GET只读，页面 `/research/intraday-confirmation`。Temporary Trend 复用纯计算，
 固定昨日横截面百分位，不写正式 snapshot/rank/lifecycle。规则、不可用指标及取舍见 `docs/intraday-confirmation.md`。
+
+
+## Unified Signal Center
+
+`signal_center/` 主动读取同日正式 Trend/Quant/Industry/ETF 结果，Trend前5%与显著上升补充池先经LLM初筛，
+Quant仅Top3；CN/US各自最多一个BUY或NO_TRADE。输入不足为skipped，不伪装NO_TRADE。
+复用LLMClient与advisory lock；`signal_center_run`按market+signal_date冻结输入并保存初筛/最终调用证据，成功结果不覆盖。
+Beat复用analysis队列，CN20:40–21:50、US23:10–23:50每10分钟主动检查；不由生产者推送。
+页面`/research/signal-center`，历史GET只读已存快照。详见`docs/signal-center.md`。

@@ -20,6 +20,8 @@ from finance_analysis.tasks.celery.schedule.cron import LocalizedCrontab, comput
 EXPECTED_JOBS = {
     "intraday_confirmation_cn": ("scheduled_intraday_confirmation_cn", "Asia/Shanghai"),
     "intraday_confirmation_us": ("scheduled_intraday_confirmation_us", "America/New_York"),
+    "signal_center_cn": ("scheduled_signal_center_cn", "Asia/Shanghai"),
+    "signal_center_us": ("scheduled_signal_center_us", "America/New_York"),
     "confluence_cn": ("scheduled_confluence_cn", "Asia/Shanghai"),
     "confluence_us": ("scheduled_confluence_us", "America/New_York"),
     "dragon_tiger_flow_cn": ("scheduled_dragon_tiger_flow_cn", "Asia/Shanghai"),
