@@ -12,7 +12,7 @@ CN/US 各一个 Celery Beat 任务，复用 alerts 队列。当地 09:20 首次�
 
 1. Confluence `strong_confluence=true`，按正式分数排序。
 2. Trend `CANDIDATE` / `TRENDING`，按正式 alpha 排序。
-3. Quant 使用既有正式版本选择，BUY 或前 20 名，排除 SELL/REDUCE/EXIT。
+3. Quant 使用既有正式版本选择，`avoid` 永远排除（即使排名第 1）；`buy` 纳入；`watch` / `hold` 仅在排名前 20 时纳入。
 
 按上述顺序去重、最多 40 只，限 Instrument 中 ACTIVE STOCK；ETF/指数不作为股票候选。
 保存来源、候选日期、理由、源生成时间和当日计算所需的昨日 Trend 基线。

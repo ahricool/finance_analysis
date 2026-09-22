@@ -2,6 +2,8 @@
 
 from contextlib import contextmanager
 from datetime import date, datetime, timedelta, timezone
+import pytest
+from finance_analysis.intraday_confirmation import config as c
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 from finance_analysis.database.models.stock import Instrument
@@ -140,4 +142,68 @@ def test_candidate_priority_and_quant_date_cutoff(monkeypatch):
     )
     rows = repo.candidates("US", day, cutoff)
     assert [(r["code"], r["candidate_source"]) for r in rows] == [("T1.US", "confluence"), ("T2.US", "quant")]
+    engine.dispose()
+
+
+@pytest.mark.parametrize(
+    ("signal", "rank", "included"),
+    [
+        ("avoid", 1, False),
+        ("avoid", c.QUANT_TOP, False),
+        ("avoid", None, False),
+        ("buy", c.QUANT_TOP + 1, True),
+        ("buy", None, True),
+        ("watch", c.QUANT_TOP, True),
+        ("watch", c.QUANT_TOP + 1, False),
+        ("watch", None, False),
+        ("hold", c.QUANT_TOP, True),
+        ("hold", c.QUANT_TOP + 1, False),
+        ("hold", None, False),
+        (None, 1, False),
+    ],
+)
+def test_quant_candidate_signal_contract(monkeypatch, signal, rank, included):
+    engine = create_engine("sqlite://")
+    for model in (Instrument, TrendFollowingSnapshot, ConfluenceSnapshot):
+        model.__table__.create(engine)
+
+    class DB:
+        @contextmanager
+        def get_session(self):
+            with Session(engine) as session:
+                yield session
+
+    repo = CandidateRepository(DB())
+    day = date(2026, 9, 18)
+    cutoff = datetime(2026, 9, 21, 13, 25, tzinfo=timezone.utc)
+    with Session(engine) as session, session.begin():
+        session.add(
+            Instrument(
+                id=1,
+                code="T1.US",
+                native_code="T1",
+                market="US",
+                name="T1",
+                instrument_type="STOCK",
+                currency="USD",
+                source="test",
+            )
+        )
+    monkeypatch.setattr(
+        repo.formal,
+        "quant",
+        lambda *args: [
+            dict(
+                instrument_id=1,
+                trade_date=day,
+                generated_at=cutoff - timedelta(hours=1),
+                signal=signal,
+                universe_rank=rank,
+            )
+        ],
+    )
+    rows = repo.candidates("US", day, cutoff)
+    assert [r["code"] for r in rows] == (["T1.US"] if included else [])
+    if included:
+        assert rows[0]["candidate_source"] == "quant"
     engine.dispose()

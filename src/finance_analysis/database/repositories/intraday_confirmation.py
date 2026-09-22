@@ -53,10 +53,13 @@ class CandidateRepository:
                 for r in self.formal.quant(market, day)
                 if r["trade_date"] == day
                 and r["generated_at"] < cutoff
-                and str(r["signal"]).upper() not in {"SELL", "REDUCE", "EXIT"}
                 and (
-                    str(r["signal"]).upper() == "BUY"
-                    or (r["universe_rank"] is not None and r["universe_rank"] <= c.QUANT_TOP)
+                    str(r["signal"]).lower() == "buy"
+                    or (
+                        str(r["signal"]).lower() in {"watch", "hold"}
+                        and r["universe_rank"] is not None
+                        and r["universe_rank"] <= c.QUANT_TOP
+                    )
                 )
             ]
             ids = [r["instrument_id"] for r in quant]
