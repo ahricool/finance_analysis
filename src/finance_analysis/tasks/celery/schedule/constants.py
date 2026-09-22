@@ -73,3 +73,6 @@ JOB_MARKET_SENTIMENT_CN = "market_sentiment_cn"
 JOB_DRAGON_TIGER_FLOW_CN = "dragon_tiger_flow_cn"
 JOB_CONFLUENCE_CN = "confluence_cn"
 JOB_CONFLUENCE_US = "confluence_us"
+
+JOB_INTRADAY_CONFIRMATION_CN = "intraday_confirmation_cn"
+JOB_INTRADAY_CONFIRMATION_US = "intraday_confirmation_us"

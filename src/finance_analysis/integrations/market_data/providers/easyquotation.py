@@ -159,6 +159,9 @@ class EasyQuotationProvider:
             raise RuntimeError("easyquotation tencent snapshot contained no usable quotes")
         return result
 
+    def fetch_quotes(self, request):
+        return self.fetch_quotes_for_codes(request.symbols)
+
     def fetch_quotes_for_codes(self, symbols: Iterable[str]) -> BatchQuoteResult:
         """One Tencent real() batch for codes missing from market_snapshot, typically ETFs."""
         codes: list[str] = []

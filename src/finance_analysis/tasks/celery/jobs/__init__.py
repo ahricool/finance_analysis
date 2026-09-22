@@ -2,6 +2,7 @@
 """Explicit task packages loaded by the Celery application."""
 
 TASK_PACKAGES = (
+    "finance_analysis.tasks.celery.jobs.intraday_confirmation",
     "finance_analysis.tasks.celery.jobs.dragon_tiger_flow",
     "finance_analysis.tasks.celery.jobs.confluence",
     "finance_analysis.tasks.celery.jobs.crypto_strategy",  # pragma: allowlist secret

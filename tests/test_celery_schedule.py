@@ -18,6 +18,8 @@ from finance_analysis.tasks.celery.schedule import (  # pragma: allowlist secret
 from finance_analysis.tasks.celery.schedule.cron import LocalizedCrontab, compute_next_run, next_run_for_crontab  # pragma: allowlist secret
 
 EXPECTED_JOBS = {
+    "intraday_confirmation_cn": ("scheduled_intraday_confirmation_cn", "Asia/Shanghai"),
+    "intraday_confirmation_us": ("scheduled_intraday_confirmation_us", "America/New_York"),
     "confluence_cn": ("scheduled_confluence_cn", "Asia/Shanghai"),
     "confluence_us": ("scheduled_confluence_us", "America/New_York"),
     "dragon_tiger_flow_cn": ("scheduled_dragon_tiger_flow_cn", "Asia/Shanghai"),

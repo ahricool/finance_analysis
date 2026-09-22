@@ -83,7 +83,7 @@ def test_registry_exact_external_inventory_internal_readers_and_order():
         "industry_catalog", "index_history", "index_constituents", "index_quotes",
         "limit_up_pool", "limit_down_pool", "limit_break_pool", "limit_up_ladder", "dragon_tiger_board",
     }
-    assert registry.capabilities("easyquotation") == {LATEST_MARKET_SNAPSHOT}
+    assert registry.capabilities("easyquotation") == {LATEST_MARKET_SNAPSHOT, REALTIME_QUOTES}
     with pytest.raises(ProviderConfigurationError, match="do not support"):
         registry.resolve(["fuyao"], MINUTE_BARS)
     assert provider_order("CN", DAILY_BARS) == ("tickflow", "fuyao", "yfinance")

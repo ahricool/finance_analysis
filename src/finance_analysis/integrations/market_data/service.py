@@ -210,7 +210,7 @@ def build_default_registry(
     registry.register(
         "easyquotation",
         EasyQuotationProvider(),
-        capabilities={LATEST_MARKET_SNAPSHOT},
+        capabilities={LATEST_MARKET_SNAPSHOT, REALTIME_QUOTES},
     )
     registry.register(
         "yfinance",

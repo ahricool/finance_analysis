@@ -98,3 +98,6 @@ from .endpoints import dragon_tiger_flow
 router.include_router(dragon_tiger_flow.router, prefix="/dragon-tiger-flow", tags=["Dragon Tiger Flow"])
 from .endpoints import confluence
 router.include_router(confluence.router, prefix="/confluence", tags=["Confluence"])
+
+from .endpoints import intraday_confirmation
+router.include_router(intraday_confirmation.router, prefix="/intraday-confirmation", tags=["Intraday Confirmation"])
