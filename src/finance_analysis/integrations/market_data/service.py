@@ -35,6 +35,7 @@ from .models import (
 )
 from .normalizer import bars_from_frame, canonical_symbol, currency_for_market, infer_market, quote_from_value
 from .registry import (
+    DRAGON_TIGER_BOARD,
     LIMIT_UP_POOL,
     LIMIT_DOWN_POOL,
     LIMIT_BREAK_POOL,
@@ -204,7 +205,7 @@ def build_default_registry(
         capabilities={DAILY_BARS, REALTIME_QUOTES, LATEST_MARKET_SNAPSHOT, MARKET_INDICES,
                       MARKET_STATS, SECTOR_RANKINGS, INSTRUMENT_INFO,
                       INDUSTRY_CATALOG, INDEX_HISTORY, INDEX_CONSTITUENTS, INDEX_QUOTES,
-                      LIMIT_UP_POOL, LIMIT_DOWN_POOL, LIMIT_BREAK_POOL, LIMIT_UP_LADDER},
+                      LIMIT_UP_POOL, LIMIT_DOWN_POOL, LIMIT_BREAK_POOL, LIMIT_UP_LADDER, DRAGON_TIGER_BOARD},
     )
     registry.register(
         "easyquotation",
@@ -236,6 +237,10 @@ def build_default_registry(
 
 
 class MarketDataService:
+    def get_dragon_tiger_board(self, trade_date, board_type="all", market="CN"):
+        with request_budget(120):
+            return self.router.route_market_pool(market, DRAGON_TIGER_BOARD, trade_date, board_type)
+
     def get_limit_up_pool(self, trade_date, market="CN"):
         with request_budget(120):
             return self.router.route_market_pool(market, LIMIT_UP_POOL, trade_date)

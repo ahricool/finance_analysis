@@ -69,3 +69,5 @@ def celery_task_name(job_id: str) -> str:
 
 
 JOB_MARKET_SENTIMENT_CN = "market_sentiment_cn"
+
+JOB_DRAGON_TIGER_FLOW_CN = "dragon_tiger_flow_cn"

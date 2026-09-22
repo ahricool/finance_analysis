@@ -45,6 +45,7 @@ export const researchNavItems: NavDestination[] = [
     icon: TrendingUp,
   },
   { key: 'industry-strength', label: '行业强度', to: '/research/industry-strength', icon: BarChart3 },
+  { key: 'dragon-tiger-flow', label: '龙虎榜资金流向', to: '/research/dragon-tiger-flow', icon: BarChart3 },
   { key: 'market-sentiment', label: '市场情绪', to: '/research/market-sentiment', icon: BarChart3 },
   { key: 'macro', label: '宏观数据', to: '/research/macro', icon: Activity },
   {

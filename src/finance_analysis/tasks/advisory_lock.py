@@ -27,6 +27,7 @@ class TaskAdvisoryLockId(IntEnum):
     CN_INDUSTRY_STRENGTH = 7
     CN_MARKET_SENTIMENT = 8
     CN_INDUSTRY_STRENGTH_PREVIEW = 9
+    CN_DRAGON_TIGER_FLOW = 10
 
 
 @dataclass

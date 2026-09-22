@@ -93,3 +93,6 @@ router.include_router(trade_engine.router, prefix="/trade-engine", tags=["Trade 
 
 from .endpoints import market_sentiment
 router.include_router(market_sentiment.router, prefix="/market-sentiment", tags=["Market Sentiment"])
+
+from .endpoints import dragon_tiger_flow
+router.include_router(dragon_tiger_flow.router, prefix="/dragon-tiger-flow", tags=["Dragon Tiger Flow"])
