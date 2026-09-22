@@ -86,6 +86,7 @@ const router = createRouter({
               component: TrendFollowingPage,
               meta: { title: '趋势跟踪' },
             },
+            { path: 'intraday-confirmation', name: 'research-intraday-confirmation', component: () => import('@/pages/market/IntradayConfirmationPage.vue'), meta: { title: '盘中确认' } },
             { path: 'confluence', name: 'research-confluence', component: () => import('@/pages/market/ConfluencePage.vue'), meta: { title: '多信号共振' } },
             { path: 'industry-strength', name: 'research-industry-strength', component: () => import('@/pages/market/IndustryStrengthPage.vue'), meta: { title: '行业强度' } },
             { path: 'dragon-tiger-flow', name: 'research-dragon-tiger-flow', component: () => import('@/pages/market/DragonTigerFlowPage.vue'), meta: { title: '龙虎榜资金流向' } },

@@ -33,6 +33,7 @@ describe('main navigation', () => {
       children: marketNavItems,
     });
     expect(researchNavItems).toMatchObject([
+      { key: 'intraday-confirmation', to: '/research/intraday-confirmation' },
       { key: 'confluence', to: '/research/confluence' },
       { key: 'etf-rotation', to: '/research/etf-rotation' },
       { key: 'trend-following', to: '/research/trend-following' },
@@ -47,6 +48,7 @@ describe('main navigation', () => {
       'watch-list',
       'holdings',
       'timeline',
+      'intraday-confirmation',
       'confluence',
       'etf-rotation',
       'trend-following',

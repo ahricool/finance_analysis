@@ -364,3 +364,10 @@ Beat `dragon_tiger_flow_cn` 上海19:30，经 `MarketDataService` 的 CN `dragon
 GET `/api/v1/confluence/*` 只读快照，管理员 `/run` 异步生成；页面 `/research/confluence`。
 缺失不参与分母，默认至少3维；股票→ETF 无可靠映射保持 unavailable，行业最新成分不能泄漏到历史日期。
 规则集中 `confluence/config.py`，证据日期、来源与贡献必须可解释。详见 `docs/confluence.md`。
+
+## Intraday Confirmation
+
+`intraday_confirmation/` 只确认前一交易日正式 Confluence/Trend/Quant 候选。开盘前冻结、当地交易时段每5分钟评估，
+复用 alerts 队列；CN Tencent 定向报价 + 既有 Sina 5m，US yfinance。候选/当天状态仅存 Redis，午夜过期，
+缺少冻结池则盘中不补建；GET只读，页面 `/research/intraday-confirmation`。Temporary Trend 复用纯计算，
+固定昨日横截面百分位，不写正式 snapshot/rank/lifecycle。规则、不可用指标及取舍见 `docs/intraday-confirmation.md`。
