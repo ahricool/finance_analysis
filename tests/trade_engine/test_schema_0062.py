@@ -11,7 +11,7 @@ def test_alembic_head_is_0064():
     config = Config(str(PROJECT_ROOT / "alembic.ini"))
     config.set_main_option("script_location", str(PROJECT_ROOT / "alembic"))
     script = ScriptDirectory.from_config(config)
-    assert script.get_current_head() == "0064_dragon_tiger_flow"
+    assert script.get_current_head() == "0065_confluence"
 
 
 def test_0062_creates_llm_state_not_google_or_strategy_state():

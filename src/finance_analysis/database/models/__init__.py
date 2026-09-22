@@ -49,6 +49,8 @@ from .dragon_tiger_flow import DragonTigerFlowBatch
 
 __all__ = [
     "DragonTigerFlowBatch",
+    "ConfluenceRun",
+    "ConfluenceSnapshot",
     "PortfolioAccount",
     "PortfolioPosition",
     "PositionLot",
@@ -93,3 +95,5 @@ __all__ = [
     "User",
     "WatchListItem",
 ]
+
+from finance_analysis.database.models.confluence import ConfluenceRun, ConfluenceSnapshot

@@ -357,3 +357,10 @@ Beat `dragon_tiger_flow_cn` 上海19:30，经 `MarketDataService` 的 CN `dragon
 原子保存每日 PostgreSQL 批次；GET只读，管理员可异步补最多31交易日。
 1日榜支持5/10/20日累计，3日榜仅独立截面；概念等分到分、未分类守恒，缺日不填零。
 机构与游资独立观察，游资明细是有限样本，不构造互斥资金来源或交易动作。见 `docs/dragon-tiger-flow.md`。
+
+## Signal Confluence
+
+`confluence/` 是正式结果聚合层，`confluence_cn/us` 在上海20:30 / 纽约23:30 读取既有 Industry、Trend、Quant、龙虎榜结果。
+GET `/api/v1/confluence/*` 只读快照，管理员 `/run` 异步生成；页面 `/research/confluence`。
+缺失不参与分母，默认至少3维；股票→ETF 无可靠映射保持 unavailable，行业最新成分不能泄漏到历史日期。
+规则集中 `confluence/config.py`，证据日期、来源与贡献必须可解释。详见 `docs/confluence.md`。
