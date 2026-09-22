@@ -16,12 +16,14 @@ from finance_analysis.interfaces.api.v1.schemas.quant import (
     DatasetBuildRequest,
     ModelRunCreateRequest,
     PublishRequest,
+    SignalReturns,
 )
 from finance_analysis.quant.capabilities import get_quant_capabilities
 from finance_analysis.quant.config import get_quant_config
 from finance_analysis.quant.datasets.artifact_store import ArtifactStore
 from finance_analysis.quant.markets import get_universe_codes
 from finance_analysis.quant.models import QLIB_TRAINABLE_MODEL_KEYS
+from finance_analysis.quant.signal_returns import signal_returns
 from finance_analysis.tasks.celery.schedule import QUEUE_ANALYSIS
 
 router = APIRouter()
@@ -370,6 +372,10 @@ async def signals(
     rows = repo.latest_signals(
         market, definition.id, model_version=model_version, **({"trade_date": trade_date} if trade_date else {})
     )
+    returns = signal_returns(repo, {row.code for row in rows}, rows[0].trade_date if rows else None)
+    items = _encoded_with_names(repo, rows)
+    for item in items:
+        item.update(SignalReturns(**returns[item["code"]]).model_dump(mode="json"))
     regimes = (
         repo.market_regimes(market, date_from=rows[0].trade_date, date_to=rows[0].trade_date, limit=1) if rows else []
     )
@@ -380,7 +386,7 @@ async def signals(
         "model_version": rows[0].model_version if rows else model_version,
         "market_regime": regimes[0].regime if regimes else None,
         "max_equity_exposure": regimes[0].max_equity_exposure if regimes else None,
-        "items": _encoded_with_names(repo, rows),
+        "items": items,
     }
 
 

@@ -281,3 +281,14 @@ Supporting point-in-time membership would need at least:
 
 Do not retrofit this as a large Universe rewrite until a historical data source
 exists.
+
+### 选股列表的实际收益
+
+`GET /api/v1/quant/signals/ranking` 在每次请求时批量读取 `stock_daily` 前复权收盘价，
+为每个 item 返回 `return_3d`、`return_5d`、`return_since` 和 `return_as_of`，不持久化收益。
+3D / 5D 分别取包含最新日 K 的最近 3 / 5 根日 K，按窗口末收盘价 / 首收盘价 - 1 计算
+（即间隔 2 / 4 根日 K）；不按自然日截取，也不补齐缺失行情。
+“入选至今”使用所选 `ModelSignal.trade_date` 当天或之后首根有效日 K 的收盘价为起点，
+不是该股票历史首次入选日期。即使查看历史结果，终点仍为当前 DB 中该股票最新日线。
+`return_as_of` 为各股票使用的最新日线日期，停牌或同步进度不同时可能不同。
+窗口不足、缺少起点或端点价格无效时收益为 `null`，页面显示 `--`；真实零收益仍显示 `0.00%`。

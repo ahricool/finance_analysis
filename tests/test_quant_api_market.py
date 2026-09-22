@@ -25,6 +25,10 @@ class FakeQuantRepository:
         self.artifact_deletions = []
         self.instrument_names = {"AAPL.US": "Apple"}
 
+    def load_return_daily_rows(self, codes, signal_date):
+        self.calls.append(("load_return_daily_rows", codes, signal_date))
+        return []
+
     def names_by_codes(self, codes):
         self.calls.append(("names_by_codes", tuple(codes)))
         return {code: self.instrument_names[code] for code in codes if code in self.instrument_names}
@@ -335,6 +339,9 @@ def test_signal_ranking_exposes_and_filters_model_version(monkeypatch):
     assert response.status_code == 200
     assert response.json()["model_version"] == "model-v2"
     assert response.json()["items"][0]["name"] == "Apple"
+    assert all(response.json()["items"][0][key] is None for key in
+               ("return_3d", "return_5d", "return_since", "return_as_of"))
+    assert ("load_return_daily_rows", {"AAPL.US"}, date(2026, 7, 22)) in repository.calls
     assert ("latest_signals", "US", 1, None, "model-v2") in repository.calls
 
 
@@ -529,3 +536,20 @@ def test_dataset_and_model_write_endpoints_reject_unsupported_universe(monkeypat
     assert model.status_code == 409
     assert publication.status_code == 409
     assert all("only supported universe" in response.json()["detail"] for response in (dataset, model, publication))
+
+
+def test_signal_ranking_serializes_request_time_returns(monkeypatch):
+    client, repository = _client(monkeypatch)
+    repository.signal_rows = [SimpleNamespace(
+        id=1, code="AAPL.US", market="US", trade_date=date(2026, 7, 22), model_version="v1"
+    )]
+    repository.load_return_daily_rows = lambda codes, signal_date: [
+        {"code": "AAPL.US", "date": date(2026, 7, day), "close": close,
+         "recency": recency, "first_date": date(2026, 7, 22)}
+        for day, close, recency in [(24, 110, 1), (23, 105, 2), (22, 100, 3)]
+    ]
+    item = client.get("/quant/signals/ranking?market=US").json()["items"][0]
+    assert item["return_3d"] == pytest.approx(0.1)
+    assert item["return_5d"] is None
+    assert item["return_since"] == pytest.approx(0.1)
+    assert item["return_as_of"] == "2026-07-24"

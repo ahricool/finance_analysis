@@ -1,4 +1,4 @@
-"""Quant API write contracts."""
+"""Quant API contracts."""
 
 from __future__ import annotations
 
@@ -54,3 +54,10 @@ class ModelRunCreateRequest(BaseModel):
 
 class PublishRequest(BaseModel):
     reason: str = Field(min_length=3, max_length=1000)
+
+
+class SignalReturns(BaseModel):
+    return_3d: float | None = None
+    return_5d: float | None = None
+    return_since: float | None = None
+    return_as_of: date | None = None
