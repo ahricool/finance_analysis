@@ -129,8 +129,18 @@ class BatchBarResult:
     providers_used: dict[str, str] = field(default_factory=dict)
     # Sticky request failures survive retries/fallbacks. Full-history writers
     # must reject these symbols, even when some bars were recovered later.
+    # US maintenance routing moves a primary failure to fallback_reasons only
+    # when a subsequent provider supplies its own error-free full-window response.
     request_errors: dict[str, str] = field(default_factory=dict)
     fetched_at: datetime | None = None
+
+    # Recovered maintenance-provider failures are diagnostic, not incomplete final downloads.
+    fallback_reasons: dict[str, list[str]] = field(default_factory=dict)
+    fallback_symbols: list[str] = field(default_factory=list)
+
+    @property
+    def fallback_count(self) -> int:
+        return len(self.fallback_symbols)
 
 
 @dataclass(frozen=True, slots=True)

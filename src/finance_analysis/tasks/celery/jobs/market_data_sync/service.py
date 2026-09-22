@@ -6,7 +6,7 @@ import logging
 from collections import Counter, defaultdict
 from datetime import date, datetime, timedelta, timezone
 from statistics import median
-from time import sleep
+from time import monotonic, sleep
 from typing import Any
 
 from finance_analysis.database.repositories.stock import StockRepository
@@ -55,12 +55,13 @@ class MarketDataSyncService:
         self.config = config or get_data_provider_config()
         self.stock_repository = stock_repository or StockRepository()
         self.universe_resolver = universe_resolver or UniverseResolver()
-        self.market_data = market_data_service or MarketDataService(config=self.config)
+        self.market_data = market_data_service or MarketDataService(config=self.config, daily_sync=True)
         self.now = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
         self.sync_mode = normalize_sync_mode(sync_mode)
 
     @daily_batch_scope()
     def run(self) -> dict[str, Any]:
+        started = monotonic()
         symbols = self.load_scope()
         if not symbols:
             raise MarketDataSyncError(f"No enabled daily symbols in the {self.market} synchronization scope")
@@ -100,6 +101,14 @@ class MarketDataSyncService:
         summary.update(coverage)
         if coverage["remaining_missing_count"]:
             summary["sync_status"] = "partial"
+        summary["elapsed_seconds"] = round(monotonic() - started, 3)
+        logger.info(
+            "market=%s job=market_data_sync providers=%s symbol_count=%s success_count=%s "
+            "partial_count=%s failed_count=%s fallback_count=%s fallback_symbols=%s elapsed_seconds=%s",
+            self.market, summary["provider_counts"], len(symbols), summary["success_symbols"],
+            summary["partial_symbols"], summary["failed_symbols"], summary["fallback_count"],
+            summary["fallback_symbols"], summary["elapsed_seconds"],
+        )
         if summary["success_symbols"] + summary["partial_symbols"] == 0:
             raise MarketDataSyncError(f"All {len(symbols)} {self.market} symbols failed; see task log")
         return summary
@@ -372,6 +381,8 @@ class MarketDataSyncService:
         added = 0
         routed.request_errors.update(patch.request_errors)
         routed.request_errors.update(patch.failed_symbols)
+        for code, reasons in patch.fallback_reasons.items():
+            routed.fallback_reasons.setdefault(code, []).extend(reasons)
         for code, missing_dates in missing_by_code.items():
             existing = {bar.trade_date: bar for bar in routed.data.get(code, [])}
             for bar in patch.data.get(code, []):
@@ -393,7 +404,7 @@ class MarketDataSyncService:
         routed: BatchBarResult,
         requested_days_by_code: dict[str, list[date]],
     ) -> BatchBarResult:
-        """Retry cross-sectionally observable US daily gaps, then patch them with TickFlow."""
+        """Retry observable US gaps with yfinance, without mixing Alpaca adjustment scales."""
         observed_dates = {bar.trade_date for code in requested_days_by_code for bar in routed.data.get(code, [])}
         if not observed_dates:
             return routed
@@ -427,27 +438,6 @@ class MarketDataSyncService:
                 continue
             self._merge_daily_gap_patch(routed, patch, missing_by_code)
             missing_by_code = self._missing_daily_dates(routed, requested_days_by_code, observed_dates)
-        if not missing_by_code:
-            return routed
-        missing_dates = set().union(*missing_by_code.values())
-        logger.warning(
-            "market=US data_type=daily action=fallback_gaps provider=tickflow symbol_count=%s " "missing_date_count=%s",
-            len(missing_by_code),
-            len(missing_dates),
-        )
-        try:
-            patch = self.market_data.get_daily_bars(
-                sorted(missing_by_code),
-                min(missing_dates),
-                max(missing_dates),
-                adjustment="forward",
-                providers=("tickflow",),
-                source_policy="remote_only",
-            )
-        except Exception:
-            logger.exception("market=US data_type=daily action=fallback_gaps provider=tickflow failed")
-            return routed
-        self._merge_daily_gap_patch(routed, patch, missing_by_code)
         return routed
 
     def _has_adjustment_scale_change(self, symbol: Any, bars: list[Any]) -> bool:
@@ -479,6 +469,9 @@ class MarketDataSyncService:
         replace_history: bool = False,
     ) -> DailyResult:
         try:
+            fallback_reasons = list(routed.fallback_reasons.get(symbol.code, []))
+            for reason in fallback_reasons:
+                logger.warning("market=%s code=%s reason=provider_fallback detail=%s", self.market, symbol.code, reason)
             failure = routed.request_errors.get(symbol.code) or routed.failed_symbols.get(symbol.code)
             if failure:
                 logger.warning(
@@ -534,7 +527,10 @@ class MarketDataSyncService:
                     if missing and not replace_history
                     else ""
                 ),
-                fallback_reasons=[routed.failed_symbols[symbol.code]] if symbol.code in routed.failed_symbols else [],
+                fallback_reasons=fallback_reasons + (
+                    [routed.failed_symbols[symbol.code]] if symbol.code in routed.failed_symbols else []
+                ),
+                fallback_succeeded=symbol.code in routed.fallback_symbols and not failure,
             )
         except Exception as exc:
             logger.exception("market=%s code=%s daily persistence failed", self.market, symbol.code)
@@ -558,6 +554,9 @@ class MarketDataSyncService:
             if statuses[result.code] != "success"
         ]
         provider_counts = Counter(provider for result in results for provider in result.daily.providers)
+        fallback_symbols = sorted({
+            result.code for result in results if result.daily.fallback_succeeded and result.daily.status == "success"
+        })
         return {
             "sync_status": "partial" if failures else "success",
             "sync_mode": self.sync_mode,
@@ -569,6 +568,8 @@ class MarketDataSyncService:
             "inserted_rows": sum(result.daily.inserted_rows for result in results),
             "updated_rows": sum(result.daily.updated_rows for result in results),
             "provider_counts": dict(provider_counts),
+            "fallback_count": len(fallback_symbols),
+            "fallback_symbols": fallback_symbols,
             "missing_amount_symbols": sorted(result.code for result in results if result.daily.missing_amount),
             "fallback_reasons": fallback_reasons[:MAX_RESULT_ITEMS],
             "fallback_reasons_truncated": len(fallback_reasons) > MAX_RESULT_ITEMS,

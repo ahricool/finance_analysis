@@ -633,7 +633,7 @@ def test_us_daily_batches_ten_symbols_with_same_window_in_one_service_call():
     assert len(service.stock_repository.persisted) == 10
 
 
-def test_us_daily_retries_observed_date_gaps_then_patches_with_tickflow():
+def test_us_daily_retries_observed_date_gaps_without_tickflow():
     first_day = date(2025, 1, 2)
     second_day = date(2025, 1, 3)
     symbols = [SimpleNamespace(id=1, code="AAPL.US"), SimpleNamespace(id=2, code="MSFT.US")]
@@ -669,16 +669,13 @@ def test_us_daily_retries_observed_date_gaps_then_patches_with_tickflow():
         {symbol.code: [first_day, second_day] for symbol in symbols},
     )
 
-    assert [call[3] for call in calls] == [None, ("yfinance",), ("yfinance",), ("tickflow",)]
+    assert [call[3] for call in calls] == [None, ("yfinance",), ("yfinance",)]
     assert results["AAPL.US"].providers == ["yfinance"]
-    assert results["MSFT.US"].providers == ["yfinance", "tickflow"]
-    assert results["MSFT.US"].status == "success"
+    assert results["MSFT.US"].providers == ["yfinance"]
+    assert results["MSFT.US"].status == "partial"
     rows, source = service.stock_repository.persisted[2]
-    assert source == "mixed"
-    assert [(row["date"], row["data_source"]) for row in rows] == [
-        (first_day, "yfinance"),
-        (second_day, "tickflow"),
-    ]
+    assert source == "yfinance"
+    assert [(row["date"], row["data_source"]) for row in rows] == [(first_day, "yfinance")]
 
 
 def test_cn_daily_groups_initial_and_incremental_windows_into_two_calls():
