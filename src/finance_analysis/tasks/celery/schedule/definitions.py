@@ -144,7 +144,7 @@ SCHEDULED_TASK_DEFINITIONS = (
         timezone=SCHEDULE_TIMEZONE,
         queue=QUEUE_ANALYSIS,
         expires=EXPIRES_ETF_ROTATION_PREVIEW,
-        allow_manual_run=True,
+        allow_manual_run=False,
     ),
     ScheduledTaskDefinition(
         job_id=JOB_INDUSTRY_STRENGTH_CN,

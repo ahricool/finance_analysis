@@ -39,9 +39,6 @@ export const industryStrengthApi = {
     }
     return result;
   },
-  async runPreview(): Promise<{ taskId: string }> {
-    return toCamelCase((await apiClient.post(`${base}/preview/run`)).data);
-  },
   async ranking(tradeDate?: string): Promise<IndustryRanking> {
     return toCamelCase((await apiClient.get(`${base}/ranking`, { params: { trade_date: tradeDate } })).data);
   },

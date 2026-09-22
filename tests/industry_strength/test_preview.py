@@ -169,27 +169,22 @@ def test_http_drops_yesterday_and_never_calculates(monkeypatch):
     assert preview()["result"] is None
 
 
-def test_preview_refresh_is_async_and_admin_only(monkeypatch):
+def test_preview_has_no_manual_http_endpoint():
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
     from finance_analysis.interfaces.api.v1.endpoints import industry_strength as endpoint
     from finance_analysis.interfaces.api import deps
-    from finance_analysis.tasks.celery.jobs.industry_strength import tasks
 
     app = FastAPI()
     app.include_router(endpoint.router, prefix="/industry")
-    user = Obj(id=7, role="admin")
-    app.dependency_overrides[deps.require_current_user] = lambda: user
-    monkeypatch.setattr(deps, "require_current_user", lambda request: user)
-    submitted = []
-    monkeypatch.setattr(tasks.run_industry_strength_preview_cn, "apply_async",
-                        lambda **kw: submitted.append(kw) or Obj(id="preview-task"))
+    app.dependency_overrides[deps.require_current_user] = lambda: Obj(id=7, role="admin")
     with TestClient(app) as client:
-        response = client.post("/industry/preview/run")
-        assert response.status_code == 202
-        assert response.json() == {"task_id": "preview-task", "status": "pending"}
-        assert submitted[0]["queue"] == "analysis"
-        assert submitted[0]["kwargs"]["_triggered_by_uid"] == 7
-        user.role = "user"
-        assert client.post("/industry/preview/run").status_code == 403
-        assert len(submitted) == 1
+        assert client.post("/industry/preview/run").status_code in (404, 405)
+
+
+def test_task_center_cannot_submit_preview():
+    from finance_analysis.tasks.service import ScheduledTaskService, ManualRunNotAllowedError
+
+    service = object.__new__(ScheduledTaskService)
+    with pytest.raises(ManualRunNotAllowedError):
+        service.run_scheduled_task_now(job_id="industry_strength_preview_cn", triggered_by_uid=7)

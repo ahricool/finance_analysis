@@ -1,4 +1,3 @@
-import { tasksApi } from '@/api/tasks';
 import { computed, onBeforeUnmount, ref, shallowRef } from 'vue';
 import {
   industryStrengthApi as api,
@@ -25,8 +24,6 @@ export function useIndustryStrength() {
   const previewMode = ref(false);
   const preview = shallowRef<IndustryPreview | null>(null);
   const taskStatus = ref('');
-  let pollTimer: ReturnType<typeof setTimeout> | undefined;
-  let activeTask = '';
   let disposed = false;
   let cacheTimer: ReturnType<typeof setTimeout> | undefined;
   const ranking = shallowRef<IndustryRanking | null>(null);
@@ -230,7 +227,7 @@ export function useIndustryStrength() {
         preview.value = result;
         taskStatus.value = result.status;
         clearTimeout(cacheTimer);
-        if (result.status === 'processing' && !activeTask) {
+        if (result.status === 'processing') {
           cacheTimer = setTimeout(() => { if (!disposed && previewMode.value) void loadRanking('refresh'); }, 3000);
         }
         data = result.result ?? { tradeDate: null, expectedTradeDate: '', source: '盘中预览', items: [] };
@@ -292,43 +289,6 @@ export function useIndustryStrength() {
     await loadRanking('initial');
   }
 
-  async function pollTask() {
-    try {
-      const task = await tasksApi.getTaskRunDetail(activeTask);
-      if (disposed) return;
-      taskStatus.value = task.status;
-      if (['pending', 'processing', 'retrying'].includes(task.status)) {
-        pollTimer = setTimeout(() => { void pollTask(); }, 2000);
-        return;
-      }
-      activeTask = '';
-      if (previewMode.value) await loadRanking('refresh');
-      taskStatus.value = task.status;
-      if (task.status === 'failed') refreshError.value = getParsedApiError(new Error(task.error || '预览任务失败'));
-    } catch (cause) {
-      refreshError.value = getParsedApiError(cause);
-      activeTask = '';
-    } finally {
-      if (!activeTask) refreshing.value = false;
-    }
-  }
-
-  async function refresh() {
-    if (activeTask) return;
-    if (!previewMode.value) return loadRanking('refresh');
-    refreshing.value = true;
-    refreshError.value = null;
-    try {
-      const task = await api.runPreview();
-      activeTask = task.taskId;
-      taskStatus.value = 'pending';
-      await pollTask();
-    } catch (cause) {
-      refreshError.value = getParsedApiError(cause);
-      refreshing.value = false;
-    }
-  }
-
   function openIndustry(code: string) {
     selected.value = code;
     selectedLabel.value = rows.value.find((row) => row.industryCode === code)?.industryName ?? code;
@@ -373,8 +333,6 @@ export function useIndustryStrength() {
   onBeforeUnmount(() => {
     disposed = true;
     clearTimeout(cacheTimer);
-    clearTimeout(pollTimer);
-    activeTask = '';
     rankingSeq += 1;
     historySeq += 1;
     detailSeq += 1;
@@ -432,6 +390,6 @@ export function useIndustryStrength() {
       requestedDate.value = value;
       void loadRanking('date');
     },
-    refresh,
+    refresh: () => loadRanking('refresh'),
   };
 }

@@ -109,8 +109,3 @@ class PreviewResponse(BaseModel):
     error: str | None = None
     failed_at: datetime | None = None
     result: PreviewResult | None = None
-
-
-class PreviewRunResponse(BaseModel):
-    task_id: str
-    status: str = "pending"

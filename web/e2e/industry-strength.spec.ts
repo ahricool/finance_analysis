@@ -154,13 +154,16 @@ test('industry strength ranking and dialog at 390px', async ({ page }, testInfo)
   await page.screenshot({ path: testInfo.outputPath('industry-390-dialog.png') });
 });
 
-test('preview switch, async refresh and same-batch constituent details', async ({ page }, testInfo) => {
+test('preview switch is read-only and uses same-batch constituent details', async ({ page }, testInfo) => {
   await mockIndustryApis(page);
   await page.route('**/api/v1/auth/status', route => route.fulfill({ json: {
     loggedIn: true, user: { uid: 1, username: 'Admin', role: 'admin', extra: {} },
   } }));
-  let generation = 1;
-  let refreshes = 0;
+  const generation = 1;
+  const writes: string[] = [];
+  page.on('request', request => {
+    if (request.method() === 'POST') writes.push(request.url());
+  });
   await page.route('**/api/v1/industry-strength/preview', route => route.fulfill({ json: {
     status: 'completed', error: null,
     result: {
@@ -176,11 +179,6 @@ test('preview switch, async refresh and same-batch constituent details', async (
       }])),
     },
   } }));
-  await page.route('**/api/v1/industry-strength/preview/run', route => {
-    generation += 1; refreshes += 1;
-    return route.fulfill({ status: 202, json: { task_id: 'preview-task', status: 'pending' } });
-  });
-  await page.route('**/api/v1/tasks/preview-task', route => route.fulfill({ json: { status: 'completed' } }));
   await page.goto('/research/industry-strength');
   await expect(page.getByTestId('industry-snapshot-kind')).toHaveText('正式收盘');
   await page.getByTestId('industry-preview-switch').click();
@@ -193,9 +191,8 @@ test('preview switch, async refresh and same-batch constituent details', async (
   await expect(page.getByTestId('industry-detail-constituents')).toContainText('本批预览成分');
   await expect(page.getByTestId('industry-detail-constituents')).toContainText(dates.at(-2)!);
   await page.getByTestId('industry-detail-close').click();
-  await page.getByTestId('industry-refresh').click();
-  await expect(page.getByText('半导体预览2', { exact: true }).first()).toBeVisible();
-  expect(refreshes).toBe(1);
+  await expect(page.getByTestId('industry-refresh')).toHaveCount(0);
+  expect(writes).toEqual([]);
   await page.getByTestId('industry-preview-switch').click();
   await expect(page.getByTestId('industry-snapshot-kind')).toHaveText('正式收盘');
   await expect(page.getByTestId('industry-date-picker')).toBeVisible();

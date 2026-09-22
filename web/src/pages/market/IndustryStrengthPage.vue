@@ -1,15 +1,12 @@
 <script setup lang="ts">
 import { onMounted } from 'vue';
-import { useAuth } from '@/composables/useAuth';
 import { useIndustryStrength } from '@/composables/useIndustryStrength';
 import AppApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
 import AppDatePicker from '@/components/app/AppDatePicker.vue';
-import LoadingButton from '@/components/app/LoadingButton.vue';
 import PageHeader from '@/components/layout/PageHeader.vue';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import IndustryRankingTable from '@/components/industry-strength/IndustryRankingTable.vue';
 import IndustryMatrixChart from '@/components/industry-strength/IndustryMatrixChart.vue';
 import IndustryRankHeatmap from '@/components/industry-strength/IndustryRankHeatmap.vue';
@@ -22,7 +19,6 @@ import {
 } from '@/components/industry-strength/display';
 import { formatDateTime } from '@/utils/format';
 
-const { currentUser } = useAuth();
 const page = useIndustryStrength();
 const {
   previewMode, preview, taskStatus, switchMode,
@@ -32,7 +28,7 @@ const {
   dateError, historyError, datesError, detailError, membersError, rows, summary, snapshotMeta,
   actualTradeDate, latestMode, staleLatest, historyMembersUnavailable, selectedRow,
   loadRanking, openIndustry, setDialogOpen, retryRanking, retryHistory,
-  retryDetail, retryConstituents, retryDates, goLatest, changeDate, refresh,
+  retryDetail, retryConstituents, retryDates, goLatest, changeDate,
 } = page;
 
 onMounted(() => loadRanking('initial'));
@@ -73,24 +69,6 @@ onMounted(() => loadRanking('initial'));
           >
             回到最新
           </Button>
-          <TooltipProvider :delay-duration="150">
-            <Tooltip>
-              <TooltipTrigger as-child>
-                <LoadingButton
-                  variant="outline"
-                  :loading="refreshing || (previewMode && ['pending', 'processing'].includes(taskStatus))"
-                  :disabled="previewMode && currentUser?.role !== 'admin'"
-                  loading-text="更新中…"
-                  data-testid="industry-refresh"
-                  :aria-label="previewMode ? '刷新盘中预览' : '刷新已生成快照'"
-                  @click="refresh"
-                >
-                  刷新
-                </LoadingButton>
-              </TooltipTrigger>
-              <TooltipContent>{{ previewMode ? '管理员异步计算全行业盘中预览' : '重新读取已生成快照，不会触发重新计算' }}</TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
         </div>
       </template>
     </PageHeader>
@@ -107,10 +85,10 @@ onMounted(() => loadRanking('initial'));
         v-if="preview?.error"
         class="text-destructive"
       >
-        刷新失败：{{ preview.error }}。保留上次结果及原始时间。
+        定时预览失败：{{ preview.error }}。保留上次结果及原始时间。
       </p>
       <p v-if="!preview?.result">
-        当前交易日暂无预览，请在开盘后刷新。
+        当前交易日暂无预览，等待交易日 11:05 / 14:05 / 14:35 定时生成。
       </p>
     </div>
     <section
@@ -231,8 +209,8 @@ onMounted(() => loadRanking('initial'));
     <AppApiErrorAlert
       v-if="refreshError"
       :error="refreshError"
-      action-label="重试刷新"
-      @action="refresh"
+      action-label="重试读取"
+      @action="retryRanking"
       @dismiss="refreshError = null"
     />
     <AppApiErrorAlert
@@ -274,7 +252,7 @@ onMounted(() => loadRanking('initial'));
       class="rounded-xl border py-16 text-center text-muted-foreground"
       data-testid="industry-empty"
     >
-      {{ previewMode ? '当前交易日暂无盘中预览。管理员可在开盘后刷新，覆盖不足时保留原结果。' : '所选日期暂无行业强度快照。正式结果由收盘任务生成，覆盖不足时不会发布。' }}
+      {{ previewMode ? '当前交易日暂无盘中预览。仅在交易日 11:05 / 14:05 / 14:35 定时生成，覆盖不足时保留原结果。' : '所选日期暂无行业强度快照。正式结果由收盘任务生成，覆盖不足时不会发布。' }}
     </p>
 
     <template v-if="rows.length">

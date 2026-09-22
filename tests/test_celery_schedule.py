@@ -55,7 +55,7 @@ def test_registry_preserves_job_id_task_type_and_timezone():
         definition = definitions[job_id]
         assert definition.task_type == task_type
         assert definition.timezone == tz
-        assert definition.allow_manual_run is True
+        assert definition.allow_manual_run is (job_id != "industry_strength_preview_cn")
         assert definition.celery_task_name == celery_task_name(job_id)
 
 
@@ -423,3 +423,4 @@ def test_industry_preview_matches_etf_preview_schedule():
     etf = get_scheduled_task_definition("etf_rotation_preview_cn")
     assert industry.schedules == etf.schedules
     assert industry.queue == etf.queue
+    assert industry.allow_manual_run is False
