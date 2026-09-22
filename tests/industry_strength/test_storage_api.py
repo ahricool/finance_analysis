@@ -374,3 +374,38 @@ def test_postgresql_generation_is_atomic_and_failure_rolls_back_snapshot_too(cur
     assert repo.ranking()[0]["strength_rank"] == 2
     repo.save(OLD, [payload(day=OLD, rank=4)])
     assert repo.constituents("881101.TI") == latest
+
+
+def test_stock_context_uses_only_latest_official_date_and_current_membership():
+    from finance_analysis.database.models.industry_strength import IndustryStrengthConstituent
+    db = Database()
+    Snapshot.__table__.create(db.bind)
+    IndustryStrengthConstituent.__table__.create(db.bind)
+    with db.session_scope() as session:
+        session.add_all([Snapshot(**payload(day=OLD)), Snapshot(**payload(day=DAY)),
+                         Snapshot(**payload(code="OLD_ONLY", day=OLD))])
+        for industry in ["881101.TI", "OLD_ONLY"]:
+            session.add(IndustryStrengthConstituent(industry_code=industry, stock_code="600001.SH", stock_name="Test"))
+    rows = IndustryStrengthRepository(db).stock_context("600001.SH")
+    assert len(rows) == 1
+    assert rows[0]["trade_date"] == DAY
+    assert rows[0]["industry_code"] == "881101.TI"
+    assert rows[0]["members_observed_at"] is not None
+    assert IndustryStrengthRepository(db).stock_context("AAPL.US") == []
+
+
+def test_stock_context_api_is_read_only_and_cn_scoped(api):
+    client, repo = api
+    calls = []
+    def read(code):
+        calls.append(code)
+        return [{"industry_code": "881101.TI", "industry_name": "Test", "trade_date": DAY,
+                 "state": "STRONG", "strength_score": 80, "strength_rank": 1,
+                 "members_observed_at": datetime(2026, 9, 16, tzinfo=timezone.utc)}]
+    repo.stock_context = read
+    response = client.get('/industry-strength/stocks/600001.SH/context')
+    assert response.status_code == 200
+    assert response.json()[0]["trade_date"] == DAY.isoformat()
+    assert client.get('/industry-strength/stocks/AAPL.US/context').json() == []
+    assert calls == ["600001.SH"]
+    assert repo.calls == []

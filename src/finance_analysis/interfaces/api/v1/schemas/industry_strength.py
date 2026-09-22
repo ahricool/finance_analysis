@@ -109,3 +109,13 @@ class PreviewResponse(BaseModel):
     error: str | None = None
     failed_at: datetime | None = None
     result: PreviewResult | None = None
+
+
+class StockIndustryContext(BaseModel):
+    industry_code: str
+    industry_name: str
+    trade_date: date
+    state: str
+    strength_score: float | None
+    strength_rank: int | None
+    members_observed_at: datetime

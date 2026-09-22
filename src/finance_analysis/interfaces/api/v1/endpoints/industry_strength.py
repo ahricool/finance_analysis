@@ -6,6 +6,7 @@ from finance_analysis.database.repositories.industry_strength import IndustryStr
 from finance_analysis.interfaces.api.deps import require_current_user
 from finance_analysis.interfaces.api.v1.schemas.industry_strength import (
     RankingResponse,
+    StockIndustryContext,
     PreviewResponse,
     DetailResponse,
     HistoryResponse,
@@ -73,6 +74,19 @@ def preview():
     if result and result["trade_date"] != get_market_now("cn").date().isoformat():
         payload = {**payload, "result": None}
     return payload
+
+
+@router.get("/stocks/{code}/context", response_model=list[StockIndustryContext])
+def stock_context(code: str, repo=Depends(get_repository)):
+    from finance_analysis.integrations.market_data.normalizer import canonical_symbol, infer_market
+    try:
+        symbol = canonical_symbol(code)
+        market = infer_market(symbol).value
+    except ValueError as exc:
+        raise HTTPException(422, "无效证券代码") from exc
+    if market != "CN":
+        return []
+    return repo.stock_context(symbol)
 
 
 @router.get("/{industry_code}/constituents", response_model=ConstituentsResponse)

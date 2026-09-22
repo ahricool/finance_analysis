@@ -24,3 +24,8 @@ class PositionClosedError(PortfolioError):
 class UnsupportedAssetError(PortfolioError):
     def __init__(self, message: str = "当前仅支持股票/ETF，不支持期权") -> None:
         super().__init__(message)
+
+
+class OperationConflictError(PortfolioError):
+    def __init__(self):
+        super().__init__("操作标识已用于其他记账内容，请核对后发起新操作")

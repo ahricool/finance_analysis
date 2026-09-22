@@ -4,6 +4,7 @@
 from finance_analysis.database.models.portfolio import (  # pragma: allowlist secret
     CashOperation,
     PortfolioAccount,
+    PortfolioMutation,
     PortfolioPosition,
     PositionLot,
     TradeOperation,

@@ -14,7 +14,7 @@ from finance_analysis.interfaces.api.v1.schemas.holdings import (  # pragma: all
     TradeRequest,
 )
 from finance_analysis.portfolio.context import render_portfolio_context  # pragma: allowlist secret
-from finance_analysis.portfolio.errors import PortfolioError  # pragma: allowlist secret
+from finance_analysis.portfolio.errors import OperationConflictError, PortfolioError  # pragma: allowlist secret
 from finance_analysis.portfolio.markers import markers_from_operations  # pragma: allowlist secret
 from finance_analysis.portfolio.resolver import PortfolioResolver  # pragma: allowlist secret
 from finance_analysis.portfolio.service import PortfolioService  # pragma: allowlist secret
@@ -147,11 +147,12 @@ def buy(body: TradeRequest, request: Request, response: Response, service: Portf
                 price=body.price,
                 executed_at=body.executed_at,
                 note=body.note,
+                operation_id=str(body.operation_id),
                 asset_type=body.asset_type or "STOCK",
             )
         )
     except PortfolioError as extra:
-        raise HTTPException(status_code=400, detail=str(extra)) from extra
+        raise HTTPException(status_code=409 if isinstance(extra, OperationConflictError) else 400, detail=str(extra)) from extra
 
 
 @router.post("/sell")
@@ -168,10 +169,11 @@ def sell(body: TradeRequest, request: Request, response: Response, service: Port
                 price=body.price,
                 executed_at=body.executed_at,
                 note=body.note,
+                operation_id=str(body.operation_id),
             )
         )
     except PortfolioError as extra:
-        raise HTTPException(status_code=400, detail=str(extra)) from extra
+        raise HTTPException(status_code=409 if isinstance(extra, OperationConflictError) else 400, detail=str(extra)) from extra
 
 
 @router.patch("/cash")
@@ -179,10 +181,11 @@ def set_cash(body: CashRequest, request: Request, response: Response, service: P
     _private(response)
     try:
         return _account_payload(
-            service.set_cash(get_effective_uid(request), account_id=body.account_id, amount=body.amount)
+            service.set_cash(get_effective_uid(request), account_id=body.account_id, amount=body.amount,
+                             operation_id=str(body.operation_id))
         )
     except PortfolioError as extra:
-        raise HTTPException(status_code=400, detail=str(extra)) from extra
+        raise HTTPException(status_code=409 if isinstance(extra, OperationConflictError) else 400, detail=str(extra)) from extra
 
 
 @router.get("/positions/{position_id}/operations")

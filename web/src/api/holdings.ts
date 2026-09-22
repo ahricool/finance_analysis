@@ -64,8 +64,9 @@ export const holdingsApi = {
     const { data } = await apiClient.get('/api/v1/holdings/summary', { params: { market } });
     return toCamelCase(data);
   },
-  async buy(body: { accountId: number; symbol: string; quantity: string; price: string; executedAt?: string; assetType?: string }) {
+  async buy(body: { operationId: string; accountId: number; symbol: string; quantity: string; price: string; executedAt?: string; assetType?: string }) {
     const { data } = await apiClient.post('/api/v1/holdings/buy', {
+      operation_id: body.operationId,
       account_id: body.accountId,
       symbol: body.symbol,
       quantity: body.quantity,
@@ -75,8 +76,9 @@ export const holdingsApi = {
     });
     return toCamelCase(data);
   },
-  async sell(body: { positionId: number; quantity: string; price: string; executedAt?: string }) {
+  async sell(body: { operationId: string; positionId: number; quantity: string; price: string; executedAt?: string }) {
     const { data } = await apiClient.post('/api/v1/holdings/sell', {
+      operation_id: body.operationId,
       position_id: body.positionId,
       quantity: body.quantity,
       price: body.price,
@@ -84,8 +86,8 @@ export const holdingsApi = {
     });
     return toCamelCase(data);
   },
-  async setCash(body: { accountId: number; amount: string }) {
-    const { data } = await apiClient.patch('/api/v1/holdings/cash', { account_id: body.accountId, amount: body.amount });
+  async setCash(body: { operationId: string; accountId: number; amount: string }) {
+    const { data } = await apiClient.patch('/api/v1/holdings/cash', { operation_id: body.operationId, account_id: body.accountId, amount: body.amount });
     return toCamelCase(data);
   },
   async operations(positionId: number) {
@@ -104,12 +106,24 @@ export const holdingsApi = {
   },
 };
 
+export interface TradeSignal {
+  id: number; symbol: string; positionId: string; action: string; evaluatedAt: string;
+  strategyKey: string; strategyVersion: string; reason: string; llmReason: string | null;
+  suggestedTargetQuantity: string | null;
+  evidence: {
+    currentQuantity?: string; targetQuantity?: string; portfolioReason?: string;
+    strategySignals?: Array<{ strategyKey: string; action: string; reason: string }>;
+    portfolioRisk?: { grossExposure?: string | null; maxGrossExposure?: string | null;
+      position?: { weight?: string | null; maxWeight?: string | null; openRisk?: string | null; riskLimit?: string | null } | null };
+  };
+}
+
 export const tradeEngineApi = {
   async positions(market?: string): Promise<TradeEnginePosition[]> {
     const { data } = await apiClient.get('/api/v1/trade-engine/positions', { params: market ? { market } : {} });
     return (data.items || []).map((item: unknown) => toCamelCase(item));
   },
-  async signals(market?: string, positionId?: string) {
+  async signals(market?: string, positionId?: string): Promise<TradeSignal[]> {
     const { data } = await apiClient.get('/api/v1/trade-engine/signals', {
       params: { ...(market ? { market } : {}), ...(positionId ? { position_id: positionId } : {}) },
     });

@@ -1,10 +1,11 @@
 <script setup lang="ts">
+import { parseDate } from '@internationalized/date';
 import DailyKLineCard from '@/components/market-data/DailyKLineCard.vue';
 import { detailChartHistory as buildDetailChartHistory } from '@/utils/detailChartHistory';
 import ResearchMarketToggle from '@/components/research/ResearchMarketToggle.vue';
 import { useRoute } from 'vue-router';
 import { useLazyResearchPreview } from '@/composables/useLazyResearchPreview';
-import { computed, nextTick, onMounted, ref, shallowRef, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
 import { RefreshCcw } from 'lucide-vue-next';
 import { toast } from 'vue-sonner';
 import { trendFollowingApi } from '@/api/trendFollowing';
@@ -520,7 +521,19 @@ function setMarket(target: TrendMarket) {
   if (market.value === target) return;
   market.value = target;
 }
-onMounted(() => void load(true, { autoSelectMode: true }));
+let entryDisposed = false;
+onBeforeUnmount(() => { entryDisposed = true; });
+onMounted(async () => {
+  const symbol = typeof route?.query?.symbol === 'string' ? route.query.symbol : '';
+  let date = '';
+  try { if (typeof route?.query?.tradeDate === 'string') date = parseDate(route.query.tradeDate).toString(); } catch { /* Ignore invalid links. */ }
+  const entryMarket = market.value;
+  if (date) { selectedDate.value = date; dataMode.value = 'official'; modeChosenByUser.value = true; }
+  await load(true, { autoSelectMode: !date });
+  if (!entryDisposed && symbol && date && market.value === entryMarket && selectedDate.value === date) {
+    await openDetail({ code: symbol, tradeDate: date, preview: false });
+  }
+});
 </script>
 
 <template>

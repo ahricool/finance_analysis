@@ -1,5 +1,7 @@
 <script setup lang="ts">
-import { onMounted } from 'vue';
+import { onBeforeUnmount, onMounted } from 'vue';
+import { useRoute } from 'vue-router';
+import { parseDate } from '@internationalized/date';
 import { useIndustryStrength } from '@/composables/useIndustryStrength';
 import AppApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
 import AppDatePicker from '@/components/app/AppDatePicker.vue';
@@ -31,7 +33,17 @@ const {
   retryDetail, retryConstituents, retryDates, goLatest, changeDate,
 } = page;
 
-onMounted(() => loadRanking('initial'));
+const route = useRoute();
+let entryDisposed = false;
+onBeforeUnmount(() => { entryDisposed = true; });
+onMounted(async () => {
+  const industry = typeof route?.query.industry === 'string' ? route.query.industry : '';
+  let date = '';
+  try { if (typeof route?.query.tradeDate === 'string') date = parseDate(route.query.tradeDate).toString(); } catch { /* Ignore invalid links. */ }
+  if (date) { requestedDate.value = date; previewMode.value = false; }
+  await loadRanking('initial');
+  if (!entryDisposed && industry && date && ranking.value?.tradeDate === date) openIndustry(industry);
+});
 </script>
 
 <template>
