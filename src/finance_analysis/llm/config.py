@@ -1,4 +1,4 @@
-"""One backend, one model, and at most one application retry."""
+"""One backend, one model, and at most three application retries."""
 
 import os
 from dataclasses import dataclass, field
@@ -11,7 +11,7 @@ from finance_analysis.core.paths import get_log_dir
 @dataclass
 class LLMConfig:
     backend: str = "api"
-    max_retries: int = 1
+    max_retries: int = 3
     timeout: float = 180
     log_dir: Path = field(default_factory=lambda: get_log_dir() / "llm")
     model: str = ""
@@ -32,8 +32,8 @@ class LLMConfig:
             raise ValueError("LLM_BACKEND must be api or cli")
         if self.cli_engine not in {"agy", "codex"}:
             raise ValueError("LLM_CLI_ENGINE must be agy or codex")
-        if self.max_retries not in {0, 1}:
-            raise ValueError("LLM_MAX_RETRIES must be 0 or 1")
+        if self.max_retries not in {0, 1, 2, 3}:
+            raise ValueError("LLM_MAX_RETRIES must be between 0 and 3")
         if self.timeout <= 0:
             raise ValueError("LLM_TIMEOUT must be positive")
         if not 1 <= self.cli_ssh_port <= 65535:

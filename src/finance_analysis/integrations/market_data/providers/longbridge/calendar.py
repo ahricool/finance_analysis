@@ -11,6 +11,8 @@ from decimal import Decimal
 from typing import Any, Iterable, Mapping, Optional
 from zoneinfo import ZoneInfo
 
+from finance_analysis.core.retry import retry_call
+
 from finance_analysis.core.time import coerce_aware_utc, utc_now
 from finance_analysis.integrations.market_data.calendar import CalendarFetchResult
 from finance_analysis.integrations.market_data.normalizer import canonical_symbol
@@ -260,12 +262,12 @@ class LongbridgeCalendarFetcher:
         cursor = start
         while cursor <= end:
             try:
-                response = self._get_ctx().finance_calendar(
+                response = retry_call(lambda: self._get_ctx().finance_calendar(
                     self._resolve_category(calendar_type),
                     _format_request_date(cursor),
                     _format_request_date(end),
                     provider_market,
-                )
+                ))
                 page = self.normalize_response(response, calendar_type=calendar_type, market=provider_market)
                 result.events.extend(page.events)
                 result.errors.extend(page.errors)

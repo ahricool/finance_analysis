@@ -27,7 +27,7 @@ def config(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize("backend", ["api", "cli"])
-@pytest.mark.parametrize("failures", [0, 1, 2])
+@pytest.mark.parametrize("failures", [0, 1, 2, 3, 4])
 def test_attempt_budget_and_no_backend_fallback(config, monkeypatch, backend, failures):
     config = replace(
         config,
@@ -42,13 +42,13 @@ def test_attempt_budget_and_no_backend_fallback(config, monkeypatch, backend, fa
     monkeypatch.setattr(remote_cli if backend == "api" else api, "complete", other)
     client = LLMClient(config)
     request = LLMRequest("quoted '$()' 财经\n{}", system_prompt="system", uid=7)
-    if failures == 2:
+    if failures == 4:
         with pytest.raises(LLMError) as error:
             client.complete_text(request)
         assert "private" not in str(error.value)
     else:
         assert client.complete_text(request).text == "ok"
-    assert call.call_count == min(failures + 1, 2)
+    assert call.call_count == min(failures + 1, 4)
     other.assert_not_called()
     log = next(config.log_dir.glob("*.log")).read_text()
     assert "private-api-secret" not in log
@@ -117,7 +117,7 @@ def test_env_backend(monkeypatch, backend):
 
 @pytest.mark.parametrize(
     "kwargs",
-    [{"backend": "other"}, {"cli_engine": "other"}, {"max_retries": 2}, {"timeout": 0}],
+    [{"backend": "other"}, {"cli_engine": "other"}, {"max_retries": 4}, {"timeout": 0}],
 )
 def test_invalid_configuration(kwargs):
     with pytest.raises(ValueError):

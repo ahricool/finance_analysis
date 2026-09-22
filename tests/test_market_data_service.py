@@ -384,7 +384,7 @@ def test_full_batch_keeps_failed_symbol_history_and_distinguishes_normal_empty(m
     fetched = provider.fetch_daily_bars(
         DailyBarsRequest(tuple(symbol.code for symbol in symbols), day, day, Adjustment.FORWARD)
     )
-    assert events == [["600000.SH"], 10, ["600001.SH"], 10, ["600002.SH"]]
+    assert events == [["600000.SH"]] * 4 + [10, ["600001.SH"], 10, ["600002.SH"]]
     assert set(fetched.request_errors) == {"600000.SH"}
     assert fetched.missing_symbols == ["600002.SH"]
     original = {day: {"date": day, "close": 20}}
@@ -436,7 +436,7 @@ def test_yfinance_batch_and_retry_configuration_reaches_default_registry():
 
     assert configured.batch_size == 25
     assert configured.max_workers == 2
-    assert configured.max_retries == 4
+    assert configured.max_retries == 3
 
 
 def test_sync_persists_only_provider_daily_fields_with_nullable_amount():

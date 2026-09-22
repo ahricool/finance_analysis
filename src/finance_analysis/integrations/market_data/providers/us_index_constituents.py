@@ -8,6 +8,8 @@ from typing import Any
 import pandas as pd
 import requests
 
+from finance_analysis.core.retry import retry_call, transient_response
+
 from finance_analysis.integrations.market_data.normalizer import canonical_symbol
 
 
@@ -29,11 +31,11 @@ class USIndexConstituentProvider:
         key = str(index_code).strip().upper()
         if key not in self.URLS:
             raise ValueError(f"Unsupported US index: {index_code}")
-        response = self.session.get(
+        response = retry_call(lambda: self.session.get(
             self.URLS[key],
             timeout=self.timeout,
             headers={"User-Agent": "finance-analysis reference-data-sync"},
-        )
+        ), retry_result=transient_response)
         response.raise_for_status()
         tables = pd.read_html(StringIO(response.text))
         symbol_columns = ("Symbol", "Ticker")

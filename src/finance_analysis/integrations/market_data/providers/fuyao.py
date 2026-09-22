@@ -12,11 +12,13 @@ import math
 import logging
 from copy import deepcopy
 from threading import RLock
-from time import monotonic, sleep
+from time import monotonic
 from typing import Any
 from zoneinfo import ZoneInfo
 
 import httpx
+
+from finance_analysis.core.retry import retry_call, transient_error
 
 from ..config import get_data_provider_config
 from ..models import (
@@ -43,7 +45,6 @@ from ..validator import validate_bars, validate_quote
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 logger = logging.getLogger(__name__)
-RATE_LIMIT_RETRY_DELAYS = (1.0, 2.0, 4.0)
 INDEX_NAMES = {
     "000001.SH": "上证指数",
     "399001.SZ": "深证成指",
@@ -78,7 +79,11 @@ class FuyaoError(RuntimeError):
     """Sanitized transport or envelope failure; never includes payloads or keys."""
 
 
-class FuyaoRateLimitError(FuyaoError):
+class FuyaoTransientError(FuyaoError):
+    """Temporary upstream transport or server failure."""
+
+
+class FuyaoRateLimitError(FuyaoTransientError):
     """HTTP 429 or equivalent business-envelope rate limit."""
 
 
@@ -125,19 +130,16 @@ class FuyaoProvider:
             self._cache_lock.release()
 
     def _get(self, path: str, **params) -> dict:
-        for attempt in range(len(RATE_LIMIT_RETRY_DELAYS) + 1):
-            try:
-                return self._get_once(path, **params)
-            except FuyaoRateLimitError:
-                if attempt == len(RATE_LIMIT_RETRY_DELAYS):
-                    raise
-                delay = RATE_LIMIT_RETRY_DELAYS[attempt]
-                remaining = remaining_seconds()
-                if remaining is not None and remaining < delay + MIN_REQUEST_SECONDS:
-                    raise BudgetExhausted() from None
-                logger.warning("Fuyao rate limited: path=%s retry=%s delay=%ss", path, attempt + 1, delay)
-                sleep(delay)
-        raise AssertionError("unreachable")
+        def before_wait(delay):
+            remaining = remaining_seconds()
+            if remaining is not None and remaining < delay + MIN_REQUEST_SECONDS:
+                raise BudgetExhausted()
+
+        return retry_call(
+            lambda: self._get_once(path, **params),
+            retryable=lambda exc: isinstance(exc, FuyaoTransientError),
+            before_wait=before_wait,
+        )
 
     def _get_once(self, path: str, **params) -> dict:
         check_budget()
@@ -155,9 +157,14 @@ class FuyaoProvider:
                 )
                 if response.status_code == 429:
                     raise FuyaoRateLimitError(f"Fuyao HTTP 429: {path}")
+                if response.status_code == 408 or 500 <= response.status_code < 600:
+                    raise FuyaoTransientError(f"Fuyao HTTP {response.status_code}: {path}")
                 if response.status_code != 200:
                     raise FuyaoError(f"Fuyao HTTP {response.status_code}: {path}")
                 envelope = response.json()
+        except httpx.TransportError as exc:
+            error = FuyaoTransientError if transient_error(exc) else FuyaoError
+            raise error(f"Fuyao {type(exc).__name__}: {path}") from None
         except FuyaoError:
             raise
         except Exception as exc:

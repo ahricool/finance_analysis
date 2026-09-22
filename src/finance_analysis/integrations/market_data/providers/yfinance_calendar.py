@@ -11,6 +11,8 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 
+from finance_analysis.core.retry import retry_call
+
 from finance_analysis.core.time import utc_now
 from finance_analysis.integrations.market_data.calendar import CalendarFetchResult
 from finance_analysis.integrations.market_data.providers.yfinance import YFinanceProvider
@@ -90,7 +92,7 @@ class YFinanceCalendarFetcher:
                     kwargs = {"limit": 100, "offset": offset, "force": True}
                     if calendar_type == "earnings":
                         kwargs["filter_most_active"] = False
-                    frame = method(**kwargs)
+                    frame = retry_call(lambda: method(**kwargs))
                     if frame is None:
                         raise ValueError("calendar returned None")
                     if frame.empty:

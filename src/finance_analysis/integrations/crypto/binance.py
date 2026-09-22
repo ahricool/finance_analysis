@@ -1,10 +1,11 @@
 """Binance public spot transport only; no strategy or stock-provider integration."""
 
-import asyncio
 from datetime import datetime, timezone
 from decimal import Decimal
 
 import httpx
+
+from finance_analysis.core.retry import retry_async
 
 from finance_analysis.crypto.config import CryptoConfig
 from finance_analysis.crypto.models import Kline
@@ -37,18 +38,15 @@ class BinanceClient:
         await self.http.aclose()
 
     async def _get(self, path, params=None):
-        for attempt in range(3):
-            try:
-                response = await self.http.get(path, params=params)
-                response.raise_for_status()
-                result = response.json()
-                if isinstance(result, dict) and "code" in result:
-                    raise ValueError("Binance returned an error")
-                return result
-            except (httpx.HTTPError, ValueError):
-                if attempt == 2:
-                    raise
-                await asyncio.sleep(2**attempt)
+        async def request():
+            response = await self.http.get(path, params=params)
+            response.raise_for_status()
+            result = response.json()
+            if isinstance(result, dict) and "code" in result:
+                raise ValueError("Binance returned an error")
+            return result
+
+        return await retry_async(request)
 
     async def server_time(self):
         return from_ms((await self._get("/api/v3/time"))["serverTime"])

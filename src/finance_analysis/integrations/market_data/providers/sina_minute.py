@@ -12,6 +12,8 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 
+from finance_analysis.core.retry import retry_call
+
 from finance_analysis.core.time import utc_now  # pragma: allowlist secret
 from finance_analysis.integrations.market_data.models import (  # pragma: allowlist secret
     Adjustment,
@@ -43,7 +45,7 @@ def _akshare_minute(sina_symbol: str) -> pd.DataFrame:
     previous = socket.getdefaulttimeout()
     socket.setdefaulttimeout(8)
     try:
-        frame = ak.stock_zh_a_minute(symbol=sina_symbol, period="5", adjust="")
+        frame = retry_call(lambda: ak.stock_zh_a_minute(symbol=sina_symbol, period="5", adjust=""))
     finally:
         socket.setdefaulttimeout(previous)
     return pd.DataFrame() if frame is None else frame

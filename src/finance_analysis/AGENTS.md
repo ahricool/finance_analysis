@@ -100,7 +100,7 @@ Celery
 历史日线同步已从分析链拆开。`fetch_and_save_stock_data()` 名称为兼容保留，但当前只验证数据库历史，不拉取或保存远程日线。不要在分析请求中恢复隐式写行情。
 
 
-LLM 调用统一进入 `llm/LLMClient`，由 `LLM_BACKEND=api|cli` 二选一。最多重试一次，不切换 backend 或模型。配置与部署见 `docs/llm.md`。
+LLM 调用统一进入 `llm/LLMClient`，由 `LLM_BACKEND=api|cli` 二选一。最多重试三次，退避 2 / 4 / 8 秒，受总时间预算限制，不切换 backend 或模型。配置与部署见 `docs/llm.md`。
 
 ## 市场数据边界
 

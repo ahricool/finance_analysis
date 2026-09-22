@@ -1,4 +1,5 @@
 import { onMounted, onUnmounted, ref, shallowRef, watch } from 'vue';
+import { fetchExternal } from '@/lib/externalRequest';
 import type { BinanceInterval, CryptoKline } from '@/types/binance';
 
 const REST = 'https://data-api.binance.vision/api/v3/klines';
@@ -68,7 +69,7 @@ export function useBinanceBtcMarket() {
     restError.value = null;
     try {
       const url = `${REST}?symbol=BTCUSDT&interval=${selected}&limit=500`;
-      const response = await fetch(url, { signal: controller.signal, credentials: 'omit' });
+      const response = await fetchExternal(url, controller.signal);
       if (!response.ok) throw new Error('Binance REST failed');
       const data = await response.json();
       if (!Array.isArray(data) || !data.length) throw new Error('Invalid Binance candles');

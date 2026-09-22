@@ -17,7 +17,7 @@ def transport(monkeypatch):
     client = SimpleNamespace(_session=SimpleNamespace(get=get))
     monkeypatch.setattr(easyquotation, "use", lambda _: client)
     wait = Mock()
-    monkeypatch.setattr(module, "sleep", wait)
+    monkeypatch.setattr("finance_analysis.core.retry.sleep", wait)
     provider = module.EasyQuotationProvider()
     return provider, client, get, wait
 
@@ -26,15 +26,15 @@ def transport(monkeypatch):
 def test_failed_batch_recovers_without_repeating_successful_batch(transport, error):
     provider, client, get, wait = transport
     response = object()
-    get.side_effect = [response, error("offline"), error("offline"), response]
+    get.side_effect = [response, error("offline"), error("offline"), error("offline"), response]
     provider._client()
     assert client._session.get("http://qt.gtimg.cn/q=sh510300") is response
     assert client._session.get("http://qt.gtimg.cn/q=bj830896") is response
     assert get.call_args_list == [
         call("http://qt.gtimg.cn/q=sh510300", timeout=30),
-        *[call("http://qt.gtimg.cn/q=bj830896", timeout=30)] * 3,
+        *[call("http://qt.gtimg.cn/q=bj830896", timeout=30)] * 4,
     ]
-    assert wait.call_args_list == [call(1.0), call(2.0)]
+    assert wait.call_args_list == [call(2), call(4), call(8)]
 
 
 def test_exhaustion_propagates_last_error_and_does_not_stack_wrappers(transport):
@@ -48,8 +48,8 @@ def test_exhaustion_propagates_last_error_and_does_not_stack_wrappers(transport)
     with pytest.raises(ConnectionError) as caught:
         client._session.get("http://qt.gtimg.cn/q=sh510300", timeout=4)
     assert caught.value is error
-    assert get.call_args_list == [call("http://qt.gtimg.cn/q=sh510300", timeout=4)] * 3
-    assert wait.call_args_list == [call(1.0), call(2.0)]
+    assert get.call_args_list == [call("http://qt.gtimg.cn/q=sh510300", timeout=4)] * 4
+    assert wait.call_args_list == [call(2), call(4), call(8)]
 
 
 @pytest.mark.parametrize("error", [SSLError, HTTPError, ValueError])

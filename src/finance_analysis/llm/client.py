@@ -9,6 +9,7 @@ import uuid
 from dataclasses import replace
 from typing import Callable
 
+from finance_analysis.core.retry import RETRY_DELAYS, wait_before_retry
 from finance_analysis.core.time import utc_now
 from . import api, remote_cli
 from .config import LLMConfig, get_llm_config
@@ -46,6 +47,13 @@ class LLMClient:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 break
+            if attempt > 1:
+                if remaining <= RETRY_DELAYS[attempt - 2]:
+                    break
+                wait_before_retry(attempt - 2)
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
             started = time.monotonic()
             result = None
             error = None

@@ -7,6 +7,8 @@ from typing import Any, Mapping
 
 import pandas as pd
 
+from finance_analysis.core.retry import retry_call
+
 from finance_analysis.integrations.market_data.batch_pacing import before_daily_batch, daily_batch_scope
 
 from finance_analysis.integrations.market_data.models import (
@@ -57,7 +59,7 @@ class TickFlowFreeProvider:
                 if self._client is None:
                     from tickflow import TickFlow
 
-                    self._client = TickFlow.free(timeout=self.timeout)
+                    self._client = TickFlow.free(timeout=self.timeout, max_retries=0)
         return self._client
 
     def close(self) -> None:
@@ -80,7 +82,9 @@ class TickFlowFreeProvider:
         for chunk in chunks:
             before_daily_batch()
             try:
-                fetched = self._fetch_frames(chunk, request.start_date, request.end_date, adjust="forward")
+                fetched = retry_call(
+                    lambda: self._fetch_frames(chunk, request.start_date, request.end_date, adjust="forward"),
+                )
                 if not isinstance(fetched, Mapping):
                     raise ValueError("unexpected TickFlow batch response")
                 frames.update(fetched)
@@ -133,7 +137,7 @@ class TickFlowFreeProvider:
         symbols = tuple(canonical_symbol(symbol) for symbol in request.symbols)
         result = BatchInstrumentResult()
         try:
-            instruments = self._get_client().instruments.batch(list(symbols))
+            instruments = retry_call(lambda: self._get_client().instruments.batch(list(symbols)))
         except Exception as exc:
             return BatchInstrumentResult(failed_symbols={symbol: str(exc) for symbol in symbols})
         by_symbol = {str(item.get("symbol", "")).upper(): item for item in instruments}
@@ -163,7 +167,7 @@ class TickFlowFreeProvider:
             raise ValueError(f"Unsupported instrument market: {market}")
         records: dict[str, dict[str, Any]] = {}
         for exchange in exchanges:
-            items = self._get_client().exchanges.get_instruments(exchange) or []
+            items = retry_call(lambda: self._get_client().exchanges.get_instruments(exchange)) or []
             if not items:
                 raise ValueError(f"TickFlow returned an empty instrument directory for exchange={exchange}")
             for item in items:

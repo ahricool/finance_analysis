@@ -11,6 +11,8 @@ from urllib.parse import unquote, urlparse, urlunparse
 import requests
 
 
+from finance_analysis.core.retry import retry_call, transient_response
+
 logger = logging.getLogger(__name__)
 
 
@@ -96,13 +98,13 @@ class NtfySender:
         }
 
         try:
-            response = requests.post(
+            response = retry_call(lambda: requests.post(
                 server_url,
                 json=payload,
                 headers=headers,
                 timeout=timeout_seconds or 10,
                 verify=self._webhook_verify_ssl,
-            )
+            ), retry_result=transient_response)
             if 200 <= response.status_code < 300:
                 logger.info("ntfy 消息发送成功")
                 return True
