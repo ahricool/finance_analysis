@@ -108,7 +108,7 @@ def test_seed_migration_idempotence_scope_and_etf_isolation(database):
     resolver = UniverseResolver(UniverseRepository(database))
     before = {item.code: item.id for item in resolver.resolve_universe("us_index_etf")}
     scripts = ScriptDirectory.from_config(Config("alembic.ini"))
-    assert scripts.get_heads() == ["0067_signal_center"]
+    assert scripts.get_heads() == ["0068_us_postmarket_sync"]
     migration = scripts.get_revision("0051_us_macro").module
     with database.engine.begin() as connection:
         migration.op = Operations(MigrationContext.configure(connection))
@@ -163,6 +163,10 @@ def test_startup_seed_keeps_macro_include(database):
         "us_macro",
     }
     assert {item.code for item in UniverseResolver(repository).resolve_universe("us_macro")} == set(MACRO_INSTRUMENTS)
+    from finance_analysis.market_review.us_postmarket_symbols import US_POSTMARKET_BENCHMARKS, US_POSTMARKET_SECTOR_ETFS
+
+    required = set(US_POSTMARKET_BENCHMARKS) | set(US_POSTMARKET_SECTOR_ETFS)
+    assert required.issubset({item.code for item in UniverseResolver(repository).resolve_universe("us_daily_sync")})
 
 
 @pytest.mark.parametrize("code,ticker", list(YFINANCE_SYMBOL_OVERRIDES.items()) + [("BRK.B.US", "BRK-B")])

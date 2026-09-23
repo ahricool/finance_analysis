@@ -180,18 +180,23 @@ def test_cn_trade_engine_thirty_minute_interval():
     assert (local.hour, local.minute) == (12, 30)
 
 
-def test_us_postmarket_review_follows_new_york_dst():
-    definition = get_scheduled_task_definition("analysis_us_postmarket_review")
+def test_us_postmarket_review_follows_sync_and_new_york_dst():
+    review = get_scheduled_task_definition("analysis_us_postmarket_review")
+    sync = get_scheduled_task_definition("market_data_sync_us")
 
-    # Summer (EDT, UTC-4): 18:00 New York == 22:00 UTC.
-    summer = datetime(2026, 7, 1, 0, 0, tzinfo=timezone.utc)
-    summer_next = definition.next_run_time(now=summer)
-    assert summer_next == datetime(2026, 7, 1, 22, 0, tzinfo=timezone.utc)
-
-    # Winter (EST, UTC-5): 18:00 New York == 23:00 UTC.
-    winter = datetime(2026, 1, 5, 0, 0, tzinfo=timezone.utc)
-    winter_next = definition.next_run_time(now=winter)
-    assert winter_next == datetime(2026, 1, 5, 23, 0, tzinfo=timezone.utc)
+    for now, expected in (
+        # EDT: 22:00 New York is 02:00 UTC on the next date.
+        (datetime(2026, 7, 1, 12, tzinfo=timezone.utc), datetime(2026, 7, 2, 2, tzinfo=timezone.utc)),
+        # EST: 22:00 New York is 03:00 UTC on the next date.
+        (datetime(2026, 1, 5, 12, tzinfo=timezone.utc), datetime(2026, 1, 6, 3, tzinfo=timezone.utc)),
+    ):
+        review_next = review.next_run_time(now=now)
+        sync_next = sync.next_run_time(now=now)
+        assert review_next == expected
+        assert (review_next - sync_next).total_seconds() == 3600
+        assert review_next.astimezone(ZoneInfo("America/New_York")).date() == (
+            sync_next.astimezone(ZoneInfo("America/New_York")).date()
+        )
 
 
 def test_market_data_sync_schedules_and_queue():

@@ -12,6 +12,7 @@ def seed_quant_reference_data(db_manager=None) -> dict:
 
     from finance_analysis.database.index_etf import seed_index_etf_universes
     from finance_analysis.database.us_macro import seed_us_macro
+    from finance_analysis.database.us_postmarket import seed_us_postmarket_symbols
 
     from finance_analysis.database.models.quant import ModelDefinition
     from finance_analysis.database.models.universe import Universe, UniverseInclude
@@ -22,6 +23,7 @@ def seed_quant_reference_data(db_manager=None) -> dict:
     with manager.session_scope() as session:
         seed_index_etf_universes(session.connection())
         seed_us_macro(session.connection())
+        seed_us_postmarket_symbols(session.connection())
         definitions = [
             (
                 "market_regime_rules",
