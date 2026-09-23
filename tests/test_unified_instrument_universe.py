@@ -669,7 +669,14 @@ def test_daily_trend_and_market_structure_scopes_are_independent(setup, monkeypa
         assert get_universe_codes(market, resolver) == {codes[key] for key in expected[f"{prefix}_market_structure"]}
         sync = object.__new__(MarketDataSyncService)
         sync.market, sync.universe_resolver = market, resolver
-        assert {item.code for item in sync.load_scope()} == {codes[key] for key in expected[f"{prefix}_daily_sync"]}
+        sync_codes = {codes[key] for key in expected[f"{prefix}_daily_sync"]}
+        if setup == "seed" and market == "US":
+            from finance_analysis.market_review.us_postmarket_symbols import (
+                US_POSTMARKET_BENCHMARKS, US_POSTMARKET_SECTOR_ETFS,
+            )
+
+            sync_codes |= set(US_POSTMARKET_BENCHMARKS) | set(US_POSTMARKET_SECTOR_ETFS)
+        assert {item.code for item in sync.load_scope()} == sync_codes
         assert {item.code for item in resolver.resolve_universe(f"{prefix}_trend")} == {
             codes[key] for key in expected[f"{prefix}_trend"]
         }

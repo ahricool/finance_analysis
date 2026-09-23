@@ -28,7 +28,7 @@ Daily Sync（CN 18:00 / US 21:00）
 
 `market_structure_cn` / `market_structure_us` 分别在周一至周五当地时间 18:50 / 21:50 发布到 `analysis` 队列，分别用 `Asia/Shanghai` / `America/New_York`，保留 DST 行为。注册、路由、TaskRecord 生命周期和 Task Center 手动运行均复用已有注册表。
 
-美股正式收盘任务按 `America/New_York`、周一至周五依次调度：21:00 日线增量同步、21:30 ETF Rotation、21:40 Trend Following、21:50 Market Structure、22:30 Quant Daily Pipeline。延后为 Yahoo/yfinance 当日日线留出更多更新时间；每月全量同步仍为第一个周日 10:00。美股收盘复盘保持 18:00，不随本次调整。
+美股正式收盘任务按 `America/New_York`、周一至周五依次调度：21:00 日线增量同步、21:30 ETF Rotation、21:40 Trend Following、21:50 Market Structure、22:00 美股收盘复盘、22:30 Quant Daily Pipeline。延后为 Yahoo/yfinance 当日日线留出更多更新时间；每月全量同步仍为第一个周日 10:00。美股收盘复盘只读已存前复权日线，必须晚于日线同步；数据未就绪仍由历史完整性检查显式报错，不回退到旧交易日。复盘所需 ETF（包括 DIA、SOXX）直接加入 `us_daily_sync`，不改变 ETF Rotation 等策略池；无历史的标的由下一次显式同步自动补齐初始历史窗口。
 
 依赖通过当日 ETF snapshot 的存在检查，而非仅靠时钟保证。Market Structure 不重新运行 ETF Ranking；ETF 任务迟到/失败时本任务失败，可以在上游完成后手动重试。交易日非收盘、benchmark 缺失、股票覆盖不足也不生成新快照。没有与 Daily Sync / ETF Rotation 共用写事务，失败不回滚上游。
 
