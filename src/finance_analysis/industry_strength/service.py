@@ -132,7 +132,9 @@ class IndustryStrengthService:
             breadth_failures["history"] = str(exc)
         if preview and codes:
             try:
-                quotes = self.market_data.get_realtime_quotes(codes).data
+                # Industry breadth needs Fuyao's batch snapshots, not the general
+                # quote chain that fetches Longbridge quotes/volume ratios per stock.
+                quotes = self.market_data.get_realtime_quotes(codes, providers=("fuyao",)).data
                 stocks = {
                     code: overlay(stocks.get(code, []), quotes.get(code), day, sessions[-2], stock=True)
                     for code in codes

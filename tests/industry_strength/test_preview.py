@@ -33,6 +33,7 @@ def quote(price=150, stamp=STAMP, pre_close=120):
 class Data:
     def __init__(self):
         self.stock_calls = []
+        self.quote_calls = []
         self.stock_history_end = DAYS[-2]
         self.missing_stock_history = False
         self.history_calls = 0
@@ -73,8 +74,10 @@ class Data:
             for c in codes
         }
 
-    def get_realtime_quotes(self, codes):
+    def get_realtime_quotes(self, codes, *, providers):
+        self.quote_calls.append((codes, providers))
         assert codes == ["600001.SH"]
+        assert providers == ("fuyao",)
         return Obj(data={c: quote() for c in codes})
 
 
@@ -140,6 +143,7 @@ def test_preview_refetches_full_inputs_updates_benchmark_and_only_caches_results
     assert repo.saved == [] and repo.members is None
     assert data.history_calls == 21
     assert len(data.stock_calls) == 1
+    assert data.quote_calls == [(["600001.SH"], ("fuyao",))]
     data.benchmark_price = 130
     service.run_preview()
     second = cache.read()["result"]
@@ -234,7 +238,7 @@ def test_preview_and_formal_calculations_match_for_identical_daily_inputs(missin
         return {code: Obj(**{**vars(quote(100, pre_close=100)), "amount": 100, "volume": 10}) for code in codes}
 
     data.get_index_quotes = index_quotes
-    data.get_realtime_quotes = lambda codes: Obj(data=stock_quotes(codes))
+    data.get_realtime_quotes = lambda codes, **kwargs: Obj(data=stock_quotes(codes))
     # Formal includes today's stored bar; Preview replaces it with the identical live bar.
     service = IndustryStrengthService(Repo(), data)
     data.stock_history_end = DAY
