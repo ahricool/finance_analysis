@@ -354,6 +354,11 @@ def test_read_projections_do_not_load_full_snapshot_or_instrument_json():
     assert 'instrument_1' not in statements[0]
     assert 'metadata' not in statements[0]
     assert 'features' not in statements[1]
+    states = repository.dashboard_state_rows(date(2026, 9, 10))
+    assert states == [{"code": "AAPL.US", "state": "TRENDING", "rank": 1, "name": "Apple"}]
+    assert 'features' not in statements[-1] and 'score_breakdown' not in statements[-1]
+    assert repository.dashboard_state_rows(date(2026, 9, 9)) == []
+    assert TrendFollowingRepository("CN", database).dashboard_state_rows(date(2026, 9, 10)) == []
 
 
 def test_replace_and_invalidate_clear_cache_only_after_commit(monkeypatch):

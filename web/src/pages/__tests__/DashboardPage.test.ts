@@ -33,7 +33,7 @@ describe('public market dashboard', () => {
   it('uses only public endpoints and preserves the API feed order including future events', async () => {
     const { wrapper } = await render();
     const paths = get.mock.calls.map(([path]) => path);
-    expect(new Set(paths)).toEqual(new Set(['/api/v1/market-structure', '/api/v1/quant/signals/ranking', '/api/v1/etf-rotation/ranking', '/api/v1/trend-following/ranking', '/api/v1/crypto/btc/overview', '/api/v1/timeline']));
+    expect(new Set(paths)).toEqual(new Set(['/api/v1/market-structure', '/api/v1/quant/signals/ranking', '/api/v1/etf-rotation/ranking', '/api/v1/trend-following/dashboard', '/api/v1/crypto/btc/overview', '/api/v1/timeline']));
     expect(paths.join()).not.toMatch(/portfolio|holdings|watch-list|history|preferences/);
     expect(wrapper.get('[aria-label="Market Structure"]').text()).toContain('Breadth Divergence');
     expect(wrapper.get('[aria-label="Market Structure"]').text()).toContain('High Fragility Trends: 23');
@@ -43,6 +43,8 @@ describe('public market dashboard', () => {
     expect(feed[0]!.text()).toContain('$1.36');
     expect(wrapper.get('[aria-label="What\'s Next"]').text()).not.toContain('科技板块');
     expect(wrapper.text()).not.toContain('Ordinary Watch');
+    expect(wrapper.get('[aria-label="What\'s Changed"]').text()).toContain('TRENDING 12');
+    expect(wrapper.get('[aria-label="What\'s Changed"]').text()).toContain('WEAKENING 4');
     const timelineCalls = get.mock.calls.filter(([path]) => path === '/api/v1/timeline');
     expect(timelineCalls[0]![1]?.params).toEqual({ limit: 10, timezone: 'Asia/Shanghai' });
     expect(timelineCalls[1]![1]?.params).toMatchObject({ end_date: '2026-09-16', category: 'event' });
@@ -68,7 +70,7 @@ describe('public market dashboard', () => {
     expect(model.text()).toContain('中际旭创');
     expect(model.text()).toContain('NVIDIA');
     expect(model.text()).not.toMatch(/RISK ON|NEUTRAL/);
-    for (const path of ['/api/v1/trend-following/ranking', '/api/v1/quant/signals/ranking']) {
+    for (const path of ['/api/v1/trend-following/dashboard', '/api/v1/quant/signals/ranking']) {
       expect(get.mock.calls.filter(([url]) => url === path).map(([, config]) => config?.params.market)).toEqual(['CN', 'US']);
     }
     wrapper.unmount();
@@ -96,7 +98,7 @@ describe('public market dashboard', () => {
     await regime.get('button').trigger('click');
     await flushPromises();
     expect(get.mock.calls.slice(callsBefore)).toEqual([
-      ['/api/v1/trend-following/ranking', { params: { market, trade_date: undefined } }],
+      ['/api/v1/trend-following/dashboard', { params: { market } }],
     ]);
     expect(regime.text()).not.toContain('暂时无法获取');
     expect(changes.text()).not.toContain('暂时无法获取');

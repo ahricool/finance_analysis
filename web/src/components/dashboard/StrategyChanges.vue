@@ -1,17 +1,16 @@
 <script setup lang="ts">
 import type { ETFRankingResponse } from '@/types/etfRotation';
-import type { TrendRankingResponse } from '@/types/trendFollowing';
+import type { TrendDashboardResponse } from '@/types/trendFollowing';
 import { computed } from 'vue';
-import { etfHighlights, regimeText, regimeTone, trendHighlights } from './dashboardFormat';
-const props = defineProps<{ etf?: ETFRankingResponse | null; trend?: TrendRankingResponse | null }>();
+import { etfHighlights, regimeText, regimeTone } from './dashboardFormat';
+const props = defineProps<{ etf?: ETFRankingResponse | null; trend?: TrendDashboardResponse | null }>();
 const changes = computed(() => props.etf?.changes ?? props.trend?.changes);
-const rows = computed(() => props.etf ? etfHighlights(props.etf.changes) : trendHighlights(props.trend?.changes).slice(0, 3));
+const rows = computed(() => props.etf ? etfHighlights(props.etf.changes) : props.trend?.changes.highlights ?? []);
 const regime = computed(() => props.etf?.marketSnapshot?.regime ?? props.trend?.marketRegime);
 const counts = computed(() => props.etf ? [
   ['新增 BUY', props.etf.changes?.newBuys.length ?? 0], ['新增 EXIT', props.etf.changes?.newExits.length ?? 0],
   ['排名变化', props.etf.changes?.rankMovers.length ?? 0],
-] : ['CANDIDATE', 'TRENDING', 'WEAKENING', 'BROKEN'].map(state => [state, trendHighlights(props.trend?.changes).filter(row =>
-  row.currentState === state).length]));
+] : ['CANDIDATE', 'TRENDING', 'WEAKENING', 'BROKEN'].map(state => [state, props.trend?.changes.stateCounts[state] ?? 0]));
 </script>
 
 <template>

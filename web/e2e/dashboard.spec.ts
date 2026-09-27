@@ -42,7 +42,7 @@ for (const width of [1280, 1440, 1920]) {
       for (const market of ['CN', 'US']) {
         expect(requests.filter(value => {
           const url = new URL(value);
-          return url.pathname === '/api/v1/trend-following/ranking' && url.searchParams.get('market') === market;
+          return url.pathname === '/api/v1/trend-following/dashboard' && url.searchParams.get('market') === market;
         })).toHaveLength(1);
       }
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
@@ -71,4 +71,23 @@ test('login defaults to the public dashboard without requesting private market d
   await expect(page).toHaveURL(/\/dashboard$/);
   await expect(page.getByTestId('dashboard-feed-item')).toHaveCount(8);
   expect(unexpected).toEqual([]);
+});
+
+
+test('navigation remains usable while homepage summaries are pending', async ({ page }) => {
+  let release!: () => void;
+  const pending = new Promise<void>(resolve => { release = resolve; });
+  await page.route('**/api/v1/**', async route => {
+    const url = new URL(route.request().url());
+    if (url.pathname === '/api/v1/trend-following/dashboard') await pending;
+    await route.fulfill({ json: dashboardResponse(url) });
+  });
+  try {
+    await page.goto('/dashboard');
+    await expect(page.getByRole('region', { name: 'Market Regime' }).getByLabel('正在加载')).toHaveCount(2);
+    await page.getByTestId('desktop-main-nav').getByRole('link', { name: '时间线', exact: true }).click();
+    await expect(page).toHaveURL(/\/timeline$/);
+  } finally {
+    release();
+  }
 });

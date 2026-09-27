@@ -37,7 +37,7 @@ export function useMarketDashboard() {
     structure: resource(() => marketStructureApi.snapshot(market)),
     signals: resource(() => quantApi.signals(market)),
     etf: resource(() => etfRotationApi.ranking(market)),
-    trend: resource(() => trendFollowingApi.ranking(market)),
+    trend: resource(() => trendFollowingApi.dashboard(market)),
   }));
   // No cutoff on Latest: future events participate in the same event_time DESC feed.
   const latest = resource(() => timelineApi.list({ limit: 10 }));

@@ -5,6 +5,7 @@ import { getParsedApiError } from './error';
 import { toCamelCase } from './utils';
 import type {
   TrendCandidatesResponse,
+  TrendDashboardResponse,
   TrendDatesResponse,
   TrendDetailResponse,
   TrendMarket,
@@ -39,6 +40,12 @@ function rankingDto(data: Record<string, unknown>): TrendRankingResponse {
 }
 
 export const trendFollowingApi = {
+  async dashboard(market: TrendMarket): Promise<TrendDashboardResponse> {
+    const { data } = await apiClient.get('/api/v1/trend-following/dashboard', { params: { market } });
+    const result = toCamelCase<TrendDashboardResponse>(data);
+    result.changes.stateCounts = data.changes.state_counts;
+    return result;
+  },
   async breadthHistory(market: TrendMarket, asOf?: string, includePreview = false): Promise<TrendBreadthResponse> {
     const { data } = await apiClient.get('/api/v1/trend-following/breadth-history', {
       params: { market, days: 30, include_preview: includePreview, ...(asOf ? { as_of: asOf } : {}) },

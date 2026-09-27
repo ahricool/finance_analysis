@@ -21,6 +21,7 @@ from finance_analysis.database.repositories.trend_following import (  # pragma: 
 from finance_analysis.interfaces.api.deps import require_admin, require_current_user  # pragma: allowlist secret
 from finance_analysis.interfaces.api.v1.schemas.trend_following import (  # pragma: allowlist secret
     TrendFollowingRunRequest,
+    TrendDashboardResponse,
     TrendRankingItem,
     TrendBreadthResponse,
     TrendTransitionsResponse,
@@ -156,6 +157,22 @@ def _resolve_date(repository: TrendFollowingRepository, requested: date | None) 
     if resolved is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Trend Following snapshot is not available")
     return resolved
+
+
+@router.get("/dashboard", response_model=TrendDashboardResponse)
+def dashboard(
+    trade_date: date | None = None,
+    _: User = Depends(require_current_user),
+    market: Market = "CN",
+):
+    from finance_analysis.trend_following.dashboard import dashboard_summary
+
+    repository = TrendFollowingRepository(market)
+    resolved = _resolve_date(repository, trade_date)
+    payload = dashboard_summary(repository, resolved)
+    if payload is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"Trend Following snapshot not found for {resolved}")
+    return payload
 
 
 @router.get("/ranking")

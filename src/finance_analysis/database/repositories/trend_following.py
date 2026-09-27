@@ -514,6 +514,17 @@ class TrendFollowingRepository:
         with self.db.get_session() as session:
             return [dict(row) for row in session.execute(query).mappings()]
 
+    def dashboard_state_rows(self, trade_date: date) -> list[dict]:
+        """Small ordered projection for homepage changes, without feature JSON."""
+        snapshot = TrendFollowingSnapshot
+        with self.db.get_session() as session:
+            return [dict(row) for row in session.execute(
+                select(snapshot.code, snapshot.state, snapshot.rank, Instrument.name)
+                .join(Instrument, Instrument.id == snapshot.instrument_id)
+                .where(snapshot.market == self.market, snapshot.trade_date == trade_date)
+                .order_by(snapshot.rank, snapshot.code)
+            ).mappings()]
+
     def change_rows(self, trade_date: date) -> list[dict]:
         snapshot = TrendFollowingSnapshot
         fields = ("code", "state", "rank", "trend_score", "rs_score", "alpha_score")
