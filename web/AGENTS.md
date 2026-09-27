@@ -132,7 +132,7 @@ Cookie 会话，`apiClient` 设了 `withCredentials: true`。
 
 ## API 层
 
-`src/api/index.ts` 是唯一 Axios 实例：`baseURL = API_BASE_URL`（默认 `''`）、超时 30s、JSON、Cookie。响应拦截器会：
+`src/api/index.ts` 是唯一 Axios 实例：`baseURL = API_BASE_URL`（默认 `''`）、超时 60s、JSON、Cookie。响应拦截器会：
 
 1. `401` → 跳登录
 2. `attachParsedApiError` 把错误打成 `ParsedApiError`（标题、用户可读说明、category）
