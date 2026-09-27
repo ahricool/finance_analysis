@@ -1,5 +1,4 @@
 import type { ETFChange, ETFRankingChanges } from '@/types/etfRotation';
-import type { TrendRankingChanges } from '@/types/trendFollowing';
 import type { TimelineItem } from '@/api/timeline';
 import { dayKey, formatEps, sessionLabel } from '@/components/timeline/timelineFormat';
 
@@ -15,12 +14,6 @@ export function etfHighlights(changes?: ETFRankingChanges | null): ETFChange[] {
     seen.add(change.code);
     return true;
   }).slice(0, 3);
-}
-export function trendHighlights(changes?: TrendRankingChanges | null) {
-  return (changes?.transitions ?? []).filter(change =>
-    ['CANDIDATE', 'TRENDING', 'WEAKENING', 'BROKEN'].includes(change.currentState)
-    && change.previousState !== change.currentState,
-  );
 }
 export function upcomingEvents(items: TimelineItem[], now: Date) {
   const today = dayKey(now.toISOString());

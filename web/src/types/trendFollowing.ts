@@ -267,3 +267,15 @@ export interface TrendTransitionsResponse {
   warnings: string[];
   items: RecentTrendTransition[];
 }
+
+/** Bounded homepage payload; counts include every qualifying transition. */
+export interface TrendDashboardResponse extends Pick<TrendSummary,
+  'market' | 'tradeDate' | 'marketRegime' | 'marketScore'> {
+  scoreBreakdown: Record<string, number | null>;
+  features: { lifecycleCounts: Record<string, number> | null; highFragilityCount: number | null };
+  changes: {
+    previousTradeDate: string | null;
+    stateCounts: Record<string, number>;
+    highlights: Array<{ code: string; name: string | null; previousState: TrendState; currentState: TrendState }>;
+  };
+}

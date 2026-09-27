@@ -3,7 +3,7 @@
 from datetime import date, datetime
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class TrendFollowingRunRequest(BaseModel):
@@ -39,6 +39,34 @@ class TrendBreadthResponse(BaseModel):
 
 
 TrendState = Literal["IDLE", "WATCHING", "CANDIDATE", "TRENDING", "WEAKENING", "BROKEN"]
+
+
+class TrendDashboardHighlight(BaseModel):
+    code: str
+    name: str | None
+    previous_state: TrendState
+    current_state: TrendState
+
+
+class TrendDashboardChanges(BaseModel):
+    previous_trade_date: date | None
+    state_counts: dict[str, int]
+    highlights: list[TrendDashboardHighlight] = Field(max_length=3)
+
+
+class TrendDashboardFeatures(BaseModel):
+    lifecycle_counts: dict[str, int] | None
+    high_fragility_count: int | None
+
+
+class TrendDashboardResponse(BaseModel):
+    market: Literal["CN", "US"]
+    trade_date: date
+    market_regime: Literal["RISK_ON", "NEUTRAL", "RISK_OFF"]
+    market_score: float
+    score_breakdown: dict[str, float | None]
+    features: TrendDashboardFeatures
+    changes: TrendDashboardChanges
 
 
 class TrendTransition(BaseModel):

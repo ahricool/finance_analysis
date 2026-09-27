@@ -23,15 +23,14 @@ export function dashboardResponse(url: URL): object {
     market, trade_date: '2026-09-09', market_snapshot: { regime: 'RISK_ON' }, items: [],
     changes: { previous_trade_date: '2026-09-08', new_buys: [{ ...change, previousAction: 'HOLD', current: { code: 'ETF1', name: market === 'CN' ? '半导体 ETF' : 'Semiconductor ETF', action: 'BUY' } }], new_exits: [{ ...change, current: { code: 'ETF2', name: market === 'CN' ? '银行 ETF' : 'Bank ETF', action: 'EXIT' } }], rank_movers: [change, change] },
   };
-  if (path === '/api/v1/trend-following/ranking') return {
+  if (path === '/api/v1/trend-following/dashboard') return {
     market, trade_date: market === 'CN' ? '2026-09-18' : '2026-09-17',
     market_regime: market === 'CN' ? 'RISK_ON' : 'NEUTRAL', market_score: market === 'CN' ? 72.4 : 53.2,
-    score_breakdown: market === 'CN' ? { trend: 76, breadth: 71, risk: 68 } : { trend: 56, breadth: 51, risk: 48 }, items: [],
+    score_breakdown: market === 'CN' ? { trend: 76, breadth: 71, risk: 68 } : { trend: 56, breadth: 51, risk: 48 },
     features: { lifecycle_counts: { IGNITION: 12, EMERGING: 35, EXPANSION: 64, MATURE: 81, EXHAUSTION: 17, BROKEN: 40 }, high_fragility_count: 23 },
-    changes: { previous_trade_date: '2026-09-08', transitions: [
-      { code, name, previousState: 'CANDIDATE', currentState: 'TRENDING' },
-      { code: 'watch', name: 'Ordinary Watch', previousState: 'IDLE', currentState: 'WATCHING' },
-      { code: 'weak', name: market === 'CN' ? '贵州茅台' : 'Apple', previousState: 'TRENDING', currentState: 'WEAKENING' },
+    changes: { previous_trade_date: '2026-09-08', state_counts: { CANDIDATE: 0, TRENDING: 12, WEAKENING: 4, BROKEN: 0 }, highlights: [
+      { code, name, previous_state: 'CANDIDATE', current_state: 'TRENDING' },
+      { code: 'weak', name: market === 'CN' ? '贵州茅台' : 'Apple', previous_state: 'TRENDING', current_state: 'WEAKENING' },
     ] },
   };
   if (path === '/api/v1/crypto/btc/overview') return {
