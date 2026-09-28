@@ -59,14 +59,17 @@ describe('MarketKLineChart v10 lifecycle', () => {
   });
 
   it.each([
-    { open: 100, close: 105, high: 110, low: 99, change: '+5.00%', amplitude: '11.00%', color: 'upColor' },
-    { open: 100, close: 95, high: 110, low: 90, change: '-5.00%', amplitude: '20.00%', color: 'downColor' },
-    { open: 100, close: 100, high: 100, low: 100, change: '0.00%', amplitude: '0.00%', color: 'noChangeColor' },
-    { open: 0, close: 105, high: 110, low: 99, change: '--', amplitude: '--', color: null },
-    { open: NaN, close: 105, high: 110, low: 99, change: '--', amplitude: '--', color: null },
-    { open: 100, close: Infinity, high: NaN, low: 99, change: '--', amplitude: '--', color: null },
-  ])('formats candle-relative percentages: $change / $amplitude', async (sample) => {
-    const wrapper = mount(MarketKLineChart, { props: { symbol: 'BTCUSDT', period: '15m', bars: [bar] } });
+    { previousClose: 100, open: 110, close: 105, high: 110, low: 99, change: '+5.00%', amplitude: '11.00%', color: 'upColor' },
+    { previousClose: 100, open: 90, close: 95, high: 110, low: 90, change: '-5.00%', amplitude: '20.00%', color: 'downColor' },
+    { previousClose: 100, open: 95, close: 100, high: 100, low: 95, change: '0.00%', amplitude: '5.00%', color: 'noChangeColor' },
+    { previousClose: null, open: 100, close: 105, high: 110, low: 99, change: '--', amplitude: '--', color: null },
+    { previousClose: 0, open: 100, close: 105, high: 110, low: 99, change: '--', amplitude: '--', color: null },
+    { previousClose: -100, open: 100, close: 105, high: 110, low: 99, change: '--', amplitude: '--', color: null },
+    { previousClose: NaN, open: 100, close: 105, high: 110, low: 99, change: '--', amplitude: '--', color: null },
+    { previousClose: Infinity, open: 100, close: 105, high: 110, low: 99, change: '--', amplitude: '--', color: null },
+    { previousClose: 100, open: 100, close: Infinity, high: NaN, low: 99, change: '--', amplitude: '--', color: null },
+  ])('formats percentages against previous close: $previousClose / $change', async (sample) => {
+    const wrapper = mount(MarketKLineChart, { props: { symbol: 'AAPL.US', period: '1d', bars: [bar] } });
     const { setTheme } = useTheme();
     for (const theme of ['dark', 'light'] as const) {
       setTheme(theme);
@@ -76,8 +79,8 @@ describe('MarketKLineChart v10 lifecycle', () => {
       const template = candle.tooltip.legend.template as CandleTooltipLegendsCustomCallback;
       const styles = { ...candle, tooltip: { ...candle.tooltip,
         legend: { ...candle.tooltip.legend, color: 'neutral' } } } as CandleStyle;
-      // A previous close of 200 would produce a loss for the positive candle.
-      const rows = template({ prev: { ...bar, close: 200 }, current: { ...bar,
+      // Gap opens must not determine the percentage or its color.
+      const rows = template({ prev: sample.previousClose === null ? null : { ...bar, close: sample.previousClose }, current: { ...bar,
         open: sample.open, close: sample.close, high: sample.high, low: sample.low }, next: null }, styles);
       expect(rows).toEqual([
         { title: '时间', value: '{time}' },
