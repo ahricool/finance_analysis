@@ -19,16 +19,16 @@ let chart: Chart | null = null;
 let observer: ResizeObserver | undefined;
 let pushBar: ((bar: KLineData) => void) | undefined;
 
-const candleTooltipLegends: CandleTooltipLegendsCustomCallback = ({ current }, styles) => {
+const candleTooltipLegends: CandleTooltipLegendsCustomCallback = ({ prev, current }, styles) => {
   const { defaultValue, color } = styles.tooltip.legend;
   const { upColor, downColor, noChangeColor } = styles.bar;
   let changeText = defaultValue;
   let amplitudeText = defaultValue;
   let changeColor = color;
-  if (current && Number.isFinite(current.open) && current.open > 0) {
-    // Both percentages describe this candle; the built-in {change} uses the previous close.
-    const change = (current.close - current.open) / current.open * 100;
-    const amplitude = (current.high - current.low) / current.open * 100;
+  if (current && prev && Number.isFinite(prev.close) && prev.close > 0) {
+    // Daily candles use the previous trading day’s close as the baseline.
+    const change = (current.close - prev.close) / prev.close * 100;
+    const amplitude = (current.high - current.low) / prev.close * 100;
     if (Number.isFinite(change)) {
       changeText = `${change > 0 ? '+' : ''}${change.toFixed(2)}%`;
       changeColor = change > 0 ? upColor : change < 0 ? downColor : noChangeColor;
