@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Any, Iterable
 
-from sqlalchemy import and_, case, delete, desc, func, or_, select, update
+from sqlalchemy import and_, case, delete, desc, func, or_, select, union, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from finance_analysis.core.time import utc_now
@@ -484,6 +484,32 @@ class QuantRepository:
             session.refresh(row)
             session.expunge(row)
             return row
+
+    def available_trade_dates(
+        self, market: str, universe_id: int, scope: str = "dashboard", code: str | None = None
+    ) -> list[date]:
+        """List persisted dates for the requested view, without a history limit."""
+        queries = []
+        if scope in {"dashboard", "signals"}:
+            query = select(ModelSignal.trade_date).where(
+                ModelSignal.market == market, ModelSignal.universe_id == universe_id
+            )
+            if scope == "signals" and code:
+                query = query.where(ModelSignal.code == code)
+            queries.append(query)
+        if scope == "dashboard":
+            queries.append(select(MarketRegimeSnapshot.trade_date).where(MarketRegimeSnapshot.market == market))
+        if scope == "portfolios":
+            queries.append(
+                select(PortfolioRecommendation.trade_date).where(
+                    PortfolioRecommendation.market == market, PortfolioRecommendation.universe_id == universe_id
+                )
+            )
+        if not queries:
+            raise ValueError(f"Unknown quant date scope: {scope}")
+        dates = union(*queries).subquery()
+        with self.db.get_session() as session:
+            return list(session.scalars(select(dates.c.trade_date).distinct().order_by(dates.c.trade_date.desc())))
 
     def latest_signals(
         self,

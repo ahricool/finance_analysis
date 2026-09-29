@@ -20,6 +20,16 @@ import type {
 const withMarket = (market: QuantMarket, params: Record<string, unknown> = {}) => ({ ...params, market });
 
 export const quantApi = {
+  async dates(
+    market: QuantMarket,
+    scope: 'dashboard' | 'signals' | 'portfolios',
+    code?: string,
+  ): Promise<{ items: string[] }> {
+    const { data } = await apiClient.get('/api/v1/quant/dates', {
+      params: withMarket(market, { scope, code }),
+    });
+    return data;
+  },
   async capabilities(market: QuantMarket = 'US'): Promise<QuantCapabilities> {
     const { data } = await apiClient.get('/api/v1/quant/capabilities', { params: withMarket(market) });
     return toCamelCase(data);

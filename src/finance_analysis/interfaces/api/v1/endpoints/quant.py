@@ -16,6 +16,7 @@ from finance_analysis.interfaces.api.v1.schemas.quant import (
     DatasetBuildRequest,
     ModelRunCreateRequest,
     PublishRequest,
+    QuantDatesResponse,
     SignalReturns,
 )
 from finance_analysis.quant.capabilities import get_quant_capabilities
@@ -107,6 +108,18 @@ def _remove_artifact(artifact_uri: str | None) -> bool:
 @router.get("/capabilities")
 async def capabilities(market: QuantMarket = "US", _: User = Depends(require_current_user)):
     return get_quant_capabilities(market)
+
+
+@router.get("/dates", response_model=QuantDatesResponse)
+async def dates(
+    market: QuantMarket = "US",
+    scope: Literal["dashboard", "signals", "portfolios"] = "dashboard",
+    code: str | None = None,
+    _: User = Depends(require_current_user),
+):
+    repo = QuantRepository()
+    universe = _universe(repo, market, None)
+    return {"items": repo.available_trade_dates(market, universe.id, scope, code)}
 
 
 @router.get("/universes")

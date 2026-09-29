@@ -61,3 +61,7 @@ class SignalReturns(BaseModel):
     return_5d: float | None = None
     return_since: float | None = None
     return_as_of: date | None = None
+
+
+class QuantDatesResponse(BaseModel):
+    items: list[date]

@@ -553,3 +553,14 @@ def test_signal_ranking_serializes_request_time_returns(monkeypatch):
     assert item["return_5d"] is None
     assert item["return_since"] == pytest.approx(0.1)
     assert item["return_as_of"] == "2026-07-27"
+
+
+def test_quant_available_dates_are_scoped_and_validated(monkeypatch):
+    client, repository = _client(monkeypatch)
+    repository.available_trade_dates = MagicMock(return_value=[date(2026, 9, 25)])
+    response = client.get("/quant/dates?market=CN&scope=signals&code=600519.SH")
+    assert response.status_code == 200
+    assert response.json() == {"items": ["2026-09-25"]}
+    repository.available_trade_dates.assert_called_once_with("CN", 2, "signals", "600519.SH")
+    assert client.get("/quant/dates?market=HK").status_code == 422
+    assert client.get("/quant/dates?scope=datasets").status_code == 422
