@@ -75,3 +75,11 @@ describe('quant API market scope', () => {
     expect(legacyMethod in quantApi).toBe(false);
   });
 });
+
+it('requests available dates for the selected market, view and security', async () => {
+  vi.mocked(apiClient.get).mockResolvedValueOnce({ data: { items: ['2026-09-25'] } });
+  expect(await quantApi.dates('US', 'signals', 'AAPL.US')).toEqual({ items: ['2026-09-25'] });
+  expect(apiClient.get).toHaveBeenLastCalledWith('/api/v1/quant/dates', {
+    params: { market: 'US', scope: 'signals', code: 'AAPL.US' },
+  });
+});

@@ -126,3 +126,40 @@ def test_latest_quant_reads_do_not_mix_model_versions_on_the_same_trade_date() -
     assert [row.model_version for row in regimes] == ["regime-v2"]
     assert [row.model_version for row in portfolios] == ["model-v2"]
     assert {row.model_version for row in repository.latest_signals("US", 1, model_version="model-v1")} == {"model-v1"}
+
+
+def test_available_dates_filter_market_universe_code_and_deduplicate_versions():
+    database = _SqliteManager()
+    for table in (ModelSignal.__table__, MarketRegimeSnapshot.__table__, PortfolioRecommendation.__table__):
+        table.create(database.engine)
+    generated_at = datetime(2026, 7, 22, 8, tzinfo=timezone.utc)
+    rows = [_signal(i, code, version, generated_at) for i, code, version in (
+        (1, "AAPL.US", "v1"), (2, "AAPL.US", "v2"), (3, "MSFT.US", "v1"),
+        (4, "OTHER.US", "v1"), (5, "600519.SH", "v1"),
+    )]
+    rows[2].trade_date = date(2026, 7, 20)
+    rows[3].universe_id = 99
+    rows[3].trade_date = date(2026, 7, 19)
+    rows[4].market = "CN"
+    rows[4].universe_id = 2
+    with Session(database.engine) as session:
+        session.add_all(rows)
+        session.add(MarketRegimeSnapshot(
+            id=1, market="US", trade_date=date(2026, 7, 23), model_version="v1",
+            regime="neutral", market_score=0.5, max_equity_exposure=0.4, generated_at=generated_at,
+        ))
+        session.add(PortfolioRecommendation(
+            id=1, market="US", universe_id=1, trade_date=date(2026, 7, 21),
+            model_version="v1", market_regime_id=1, target_equity_exposure=0.4, max_equity_exposure=0.4,
+            generated_at=generated_at,
+        ))
+        session.commit()
+    repo = QuantRepository(database)
+    assert repo.available_trade_dates("US", 1, "signals") == [date(2026, 7, 22), date(2026, 7, 20)]
+    assert repo.available_trade_dates("US", 1, "signals", "AAPL.US") == [date(2026, 7, 22)]
+    assert repo.available_trade_dates("US", 1, "signals", "UNKNOWN.US") == []
+    assert repo.available_trade_dates("CN", 2, "signals") == [date(2026, 7, 22)]
+    assert repo.available_trade_dates("US", 1, "dashboard") == [
+        date(2026, 7, 23), date(2026, 7, 22), date(2026, 7, 20),
+    ]
+    assert repo.available_trade_dates("US", 1, "portfolios") == [date(2026, 7, 21)]

@@ -1,10 +1,13 @@
 <script setup lang="ts">
+import { quantApi } from '@/api/quant';
+import { getParsedApiError, type ParsedApiError } from '@/api/error';
+import AppApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
 import ResearchMarketToggle from '@/components/research/ResearchMarketToggle.vue';
 import AppDatePicker from '@/components/app/AppDatePicker.vue';
 import ModuleTabs from '@/components/layout/ModuleTabs.vue';
 import { useQuantMarket } from '@/composables/useQuantMarket';
 import { BarChart3, Bot, BriefcaseBusiness, Database, LayoutDashboard } from 'lucide-vue-next';
-import { computed } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { RouterView, useRoute } from 'vue-router';
 
 type QuantTab = 'dashboard' | 'signals' | 'datasets' | 'models' | 'portfolios';
@@ -42,6 +45,32 @@ const activeTab = computed<QuantTab>(() => {
   if (path.startsWith('/research/quant/portfolios')) return 'portfolios';
   return 'dashboard';
 });
+const availableDates = ref<string[]>([]);
+const datesLoading = ref(false);
+const datesError = ref<ParsedApiError | null>(null);
+const signalCode = computed(() => typeof route.params.code === 'string' ? route.params.code : undefined);
+
+watch([market, activeTab, signalCode], async ([currentMarket, tab, code], _, onCleanup) => {
+  let stale = false;
+  onCleanup(() => { stale = true; });
+  availableDates.value = [];
+  datesError.value = null;
+  datesLoading.value = false;
+  if (tab === 'datasets' || tab === 'models') return;
+  datesLoading.value = true;
+  try {
+    const result = await quantApi.dates(currentMarket, tab, tab === 'signals' ? code : undefined);
+    if (!stale) availableDates.value = result.items;
+  } catch (error) {
+    if (!stale) datesError.value = getParsedApiError(error);
+  } finally {
+    if (!stale) datesLoading.value = false;
+  }
+}, { immediate: true });
+
+function selectTradeDate(value: string) {
+  if (!value || availableDates.value.includes(value)) void setTradeDate(value);
+}
 </script>
 
 <template>
@@ -66,10 +95,12 @@ const activeTab = computed<QuantTab>(() => {
           <AppDatePicker
             label="交易日"
             :model-value="tradeDate"
+            :available-dates="availableDates"
+            :disabled="datesLoading || !availableDates.length"
             placeholder="最新数据"
             data-testid="quant-trade-date"
             class="w-full"
-            @update:model-value="setTradeDate"
+            @update:model-value="selectTradeDate"
           />
         </div>
         <ResearchMarketToggle
@@ -79,6 +110,10 @@ const activeTab = computed<QuantTab>(() => {
         />
       </div>
     </div>
+    <AppApiErrorAlert
+      v-if="datesError"
+      :error="datesError"
+    />
     <section class="min-w-0">
       <RouterView />
     </section>
