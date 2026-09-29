@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { exportExcel, type ExcelColumn } from '@/utils/excelExport';
 import { forwardReturnColumns, useForwardReturns } from '@/composables/useForwardReturns';
 import { parseDate } from '@internationalized/date';
 import DailyKLineCard from '@/components/market-data/DailyKLineCard.vue';
@@ -218,6 +219,36 @@ function rankingCell(item: TrendRankingSnapshot, column: typeof rankingColumns[n
   if (column.format === 'score' || column.format === 'number') return score(value);
   return String(value);
 }
+const exporting = ref(false);
+async function exportRanking() {
+  if (exporting.value || loading.value || refreshing.value || previewLoading.value || forwardLoading.value || !sortedItems.value.length) return;
+  exporting.value = true;
+  try {
+    const columns: ExcelColumn[] = rankingColumns.flatMap(column => {
+      if (column.key === 'name') return [{ label: column.label }, { label: '代码' }];
+      if (column.key === 'trendLifecycle') return [{ label: 'Lifecycle' }, { label: 'Age (D)', format: '0' }];
+      if (column.key === 'rankChange5D') return ['1D', '3D', '5D'].map(period => ({ label: `Rank Δ ${period}`, format: '+0;-0;0' }));
+      if (column.key === 'alphaScore') return [{ label: column.label, format: '0.0' }, { label: 'Alpha Version' }];
+      return [{ label: column.label, format: column.format === 'percent' ? '0.0%'
+        : column.format === 'r2' ? '0.000' : column.format === 'slope' ? '0.0000'
+          : column.format === 'price' || column.format === 'ratio' ? '0.00' : column.key === 'rank' ? '0' : '0.0' }];
+    });
+    const rows = sortedItems.value.map(item => rankingColumns.flatMap(column => {
+      if (column.key === 'name') return [item.name, item.code];
+      if (column.key === 'state') return [stateText(item.state)];
+      if (column.key === 'trendLifecycle') return [item.trendLifecycle, item.trendDurationDays];
+      if (column.key === 'rankChange5D') return [item.rankChange1D, item.rankChange3D, item.rankChange5D];
+      if (column.key === 'alphaScore') return [item.alphaScore, item.features.alphaVersion === 2 ? 'V2' : 'V1'];
+      return [sortValue(item, column.key)];
+    }));
+    await exportExcel(`趋势分析_${market.value}_${summary.value.tradeDate}_${dataMode.value}.xlsx`, '趋势分析', columns, rows);
+  } catch {
+    toast.error('Excel 导出失败，请重试');
+  } finally {
+    exporting.value = false;
+  }
+}
+
 function toggleSort(key: SortKey) {
   sortDirection.value = sortKey.value === key
     ? (sortDirection.value === 'asc' ? 'desc' : 'asc')
@@ -750,6 +781,17 @@ onMounted(async () => {
       <Card v-if="showingStrategyBody">
         <CardHeader class="flex-row flex-wrap items-center justify-between gap-3">
           <div><CardTitle>趋势排名</CardTitle><CardDescription>{{ scope }} · 完整股票池筛选后再虚拟滚动</CardDescription></div>
+          <LoadingButton
+            variant="outline"
+            size="sm"
+            :loading="exporting"
+            loading-text="导出中…"
+            :disabled="loading || refreshing || previewLoading || forwardLoading || !sortedItems.length"
+            data-testid="trend-export-excel"
+            @click="exportRanking"
+          >
+            导出 Excel
+          </LoadingButton>
           <div
             class="flex gap-1"
             aria-label="按趋势状态筛选"

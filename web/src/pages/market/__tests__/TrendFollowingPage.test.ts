@@ -1,3 +1,4 @@
+import { exportExcel } from '@/utils/excelExport';
 import { marketDataApi } from '@/api/marketData';
 import TrendFragilityHistoryChart from '@/components/trend-following/TrendFragilityHistoryChart.vue';
 import TrendRankHistoryChart from '@/components/trend-following/TrendRankHistoryChart.vue';
@@ -7,6 +8,8 @@ import type { TrendMarket, TrendSnapshot, TrendRankingSnapshot, TrendRankingResp
 import { trendIndicatorDescriptions } from '@/components/trend-following/indicatorDescriptions';
 import TrendFollowingPage from '../TrendFollowingPage.vue';
 
+vi.mock('@/utils/excelExport', () => ({ exportExcel: vi.fn().mockResolvedValue(undefined) }));
+
 const apiMocks = vi.hoisted(() => ({
   transitions: vi.fn(), breadthHistory: vi.fn(), ranking: vi.fn(), candidates: vi.fn(), dates: vi.fn(), detail: vi.fn(), detailHistory: vi.fn(), run: vi.fn(), preview: vi.fn(), previewStatus: vi.fn(),
 }));
@@ -14,7 +17,7 @@ vi.mock('@/api/trendFollowing', () => ({ trendFollowingApi: apiMocks }));
 vi.mock('vue-echarts', () => ({ default: { props: ['option'], template: '<div data-testid="rank-chart" />' } }));
 vi.mock('@/api/marketData', () => ({ marketDataApi: { forwardReturns: vi.fn().mockResolvedValue({ items: [] }), dailyBars: vi.fn().mockResolvedValue({ items: [] }) } }));
 
-vi.mock('vue-sonner', () => ({ toast: { success: vi.fn() } }));
+vi.mock('vue-sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 vi.mock('@/components/app/AppDatePicker.vue', () => ({
   default: {
     inheritAttrs: false, props: ['modelValue', 'label', 'availableDates', 'clearable', 'disabled'],
@@ -93,6 +96,25 @@ describe('TrendFollowingPage', () => {
     mockPreview(null);
   });
   afterEach(() => { document.body.innerHTML = ''; vi.clearAllMocks(); });
+
+  it('exports loaded ranking values without requesting data and recovers from export failure', async () => {
+    const wrapper = mount(TrendFollowingPage);
+    await flushPromises();
+    const requests = apiMocks.ranking.mock.calls.length;
+    await wrapper.get('[data-testid="trend-export-excel"]').trigger('click');
+    await flushPromises();
+    const [file, , columns, rows] = vi.mocked(exportExcel).mock.calls.at(-1)!;
+    expect(file).toContain('2026-08-28_official.xlsx');
+    expect(columns.map(column => column.label)).toContain('代码');
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows[0]).toHaveLength(columns.length);
+    expect(apiMocks.ranking).toHaveBeenCalledTimes(requests);
+    vi.mocked(exportExcel).mockRejectedValueOnce(new Error('download failed'));
+    await wrapper.get('[data-testid="trend-export-excel"]').trigger('click');
+    await flushPromises();
+    expect(wrapper.get('[data-testid="trend-export-excel"]').attributes('disabled')).toBeUndefined();
+    wrapper.unmount();
+  });
 
   it('keeps scoring groups separate from explain signals and blanks missing V2 qualities', async () => {
     const wrapper = mount(TrendFollowingPage);
@@ -232,9 +254,18 @@ describe('TrendFollowingPage', () => {
     const sort = wrapper.findAll('th button').find(button => button.text() === 'Alpha Score')!;
     await sort.trigger('click');
     expect(wrapper.findAll('[data-testid="trend-row"]')[0]!.text()).toContain('STOCK799');
+    await wrapper.get('[data-testid="trend-export-excel"]').trigger('click');
+    await flushPromises();
+    const allRows = vi.mocked(exportExcel).mock.calls.at(-1)![3];
+    expect(allRows).toHaveLength(800);
+    expect(allRows[0]).toContain('STOCK799');
     await wrapper.get('[data-testid="trend-ranking-search"]').setValue('stock700');
     expect(wrapper.findAll('[data-testid="trend-row"]')).toHaveLength(1);
     expect(wrapper.get('[data-testid="trend-row"]').text()).toContain('STOCK700');
+    await wrapper.get('[data-testid="trend-export-excel"]').trigger('click');
+    await flushPromises();
+    expect(vi.mocked(exportExcel).mock.calls.at(-1)![3]).toHaveLength(1);
+    expect(vi.mocked(exportExcel).mock.calls.at(-1)![3][0]).toContain('STOCK700');
     await wrapper.get('[data-testid="trend-ranking-search"]').setValue('不存在');
     expect(wrapper.findAll('[data-testid="trend-row"]')).toHaveLength(0);
     expect(wrapper.text()).toContain('没有匹配的股票');

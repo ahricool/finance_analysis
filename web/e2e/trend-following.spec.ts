@@ -69,6 +69,14 @@ for (const width of [1280, 1440, 1920]) {
       const errors: string[] = [];
       page.on('pageerror', error => errors.push(error.message));
       await page.goto('/research/trend-following');
+      await expect(page.getByTestId('trend-export-excel')).toBeEnabled();
+      const downloadPromise = page.waitForEvent('download');
+      await page.getByTestId('trend-export-excel').click();
+      const download = await downloadPromise;
+      expect(download.suggestedFilename()).toBe(`趋势分析_CN_${snapshot.tradeDate}_official.xlsx`);
+      expect(await download.failure()).toBeNull();
+      await download.saveAs(testInfo.outputPath('ranking.xlsx'));
+
       const row = page.getByTestId('trend-row').first();
       await expect(row.locator('[data-column="forwardReturn3D"]')).toHaveText('3.0%');
       await expect(row.locator('[data-column="forwardReturn5D"]')).toHaveText('-2.0%');
