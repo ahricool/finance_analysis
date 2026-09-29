@@ -11,6 +11,8 @@ const props = defineProps<{
   bars: KLineData[];
   current?: KLineData | null;
   sourceKey?: string;
+  focusTimestamp?: number;
+  focusRequest?: number;
   overlays?: OverlayCreate[];
 }>();
 const element = ref<HTMLElement>();
@@ -103,6 +105,9 @@ function initialize() {
       const current = liveBar();
       if (current) bars.set(current.timestamp, current);
       callback(type === 'init' ? [...bars.values()].sort((a, b) => a.timestamp - b.timestamp) : [], false);
+      if (type === 'init' && props.focusTimestamp != null) {
+        chart?.scrollToTimestamp(props.focusTimestamp);
+      }
     },
     subscribeBar: ({ callback }) => { pushBar = callback; },
     unsubscribeBar: () => { pushBar = undefined; },
@@ -110,6 +115,11 @@ function initialize() {
   applyOverlays();
 }
 watch(() => props.overlays, applyOverlays);
+watch(() => [props.focusTimestamp, props.focusRequest], () => {
+  const timestamp = props.focusTimestamp;
+  if (timestamp != null) chart?.scrollToTimestamp(timestamp);
+  else chart?.scrollToRealTime();
+});
 watch(() => [props.symbol, props.period, props.sourceKey, props.pricePrecision], initialize);
 watch(() => props.bars, () => chart?.resetData());
 watch(() => props.current, () => {

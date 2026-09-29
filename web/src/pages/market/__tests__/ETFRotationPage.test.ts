@@ -20,7 +20,7 @@ vi.mock('@/api/etfRotation', () => ({
   etfRotationApi: apiMocks,
 }));
 
-vi.mock('@/api/marketData', () => ({ marketDataApi: { dailyBars: vi.fn().mockResolvedValue({ items: [] }) } }));
+vi.mock('@/api/marketData', () => ({ marketDataApi: { forwardReturns: vi.fn().mockResolvedValue({ items: [] }), dailyBars: vi.fn().mockResolvedValue({ items: [] }) } }));
 
 vi.mock('vue-sonner', () => ({
   toast: { success: vi.fn(), error: vi.fn() },
@@ -240,7 +240,7 @@ describe('ETFRotationPage', () => {
     await flushPromises();
 
     expect(document.body.textContent).toContain('科创50ETF');
-    expect(wrapper.findAll('thead th')).toHaveLength(14);
+    expect(wrapper.findAll('thead th')).toHaveLength(17);
     expect(wrapper.text()).toContain('持续天数');
     await wrapper.get('tbody tr').trigger('click');
     await flushPromises();
@@ -347,7 +347,7 @@ describe('ETFRotationPage', () => {
     await wrapper.get('[data-testid="rotation-candidate"]').trigger('click');
     await flushPromises();
     expect(apiMocks.detail).toHaveBeenLastCalledWith('159915.SZ', 'CN', 60, '2026-08-21');
-    expect(marketDataApi.dailyBars).toHaveBeenLastCalledWith('159915.SZ', '2026-08-21', undefined, expect.any(AbortSignal));
+    expect(marketDataApi.dailyBars).toHaveBeenLastCalledWith('159915.SZ', undefined, '2025-08-21', expect.any(AbortSignal));
   });
 
   it('resets the selected date and reloads US snapshots when switching markets', async () => {
@@ -393,7 +393,7 @@ describe('ETFRotationPage', () => {
     expect(document.body.textContent).toContain('RS10');
     expect(document.body.textContent).toContain('Signed ER10');
     expect(apiMocks.detail).toHaveBeenCalledWith('588000.SH', 'CN', 60, '2026-08-25');
-    expect(marketDataApi.dailyBars).toHaveBeenLastCalledWith('588000.SH', '2026-08-25', undefined, expect.any(AbortSignal));
+    expect(marketDataApi.dailyBars).toHaveBeenLastCalledWith('588000.SH', undefined, '2025-08-25', expect.any(AbortSignal));
   });
 
   it('renders nullable actions and snapshot warnings without treating them as signals', async () => {

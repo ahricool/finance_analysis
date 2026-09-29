@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { forwardReturnColumns, useForwardReturns } from '@/composables/useForwardReturns';
 import { parseDate } from '@internationalized/date';
 import DailyKLineCard from '@/components/market-data/DailyKLineCard.vue';
 import { detailChartHistory as buildDetailChartHistory } from '@/utils/detailChartHistory';
@@ -102,6 +103,7 @@ const rankingColumns = [
   { key: 'rank', label: 'Alpha Rank', group: 'Core', format: 'number', description: descriptions.rank },
   { key: 'name', label: '股票名称', group: 'Core', format: 'text', description: undefined },
   { key: 'state', label: 'State', group: 'Core', format: 'text', description: descriptions.state },
+  ...forwardReturnColumns,
   { key: 'trendLifecycle', label: 'Lifecycle / Age', group: 'Core', format: 'number', description: '趋势阶段与持续交易日数。MATURE 表示趋势成熟阶段。' },
   { key: 'rankChange5D', label: '排名趋势', group: 'Core', format: 'number', description: descriptions.rankChange },
   { key: 'referencePrice', label: 'Reference Price', group: 'Core', format: 'price', description: descriptions.reference },
@@ -192,6 +194,7 @@ function isRankingFeatureKey(key: SortKey): key is RankingColumnFeatureKey {
   return RANKING_FEATURE_KEYS.some(item => item === key);
 }
 function sortValue(item: TrendRankingSnapshot, key: SortKey): string | number | boolean | null {
+  if (key.startsWith('forwardReturn')) return forwardReturn(item.code, key);
   if (key === 'trendLifecycle') return item.trendDurationDays;
   if (key === 'rankChange5D') return item.rankChange5D ?? item.rankChange3D ?? item.rankChange1D;
   if (isItemSortKey(key)) {
@@ -228,6 +231,8 @@ const filteredItems = computed(() => {
     return !query || item.code.toLocaleLowerCase().includes(query) || item.name.toLocaleLowerCase().includes(query);
   });
 });
+const { value: forwardReturn, error: forwardError, loading: forwardLoading, retry: retryForward } =
+  useForwardReturns(items, market, () => summary.value.tradeDate, dataMode);
 const sortedItems = computed(() => [...filteredItems.value].sort((left, right) => {
   const a = sortValue(left, sortKey.value);
   const b = sortValue(right, sortKey.value);
@@ -786,6 +791,19 @@ onMounted(async () => {
           </label>
         </CardHeader>
         <CardContent class="px-0">
+          <p
+            v-if="forwardLoading"
+            class="p-2 text-xs text-muted-foreground"
+            role="status"
+          >
+            未来收益率加载中…
+          </p>
+          <AppApiErrorAlert
+            v-if="forwardError"
+            :error="forwardError"
+            action-label="重试收益率"
+            @action="retryForward"
+          />
           <Empty v-if="!loading && !items.length">
             <EmptyHeader><EmptyTitle>暂无趋势快照</EmptyTitle><EmptyDescription>请确认所选日期已完成收盘行情同步和策略计算。</EmptyDescription></EmptyHeader>
           </Empty>
@@ -979,7 +997,7 @@ onMounted(async () => {
           </div>
           <DailyKLineCard
             :symbol="detail.latest.code"
-            :end-date="detail.latest.tradeDate"
+            :highlight-date="detail.latest.tradeDate"
           />
           <details class="rounded-lg border p-4 text-sm">
             <summary class="cursor-pointer">

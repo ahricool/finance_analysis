@@ -12,7 +12,7 @@ const apiMocks = vi.hoisted(() => ({
 }));
 vi.mock('@/api/trendFollowing', () => ({ trendFollowingApi: apiMocks }));
 vi.mock('vue-echarts', () => ({ default: { props: ['option'], template: '<div data-testid="rank-chart" />' } }));
-vi.mock('@/api/marketData', () => ({ marketDataApi: { dailyBars: vi.fn().mockResolvedValue({ items: [] }) } }));
+vi.mock('@/api/marketData', () => ({ marketDataApi: { forwardReturns: vi.fn().mockResolvedValue({ items: [] }), dailyBars: vi.fn().mockResolvedValue({ items: [] }) } }));
 
 vi.mock('vue-sonner', () => ({ toast: { success: vi.fn() } }));
 vi.mock('@/components/app/AppDatePicker.vue', () => ({
@@ -462,7 +462,7 @@ describe('TrendFollowingPage', () => {
     (document.body.querySelector('[data-testid="trend-row"]') as HTMLElement).click();
     await flushPromises();
     expect(apiMocks.detail).toHaveBeenCalledWith('000001.SZ', 'CN', 60, '2026-08-28');
-    expect(marketDataApi.dailyBars).toHaveBeenLastCalledWith('000001.SZ', '2026-08-28', undefined, expect.any(AbortSignal));
+    expect(marketDataApi.dailyBars).toHaveBeenLastCalledWith('000001.SZ', undefined, '2025-08-28', expect.any(AbortSignal));
     const dialog = document.body.querySelector('[data-testid="trend-detail"]')!;
     expect(dialog.getAttribute('role')).toBe('dialog');
     expect(dialog.classList.contains('top-1/2')).toBe(true);

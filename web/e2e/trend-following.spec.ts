@@ -42,6 +42,13 @@ for (const width of [1280, 1440, 1920]) {
         let body: object = {};
         if (pathname === '/api/v1/auth/status') {
           body = { loggedIn: true, user: { uid: 1, username: 'Tester', role: 'user', extra: {} } };
+        } else if (pathname.endsWith('/market-data/daily-bars/000001.SZ')) {
+          expect(new URL(route.request().url()).searchParams.get('end_date')).toBeNull();
+          body = { symbol: snapshot.code, items: ['2026-08-28', '2026-08-31'].map(tradeDate => ({
+            tradeDate, open: 100, high: 110, low: 95, close: 105, volume: 100,
+          })) };
+        } else if (pathname.endsWith('/market-data/forward-returns')) {
+          body = { items: [{ code: snapshot.code, forward_return_3d: .03, forward_return_5d: -.02, forward_return_10d: null }] };
         } else if (pathname.endsWith('/trend-following/breadth-history')) {
           body = { market: 'CN', points: [], dates: [], officialCount: 0, warnings: [] };
         } else if (pathname.endsWith('/trend-following/transitions')) {
@@ -62,6 +69,10 @@ for (const width of [1280, 1440, 1920]) {
       const errors: string[] = [];
       page.on('pageerror', error => errors.push(error.message));
       await page.goto('/research/trend-following');
+      const row = page.getByTestId('trend-row').first();
+      await expect(row.locator('[data-column="forwardReturn3D"]')).toHaveText('3.0%');
+      await expect(row.locator('[data-column="forwardReturn5D"]')).toHaveText('-2.0%');
+      await expect(row.locator('[data-column="forwardReturn10D"]')).toHaveText('—');
       const changes = page.getByTestId('trend-rank-changes');
       await expect(changes.locator('.text-market-up')).toHaveText('+5');
       await expect(changes.locator('.text-market-down')).toHaveText('-2');

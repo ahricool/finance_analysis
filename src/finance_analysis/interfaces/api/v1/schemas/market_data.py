@@ -3,7 +3,7 @@
 from datetime import date
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class DailyBarItem(BaseModel):
@@ -23,3 +23,21 @@ class DailyBarsResponse(BaseModel):
     adjustment: Literal["forward"] = "forward"
     source: str | None = None
     items: list[DailyBarItem]
+
+
+class ForwardReturnsRequest(BaseModel):
+    symbols: list[str] = Field(min_length=1, max_length=5000)
+    market: Literal["CN", "US"]
+    trade_date: date
+
+
+class ForwardReturnItem(BaseModel):
+    code: str
+    forward_return_3d: float | None
+    forward_return_5d: float | None
+    forward_return_10d: float | None
+
+
+class ForwardReturnsResponse(BaseModel):
+    trade_date: date
+    items: list[ForwardReturnItem]

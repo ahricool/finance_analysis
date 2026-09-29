@@ -43,10 +43,12 @@ for (const width of [1280, 1440, 1920]) {
         } else if (pathname.endsWith('/etf-rotation/ranking') || pathname.endsWith('/etf-rotation/candidates')) {
           body = { market: 'CN', tradeDate: snapshot.tradeDate, universeSize: 1, dataReadyCount: 1,
             dataCoverage: 1, rankableSize: 1, rankableCoverage: 1, warnings: [], marketSnapshot: null, items: [snapshot] };
+        } else if (pathname.endsWith('/market-data/forward-returns')) {
+          body = { items: [{ code: snapshot.code, forward_return_3d: .03, forward_return_5d: -.02, forward_return_10d: null }] };
         } else if (pathname.endsWith('/market-data/daily-bars/510300.SH')) {
-          expect(new URL(route.request().url()).searchParams.get('end_date')).toBe(snapshot.tradeDate);
+          expect(new URL(route.request().url()).searchParams.get('end_date')).toBeNull();
           body = { symbol: snapshot.code, market: 'CN', interval: '1d', adjustment: 'forward', source: 'database',
-            items: Array.from({ length: 100 }, (_, i) => ({
+            items: Array.from({ length: 130 }, (_, i) => ({
               trade_date: new Date(Date.UTC(2026, 4, 20 + i)).toISOString().slice(0, 10),
               open: 4 + i * 0.01, high: 4.1 + i * 0.01, low: 3.9 + i * 0.01,
               close: 4.02 + i * 0.01, volume: 100000 + i * 1000, amount: 400000,
@@ -67,13 +69,21 @@ for (const width of [1280, 1440, 1920]) {
       expect(chartBox!.height).toBeGreaterThan(300);
       expect(await rankingChart.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
       await rankingChart.screenshot({ path: testInfo.outputPath(`rank-history-${theme}-${width}.png`) });
-      await page.getByRole('row').filter({ hasText: '510300.SH' }).click();
+      const row = page.getByTestId('etf-ranking-row');
+      await expect(row.locator('[data-column="forwardReturn3D"]')).toHaveText('+3.00%');
+      await expect(row.locator('[data-column="forwardReturn5D"]')).toHaveText('-2.00%');
+      await expect(row.locator('[data-column="forwardReturn10D"]')).toHaveText('—');
+      await row.click();
       const dialog = page.getByTestId('etf-detail-modal');
       await expect(dialog).toBeVisible();
       const daily = dialog.getByTestId('daily-kline-card');
       await daily.scrollIntoViewIfNeeded();
       await expect(daily.locator('canvas').first()).toBeVisible();
+      await expect(daily).toContainText('查看日 2026-08-28 · ↓ 图中标记 · 行情至 2026-09-26');
       await daily.screenshot({ path: testInfo.outputPath(`daily-kline-${theme}-${width}.png`) });
+      await daily.getByRole('button', { name: '定位查看日' }).click();
+      await daily.screenshot({ path: testInfo.outputPath(`daily-marker-${theme}-${width}.png`) });
+      await daily.getByRole('button', { name: '最新行情' }).click();
       const charts = dialog.getByTestId('rotation-history-charts');
       await expect(charts.locator('canvas')).toHaveCount(4);
       for (const label of ['价格与均线', '综合得分', '排名', '相对强度']) {

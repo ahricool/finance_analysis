@@ -17,6 +17,15 @@ export function ensureTradeMarkerOverlay() {
       if (!point) return [];
       const { label, kind } = overlay.extendData as { label: string; kind: string };
       const color = kind === 'B' ? '#dc2626' : kind === 'S' ? '#16854e' : '#2563eb';
+      if (kind === 'date') return [{
+        type: 'text',
+        attrs: { x: point.x, y: point.y - 32, text: label, align: 'center', baseline: 'middle' },
+        styles: { color, size: 12, weight: 'bold', backgroundColor: '#ffffff', paddingLeft: 3, paddingRight: 3 },
+      }, {
+        type: 'text',
+        attrs: { x: point.x, y: point.y - 14, text: '↓', align: 'center', baseline: 'middle' },
+        styles: { color, size: 18, weight: 'bold', backgroundColor: 'transparent' },
+      }];
       return [{
         type: 'text',
         attrs: { x: point.x, y: point.y - 18, text: label, align: 'center', baseline: 'middle' },

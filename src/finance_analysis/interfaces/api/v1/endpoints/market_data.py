@@ -15,12 +15,18 @@ from finance_analysis.core.time import utc_isoformat, utc_now
 from finance_analysis.database.config import get_database_config
 from finance_analysis.database.repositories.user import UserRepository
 from finance_analysis.database.repositories.watch_list import WatchListRepo
+from finance_analysis.integrations.market_data.forward_returns import forward_returns
 from finance_analysis.integrations.market_data.normalizer import canonical_symbol, infer_market
 from finance_analysis.integrations.market_data.providers.longbridge.market import _to_longbridge_symbol
 from finance_analysis.integrations.market_data.realtime_state.models import QuoteState, TrendState
 from finance_analysis.integrations.market_data.realtime_state.repository import RealtimeStateRepository
 from finance_analysis.integrations.market_data.service import MarketDataService
-from finance_analysis.interfaces.api.v1.schemas.market_data import DailyBarItem, DailyBarsResponse
+from finance_analysis.interfaces.api.v1.schemas.market_data import (
+    DailyBarItem,
+    DailyBarsResponse,
+    ForwardReturnsRequest,
+    ForwardReturnsResponse,
+)
 from finance_analysis.market_review.trading_calendar import get_completed_trading_days, is_market_open
 from finance_analysis.market_stream.config import (
     is_regular_session_minute,
@@ -39,6 +45,22 @@ PATTERN_CONFIG = PatternConfig()
 logger = logging.getLogger(__name__)
 router = APIRouter()
 PUSH_INTERVAL_SECONDS = 5
+
+
+@router.post("/forward-returns", response_model=ForwardReturnsResponse)
+def research_forward_returns(body: ForwardReturnsRequest):
+    """Batch read-only evaluation; POST carries the large research universe."""
+    try:
+        symbols = list(dict.fromkeys(canonical_symbol(code) for code in body.symbols))
+        if any(infer_market(code).value != body.market for code in symbols):
+            raise ValueError("证券代码与市场不匹配")
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    try:
+        return forward_returns(MarketDataService(), symbols, body.market, body.trade_date)
+    except Exception as exc:
+        logger.warning("Forward returns unavailable", exc_info=True)
+        raise HTTPException(status_code=503, detail="未来收益率暂时不可用，请稍后重试") from exc
 
 
 @router.get("/daily-bars/{symbol}", response_model=DailyBarsResponse)

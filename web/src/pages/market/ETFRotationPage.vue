@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { forwardReturnColumns, useForwardReturns } from '@/composables/useForwardReturns';
 import { parseDate } from '@internationalized/date';
 import DailyKLineCard from '@/components/market-data/DailyKLineCard.vue';
 import { detailChartHistory as buildDetailChartHistory } from '@/utils/detailChartHistory';
@@ -78,6 +79,7 @@ const rankingColumns = [
   { key: 'rank', label: 'Rank', description: undefined },
   { key: 'name', label: 'ETF', description: undefined },
   { key: 'state', label: 'State', description: descriptions.state },
+  ...forwardReturnColumns,
   { key: 'trendDurationDays', label: '持续天数', description: descriptions.trendDuration },
   { key: 'compositeScore', label: 'Composite', description: descriptions.composite },
   { key: 'momentumStrengthScore', label: 'Momentum', description: descriptions.momentum },
@@ -106,13 +108,15 @@ const rankHistoryRefreshKey = ref(0);
 const previewAvailable = computed(() => previewStatus.value != null);
 const showingPreview = computed(() => dataMode.value === 'preview' && !previewLoading.value && isPreviewCompleted(previewPayload.value?.status));
 const showingStrategyBody = computed(() => dataMode.value === 'official' || showingPreview.value);
+const { value: forwardReturn, error: forwardError, loading: forwardLoading, retry: retryForward } =
+  useForwardReturns(items, market, () => summary.value.tradeDate, dataMode);
 const sortedItems = computed(() => [...items.value].sort((a, b) => {
-  const left = a[sortKey.value];
-  const right = b[sortKey.value];
+  const left = sortKey.value.startsWith('forwardReturn') ? forwardReturn(a.code, sortKey.value) : a[sortKey.value as keyof ETFMomentumSnapshot];
+  const right = sortKey.value.startsWith('forwardReturn') ? forwardReturn(b.code, sortKey.value) : b[sortKey.value as keyof ETFMomentumSnapshot];
   if (left == null) return right == null ? a.code.localeCompare(b.code) : 1;
   if (right == null) return -1;
   const comparison = typeof left === 'string' || typeof right === 'string'
-    ? String(left).localeCompare(String(right)) : left - right;
+    ? String(left).localeCompare(String(right)) : Number(left) - Number(right);
   return (sortDirection.value === 'asc' ? comparison : -comparison) || a.code.localeCompare(b.code);
 }));
 function defaultSortDirection(key: SortKey) {
@@ -764,6 +768,19 @@ onMounted(async () => {
         </NativeSelect>
       </CardHeader>
       <CardContent class="px-0">
+          <p
+            v-if="forwardLoading"
+            class="p-2 text-xs text-muted-foreground"
+            role="status"
+          >
+            未来收益率加载中…
+          </p>
+          <AppApiErrorAlert
+            v-if="forwardError"
+            :error="forwardError"
+            action-label="重试收益率"
+            @action="retryForward"
+          />
         <div
           class="max-h-[680px] w-full overflow-auto [&_[data-slot=table-container]]:overflow-visible"
           data-testid="etf-ranking-scroll"
@@ -804,6 +821,13 @@ onMounted(async () => {
                     {{ stateIcon(item.state) }} {{ item.state }}
                   </Badge>
                 </TableCell>
+                  <TableCell
+                    v-for="column in forwardReturnColumns"
+                    :key="column.key"
+                    :data-column="column.key"
+                  >
+                    {{ pct(forwardReturn(item.code, column.key)) }}
+                  </TableCell>
                 <TableCell>{{ durationText(item.trendDurationDays) }}</TableCell>
                 <TableCell class="font-bold text-primary">
                   {{ score(item.compositeScore) }}
@@ -895,7 +919,7 @@ onMounted(async () => {
             </div>
             <DailyKLineCard
               :symbol="selected.latest.code"
-              :end-date="selected.latest.tradeDate"
+              :highlight-date="selected.latest.tradeDate"
             />
             <Card>
               <CardHeader><CardTitle>Raw Metrics</CardTitle></CardHeader><CardContent
