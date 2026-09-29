@@ -24,6 +24,7 @@ def setup_api(monkeypatch):
     stocks = Mock()
     stocks.has_daily_data.return_value = False
     stocks.get_range.return_value = []
+    stocks.get_daily_ranges.return_value = {}
     provider = Mock()
     registry = ProviderRegistry()
     registry.register("daily", provider, capabilities={DAILY_BARS})
@@ -248,4 +249,26 @@ def test_today_overlay_keeps_database_freshness_and_no_sync(realtime_api):
     assert [row['trade_date'] for row in response.json()['items']] == ['2026-09-18', '2026-09-21']
     stocks.get_range.assert_called_once_with('AAPL.US', date(2025, 9, 21), date(2026, 9, 21))
     daily.fetch_daily_bars.assert_not_called()
+    stocks.upsert_daily.assert_not_called()
+
+
+@pytest.mark.parametrize("remote_failure", [True, False])
+def test_stale_database_is_preserved_when_latest_remote_is_unavailable(setup_api, remote_failure):
+    client, stocks, provider = setup_api
+    row = SimpleNamespace(
+        instrument=SimpleNamespace(code="600519.SH", market="CN"), date=date(2026, 9, 17),
+        open=100, high=105, low=98, close=103, volume=100, amount=None,
+    )
+    stocks.get_range.return_value = [row]
+    stocks.get_daily_ranges.return_value = {"600519.SH": [row]}
+    if remote_failure:
+        provider.fetch_daily_bars.side_effect = RuntimeError("offline")
+    else:
+        provider.fetch_daily_bars.return_value = BatchBarResult()
+    response = client.get('/api/v1/market-data/daily-bars/600519.SH?start_date=2026-09-01')
+    assert response.status_code == 200
+    assert response.json()['history_fallback'] is True
+    assert response.json()['source'] == 'database'
+    assert [row['trade_date'] for row in response.json()['items']] == ['2026-09-17']
+    stocks.get_daily_ranges.assert_called_once_with(('600519.SH',), date(2026, 9, 1), date(2026, 9, 20))
     stocks.upsert_daily.assert_not_called()

@@ -8,7 +8,7 @@ vi.mock('@/api/quant', () => ({ quantApi: {
   signal: vi.fn().mockResolvedValue({ code: 'AAPL.US', name: 'Apple', tradeDate: '2026-08-21', reasons: ['历史原因'], components: {} }),
   signalHistory: vi.fn().mockResolvedValue([]),
 } }));
-it('bounds daily bars to signal tradeDate and keeps the detail usable on chart failure', async () => {
+it('loads latest daily bars with the signal date highlighted and keeps the detail usable on chart failure', async () => {
   const router = createRouter({ history: createMemoryHistory(), routes: [
     { path: '/research/quant/signals/:code', component: QuantSignalDetailPage },
   ] });
@@ -16,7 +16,7 @@ it('bounds daily bars to signal tradeDate and keeps the detail usable on chart f
   await router.isReady();
   const wrapper = mount(QuantSignalDetailPage, { global: { plugins: [router] } });
   await flushPromises();
-  expect(marketDataApi.dailyBars).toHaveBeenCalledWith('AAPL.US', '2026-08-21', undefined, expect.any(AbortSignal));
+  expect(marketDataApi.dailyBars).toHaveBeenCalledWith('AAPL.US', undefined, '2025-08-21', expect.any(AbortSignal));
   expect(wrapper.text()).toContain('历史原因');
   expect(wrapper.text()).toContain('重试');
   wrapper.unmount();

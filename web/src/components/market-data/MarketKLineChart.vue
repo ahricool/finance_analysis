@@ -11,6 +11,8 @@ const props = defineProps<{
   bars: KLineData[];
   current?: KLineData | null;
   sourceKey?: string;
+  focusTimestamp?: number;
+  focusRequest?: number;
   overlays?: OverlayCreate[];
 }>();
 const element = ref<HTMLElement>();
@@ -77,6 +79,15 @@ function applyOverlays() {
   chart.removeOverlay({ groupId: 'strategy-markers' });
   if (props.overlays.length) chart.createOverlay(props.overlays);
 }
+function focusOnTimestamp(timestamp: number) {
+  if (!chart) return;
+  chart.scrollToTimestamp(timestamp);
+  const width = chart.getSize('candle_pane', 'main')?.width;
+  const point = chart.convertToPixel({ timestamp }, { paneId: 'candle_pane' });
+  if (width && !Array.isArray(point) && point.x != null) {
+    chart.scrollByDistance(width / 2 - point.x);
+  }
+}
 function initialize() {
   destroy();
   if (!element.value) return;
@@ -103,6 +114,9 @@ function initialize() {
       const current = liveBar();
       if (current) bars.set(current.timestamp, current);
       callback(type === 'init' ? [...bars.values()].sort((a, b) => a.timestamp - b.timestamp) : [], false);
+      if (type === 'init' && props.focusTimestamp != null) {
+        focusOnTimestamp(props.focusTimestamp);
+      }
     },
     subscribeBar: ({ callback }) => { pushBar = callback; },
     unsubscribeBar: () => { pushBar = undefined; },
@@ -110,6 +124,11 @@ function initialize() {
   applyOverlays();
 }
 watch(() => props.overlays, applyOverlays);
+watch(() => [props.focusTimestamp, props.focusRequest], () => {
+  const timestamp = props.focusTimestamp;
+  if (timestamp != null) focusOnTimestamp(timestamp);
+  else chart?.scrollToRealTime();
+});
 watch(() => [props.symbol, props.period, props.sourceKey, props.pricePrecision], initialize);
 watch(() => props.bars, () => chart?.resetData());
 watch(() => props.current, () => {

@@ -77,7 +77,7 @@ watch(
       </section>
       <DailyKLineCard
         :symbol="item.code"
-        :end-date="item.tradeDate"
+        :highlight-date="item.tradeDate"
       />
       <section class="rounded-xl border bg-card p-4">
         <h3 class="text-sm font-semibold">

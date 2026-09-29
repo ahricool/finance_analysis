@@ -25,6 +25,37 @@ describe('DailyKLineCard', () => {
       open: 100, high: 105, low: 1.237, close: 103, volume: 100, turnover: 1000 });
     wrapper.unmount();
   });
+  it('loads latest bars beyond the highlighted historical date and marks only an exact match', async () => {
+    vi.mocked(marketDataApi.dailyBars).mockResolvedValue({ ...result, items: [
+      result.items[0]!, { ...result.items[0]!, tradeDate: '2026-09-21' },
+    ] });
+    const wrapper = mount(DailyKLineCard, { ...options, props: { symbol: 'AAPL.US', highlightDate: '2026-09-18' } });
+    await flushPromises();
+    expect(marketDataApi.dailyBars).toHaveBeenLastCalledWith('AAPL.US', undefined, '2025-09-18', expect.any(AbortSignal));
+    const chart = wrapper.getComponent(MarketKLineChart);
+    expect(chart.props('bars')).toHaveLength(2);
+    expect(chart.props('overlays')![0]!.points![0]).toEqual({ timestamp: Date.parse('2026-09-18T00:00:00Z'), value: 105 });
+    expect(chart.props('focusTimestamp')).toBeUndefined();
+    await wrapper.findAll('button').find(button => button.text() === '定位查看日')!.trigger('click');
+    expect(chart.props('focusTimestamp')).toBe(Date.parse('2026-09-18T00:00:00Z'));
+    await wrapper.findAll('button').find(button => button.text() === '最新行情')!.trigger('click');
+    expect(chart.props('focusTimestamp')).toBeUndefined();
+    expect(wrapper.text()).toContain('行情至 2026-09-21');
+    await wrapper.setProps({ highlightDate: '2026-09-19' });
+    await flushPromises();
+    expect(wrapper.getComponent(MarketKLineChart).props('overlays')).toHaveLength(0);
+    expect(wrapper.text()).toContain('当日无 K 线');
+    wrapper.unmount();
+  });
+  it('keeps fallback history visible and states its actual data date', async () => {
+    vi.mocked(marketDataApi.dailyBars).mockResolvedValue({ ...result, historyFallback: true });
+    const wrapper = mount(DailyKLineCard, { ...options, props: { symbol: 'AAPL.US', highlightDate: '2026-09-18' } });
+    await flushPromises();
+    expect(wrapper.getComponent(MarketKLineChart).props('bars')).toHaveLength(1);
+    expect(wrapper.text()).toContain('最新历史行情暂不可用，已保留已有数据。当前图表至 2026-09-18');
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false);
+    wrapper.unmount();
+  });
   it('isolates errors with retry and shows empty state', async () => {
     vi.mocked(marketDataApi.dailyBars).mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce({ ...result, items: [] });
     const wrapper = mount(DailyKLineCard, options);
