@@ -220,10 +220,12 @@ jobs:
           from finance_analysis.config import load_env; print('ok-config')
           from finance_analysis.database import DatabaseManager; print('ok-storage')
           from finance_analysis.notification.service import NotificationService; print('ok-notification')
-          from finance_analysis.integrations.market_data import DataFetcherManager; print('ok-data-provider')
+          from finance_analysis.integrations.market_data import MarketDataService; print('ok-data-provider')
           from finance_analysis.analysis.stock_report_analyzer import StockReportAnalyzer; print('ok-analyzer')
           print('release-smoke-ok')
           "
+          docker run --rm -v "$PWD/scripts/docker_path_smoke.py:/tmp/docker_path_smoke.py:ro" \
+            stock-analysis:release python /tmp/docker_path_smoke.py
           docker run --rm stock-analysis-web:release nginx -t
           docker run --rm stock-analysis-qlib:release python -c "
           import qlib

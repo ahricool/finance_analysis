@@ -4,14 +4,15 @@
 from __future__ import annotations
 
 import os
+import shutil
 import sys
+from importlib.metadata import distribution
 from pathlib import Path
 
 
 def main() -> int:
     from finance_analysis.core.paths import (
         PROJECT_ROOT,
-        STRATEGIES_DIR,
         TEMPLATES_DIR,
         clear_paths_cache,
         ensure_data_directories,
@@ -28,7 +29,6 @@ def main() -> int:
     print("PROJECT_ROOT =", PROJECT_ROOT)
     print("DATA_DIR =", get_data_dir())
     print("TEMPLATES_DIR =", TEMPLATES_DIR)
-    print("STRATEGIES_DIR =", STRATEGIES_DIR)
 
     assert (PROJECT_ROOT / "pyproject.toml").is_file(), PROJECT_ROOT
 
@@ -37,7 +37,15 @@ def main() -> int:
     assert templates.is_dir(), templates
     assert (templates / "report_markdown.j2").is_file(), templates
 
-    assert STRATEGIES_DIR.is_dir(), STRATEGIES_DIR
+    # The production streamer uses a project console script, not python main.py.
+    project = distribution("finance_analysis")
+    entrypoints = {ep.name: ep for ep in project.entry_points if ep.group == "console_scripts"}
+    for name in ("finance-analysis", "finance-analysis-stream"):
+        assert shutil.which(name), name
+        assert callable(entrypoints[name].load()), name
+    assert Path(sys.executable).parent == PROJECT_ROOT / ".venv" / "bin", sys.executable
+    assert (PROJECT_ROOT / "alembic.ini").is_file()
+    assert (PROJECT_ROOT / "alembic" / "env.py").is_file()
 
     ensure_data_directories()
     assert get_log_app_dir().is_dir()
