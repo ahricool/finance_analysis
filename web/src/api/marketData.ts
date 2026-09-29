@@ -16,6 +16,7 @@ export interface DailyBarsResponse {
   interval: '1d';
   adjustment: 'forward';
   source: string | null;
+  historyFallback?: boolean;
   items: DailyBar[];
 }
 export interface ForwardReturnItem {

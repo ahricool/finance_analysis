@@ -6,6 +6,7 @@ import { useTheme } from '@/composables/useTheme';
 
 const chart = vi.hoisted(() => ({
   setStyles: vi.fn(), setSymbol: vi.fn(), setPeriod: vi.fn(), setDataLoader: vi.fn(),
+  getSize: vi.fn(() => ({ width: 1000 })), convertToPixel: vi.fn(() => ({ x: 995 })), scrollByDistance: vi.fn(),
   scrollToTimestamp: vi.fn(), scrollToRealTime: vi.fn(), createIndicator: vi.fn(), resetData: vi.fn(), resize: vi.fn(),
 }));
 const lifecycle = vi.hoisted(() => ({ dispose: vi.fn(), init: vi.fn() }));
@@ -42,6 +43,7 @@ describe('MarketKLineChart v10 lifecycle', () => {
     const wrapper = mount(MarketKLineChart, { props: { symbol: 'AAPL.US', period: '1d', bars: [bar] } });
     await wrapper.setProps({ focusTimestamp: 1000, focusRequest: 1 });
     expect(chart.scrollToTimestamp).toHaveBeenLastCalledWith(1000);
+    expect(chart.scrollByDistance).toHaveBeenLastCalledWith(-495);
     await wrapper.setProps({ focusTimestamp: undefined, focusRequest: 2 });
     await wrapper.setProps({ focusRequest: 3 });
     expect(chart.scrollToRealTime).toHaveBeenCalledTimes(2);

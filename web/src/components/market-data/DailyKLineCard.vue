@@ -109,6 +109,13 @@ onBeforeUnmount(() => controller?.abort());
       </template>
     </div>
     <p
+      v-if="data?.historyFallback && bars.length"
+      class="mb-3 text-sm text-muted-foreground"
+      role="status"
+    >
+      最新历史行情暂不可用，已保留已有数据。当前图表至 {{ data.items.at(-1)?.tradeDate ?? '—' }}。
+    </p>
+    <p
       v-if="loading"
       class="py-12 text-center text-sm text-muted-foreground"
       role="status"

@@ -47,6 +47,15 @@ describe('DailyKLineCard', () => {
     expect(wrapper.text()).toContain('当日无 K 线');
     wrapper.unmount();
   });
+  it('keeps fallback history visible and states its actual data date', async () => {
+    vi.mocked(marketDataApi.dailyBars).mockResolvedValue({ ...result, historyFallback: true });
+    const wrapper = mount(DailyKLineCard, { ...options, props: { symbol: 'AAPL.US', highlightDate: '2026-09-18' } });
+    await flushPromises();
+    expect(wrapper.getComponent(MarketKLineChart).props('bars')).toHaveLength(1);
+    expect(wrapper.text()).toContain('最新历史行情暂不可用，已保留已有数据。当前图表至 2026-09-18');
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false);
+    wrapper.unmount();
+  });
   it('isolates errors with retry and shows empty state', async () => {
     vi.mocked(marketDataApi.dailyBars).mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce({ ...result, items: [] });
     const wrapper = mount(DailyKLineCard, options);

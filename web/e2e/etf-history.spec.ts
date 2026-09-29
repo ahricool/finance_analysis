@@ -17,6 +17,16 @@ for (const width of [1280, 1440, 1920]) {
   for (const theme of ['light', 'dark']) {
     test(`ETF table details render all four history charts at ${width}px in ${theme}`, async ({ page }, testInfo) => {
       await page.addInitScript(value => localStorage.setItem('theme', value), theme);
+      await page.addInitScript(() => {
+        const original = CanvasRenderingContext2D.prototype.fillText;
+        CanvasRenderingContext2D.prototype.fillText = function (text, x, y, maxWidth) {
+          if (text.startsWith('查看日 ')) {
+            const transform = this.getTransform();
+            this.canvas.dataset.researchMarkerX = String((transform.a * x + transform.e) / this.canvas.width);
+          }
+          original.call(this, text, x, y, maxWidth);
+        };
+      });
       await page.setViewportSize({ width, height: 900 });
       await page.route('**/api/v1/**', async route => {
         const pathname = new URL(route.request().url()).pathname;
@@ -82,6 +92,8 @@ for (const width of [1280, 1440, 1920]) {
       await expect(daily).toContainText('查看日 2026-08-28 · ↓ 图中标记 · 行情至 2026-09-26');
       await daily.screenshot({ path: testInfo.outputPath(`daily-kline-${theme}-${width}.png`) });
       await daily.getByRole('button', { name: '定位查看日' }).click();
+      await expect.poll(async () => Number(await daily.locator('canvas[data-research-marker-x]').first()
+        .getAttribute('data-research-marker-x'))).toBeCloseTo(0.5, 1);
       await daily.screenshot({ path: testInfo.outputPath(`daily-marker-${theme}-${width}.png`) });
       await daily.getByRole('button', { name: '最新行情' }).click();
       const charts = dialog.getByTestId('rotation-history-charts');

@@ -79,6 +79,15 @@ function applyOverlays() {
   chart.removeOverlay({ groupId: 'strategy-markers' });
   if (props.overlays.length) chart.createOverlay(props.overlays);
 }
+function focusOnTimestamp(timestamp: number) {
+  if (!chart) return;
+  chart.scrollToTimestamp(timestamp);
+  const width = chart.getSize('candle_pane', 'main')?.width;
+  const point = chart.convertToPixel({ timestamp }, { paneId: 'candle_pane' });
+  if (width && !Array.isArray(point) && point.x != null) {
+    chart.scrollByDistance(width / 2 - point.x);
+  }
+}
 function initialize() {
   destroy();
   if (!element.value) return;
@@ -106,7 +115,7 @@ function initialize() {
       if (current) bars.set(current.timestamp, current);
       callback(type === 'init' ? [...bars.values()].sort((a, b) => a.timestamp - b.timestamp) : [], false);
       if (type === 'init' && props.focusTimestamp != null) {
-        chart?.scrollToTimestamp(props.focusTimestamp);
+        focusOnTimestamp(props.focusTimestamp);
       }
     },
     subscribeBar: ({ callback }) => { pushBar = callback; },
@@ -117,7 +126,7 @@ function initialize() {
 watch(() => props.overlays, applyOverlays);
 watch(() => [props.focusTimestamp, props.focusRequest], () => {
   const timestamp = props.focusTimestamp;
-  if (timestamp != null) chart?.scrollToTimestamp(timestamp);
+  if (timestamp != null) focusOnTimestamp(timestamp);
   else chart?.scrollToRealTime();
 });
 watch(() => [props.symbol, props.period, props.sourceKey, props.pricePrecision], initialize);

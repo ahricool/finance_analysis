@@ -22,6 +22,7 @@ class DailyBarsResponse(BaseModel):
     interval: Literal["1d"] = "1d"
     adjustment: Literal["forward"] = "forward"
     source: str | None = None
+    history_fallback: bool = False
     items: list[DailyBarItem]
 
 

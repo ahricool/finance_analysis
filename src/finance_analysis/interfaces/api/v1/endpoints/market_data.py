@@ -76,16 +76,36 @@ def daily_bars(symbol: str, start_date: date | None = None, end_date: date | Non
     start = start_date or end - timedelta(days=365)
     if start > end:
         raise HTTPException(status_code=422, detail="start_date must not be after end_date")
+    history_fallback = False
     try:
         service = MarketDataService()
-        result = service.get_daily_bars(
-            [code], start, end, adjustment="forward", source_policy="db_latest"
-        )
+        unavailable = False
+        try:
+            result = service.get_daily_bars(
+                [code], start, end, adjustment="forward", source_policy="db_latest"
+            )
+            bars = result.data.get(code, [])
+            source = result.providers_used.get(code)
+            unavailable = code in result.failed_symbols or code in result.request_errors
+        except Exception:
+            logger.warning("Latest daily bars unavailable: %s", code, exc_info=True)
+            bars, source, unavailable = [], None, True
+        if not bars:
+            try:
+                stored = service.get_daily_bars(
+                    [code], start, end, adjustment="forward", source_policy="db_only"
+                )
+                bars = stored.data.get(code, [])
+                if bars:
+                    source = "database"
+                    history_fallback = True
+            except Exception:
+                logger.warning("Stored daily bars unavailable: %s", code, exc_info=True)
+                unavailable = True
     except Exception as exc:
         logger.warning("Daily bars unavailable: %s", code, exc_info=True)
         raise HTTPException(status_code=503, detail="日 K 数据暂时不可用，请稍后重试") from exc
-    bars = result.data.get(code, [])
-    if not bars and (code in result.failed_symbols or code in result.request_errors):
+    if not bars and unavailable:
         raise HTTPException(status_code=503, detail="日 K 数据暂时不可用，请稍后重试")
     by_date = {bar.trade_date: bar for bar in bars}
     try:
@@ -97,7 +117,8 @@ def daily_bars(symbol: str, start_date: date | None = None, end_date: date | Non
     return DailyBarsResponse(
         symbol=code,
         market=market.value,
-        source=result.providers_used.get(code),
+        source=source,
+        history_fallback=history_fallback,
         items=[
             DailyBarItem(
                 trade_date=bar.trade_date,
