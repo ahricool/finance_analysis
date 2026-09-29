@@ -10,6 +10,7 @@ import numpy as np
 
 from finance_analysis.trend_following.config import DEFAULT_CONFIG, TrendFollowingConfig
 from finance_analysis.trend_following.models import DailyBar
+from finance_analysis.trend_following.state import structure_broken
 
 
 def _return(closes: np.ndarray, window: int) -> float:
@@ -83,7 +84,11 @@ def absolute_trend_passes(checks: Iterable[bool]) -> bool:
 
 
 def calculate_features(
-    bars: Sequence[DailyBar], minimum_bars: int = 21, config: TrendFollowingConfig = DEFAULT_CONFIG
+    bars: Sequence[DailyBar],
+    minimum_bars: int = 21,
+    config: TrendFollowingConfig = DEFAULT_CONFIG,
+    *,
+    preview: bool = False,
 ) -> dict[str, Any] | None:
     ordered = sorted(bars, key=lambda item: item.trade_date)
     if len(ordered) < minimum_bars:
@@ -129,7 +134,29 @@ def calculate_features(
         "weighted_slope_15d_positive": bool(slope > 0),
     }
     absolute_trend_count = sum(absolute_trend_checks.values())
-    trend_resume_base = bool(closes[-1] > ma10 and ma10 > ma20 and slope > 0 and (return_3d > 0 or return_5d > 0))
+    # Historical windows exclude today and use each day's own MA/ATR/structure.
+    pullback_depths = []
+    pullback_structure_intact = len(ordered) >= 21 + config.resume_lookback_days
+    for index in range(max(20, len(ordered) - 1 - config.resume_lookback_days), len(ordered) - 1):
+        historical_ma10 = float(np.mean(closes[index - 9:index + 1]))
+        historical_ma20 = float(np.mean(closes[index - 19:index + 1]))
+        prior_ma20 = float(np.mean(closes[index - 20:index]))
+        historical_atr = calculate_atr(ordered[:index + 1])
+        depth = (historical_ma10 - closes[index]) / historical_atr if historical_atr > 0 else None
+        if depth is not None and (closes[index] <= historical_ma10 or abs(depth) <= config.resume_touch_atr):
+            pullback_depths.append(float(depth))
+        historical_slope = historical_ma20 / prior_ma20 - 1
+        if historical_slope <= 0 or closes[index] < historical_ma20 or structure_broken(
+            float(closes[index]), float(np.min(lows[index - 10:index])), historical_ma20, historical_slope
+        ):
+            pullback_structure_intact = False
+    pullback_detected = bool(pullback_depths)
+    ma10_reclaimed = bool(closes[-2] <= previous_ma10 and closes[-1] > ma10)
+    trend_resume_base = bool(
+        pullback_detected and pullback_structure_intact and ma10_reclaimed
+        and closes[-1] > closes[-2] and closes[-1] > ma20 and ma10 > ma20
+        and ma20 > previous_ma20 and slope > 0
+    )
     setup = "NONE"
     if compression_breakout:
         setup = "COMPRESSION_BREAKOUT"
@@ -163,9 +190,8 @@ def calculate_features(
         "positive_return_concentration": concentration,
         "avg_positive_return": avg_positive,
         "avg_negative_return_abs": avg_negative,
-        "downside_upside_ratio": avg_negative / avg_positive if avg_positive > 0 else None,
+        "downside_upside_ratio": float(np.sum(negative)) / positive_sum if positive_sum > 0 else None,
         "health_version": 1,
-        "trend_quality": r_squared * 100.0,
         "trend_acceleration": (short_slope - slope) * 252.0,
         "signed_efficiency_ratio_10d": efficiency,
         "distance_from_recent_high": float(closes[-1] / np.max(closes[-20:]) - 1.0),
@@ -186,6 +212,17 @@ def calculate_features(
         "return_20d": return_20d,
         "drawdown_20d": _maximum_drawdown(closes, 20),
         "atr20": atr20,
+        "atr_percent": atr20 / float(closes[-1]),
+        "close_location_value": (
+            float((closes[-1] - lows[-1]) / (highs[-1] - lows[-1])) if highs[-1] > lows[-1] else None
+        ),
+        "previous_close": float(closes[-2]),
+        "previous_ma10": previous_ma10,
+        "pullback_detected": pullback_detected,
+        "pullback_structure_intact": pullback_structure_intact,
+        "pullback_depth_atr": max(pullback_depths) if pullback_depths else None,
+        "ma10_reclaimed": ma10_reclaimed,
+        "reclaim_distance_atr": float((closes[-1] - ma10) / atr20) if atr20 > 0 else None,
         "previous_high_10": previous_high_10,
         "previous_high_20": previous_high_20,
         "previous_low_10": previous_low_10,
@@ -198,6 +235,9 @@ def calculate_features(
         "trend_resume": False,
         "breakout_distance": breakout_distance,
         "volume_ratio": volume_ratio,
+        "raw_volume_ratio": volume_ratio,
+        "projected_volume_ratio": None,
+        "volume_provisional": preview,
         "distance_from_ma20": float(closes[-1] / ma20 - 1.0),
         "breakout_10d_strength": max(0.0, float((closes[-1] - previous_high_10) / max(atr20, 1e-12))),
         "breakout_20d_strength": max(0.0, float((closes[-1] - previous_high_20) / max(atr20, 1e-12))),

@@ -8,6 +8,10 @@ from .models import StrategyDecision
 ESTABLISHED_STATES = {"CANDIDATE", "TRENDING", "WEAKENING"}
 
 
+def structure_broken(close: float, previous_low_10: float, ma20: float, ma20_slope: float) -> bool:
+    return close < previous_low_10 or (close < ma20 and ma20_slope <= 0)
+
+
 def transition_state(
     row: Mapping[str, Any],
     previous: Mapping[str, Any] | None,
@@ -17,9 +21,7 @@ def transition_state(
     """Classify today's trend; prior trend state only distinguishes deterioration."""
     close = float(row["reference_price"])
     established = (previous or {}).get("state") in ESTABLISHED_STATES
-    broken = close < float(row["previous_low_10"]) or (
-        close < float(row["ma20"]) and float(row["ma20_slope"]) <= 0
-    )
+    broken = structure_broken(close, row["previous_low_10"], row["ma20"], row["ma20_slope"])
     if broken and (established or (previous or {}).get("state") == "BROKEN"):
         return StrategyDecision("BROKEN", ["price broke the prior 10-session low or declining MA20"])
     weak = (

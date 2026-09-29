@@ -131,3 +131,16 @@ def test_lifecycle_age_boundaries_do_not_force_weak_trends_into_expansion(durati
     )
     current["features"].update(trend_quality=40, signed_efficiency_ratio_10d=0.1, trend_acceleration=-0.08)
     assert classify_lifecycle(current) == ("EMERGING" if duration <= 7 else "MATURE")
+
+
+def test_raw_r2_replaces_duplicate_quality_without_changing_health_rules():
+    current = snapshot()
+    old = history(current)
+    expected = calculate_fragility(current, old, as_of=DAY)
+    lifecycle = classify_lifecycle(current)
+    current["features"]["weighted_r2"] = current["features"].pop("trend_quality") / 100
+    assert calculate_fragility(current, old, as_of=DAY) == expected
+    assert classify_lifecycle(current) == lifecycle
+    for row in old.values():
+        row["features"]["weighted_r2"] = row["features"].pop("trend_quality") / 100
+    assert calculate_fragility(current, old, as_of=DAY) == expected

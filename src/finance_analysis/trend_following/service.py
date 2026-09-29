@@ -24,6 +24,7 @@ from ..market_review.trading_calendar import (
 )
 from .config import DEFAULT_CONFIG, TrendFollowingConfig
 from .duration import DURATION_CALENDAR_LOOKBACK_DAYS, count_trend_duration_days
+from .entry import calculate_entry
 from .features import calculate_features
 from .models import DailyBar
 from .preview_cache import save_preview
@@ -412,7 +413,9 @@ class TrendFollowingService:
         sufficient_histories: dict[str, list[DailyBar]] = {}
         for code in sorted(ready_codes):
             bars = histories.get(code, [])[-self.config.history_bars :]
-            result = calculate_features(bars, self.config.minimum_history_bars, self.config)
+            result = calculate_features(
+                bars, self.config.minimum_history_bars, self.config, preview=overlay_bars is not None
+            )
             if result is None or not bars or bars[-1].trade_date != effective_date:
                 continue
             result.update(
@@ -507,9 +510,15 @@ class TrendFollowingService:
             )
 
             code = str(snapshot["code"])
+            # Storage-only alias for existing Confluence/Signal Center consumers.
+            # Ranking and UI expose only R² Quality; health uses the raw R² directly.
+            snapshot["features"]["trend_quality"] = snapshot["features"]["weighted_r2"] * 100
             snapshot["features"]["rank_percentile"] = (snapshot["rank"] - 1) / max(len(ranked) - 1, 1)
             snapshot.update(calculate_fragility(snapshot, health_history.get(code, {}), as_of=effective_date))
             snapshot["trend_lifecycle"] = classify_lifecycle(snapshot)
+            entry = calculate_entry({**snapshot["features"], **snapshot}, self.config)
+            snapshot["features"].update(entry)
+            snapshot.update({key: entry[key] for key in ("entry_score", "entry_type")})
 
         summary = {
             "market": self.market,

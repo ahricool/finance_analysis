@@ -28,12 +28,11 @@ def rank_candidates(rows: list[dict[str, Any]], config: TrendFollowingConfig = D
     for row in rows:
         row["trend_resume"] = bool(
             row["trend_resume_base"]
-            and not row["breakout_10d"]
+            and not any(row[key] for key in ("breakout_10d", "breakout_20d", "compression_breakout"))
             and row["rs_10d"] > 0
-            and row["return_10d_percentile"] >= 60.0
         )
         if row["trend_resume"]:
-            row["setup"] = "TREND_RESUME"
+            row["setup"] = "PULLBACK_RESUME"
             row["valid_setup"] = True
         row["trend_score"], trend = calculate_trend_score(row, config)
         row["rs_score"], rs = calculate_rs_score(row, config)

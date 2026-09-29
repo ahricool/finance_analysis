@@ -115,9 +115,9 @@ def test_volume_can_only_contribute_2_25_alpha_points_and_boolean_compression_no
 
 def test_r2_is_linear_and_has_material_trend_alpha_contribution():
     low, high = scored(weighted_r2=0.2), scored(weighted_r2=0.95)
-    assert high["trend_score"] - low["trend_score"] == pytest.approx(22.5)
-    assert high["alpha_score"] - low["alpha_score"] == pytest.approx(9)
-    assert calculate_trend_score(high)[1]["weighted_r2"] == 95
+    assert high["trend_score"] - low["trend_score"] == pytest.approx(22.5 * sigmoid(high["raw_weighted_slope"] / DEFAULT_CONFIG.slope_direction_scale), abs=.0001)
+    assert high["alpha_score"] - low["alpha_score"] == pytest.approx(9 * sigmoid(high["raw_weighted_slope"] / DEFAULT_CONFIG.slope_direction_scale), abs=.0001)
+    assert calculate_trend_score(high)[1]["weighted_r2"] == pytest.approx(95 * sigmoid(high["raw_weighted_slope"] / DEFAULT_CONFIG.slope_direction_scale))
 
 
 def test_extension_compression_and_path_curves():
@@ -204,7 +204,7 @@ def test_path_features_use_ten_simple_returns_and_compression_excludes_today():
     assert row["positive_return_concentration"] == pytest.approx(0.5)
     assert row["avg_positive_return"] == pytest.approx(0.02)
     assert row["avg_negative_return_abs"] == pytest.approx(0.015)
-    assert row["downside_upside_ratio"] == pytest.approx(0.75)
+    assert row["downside_upside_ratio"] == pytest.approx(.03 / .14)
     last = bars[-1]
     bars[-1] = DailyBar(last.trade_date, last.open, last.high + 20, last.low - 20, last.close, last.volume)
     expanded = calculate_features(bars)

@@ -393,6 +393,7 @@ def test_dashboard_projection_preserves_all_ranking_metrics_and_boolean_types():
     day = date(2026, 8, 28)
     features = {key: index / 100 for index, key in enumerate(NUMERIC_FEATURE_FIELDS)}
     features.update({key: index % 2 == 0 for index, key in enumerate(BOOLEAN_FEATURE_FIELDS)})
+    features["entry_type"] = "BREAKOUT"
     breakdown = {
         "trend": {"weighted_r2": 92, "momentum": 70, "return_10d": 68, "return_20d": 64, "drawdown_quality": 81},
         "rs": {"qualities": {"rs_5d": 55, "rs_10d": 61, "rs_20d": 58}},
@@ -411,6 +412,10 @@ def test_dashboard_projection_preserves_all_ranking_metrics_and_boolean_types():
     result = ranking_item(projected)
     assert all(result["features"][key] == features[key] for key in NUMERIC_FEATURE_FIELDS)
     assert all(type(result["features"][key]) is bool for key in BOOLEAN_FEATURE_FIELDS)
+    assert result["entry_type"] == "BREAKOUT"
+    assert result["entry_score"] == features["entry_score"]
+    assert repository.snapshots_by_date(day, sort_by="entry_score")[0]["entry_type"] == "BREAKOUT"
+    assert "trend_quality" not in result["features"]
     assert result["features"]["r2_quality"] == 92
     assert result["features"]["momentum_quality"] == 70
     assert result["features"]["rs_10d_quality"] == 61

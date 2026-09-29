@@ -105,7 +105,7 @@ export function mergeRankingFeatures(
 export function asRankingSnapshot(snapshot: Pick<TrendSnapshot,
   'code' | 'name' | 'rank' | 'state' | 'trendDurationDays' | 'trendLifecycle' |
   'fragilityScore' | 'alphaScore' | 'trendScore' | 'rsScore' | 'breakoutScore' |
-  'setup' | 'atr' | 'referencePrice'> & {
+  'setup' | 'atr' | 'referencePrice' | 'entryScore' | 'entryType'> & {
   features: Record<string, unknown>;
   scoreBreakdown?: unknown;
 }): TrendRankingSnapshot {
@@ -118,6 +118,8 @@ export function asRankingSnapshot(snapshot: Pick<TrendSnapshot,
     trendLifecycle: snapshot.trendLifecycle,
     fragilityScore: snapshot.fragilityScore,
     alphaScore: snapshot.alphaScore,
+    entryScore: snapshot.entryScore ?? finiteNumber(snapshot.features.entryScore),
+    entryType: snapshot.entryType ?? optionalText(snapshot.features.entryType),
     trendScore: snapshot.trendScore,
     rsScore: snapshot.rsScore,
     breakoutScore: snapshot.breakoutScore,
@@ -179,6 +181,8 @@ export function rankingSnapshotFromDto(row: Record<string, unknown>): TrendRanki
     trendLifecycle: isLifecycle(mapped.trendLifecycle) ? mapped.trendLifecycle : null,
     fragilityScore: finiteNumber(mapped.fragilityScore),
     alphaScore: finiteNumber(mapped.alphaScore) ?? 0,
+    entryScore: finiteNumber(mapped.entryScore),
+    entryType: optionalText(mapped.entryType),
     trendScore: finiteNumber(mapped.trendScore),
     rsScore: finiteNumber(mapped.rsScore),
     breakoutScore: finiteNumber(mapped.breakoutScore),

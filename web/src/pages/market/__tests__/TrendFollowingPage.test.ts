@@ -129,6 +129,25 @@ describe('TrendFollowingPage', () => {
     wrapper.unmount();
   });
 
+  it('shows entry timing, keeps Alpha default order and sorts Entry independently', async () => {
+    apiMocks.ranking.mockResolvedValueOnce({
+      ...ranking('CN'), items: [
+        { ...rankingSnapshot(), code: 'A.US', rank: 1, entryScore: 20, entryType: 'BREAKOUT', features: { atrPercent: .03, closeLocationValue: .9 } },
+        { ...rankingSnapshot(), code: 'B.US', rank: 2, entryScore: 90, entryType: 'PULLBACK_RESUME', features: { volumeProvisional: true, volumeRatio: .1, volumeQuality: 50 } },
+      ],
+    });
+    const wrapper = mount(TrendFollowingPage);
+    await flushPromises();
+    expect(wrapper.findAll('[data-testid="trend-row"]')[0]!.attributes('data-code')).toBe('A.US');
+    expect(wrapper.get('[data-code="A.US"] [data-column="atrPercent"]').text()).toBe('3.0%');
+    expect(wrapper.get('[data-code="B.US"] [data-column="volumeRatio"]').text()).toContain('盘中估算');
+    expect(wrapper.find('[data-column="trendQuality"]').exists()).toBe(false);
+    const header = wrapper.findAll('button').find(button => button.text().includes('Entry Score'))!;
+    await header.trigger('click');
+    expect(wrapper.findAll('[data-testid="trend-row"]')[0]!.attributes('data-code')).toBe('B.US');
+    wrapper.unmount();
+  });
+
   it('shows em dashes for null ranking scalars and keeps them last in both sort directions', async () => {
     const high = { ...rankingSnapshot(), code: 'HIGH.US', name: 'High', rank: 1, trendScore: 90, rsScore: 80, atr: 3, referencePrice: 120, state: 'TRENDING' as const };
     const low = { ...rankingSnapshot(), code: 'LOW.US', name: 'Low', rank: 2, trendScore: 10, rsScore: 20, atr: 1, referencePrice: 80, state: 'CANDIDATE' as const };
@@ -142,7 +161,7 @@ describe('TrendFollowingPage', () => {
     const missingRow = wrapper.findAll('[data-testid="trend-row"]').find(row => row.text().includes('MISSING.US'))!;
     expect(missingRow.get('[data-column="trendScore"]').text()).toBe('—');
     expect(missingRow.get('[data-column="rsScore"]').text()).toBe('—');
-    expect(missingRow.get('[data-column="atr"]').text()).toBe('—');
+    expect(missingRow.get('[data-column="atrPercent"]').text()).toBe('—');
     expect(missingRow.get('[data-column="referencePrice"]').text()).toBe('—');
     expect(missingRow.get('[data-column="state"]').text()).toBe('—');
     expect(missingRow.text()).not.toContain('无明显趋势');

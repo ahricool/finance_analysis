@@ -3,7 +3,7 @@
 适用于 `trend_following` 的 official / preview 共用计算链。参数事实源为
 [`TrendFollowingConfig`](../src/finance_analysis/trend_following/config.py)，实现为
 [`scoring.py`](../src/finance_analysis/trend_following/scoring.py)。只改变评分，
-不改变趋势状态机、市场环境计算、生命周期或脆弱性规则。
+不改变趋势状态机主体、市场环境计算、生命周期或脆弱性规则。独立买点研究见[Entry说明](trend-entry.md)。
 
 ## V1 review 与去重
 
@@ -32,7 +32,7 @@ Path = .45 ConcentrationQuality + .35 VolatilityQuality + .20 DownsideControlQua
 ```
 
 SlopePercentile 沿用当日全市场横截面 average-tie percentile；Weighted R² 仍基于最近15根
-log(close)、权重1…15的加权回归，`R2Quality=100 R²`，不作非线性变换。
+log(close)、权重1…15的加权回归，`R2Quality=100 R² × sigmoid(raw_weighted_slope / .002)`；方向因子连续，原始R²保留。
 Momentum 汇总相关收益周期；RS 只保留 `stock return − benchmark return`。
 
 定义 `Q(x,s)=50+50 tanh(x/s)`、`σ(x)=1/(1+exp(−x))`、
@@ -45,7 +45,7 @@ Momentum 汇总相关收益周期；RS 只保留 `stock return − benchmark ret
 | Drawdown | `100 exp(−abs(DD20)/.15)` |
 | Breakout | `zN=(Close−PreviousHighN)/ATR20`；`B(z)=100 σ(z/.15) G(z,.75,1)`；`max(.85 B(z10), B(z20))` |
 | Extension | `100 σ((e−.015)/.01) G(max(0,e−.08),0,.12)`，`e=Close/MA20−1` |
-| Volume | `Q(VolumeRatio−1,.8)`，VolumeRatio=当日量/前20日均量 |
+| Volume | `Q(VolumeRatio−1,.8)`，VolumeRatio=当日全天量/前20日均量；Preview缺失可靠投影量时质量暂用50 |
 | ATR compression | `Q(.90−ATR10/ATR20,.15)`，这里 ATR 均排除当日 |
 | Range compression | `Q(.70−Range10/Range20,.20)`，Range=窗口最高high−最低low，排除当日 |
 | Compression | `sqrt(ATRCompressionQuality × RangeCompressionQuality)` |
@@ -67,7 +67,7 @@ Compression 有效权重为1.5%。
 - `atr5`、`atr_expansion_ratio`：当日截止的5/20平均真实波幅比。
 - `positive_return_concentration`：最近10个**日简单收益率**中，最大的两个正收益之和 / 所有正收益之和。
 - `avg_positive_return`、`avg_negative_return_abs`：分别只对正、负收益日求均值，零收益日不进入这两个均值。
-- `downside_upside_ratio`：上述负收益绝对值均值 / 正收益均值。
+- `downside_upside_ratio`：负收益绝对值之和 / 正收益之和（最近10日）。
 - `path_score`、`setup_score`、`downside_control_quality`、`alpha_version=2`：排名直接需要的评分特征。
 
 没有正收益时集中度和 downside/upside 均为 null，对应质量分为0；有正收益且无负收益时
@@ -110,6 +110,7 @@ V2 阈值输入的分布已变化，候选数量可能变化；上线后应观�
 只在此开关启用时导入。后续删除该文件、开关及 ranking 中对应分支即可移除V1。
 V1固定常数只用于还原旧版本；所有V2可调参数集中在Config。
 
+以下为方向与累计涨跌修正前的历史合成记录，非当前分数基准。
 测试 `tests/test_trend_following_alpha_v2.py` 的合成样本保持相同20D收益约16.78%：
 
 | 样本 | Weighted R² | Concentration | ATR5/ATR20 | Path | Alpha V1 | Alpha V2 |
@@ -122,10 +123,10 @@ B仍可能有更高Trend；在相同SlopePercentile下A的Trend更高，V2总分
 另有固定所有非Path分量的测试，确认Path本身对A的偏好。
 
 覆盖连续边界/单调性、旧饱和阈值以上区分度、成交量贡献上界、突破不重复计分、
-布尔解释字段不影响分数、线性R²贡献、无正/负收益、零ATR、official/preview、
+布尔解释字段不影响分数、方向化R²贡献、无正/负收益、零ATR、official/preview、
 排序前limit、旧快照null、全市场前端排序不请求detail及Drawer展示。
 
-## 本次验证结果
+## Alpha V2 初次实现时的验证记录（非本次 Entry 验证）
 
 - 趋势相关后端：`uv run pytest tests/test_trend_following*.py tests/test_trend_health.py tests/test_trend_breadth.py -q`，159通过。
 - `ci_gate.sh syntax / flake8` 通过；完整门禁中的 deterministic 阶段13通过。

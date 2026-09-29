@@ -109,3 +109,21 @@ describe('asRankingSnapshot', () => {
     expect(rankingFeatureValue(row, 'volumeQuality')).toBeNull();
   });
 });
+
+it('maps Entry and nullable feature scalars while ignoring duplicate legacy quality', () => {
+  const row = rankingSnapshotFromDto({
+    code: 'A.US', entry_score: 88, entry_type: 'BREAKOUT',
+    features: { atr_percent: .03, close_location_value: .8, raw_volume_ratio: .2,
+      projected_volume_ratio: null, volume_provisional: true, pullback_detected: false,
+      ma10_reclaimed: false, trend_quality: 99 },
+  });
+  expect(row.entryScore).toBe(88);
+  expect(row.entryType).toBe('BREAKOUT');
+  expect(row.features).toMatchObject({ atrPercent: .03, closeLocationValue: .8,
+    rawVolumeRatio: .2, projectedVolumeRatio: null, volumeProvisional: true,
+    pullbackDetected: false, ma10Reclaimed: false });
+  expect(row.features).not.toHaveProperty('trendQuality');
+  const old = rankingSnapshotFromDto({ code: 'OLD.US', features: {} });
+  expect(old.entryScore).toBeNull();
+  expect(old.entryType).toBeNull();
+});

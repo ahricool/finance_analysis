@@ -7,6 +7,7 @@ RANKING_FIELDS = (
     "atr", "reference_price",
 )
 BOOLEAN_FEATURE_FIELDS = (
+    "pullback_detected", "ma10_reclaimed", "volume_provisional",
     "trend_candidate", "prior_compression", "compression_breakout", "trend_resume",
 )
 NUMERIC_FEATURE_FIELDS = (
@@ -17,7 +18,8 @@ NUMERIC_FEATURE_FIELDS = (
     "return_5d", "return_10d", "return_20d", "drawdown_20d",
     "rs_5d", "rs_10d", "rs_20d",
     "ma10", "ma20", "ma10_slope", "ma20_slope", "distance_from_ma20",
-    "volume_ratio", "trend_quality", "trend_acceleration", "signed_efficiency_ratio_10d",
+    "entry_score", "atr_percent", "close_location_value", "raw_volume_ratio", "projected_volume_ratio",
+    "volume_ratio", "trend_acceleration", "signed_efficiency_ratio_10d",
 )
 # Scalars from score_breakdown JSON paths. Do not load the full nested document.
 SCORE_COMPONENT_PATHS = (
@@ -56,5 +58,7 @@ def score_component_expression(json_column, path: tuple[str, ...]):
 def ranking_item(row: dict) -> dict:
     return {
         **{key: row.get(key) for key in (*RANKING_FIELDS, "name")},
+        "entry_score": row.get("entry_score"),
+        "entry_type": row.get("entry_type"),
         "features": {key: row.get(key) for key in FEATURE_FIELDS},
     }

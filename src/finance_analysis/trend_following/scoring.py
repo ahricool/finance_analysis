@@ -38,9 +38,10 @@ def _weighted(components: dict, weights: dict[str, float]) -> float:
 
 
 def calculate_trend_score(row: dict[str, Any], config: TrendFollowingConfig = DEFAULT_CONFIG) -> tuple[float, dict]:
+    direction_factor = sigmoid(row["raw_weighted_slope"] / config.slope_direction_scale)
     components = {
         "weighted_slope_percentile": clamp(row["weighted_slope_percentile"]),
-        "weighted_r2": clamp(row["weighted_r2"] * 100.0),
+        "weighted_r2": clamp(row["weighted_r2"] * 100.0 * direction_factor),
         **{key: tanh_quality(row[key], scale) for key, scale in config.return_scales.items()},
         "drawdown_quality": 100.0 * math.exp(-abs(row["drawdown_20d"]) / config.drawdown_scale),
     }
@@ -49,6 +50,9 @@ def calculate_trend_score(row: dict[str, Any], config: TrendFollowingConfig = DE
     return round(score, 4), {
         **components,
         "raw_weighted_r2": row["weighted_r2"],
+        "raw_weighted_slope": row["raw_weighted_slope"],
+        "direction_factor": direction_factor,
+        "slope_direction_scale": config.slope_direction_scale,
         "raw_return_10d": row["return_10d"],
         "raw_return_20d": row["return_20d"],
         "drawdown_20d": row["drawdown_20d"],
@@ -101,6 +105,7 @@ def calculate_breakout_score(row: dict[str, Any], config: TrendFollowingConfig =
         if range_ratio is not None
         else 0.0
     )
+    volume = row.get("projected_volume_ratio") if row.get("volume_provisional") else row["volume_ratio"]
     components = {
         "breakout_quality": (
             max(config.breakout_10d_discount * breakout_quality(z10, config), breakout_quality(z20, config))
@@ -108,7 +113,10 @@ def calculate_breakout_score(row: dict[str, Any], config: TrendFollowingConfig =
             else 0.0
         ),
         "extension_quality": extension_quality(row["distance_from_ma20"], config),
-        "volume_quality": tanh_quality(row["volume_ratio"] - config.volume_center, config.volume_scale),
+        "volume_quality": (
+            tanh_quality(volume - config.volume_center, config.volume_scale)
+            if volume is not None else config.preview_volume_neutral_quality
+        ),
         "compression_quality": math.sqrt(atr_quality * range_quality),
     }
     score = _weighted(components, config.setup_score_weights)
@@ -117,7 +125,10 @@ def calculate_breakout_score(row: dict[str, Any], config: TrendFollowingConfig =
         "z10": z10,
         "z20": z20,
         "ma20_extension": row["distance_from_ma20"],
-        "volume_ratio": row["volume_ratio"],
+        "volume_ratio": volume,
+        "raw_volume_ratio": row.get("raw_volume_ratio", row["volume_ratio"]),
+        "projected_volume_ratio": row.get("projected_volume_ratio"),
+        "volume_provisional": row.get("volume_provisional", False),
         "atr_contraction_ratio": atr_ratio,
         "range_contraction_ratio": range_ratio,
         "atr_compression_quality": atr_quality,

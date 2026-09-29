@@ -54,6 +54,34 @@ class TrendFollowingConfig:
             "path": 0.20,
         }
     )
+    slope_direction_scale: float = 0.002
+    resume_lookback_days: int = 5
+    resume_touch_atr: float = 0.5
+    entry_trend_min: float = 62.0
+    entry_resume_trend_min: float = 60.0
+    entry_rs_min: float = 60.0
+    entry_alpha_min: float = 67.0
+    entry_path_min: float = 50.0
+    entry_fragility_max: float = 50.0
+    entry_extension_min: float = 0.02
+    entry_extension_max: float = 0.10
+    entry_resume_extension_max: float = 0.08
+    entry_clv_min: float = 0.60
+    entry_reclaim_center_atr: float = 0.5
+    entry_reclaim_width_atr: float = 0.75
+    entry_pullback_center_atr: float = 0.25
+    entry_pullback_width_atr: float = 0.75
+    entry_resume_distance_center: float = 0.03
+    entry_resume_distance_width: float = 0.04
+    preview_volume_neutral_quality: float = 50.0
+    breakout_entry_weights: dict[str, float] = field(default_factory=lambda: {
+        "breakout": .30, "extension": .20, "clv": .15, "volume": .10,
+        "rs": .10, "path": .10, "fragility": .05,
+    })
+    resume_entry_weights: dict[str, float] = field(default_factory=lambda: {
+        "reclaim": .30, "pullback_depth": .20, "rs": .15,
+        "distance": .15, "clv": .10, "fragility": .10,
+    })
     drawdown_scale: float = 0.15
     breakout_gate_scale: float = 0.15
     breakout_center_atr: float = 0.75

@@ -13,6 +13,11 @@ def clamp(value):
     return max(0.0, min(100.0, value))
 
 
+def raw_fit_quality(features):
+    r2 = number(features.get("weighted_r2"))
+    return r2 * 100 if r2 is not None else number(features.get("trend_quality"))
+
+
 def calculate_fragility(current, history, *, as_of, config=DEFAULT_CONFIG):
     """History is a market-date offset map, batch-loaded once for all symbols.
 
@@ -29,7 +34,7 @@ def calculate_fragility(current, history, *, as_of, config=DEFAULT_CONFIG):
     }
     components = {}
     for component, field in fields.items():
-        now = number(features.get(field))
+        now = raw_fit_quality(features) if component == "quality_decay" else number(features.get(field))
         values = []
         for offset in (3, 5):
             old = history.get(offset)
@@ -38,7 +43,8 @@ def calculate_fragility(current, history, *, as_of, config=DEFAULT_CONFIG):
             previous_features = old.get("features") or {}
             if previous_features.get("health_version") != 1:
                 continue
-            before = number(previous_features.get(field))
+            before = (raw_fit_quality(previous_features) if component == "quality_decay"
+                      else number(previous_features.get(field)))
             if now is not None and before is not None:
                 # Rank percentile increases as the rank worsens; other fields decrease.
                 delta = now - before if component == "rank_decay" else before - now
