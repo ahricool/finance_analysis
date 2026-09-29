@@ -18,7 +18,7 @@ class TrendFollowingConfig:
     risk_on_threshold: float = 65.0
     risk_off_threshold: float = 40.0
     regime_weights: dict[str, float] = field(default_factory=lambda: {"trend": 0.35, "breadth": 0.40, "risk": 0.25})
-    # Alpha V2 weights and curve scales; returns use decimal units.
+    # Alpha V3 weights and curve scales; returns use decimal units.
     trend_score_weights: dict[str, float] = field(
         default_factory=lambda: {
             "weighted_slope_percentile": 0.30,
@@ -105,7 +105,6 @@ class TrendFollowingConfig:
     path_return_window: int = 10
     concentration_top_count: int = 2
     volatility_atr_window: int = 5
-    compare_alpha_v1: bool = False  # Debug only; remove with scoring_v1.py after V2 validation.
     candidate_trend_score: float = 62.0
     candidate_rs_score: float = 60.0
     candidate_alpha_score: float = 67.0

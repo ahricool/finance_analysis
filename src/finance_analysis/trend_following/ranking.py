@@ -40,13 +40,9 @@ def rank_candidates(rows: list[dict[str, Any]], config: TrendFollowingConfig = D
         row["setup_score"] = row["breakout_score"]
         row["path_score"], path = calculate_path_score(row, config)
         row["downside_control_quality"] = path["downside_control_quality"]
-        row["alpha_version"] = 2
+        row["alpha_version"] = 3
         row["alpha_score"], alpha = calculate_alpha_score(row, config)
         row["score_breakdown"] = {"trend": trend, "rs": rs, "setup": breakout, "path": path, "alpha": alpha}
-        if config.compare_alpha_v1:
-            from finance_analysis.trend_following.scoring_v1 import compare_score
-
-            row["score_breakdown"]["alpha_v1"] = compare_score(row)
         row["is_candidate"] = bool(
             row["trend_candidate"]
             and row["trend_score"] >= config.candidate_trend_score

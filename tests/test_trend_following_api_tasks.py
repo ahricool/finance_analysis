@@ -453,25 +453,25 @@ def test_historical_heatmap_detail_can_open_a_former_universe_member(monkeypatch
     'atr_expansion_ratio', 'downside_control_quality', 'r2_quality', 'breakout_quality',
     'alpha_trend_contribution', 'weighted_slope_percentile', 'rs_10d_quality',
 ])
-def test_v2_ranking_sorts_full_market_before_limit_and_preserves_null_history(monkeypatch, sort_by):
-    class V2Repository(FakeRepository):
+def test_v3_ranking_sorts_full_market_before_limit_and_keeps_missing_metrics_last(monkeypatch, sort_by):
+    class V3Repository(FakeRepository):
         def dashboard_rows(self, trade_date):
             return [
                 {'code': f'STOCK{i}', 'rank': i + 1, 'alpha_score': 100 - i,
-                 sort_by: i if i < 99 else None, 'alpha_version': 2 if i < 99 else None}
+                 sort_by: i if i < 99 else None, 'alpha_version': 3}
                 for i in range(100)
             ]
 
-    monkeypatch.setattr(trend_following, 'TrendFollowingRepository', V2Repository)
+    monkeypatch.setattr(trend_following, 'TrendFollowingRepository', V3Repository)
     result = json.loads(trend_following.ranking(TRADE_DATE, sort_by, 1, SimpleNamespace(id=1), 'US').body)
     assert result['items'][0]['code'] == 'STOCK98'
     assert result['items'][0]['features'][sort_by] == 98
     result = json.loads(trend_following.ranking(TRADE_DATE, sort_by, None, SimpleNamespace(id=1), 'US').body)
     assert result['items'][-1]['features'][sort_by] is None
-    assert result['items'][-1]['features']['alpha_version'] is None
+    assert result['items'][-1]['features']['alpha_version'] == 3
 
 
-def test_entry_ranking_projection_sort_and_legacy_null(monkeypatch):
+def test_entry_ranking_projection_and_sort(monkeypatch):
     class Repository(FakeRepository):
         def dashboard_rows(self, trade_date):
             return [
@@ -479,15 +479,14 @@ def test_entry_ranking_projection_sort_and_legacy_null(monkeypatch):
                 {"code": "B.US", "rank": 2, "alpha_score": 85, "entry_score": 88, "entry_type": "BREAKOUT",
                  "atr_percent": .03, "close_location_value": .9, "pullback_detected": False,
                  "ma10_reclaimed": False, "raw_volume_ratio": 1.2, "projected_volume_ratio": None},
-                {"code": "OLD.US", "rank": 3, "alpha_score": 80},
             ]
     monkeypatch.setattr(trend_following, "TrendFollowingRepository", Repository)
     payload = json.loads(trend_following.ranking(TRADE_DATE, "entry_score", None, SimpleNamespace(id=1), "US").body)
-    first, _, last = payload["items"]
+    first, second = payload["items"]
     assert first["code"] == "B.US" and first["entry_score"] == 88 and first["entry_type"] == "BREAKOUT"
     assert first["features"]["atr_percent"] == .03
     assert first["features"]["close_location_value"] == .9
     assert first["features"]["pullback_detected"] is False
     assert first["features"]["projected_volume_ratio"] is None
-    assert last["entry_score"] is None and last["entry_type"] is None
+    assert second["entry_score"] == 0 and second["entry_type"] == "NONE"
     assert "trend_quality" not in first["features"]

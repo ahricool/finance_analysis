@@ -1,4 +1,4 @@
-"""Continuous Alpha V2 scores. State/explanation booleans never award points."""
+"""Continuous Alpha V3 scores. State/explanation booleans never award points."""
 
 from __future__ import annotations
 
@@ -179,7 +179,7 @@ def calculate_alpha_score(row: dict[str, Any], config: TrendFollowingConfig = DE
     contributions = {key: value * config.alpha_score_weights[key] for key, value in components.items()}
     score = sum(contributions.values())
     return round(score, 4), {
-        "version": 2,
+        "version": 3,
         "components": components,
         "weights": config.alpha_score_weights,
         "contributions": contributions,

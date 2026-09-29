@@ -15,7 +15,7 @@ def clamp(value):
 
 def raw_fit_quality(features):
     r2 = number(features.get("weighted_r2"))
-    return r2 * 100 if r2 is not None else number(features.get("trend_quality"))
+    return r2 * 100 if r2 is not None else None
 
 
 def calculate_fragility(current, history, *, as_of, config=DEFAULT_CONFIG):
@@ -27,7 +27,7 @@ def calculate_fragility(current, history, *, as_of, config=DEFAULT_CONFIG):
     features = current.get("features") or {}
     fields = {
         "acceleration_decay": "trend_acceleration",
-        "quality_decay": "trend_quality",
+        "quality_decay": "weighted_r2",
         "efficiency_decay": "signed_efficiency_ratio_10d",
         "relative_strength_decay": "rs_5d",
         "rank_decay": "rank_percentile",

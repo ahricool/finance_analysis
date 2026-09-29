@@ -13,7 +13,7 @@ def classify_lifecycle(snapshot, config=DEFAULT_CONFIG):
     duration = snapshot.get("trend_duration_days")
     if duration is None:
         return None
-    quality = features["weighted_r2"] * 100 if features.get("weighted_r2") is not None else features["trend_quality"]
+    quality = features["weighted_r2"] * 100
     acceleration = features["trend_acceleration"]
     efficiency = features["signed_efficiency_ratio_10d"]
     relative_strength = features.get("rs_5d", 0)

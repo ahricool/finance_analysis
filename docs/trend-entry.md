@@ -18,7 +18,7 @@ Fragility 有值时必须<50，为空时不否决。
 
 存在 COMPRESSION_BREAKOUT、BREAKOUT_20D 或 BREAKOUT_10D；Trend≥62；
 Close/MA20−1 在闭区间 [2%,10%]；CLV≥0.60。CLV 缺失时无法确认突破收盘位置，Entry 不成立。
-复用 Alpha V2 的 Gaussian BreakoutQuality，不增加第二套突破距离公式。
+复用 Alpha V3 的 Gaussian BreakoutQuality，不增加第二套突破距离公式。
 
 ### PULLBACK_RESUME
 
@@ -48,7 +48,7 @@ Resume   = .30 ReclaimQuality + .20 PullbackDepthQuality + .15 RSQuality
          + .15 DistanceQuality + .10 CLVQuality + .10 FragilityQuality
 ```
 
-- BreakoutQuality、ExtensionQuality、VolumeQuality复用[Alpha V2](trend-alpha-v2.md)。
+- BreakoutQuality、ExtensionQuality、VolumeQuality复用[Alpha V3](trend-alpha-v3.md)。
 - CLVQuality = 100×CLV。
 - RSQuality = Q(RS10,.12)。
 - FragilityQuality = 100−Fragility。
@@ -89,7 +89,7 @@ Resume   = .30 ReclaimQuality + .20 PullbackDepthQuality + .15 RSQuality
   无正收益为null；有正收益而无负收益为0。质量仍为100×exp(−ratio)。
 - 删除重复Trend Quality展示与Ranking投影。存储JSON保留旧字段作为Confluence/Signal Center
   的内部兼容别名，不作为独立研究指标展示，不修改这两个模块。生命周期/Fragility的旧拟合质量语义保持：
-  直接使用raw weighted_r2×100，历史缺失时读取旧trend_quality，避免因更换方向公式制造虚假衰减。
+  直接使用raw weighted_r2×100，不再回退读取旧trend_quality。
 
 ## Official / Preview
 
@@ -114,9 +114,11 @@ Ranking仅取标量，详情提供组件、归一化权重、贡献、条件与�
 新增atr_percent、close_location_value、raw_volume_ratio、projected_volume_ratio、
 pullback_detected、ma10_reclaimed、volume_provisional。支持entry_score排序，默认仍按Alpha。
 
-旧V1/V2快照不重算、不伪造Entry；新字段缺失显示“—”。Ranking缓存版本升级到v7。
+上线后统一重算全部历史快照为Alpha V3；不保留旧公式或跨版本处理。Ranking缓存保持v7，
+重算正常触发失效和重建。Excel使用统一版本formatter，Preview的正式Volume Ratio单元格留空，
+Official仍导出完整volume_ratio。
 修正R²、Path统计与Resume定义会改变Alpha或Candidate结果，这是规则修正的直接影响；
-Entry自身不参与这些计算。本次未自动回填历史，也未做历史收益回测或阈值校准。
+Entry自身不参与这些计算。历史重算由上线流程执行；本次未做历史收益回测或阈值校准。
 
 ## 已知数据边界
 

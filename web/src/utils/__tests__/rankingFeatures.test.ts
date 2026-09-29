@@ -12,11 +12,11 @@ const breakdown = {
   rs: { qualities: { rs_5d: 55, rs_10d: 61, rs_20d: 58 } },
   setup: { breakout_quality: 77, extension_quality: 66, volume_quality: 80, compression_quality: 40 },
   path: { concentration_quality: 88, volatility_quality: 72 },
-  alpha: { version: 2, contributions: { trend: 32, rs: 17.5, setup: 12, path: 18 } },
+  alpha: { version: 3, contributions: { trend: 32, rs: 17.5, setup: 12, path: 18 } },
 };
 
 describe('rankingFeaturesFromBreakdown', () => {
-  it('projects V2 quality scalars and omits missing paths', () => {
+  it('projects V3 quality scalars and omits missing paths', () => {
     expect(rankingFeaturesFromBreakdown(breakdown)).toEqual({
       r2Quality: 90, momentumQuality: 70, return10DQuality: 68, return20DQuality: 64, drawdownQuality: 81,
       rs5DQuality: 55, rs10DQuality: 61, rs20DQuality: 58,
@@ -24,7 +24,6 @@ describe('rankingFeaturesFromBreakdown', () => {
       concentrationQuality: 88, volatilityQuality: 72,
       alphaTrendContribution: 32, alphaRsContribution: 17.5, alphaSetupContribution: 12, alphaPathContribution: 18,
     });
-    expect(rankingFeaturesFromBreakdown({ alpha: { version: 1 } })).toEqual({});
     expect(rankingFeaturesFromBreakdown(undefined)).toEqual({});
   });
 
@@ -54,7 +53,7 @@ describe('mergeRankingFeatures', () => {
 });
 
 describe('rankingSnapshotFromDto', () => {
-  it('maps nullable ranking features without fabricating V2 scores', () => {
+  it('maps nullable ranking features without fabricating V3 scores', () => {
     const row = rankingSnapshotFromDto({
       code: 'AAPL.US', name: 'Apple', rank: 3, state: 'TRENDING', alpha_score: 82,
       features: { r2_quality: null, trend_candidate: true, prior_compression: false },
@@ -110,7 +109,7 @@ describe('asRankingSnapshot', () => {
   });
 });
 
-it('maps Entry and nullable feature scalars while ignoring duplicate legacy quality', () => {
+it('maps Entry and nullable feature scalars while ignoring non-ranking quality', () => {
   const row = rankingSnapshotFromDto({
     code: 'A.US', entry_score: 88, entry_type: 'BREAKOUT',
     features: { atr_percent: .03, close_location_value: .8, raw_volume_ratio: .2,
@@ -123,7 +122,4 @@ it('maps Entry and nullable feature scalars while ignoring duplicate legacy qual
     rawVolumeRatio: .2, projectedVolumeRatio: null, volumeProvisional: true,
     pullbackDetected: false, ma10Reclaimed: false });
   expect(row.features).not.toHaveProperty('trendQuality');
-  const old = rankingSnapshotFromDto({ code: 'OLD.US', features: {} });
-  expect(old.entryScore).toBeNull();
-  expect(old.entryType).toBeNull();
 });

@@ -18,7 +18,7 @@ def snapshot(**changes):
         features={
             "health_version": 1,
             "trend_candidate": True,
-            "trend_quality": 90,
+            "weighted_r2": .90,
             "trend_acceleration": 0.2,
             "signed_efficiency_ratio_10d": 0.8,
             "rs_5d": 0.06,
@@ -61,7 +61,7 @@ def test_high_strength_can_be_highly_fragile_and_exhausted():
     current = snapshot()
     old = history(current)
     current["features"].update(
-        trend_quality=55,
+        weighted_r2=.55,
         trend_acceleration=-0.4,
         signed_efficiency_ratio_10d=0.2,
         rs_5d=0.0,
@@ -100,7 +100,7 @@ def test_available_component_weights_renormalize():
     for row in old.values():
         del row["features"]["rank_percentile"]
         del row["features"]["rs_5d"]
-    current["features"]["trend_quality"] = 60
+    current["features"]["weighted_r2"] = .60
     result = calculate_fragility(current, old, as_of=DAY)
     assert result["fragility_score"] == pytest.approx(100 * 0.2 / 0.7, abs=0.01)
     assert result["fragility_breakdown"]["rank_decay"] is None
@@ -109,7 +109,7 @@ def test_available_component_weights_renormalize():
 @pytest.mark.parametrize("duration", [20, 30, 35, 50])
 def test_old_intact_trend_is_mature_even_with_weaker_current_quality(duration):
     current = snapshot(trend_duration_days=duration)
-    current["features"].update(trend_quality=70, signed_efficiency_ratio_10d=0.4, trend_acceleration=-0.08)
+    current["features"].update(weighted_r2=.70, signed_efficiency_ratio_10d=0.4, trend_acceleration=-0.08)
     assert classify_lifecycle(current) == "MATURE"
 
 
@@ -129,18 +129,5 @@ def test_lifecycle_age_boundaries_do_not_force_weak_trends_into_expansion(durati
     assert classify_lifecycle(current) == (
         "IGNITION" if duration <= 3 else "EMERGING" if duration <= 7 else "EXPANSION" if duration < 20 else "MATURE"
     )
-    current["features"].update(trend_quality=40, signed_efficiency_ratio_10d=0.1, trend_acceleration=-0.08)
+    current["features"].update(weighted_r2=.40, signed_efficiency_ratio_10d=0.1, trend_acceleration=-0.08)
     assert classify_lifecycle(current) == ("EMERGING" if duration <= 7 else "MATURE")
-
-
-def test_raw_r2_replaces_duplicate_quality_without_changing_health_rules():
-    current = snapshot()
-    old = history(current)
-    expected = calculate_fragility(current, old, as_of=DAY)
-    lifecycle = classify_lifecycle(current)
-    current["features"]["weighted_r2"] = current["features"].pop("trend_quality") / 100
-    assert calculate_fragility(current, old, as_of=DAY) == expected
-    assert classify_lifecycle(current) == lifecycle
-    for row in old.values():
-        row["features"]["weighted_r2"] = row["features"].pop("trend_quality") / 100
-    assert calculate_fragility(current, old, as_of=DAY) == expected

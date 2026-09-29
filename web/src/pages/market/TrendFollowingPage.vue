@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { alphaVersionLabel } from '@/utils/trendFollowing';
 import { exportExcel, type ExcelColumn } from '@/utils/excelExport';
 import { forwardReturnColumns, useForwardReturns } from '@/composables/useForwardReturns';
 import { parseDate } from '@internationalized/date';
@@ -88,7 +89,7 @@ const detailError = ref<ParsedApiError | null>(null);
 const rankingDetailTrigger = ref<{ code: string; el: HTMLElement | null } | null>(null);
 const alphaContributions = computed(() => {
   const alpha = detail.value?.latest.scoreBreakdown.alpha as TrendAlphaBreakdown | undefined;
-  if (alpha?.version !== 2) return [];
+  if (!alpha) return [];
   return ['trend', 'rs', 'setup', 'path'].map(key => ({
     key, value: alpha.components[key], weight: alpha.weights[key], contribution: alpha.contributions[key],
   }));
@@ -256,7 +257,8 @@ async function exportRanking() {
       if (column.key === 'state') return [stateText(item.state)];
       if (column.key === 'trendLifecycle') return [item.trendLifecycle, item.trendDurationDays];
       if (column.key === 'rankChange5D') return [item.rankChange1D, item.rankChange3D, item.rankChange5D];
-      if (column.key === 'alphaScore') return [item.alphaScore, item.features.alphaVersion === 2 ? 'V2' : 'V1'];
+      if (column.key === 'alphaScore') return [item.alphaScore, alphaVersionLabel(item.features.alphaVersion as number | null | undefined)];
+      if (column.key === 'volumeRatio' && item.features.volumeProvisional === true) return [null];
       return [sortValue(item, column.key)];
     }));
     await exportExcel(`趋势分析_${market.value}_${summary.value.tradeDate}_${dataMode.value}.xlsx`, '趋势分析', columns, rows);
@@ -970,7 +972,7 @@ onMounted(async () => {
                       </div>
                     </template>
                     <template v-else-if="column.key === 'alphaScore'">
-                      {{ score(item.alphaScore) }}<span class="block text-xs font-normal text-muted-foreground">{{ item.features.alphaVersion === 2 ? 'V2' : 'V1' }}</span>
+                      {{ score(item.alphaScore) }}<span class="block text-xs font-normal text-muted-foreground">{{ alphaVersionLabel(item.features.alphaVersion as number | null | undefined) }}</span>
                     </template>
                     <template v-else>
                       {{ rankingCell(item, column) }}
@@ -1104,7 +1106,7 @@ onMounted(async () => {
             class="grid grid-cols-2 gap-3 text-sm"
             data-testid="trend-path-detail"
           >
-            <div>Alpha {{ detail.latest.features.alphaVersion === 2 ? 'V2' : 'V1' }}<strong class="block">{{ score(detail.latest.alphaScore) }}</strong></div>
+            <div>Alpha {{ alphaVersionLabel(detail.latest.features.alphaVersion) }}<strong class="block">{{ score(detail.latest.alphaScore) }}</strong></div>
             <div>
               <IndicatorLabel
                 label="Path Score"

@@ -146,19 +146,19 @@ PY
 
 ## Alpha 评分
 
-Alpha V2 的公式、参数、快照兼容与新旧对照见 [trend-alpha-v2.md](trend-alpha-v2.md)。
+Alpha V3 的公式与参数见 [trend-alpha-v3.md](trend-alpha-v3.md)。
 状态机和 Candidate 的 ValidSetup 条件保持本页语义。
 
 ### 排名指标读模型
 
-`/trend-following/ranking` 一次批量投影返回 Alpha V2 排名标量 `features`，
+`/trend-following/ranking` 一次批量投影返回 Alpha V3 排名标量 `features`，
 从 `score_breakdown` JSON 路径提取质量分与贡献标量，不返回整份嵌套 `score_breakdown`，
 不逐行请求详情，不改变策略计算。缺失历史指标返回 null。`breakout_score` 仍是 Setup Score
-的兼容别名，主表只展示 Setup，不重复 Breakout Score 列。收益百分位等已退出计分的 V1 字段
+的兼容别名，主表只展示 Setup，不重复 Breakout Score 列。收益百分位等不参与当前计分的解释字段
 不再进入排名投影。
 
 主表按 Core、Alpha、Trend、RS、Setup、Path、Signals / Explain、Risk / Health 分组
-展示 Official 与 Preview 共用的最新指标。Alpha/Trend/RS/Setup/Path 只放实际参与 V2
+展示 Official 与 Preview 共用的最新指标。Alpha/Trend/RS/Setup/Path 只放实际参与 V3
 计分的分量；`priorCompression`、`compressionBreakout`、`trendResume`、
 `signedEfficiencyRatio10D` 等解释字段归入 Signals / Explain。完整股票池先经 State
 筛选、搜索和排序，再截取虚拟滚动行；缺失值始终置后。

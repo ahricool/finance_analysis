@@ -429,10 +429,10 @@ def test_preview_reuses_previous_official_snapshot_and_does_not_persist(monkeypa
         expected_entry = calculate_entry({**row["features"], **row})
         assert row["entry_score"] == expected_entry["entry_score"]
         assert row["entry_type"] == expected_entry["entry_type"]
-        assert row["features"]["alpha_version"] == 2
+        assert row["features"]["alpha_version"] == 3
         assert row["features"]["setup_score"] == row["breakout_score"]
         assert row["features"]["path_score"] >= 0
-        assert row["score_breakdown"]["alpha"]["version"] == 2
+        assert row["score_breakdown"]["alpha"]["version"] == 3
         json.dumps(row["score_breakdown"], allow_nan=False)
         assert row["trend_lifecycle"] is not None
         assert "fragility_score" in row
