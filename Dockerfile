@@ -11,7 +11,7 @@
 FROM python:3.13-slim-trixie AS py-builder
 
 # Inject uv binary from the official distroless image
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
+COPY --from=ghcr.io/astral-sh/uv:0.12.20 /uv /bin/uv
 
 # gcc is needed at build time to compile C extensions (e.g. pandas, numpy)
 RUN apt-get update && apt-get install -y --no-install-recommends gcc && \
@@ -32,17 +32,8 @@ COPY pyproject.toml uv.lock ./
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --no-install-project
 
-COPY src/ ./src/
-COPY main.py ./
-
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev
-
 # ── Stage 2: Backend runtime image ───────────────────────────────────────────
 FROM python:3.13-slim-trixie
-
-# Inject uv binary from the official distroless image
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
 
 # 设置工作目录
 WORKDIR /workspace
@@ -61,14 +52,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 
-# Copy installed Python packages from the builder stage
+# Copy third-party dependencies before any application source. Keep this large
+# layer independent of source changes; install the project separately below.
 COPY --from=py-builder /workspace/.venv /workspace/.venv
 
 # 让 `python` 默认走 venv 解释器，使 CMD / HEALTHCHECK / 镜像 smoke 都使用已安装的依赖
 ENV PATH="/workspace/.venv/bin:${PATH}"
 ENV VIRTUAL_ENV="/workspace/.venv"
 
-# 复制项目元数据（保留 `uv run` / `uv pip` 在容器内的兜底能力，并使 Python 版本可追溯）
+# Keep metadata for project-root discovery and Python version traceability.
 COPY pyproject.toml uv.lock .python-version ./
 
 # 复制应用代码
@@ -77,6 +69,15 @@ COPY alembic/ ./alembic/
 COPY main.py ./
 COPY src/ ./src/
 COPY templates/ ./templates/
+
+# Preserve editable imports, distribution metadata and both project CLI commands.
+# Only project installation is added to this small layer, never a second full
+# .venv COPY. --no-deps leaves the locked third-party dependency layer untouched.
+# uv is a build-only bind mount; production commands use Python/Celery directly.
+RUN --mount=from=py-builder,source=/bin/uv,target=/bin/uv \
+    --mount=type=cache,target=/root/.cache/uv \
+    UV_PYTHON_DOWNLOADS=never UV_LINK_MODE=copy UV_COMPILE_BYTECODE=0 \
+    uv pip install --python /workspace/.venv/bin/python --no-deps --editable .
 
 # 设置环境变量默认值
 ENV PYTHONUNBUFFERED=1

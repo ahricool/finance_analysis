@@ -1,3 +1,17 @@
+# Repository metadata, CI configuration and local output are not build inputs.
+.git/
+.github/
+.env
+.env.*
+!.env.example
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+web/playwright-report/
+web/test-results/
+
 # 忽略 Python 缓存
 __pycache__/
 *.py[cod]
@@ -19,8 +33,8 @@ env/
 
 # 忽略数据文件（可选，如果想持久化就注释掉）
 data/
-# logs/
-# reports/
+logs/
+reports/
 
 # 忽略测试文件
 test_*.py
