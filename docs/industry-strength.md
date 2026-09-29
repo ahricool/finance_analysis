@@ -218,8 +218,9 @@ pnpm exec playwright test e2e/industry-strength.spec.ts
 页面顶部按钮切换「收盘 / 盘中预览」，默认收盘；历史日期仅用于收盘模式。
 Preview 仅由指定时刻的 Beat 任务生成；页面没有刷新按钮，不提供手动触发 API，任务中心也禁止手动运行。
 `GET /api/v1/industry-strength/preview` 仅读 Redis，不计算、不访问行情。
-任务 `industry_strength_preview_cn` 在周一至周五 **11:05 / 14:05 / 14:35 Asia/Shanghai**
-运行，与 A 股 ETF Preview 同时（趋势 Preview 提前5分钟），复用 `analysis` 队列与任务中心生命周期。
+任务 `industry_strength_preview_cn` 在周一至周五 **10:05 / 11:05 / 14:05 / 14:35 Asia/Shanghai**
+运行；11:05 / 14:05 / 14:35 与 A 股 ETF Preview 同时，各档均比趋势 Preview 晚5分钟。
+复用 `analysis` 队列与任务中心生命周期。
 非交易日跳过；开盘前拒绝。盘中任务无需等待正式行业快照。
 
 - 指数历史截至上一交易日，行业指数和沪深300同步使用最新点位构造今日临时线；已有今日线先移除再替换。

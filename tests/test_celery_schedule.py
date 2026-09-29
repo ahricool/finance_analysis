@@ -430,9 +430,13 @@ def test_before_publish_uses_importance_task_metadata():
     assert metadata.source == "celery"
 
 
-def test_industry_preview_matches_etf_preview_schedule():
+def test_industry_preview_schedule_includes_1005():
     industry = get_scheduled_task_definition("industry_strength_preview_cn")
-    etf = get_scheduled_task_definition("etf_rotation_preview_cn")
-    assert industry.schedules == etf.schedules
-    assert industry.queue == etf.queue
+    assert {(item.hour, item.minute, item.day_of_week, item.timezone) for item in industry.schedules} == {
+        ("10", "5", "mon-fri", "Asia/Shanghai"),
+        ("11", "5", "mon-fri", "Asia/Shanghai"),
+        ("14", "5", "mon-fri", "Asia/Shanghai"),
+        ("14", "35", "mon-fri", "Asia/Shanghai"),
+    }
+    assert industry.queue == "analysis"
     assert industry.allow_manual_run is False

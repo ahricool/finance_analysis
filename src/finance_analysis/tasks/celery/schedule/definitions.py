@@ -206,11 +206,12 @@ SCHEDULED_TASK_DEFINITIONS = (
         task_type="scheduled_industry_strength_preview_cn",
         celery_task_name=celery_task_name(JOB_INDUSTRY_STRENGTH_PREVIEW_CN),
         schedules=(
+            CronSchedule(minute="5", hour="10", day_of_week="mon-fri"),
             CronSchedule(minute="5", hour="11", day_of_week="mon-fri"),
             CronSchedule(minute="5", hour="14", day_of_week="mon-fri"),
             CronSchedule(minute="35", hour="14", day_of_week="mon-fri"),
         ),
-        schedule_text="周一至周五 11:05、14:05、14:35 Asia/Shanghai",
+        schedule_text="周一至周五 10:05、11:05、14:05、14:35 Asia/Shanghai",
         timezone=SCHEDULE_TIMEZONE,
         queue=QUEUE_ANALYSIS,
         expires=EXPIRES_ETF_ROTATION_PREVIEW,
