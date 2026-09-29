@@ -107,6 +107,7 @@ layout（Shell / PageHeader / ModuleTabs）+ ui/app 组件
 - `/market/holdings` 使用 `pages/market/HoldingsPage.vue`。DB 是普通股票/ETF 唯一真实持仓来源。现金独立修改，买卖不改变现金；买入复用 instrument 搜索建议并由后端校验证券主数据。API 为 `/api/v1/holdings` 与 `/api/v1/trade-engine`。个股详情可关闭 `trade_engine_enabled`（交易提醒），关闭后该持仓不进 Strategy / 主动 LLM 调仓，但仍计入账户 NAV 与 Portfolio Risk。页面展示最新正式 BUY/ADD/REDUCE/EXIT 与 LLM 最终判断。日K BST 来自 `trade_operation`，BTC BST 来自策略快照。
 - `meta.public === true` 才是公开页（目前只有登录）。
 - `meta.title` 用于 `document.title`（`「页面名 - Finance Analysis」`）。嵌套路由取最近一层有 title 的记录。
+- ETF 轮动和趋势排名的「导出 Excel」在浏览器中导出当前筛选、排序后的完整数据（含虚拟滚动未渲染行），保留数值格式；文件名包含市场、快照日期和 official/preview。导出库按需加载，不调用后端导出接口。
 - 研究走 `/research/**`，市场走 `/market/**`。加密货币走 `/crypto/**`。不要把 Quant / ETF / 趋势跟踪 / BTC 再挂到 `/market`。
 - 旧 `/market/quant*`、`/market/etf-rotation`、`/market/trend-following`、`/market/crypto/btc` 只作为 compatibility redirect，内部导航必须用 canonical URL。
 - BTC 的旧 `/research/crypto/btc` 同样重定向到 `/crypto/btc`；一级“加密货币”菜单位于“任务中心”之前。

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { exportExcel, type ExcelColumn } from '@/utils/excelExport';
 import { forwardReturnColumns, useForwardReturns } from '@/composables/useForwardReturns';
 import { parseDate } from '@internationalized/date';
 import DailyKLineCard from '@/components/market-data/DailyKLineCard.vue';
@@ -122,6 +123,28 @@ const sortedItems = computed(() => [...items.value].sort((a, b) => {
 function defaultSortDirection(key: SortKey) {
   return ['rank', 'name', 'state', 'action'].includes(key) ? 'asc' : 'desc';
 }
+const exporting = ref(false);
+async function exportRanking() {
+  if (exporting.value || loading.value || refreshing.value || previewLoading.value || forwardLoading.value || !sortedItems.value.length) return;
+  exporting.value = true;
+  try {
+    const columns: ExcelColumn[] = rankingColumns.flatMap(column => column.key === 'name'
+      ? [{ label: column.label }, { label: '代码' }]
+      : [{ label: column.label, format: column.key.startsWith('forwardReturn') || ['ret5D', 'ret20D'].includes(column.key)
+        ? '+0.00%;-0.00%;0.00%' : column.key.endsWith('Score') ? '0.0' : '0' }]);
+    const rows = sortedItems.value.map(item => rankingColumns.flatMap(column => {
+      if (column.key === 'name') return [item.name, item.code];
+      if (column.key.startsWith('forwardReturn')) return [forwardReturn(item.code, column.key)];
+      return [item[column.key as keyof ETFMomentumSnapshot] as string | number | null];
+    }));
+    await exportExcel(`ETF轮动_${market.value}_${summary.value.tradeDate}_${dataMode.value}.xlsx`, 'ETF轮动', columns, rows);
+  } catch {
+    toast.error('Excel 导出失败，请重试');
+  } finally {
+    exporting.value = false;
+  }
+}
+
 function toggleSort(key: SortKey) {
   sortDirection.value = sortKey.value === key
     ? (sortDirection.value === 'asc' ? 'desc' : 'asc') : defaultSortDirection(key);
@@ -749,6 +772,17 @@ onMounted(async () => {
     <Card v-if="showingStrategyBody">
       <CardHeader class="flex-row flex-wrap items-center justify-between gap-3">
         <div><CardTitle>Rotation Ranking</CardTitle><CardDescription>比较核心得分、状态和 5D / 20D 收益；点击 ETF 查看完整指标。</CardDescription></div>
+        <LoadingButton
+          variant="outline"
+          size="sm"
+          :loading="exporting"
+          loading-text="导出中…"
+          :disabled="loading || refreshing || previewLoading || forwardLoading || !sortedItems.length"
+          data-testid="etf-export-excel"
+          @click="exportRanking"
+        >
+          导出 Excel
+        </LoadingButton>
         <NativeSelect
           :model-value="sortKey"
           aria-label="排名排序字段"

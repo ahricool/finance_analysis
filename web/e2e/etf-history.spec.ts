@@ -72,6 +72,14 @@ for (const width of [1280, 1440, 1920]) {
       const errors: string[] = [];
       page.on('pageerror', error => errors.push(error.message));
       await page.goto('/research/etf-rotation');
+      await expect(page.getByTestId('etf-export-excel')).toBeEnabled();
+      const downloadPromise = page.waitForEvent('download');
+      await page.getByTestId('etf-export-excel').click();
+      const download = await downloadPromise;
+      expect(download.suggestedFilename()).toBe(`ETF轮动_CN_${snapshot.tradeDate}_official.xlsx`);
+      expect(await download.failure()).toBeNull();
+      await download.saveAs(testInfo.outputPath('ranking.xlsx'));
+
       const rankingChart = page.getByTestId('etf-rank-history');
       await expect(rankingChart.locator('canvas')).toHaveCount(1);
       await rankingChart.scrollIntoViewIfNeeded();

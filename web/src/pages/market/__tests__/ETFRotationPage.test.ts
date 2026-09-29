@@ -1,3 +1,4 @@
+import { exportExcel } from '@/utils/excelExport';
 import { marketDataApi } from '@/api/marketData';
 import ETFRotationHistoryCharts from '@/components/etf-rotation/ETFRotationHistoryCharts.vue';
 import { flushPromises, mount } from '@vue/test-utils';
@@ -5,6 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ETFMarket, ETFMomentumSnapshot } from '@/types/etfRotation';
 import { indicatorDescriptions } from '@/components/etf-rotation/indicatorDescriptions';
 import ETFRotationPage from '../ETFRotationPage.vue';
+
+vi.mock('@/utils/excelExport', () => ({ exportExcel: vi.fn().mockResolvedValue(undefined) }));
 
 const apiMocks = vi.hoisted(() => ({
   rankHistory: vi.fn(),
@@ -233,6 +236,25 @@ describe('ETFRotationPage', () => {
   afterEach(() => {
     document.body.innerHTML = '';
     vi.clearAllMocks();
+  });
+
+  it('exports loaded ranking values without requesting data and recovers from export failure', async () => {
+    const wrapper = mount(ETFRotationPage);
+    await flushPromises();
+    const requests = apiMocks.ranking.mock.calls.length;
+    await wrapper.get('[data-testid="etf-export-excel"]').trigger('click');
+    await flushPromises();
+    const [file, , columns, rows] = vi.mocked(exportExcel).mock.calls.at(-1)!;
+    expect(file).toContain('2026-08-25_official.xlsx');
+    expect(columns.map(column => column.label)).toContain('代码');
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows[0]).toHaveLength(columns.length);
+    expect(apiMocks.ranking).toHaveBeenCalledTimes(requests);
+    vi.mocked(exportExcel).mockRejectedValueOnce(new Error('download failed'));
+    await wrapper.get('[data-testid="etf-export-excel"]').trigger('click');
+    await flushPromises();
+    expect(wrapper.get('[data-testid="etf-export-excel"]').attributes('disabled')).toBeUndefined();
+    wrapper.unmount();
   });
 
   it('keeps 5D and 20D in the ranking and full returns in detail', async () => {
