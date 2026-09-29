@@ -421,10 +421,18 @@ def test_preview_reuses_previous_official_snapshot_and_does_not_persist(monkeypa
     assert first["provider"] == "yfinance"
     assert "snapshots" in first
     for row in first["snapshots"]:
-        assert row["features"]["alpha_version"] == 2
+        from finance_analysis.trend_following.entry import calculate_entry
+        assert row["features"]["trend_quality"] == row["features"]["weighted_r2"] * 100
+        assert row["features"]["volume_provisional"] is True
+        assert row["features"]["projected_volume_ratio"] is None
+        assert row["score_breakdown"]["setup"]["volume_quality"] == 50
+        expected_entry = calculate_entry({**row["features"], **row})
+        assert row["entry_score"] == expected_entry["entry_score"]
+        assert row["entry_type"] == expected_entry["entry_type"]
+        assert row["features"]["alpha_version"] == 3
         assert row["features"]["setup_score"] == row["breakout_score"]
         assert row["features"]["path_score"] >= 0
-        assert row["score_breakdown"]["alpha"]["version"] == 2
+        assert row["score_breakdown"]["alpha"]["version"] == 3
         json.dumps(row["score_breakdown"], allow_nan=False)
         assert row["trend_lifecycle"] is not None
         assert "fragility_score" in row

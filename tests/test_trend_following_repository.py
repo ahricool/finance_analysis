@@ -328,7 +328,7 @@ def test_read_projections_do_not_load_full_snapshot_or_instrument_json():
     with database.session_scope() as session:
         session.add(Instrument(id=1, market="US", code="AAPL.US", name="Apple"))
         row = _snapshot(snapshot_id=1, code="AAPL.US", instrument_id=1, trade_date=date(2026, 9, 10))
-        row.features = {"return_5d": 0.15, "unused": {"large": "detail only"}, "alpha_version": 2,
+        row.features = {"return_5d": 0.15, "unused": {"large": "detail only"}, "alpha_version": 3,
                         "path_score": 91, "setup_score": 75, "weighted_r2": .98,
                         "positive_return_concentration": .35, "atr_expansion_ratio": 1.1,
                         "downside_control_quality": 82}
@@ -393,12 +393,13 @@ def test_dashboard_projection_preserves_all_ranking_metrics_and_boolean_types():
     day = date(2026, 8, 28)
     features = {key: index / 100 for index, key in enumerate(NUMERIC_FEATURE_FIELDS)}
     features.update({key: index % 2 == 0 for index, key in enumerate(BOOLEAN_FEATURE_FIELDS)})
+    features["entry_type"] = "BREAKOUT"
     breakdown = {
         "trend": {"weighted_r2": 92, "momentum": 70, "return_10d": 68, "return_20d": 64, "drawdown_quality": 81},
         "rs": {"qualities": {"rs_5d": 55, "rs_10d": 61, "rs_20d": 58}},
         "setup": {"breakout_quality": 77, "extension_quality": 66, "volume_quality": 80, "compression_quality": 40},
         "path": {"concentration_quality": 88, "volatility_quality": 72, "downside_control_quality": 82},
-        "alpha": {"version": 2, "contributions": {"trend": 32, "rs": 17.5, "setup": 12, "path": 18}},
+        "alpha": {"version": 3, "contributions": {"trend": 32, "rs": 17.5, "setup": 12, "path": 18}},
     }
     with db.session_scope() as session:
         session.add(Instrument(id=1, code="AAPL.US", name="Apple", market="US"))
@@ -411,6 +412,10 @@ def test_dashboard_projection_preserves_all_ranking_metrics_and_boolean_types():
     result = ranking_item(projected)
     assert all(result["features"][key] == features[key] for key in NUMERIC_FEATURE_FIELDS)
     assert all(type(result["features"][key]) is bool for key in BOOLEAN_FEATURE_FIELDS)
+    assert result["entry_type"] == "BREAKOUT"
+    assert result["entry_score"] == features["entry_score"]
+    assert repository.snapshots_by_date(day, sort_by="entry_score")[0]["entry_type"] == "BREAKOUT"
+    assert "trend_quality" not in result["features"]
     assert result["features"]["r2_quality"] == 92
     assert result["features"]["momentum_quality"] == 70
     assert result["features"]["rs_10d_quality"] == 61

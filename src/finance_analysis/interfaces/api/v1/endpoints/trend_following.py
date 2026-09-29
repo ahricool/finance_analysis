@@ -43,6 +43,7 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 Market = Literal["CN", "US"]
 SortField = Literal[
+    "entry_score",
     "alpha_score", "trend_score", "rs_score", "breakout_score", "rank", "trend_duration_days", "fragility_score",
     "path_score", "setup_score", "weighted_r2", "weighted_slope_percentile",
     "positive_return_concentration", "atr_expansion_ratio",

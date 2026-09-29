@@ -38,8 +38,12 @@ function snapshot(market: TrendMarket = 'CN'): TrendSnapshot {
 
     reasons: ['candidate thresholds passed'],
     trendDurationDays: 12,
-    scoreBreakdown: { trend: { weightedR2: 90 } }, generatedAt: '2026-08-28T12:00:00Z',
+    scoreBreakdown: { trend: { weightedR2: 90 }, alpha: { version: 3,
+      components: { trend: 80, rs: 78, setup: 76, path: 80 },
+      weights: { trend: .4, rs: .25, setup: .15, path: .2 },
+      contributions: { trend: 32, rs: 19.5, setup: 11.4, path: 16 }, score: 78.9 } }, generatedAt: '2026-08-28T12:00:00Z',
     features: {
+      alphaVersion: 3,
       ma10: 108, ma20: 105, ma10Slope: 0.012, ma20Slope: 0.01, trendCandidate: true,
       rawWeightedSlope: 0.01, weightedSlopePercentile: 95, weightedR2: 0.92,
       return5D: 0.04, return10D: 0.08, return20D: 0.12,
@@ -116,7 +120,27 @@ describe('TrendFollowingPage', () => {
     wrapper.unmount();
   });
 
-  it('keeps scoring groups separate from explain signals and blanks missing V2 qualities', async () => {
+  it.each([true, false])('exports volume with provisional=%s without mislabeling intraday volume', async (provisional) => {
+    apiMocks.ranking.mockResolvedValueOnce({ ...ranking('CN'), items: [{
+      ...rankingSnapshot(), features: { ...rankingSnapshot().features,
+        alphaVersion: 3, volumeProvisional: provisional, volumeRatio: provisional ? .3 : 1.2,
+        rawVolumeRatio: provisional ? .3 : 1.2, projectedVolumeRatio: null },
+    }] });
+    const wrapper = mount(TrendFollowingPage);
+    await flushPromises();
+    expect(wrapper.get('[data-testid="trend-row"]').text()).toContain('V3');
+    await wrapper.get('[data-testid="trend-export-excel"]').trigger('click');
+    await flushPromises();
+    const [, , columns, rows] = vi.mocked(exportExcel).mock.calls.at(-1)!;
+    const volumeIndex = columns.findIndex(column => column.label === 'Volume Ratio');
+    const versionIndex = columns.findIndex(column => column.label === 'Alpha Version');
+    expect(volumeIndex).toBeGreaterThan(-1);
+    expect(rows[0]![volumeIndex]).toBe(provisional ? null : 1.2);
+    expect(rows[0]![versionIndex]).toBe('V3');
+    wrapper.unmount();
+  });
+
+  it('keeps scoring groups separate from explain signals and blanks missing V3 qualities', async () => {
     const wrapper = mount(TrendFollowingPage);
     await flushPromises();
     expect(wrapper.text()).toContain('Signals / Explain');
@@ -126,6 +150,25 @@ describe('TrendFollowingPage', () => {
     expect(wrapper.get('[data-column="alphaTrendContribution"]').text()).toBe('—');
     expect(wrapper.get('[data-column="priorCompression"]').text()).toBe('是');
     expect(wrapper.get('[data-column="signedEfficiencyRatio10D"]').text()).toBe('—');
+    wrapper.unmount();
+  });
+
+  it('shows entry timing, keeps Alpha default order and sorts Entry independently', async () => {
+    apiMocks.ranking.mockResolvedValueOnce({
+      ...ranking('CN'), items: [
+        { ...rankingSnapshot(), code: 'A.US', rank: 1, entryScore: 20, entryType: 'BREAKOUT', features: { atrPercent: .03, closeLocationValue: .9 } },
+        { ...rankingSnapshot(), code: 'B.US', rank: 2, entryScore: 90, entryType: 'PULLBACK_RESUME', features: { volumeProvisional: true, volumeRatio: .1, volumeQuality: 50 } },
+      ],
+    });
+    const wrapper = mount(TrendFollowingPage);
+    await flushPromises();
+    expect(wrapper.findAll('[data-testid="trend-row"]')[0]!.attributes('data-code')).toBe('A.US');
+    expect(wrapper.get('[data-code="A.US"] [data-column="atrPercent"]').text()).toBe('3.0%');
+    expect(wrapper.get('[data-code="B.US"] [data-column="volumeRatio"]').text()).toContain('盘中估算');
+    expect(wrapper.find('[data-column="trendQuality"]').exists()).toBe(false);
+    const header = wrapper.findAll('button').find(button => button.text().includes('Entry Score'))!;
+    await header.trigger('click');
+    expect(wrapper.findAll('[data-testid="trend-row"]')[0]!.attributes('data-code')).toBe('B.US');
     wrapper.unmount();
   });
 
@@ -142,7 +185,7 @@ describe('TrendFollowingPage', () => {
     const missingRow = wrapper.findAll('[data-testid="trend-row"]').find(row => row.text().includes('MISSING.US'))!;
     expect(missingRow.get('[data-column="trendScore"]').text()).toBe('—');
     expect(missingRow.get('[data-column="rsScore"]').text()).toBe('—');
-    expect(missingRow.get('[data-column="atr"]').text()).toBe('—');
+    expect(missingRow.get('[data-column="atrPercent"]').text()).toBe('—');
     expect(missingRow.get('[data-column="referencePrice"]').text()).toBe('—');
     expect(missingRow.get('[data-column="state"]').text()).toBe('—');
     expect(missingRow.text()).not.toContain('无明显趋势');
@@ -196,8 +239,8 @@ describe('TrendFollowingPage', () => {
     ['rs10DQuality', 'RS 10D Quality'], ['drawdownQuality', 'Drawdown Quality'], ['trendCandidate', 'Trend Candidate'],
   ])('sorts all rows by %s without requesting detail', async (key, label) => {
     const items: TrendRankingSnapshot[] = Array.from({ length: 800 }, (_, index) => ({
-      ...rankingSnapshot(), code: `V2${index}`, rank: index + 1,
-      features: { ...rankingSnapshot().features, alphaVersion: 2,
+      ...rankingSnapshot(), code: `V3${index}`, rank: index + 1,
+      features: { ...rankingSnapshot().features, alphaVersion: 3,
         [key]: key === 'trendCandidate' ? index === 799 : key === 'drawdown20D' ? -index / 800 : index / 800 },
     }));
     items.push({ ...rankingSnapshot(), code: 'MISSING', rank: 801, features: {} });
@@ -205,8 +248,8 @@ describe('TrendFollowingPage', () => {
     const wrapper = mount(TrendFollowingPage);
     await flushPromises();
     const header = wrapper.findAll('th button').find(button => button.text() === label)!;
-    const highFirst = key === 'trendCandidate' ? 'V20' : 'V2799';
-    const lowFirst = key === 'trendCandidate' ? 'V2799' : 'V20';
+    const highFirst = key === 'trendCandidate' ? 'V30' : 'V3799';
+    const lowFirst = key === 'trendCandidate' ? 'V3799' : 'V30';
     await header.trigger('click');
     const first = () => wrapper.findAll('[data-testid="trend-row"]')[0]!;
     expect(first().text()).toContain(highFirst);
@@ -218,23 +261,23 @@ describe('TrendFollowingPage', () => {
     wrapper.unmount();
   });
 
-  it('shows V2 path explanation in the drawer and leaves missing historical metrics blank', async () => {
+  it('shows V3 path explanation and contributions in the drawer', async () => {
     const latest = snapshot();
-    latest.scoreBreakdown = { alpha: { version: 2,
+    latest.scoreBreakdown = { alpha: { version: 3,
       components: { trend: 80, rs: 70, setup: 60, path: 90 },
       weights: { trend: .4, rs: .25, setup: .15, path: .2 },
       contributions: { trend: 32, rs: 17.5, setup: 9, path: 18 }, score: 76.5 } };
-    latest.features = { ...latest.features, alphaVersion: 2, pathScore: 95.03, setupScore: 79.75,
+    latest.features = { ...latest.features, alphaVersion: 3, pathScore: 95.03, setupScore: 79.75,
       positiveReturnConcentration: .2857, atrExpansionRatio: 1.06, downsideControlQuality: 75.15,
       downsideUpsideRatio: .2857 };
     apiMocks.detail.mockResolvedValueOnce({ latest, history: [latest], metadata: latest, marketContext: ranking('CN') });
     const wrapper = mount(TrendFollowingPage, { attachTo: document.body });
     await flushPromises();
-    expect(wrapper.get('[data-testid="trend-row"]').text()).toContain('V1');
+    expect(wrapper.get('[data-testid="trend-row"]').text()).toContain('V3');
     await wrapper.get('[data-testid="trend-row"]').trigger('click');
     await flushPromises();
     const detail = document.querySelector('[data-testid="trend-path-detail"]')!;
-    expect(detail.textContent).toContain('Alpha V2');
+    expect(detail.textContent).toContain('Alpha V3');
     expect(detail.textContent).toContain('95.0');
     expect(detail.textContent).toContain('1.06');
     expect(document.querySelector('[data-testid="trend-alpha-contributions"]')!.textContent).toContain('32.0 分');
@@ -441,7 +484,7 @@ describe('TrendFollowingPage', () => {
 
 
   it('documents explanations and formulas for trend-following key indicators', () => {
-    expect(trendIndicatorDescriptions.alpha).toContain('Alpha V2');
+    expect(trendIndicatorDescriptions.alpha).toContain('Alpha V3');
     expect(trendIndicatorDescriptions.alpha).toContain('0.40×Trend');
     expect(trendIndicatorDescriptions.trend).toContain('Momentum');
     expect(trendIndicatorDescriptions.trend).toContain('0.30×SlopePercentile');
@@ -586,7 +629,6 @@ describe('TrendFollowingPage', () => {
       name: '贵州茅台',
       code: '600519.SH',
       alphaScore: 91,
-      scoreBreakdown: { alpha: 91 },
       state: 'CANDIDATE' as const,
 
     };
@@ -605,7 +647,7 @@ describe('TrendFollowingPage', () => {
       metadata: { market: 'CN', code: '600519.SH', name: '贵州茅台' },
       latest: {
         ...snapshot('CN'), code: '600519.SH', name: '贵州茅台',
-        alphaScore: 60, scoreBreakdown: { alpha: 60 }, state: 'WATCHING',
+        alphaScore: 60, state: 'WATCHING',
       },
       history: [snapshot('CN')],
       marketContext: ranking('CN'),
@@ -618,7 +660,8 @@ describe('TrendFollowingPage', () => {
     expect(apiMocks.detail).not.toHaveBeenCalled();
     expect(apiMocks.detailHistory).toHaveBeenCalledWith('600519.SH', 'CN', '2026-09-10');
     const dialog = document.body.querySelector('[data-testid="trend-detail"]')!;
-    expect(dialog.textContent).toContain('"alpha": 91');
+    expect(dialog.querySelector('[data-testid="trend-path-detail"]')!.textContent).toContain('Alpha V391.0');
+    expect(dialog.textContent).toContain('"version": 3');
     expect(dialog.textContent).toContain('候选');
     expect(dialog.textContent).toContain('趋势健康');
     expect(dialog.textContent).not.toContain('"alpha": 60');

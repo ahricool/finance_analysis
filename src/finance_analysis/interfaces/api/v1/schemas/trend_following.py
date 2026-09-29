@@ -96,6 +96,13 @@ class TrendTransitionsResponse(BaseModel):
 
 
 class TrendRankingFeatures(BaseModel):
+    atr_percent: float | None = None
+    close_location_value: float | None = None
+    raw_volume_ratio: float | None = None
+    projected_volume_ratio: float | None = None
+    volume_provisional: bool | None = None
+    pullback_detected: bool | None = None
+    ma10_reclaimed: bool | None = None
     return_5d: float | None = None
     return_10d: float | None = None
     return_20d: float | None = None
@@ -119,7 +126,6 @@ class TrendRankingFeatures(BaseModel):
     ma20: float | None = None
     ma10_slope: float | None = None
     ma20_slope: float | None = None
-    trend_quality: float | None = None
     trend_acceleration: float | None = None
     signed_efficiency_ratio_10d: float | None = None
     trend_candidate: bool | None = None
@@ -147,6 +153,8 @@ class TrendRankingFeatures(BaseModel):
 
 
 class TrendRankingItem(BaseModel):
+    entry_score: float | None = None
+    entry_type: Literal["BREAKOUT", "PULLBACK_RESUME", "NONE"] | None = None
     code: str
     name: str | None = None
     rank: int

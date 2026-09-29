@@ -105,12 +105,13 @@ def test_short_horizon_score_weights_and_absolute_trend_three_of_four():
         {
             "weighted_slope_percentile": 80.0,
             "weighted_r2": 0.9,
+            "raw_weighted_slope": 0.0,
             "return_10d": 0.04,
             "return_20d": 0.08,
             "drawdown_20d": -0.04,
         }
     )
-    assert trend == pytest.approx(79.4869)
+    assert trend == pytest.approx(65.9869)
     assert set(trend_components) >= {
         "weighted_slope_percentile",
         "weighted_r2",
@@ -165,7 +166,7 @@ def test_short_breakout_and_trend_resume_setups():
     ranked = rank_candidates([breakout_10, resumed])
     by_code = {row["code"]: row for row in ranked}
     assert by_code["BREAKOUT.US"]["setup"] == "BREAKOUT_10D"
-    assert by_code["RESUME.US"]["setup"] == "TREND_RESUME"
+    assert by_code["RESUME.US"]["setup"] == "PULLBACK_RESUME"
     assert by_code["RESUME.US"]["valid_setup"] is True
     assert all(row["setup"] != "BREAKOUT_55D" for row in ranked)
 

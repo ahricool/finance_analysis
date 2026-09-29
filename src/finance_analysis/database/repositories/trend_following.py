@@ -23,7 +23,7 @@ SORT_FIELDS = {
     "trend_duration_days": TrendFollowingSnapshot.trend_duration_days,
     "fragility_score": TrendFollowingSnapshot.fragility_score,
     **{key: TrendFollowingSnapshot.features[key].as_float() for key in (
-        "path_score", "setup_score", "weighted_r2", "weighted_slope_percentile",
+        "entry_score", "path_score", "setup_score", "weighted_r2", "weighted_slope_percentile",
         "positive_return_concentration", "atr_expansion_ratio",
         "downside_control_quality", "downside_upside_ratio",
     )},
@@ -486,6 +486,7 @@ class TrendFollowingRepository:
         payload = {column.name: getattr(row, column.name) for column in TrendFollowingSnapshot.__table__.columns}
         if name is not None:
             payload["name"] = name
+        payload.update({key: (payload.get("features") or {}).get(key) for key in ("entry_score", "entry_type")})
         return payload
 
     def dashboard_rows(self, trade_date: date) -> list[dict]:
@@ -500,6 +501,7 @@ class TrendFollowingRepository:
             select(
                 *(getattr(snapshot, key) for key in DASHBOARD_FIELDS),
                 Instrument.name,
+                snapshot.features["entry_type"].as_string().label("entry_type"),
                 *(snapshot.features[key].as_float().label(key) for key in NUMERIC_FEATURE_FIELDS),
                 *(snapshot.features[key].as_boolean().label(key) for key in BOOLEAN_FEATURE_FIELDS),
                 *(

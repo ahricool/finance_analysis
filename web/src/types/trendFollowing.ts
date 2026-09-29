@@ -3,6 +3,7 @@ export type TrendRegime = 'RISK_ON' | 'NEUTRAL' | 'RISK_OFF';
 export type TrendState = 'IDLE' | 'WATCHING' | 'CANDIDATE' | 'TRENDING' | 'WEAKENING' | 'BROKEN';
 
 export interface TrendFeatures {
+  entryBreakdown?: { breakout: EntryBranchBreakdown; resume: EntryBranchBreakdown } | null;
   alphaVersion?: number | null;
   pathScore?: number | null;
   setupScore?: number | null;
@@ -10,7 +11,13 @@ export interface TrendFeatures {
   atrExpansionRatio?: number | null;
   downsideControlQuality?: number | null;
   downsideUpsideRatio?: number | null;
-  trendQuality?: number | null;
+  atrPercent?: number | null;
+  closeLocationValue?: number | null;
+  rawVolumeRatio?: number | null;
+  projectedVolumeRatio?: number | null;
+  volumeProvisional?: boolean | null;
+  pullbackDetected?: boolean | null;
+  ma10Reclaimed?: boolean | null;
   trendAcceleration?: number | null;
   signedEfficiencyRatio10D?: number | null;
   r2Quality?: number | null;
@@ -59,6 +66,15 @@ export interface TrendFeatures {
   [key: string]: unknown;
 }
 
+export interface EntryBranchBreakdown {
+  components: Record<string, number | null>;
+  normalizedWeights: Record<string, number>;
+  contributions: Record<string, number>;
+  checks: Record<string, boolean>;
+  qualityScore: number;
+  score: number;
+}
+
 export interface TrendAlphaBreakdown {
   version: number;
   components: Record<string, number>;
@@ -81,6 +97,8 @@ export interface TrendSnapshot {
   rsScore: number;
   breakoutScore: number;
   alphaScore: number;
+  entryScore?: number | null;
+  entryType?: string | null;
   features: TrendFeatures;
   scoreBreakdown: Record<string, unknown>;
   setup: string;
@@ -102,7 +120,9 @@ export const RANKING_FEATURE_KEYS = [
   'atrExpansionRatio', 'downsideControlQuality', 'downsideUpsideRatio',
   'rawWeightedSlope', 'weightedSlopePercentile', 'return5D', 'return10D', 'return20D',
   'drawdown20D', 'rs5D', 'rs10D', 'rs20D', 'ma10', 'ma20', 'ma10Slope', 'ma20Slope',
-  'distanceFromMa20', 'volumeRatio', 'trendQuality', 'trendAcceleration',
+  'distanceFromMa20', 'volumeRatio', 'trendAcceleration',
+  'atrPercent', 'closeLocationValue', 'rawVolumeRatio', 'projectedVolumeRatio',
+  'volumeProvisional', 'pullbackDetected', 'ma10Reclaimed',
   'signedEfficiencyRatio10D', 'trendCandidate', 'priorCompression', 'compressionBreakout',
   'trendResume', 'r2Quality', 'momentumQuality', 'return10DQuality', 'return20DQuality',
   'drawdownQuality', 'rs5DQuality', 'rs10DQuality', 'rs20DQuality',
@@ -114,7 +134,7 @@ export type RankingFeatureKey = typeof RANKING_FEATURE_KEYS[number];
 export type TrendRankingFeatures = Partial<Record<RankingFeatureKey, number | boolean | null>>;
 
 export interface TrendRankingSnapshot extends Pick<TrendSnapshot,
-  'code' | 'name' | 'rank' | 'trendDurationDays' | 'trendLifecycle' | 'fragilityScore' | 'alphaScore'> {
+  'code' | 'name' | 'rank' | 'trendDurationDays' | 'trendLifecycle' | 'fragilityScore' | 'alphaScore' | 'entryScore' | 'entryType'> {
   state: TrendState | null;
   trendScore: number | null;
   rsScore: number | null;

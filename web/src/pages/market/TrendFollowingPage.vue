@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { alphaVersionLabel } from '@/utils/trendFollowing';
 import { exportExcel, type ExcelColumn } from '@/utils/excelExport';
 import { forwardReturnColumns, useForwardReturns } from '@/composables/useForwardReturns';
 import { parseDate } from '@internationalized/date';
@@ -88,12 +89,26 @@ const detailError = ref<ParsedApiError | null>(null);
 const rankingDetailTrigger = ref<{ code: string; el: HTMLElement | null } | null>(null);
 const alphaContributions = computed(() => {
   const alpha = detail.value?.latest.scoreBreakdown.alpha as TrendAlphaBreakdown | undefined;
-  if (alpha?.version !== 2) return [];
+  if (!alpha) return [];
   return ['trend', 'rs', 'setup', 'path'].map(key => ({
     key, value: alpha.components[key], weight: alpha.weights[key], contribution: alpha.contributions[key],
   }));
 });
 
+const entryBranches = computed(() => {
+  const entry = detail.value?.latest.features.entryBreakdown;
+  return entry ? [{ label: 'BREAKOUT', data: entry.breakout }, { label: 'PULLBACK_RESUME', data: entry.resume }] : [];
+});
+const entryComponentLabels: Record<string, string> = {
+  breakout: 'Breakout Quality', extension: 'Extension Quality', clv: 'CLV Quality',
+  volume: 'Volume Quality', rs: 'RS Quality', path: 'Path Quality', fragility: 'Fragility Quality',
+  reclaim: 'Reclaim Quality', pullbackDepth: 'Pullback Depth Quality', distance: 'MA20 Distance Quality',
+};
+const entryCheckLabels: Record<string, string> = {
+  rsScore: 'RS门槛', alphaScore: 'Alpha门槛', pathScore: 'Path门槛', trendScore: 'Trend门槛',
+  ma20Rising: 'MA20上升', rs10Positive: 'RS10为正', fragility: 'Fragility门槛',
+  breakout: '突破形态', extension: 'MA20距离', clv: '收盘位置', resume: '回踩恢复', structure: '均线结构',
+};
 const historyLoading = ref(false);
 const historyError = ref<ParsedApiError | null>(null);
 let detailRequestId = 0;
@@ -104,32 +119,38 @@ const rankingColumns = [
   { key: 'rank', label: 'Alpha Rank', group: 'Core', format: 'number', description: descriptions.rank },
   { key: 'name', label: '股票名称', group: 'Core', format: 'text', description: undefined },
   { key: 'state', label: 'State', group: 'Core', format: 'text', description: descriptions.state },
+  { key: 'alphaScore', label: 'Alpha Score', group: 'Core', format: 'score', description: descriptions.alpha },
+  { key: 'entryScore', label: 'Entry Score', group: 'Core', format: 'score', description: descriptions.entry },
+  { key: 'entryType', label: 'Entry Type', group: 'Core', format: 'text', description: descriptions.entry },
+  { key: 'trendScore', label: 'Trend Score', group: 'Core', format: 'score', description: descriptions.trend },
+  { key: 'rsScore', label: 'RS Score', group: 'Core', format: 'score', description: descriptions.relativeStrength },
+  { key: 'setupScore', label: 'Setup Score', group: 'Core', format: 'score', description: descriptions.breakout },
+  { key: 'pathScore', label: 'Path Score', group: 'Core', format: 'score', description: descriptions.path },
+  { key: 'distanceFromMa20', label: 'Distance From MA20', group: 'Core', format: 'percent', description: descriptions.movingAverage },
+  { key: 'atrPercent', label: 'ATR %', group: 'Core', format: 'percent', description: descriptions.atrPercent },
+  { key: 'fragilityScore', label: 'Fragility', group: 'Core', format: 'score', description: '0–100；越高表示内部恶化越快。历史不足显示 —，并不代表稳定。' },
+  { key: 'closeLocationValue', label: 'CLV', group: 'Core', format: 'ratio', description: descriptions.clv },
   ...forwardReturnColumns,
   { key: 'trendLifecycle', label: 'Lifecycle / Age', group: 'Core', format: 'number', description: '趋势阶段与持续交易日数。MATURE 表示趋势成熟阶段。' },
   { key: 'rankChange5D', label: '排名趋势', group: 'Core', format: 'number', description: descriptions.rankChange },
   { key: 'referencePrice', label: 'Reference Price', group: 'Core', format: 'price', description: descriptions.reference },
-  { key: 'alphaScore', label: 'Alpha Score', group: 'Alpha', format: 'score', description: descriptions.alpha },
   { key: 'alphaTrendContribution', label: 'Trend Contribution', group: 'Alpha', format: 'score', description: descriptions.alpha },
   { key: 'alphaRsContribution', label: 'RS Contribution', group: 'Alpha', format: 'score', description: descriptions.alpha },
   { key: 'alphaSetupContribution', label: 'Setup Contribution', group: 'Alpha', format: 'score', description: descriptions.alpha },
   { key: 'alphaPathContribution', label: 'Path Contribution', group: 'Alpha', format: 'score', description: descriptions.alpha },
-  { key: 'trendScore', label: 'Trend Score', group: 'Trend', format: 'score', description: descriptions.trend },
   { key: 'weightedSlopePercentile', label: 'Slope Percentile 15D', group: 'Trend', format: 'score', description: descriptions.slopePercentile },
   { key: 'r2Quality', label: 'R² Quality', group: 'Trend', format: 'score', description: descriptions.r2Quality },
   { key: 'momentumQuality', label: 'Momentum Quality', group: 'Trend', format: 'score', description: descriptions.momentumQuality },
   { key: 'return10DQuality', label: 'Return 10D Quality', group: 'Trend', format: 'score', description: descriptions.returnQuality },
   { key: 'return20DQuality', label: 'Return 20D Quality', group: 'Trend', format: 'score', description: descriptions.returnQuality },
   { key: 'drawdownQuality', label: 'Drawdown Quality', group: 'Trend', format: 'score', description: descriptions.drawdownQuality },
-  { key: 'rsScore', label: 'RS Score', group: 'RS', format: 'score', description: descriptions.relativeStrength },
   { key: 'rs5DQuality', label: 'RS 5D Quality', group: 'RS', format: 'score', description: descriptions.rsQuality },
   { key: 'rs10DQuality', label: 'RS 10D Quality', group: 'RS', format: 'score', description: descriptions.rsQuality },
   { key: 'rs20DQuality', label: 'RS 20D Quality', group: 'RS', format: 'score', description: descriptions.rsQuality },
-  { key: 'setupScore', label: 'Setup Score', group: 'Setup', format: 'score', description: descriptions.breakout },
   { key: 'breakoutQuality', label: 'Breakout Quality', group: 'Setup', format: 'score', description: descriptions.breakout },
   { key: 'extensionQuality', label: 'Extension Quality', group: 'Setup', format: 'score', description: descriptions.breakout },
   { key: 'volumeQuality', label: 'Volume Quality', group: 'Setup', format: 'score', description: descriptions.breakout },
   { key: 'compressionQuality', label: 'Compression Quality', group: 'Setup', format: 'score', description: descriptions.breakout },
-  { key: 'pathScore', label: 'Path Score', group: 'Path', format: 'score', description: descriptions.path },
   { key: 'concentrationQuality', label: 'Concentration Quality', group: 'Path', format: 'score', description: descriptions.concentration },
   { key: 'volatilityQuality', label: 'Volatility Quality', group: 'Path', format: 'score', description: descriptions.expansion },
   { key: 'downsideControlQuality', label: 'Downside Control Quality', group: 'Path', format: 'score', description: descriptions.downside },
@@ -156,10 +177,6 @@ const rankingColumns = [
   { key: 'ma20', label: 'MA20', group: 'Signals / Explain', format: 'score', description: descriptions.movingAverage },
   { key: 'ma10Slope', label: 'MA10 Slope', group: 'Signals / Explain', format: 'percent', description: descriptions.movingAverage },
   { key: 'ma20Slope', label: 'MA20 Slope', group: 'Signals / Explain', format: 'percent', description: descriptions.movingAverage },
-  { key: 'distanceFromMa20', label: 'Distance From MA20', group: 'Signals / Explain', format: 'percent', description: descriptions.movingAverage },
-  { key: 'fragilityScore', label: 'Fragility', group: 'Risk / Health', format: 'score', description: '0–100；越高表示内部恶化越快。历史不足显示 —，并不代表稳定。' },
-  { key: 'atr', label: 'ATR', group: 'Risk / Health', format: 'score', description: descriptions.atr },
-  { key: 'trendQuality', label: 'Trend Quality', group: 'Risk / Health', format: 'score', description: undefined },
   { key: 'trendAcceleration', label: 'Trend Acceleration', group: 'Risk / Health', format: 'score', description: undefined },
 ] as const;
 const rankingGroups = [...new Set(rankingColumns.map(column => column.group))].map(label => ({
@@ -185,7 +202,7 @@ const detailMode = ref<ResearchDataMode>('official');
 
 const scope = computed(() => market.value === 'CN' ? '沪深300 + 中证500' : 'S&P 500');
 const ITEM_SORT_KEYS = ['rank', 'name', 'state', 'setup', 'alphaScore', 'trendScore', 'rsScore',
-  'referencePrice', 'atr', 'fragilityScore'] as const;
+  'referencePrice', 'fragilityScore', 'entryScore', 'entryType'] as const;
 type ItemSortKey = Extract<SortKey, typeof ITEM_SORT_KEYS[number]>;
 type RankingColumnFeatureKey = Extract<SortKey, RankingFeatureKey>;
 function isItemSortKey(key: SortKey): key is ItemSortKey {
@@ -208,6 +225,8 @@ function sortValue(item: TrendRankingSnapshot, key: SortKey): string | number | 
 }
 function rankingCell(item: TrendRankingSnapshot, column: typeof rankingColumns[number]) {
   const value = sortValue(item, column.key);
+  if (column.key === 'volumeRatio' && item.features.volumeProvisional) return '盘中估算 —';
+  if (column.key === 'volumeQuality' && item.features.volumeProvisional) return `${value == null ? '—' : score(Number(value))}（暂定）`;
   if (value == null) return '—';
   if (typeof value === 'boolean') return value ? '是' : '否';
   if (typeof value === 'string') return value;
@@ -238,7 +257,8 @@ async function exportRanking() {
       if (column.key === 'state') return [stateText(item.state)];
       if (column.key === 'trendLifecycle') return [item.trendLifecycle, item.trendDurationDays];
       if (column.key === 'rankChange5D') return [item.rankChange1D, item.rankChange3D, item.rankChange5D];
-      if (column.key === 'alphaScore') return [item.alphaScore, item.features.alphaVersion === 2 ? 'V2' : 'V1'];
+      if (column.key === 'alphaScore') return [item.alphaScore, alphaVersionLabel(item.features.alphaVersion as number | null | undefined)];
+      if (column.key === 'volumeRatio' && item.features.volumeProvisional === true) return [null];
       return [sortValue(item, column.key)];
     }));
     await exportExcel(`趋势分析_${market.value}_${summary.value.tradeDate}_${dataMode.value}.xlsx`, '趋势分析', columns, rows);
@@ -952,7 +972,7 @@ onMounted(async () => {
                       </div>
                     </template>
                     <template v-else-if="column.key === 'alphaScore'">
-                      {{ score(item.alphaScore) }}<span class="block text-xs font-normal text-muted-foreground">{{ item.features.alphaVersion === 2 ? 'V2' : 'V1' }}</span>
+                      {{ score(item.alphaScore) }}<span class="block text-xs font-normal text-muted-foreground">{{ alphaVersionLabel(item.features.alphaVersion as number | null | undefined) }}</span>
                     </template>
                     <template v-else>
                       {{ rankingCell(item, column) }}
@@ -1033,7 +1053,6 @@ onMounted(async () => {
             <div>Trend Age<strong class="block">{{ detail.latest.trendDurationDays == null ? '—' : `${detail.latest.trendDurationDays}D` }}</strong></div>
             <div>Lifecycle<strong class="block">{{ detail.latest.trendLifecycle ?? '—' }}</strong></div>
             <div>Fragility<strong class="block">{{ score(detail.latest.fragilityScore) }} / 100</strong></div>
-            <div>Trend Quality<strong class="block">{{ score(detail.latest.features.trendQuality) }}</strong></div>
             <div>Acceleration<strong class="block">{{ score(detail.latest.features.trendAcceleration) }}</strong></div>
             <div>Signed Efficiency<strong class="block">{{ score(detail.latest.features.signedEfficiencyRatio10D) }}</strong></div>
           </div>
@@ -1087,7 +1106,7 @@ onMounted(async () => {
             class="grid grid-cols-2 gap-3 text-sm"
             data-testid="trend-path-detail"
           >
-            <div>Alpha {{ detail.latest.features.alphaVersion === 2 ? 'V2' : 'V1' }}<strong class="block">{{ score(detail.latest.alphaScore) }}</strong></div>
+            <div>Alpha {{ alphaVersionLabel(detail.latest.features.alphaVersion) }}<strong class="block">{{ score(detail.latest.alphaScore) }}</strong></div>
             <div>
               <IndicatorLabel
                 label="Path Score"
@@ -1221,8 +1240,39 @@ onMounted(async () => {
                   label="Volume / Compression"
                   :description="descriptions.volumeCompression"
                   wrap
-                /><strong class="block">{{ score(detail.latest.features.volumeRatio) }} / {{ detail.latest.features.priorCompression ? '是' : '否' }}</strong>
+                /><strong class="block">{{ detail.latest.features.volumeProvisional ? '盘中原始量比（非全天估算）' : '正式量比' }} {{ score(detail.latest.features.volumeRatio) }} / {{ detail.latest.features.priorCompression ? '是' : '否' }}</strong>
               </div>
+            </div>
+          </section>
+          <section>
+            <h3 class="mb-2 font-semibold">
+              Entry 买点研究
+            </h3>
+            <p>{{ detail.latest.entryType ?? '—' }} · {{ score(detail.latest.entryScore) }}</p>
+            <p class="text-sm text-muted-foreground">
+              {{ descriptions.entry }}
+            </p>
+            <p v-if="!entryBranches.length">
+              —
+            </p>
+            <div
+              v-for="branch in entryBranches"
+              :key="branch.label"
+              class="mt-3 rounded border p-3 text-sm"
+            >
+              <strong>{{ branch.label }} · {{ score(branch.data.score) }}</strong>
+              <p>连续质量分 {{ score(branch.data.qualityScore) }}；条件未全部通过时 Entry 为 0。</p>
+              <div
+                v-for="(value, key) in branch.data.components"
+                :key="key"
+                class="flex justify-between gap-3"
+              >
+                <span>{{ entryComponentLabels[key] ?? key }}</span>
+                <span>{{ score(value) }} × {{ pct(branch.data.normalizedWeights[key]) }} = {{ score(branch.data.contributions[key]) }}</span>
+              </div>
+              <p class="mt-2 text-muted-foreground">
+                {{ Object.entries(branch.data.checks).map(([key, pass]) => `${entryCheckLabels[key] ?? key}: ${pass ? '通过' : '未通过'}`).join(' · ') }}
+              </p>
             </div>
           </section>
           <section>
@@ -1232,6 +1282,13 @@ onMounted(async () => {
               wrap
             />
             <strong class="block">{{ price(detail.latest.atr) }}</strong>
+            <p>ATR % {{ pct(detail.latest.features.atrPercent) }} · CLV {{ score(detail.latest.features.closeLocationValue) }}</p>
+            <p
+              v-if="detail.latest.features.volumeProvisional"
+              class="text-sm text-muted-foreground"
+            >
+              盘中估算量比不可用；Volume Quality 暂定，Entry 排除成交量项。
+            </p>
           </section>
           <section>
             <h3 class="mb-2 font-semibold">

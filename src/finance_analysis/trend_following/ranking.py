@@ -28,12 +28,11 @@ def rank_candidates(rows: list[dict[str, Any]], config: TrendFollowingConfig = D
     for row in rows:
         row["trend_resume"] = bool(
             row["trend_resume_base"]
-            and not row["breakout_10d"]
+            and not any(row[key] for key in ("breakout_10d", "breakout_20d", "compression_breakout"))
             and row["rs_10d"] > 0
-            and row["return_10d_percentile"] >= 60.0
         )
         if row["trend_resume"]:
-            row["setup"] = "TREND_RESUME"
+            row["setup"] = "PULLBACK_RESUME"
             row["valid_setup"] = True
         row["trend_score"], trend = calculate_trend_score(row, config)
         row["rs_score"], rs = calculate_rs_score(row, config)
@@ -41,13 +40,9 @@ def rank_candidates(rows: list[dict[str, Any]], config: TrendFollowingConfig = D
         row["setup_score"] = row["breakout_score"]
         row["path_score"], path = calculate_path_score(row, config)
         row["downside_control_quality"] = path["downside_control_quality"]
-        row["alpha_version"] = 2
+        row["alpha_version"] = 3
         row["alpha_score"], alpha = calculate_alpha_score(row, config)
         row["score_breakdown"] = {"trend": trend, "rs": rs, "setup": breakout, "path": path, "alpha": alpha}
-        if config.compare_alpha_v1:
-            from finance_analysis.trend_following.scoring_v1 import compare_score
-
-            row["score_breakdown"]["alpha_v1"] = compare_score(row)
         row["is_candidate"] = bool(
             row["trend_candidate"]
             and row["trend_score"] >= config.candidate_trend_score

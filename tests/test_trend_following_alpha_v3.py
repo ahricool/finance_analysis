@@ -1,6 +1,5 @@
-"""Alpha V2 curve, path and comparison regressions, entirely offline."""
+"""Alpha V3 curve, path and comparison regressions, entirely offline."""
 
-from dataclasses import replace
 from datetime import date, timedelta
 import json
 import math
@@ -115,9 +114,9 @@ def test_volume_can_only_contribute_2_25_alpha_points_and_boolean_compression_no
 
 def test_r2_is_linear_and_has_material_trend_alpha_contribution():
     low, high = scored(weighted_r2=0.2), scored(weighted_r2=0.95)
-    assert high["trend_score"] - low["trend_score"] == pytest.approx(22.5)
-    assert high["alpha_score"] - low["alpha_score"] == pytest.approx(9)
-    assert calculate_trend_score(high)[1]["weighted_r2"] == 95
+    assert high["trend_score"] - low["trend_score"] == pytest.approx(22.5 * sigmoid(high["raw_weighted_slope"] / DEFAULT_CONFIG.slope_direction_scale), abs=.0001)
+    assert high["alpha_score"] - low["alpha_score"] == pytest.approx(9 * sigmoid(high["raw_weighted_slope"] / DEFAULT_CONFIG.slope_direction_scale), abs=.0001)
+    assert calculate_trend_score(high)[1]["weighted_r2"] == pytest.approx(95 * sigmoid(high["raw_weighted_slope"] / DEFAULT_CONFIG.slope_direction_scale))
 
 
 def test_extension_compression_and_path_curves():
@@ -144,10 +143,10 @@ def test_extension_compression_and_path_curves():
         assert abs(a - b) < 0.001
 
 
-def test_smooth_trend_beats_equal_return_jump_and_debug_v1_is_isolated():
+def test_smooth_trend_beats_equal_return_jump():
     a, b = path_fixture("smooth"), path_fixture("jump")
     assert a["return_20d"] == pytest.approx(b["return_20d"])
-    rows = rank_candidates([a, b], replace(DEFAULT_CONFIG, compare_alpha_v1=True))
+    rows = rank_candidates([a, b])
     assert rows[0]["code"] == "smooth"
     assert a["path_score"] > b["path_score"] + 30
     # Two-row percentile extremes reward B's steeper recent slope; compare R² at equal slope.
@@ -155,19 +154,18 @@ def test_smooth_trend_beats_equal_return_jump_and_debug_v1_is_isolated():
     b_trend = calculate_trend_score({**b, "weighted_slope_percentile": 50})[0]
     assert a_trend > b_trend
     assert a["alpha_score"] > b["alpha_score"] + 10
-    assert a["score_breakdown"]["alpha_v1"]["score"] < b["score_breakdown"]["alpha_v1"]["score"]
     assert a["positive_return_concentration"] < b["positive_return_concentration"]
     assert a["atr_expansion_ratio"] < b["atr_expansion_ratio"]
     for row in rows:
+        assert row["alpha_version"] == 3
         alpha = row["score_breakdown"]["alpha"]
+        assert alpha["version"] == 3
         assert sum(alpha["contributions"].values()) == pytest.approx(row["alpha_score"], abs=0.0001)
         assert alpha["weights"] == {"trend": 0.4, "rs": 0.25, "setup": 0.15, "path": 0.2}
-        assert "alpha_v1" in row["score_breakdown"]
         json.dumps(row, allow_nan=False)
     # Controlling every non-path component still prefers the smooth path.
     controlled = {**b, "trend_score": a["trend_score"], "rs_score": a["rs_score"], "setup_score": a["setup_score"]}
     assert calculate_alpha_score(a)[0] > calculate_alpha_score(controlled)[0]
-    assert "alpha_v1" not in scored()["score_breakdown"]
 
 
 @pytest.mark.parametrize("step", [0, -0.5, 0.5])
@@ -204,7 +202,7 @@ def test_path_features_use_ten_simple_returns_and_compression_excludes_today():
     assert row["positive_return_concentration"] == pytest.approx(0.5)
     assert row["avg_positive_return"] == pytest.approx(0.02)
     assert row["avg_negative_return_abs"] == pytest.approx(0.015)
-    assert row["downside_upside_ratio"] == pytest.approx(0.75)
+    assert row["downside_upside_ratio"] == pytest.approx(.03 / .14)
     last = bars[-1]
     bars[-1] = DailyBar(last.trade_date, last.open, last.high + 20, last.low - 20, last.close, last.volume)
     expanded = calculate_features(bars)

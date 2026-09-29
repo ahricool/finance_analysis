@@ -11,8 +11,8 @@ describe('trendFollowingApi', () => {
     vi.mocked(apiClient.get).mockResolvedValue({ data: {
       trade_date: '2026-08-28', market: 'US', items: [{ code: 'AAPL.US', alpha_score: 82,
         score_breakdown: { trend: { weighted_r2: 90 }, rs: { score: 57 }, setup: { volume_quality: 80 },
-          path: { concentration_quality: 88 }, alpha: { version: 2, components: { trend: 80, rs: 70, setup: 60, path: 90 } } },
-        features: { alpha_version: 2, path_score: 95, setup_score: 80,
+          path: { concentration_quality: 88 }, alpha: { version: 3, components: { trend: 80, rs: 70, setup: 60, path: 90 } } },
+        features: { alpha_version: 3, path_score: 95, setup_score: 80,
           positive_return_concentration: .3, atr_expansion_ratio: 1.1, downside_control_quality: 90, return_5d: 0.03, return_10d: 0.06, return_20d: 0.1, weighted_r2: 0.9,
           rs_5d: 0.01, rs_10d: 0.02, trend_candidate: true, trend_resume: false } }],
       changes: {
@@ -33,7 +33,7 @@ describe('trendFollowingApi', () => {
     });
     expect(result.items[0]).toMatchObject({ alphaScore: 82,
       features: {
-      alphaVersion: 2, pathScore: 95, setupScore: 80, positiveReturnConcentration: .3,
+      alphaVersion: 3, pathScore: 95, setupScore: 80, positiveReturnConcentration: .3,
       atrExpansionRatio: 1.1, downsideControlQuality: 90, return5D: 0.03, return10D: 0.06, return20D: 0.1, weightedR2: 0.9,
       rs5D: 0.01, rs10D: 0.02, trendCandidate: true, trendResume: false,
       r2Quality: 90, volumeQuality: 80, concentrationQuality: 88,
