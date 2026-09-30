@@ -163,3 +163,10 @@ Alpha V3 的公式与参数见 [trend-alpha-v3.md](trend-alpha-v3.md)。
 `signedEfficiencyRatio10D` 等解释字段归入 Signals / Explain。完整股票池先经 State
 筛选、搜索和排序，再截取虚拟滚动行；缺失值始终置后。
 表格可横向滚动，股票名称固定在左侧。
+
+## 独立箱体结构研究
+
+结构机会与趋势排名共用现有页面及Official/Preview链路。箱体只使用T之前的15/20/30/40/60根正式日线，
+服务计算窗口至少61根，Box归一化使用昨日ATR20；新增指标写现有features JSON，无schema变更。
+不改变Alpha、Candidate、State、Entry或生命周期。公式、字段及参数见[trend-box-structure.md](trend-box-structure.md)。
+正式Ranking缓存当前为v8；旧快照缺少Box字段时不在GET补算，需要既有历史重算流程重新生成。

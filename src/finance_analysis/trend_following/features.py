@@ -182,7 +182,7 @@ def calculate_features(
     )
     avg_positive = float(np.mean(positive)) if len(positive) else 0.0
     avg_negative = float(np.mean(negative)) if len(negative) else 0.0
-    return {
+    result = {
         "atr_contraction_ratio": atr_contraction_ratio,
         "range_contraction_ratio": range_contraction_ratio,
         "atr5": atr5,
@@ -244,6 +244,11 @@ def calculate_features(
         "valid_setup": bool(breakout_10 or breakout_20 or compression_breakout),
         "setup": setup,
     }
+
+    from .box import calculate_box_structure
+
+    result.update(calculate_box_structure(ordered, prior_atr20, result, config))
+    return result
 
 
 def finite(value: float, fallback: float = 0.0) -> float:

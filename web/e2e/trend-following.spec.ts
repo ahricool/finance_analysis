@@ -7,7 +7,7 @@ const snapshot = {
   trendScore: 80, rsScore: 78, breakoutScore: 80, referencePrice: 25, atr: .5,
   trendDurationDays: 13, trendLifecycle: 'EXPANSION', fragilityScore: 18,
   fragilityBreakdown: { accelerationDecay: 12, qualityDecay: 15, efficiencyDecay: 20, relativeStrengthDecay: 18, rankDecay: 24, priceStructureRisk: 15 },
-  features: { atrPercent: .02, previousLow10: 24,
+  features: { boxState: 'BOX_READY', boxQuality: 88, boxWindowDays: 30, boxWidthPct: .084, atrPercent: .02, previousLow10: 24,
       riskSizing: { riskBudgetPct: .01, maxPositionPct: .25, atrMultiple: 2.5,
         atrStopPct: .05, structureStopPct: .04, stopLossPct: .05, stopPrice: 23.75,
         suggestedPositionPct: .20, stopBasis: 'ATR' },
@@ -81,6 +81,13 @@ for (const width of [1280, 1440, 1920]) {
       expect(await download.failure()).toBeNull();
       await download.saveAs(testInfo.outputPath('ranking.xlsx'));
 
+      await page.getByTestId('trend-view-box').click();
+      await expect(page.getByTestId('trend-row').first()).toContainText('待突破');
+      await expect(page.getByTestId('trend-row').first()).toContainText('30d');
+      await page.getByTestId('trend-row').first().click();
+      await expect(page.getByTestId('trend-box-structure')).toContainText('Box Structure');
+      await page.keyboard.press('Escape');
+      await page.getByTestId('trend-view-ranking').click();
       const row = page.getByTestId('trend-row').first();
       await expect(row.locator('[data-column="forwardReturn3D"]')).toHaveText('3.0%');
       await expect(row.locator('[data-column="forwardReturn5D"]')).toHaveText('-2.0%');

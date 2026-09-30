@@ -14,7 +14,35 @@ export interface TrendRiskSizing {
   stopBasis: 'ATR' | 'STRUCTURE';
 }
 
-export interface TrendFeatures {
+export type BoxState = 'NONE' | 'BOX_FORMING' | 'BOX_READY' | 'BOX_BREAKOUT';
+export interface BoxFeatures {
+  boxState?: BoxState | null;
+  boxStartDate?: string | null;
+  boxEndDate?: string | null;
+  boxQuality?: number | null;
+  boxWindowDays?: number | null;
+  boxHigh?: number | null;
+  boxLow?: number | null;
+  boxMid?: number | null;
+  boxWidthPct?: number | null;
+  boxSlope?: number | null;
+  boxSlopeAtr?: number | null;
+  boxRSquared?: number | null;
+  boxOccupancy?: number | null;
+  boxUpperTouches?: number | null;
+  boxLowerTouches?: number | null;
+  distanceToBoxHighPct?: number | null;
+  distanceToBoxHighAtr?: number | null;
+  boxBreakoutDistanceAtr?: number | null;
+  boxAtr20?: number | null;
+  boxWidthQuality?: number | null;
+  boxFlatnessQuality?: number | null;
+  boxOccupancyQuality?: number | null;
+  boxCompressionQuality?: number | null;
+  boxTouchQuality?: number | null;
+}
+
+export interface TrendFeatures extends BoxFeatures {
   riskSizing?: TrendRiskSizing | null;
   previousLow10?: number | null;
   entryBreakdown?: { breakout: EntryBranchBreakdown; resume: EntryBranchBreakdown } | null;
@@ -130,6 +158,7 @@ export interface TrendSnapshot {
 export type TrendCandidate = Pick<TrendSnapshot, 'code' | 'name' | 'rank' | 'state' | 'alphaScore'>;
 
 export const RANKING_FEATURE_KEYS = [
+  'boxQuality', 'boxWindowDays', 'boxHigh', 'boxLow', 'boxMid', 'boxWidthPct', 'boxSlope', 'boxSlopeAtr', 'boxRSquared', 'boxOccupancy', 'boxUpperTouches', 'boxLowerTouches', 'distanceToBoxHighPct', 'distanceToBoxHighAtr', 'boxBreakoutDistanceAtr', 'boxAtr20', 'boxWidthQuality', 'boxFlatnessQuality', 'boxOccupancyQuality', 'boxCompressionQuality', 'boxTouchQuality',
   'alphaVersion', 'pathScore', 'setupScore', 'weightedR2', 'positiveReturnConcentration',
   'atrExpansionRatio', 'downsideControlQuality', 'downsideUpsideRatio',
   'rawWeightedSlope', 'weightedSlopePercentile', 'return5D', 'return10D', 'return20D',
@@ -145,7 +174,7 @@ export const RANKING_FEATURE_KEYS = [
   'alphaTrendContribution', 'alphaRsContribution', 'alphaSetupContribution', 'alphaPathContribution',
 ] as const;
 export type RankingFeatureKey = typeof RANKING_FEATURE_KEYS[number];
-export type TrendRankingFeatures = Partial<Record<RankingFeatureKey, number | boolean | null>>;
+export type TrendRankingFeatures = Partial<Record<RankingFeatureKey, number | boolean | null>> & BoxFeatures;
 
 export interface TrendRankingSnapshot extends Pick<TrendSnapshot,
   'code' | 'name' | 'rank' | 'trendDurationDays' | 'trendLifecycle' | 'fragilityScore' | 'alphaScore' | 'entryScore' | 'entryType'> {

@@ -83,22 +83,27 @@ export function mergeRankingFeatures(
   extras: TrendRankingFeatures = {},
 ): TrendRankingFeatures {
   const result: TrendRankingFeatures = {};
+  const scalars: Partial<Record<RankingFeatureKey, number | boolean | null>> = result;
   for (const key of RANKING_FEATURE_KEYS) {
     const extra = extras[key];
     if (typeof extra === 'number' && Number.isFinite(extra)) {
-      result[key] = extra;
+      scalars[key] = extra;
       continue;
     }
     if (typeof extra === 'boolean') {
-      result[key] = extra;
+      scalars[key] = extra;
       continue;
     }
     if (!(key in features)) continue;
     const raw = features[key];
-    if (typeof raw === 'number' && Number.isFinite(raw)) result[key] = raw;
-    else if (typeof raw === 'boolean') result[key] = raw;
-    else result[key] = null;
+    if (typeof raw === 'number' && Number.isFinite(raw)) scalars[key] = raw;
+    else if (typeof raw === 'boolean') scalars[key] = raw;
+    else scalars[key] = null;
   }
+  const state = features.boxState;
+  if ('boxState' in features) result.boxState = state === 'NONE' || state === 'BOX_FORMING' || state === 'BOX_READY' || state === 'BOX_BREAKOUT' ? state : null;
+  if ('boxStartDate' in features) result.boxStartDate = optionalText(features.boxStartDate);
+  if ('boxEndDate' in features) result.boxEndDate = optionalText(features.boxEndDate);
   return result;
 }
 

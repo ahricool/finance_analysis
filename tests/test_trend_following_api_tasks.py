@@ -490,3 +490,26 @@ def test_entry_ranking_projection_and_sort(monkeypatch):
     assert first["features"]["projected_volume_ratio"] is None
     assert second["entry_score"] == 0 and second["entry_type"] == "NONE"
     assert "trend_quality" not in first["features"]
+
+
+@pytest.mark.parametrize('sort_by', [
+    'box_quality', 'box_window_days', 'box_width_pct', 'distance_to_box_high_pct',
+    'distance_to_box_high_atr', 'box_breakout_distance_atr',
+])
+def test_box_ranking_filter_sort_before_limit_and_cache_isolation(monkeypatch, sort_by):
+    class Repository(FakeRepository):
+        def dashboard_rows(self, trade_date):
+            return [{'code': f'BOX{i}.US', 'rank': i, 'alpha_score': 100 - i,
+                     'box_state': state, sort_by: value}
+                    for i, state, value in [(1, 'BOX_READY', 75), (2, 'BOX_READY', 90), (3, 'NONE', 99)]]
+
+    monkeypatch.setattr(trend_following, 'TrendFollowingRepository', Repository)
+    monkeypatch.setattr(trend_following.RankingCache, 'load', lambda self: pytest.fail('filtered cache read'))
+    monkeypatch.setattr(trend_following.RankingCache, 'save', lambda *args: pytest.fail('filtered cache write'))
+    payload = json.loads(trend_following.ranking(TRADE_DATE, sort_by, 1, None, 'US', 'BOX_READY').body)
+    assert len(payload['items']) == 1
+    assert payload['items'][0]['code'] == 'BOX2.US'
+    assert payload['items'][0]['features']['box_state'] == 'BOX_READY'
+    assert payload['items'][0]['features'][sort_by] == 90
+    payload = json.loads(trend_following.ranking(TRADE_DATE, 'alpha_score', None, None, 'US', 'BOX_BREAKOUT').body)
+    assert payload['items'] == []

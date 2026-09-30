@@ -115,7 +115,7 @@ let detailRequestId = 0;
 const detailChartHistory = computed(() => detail.value
   ? buildDetailChartHistory(detail.value.history, detail.value.latest, detailMode.value === 'preview')
   : []);
-const rankingColumns = [
+const trendColumns = [
   { key: 'rank', label: 'Alpha Rank', group: 'Core', format: 'number', description: descriptions.rank },
   { key: 'name', label: '股票名称', group: 'Core', format: 'text', description: undefined },
   { key: 'state', label: 'State', group: 'Core', format: 'text', description: descriptions.state },
@@ -179,10 +179,65 @@ const rankingColumns = [
   { key: 'ma20Slope', label: 'MA20 Slope', group: 'Signals / Explain', format: 'percent', description: descriptions.movingAverage },
   { key: 'trendAcceleration', label: 'Trend Acceleration', group: 'Risk / Health', format: 'score', description: undefined },
 ] as const;
-const rankingGroups = [...new Set(rankingColumns.map(column => column.group))].map(label => ({
-  label, count: rankingColumns.filter(column => column.group === label).length,
-}));
-type SortKey = typeof rankingColumns[number]['key'];
+const boxColumns = [
+  { key: 'name', label: '股票名称', format: 'text' },
+  { key: 'boxState', label: '状态', format: 'text' },
+  { key: 'boxQuality', label: 'Box Quality', format: 'score' },
+  { key: 'boxWindowDays', label: 'Box Days', format: 'number' },
+  { key: 'boxWidthPct', label: 'Box Width', format: 'percent' },
+  { key: 'distanceToBoxHighPct', label: '距箱顶', format: 'percent' },
+  { key: 'boxBreakoutDistanceAtr', label: '突破距离', format: 'ratio' },
+  { key: 'boxUpperTouches', label: '上沿测试', format: 'number' },
+  { key: 'rsScore', label: 'RS Score', format: 'score' },
+  { key: 'trendScore', label: 'Trend Score', format: 'score' },
+  { key: 'alphaScore', label: 'Alpha', format: 'score' },
+  { key: 'volumeRatio', label: 'Volume', format: 'ratio' },
+] as const;
+type RankingColumn = typeof trendColumns[number] | (typeof boxColumns[number] & { group: string; description?: string });
+type SortKey = RankingColumn['key'];
+const activeView = ref<'trend' | 'box'>('trend');
+const rankingColumns = computed<readonly RankingColumn[]>(() => activeView.value === 'trend'
+  ? trendColumns : boxColumns.map(column => ({ ...column, group: '箱体结构', description: undefined })));
+const rankingGroups = computed(() => [...new Set(rankingColumns.value.map(column => column.group))].map(label => ({
+  label, count: rankingColumns.value.filter(column => column.group === label).length,
+})));
+const boxFilter = ref('opportunities');
+const boxFilters = [
+  { value: 'opportunities', label: '全部机会' }, { value: 'BOX_BREAKOUT', label: '刚突破' },
+  { value: 'BOX_READY', label: '待突破' }, { value: 'BOX_FORMING', label: '形成中' },
+];
+function boxStateText(state: unknown) {
+  return state === 'BOX_BREAKOUT' ? '刚突破' : state === 'BOX_READY' ? '待突破' : state === 'BOX_FORMING' ? '整理中' : '—';
+}
+const boxPriority = (item: TrendRankingSnapshot) => item.features.boxState === 'BOX_BREAKOUT' ? 0
+  : item.features.boxState === 'BOX_READY' ? 1 : item.features.boxState === 'BOX_FORMING' ? 2 : 3;
+function defaultBoxSort(left: TrendRankingSnapshot, right: TrendRankingSnapshot) {
+  return boxPriority(left) - boxPriority(right)
+    || (right.features.boxQuality ?? -1) - (left.features.boxQuality ?? -1)
+    || right.alphaScore - left.alphaScore || left.code.localeCompare(right.code);
+}
+const boxDetailFields = [
+  ['boxQuality', 'Box Quality', 'score'], ['boxWindowDays', '周期', 'days'],
+  ['boxHigh', '箱顶', 'price'], ['boxLow', '箱底', 'price'], ['boxWidthPct', '宽度', 'percent'],
+  ['distanceToBoxHighPct', '距箱顶', 'distance'], ['boxBreakoutDistanceAtr', '突破 ATR', 'atr'],
+  ['boxUpperTouches', '上沿测试次数', 'count'], ['boxLowerTouches', '下沿测试次数', 'count'],
+  ['boxSlopeAtr', '窗口趋势 / ATR', 'score'], ['boxRSquared', 'R²', 'score'],
+  ['boxOccupancy', '内部占用', 'percent'], ['boxAtr20', '昨日 ATR20', 'price'],
+  ['boxWidthQuality', 'Width Quality', 'score'], ['boxFlatnessQuality', 'Flatness Quality', 'score'],
+  ['boxOccupancyQuality', 'Occupancy Quality', 'score'], ['boxCompressionQuality', 'Compression Quality', 'score'],
+  ['boxTouchQuality', 'Touch Quality', 'score'],
+] as const;
+function boxDetailValue(key: typeof boxDetailFields[number][0], format: string) {
+  const value = detail.value?.latest.features[key];
+  if (value == null) return '—';
+  if (format === 'distance') return pct(-value);
+  if (format === 'percent') return pct(value);
+  if (format === 'price') return price(value);
+  if (format === 'days') return `${value}d`;
+  if (format === 'count') return String(value);
+  if (format === 'atr') return `${value > 0 ? '+' : ''}${value.toFixed(2)} ATR`;
+  return score(value);
+}
 type StateFilter = 'all' | 'CANDIDATE' | 'TRENDING' | 'WEAKENING' | 'BROKEN';
 const rankingSearch = ref('');
 const stateFilter = ref<StateFilter>('all');
@@ -195,6 +250,10 @@ const stateFilters: Array<{ value: StateFilter; label: string }> = [
 ];
 const sortKey = ref<SortKey>('rank');
 const sortDirection = ref<'asc' | 'desc'>('asc');
+watch(activeView, view => {
+  sortKey.value = view === 'box' ? 'boxState' : 'rank';
+  sortDirection.value = 'asc';
+});
 let generation = 0;
 const marketOverviewRefreshKey = ref(0);
 const marketOverviewReady = ref(false);
@@ -212,6 +271,7 @@ function isRankingFeatureKey(key: SortKey): key is RankingColumnFeatureKey {
   return RANKING_FEATURE_KEYS.some(item => item === key);
 }
 function sortValue(item: TrendRankingSnapshot, key: SortKey): string | number | boolean | null {
+  if (key === 'boxState') return boxPriority(item);
   if (key.startsWith('forwardReturn')) return forwardReturn(item.code, key);
   if (key === 'trendLifecycle') return item.trendDurationDays;
   if (key === 'rankChange5D') return item.rankChange5D ?? item.rankChange3D ?? item.rankChange1D;
@@ -223,11 +283,16 @@ function sortValue(item: TrendRankingSnapshot, key: SortKey): string | number | 
   }
   return isRankingFeatureKey(key) ? rankingFeatureValue(item, key) : null;
 }
-function rankingCell(item: TrendRankingSnapshot, column: typeof rankingColumns[number]) {
+function rankingCell(item: TrendRankingSnapshot, column: RankingColumn) {
   const value = sortValue(item, column.key);
   if (column.key === 'volumeRatio' && item.features.volumeProvisional) return '盘中估算 —';
   if (column.key === 'volumeQuality' && item.features.volumeProvisional) return `${value == null ? '—' : score(Number(value))}（暂定）`;
   if (value == null) return '—';
+  if (column.key === 'boxState') return boxStateText(item.features.boxState);
+  if (column.key === 'boxWindowDays') return `${value}d`;
+  if (column.key === 'distanceToBoxHighPct') return pct(-Number(value));
+  if (column.key === 'boxBreakoutDistanceAtr') return `${Number(value) > 0 ? '+' : ''}${Number(value).toFixed(2)} ATR`;
+  if (column.key === 'boxUpperTouches') return String(value);
   if (typeof value === 'boolean') return value ? '是' : '否';
   if (typeof value === 'string') return value;
   if (column.format === 'percent') return pct(value);
@@ -243,7 +308,7 @@ async function exportRanking() {
   if (exporting.value || loading.value || refreshing.value || previewLoading.value || forwardLoading.value || !sortedItems.value.length) return;
   exporting.value = true;
   try {
-    const columns: ExcelColumn[] = rankingColumns.flatMap(column => {
+    const columns: ExcelColumn[] = rankingColumns.value.flatMap(column => {
       if (column.key === 'name') return [{ label: column.label }, { label: '代码' }];
       if (column.key === 'trendLifecycle') return [{ label: 'Lifecycle' }, { label: 'Age (D)', format: '0' }];
       if (column.key === 'rankChange5D') return ['1D', '3D', '5D'].map(period => ({ label: `Rank Δ ${period}`, format: '+0;-0;0' }));
@@ -252,9 +317,11 @@ async function exportRanking() {
         : column.format === 'r2' ? '0.000' : column.format === 'slope' ? '0.0000'
           : column.format === 'price' || column.format === 'ratio' ? '0.00' : column.key === 'rank' ? '0' : '0.0' }];
     });
-    const rows = sortedItems.value.map(item => rankingColumns.flatMap(column => {
+    const rows = sortedItems.value.map(item => rankingColumns.value.flatMap(column => {
       if (column.key === 'name') return [item.name, item.code];
       if (column.key === 'state') return [stateText(item.state)];
+      if (column.key === 'boxState') return [boxStateText(item.features.boxState)];
+      if (column.key === 'distanceToBoxHighPct') return [item.features.distanceToBoxHighPct == null ? null : -item.features.distanceToBoxHighPct];
       if (column.key === 'trendLifecycle') return [item.trendLifecycle, item.trendDurationDays];
       if (column.key === 'rankChange5D') return [item.rankChange1D, item.rankChange3D, item.rankChange5D];
       if (column.key === 'alphaScore') return [item.alphaScore, alphaVersionLabel(item.features.alphaVersion as number | null | undefined)];
@@ -278,13 +345,17 @@ function toggleSort(key: SortKey) {
 const filteredItems = computed(() => {
   const query = rankingSearch.value.trim().toLocaleLowerCase();
   return items.value.filter(item => {
-    if (stateFilter.value !== 'all' && item.state !== stateFilter.value) return false;
+    if (activeView.value === 'box') {
+      const state = item.features.boxState;
+      if (boxFilter.value === 'opportunities' ? state !== 'BOX_BREAKOUT' && state !== 'BOX_READY' : state !== boxFilter.value) return false;
+    } else if (stateFilter.value !== 'all' && item.state !== stateFilter.value) return false;
     return !query || item.code.toLocaleLowerCase().includes(query) || item.name.toLocaleLowerCase().includes(query);
   });
 });
 const { value: forwardReturn, error: forwardError, loading: forwardLoading, retry: retryForward } =
   useForwardReturns(items, market, () => summary.value.tradeDate, dataMode);
 const sortedItems = computed(() => [...filteredItems.value].sort((left, right) => {
+  if (activeView.value === 'box' && sortKey.value === 'boxState') return defaultBoxSort(left, right) * (sortDirection.value === 'asc' ? 1 : -1);
   const a = sortValue(left, sortKey.value);
   const b = sortValue(right, sortKey.value);
   if (a == null) return b == null ? 0 : 1;
@@ -798,9 +869,34 @@ onMounted(async () => {
         </CardContent>
       </Card>
 
+      <div
+        role="tablist"
+        aria-label="趋势研究视图"
+        data-testid="trend-view-tabs"
+        class="flex gap-2"
+      >
+        <Button
+          role="tab"
+          :aria-selected="activeView === 'trend'"
+          :variant="activeView === 'trend' ? 'secondary' : 'ghost'"
+          data-testid="trend-view-ranking"
+          @click="activeView = 'trend'"
+        >
+          趋势排名
+        </Button>
+        <Button
+          role="tab"
+          :aria-selected="activeView === 'box'"
+          :variant="activeView === 'box' ? 'secondary' : 'ghost'"
+          data-testid="trend-view-box"
+          @click="activeView = 'box'"
+        >
+          结构机会
+        </Button>
+      </div>
       <Card v-if="showingStrategyBody">
         <CardHeader class="flex-row flex-wrap items-center justify-between gap-3">
-          <div><CardTitle>趋势排名</CardTitle><CardDescription>{{ scope }} · 完整股票池筛选后再虚拟滚动</CardDescription></div>
+          <div><CardTitle>{{ activeView === 'box' ? '结构机会' : '趋势排名' }}</CardTitle><CardDescription>{{ scope }} · 完整股票池筛选后再虚拟滚动</CardDescription></div>
           <LoadingButton
             variant="outline"
             size="sm"
@@ -813,6 +909,7 @@ onMounted(async () => {
             导出 Excel
           </LoadingButton>
           <div
+            v-if="activeView === 'trend'"
             class="flex gap-1"
             aria-label="按趋势状态筛选"
             data-testid="trend-state-filter"
@@ -828,6 +925,29 @@ onMounted(async () => {
               {{ item.label }}
             </Button>
           </div>
+          <div
+            v-if="activeView === 'box'"
+            class="flex gap-1"
+            data-testid="box-state-filter"
+            aria-label="按箱体状态筛选"
+          >
+            <Button
+              v-for="item in boxFilters"
+              :key="item.value"
+              size="sm"
+              :variant="boxFilter === item.value ? 'secondary' : 'ghost'"
+              :aria-pressed="boxFilter === item.value"
+              @click="boxFilter = item.value"
+            >
+              {{ item.label }}
+            </Button>
+          </div>
+          <p
+            v-if="activeView === 'box'"
+            class="w-full text-xs text-muted-foreground"
+          >
+            独立结构研究信号，不参与 Alpha / Entry。默认显示刚突破与待突破；旧快照需重算后才有箱体结果。
+          </p>
           <label class="flex items-center gap-2 text-sm text-muted-foreground">搜索
             <input
               v-model="rankingSearch"
@@ -945,6 +1065,12 @@ onMounted(async () => {
                     <template v-else-if="column.key === 'name'">
                       <strong class="block">{{ item.name }}</strong><span class="font-mono text-xs text-muted-foreground">{{ item.code }}</span>
                     </template>
+                    <Badge
+                      v-else-if="column.key === 'boxState'"
+                      :variant="item.features.boxState === 'BOX_BREAKOUT' ? 'success' : item.features.boxState === 'BOX_READY' ? 'info' : 'outline'"
+                    >
+                      {{ boxStateText(item.features.boxState) }}
+                    </Badge>
                     <Badge
                       v-else-if="column.key === 'state'"
                       :variant="badgeVariant(item.state)"
@@ -1125,6 +1251,28 @@ onMounted(async () => {
               class="text-xs text-muted-foreground"
             >
               盘中建议基于当前临时日线，ATR 与建议止损/仓位在收盘前可能变化。
+            </p>
+          </section>
+          <section
+            class="space-y-3 rounded-lg border p-4 text-sm"
+            data-testid="trend-box-structure"
+          >
+            <h3 class="font-semibold">
+              箱体结构 / Box Structure
+            </h3>
+            <p>{{ boxStateText(detail.latest.features.boxState) }} · {{ detail.latest.features.boxStartDate ?? '—' }} → {{ detail.latest.features.boxEndDate ?? '—' }}</p>
+            <dl class="grid grid-cols-3 gap-3 tabular-nums">
+              <div
+                v-for="[key, label, format] in boxDetailFields"
+                :key="key"
+              >
+                <dt>{{ label }}</dt><dd class="font-semibold">
+                  {{ boxDetailValue(key, format) }}
+                </dd>
+              </div>
+            </dl>
+            <p class="text-xs text-muted-foreground">
+              箱体与 ATR 基准截至前一交易日；今日仅判断位置与突破。独立研究信号，尚未完成远期收益校准。
             </p>
           </section>
           <DailyKLineCard

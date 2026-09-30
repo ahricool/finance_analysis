@@ -413,7 +413,7 @@ class TrendFollowingService:
         features: list[dict[str, Any]] = []
         sufficient_histories: dict[str, list[DailyBar]] = {}
         for code in sorted(ready_codes):
-            bars = histories.get(code, [])[-self.config.history_bars :]
+            bars = histories.get(code, [])[-max(self.config.history_bars, max(self.config.box_windows) + 1) :]
             result = calculate_features(
                 bars, self.config.minimum_history_bars, self.config, preview=overlay_bars is not None
             )

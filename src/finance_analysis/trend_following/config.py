@@ -12,6 +12,29 @@ class TrendFollowingConfig:
     risk_budget_pct: float = 0.01
     risk_stop_atr_multiple: float = 2.5
     risk_max_position_pct: float = 0.25
+    # Independent point-in-time structure research; never enters Alpha or Entry.
+    box_windows: tuple[int, ...] = (15, 20, 30, 40, 60)
+    box_min_days: int = 15
+    box_max_width_pct: float = 0.15
+    box_ideal_width_pct: float = 0.08
+    box_width_plateau_min_pct: float = 0.05
+    box_dead_width_pct: float = 0.01
+    box_flatness_scale_atr: float = 1.5
+    box_inner_margin: float = 0.10
+    box_quality_tie_tolerance: float = 3.0
+    box_ready_distance_pct: float = 0.03
+    box_forming_quality_min: float = 60.0
+    box_ready_quality_min: float = 70.0
+    box_breakout_quality_min: float = 70.0
+    box_breakout_min_atr: float = 0.10
+    box_breakout_max_atr: float = 2.0
+    box_breakout_clv_min: float = 0.60
+    box_touch_atr_tolerance: float = 0.25
+    box_touch_width_tolerance: float = 0.05
+    box_touch_target: int = 3
+    box_quality_weights: dict[str, float] = field(default_factory=lambda: {
+        "width": .25, "flatness": .30, "occupancy": .15, "compression": .20, "touch": .10,
+    })
     history_bars: int = 60
     minimum_history_bars: int = 21
     calendar_lookback_days: int = 180

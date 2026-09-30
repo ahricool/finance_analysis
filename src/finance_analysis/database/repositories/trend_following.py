@@ -14,7 +14,10 @@ from finance_analysis.database.models.stock import Instrument, StockDaily
 from finance_analysis.database.models.trend_following import TrendFollowingSnapshot, TrendFollowingSummary
 from finance_analysis.trend_following.read_models import SCORE_COMPONENT_PATHS, score_component_expression  # pragma: allowlist secret
 
+from finance_analysis.trend_following.box import BOX_SORT_FIELDS, BOX_STRING_FIELDS
+
 SORT_FIELDS = {
+    **{key: TrendFollowingSnapshot.features[key].as_float() for key in BOX_SORT_FIELDS},
     "alpha_score": TrendFollowingSnapshot.alpha_score,
     "trend_score": TrendFollowingSnapshot.trend_score,
     "rs_score": TrendFollowingSnapshot.rs_score,
@@ -502,6 +505,7 @@ class TrendFollowingRepository:
                 *(getattr(snapshot, key) for key in DASHBOARD_FIELDS),
                 Instrument.name,
                 snapshot.features["entry_type"].as_string().label("entry_type"),
+                *(snapshot.features[key].as_string().label(key) for key in BOX_STRING_FIELDS),
                 *(snapshot.features[key].as_float().label(key) for key in NUMERIC_FEATURE_FIELDS),
                 *(snapshot.features[key].as_boolean().label(key) for key in BOOLEAN_FEATURE_FIELDS),
                 *(

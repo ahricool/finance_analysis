@@ -95,7 +95,35 @@ class TrendTransitionsResponse(BaseModel):
     items: list[TrendTransition]
 
 
+BoxState = Literal["NONE", "BOX_FORMING", "BOX_READY", "BOX_BREAKOUT"]
+
+
 class TrendRankingFeatures(BaseModel):
+    box_state: BoxState | None = None
+    box_start_date: str | None = None
+    box_end_date: str | None = None
+    box_quality: float | None = None
+    box_window_days: int | None = None
+    box_high: float | None = None
+    box_low: float | None = None
+    box_mid: float | None = None
+    box_width_pct: float | None = None
+    box_slope: float | None = None
+    box_slope_atr: float | None = None
+    box_r_squared: float | None = None
+    box_occupancy: float | None = None
+    box_upper_touches: int | None = None
+    box_lower_touches: int | None = None
+    distance_to_box_high_pct: float | None = None
+    distance_to_box_high_atr: float | None = None
+    box_breakout_distance_atr: float | None = None
+    box_atr20: float | None = None
+    box_width_quality: float | None = None
+    box_flatness_quality: float | None = None
+    box_occupancy_quality: float | None = None
+    box_compression_quality: float | None = None
+    box_touch_quality: float | None = None
+
     atr_percent: float | None = None
     close_location_value: float | None = None
     raw_volume_ratio: float | None = None
