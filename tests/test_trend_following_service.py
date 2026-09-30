@@ -7,6 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from finance_analysis.trend_following.risk import calculate_risk_sizing
 from finance_analysis.core.paths import PROJECT_ROOT
 from finance_analysis.trend_following.config import DEFAULT_CONFIG  # pragma: allowlist secret
 from finance_analysis.trend_following.duration import DURATION_CALENDAR_LOOKBACK_DAYS  # pragma: allowlist secret
@@ -133,6 +134,10 @@ def test_service_reads_repository_only_and_persists_point_in_time(monkeypatch):
     for item in repository.snapshots:
         json.dumps(item["features"])
         json.dumps(item["score_breakdown"], allow_nan=False)
+        assert item["features"]["risk_sizing"] == calculate_risk_sizing(
+            item["reference_price"], item["atr"], item["features"]["previous_low_10"],
+        )
+        assert item["features"]["risk_sizing"] is not None
         assert item["features"]["alpha_version"] == 3
         assert item["features"]["setup_score"] == item["breakout_score"]
         assert item["features"]["path_score"] >= 0
@@ -493,3 +498,20 @@ def test_us_union_members_are_scored_and_snapshotted_once(monkeypatch):
     assert result["snapshot_count"] == 4
     assert sorted(item["code"] for item in repository.snapshots) == sorted(codes)
     assert repository.previous_requested == (TRADE_DATE, set(codes))
+
+
+def test_risk_sizing_does_not_change_strategy_results(monkeypatch):
+    monkeypatch.setattr(
+        "finance_analysis.trend_following.service.get_universe",
+        lambda market: (UniverseMember("US", "AAA.US", "AAA"), UniverseMember("US", "BBB.US", "BBB")),
+    )
+    repository = FakeRepository()
+    TrendFollowingService("US", repository).run(TRADE_DATE)
+    with_risk = repository.snapshots
+    monkeypatch.setattr("finance_analysis.trend_following.service.calculate_risk_sizing", lambda *args: None)
+    TrendFollowingService("US", repository).run(TRADE_DATE)
+    without_risk = repository.snapshots
+    for actual, baseline in zip(with_risk, without_risk, strict=True):
+        assert actual["features"].pop("risk_sizing") is not None
+        assert baseline["features"].pop("risk_sizing") is None
+        assert actual == baseline  # Includes Alpha, Entry, State, Candidate, Ranking and all prior features.

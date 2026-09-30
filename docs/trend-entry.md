@@ -125,3 +125,23 @@ Entry自身不参与这些计算。历史重算由上线流程执行；本次未
 现有Trend Preview直接拼接DB前复权历史与原始盘中报价，没有像独立盘中确认模块那样
 用昨收锚点调整历史价格尺度。若除权日DB前复权基准尚未刷新，MA/ATR、突破与Entry
 可能失真。本次保持行情链路边界，未引入复权因子请求；此问题需独立修复与验证。
+
+
+## Detail 风险仓位建议
+
+个股 Detail 在状态摘要之后展示独立的 `features.risk_sizing`。Official 与 Preview
+在共享 snapshot 构造链中、Entry 计算完成后生成；不参与 Alpha / Entry / State / Candidate / Ranking。
+不增加行情请求、数据库列或账户数据依赖，旧快照没有字段时显示暂无风险建议。
+
+`TrendFollowingConfig` 默认账户风险预算 0.01、ATR 倍数 2.5、单票仓位上限 0.25。
+所有百分比均为小数单位（0.05 = 5%）：
+
+- ATR 距离 = 2.5 × ATR20 / reference_price。
+- 结构距离 = (reference_price − previous_low_10) / reference_price；仅有效正数且低于参考价时参与，否则为 0。
+- 止损距离 = max(ATR 距离, 结构距离)；止损价 = max(0, reference_price × (1 − 止损距离))。
+- 建议仓位 = min(风险预算 / 止损距离, 单票上限)。结构距离严格更大时为 STRUCTURE，否则为 ATR。
+
+参考价或 ATR 缺失、非正数、非有限数、不可表示的计算结果或最终止损距离 ≥ 100% 时返回 null；结构缺失可用纯 ATR。
+ATR20 保持最近20个 TR 的算术平均，结构低点为前10日最低价（排除今天）。
+Preview 保持既有临时日线逻辑，ATR 与建议仓位/止损在收盘前可能变化。
+仓位按账户净值计算，与 Entry 和 State 独立；1%是计划风险预算，实际跳空损失可能超过预算。

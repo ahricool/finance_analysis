@@ -9,6 +9,7 @@ import pandas as pd
 import pytest
 from fastapi import HTTPException
 
+from finance_analysis.trend_following.risk import calculate_risk_sizing
 from finance_analysis.integrations.market_data.models import Adjustment, Market, MarketBar, MarketQuote  # pragma: allowlist secret
 from finance_analysis.integrations.market_data.preview import (  # pragma: allowlist secret
     PreviewQuoteError,
@@ -429,6 +430,10 @@ def test_preview_reuses_previous_official_snapshot_and_does_not_persist(monkeypa
         expected_entry = calculate_entry({**row["features"], **row})
         assert row["entry_score"] == expected_entry["entry_score"]
         assert row["entry_type"] == expected_entry["entry_type"]
+        assert row["features"]["risk_sizing"] == calculate_risk_sizing(
+            row["reference_price"], row["atr"], row["features"]["previous_low_10"],
+        )
+        assert row["features"]["risk_sizing"] is not None
         assert row["features"]["alpha_version"] == 3
         assert row["features"]["setup_score"] == row["breakout_score"]
         assert row["features"]["path_score"] >= 0

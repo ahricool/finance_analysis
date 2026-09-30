@@ -32,7 +32,7 @@ function snapshot(market: TrendMarket = 'CN'): TrendSnapshot {
     name: market === 'CN' ? '平安银行' : 'Apple', universeKey: market === 'CN' ? 'cn_csi300_csi500' : 'us_sp500',
     marketRegime: 'RISK_ON', marketScore: 82, rank: 1, trendScore: 80, rsScore: 78,
     breakoutScore: 76, alphaScore: 79, setup: 'BREAKOUT_20D', state: 'TRENDING',
-    referencePrice: 110, atr: 2,
+    referencePrice: 25, atr: .5,
 
 
 
@@ -43,6 +43,10 @@ function snapshot(market: TrendMarket = 'CN'): TrendSnapshot {
       weights: { trend: .4, rs: .25, setup: .15, path: .2 },
       contributions: { trend: 32, rs: 19.5, setup: 11.4, path: 16 }, score: 78.9 } }, generatedAt: '2026-08-28T12:00:00Z',
     features: {
+      atrPercent: .02, previousLow10: 24,
+      riskSizing: { riskBudgetPct: .01, maxPositionPct: .25, atrMultiple: 2.5,
+        atrStopPct: .05, structureStopPct: .04, stopLossPct: .05, stopPrice: 23.75,
+        suggestedPositionPct: .20, stopBasis: 'ATR' },
       alphaVersion: 3,
       ma10: 108, ma20: 105, ma10Slope: 0.012, ma20Slope: 0.01, trendCandidate: true,
       rawWeightedSlope: 0.01, weightedSlopePercentile: 95, weightedR2: 0.92,
@@ -100,6 +104,32 @@ describe('TrendFollowingPage', () => {
     mockPreview(null);
   });
   afterEach(() => { document.body.innerHTML = ''; vi.clearAllMocks(); });
+
+  it.each(['WATCHING', 'WEAKENING', 'BROKEN'] as const)('shows risk sizing independently of %s and NONE Entry', async state => {
+    const latest = { ...snapshot(), state, entryType: 'NONE' };
+    apiMocks.detail.mockResolvedValueOnce({ metadata: latest, latest, history: [], market: 'CN' });
+    const wrapper = mount(TrendFollowingPage);
+    await flushPromises();
+    await wrapper.get('[data-testid="trend-row"]').trigger('click');
+    await flushPromises();
+    const card = document.body.querySelector('[data-testid="trend-risk-sizing"]')!;
+    for (const text of ['建议仓位', '20.0%', '建议止损', '-5.0%', '止损价格', '23.75', '账户风险预算', '1.0%', 'ATR 主导', '当前无有效 Entry']) {
+      expect(card.textContent).toContain(text);
+    }
+    wrapper.unmount();
+  });
+
+  it.each([null, undefined])('handles old or unavailable risk sizing: %s', async riskSizing => {
+    const latest = snapshot();
+    latest.features.riskSizing = riskSizing;
+    apiMocks.detail.mockResolvedValueOnce({ metadata: latest, latest, history: [], market: 'CN' });
+    const wrapper = mount(TrendFollowingPage);
+    await flushPromises();
+    await wrapper.get('[data-testid="trend-row"]').trigger('click');
+    await flushPromises();
+    expect(document.body.querySelector('[data-testid="trend-risk-sizing"]')!.textContent).toContain('此快照暂无风险建议');
+    wrapper.unmount();
+  });
 
   it('exports loaded ranking values without requesting data and recovers from export failure', async () => {
     const wrapper = mount(TrendFollowingPage);
@@ -177,6 +207,7 @@ describe('TrendFollowingPage', () => {
     const low = { ...rankingSnapshot(), code: 'LOW.US', name: 'Low', rank: 2, trendScore: 10, rsScore: 20, atr: 1, referencePrice: 80, state: 'CANDIDATE' as const };
     const missing = {
       ...rankingSnapshot(), code: 'MISSING.US', name: 'Missing', rank: 3,
+      features: { ...rankingSnapshot().features, atrPercent: null },
       trendScore: null, rsScore: null, breakoutScore: null, atr: null, referencePrice: null, state: null, setup: null,
     };
     apiMocks.ranking.mockResolvedValueOnce({ ...ranking('CN'), items: [missing, low, high] });
@@ -718,6 +749,7 @@ describe('TrendFollowingPage', () => {
     expect(document.body.querySelector('[data-testid="trend-detail"]')).not.toBeNull();
     resolvePreview(payload);
     await flushPromises();
+    expect(document.body.querySelector('[data-testid="trend-risk-sizing"]')!.textContent).toContain('盘中建议基于当前临时日线');
     expect(document.body.querySelector('[data-testid="trend-detail"]')!.textContent).toContain('平安银行');
     expect(apiMocks.detailHistory).toHaveBeenCalledWith('000001.SZ', 'CN', '2026-08-28');
     expect(apiMocks.detail).not.toHaveBeenCalled();

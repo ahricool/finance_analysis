@@ -9,6 +9,9 @@ TREND_UNIVERSE_KEYS = {"CN": "cn_trend", "US": "us_trend"}
 
 @dataclass(frozen=True)
 class TrendFollowingConfig:
+    risk_budget_pct: float = 0.01
+    risk_stop_atr_multiple: float = 2.5
+    risk_max_position_pct: float = 0.25
     history_bars: int = 60
     minimum_history_bars: int = 21
     calendar_lookback_days: int = 180

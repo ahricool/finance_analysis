@@ -4,10 +4,14 @@ const snapshot = {
   market: 'CN', code: '000001.SZ', name: '平安银行', tradeDate: '2026-08-28',
   rank: 12, rankChange1D: 5, rankChange3D: -2, rankChange5D: 0,
   state: 'TRENDING', setup: 'BREAKOUT_20D', alphaScore: 82.5,
-  trendScore: 80, rsScore: 78, breakoutScore: 80, referencePrice: 110, atr: 2,
+  trendScore: 80, rsScore: 78, breakoutScore: 80, referencePrice: 25, atr: .5,
   trendDurationDays: 13, trendLifecycle: 'EXPANSION', fragilityScore: 18,
   fragilityBreakdown: { accelerationDecay: 12, qualityDecay: 15, efficiencyDecay: 20, relativeStrengthDecay: 18, rankDecay: 24, priceStructureRisk: 15 },
-  features: { alphaVersion: 3, pathScore: 95, setupScore: 80, weightedR2: .98, weightedSlopePercentile: 92,
+  features: { atrPercent: .02, previousLow10: 24,
+      riskSizing: { riskBudgetPct: .01, maxPositionPct: .25, atrMultiple: 2.5,
+        atrStopPct: .05, structureStopPct: .04, stopLossPct: .05, stopPrice: 23.75,
+        suggestedPositionPct: .20, stopBasis: 'ATR' },
+    alphaVersion: 3, pathScore: 95, setupScore: 80, weightedR2: .98, weightedSlopePercentile: 92,
     positiveReturnConcentration: .3, atrExpansionRatio: 1.1, downsideControlQuality: 90, downsideUpsideRatio: .10536,
     trendQuality: 87, trendAcceleration: 0.12, signedEfficiencyRatio10D: 0.71, priorCompression: true,
     r2Quality: 98, momentumQuality: 74, return10DQuality: 72, return20DQuality: 70, drawdownQuality: 81,
@@ -99,6 +103,11 @@ for (const width of [1280, 1440, 1920]) {
       await expect(dialog).toBeVisible();
       await expect(dialog.getByRole('heading', { name: '平安银行' })).toBeVisible();
       await expect(dialog.getByTestId('trend-path-detail')).toContainText('Alpha V3');
+      const risk = dialog.getByTestId('trend-risk-sizing');
+      await expect(risk).toBeVisible();
+      for (const text of ['建议仓位', '20.0%', '建议止损', '-5.0%', '止损价格', '23.75', '账户风险预算', '1.0%']) {
+        await expect(risk).toContainText(text);
+      }
       const canvas = dialog.getByTestId('trend-rank-history').locator('canvas');
       await expect(canvas).toBeVisible();
       await expect(dialog.getByTestId('trend-fragility-history').locator('canvas')).toBeVisible();
