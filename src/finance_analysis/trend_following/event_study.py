@@ -203,66 +203,123 @@ def feature_coverage(rows, strategy, missing_snapshot_dates=()):
     }
 
 
-def run_event_study(repo, market, start_date, end_date, *, strategy="ALL", regime="ALL", offset=0, limit=100, now=None):
-    now = now or utc_now()
+def validate_range(start_date, end_date):
     if start_date > end_date or (end_date - start_date).days > DEFAULT_CONFIG.event_study_max_days:
         raise ValueError("日期范围必须按顺序且不超过730天")
-    cal = exchange_calendar(market)
-    expected_dates = {
-        session.date()
-        for session in cal.sessions_in_range(start_date, end_date)
-        if cal.session_close(session).to_pydatetime() <= now
-    }
-    rows = repo.event_study_rows(start_date, end_date)
-    missing_snapshot_dates = sorted(expected_dates - {r["trade_date"] for r in rows})
-    events = derive_events(rows)
-    if strategy != "ALL":
-        events = [e for e in events if e["strategy"] == strategy]
-    if regime != "ALL":
-        events = [e for e in events if e["regime"] == regime]
-    plans = {e["trade_date"]: None for e in events}
-    for day in plans:
-        plans[day] = following_sessions(market, day, 20)
-    matured = [d for plan in plans.values() for d, close in plan if close <= now]
-    benchmark = DEFAULT_CONFIG.benchmark_codes[market]
-    # One bounded OHLC read includes every event symbol and the benchmark.
-    data = (
-        repo.event_study_bars(
-            {e["code"] for e in events} | {benchmark},
-            min(plans),
-            max(matured + list(plans)),
-        )
-        if plans
-        else []
-    )
-    bars = {(row["code"], row["date"]): row for row in data}
-    evaluated = [evaluate_event(e, plans[e["trade_date"]], bars, benchmark, now) for e in events]
-    groups = []
-    for key in STRATEGIES if strategy == "ALL" else (strategy,):
-        for layer in ("ALL", *REGIMES) if regime == "ALL" else (regime,):
-            selected_rows = [r for r in rows if layer == "ALL" or r["market_regime"] == layer]
-            selected_events = [
-                e for e in evaluated if e["strategy"] == key and (layer == "ALL" or e["regime"] == layer)
-            ]
-            coverage = feature_coverage(selected_rows, key, missing_snapshot_dates)
-            groups.append(aggregate(selected_events, key, layer, coverage))
-    evaluated.sort(key=lambda e: (-e["trade_date"].toordinal(), e["code"], e["strategy"]))
-    box_coverage = feature_coverage(rows, "BOX_BREAKOUT", missing_snapshot_dates)
-    mr_coverage = feature_coverage(rows, "MEAN_REVERSION", missing_snapshot_dates)
+
+
+def aggregate_coverage(rows, strategy, missing_snapshot_dates=()):
+    dates = defaultdict(lambda: [0, 0])
+    for row in rows:
+        dates[row["trade_date"]][0] += row["snapshot_count"]
+        dates[row["trade_date"]][1] += row[strategy]
+    total = sum(v[0] for v in dates.values())
+    available = sum(v[1] for v in dates.values())
+    incomplete = {d for d, (n, count) in dates.items() if n != count} | set(missing_snapshot_dates)
+    last = max(incomplete, default=None)
     return {
-        "market": market,
-        "start_date": start_date,
-        "end_date": end_date,
-        "method": "signal_close_v1",
-        "benchmark": benchmark,
-        "evaluated_at": now,
-        "snapshot_dates": sorted({r["trade_date"] for r in rows}),
-        "box_feature_coverage": box_coverage,
-        "mr_feature_coverage": mr_coverage,
-        "missing_snapshot_dates": missing_snapshot_dates,
-        "groups": groups,
-        "event_count": len(evaluated),
-        "events": evaluated[offset : offset + limit],
-        "offset": offset,
-        "limit": limit,
+        "feature_coverage": available / total if total else None,
+        "feature_snapshot_count": available, "snapshot_count": total,
+        "status": "complete" if total and not incomplete else "insufficient_feature_history",
+        "continuous_complete_since": min((d for d, (n, count) in dates.items()
+                                          if n == count and (last is None or d > last)), default=None),
+        "incomplete_dates": sorted(incomplete),
     }
+
+
+def evaluate_events(repo, market, events, now):
+    from time import perf_counter
+
+    started = perf_counter()
+    plans = {day: following_sessions(market, day, 20) for day in {e["trade_date"] for e in events}}
+    benchmark = DEFAULT_CONFIG.benchmark_codes[market]
+    pairs = set()
+    for event in events:
+        day, code = event["trade_date"], event["code"]
+        pairs.update(((code, day), (benchmark, day)))
+        for index, (target, close) in enumerate(plans[day], 1):
+            if close <= now:
+                pairs.add((code, target))
+                if index in HORIZONS:
+                    pairs.add((benchmark, target))
+    data = repo.event_study_required_bars(pairs) if pairs else []
+    bars = {(r["code"], r["date"]): r for r in data}
+    ohlc_seconds = perf_counter() - started
+    started = perf_counter()
+    evaluated = [evaluate_event(e, plans[e["trade_date"]], bars, benchmark, now) for e in events]
+    return evaluated, len(data), ohlc_seconds, perf_counter() - started
+
+
+def run_event_study_summary(repo, market, start_date, end_date, *, regime="ALL", now=None):
+    import logging
+    from time import perf_counter
+
+    started = perf_counter()
+    now = now or utc_now()
+    validate_range(start_date, end_date)
+    events, _ = repo.event_study_events(start_date, end_date, regime=regime)
+    event_seconds = perf_counter() - started
+    step = perf_counter()
+    rows = repo.event_study_coverage(start_date, end_date)
+    coverage_seconds = perf_counter() - step
+    cal = exchange_calendar(market)
+    expected = {d.date() for d in cal.sessions_in_range(start_date, end_date)
+                if cal.session_close(d).to_pydatetime() <= now}
+    dates = {r["trade_date"] for r in rows}
+    missing = sorted(expected - dates)
+    evaluated, row_count, ohlc_seconds, evaluation_seconds = evaluate_events(repo, market, events, now)
+    step = perf_counter()
+    groups = []
+    for strategy in STRATEGIES:
+        for layer in ("ALL", *REGIMES) if regime == "ALL" else (regime,):
+            selected = [r for r in rows if layer == "ALL" or r["market_regime"] == layer]
+            groups.append(aggregate(
+                [e for e in evaluated if e["strategy"] == strategy and (layer == "ALL" or e["regime"] == layer)],
+                strategy, layer, aggregate_coverage(selected, strategy, missing),
+            ))
+    evaluation_seconds += perf_counter() - step
+    logging.getLogger(__name__).info(
+        "event_study_summary market=%s start=%s end=%s regime=%s event_query_seconds=%.4f "
+        "coverage_query_seconds=%.4f ohlc_query_seconds=%.4f evaluation_seconds=%.4f "
+        "total_seconds=%.4f event_count=%s ohlc_row_count=%s",
+        market, start_date, end_date, regime, event_seconds, coverage_seconds, ohlc_seconds,
+        evaluation_seconds, perf_counter() - started, len(events), row_count,
+    )
+    return {
+        "market": market, "start_date": start_date, "end_date": end_date, "method": "signal_close_v1",
+        "benchmark": DEFAULT_CONFIG.benchmark_codes[market], "evaluated_at": now,
+        "snapshot_dates": sorted(dates), "missing_snapshot_dates": missing,
+        "box_feature_coverage": aggregate_coverage(rows, "BOX_BREAKOUT", missing),
+        "mr_feature_coverage": aggregate_coverage(rows, "MEAN_REVERSION", missing),
+        "groups": groups, "event_count": len(events),
+    }
+
+
+def run_event_study_events(repo, market, start_date, end_date, *, strategy, regime="ALL", offset=0, limit=100, now=None):
+    import logging
+    from time import perf_counter
+
+    started = perf_counter()
+    now = now or utc_now()
+    validate_range(start_date, end_date)
+    events, count = repo.event_study_events(start_date, end_date, strategy, regime, offset=offset, limit=limit)
+    query_seconds = perf_counter() - started
+    evaluated, row_count, ohlc_seconds, evaluation_seconds = evaluate_events(repo, market, events, now)
+    logging.getLogger(__name__).info(
+        "event_study_events market=%s start=%s end=%s regime=%s strategy=%s offset=%s limit=%s "
+        "query_seconds=%.4f ohlc_seconds=%.4f evaluation_seconds=%.4f total_seconds=%.4f "
+        "returned_count=%s ohlc_row_count=%s",
+        market, start_date, end_date, regime, strategy, offset, limit, query_seconds, ohlc_seconds,
+        evaluation_seconds, perf_counter() - started, len(evaluated), row_count,
+    )
+    return {"events": evaluated, "event_count": count, "offset": offset, "limit": limit}
+
+
+def run_event_study(repo, market, start_date, end_date, *, strategy="ALL", regime="ALL", offset=0, limit=100, now=None):
+    """Compatibility endpoint; new clients request summary and event pages separately."""
+    summary = run_event_study_summary(repo, market, start_date, end_date, regime=regime, now=now)
+    page = run_event_study_events(repo, market, start_date, end_date, strategy=strategy,
+                                 regime=regime, offset=offset, limit=limit, now=now)
+    if strategy != "ALL":
+        summary["groups"] = [g for g in summary["groups"] if g["strategy"] == strategy]
+    return {**summary, **page}

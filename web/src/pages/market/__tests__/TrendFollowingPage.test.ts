@@ -11,7 +11,7 @@ import TrendFollowingPage from '../TrendFollowingPage.vue';
 vi.mock('@/utils/excelExport', () => ({ exportExcel: vi.fn().mockResolvedValue(undefined) }));
 
 const apiMocks = vi.hoisted(() => ({
-  eventStudy: vi.fn(), transitions: vi.fn(), breadthHistory: vi.fn(), ranking: vi.fn(), candidates: vi.fn(), dates: vi.fn(), detail: vi.fn(), detailHistory: vi.fn(), run: vi.fn(), preview: vi.fn(), previewStatus: vi.fn(),
+  eventStudySummary: vi.fn().mockResolvedValue(null), eventStudyEvents: vi.fn(), transitions: vi.fn(), breadthHistory: vi.fn(), ranking: vi.fn(), candidates: vi.fn(), dates: vi.fn(), detail: vi.fn(), detailHistory: vi.fn(), run: vi.fn(), preview: vi.fn(), previewStatus: vi.fn(),
 }));
 vi.mock('@/api/trendFollowing', () => ({ trendFollowingApi: apiMocks }));
 vi.mock('vue-echarts', () => ({ default: { props: ['option'], template: '<div data-testid="rank-chart" />' } }));
@@ -105,6 +105,45 @@ describe('TrendFollowingPage', () => {
   });
   afterEach(() => { document.body.innerHTML = ''; vi.clearAllMocks(); });
 
+  it('renders all sections once with independent filters, search, sorting and shared drawer', async () => {
+    const rows = [0, 1].map(i => ({ ...rankingSnapshot(), code: `TEST${i}.US`, name: `Stock ${i}`,
+      state: i === 0 ? 'TRENDING' as const : 'WEAKENING' as const,
+      features: { ...rankingSnapshot().features, boxState: i === 0 ? 'BOX_READY' : 'BOX_BREAKOUT',
+        boxQuality: 90 - i, mrState: i === 0 ? 'MR_OVERSOLD' : 'MR_REBOUND', mrQuality: 80 + i } }));
+    apiMocks.ranking.mockResolvedValue({ ...ranking('CN'), items: rows });
+    const wrapper = mount(TrendFollowingPage);
+    await flushPromises();
+    for (const kind of ['trend', 'box', 'mr']) expect(wrapper.findAll(`[data-testid="${kind}-section"]`)).toHaveLength(1);
+    expect(wrapper.findAll('[data-testid="trend-summary"]')).toHaveLength(1);
+    expect(wrapper.find('[data-testid="trend-view-tabs"]').exists()).toBe(false);
+    const codes = (kind: string) => wrapper.findAll(`[data-testid="${kind}-row"]`).map(r => r.attributes('data-code'));
+    expect(codes('trend')).toEqual(['TEST0.US', 'TEST1.US']);
+    expect(codes('box')).toEqual(['TEST1.US', 'TEST0.US']);
+    expect(codes('mr')).toEqual(['TEST1.US', 'TEST0.US']);
+    await wrapper.get('[data-testid="box-section"]').findAll('th button').find(b => b.text() === 'Box Quality')!.trigger('click');
+    expect(codes('box')).toEqual(['TEST0.US', 'TEST1.US']);
+    expect(codes('trend')).toEqual(['TEST0.US', 'TEST1.US']);
+    expect(codes('mr')).toEqual(['TEST1.US', 'TEST0.US']);
+    await wrapper.get('[data-testid="trend-ranking-search"]').setValue('TEST0');
+    expect(codes('trend')).toEqual(['TEST0.US']);
+    expect(codes('box')).toHaveLength(2);
+    expect(codes('mr')).toHaveLength(2);
+    await wrapper.get('[data-testid="mr-state-filter"]').findAll('button').find(b => b.text() === '反弹确认')!.trigger('click');
+    expect(codes('mr')).toEqual(['TEST1.US']);
+    expect(codes('box')).toHaveLength(2);
+    await wrapper.get('[data-testid="box-ranking-search"]').setValue('TEST1');
+    expect(codes('trend')).toEqual(['TEST0.US']);
+    for (const kind of ['trend', 'box', 'mr']) {
+      await wrapper.get(`[data-testid="${kind}-row"]`).trigger('click');
+      await flushPromises();
+      expect(document.body.querySelectorAll('[data-testid="trend-detail"]')).toHaveLength(1);
+      document.body.querySelector<HTMLElement>('[data-slot="dialog-close"]')?.click();
+      await flushPromises();
+    }
+    expect(apiMocks.detail).toHaveBeenCalledTimes(3);
+    wrapper.unmount();
+  });
+
   it('shows independent MR rows and keeps Preview out of Event Study', async () => {
     const latest = snapshot();
     latest.features = { ...latest.features, mrState: 'MR_REBOUND', mrQuality: 80, rsi14: 25, distanceFromMa20Atr: -2 };
@@ -113,15 +152,13 @@ describe('TrendFollowingPage', () => {
     mockPreview({ ...ranking('CN'), status: 'completed', previewTime: '2026-08-28T10:00:00Z', snapshots: [latest] });
     const wrapper = mount(TrendFollowingPage);
     await flushPromises();
-    await wrapper.get('[data-testid="trend-view-mr"]').trigger('click');
-    expect(wrapper.findAll('[data-testid="trend-row"]')).toHaveLength(1);
-    expect(wrapper.get('[data-testid="trend-row"]').text()).toContain('反弹确认');
+    expect(wrapper.findAll('[data-testid="mr-row"]')).toHaveLength(1);
+    expect(wrapper.get('[data-testid="mr-row"]').text()).toContain('反弹确认');
     await wrapper.get('[data-testid="research-mode-preview"]').trigger('click');
     await flushPromises();
-    expect(wrapper.get('[data-testid="trend-row"]').text()).toContain('反弹确认');
-    await wrapper.get('[data-testid="trend-view-study"]').trigger('click');
-    expect(wrapper.get('[data-testid="study-preview-disabled"]').text()).toContain('仅使用正式历史快照');
-    expect(apiMocks.eventStudy).not.toHaveBeenCalled();
+    expect(wrapper.get('[data-testid="mr-row"]').text()).toContain('反弹确认');
+    expect(wrapper.get('[data-testid="study-preview-disabled"]').text()).toContain('仅基于 Official 正式快照');
+    expect(apiMocks.eventStudyEvents).not.toHaveBeenCalled();
     wrapper.unmount();
   });
 
@@ -137,8 +174,7 @@ describe('TrendFollowingPage', () => {
     const wrapper = mount(TrendFollowingPage);
     await flushPromises();
     expect(wrapper.findAll('[data-testid="trend-row"]')).toHaveLength(6);
-    await wrapper.get('[data-testid="trend-view-box"]').trigger('click');
-    const codes = () => wrapper.findAll('[data-testid="trend-row"]').map(row => row.text().match(/BOX\d.US/)?.[0]);
+    const codes = () => wrapper.findAll('[data-testid="box-row"]').map(row => row.text().match(/BOX\d.US/)?.[0]);
     expect(codes()).toEqual(['BOX1.US', 'BOX0.US', 'BOX2.US']);
     expect(wrapper.text()).toContain('刚突破');
     expect(wrapper.text()).toContain('待突破');
@@ -148,15 +184,14 @@ describe('TrendFollowingPage', () => {
     const qualityHeader = wrapper.findAll('th').find(header => header.text().includes('Box Quality'))!;
     await qualityHeader.get('button').trigger('click');
     expect(codes()).toEqual(['BOX0.US', 'BOX2.US', 'BOX1.US']);
-    await wrapper.get('[data-testid="trend-row"]').trigger('click');
+    await wrapper.get('[data-testid="box-row"]').trigger('click');
     await flushPromises();
     expect(document.body.querySelector('[data-testid="trend-box-structure"]')?.textContent).toContain('Box Structure');
     expect(apiMocks.detail).toHaveBeenCalled();
     const forming = wrapper.get('[data-testid="box-state-filter"]').findAll('button').find(b => b.text() === '形成中')!;
     await forming.trigger('click');
     expect(codes()).toEqual(['BOX3.US']);
-    expect(wrapper.get('[data-testid="trend-row"]').text()).toContain('整理中');
-    await wrapper.get('[data-testid="trend-view-ranking"]').trigger('click');
+    expect(wrapper.get('[data-testid="box-row"]').text()).toContain('整理中');
     expect(wrapper.findAll('[data-testid="trend-row"]')).toHaveLength(6);
     expect(wrapper.findAll('th').some(th => th.text().includes('Alpha Rank'))).toBe(true);
     wrapper.unmount();
@@ -172,11 +207,10 @@ describe('TrendFollowingPage', () => {
     await flushPromises();
     await wrapper.get('[data-testid="research-mode-preview"]').trigger('click');
     await flushPromises();
-    await wrapper.get('[data-testid="trend-view-box"]').trigger('click');
-    expect(wrapper.get('[data-testid="trend-row"]').text()).toContain('刚突破');
-    expect(wrapper.get('[data-testid="trend-row"]').text()).toContain('+0.45 ATR');
-    expect(wrapper.get('[data-testid="trend-row"]').text()).toContain('盘中估算 —');
-    await wrapper.get('[data-testid="trend-row"]').trigger('click');
+    expect(wrapper.get('[data-testid="box-row"]').text()).toContain('刚突破');
+    expect(wrapper.get('[data-testid="box-row"]').text()).toContain('+0.45 ATR');
+    expect(wrapper.get('[data-testid="box-row"]').text()).toContain('盘中估算 —');
+    await wrapper.get('[data-testid="box-row"]').trigger('click');
     await flushPromises();
     expect(document.body.querySelector('[data-testid="trend-box-structure"]')?.textContent).toContain('88.0');
     expect(apiMocks.detail).not.toHaveBeenCalled();
@@ -191,8 +225,7 @@ describe('TrendFollowingPage', () => {
     const section = document.body.querySelector('[data-testid="trend-box-structure"]')!;
     expect(section.textContent).toContain('—');
     expect(section.textContent).not.toContain('NaN');
-    await wrapper.get('[data-testid="trend-view-box"]').trigger('click');
-    expect(wrapper.findAll('[data-testid="trend-row"]')).toHaveLength(0);
+    expect(wrapper.findAll('[data-testid="box-row"]')).toHaveLength(0);
     wrapper.unmount();
   });
 
@@ -531,7 +564,7 @@ describe('TrendFollowingPage', () => {
       await click(label);
       expect(order()).toEqual(['C.US', 'B.US', 'A.US']);
     }
-    await wrapper.get('select[aria-label="排名排序指标"]').setValue('return10D');
+    await wrapper.get('select[aria-label="趋势排名排序指标"]').setValue('return10D');
     expect(order()[0]).toBe('B.US');
     await click('排名趋势');
     expect(order()).toEqual(['B.US', 'A.US', 'C.US']);
@@ -560,7 +593,7 @@ describe('TrendFollowingPage', () => {
     expect(wrapper.text()).toContain('平安银行');
     expect(wrapper.text()).toContain('趋势健康');
     expect(wrapper.find('table').classes()).toContain('w-full');
-    expect(wrapper.findAll('[data-testid="trend-row"]')[0]!.findAll('td')).toHaveLength(wrapper.findAll('th[aria-sort]').length);
+    expect(wrapper.findAll('[data-testid="trend-row"]')[0]!.findAll('td')).toHaveLength(wrapper.get('[data-testid="trend-section"]').findAll('th[aria-sort]').length);
     expect(wrapper.text()).not.toContain('趋势观察');
     expect(wrapper.find('[data-testid="trend-candidate"]').exists()).toBe(false);
     expect(wrapper.find('[data-column="setupScore"]').exists()).toBe(true);
@@ -670,7 +703,7 @@ describe('TrendFollowingPage', () => {
     expect(document.body.textContent).toContain('Return 5D / 10D / 20D');
     expect(document.body.textContent).toContain('10D / 20D Breakout');
     expect(document.body.textContent).not.toContain('55D');
-    expect(document.body.textContent).not.toContain('60D');
+    expect(dialog.textContent).not.toContain('60D');
     expect(document.body.querySelector('[data-testid="trend-history"]')).not.toBeNull();
   });
 

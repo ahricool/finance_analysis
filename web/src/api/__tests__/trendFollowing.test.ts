@@ -20,6 +20,19 @@ describe('trendFollowingApi', () => {
     expect(result.events[0]?.horizons[0]?.excessStatus).toBe('pending');
   });
 
+  it('uses separate summary and events contracts', async () => {
+    vi.mocked(apiClient.get).mockResolvedValueOnce({ data: { groups: [], event_count: 200 } });
+    expect(await trendFollowingApi.eventStudySummary('CN', '2026-08-01', '2026-09-30', 'ALL')).toEqual({ groups: [], eventCount: 200 });
+    expect(apiClient.get).toHaveBeenLastCalledWith('/api/v1/trend-following/event-study/summary', {
+      params: { market: 'CN', start_date: '2026-08-01', end_date: '2026-09-30', regime: 'ALL' }, signal: undefined,
+    });
+    vi.mocked(apiClient.get).mockResolvedValueOnce({ data: { events: [], event_count: 200, offset: 100, limit: 100 } });
+    expect(await trendFollowingApi.eventStudyEvents('CN', '2026-08-01', '2026-09-30', 'ALL', 'BOX_BREAKOUT', 100)).toEqual({ events: [], eventCount: 200, offset: 100, limit: 100 });
+    expect(apiClient.get).toHaveBeenLastCalledWith('/api/v1/trend-following/event-study/events', {
+      params: { market: 'CN', start_date: '2026-08-01', end_date: '2026-09-30', regime: 'ALL', strategy: 'BOX_BREAKOUT', offset: 100, limit: 100 }, signal: undefined,
+    });
+  });
+
   it('converts nested snapshot fields and scopes ranking to market/date', async () => {
     vi.mocked(apiClient.get).mockResolvedValue({ data: {
       trade_date: '2026-08-28', market: 'US', items: [{ code: 'AAPL.US', alpha_score: 82,

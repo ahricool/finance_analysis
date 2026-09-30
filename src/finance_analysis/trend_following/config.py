@@ -49,7 +49,7 @@ class TrendFollowingConfig:
     mr_quality_weights: dict[str, float] = field(default_factory=lambda: {
         "oversold": .35, "distance": .35, "shock": .20, "reversal": .10,
     })
-    event_study_default_days: int = 180
+    event_study_default_days: int = 60
     event_study_max_days: int = 730
     history_bars: int = 60
     minimum_history_bars: int = 21

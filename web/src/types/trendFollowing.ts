@@ -401,3 +401,6 @@ export interface EventStudyResponse {
   boxFeatureCoverage: StudyCoverage; mrFeatureCoverage: StudyCoverage;
   groups: StudyGroup[]; eventCount: number; events: StudyEvent[]; offset: number; limit: number;
 }
+
+export type EventStudySummaryResponse = Omit<EventStudyResponse, 'events' | 'offset' | 'limit'>;
+export type EventStudyEventsResponse = Pick<EventStudyResponse, 'events' | 'eventCount' | 'offset' | 'limit'>;

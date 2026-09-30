@@ -5,6 +5,8 @@ import { getParsedApiError } from './error';
 import { toCamelCase } from './utils';
 import type {
   EventStudyResponse,
+  EventStudySummaryResponse,
+  EventStudyEventsResponse,
   StrategyKey,
   StudyRegime,
   TrendCandidatesResponse,
@@ -43,6 +45,20 @@ function rankingDto(data: Record<string, unknown>): TrendRankingResponse {
 }
 
 export const trendFollowingApi = {
+  async eventStudySummary(market: TrendMarket, startDate: string, endDate: string, regime: StudyRegime,
+    signal?: AbortSignal): Promise<EventStudySummaryResponse> {
+    const { data } = await apiClient.get('/api/v1/trend-following/event-study/summary', {
+      params: { market, start_date: startDate, end_date: endDate, regime }, signal,
+    });
+    return toCamelCase(data);
+  },
+  async eventStudyEvents(market: TrendMarket, startDate: string, endDate: string, regime: StudyRegime,
+    strategy: StrategyKey, offset = 0, signal?: AbortSignal): Promise<EventStudyEventsResponse> {
+    const { data } = await apiClient.get('/api/v1/trend-following/event-study/events', {
+      params: { market, start_date: startDate, end_date: endDate, regime, strategy, offset, limit: 100 }, signal,
+    });
+    return toCamelCase(data);
+  },
   async eventStudy(market: TrendMarket, startDate: string, endDate: string, regime: StudyRegime,
     strategy: StrategyKey | 'ALL' = 'ALL', offset = 0, signal?: AbortSignal): Promise<EventStudyResponse> {
     const { data } = await apiClient.get('/api/v1/trend-following/event-study', {

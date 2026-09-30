@@ -22,6 +22,8 @@ from finance_analysis.interfaces.api.deps import require_admin, require_current_
 from finance_analysis.interfaces.api.v1.schemas.trend_following import (  # pragma: allowlist secret
     BoxState,
     EventStudyResponse,
+    EventStudySummaryResponse,
+    EventStudyEventsResponse,
     TrendFollowingRunRequest,
     TrendDashboardResponse,
     TrendRankingItem,
@@ -178,6 +180,63 @@ def dashboard(
     if payload is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"Trend Following snapshot not found for {resolved}")
     return payload
+
+
+@router.get("/event-study/summary", response_model=EventStudySummaryResponse)
+def event_study_summary(
+    market: Market = "CN",
+    start_date: date | None = None,
+    end_date: date | None = None,
+    regime: Literal["ALL", "RISK_ON", "NEUTRAL", "RISK_OFF"] = "ALL",
+    _: User = Depends(require_current_user),
+):
+    from datetime import timedelta
+    from finance_analysis.core.time import utc_now
+    from finance_analysis.trend_following.event_study import run_event_study_summary, validate_range
+    from finance_analysis.trend_following.event_study_cache import EventStudyCache
+
+    started = time.perf_counter()
+    end = end_date or utc_now().date()
+    start = start_date or end - timedelta(days=DEFAULT_CONFIG.event_study_default_days)
+    try:
+        validate_range(start, end)
+        cache = EventStudyCache(market, start, end, regime)
+        body = cache.load()
+        if body:
+            logger.info("event_study_summary market=%s start=%s end=%s regime=%s cache_hit=true total_seconds=%.4f",
+                        market, start, end, regime, time.perf_counter() - started)
+            return EventStudySummaryResponse.model_validate_json(body)
+        result = EventStudySummaryResponse.model_validate(
+            run_event_study_summary(TrendFollowingRepository(market), market, start, end, regime=regime),
+        )
+        cache.save(result.model_dump_json().encode())
+        return result
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+
+
+@router.get("/event-study/events", response_model=EventStudyEventsResponse)
+def event_study_events(
+    strategy: Literal["TREND_FOLLOWING", "BOX_BREAKOUT", "PULLBACK_RESUME", "MEAN_REVERSION"],
+    market: Market = "CN",
+    start_date: date | None = None,
+    end_date: date | None = None,
+    regime: Literal["ALL", "RISK_ON", "NEUTRAL", "RISK_OFF"] = "ALL",
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=100, ge=1, le=100),
+    _: User = Depends(require_current_user),
+):
+    from datetime import timedelta
+    from finance_analysis.core.time import utc_now
+    from finance_analysis.trend_following.event_study import run_event_study_events
+
+    end = end_date or utc_now().date()
+    start = start_date or end - timedelta(days=DEFAULT_CONFIG.event_study_default_days)
+    try:
+        return run_event_study_events(TrendFollowingRepository(market), market, start, end,
+                                      strategy=strategy, regime=regime, offset=offset, limit=limit)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
 
 
 @router.get("/event-study", response_model=EventStudyResponse)
