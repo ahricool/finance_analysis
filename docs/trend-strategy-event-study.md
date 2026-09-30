@@ -2,7 +2,10 @@
 
 ## 范围
 
-`/research/trend-following` 提供趋势排名、结构机会、超跌反弹、策略对比四个子视图。
+`/research/trend-following` 纵向展示公共市场上下文、趋势排名、结构机会、超跌反弹、历史策略研究。
+前三张表同时显示，各自维护搜索、筛选、排序和虚拟滚动，复用同一个详情 Drawer。
+Trend 完整 Universe 最多 60vh，Box/MR 最多 32rem；超过 300 行只渲染可见行与 overscan。
+Box 默认 BREAKOUT/READY，MR 默认 REBOUND/OVERSOLD，REBOUND 优先、同状态按 Quality 降序。
 这是信号预测能力研究，不是自动交易、可执行成交回测或组合回测。没有资金曲线、Sharpe、t-stat、
 组合年化收益、最大组合回撤或自动评选最佳策略；不接入 LLM，不新增行情 Provider。
 
@@ -116,7 +119,7 @@ mr_shock_5d_scale=.10, mr_quality_weights={oversold:.35,distance:.35,shock:.20,r
 
 当前机会可以使用临时日线计算Box、MR，但此前部分只使用T−1及之前正式日线和正式MR前态。
 库内T日记录被临时日线替换，不混入未来日线。Preview仍仅写原Redis缓存，不持久化正式研究事件。
-策略对比Tab在Preview模式明确停用，不发送Event Study请求。
+Preview 下前三张表继续展示；历史策略研究仅显示 Official 提示，不发送 Event Study 请求。
 
 ## 收益与交易日
 
@@ -197,21 +200,55 @@ Event之间可能时间重叠，同股票反复出现，多策略也可重合，
 
 ## API与性能
 
-`GET /api/v1/trend-following/event-study`，沿用会话鉴权，参数：
+两个只读接口沿用现有会话鉴权：
 
-- market=CN|US；start_date/end_date默认最近180自然日。
-- strategy=ALL|TREND_FOLLOWING|BOX_BREAKOUT|PULLBACK_RESUME|MEAN_REVERSION。
-- regime=ALL|RISK_ON|NEUTRAL|RISK_OFF。
-- offset≥0，limit=100、最多500；仅分页样本，汇总始终使用完整选中范围。
-- 日期范围最多730天，配置 `event_study_default_days` / `event_study_max_days`。
+| 接口 | 参数 | 响应 |
+| --- | --- | --- |
+| `GET /api/v1/trend-following/event-study/summary` | market、start_date、end_date、regime | 四策略 groups、event_count、覆盖率、快照日期、benchmark、evaluated_at；无 events |
+| `GET /api/v1/trend-following/event-study/events` | 上述参数 + 必填 strategy、offset、limit | 当前页 events、总 event_count、offset、limit；无 groups |
 
-每次请求最多两次SQL：一次正式snapshot标量投影，一次所有事件股票+benchmark的DB日线OHLC批量读取。
-前态SQL先按[start_date,end_date]产生范围CTE，再对区间涉及的instrument用已有
-(instrument_id,trade_date)索引查找start之前最近一条state（ORDER BY date DESC LIMIT 1）。
-UNION ALL后才执行lag，因此window仅含范围行和每个相关股票最多一条前态；多年旧行不进入window。
-JSON上下文投影限于请求日期范围，不加载整份features或score_breakdown。
-基准不按股票重复查询，horizon不分别查询。交易日计划按不同signal date计算一次；内存派生、评价、汇总。
-空事件仅一次snapshot查询。两年CN区间仍可能较大，建议从180日开始；不设置隐藏采样或截断汇总。
+- market=CN/US，regime=ALL/RISK_ON/NEUTRAL/RISK_OFF；strategy 为四类正式事件之一。
+- 默认最近 **60 自然日**，最大仍为 730 天；events 默认/最大每页 100，offset≥0。
+- 旧 `/event-study` 保留兼容，前端不再调用；其历史 limit≤500 契约保留。
+- UI 提供 30/60/90/180D 与自定义 AppDatePicker，日期上限是所选 Official 日期。
+  日期与 Regime 为 draft，点击「查询」才应用。首次加载/市场切换自动查询默认60D summary；
+  修改 Official 日期只更新 draft。点击策略/翻页只请求 events，summary 和 events 独立加载。
+
+### 数据路径
+
+旧实现将日期范围内几乎全部快照投影到 Python 再 derive；CN 180D 约120交易日 × 3800只，
+约45万行。随后按所有事件股票 × 整个区间读取日线，评价全部事件后才切页，容易超过 nginx 30s。
+
+新实现：
+
+1. 四个分支在 DB 日期范围内直接筛事件：fresh Box（并要求 episode 字段存在）、trend_resume、
+   MR_REBOUND、首次进入 TRENDING。仅 Trend 分支查已有 `(instrument_id,trade_date)` 索引支持的
+   前一条正式 state；其它策略不读取前态。`UNION ALL` 保留同日多策略重合事件。
+2. Coverage 用 `GROUP BY trade_date, market_regime` 返回按日统计。Trend 覆盖前态用范围内 state
+   加每只股票一条起点前 predecessor 的 bounded LAG；整个 Universe 不返回 Python。
+3. 每个事件仅请求 T 与已收盘 T+1…T+20；benchmark 仅请求 T、T+5/10/20。
+   去重 `(code,date)` 后按2000对分批映射 instrument_id，使用既有 `(instrument_id,date)` 索引读取。
+   不使用事件股票 × 整段日期的笛卡尔范围。
+4. events 在 DB 内执行 strategy/date/regime 条件、稳定 `date DESC, code, strategy` 排序、
+   OFFSET/LIMIT 与独立 count。只有当页进入日线加载和评价；翻页不计算 summary。
+
+不限制 SQL 次数；返回规模、索引路径及总耗时是验收重点。未新增 migration 或 functional index。
+评价仍复用原 `evaluate_event` / `aggregate`，未修改任何策略或收益公式。
+
+### 缓存、日志与容错
+
+Summary Redis key：`trend:event-study:summary:v2:{market}:{start}:{end}:{regime}`，TTL 1800秒。
+共享正式 ranking 的市场 revision，正式 snapshot 写入/重算/invalidate 在提交后推进 revision，
+旧 summary 立即不可命中；Lua 保存时校验 revision，阻止进行中的旧请求回填。
+Redis 不可用则直接查询；events 不做长缓存。日线修订及到期状态最迟随30分钟TTL刷新。
+
+Summary 日志：market/start/end/regime、event_query_seconds、coverage_query_seconds、ohlc_query_seconds、
+evaluation_seconds、total_seconds、event_count、ohlc_row_count；缓存命中记 cache_hit 与总耗时。
+Events 日志另含 strategy/offset/limit、query_seconds、ohlc_seconds、returned_count。
+
+仓库最新 main 的 `/api/` 原未显式设置 read timeout（30s配置在 `/mcp/`）；现在为 `/api/` 显式设置
+`proxy_read_timeout 60s`，MCP保持30s。若生产外层代理另设30s，需同步核对该层配置。
+这仅作偶发慢查询容错；**timeout 增大不是性能修复本身**。
 
 正式Ranking缓存v10；旧snapshot和Preview缺MR或fresh字段时显示「—」，等待正式重算/下次Preview刷新。
 策略对比提供日期、市场和Regime过滤、任意汇总列排序、策略样本分页及汇总Excel。
@@ -221,4 +258,65 @@ JSON上下文投影限于请求日期范围，不加载整份features或score_br
 
 测试覆盖fresh Box连续三天创新高、宽度合格的方向通道Flatness、Wilder种子与旧RSI兼容、MR反弹边沿、
 原Alpha/Entry/State不变、四类重叠事件、精确session/节假日/DST/提前收盘、基准同日对齐、缺口不顺延、
-pending及胜率分母、旧字段覆盖、查询数不随事件数增加、Official/Preview页面隔离和桌面深浅色视图。
+pending及胜率分母、旧字段覆盖、数据库事件条件、聚合覆盖率、稀疏事件返回规模、真分页及缓存代次失效、Official/Preview页面隔离和桌面深浅色视图。
+
+
+## 本地性能实测（2026-09-30）
+
+隔离 Docker PostgreSQL 16 + Redis 7，CN/US **各1000只股票 × 100交易日 = 100,000条快照**，
+各100,100条日线，整个区间每市场40个事件。人工数据，不包含生产 JSON 体积、I/O竞争或事件密度。
+CN fixture 起于2026-05-12，US 起于2026-05-08；180D请求中更早日期为空，覆盖率如实不足。
+未新增索引。以下为本机 loopback `time curl` 的 `time_total`，直接 FastAPI（测试依赖注入，绕过登录/nginx）；
+冷指 Redis 未命中，数据库页缓存已热，不能当作生产SLA。
+
+| 查询（end=2026-09-30） | Summary 无Redis命中 | Summary 命中 | Box Events 第一页 |
+| --- | ---: | ---: | ---: |
+| CN 30D | 0.201s | 0.005s | 0.016s |
+| CN 60D | 0.100s | 0.003s | 0.019s |
+| CN 180D | 0.246s | 0.005s | 0.040s |
+| US 60D | 0.214s | 0.003s | 0.024s |
+
+服务层两次无Redis运行：CN60D summary 0.084–0.087s，Box events 0.016–0.017s。
+CN60D只返回16个事件、42条按日Coverage、173条OHLC；CN180D为40个事件、100条Coverage、449条OHLC。
+`EXPLAIN (ANALYZE, BUFFERS)`：CN60D Box 使用 `ix_trend_following_market_date_state` Bitmap Index Scan，
+日期候选42,000行，DB筛后仅4行事件，执行5.191ms。JSON条件仍需扫描日期候选，未声称只扫描4行。
+本次合成样本未显示有必要增加JSON functional index；生产应观察真实EXPLAIN与计时日志。
+
+## 生产验证
+
+在 `~/svr/finance_analysis` 按既有 `bash deploy.sh` 部署后，用已登录会话 cookie jar 发请求。
+将 BASE、COOKIE_JAR 和 END 改为部署地址、私有本地 cookie 文件、该市场已有 Official 日期。
+不要把 cookie 内容提交仓库或贴入日志。
+
+```bash
+BASE='https://your-host'
+COOKIE_JAR='/path/to/private-cookie-jar'
+END='2026-09-30'
+
+for spec in CN:30 CN:60 CN:180 US:60; do
+  market=${spec%:*}
+  days=${spec#*:}
+  start=$(python3 -c 'from datetime import date,timedelta; import sys; print(date.fromisoformat(sys.argv[1])-timedelta(days=int(sys.argv[2])))' "$END" "$days")
+  # 执行两次以比较首次/Redis命中；缓存可能在第一次请求前已存在，结合日志判定。
+  for run in 1 2; do
+    time curl --fail --silent --show-error --get "$BASE/api/v1/trend-following/event-study/summary" \
+      --cookie "$COOKIE_JAR" --data-urlencode "market=$market" \
+      --data-urlencode "start_date=$start" --data-urlencode "end_date=$END" \
+      --data-urlencode 'regime=ALL' -o "/tmp/study-$market-$days-summary.json" \
+      -w "$market ${days}D summary http=%{http_code} seconds=%{time_total}\n"
+  done
+  for offset in 0 100; do
+    time curl --fail --silent --show-error --get "$BASE/api/v1/trend-following/event-study/events" \
+      --cookie "$COOKIE_JAR" --data-urlencode "market=$market" \
+      --data-urlencode "start_date=$start" --data-urlencode "end_date=$END" \
+      --data-urlencode 'regime=ALL' --data-urlencode 'strategy=BOX_BREAKOUT' \
+      --data-urlencode "offset=$offset" --data-urlencode 'limit=100' \
+      -o "/tmp/study-$market-$days-events-$offset.json" \
+      -w "$market ${days}D events offset=$offset http=%{http_code} seconds=%{time_total}\n"
+  done
+done
+```
+
+建议生产交互验收目标：60D未命中 summary <5s、命中 <1s、100条 events <2s；180D summary 应明显低于原30s超时线。
+这些是验收目标，**尚未测量生产实际耗时**。若不达标，按计时日志与真实EXPLAIN定位，不能继续放大timeout掩盖问题。
+检查第二页仅returned_count≤100且不出现summary重算日志；正式重算后同范围再次请求应不命中旧缓存。

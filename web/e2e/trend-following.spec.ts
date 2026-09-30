@@ -53,7 +53,7 @@ for (const width of [1280, 1440, 1920]) {
           })) };
         } else if (pathname.endsWith('/market-data/forward-returns')) {
           body = { items: [{ code: snapshot.code, forward_return_3d: .03, forward_return_5d: -.02, forward_return_10d: null, forward_return_20d: .08 }] };
-        } else if (pathname.endsWith('/trend-following/event-study')) {
+        } else if (pathname.includes('/trend-following/event-study/')) {
           const params = new URL(route.request().url()).searchParams;
           const market = params.get('market') || 'CN';
           const regime = params.get('regime') || 'ALL';
@@ -92,6 +92,9 @@ for (const width of [1280, 1440, 1920]) {
       page.on('pageerror', error => errors.push(error.message));
       await page.goto('/research/trend-following');
       await expect(page.getByTestId('trend-export-excel')).toBeEnabled();
+      for (const kind of ['trend', 'box', 'mr']) await expect(page.getByTestId(`${kind}-section`)).toHaveCount(1);
+      await expect(page.getByTestId('trend-summary')).toHaveCount(1);
+      await expect(page.getByTestId('trend-view-tabs')).toHaveCount(0);
       const downloadPromise = page.waitForEvent('download');
       await page.getByTestId('trend-export-excel').click();
       const download = await downloadPromise;
@@ -99,15 +102,14 @@ for (const width of [1280, 1440, 1920]) {
       expect(await download.failure()).toBeNull();
       await download.saveAs(testInfo.outputPath('ranking.xlsx'));
 
-      await page.getByTestId('trend-view-mr').click();
-      await expect(page.getByTestId('trend-row').first()).toContainText('反弹确认');
-      await page.getByTestId('trend-view-study').click();
+      await expect(page.getByTestId('mr-row').first()).toContainText('反弹确认');
       await expect(page.getByTestId('study-strategy-row')).toHaveCount(4);
       await expect(page.getByTestId('trend-event-study')).toContainText('insufficient_feature_history');
       await expect(page.getByTestId('trend-event-study')).toContainText('Box 连续完整自 2026-08-28');
       await expect(page.getByTestId('trend-event-study')).toContainText('MR 连续完整自 2026-08-28');
-      await page.getByLabel('研究开始日期').fill('2026-06-01');
+      await page.getByRole('button', { name: '90D', exact: true }).click();
       await page.getByLabel('研究市场环境').selectOption('RISK_OFF');
+      await page.getByTestId('study-query').click();
       await page.getByTestId('study-strategy-row').filter({ hasText: '箱体突破' }).click();
       await expect(page.getByTestId('study-event-row')).toContainText('历史样本');
       await expect(page.getByTestId('study-event-row')).toContainText('Quality: 88.00');
@@ -115,20 +117,22 @@ for (const width of [1280, 1440, 1920]) {
       await expect(page.getByTestId('study-coverage')).toContainText('SPY.US');
       await page.getByRole('radio', { name: 'A股', exact: true }).click();
       await expect(page.getByTestId('study-coverage')).toContainText('510300.SH');
+      for (const kind of ['trend', 'box', 'mr']) {
+        await page.getByTestId(`${kind}-section`).screenshot({ path: testInfo.outputPath(`${kind}-section.png`) });
+      }
+      await page.getByTestId('trend-event-study').scrollIntoViewIfNeeded();
       await page.screenshot({ path: testInfo.outputPath('strategy-study.png') });
-      await page.getByTestId('trend-view-box').click();
-      await expect(page.getByTestId('trend-row').first()).toContainText('待突破');
-      await expect(page.getByTestId('trend-row').first()).toContainText('30d');
-      await expect(page.getByTestId('trend-row').first().locator('[data-column="forwardReturn20D"]')).toHaveText('8.0%');
-      await page.getByTestId('trend-row').first().click();
+      await expect(page.getByTestId('box-row').first()).toContainText('待突破');
+      await expect(page.getByTestId('box-row').first()).toContainText('30d');
+      await expect(page.getByTestId('box-row').first().locator('[data-column="forwardReturn20D"]')).toHaveText('8.0%');
+      await page.getByTestId('box-row').first().click();
       await expect(page.getByTestId('trend-box-structure')).toContainText('Box Structure');
       await page.keyboard.press('Escape');
-      await page.getByTestId('trend-view-ranking').click();
       const row = page.getByTestId('trend-row').first();
       await expect(row.locator('[data-column="forwardReturn3D"]')).toHaveText('3.0%');
       await expect(row.locator('[data-column="forwardReturn5D"]')).toHaveText('-2.0%');
       await expect(row.locator('[data-column="forwardReturn10D"]')).toHaveText('—');
-      const changes = page.getByTestId('trend-rank-changes');
+      const changes = page.getByTestId('trend-section').getByTestId('trend-rank-changes');
       await expect(changes.locator('.text-market-up')).toHaveText('+5');
       await expect(changes.locator('.text-market-down')).toHaveText('-2');
       const headerBefore = await page.locator('header').first().boundingBox();

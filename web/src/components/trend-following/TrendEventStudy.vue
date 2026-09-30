@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, ref, shallowRef, watch } from 'vue';
 import { trendFollowingApi } from '@/api/trendFollowing';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
+import AppDatePicker from '@/components/app/AppDatePicker.vue';
 import AppApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
 import SortableTableHeader from '@/components/stocks/SortableTableHeader.vue';
 import { Button } from '@/components/ui/button';
@@ -9,50 +10,89 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableHeader, TableBody, TableRow, TableCell } from '@/components/ui/table';
 import { exportExcel } from '@/utils/excelExport';
 import { toast } from 'vue-sonner';
-import type { EventStudyResponse, StrategyKey, StudyGroup, StudyEvent, StudyRegime, TrendMarket, EvaluationStatus } from '@/types/trendFollowing';
+import type { EventStudySummaryResponse, EventStudyEventsResponse, StrategyKey, StudyGroup, StudyEvent, StudyRegime, TrendMarket, EvaluationStatus } from '@/types/trendFollowing';
 
 const props = defineProps<{ market: TrendMarket; endDate: string }>();
-const end = ref(props.endDate || new Date().toISOString().slice(0, 10));
-const initialStart = new Date(`${end.value}T00:00:00Z`);
-initialStart.setUTCDate(initialStart.getUTCDate() - 180);
-const start = ref(initialStart.toISOString().slice(0, 10));
+const end = ref(props.endDate);
+const start = ref('');
+const range = ref<number | 'custom'>(60);
 const regime = ref<StudyRegime>('ALL');
 const selected = ref<StrategyKey | null>(null);
 const offset = ref(0);
 const loading = ref(false);
+const eventsLoading = ref(false);
 const error = ref<ParsedApiError | null>(null);
-const result = shallowRef<EventStudyResponse | null>(null);
-const groups = shallowRef<StudyGroup[]>([]);
+const eventsError = ref<ParsedApiError | null>(null);
+const result = shallowRef<EventStudySummaryResponse | null>(null);
+const page = shallowRef<EventStudyEventsResponse | null>(null);
+const groups = computed(() => result.value?.groups.filter(group => group.regime === applied.value.regime) ?? []);
 const labels: Record<StrategyKey, string> = { TREND_FOLLOWING: '趋势', BOX_BREAKOUT: '箱体突破', PULLBACK_RESUME: '趋势回调', MEAN_REVERSION: '超跌反弹' };
+const applied = ref({ start: '', end: '', regime: 'ALL' as StudyRegime });
 let controller: AbortController | undefined;
-watch(() => props.endDate, value => { if (value) end.value = value; });
-watch([() => props.market, start, end, regime], () => { selected.value = null; offset.value = 0; groups.value = []; });
-watch([() => props.market, start, end, regime, selected, offset], async () => {
+let eventsController: AbortController | undefined;
+function preset(value: number | 'custom') {
+  range.value = value;
+  if (value === 'custom') return;
+  end.value = props.endDate;
+  const date = new Date(`${end.value}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() - value);
+  start.value = date.toISOString().slice(0, 10);
+}
+const invalidRange = computed(() => !start.value || !end.value || start.value > end.value || end.value > props.endDate
+  || (Date.parse(end.value) - Date.parse(start.value)) / 86400000 > 730);
+async function query() {
+  if (invalidRange.value) return;
   controller?.abort();
+  eventsController?.abort();
+  eventsLoading.value = false;
+  eventsError.value = null;
+  selected.value = null;
+  offset.value = 0;
+  page.value = null;
+  applied.value = { start: start.value, end: end.value, regime: regime.value };
   const request = new AbortController();
   controller = request;
   error.value = null;
   result.value = null;
-  if (!start.value || !end.value || start.value > end.value) { loading.value = false; return; }
   loading.value = true;
   try {
-    const response = await trendFollowingApi.eventStudy(props.market, start.value, end.value, regime.value, selected.value ?? 'ALL', offset.value, request.signal);
-    if (request.signal.aborted) return;
-    result.value = response;
-    if (!selected.value) groups.value = response.groups.filter(group => group.regime === regime.value);
+    const response = await trendFollowingApi.eventStudySummary(props.market, applied.value.start, applied.value.end, applied.value.regime, request.signal);
+    if (!request.signal.aborted) result.value = response;
   } catch (e) {
     if (!request.signal.aborted) error.value = getParsedApiError(e);
   } finally {
     if (!request.signal.aborted) loading.value = false;
   }
-}, { immediate: true });
-onBeforeUnmount(() => controller?.abort());
+}
+async function loadEvents() {
+  if (!selected.value) return;
+  eventsController?.abort();
+  const request = new AbortController();
+  eventsController = request;
+  eventsLoading.value = true;
+  eventsError.value = null;
+  page.value = null;
+  try {
+    const response = await trendFollowingApi.eventStudyEvents(props.market, applied.value.start, applied.value.end,
+      applied.value.regime, selected.value, offset.value, request.signal);
+    if (!request.signal.aborted) page.value = response;
+  } catch (e) {
+    if (!request.signal.aborted) eventsError.value = getParsedApiError(e);
+  } finally {
+    if (!request.signal.aborted) eventsLoading.value = false;
+  }
+}
+// Date/regime controls only edit drafts. A market switch starts a fresh default study.
+watch(() => props.market, () => { regime.value = 'ALL'; preset(60); void query(); }, { immediate: true });
+watch(() => props.endDate, () => { if (range.value !== 'custom') preset(range.value); });
+onBeforeUnmount(() => { controller?.abort(); eventsController?.abort(); });
 
 const columns = [
   { key: 'strategy', label: '策略' }, { key: 'eventCount', label: 'N' },
-  ...[5, 10, 20].flatMap(days => [{ key: `win${days}`, label: `${days}D 胜率` }, { key: `excess${days}`, label: `${days}D 平均超额` }]),
-  { key: 'mfe20', label: '平均 MFE20' }, { key: 'mae20', label: '平均 MAE20' },
-  { key: 'coverage', label: '特征覆盖' },
+  ...[5, 10, 20].flatMap(days => [{ key: `win${days}`, label: `${days}D 胜率` },
+    ...(days === 5 ? [] : [{ key: `excess${days}`, label: `${days}D 平均超额` }])]),
+  { key: 'mfe20', label: 'MFE20' }, { key: 'mae20', label: 'MAE20' },
+  { key: 'coverage', label: '覆盖率' },
 ];
 const sortKey = ref('strategy');
 const direction = ref<'asc' | 'desc'>('asc');
@@ -75,7 +115,8 @@ function toggleSort(key: string) {
   direction.value = sortKey.value === key ? direction.value === 'asc' ? 'desc' : 'asc' : 'desc';
   sortKey.value = key;
 }
-function choose(strategy: StrategyKey) { selected.value = strategy; offset.value = 0; }
+function choose(strategy: StrategyKey) { selected.value = strategy; offset.value = 0; void loadEvents(); }
+function turnPage(value: number) { offset.value = value; void loadEvents(); }
 const chosenGroup = computed(() => groups.value.find(group => group.strategy === selected.value));
 const pct = (v: number | null | undefined) => v == null ? '—' : `${(v * 100).toFixed(1)}%`;
 const statusText = (status: EvaluationStatus) => status === 'pending' ? '未到期' : status === 'missing' ? '缺行情' : '—';
@@ -99,7 +140,7 @@ function context(event: StudyEvent) {
 }
 async function exportSummary() {
   try {
-    await exportExcel(`策略对比_${props.market}_${start.value}_${end.value}.xlsx`, '策略汇总',
+    await exportExcel(`策略对比_${props.market}_${applied.value.start}_${applied.value.end}.xlsx`, '策略汇总',
       columns.map(column => ({ label: column.label, format: column.key === 'eventCount' ? '0' : column.key === 'strategy' ? undefined : '0.0%' })),
       sorted.value.map(group => columns.map(column => value(group, column.key))));
   } catch { toast.error('Excel 导出失败，请重试'); }
@@ -108,25 +149,45 @@ async function exportSummary() {
 
 <template>
   <Card data-testid="trend-event-study">
-    <CardHeader><CardTitle>策略对比 · Official Event Study</CardTitle></CardHeader>
+    <CardHeader><CardTitle>Official Event Study</CardTitle></CardHeader>
     <CardContent class="space-y-4">
       <p class="text-sm text-muted-foreground">
         T-close forward return 为信号日收盘至精确交易日收盘的事后研究指标，不代表能按 T 收盘价真实成交。样本可能重叠，不是组合回测。
       </p>
       <div class="flex flex-wrap items-center gap-3">
         <span>{{ market }}</span>
-        <label>开始日期 <input
-          v-model="start"
-          type="date"
-          aria-label="研究开始日期"
-          class="rounded border bg-background p-2"
-        ></label>
-        <label>结束日期 <input
-          v-model="end"
-          type="date"
-          aria-label="研究结束日期"
-          class="rounded border bg-background p-2"
-        ></label>
+        <span>时间范围</span>
+        <Button
+          v-for="days in [30, 60, 90, 180]"
+          :key="days"
+          :variant="range === days ? 'secondary' : 'outline'"
+          :aria-pressed="range === days"
+          @click="preset(days)"
+        >
+          {{ days }}D
+        </Button>
+        <Button
+          :variant="range === 'custom' ? 'secondary' : 'outline'"
+          @click="preset('custom')"
+        >
+          自定义
+        </Button>
+        <template v-if="range === 'custom'">
+          <AppDatePicker
+            v-model="start"
+            label="开始日期"
+            :max="endDate"
+            :clearable="false"
+          />
+          <AppDatePicker
+            v-model="end"
+            label="结束日期"
+            :min="start"
+            :max="endDate"
+            :clearable="false"
+          />
+        </template>
+        <span class="text-xs text-muted-foreground">{{ start }} — {{ end }}</span>
         <label>Regime <select
           v-model="regime"
           aria-label="研究市场环境"
@@ -137,6 +198,13 @@ async function exportSummary() {
           :value="item"
         >{{ item }}</option></select></label>
         <Button
+          :disabled="invalidRange || loading"
+          data-testid="study-query"
+          @click="query"
+        >
+          查询
+        </Button>
+        <Button
           variant="outline"
           :disabled="!groups.length || loading"
           @click="exportSummary"
@@ -145,16 +213,16 @@ async function exportSummary() {
         </Button>
       </div>
       <p
-        v-if="start > end"
+        v-if="invalidRange"
         role="alert"
       >
-        开始日期不能晚于结束日期。
+        请选择有效日期范围（不超过730天，且不晚于所选 Official 日期）。
       </p>
       <p
         v-if="loading"
         role="status"
       >
-        正在评价正式历史事件…
+        策略统计加载中...
       </p>
       <AppApiErrorAlert
         v-if="error"
@@ -165,7 +233,7 @@ async function exportSummary() {
         class="text-xs text-muted-foreground"
         data-testid="study-coverage"
       >
-        正式快照 {{ result.snapshotDates.length }} 日 · 缺少快照 {{ result.missingSnapshotDates.length }} 日 · Benchmark {{ result.benchmark }} · Box 特征 {{ pct(result.boxFeatureCoverage.featureCoverage) }} · MR 特征 {{ pct(result.mrFeatureCoverage.featureCoverage) }}
+        已查询 {{ applied.start }} — {{ applied.end }} · {{ applied.regime }} · 正式快照 {{ result.snapshotDates.length }} 日 · 缺少快照 {{ result.missingSnapshotDates.length }} 日 · Benchmark {{ result.benchmark }} · Box 特征 {{ pct(result.boxFeatureCoverage.featureCoverage) }} · MR 特征 {{ pct(result.mrFeatureCoverage.featureCoverage) }}
         <p>Box 连续完整自 {{ result.boxFeatureCoverage.continuousCompleteSince ?? '—' }} · MR 连续完整自 {{ result.mrFeatureCoverage.continuousCompleteSince ?? '—' }}</p>
       </div>
       <p
@@ -215,7 +283,7 @@ async function exportSummary() {
         data-testid="study-drilldown"
       >
         <h3 class="font-semibold">
-          {{ labels[selected] }} · 事件样本 {{ result?.eventCount ?? '—' }}
+          {{ labels[selected] }} · 事件样本 {{ page?.eventCount ?? '—' }}
         </h3>
         <Table v-if="chosenGroup">
           <TableHeader>
@@ -244,6 +312,16 @@ async function exportSummary() {
         >
           完整20日路径 N={{ chosenGroup.excursionCount }} · MFE 中位数 {{ pct(chosenGroup.mfe20.median) }} · MAE 中位数 {{ pct(chosenGroup.mae20.median) }}
         </p>
+        <p
+          v-if="eventsLoading"
+          role="status"
+        >
+          事件样本加载中...
+        </p>
+        <AppApiErrorAlert
+          v-if="eventsError"
+          :error="eventsError"
+        />
         <Table data-testid="study-events">
           <TableHeader>
             <TableRow>
@@ -258,7 +336,7 @@ async function exportSummary() {
           </TableHeader>
           <TableBody>
             <TableRow
-              v-for="event in result?.events ?? []"
+              v-for="event in page?.events ?? []"
               :key="`${event.tradeDate}-${event.code}-${event.strategy}`"
               data-testid="study-event-row"
             >
@@ -289,14 +367,14 @@ async function exportSummary() {
         <div class="flex items-center gap-3">
           <Button
             variant="outline"
-            :disabled="loading || offset === 0"
-            @click="offset = Math.max(0, offset - 100)"
+            :disabled="eventsLoading || offset === 0"
+            @click="turnPage(Math.max(0, offset - 100))"
           >
             上一页
           </Button><span>第 {{ Math.floor(offset / 100) + 1 }} 页</span><Button
             variant="outline"
-            :disabled="loading || !result || offset + 100 >= result.eventCount"
-            @click="offset += 100"
+            :disabled="eventsLoading || !page || offset + 100 >= page.eventCount"
+            @click="turnPage(offset + 100)"
           >
             下一页
           </Button>

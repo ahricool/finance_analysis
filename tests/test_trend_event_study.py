@@ -14,6 +14,11 @@ from finance_analysis.trend_following.event_study import (
     aggregate,
     feature_coverage,
     run_event_study,
+    run_event_study_summary,
+    run_event_study_events,
+    aggregate_coverage,
+    STRATEGIES,
+    feature_available,
 )
 from finance_analysis.interfaces.api.v1.endpoints import trend_following as api
 from finance_analysis.interfaces.api.v1.schemas.trend_following import EventStudyResponse
@@ -152,23 +157,46 @@ def test_missing_features_are_not_negative_signals():
     assert coverage["continuous_complete_since"] is None
 
 
+def mock_repo(rows, bars=()):
+    repo = Mock()
+    events = derive_events(rows)
+    def query(start, end, strategy="ALL", regime="ALL", *, offset=0, limit=None):
+        selected = sorted([e for e in events if (strategy == "ALL" or e["strategy"] == strategy)
+                           and (regime == "ALL" or e["regime"] == regime)],
+                          key=lambda e: (-e["trade_date"].toordinal(), e["code"], e["strategy"]))
+        return (selected[offset:offset + limit] if limit is not None else selected), len(selected)
+    repo.event_study_events.side_effect = query
+    grouped = {}
+    for r in rows:
+        key = r["trade_date"], r["market_regime"]
+        group = grouped.setdefault(key, {"trade_date": key[0], "market_regime": key[1],
+                                         "snapshot_count": 0, **dict.fromkeys(STRATEGIES, 0)})
+        group["snapshot_count"] += 1
+        for strategy in STRATEGIES:
+            group[strategy] += feature_available(r, strategy)
+    repo.event_study_coverage.return_value = list(grouped.values())
+    repo.event_study_required_bars.side_effect = lambda pairs: [r for r in bars if (r["code"], r["date"]) in pairs]
+    return repo
+
+
 @pytest.mark.parametrize("count", [1, 200])
-def test_study_uses_two_bounded_queries_and_official_context(count):
+def test_summary_reads_only_event_paths_and_preserves_evaluation(count):
     plan = following_sessions("US", DAY, 20)
     rows = [{**row(), "code": f"A{i}.US"} for i in range(count)]
-    repo = Mock()
-    repo.event_study_rows.return_value = rows
-    repo.event_study_bars.return_value = list(data(plan).values())
-    result = run_event_study(repo, "US", DAY, DAY, now=NOW)
-    assert repo.event_study_rows.call_count == repo.event_study_bars.call_count == 1
-    assert "SPY.US" in repo.event_study_bars.call_args.args[0]
+    repo = mock_repo(rows, data(plan).values())
+    result = run_event_study_summary(repo, "US", DAY, DAY, now=NOW)
+    repo.event_study_rows.assert_not_called()
+    repo.event_study_events.assert_called_once_with(DAY, DAY, regime="ALL")
+    pairs = repo.event_study_required_bars.call_args.args[0]
+    assert len(pairs) == count * 21 + 4
+    assert ("SPY.US", DAY) in pairs
+    assert ("SPY.US", plan[0][0]) not in pairs
     assert result["event_count"] == count * 3
-    assert len(result["events"]) <= 100
+    assert "events" not in result
     assert len(result["groups"]) == 16
-    EventStudyResponse.model_validate(result)
 
 
-def test_sql_projection_lag_before_start_and_constant_query_count():
+def test_sql_filters_events_and_preserves_predecessor_before_start():
     db = _Database()
     StockDaily.__table__.create(db.engine)
     with db.session_scope() as session:
@@ -206,32 +234,30 @@ def test_sql_projection_lag_before_start_and_constant_query_count():
     event.listen(db.engine, "before_cursor_execute", capture)
     repo = TrendFollowingRepository("US", db)
     result = run_event_study(repo, "US", DAY, date(2026, 9, 21), now=NOW)
-    assert len(queries) == 2
     sql = queries[0].lower()
-    assert "lag(" in sql
-    assert "study_range" in sql and "trade_date between" in sql
-    assert "union all" in sql
+    assert "union all" in sql and "trade_date between" in sql
     assert "LIMIT 1" in compiled[0]
     assert "BETWEEN '2026-09-18' AND '2026-09-21'" in compiled[0]
     assert "study_prior.trade_date <" in sql
-    assert "study_prior.instrument_id = study_instruments.instrument_id" in sql
-    assert "order by study_prior.trade_date desc" in sql and "limit" in sql
+    assert "study_prior.instrument_id = trend_following_snapshot.instrument_id" in sql
     assert "score_breakdown" not in queries[0]
-    assert result["event_count"] == 2  # one new TRENDING episode + one fresh Box
+    assert result["event_count"] == 2
     assert {e["trade_date"] for e in result["events"]} == {DAY}
-    projected = repo.event_study_rows(DAY, date(2026, 9, 21))
-    assert len(projected) == 3
-    assert {r['code'] for r in projected} == {'AAA.US', 'BBB.US'}
-    assert all(r['trade_date'] >= DAY for r in projected)
-    assert {(r['code'], r['trade_date']): r['previous_state'] for r in projected} == {
-        ('AAA.US', DAY): 'CANDIDATE', ('AAA.US', date(2026, 9, 21)): 'TRENDING', ('BBB.US', DAY): 'TRENDING',
-    }
+    projected, count = repo.event_study_events(DAY, date(2026, 9, 21))
+    assert count == len(projected) == 2
+    assert {r['code'] for r in projected} == {'AAA.US'}
+    assert any("GROUP BY" in query for query in queries)
+    for strategy, key in [("BOX_BREAKOUT", "box_breakout_fresh"), ("MEAN_REVERSION", "mr_state"),
+                          ("PULLBACK_RESUME", "trend_resume")]:
+        query = str(repo._study_event_query(DAY, DAY, strategy, "RISK_ON").compile(
+            dialect=__import__('sqlalchemy').dialects.postgresql.dialect(), compile_kwargs={"literal_binds": True}))
+        assert key in query.split("WHERE")[1]
+        assert "study_prior" not in query  # other strategies do not scan predecessor states
+
 
 
 def test_api_range_regime_strategy_validation_and_schema(monkeypatch):
-    repo = Mock()
-    repo.event_study_rows.return_value = [row()]
-    repo.event_study_bars.return_value = []
+    repo = mock_repo([row()])
     monkeypatch.setattr(api, "TrendFollowingRepository", lambda market: repo)
     app = FastAPI()
     app.include_router(api.router)
@@ -253,9 +279,7 @@ def test_api_range_regime_strategy_validation_and_schema(monkeypatch):
 
 
 def test_missing_entire_snapshot_day_marks_study_incomplete():
-    repo = Mock()
-    repo.event_study_rows.return_value = [row()]
-    repo.event_study_bars.return_value = []
+    repo = mock_repo([row()])
     response = run_event_study(repo, "US", DAY, date(2026, 9, 21), now=NOW)
     assert response["missing_snapshot_dates"] == [date(2026, 9, 21)]
     assert all(g["status"] == "insufficient_feature_history" for g in response["groups"])
@@ -299,10 +323,8 @@ def test_continuous_coverage_is_complete_suffix_not_first_complete_day():
 
 
 def test_study_continuous_suffix_resets_after_missing_session():
-    repo = Mock()
     end = date(2026, 9, 22)
-    repo.event_study_rows.return_value = [row(), {**row(), 'trade_date': end}]
-    repo.event_study_bars.return_value = []
+    repo = mock_repo([row(), {**row(), 'trade_date': end}])
     response = run_event_study(repo, 'US', DAY, end, now=NOW)
     assert response['missing_snapshot_dates'] == [date(2026, 9, 21)]
     assert response['box_feature_coverage']['continuous_complete_since'] == end
@@ -314,3 +336,102 @@ def test_legacy_yesterday_only_freshness_is_insufficient_episode_history():
     old = {**row(), 'box_episode_consumed': None}
     assert feature_coverage([old], 'BOX_BREAKOUT')['status'] == 'insufficient_feature_history'
     assert all(e['strategy'] != 'BOX_BREAKOUT' for e in derive_events([old]))
+
+
+@pytest.mark.parametrize("strategy", STRATEGIES)
+def test_aggregated_coverage_matches_original(strategy):
+    rows = [row(), {**row(), "trade_date": DAY + timedelta(days=3), "mr_state": None,
+                   "box_episode_consumed": None, "trend_resume": None, "previous_state": None}]
+    grouped = mock_repo(rows).event_study_coverage.return_value
+    assert aggregate_coverage(grouped, strategy, [DAY + timedelta(days=1)]) == feature_coverage(
+        rows, strategy, [DAY + timedelta(days=1)],
+    )
+
+
+def test_second_page_evaluates_only_page_paths(monkeypatch):
+    import finance_analysis.trend_following.event_study as study
+    rows = [{**row(), "code": f"A{i:03}.US"} for i in range(250)]
+    repo = mock_repo(rows)
+    original = study.evaluate_event
+    spy = Mock(wraps=original)
+    monkeypatch.setattr(study, "evaluate_event", spy)
+    result = run_event_study_events(repo, "US", DAY, DAY, strategy="BOX_BREAKOUT", offset=100, limit=100, now=NOW)
+    assert result["event_count"] == 250
+    assert spy.call_count == len(result["events"]) == 100
+    assert result["events"][0]["code"] == "A100.US"
+    assert {c for c, d in repo.event_study_required_bars.call_args.args[0]} == {
+        "SPY.US", *(f"A{i:03}.US" for i in range(100, 200)),
+    }
+    repo.event_study_coverage.assert_not_called()
+
+
+def test_sparse_database_events_are_filtered_before_transfer_and_pagination():
+    db = _Database()
+    StockDaily.__table__.create(db.engine)
+    with db.session_scope() as session:
+        for i in range(100):
+            session.add(Instrument(id=i + 1, market="US", code=f"S{i:03}.US", name=str(i)))
+        for i in range(100):
+            for d in range(20):
+                snapshot = _snapshot(snapshot_id=i * 20 + d + 1, instrument_id=i + 1,
+                                     code=f"S{i:03}.US", trade_date=DAY + timedelta(days=d), state="WATCHING")
+                snapshot.features = dict(box_state="BOX_BREAKOUT", box_breakout_fresh=i < 3 and d == 2,
+                                         box_episode_consumed=True, mr_state="MR_REBOUND" if i < 2 and d == 3 else "MR_NONE",
+                                         trend_resume=i == 0 and d == 4)
+                session.add(snapshot)
+    repo = TrendFollowingRepository("US", db)
+    events, count = repo.event_study_events(DAY, DAY + timedelta(days=19))
+    assert count == len(events) == 6  # 2,000 snapshots transfer only six events
+    coverage = repo.event_study_coverage(DAY, DAY + timedelta(days=19))
+    assert len(coverage) == 20
+    assert sum(r["snapshot_count"] for r in coverage) == 2000
+    queries = []
+    event.listen(db.engine, "before_cursor_execute", lambda conn, cursor, sql, *args: queries.append(sql))
+    page, total = repo.event_study_events(DAY, DAY + timedelta(days=19), "BOX_BREAKOUT", offset=1, limit=1)
+    assert total == 3 and len(page) == 1 and page[0]["code"] == "S001.US"
+    assert "LIMIT" in queries[-1] and "OFFSET" in queries[-1]
+
+
+def test_split_api_default_range_and_no_summary_on_events(monkeypatch):
+    import finance_analysis.trend_following.event_study_cache as cache
+    from finance_analysis.trend_following.config import DEFAULT_CONFIG
+    repo = mock_repo([row()])
+    monkeypatch.setattr(api, "TrendFollowingRepository", lambda market: repo)
+    monkeypatch.setattr(cache.EventStudyCache, "load", lambda self: None)
+    monkeypatch.setattr(cache.EventStudyCache, "save", lambda self, body: None)
+    app = FastAPI()
+    app.include_router(api.router)
+    app.dependency_overrides[api.require_current_user] = lambda: SimpleNamespace(id=1)
+    client = TestClient(app)
+    result = client.get("/event-study/summary", params={"market": "US", "end_date": DAY.isoformat()})
+    assert result.status_code == 200
+    assert DEFAULT_CONFIG.event_study_default_days == 60
+    assert result.json()["start_date"] == (DAY - timedelta(days=60)).isoformat()
+    assert "events" not in result.json()
+    repo.reset_mock()
+    result = client.get("/event-study/events", params={"market": "US", "end_date": DAY.isoformat(),
+                                                     "strategy": "BOX_BREAKOUT", "offset": 100})
+    assert result.status_code == 200 and result.json()["events"] == []
+    repo.event_study_coverage.assert_not_called()
+    repo.event_study_required_bars.assert_not_called()
+    for path in ("summary", "events"):
+        assert client.get(f"/event-study/{path}", params={"strategy": "BOX_BREAKOUT", "start_date": "2020-01-01",
+                                                        "end_date": DAY.isoformat()}).status_code == 422
+
+
+def test_summary_groups_and_page_match_legacy_evaluator_exactly():
+    plan = following_sessions("US", DAY, 20)
+    rows = [row(), {**row(), "trade_date": plan[0][0], "previous_state": "TRENDING", "market_regime": "RISK_ON"}]
+    bars = data(plan)
+    repo = mock_repo(rows, bars.values())
+    summary = run_event_study_summary(repo, "US", DAY, plan[0][0], now=NOW)
+    expected = [evaluate_event(e, following_sessions("US", e["trade_date"], 20), bars, "SPY.US", NOW)
+                for e in derive_events(rows)]
+    for group in summary["groups"]:
+        selected = [e for e in expected if e["strategy"] == group["strategy"]
+                    and (group["regime"] == "ALL" or e["regime"] == group["regime"])]
+        selected_rows = [r for r in rows if group["regime"] == "ALL" or r["market_regime"] == group["regime"]]
+        assert group == aggregate(selected, group["strategy"], group["regime"],
+                                  feature_coverage(selected_rows, group["strategy"]))
+    page = run_event_study_events(repo, "US", DAY, plan[0][0], strategy="BOX_BREAKOUT", offset=1, limit=1, now=NOW)
+    assert page["events"] == [e for e in expected if e["strategy"] == "BOX_BREAKOUT" and e["trade_date"] == DAY]

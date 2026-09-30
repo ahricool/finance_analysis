@@ -286,7 +286,7 @@ class StudyEvent(BaseModel):
     mae20: float | None
 
 
-class EventStudyResponse(BaseModel):
+class EventStudySummaryResponse(BaseModel):
     market: Literal["CN", "US"]
     start_date: date
     end_date: date
@@ -299,6 +299,14 @@ class EventStudyResponse(BaseModel):
     mr_feature_coverage: StudyCoverage
     groups: list[StudyGroup]
     event_count: int
+
+
+class EventStudyEventsResponse(BaseModel):
     events: list[StudyEvent]
+    event_count: int
     offset: int
     limit: int
+
+
+class EventStudyResponse(EventStudySummaryResponse, EventStudyEventsResponse):
+    pass

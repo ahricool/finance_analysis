@@ -22,6 +22,7 @@ def redis_client():
 class SnapshotRankingCache:
     namespace: str
     schema_version = SCHEMA_VERSION
+    ttl_seconds = TTL_SECONDS
 
     def __init__(self, market: str, trade_date: date):
         self.key = f"{self.namespace}:ranking:{market}:{trade_date}"
@@ -49,7 +50,7 @@ class SnapshotRankingCache:
             redis_client().eval(
                 "if (redis.call('GET', KEYS[1]) or '0') == ARGV[1] then "
                 "return redis.call('SET', KEYS[2], ARGV[2], 'EX', ARGV[3]) end return 0",
-                2, self.revision_key, self.key, self.revision, prefix + body, TTL_SECONDS,
+                2, self.revision_key, self.key, self.revision, prefix + body, self.ttl_seconds,
             )
         except Exception:
             logger.warning("Snapshot ranking cache write unavailable", exc_info=True)

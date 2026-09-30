@@ -9,7 +9,7 @@ import { detailChartHistory as buildDetailChartHistory } from '@/utils/detailCha
 import ResearchMarketToggle from '@/components/research/ResearchMarketToggle.vue';
 import { useRoute } from 'vue-router';
 import { useLazyResearchPreview } from '@/composables/useLazyResearchPreview';
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, shallowRef, watch } from 'vue';
 import { RefreshCcw } from 'lucide-vue-next';
 import { toast } from 'vue-sonner';
 import { trendFollowingApi } from '@/api/trendFollowing';
@@ -209,20 +209,12 @@ const mrColumns = [
   { key: 'alphaScore', label: 'Alpha', format: 'score' },
   { key: 'state', label: 'State', format: 'text' },
 ] as const;
-const mrFilter = ref('all');
 const mrFilters = [{ value: 'all', label: '全部超跌机会' }, { value: 'MR_REBOUND', label: '反弹确认' }, { value: 'MR_OVERSOLD', label: '超跌观察' }];
 const mrText = (value: unknown) => value === 'MR_REBOUND' ? '反弹确认' : value === 'MR_OVERSOLD' ? '超跌观察' : '—';
 const mrPriority = (row: TrendRankingSnapshot) => row.features.mrState === 'MR_REBOUND' ? 0 : 1;
 type ColumnSource = typeof trendColumns[number] | typeof boxColumns[number] | typeof mrColumns[number];
 type RankingColumn = { key: ColumnSource['key']; label: string; format: ColumnSource['format']; group: string; description?: string };
 type SortKey = RankingColumn['key'];
-const activeView = ref<'trend' | 'box' | 'mr' | 'study'>('trend');
-const rankingColumns = computed<readonly RankingColumn[]>(() => activeView.value === 'trend'
-  ? trendColumns : (activeView.value === 'mr' ? mrColumns : boxColumns).map(column => ({ ...column, group: activeView.value === 'mr' ? '超跌反弹' : '箱体结构', description: 'description' in column ? column.description : undefined })));
-const rankingGroups = computed(() => [...new Set(rankingColumns.value.map(column => column.group))].map(label => ({
-  label, count: rankingColumns.value.filter(column => column.group === label).length,
-})));
-const boxFilter = ref('opportunities');
 const boxFilters = [
   { value: 'opportunities', label: '全部机会' }, { value: 'BOX_BREAKOUT', label: '刚突破' },
   { value: 'BOX_READY', label: '待突破' }, { value: 'BOX_FORMING', label: '形成中' },
@@ -260,8 +252,6 @@ function boxDetailValue(key: typeof boxDetailFields[number][0], format: string) 
   return score(value);
 }
 type StateFilter = 'all' | 'CANDIDATE' | 'TRENDING' | 'WEAKENING' | 'BROKEN';
-const rankingSearch = ref('');
-const stateFilter = ref<StateFilter>('all');
 const stateFilters: Array<{ value: StateFilter; label: string }> = [
   { value: 'all', label: '全部' },
   { value: 'CANDIDATE', label: '趋势候选' },
@@ -269,15 +259,10 @@ const stateFilters: Array<{ value: StateFilter; label: string }> = [
   { value: 'WEAKENING', label: '趋势弱化' },
   { value: 'BROKEN', label: '趋势破坏' },
 ];
-const sortKey = ref<SortKey>('rank');
-const sortDirection = ref<'asc' | 'desc'>('asc');
-watch(activeView, view => {
-  sortKey.value = view === 'mr' ? 'mrState' : view === 'box' ? 'boxState' : 'rank';
-  sortDirection.value = 'asc';
-});
 let generation = 0;
 const marketOverviewRefreshKey = ref(0);
 const marketOverviewReady = ref(false);
+const studyContextReady = ref(false);
 const detailMode = ref<ResearchDataMode>('official');
 
 const scope = computed(() => market.value === 'CN' ? '沪深300 + 中证500' : 'S&P 500');
@@ -326,12 +311,11 @@ function rankingCell(item: TrendRankingSnapshot, column: RankingColumn) {
   if (column.format === 'score' || column.format === 'number') return score(value);
   return String(value);
 }
-const exporting = ref(false);
-async function exportRanking() {
-  if (exporting.value || loading.value || refreshing.value || previewLoading.value || forwardLoading.value || !sortedItems.value.length) return;
-  exporting.value = true;
+async function exportRanking(table: typeof tables[number]) {
+  if (table.exporting || loading.value || refreshing.value || previewLoading.value || forwardLoading.value || !table.sortedItems.length) return;
+  table.exporting = true;
   try {
-    const columns: ExcelColumn[] = rankingColumns.value.flatMap(column => {
+    const columns: ExcelColumn[] = table.columns.flatMap(column => {
       if (column.key === 'name') return [{ label: column.label }, { label: '代码' }];
       if (column.key === 'trendLifecycle') return [{ label: 'Lifecycle' }, { label: 'Age (D)', format: '0' }];
       if (column.key === 'rankChange5D') return ['1D', '3D', '5D'].map(period => ({ label: `Rank Δ ${period}`, format: '+0;-0;0' }));
@@ -340,7 +324,7 @@ async function exportRanking() {
         : column.format === 'r2' ? '0.000' : column.format === 'slope' ? '0.0000'
           : column.format === 'price' || column.format === 'ratio' ? '0.00' : column.key === 'rank' ? '0' : '0.0' }];
     });
-    const rows = sortedItems.value.map(item => rankingColumns.value.flatMap(column => {
+    const rows = table.sortedItems.map(item => table.columns.flatMap(column => {
       if (column.key === 'name') return [item.name, item.code];
       if (column.key === 'state') return [stateText(item.state)];
       if (column.key === 'mrState') return [mrText(item.features.mrState)];
@@ -352,62 +336,69 @@ async function exportRanking() {
       if (column.key === 'volumeRatio' && item.features.volumeProvisional === true) return [null];
       return [sortValue(item, column.key)];
     }));
-    await exportExcel(`趋势分析_${market.value}_${summary.value.tradeDate}_${dataMode.value}.xlsx`, '趋势分析', columns, rows);
+    await exportExcel(`${table.kind === 'trend' ? '趋势分析' : table.title}_${market.value}_${summary.value.tradeDate}_${dataMode.value}.xlsx`, '趋势分析', columns, rows);
   } catch {
     toast.error('Excel 导出失败，请重试');
   } finally {
-    exporting.value = false;
+    table.exporting = false;
   }
 }
 
-function toggleSort(key: SortKey) {
-  sortDirection.value = sortKey.value === key
-    ? (sortDirection.value === 'asc' ? 'desc' : 'asc')
-    : (['rank', 'name', 'setup', 'state', 'trendCandidate', 'priorCompression', 'compressionBreakout', 'trendResume'].includes(key) ? 'asc' : 'desc');
-  sortKey.value = key;
-}
-const filteredItems = computed(() => {
-  const query = rankingSearch.value.trim().toLocaleLowerCase();
-  return items.value.filter(item => {
-    if (activeView.value === 'box') {
-      const state = item.features.boxState;
-      if (boxFilter.value === 'opportunities' ? state !== 'BOX_BREAKOUT' && state !== 'BOX_READY' : state !== boxFilter.value) return false;
-    } else if (activeView.value === 'mr') {
-      const state = item.features.mrState;
-      if (mrFilter.value === 'all' ? state !== 'MR_REBOUND' && state !== 'MR_OVERSOLD' : state !== mrFilter.value) return false;
-    } else if (stateFilter.value !== 'all' && item.state !== stateFilter.value) return false;
-    return !query || item.code.toLocaleLowerCase().includes(query) || item.name.toLocaleLowerCase().includes(query);
-  });
-});
 const { value: forwardReturn, error: forwardError, loading: forwardLoading, retry: retryForward } =
   useForwardReturns(items, market, () => summary.value.tradeDate, dataMode);
-const sortedItems = computed(() => [...filteredItems.value].sort((left, right) => {
-  if (activeView.value === 'mr' && sortKey.value === 'mrState') return (mrPriority(left) - mrPriority(right)
-    || (right.features.mrQuality ?? -1) - (left.features.mrQuality ?? -1) || left.code.localeCompare(right.code)) * (sortDirection.value === 'asc' ? 1 : -1);
-  if (activeView.value === 'box' && sortKey.value === 'boxState') return defaultBoxSort(left, right) * (sortDirection.value === 'asc' ? 1 : -1);
-  const a = sortValue(left, sortKey.value);
-  const b = sortValue(right, sortKey.value);
-  if (a == null) return b == null ? 0 : 1;
-  if (b == null) return -1;
-  const comparison = typeof a !== 'string' && typeof b !== 'string' ? Number(a) - Number(b) : String(a).localeCompare(String(b));
-  return comparison * (sortDirection.value === 'asc' ? 1 : -1) || left.code.localeCompare(right.code);
-}));
-// Production CN currently has ~3,800 rows. Keep one sortable dataset, but only
-// mount the scroll viewport plus overscan; this is not business pagination.
-const rankingViewport = ref<HTMLElement | null>(null);
-const rankingScrollTop = ref(0);
-const virtualRanking = computed(() => sortedItems.value.length > 300);
-const rankingRowHeight = 64;
-const virtualStart = computed(() => virtualRanking.value
-  ? Math.min(Math.max(0, sortedItems.value.length - 28), Math.max(0, Math.floor((rankingScrollTop.value - 80) / rankingRowHeight) - 8)) : 0);
-const renderedRankingRows = computed(() => virtualRanking.value
-  ? sortedItems.value.slice(virtualStart.value, virtualStart.value + 28) : sortedItems.value);
-const rankingBottomSpace = computed(() => virtualRanking.value
-  ? Math.max(0, sortedItems.value.length - virtualStart.value - renderedRankingRows.value.length) * rankingRowHeight : 0);
-watch(sortedItems, () => {
-  rankingScrollTop.value = 0;
-  if (rankingViewport.value) rankingViewport.value.scrollTop = 0;
-});
+// Each section owns its filters, ordering and scroll viewport. All share the same snapshot and drawer.
+function createTable(kind: 'trend' | 'box' | 'mr', title: string, description: string, columns: readonly RankingColumn[]) {
+  const search = ref('');
+  const filter = ref(kind === 'box' ? 'opportunities' : 'all');
+  const sortKey = ref<SortKey>(kind === 'trend' ? 'rank' : kind === 'box' ? 'boxState' : 'mrState');
+  const sortDirection = ref<'asc' | 'desc'>('asc');
+  const viewport = shallowRef<HTMLElement | null>(null);
+  const scrollTop = ref(0);
+  const filteredItems = computed(() => {
+    const query = search.value.trim().toLocaleLowerCase();
+    return items.value.filter(item => {
+      if (kind === 'box') {
+        const state = item.features.boxState;
+        if (filter.value === 'opportunities' ? state !== 'BOX_BREAKOUT' && state !== 'BOX_READY' : state !== filter.value) return false;
+      } else if (kind === 'mr') {
+        const state = item.features.mrState;
+        if (filter.value === 'all' ? state !== 'MR_REBOUND' && state !== 'MR_OVERSOLD' : state !== filter.value) return false;
+      } else if (filter.value !== 'all' && item.state !== filter.value) return false;
+      return !query || item.code.toLocaleLowerCase().includes(query) || item.name.toLocaleLowerCase().includes(query);
+    });
+  });
+  const sortedItems = computed(() => [...filteredItems.value].sort((left, right) => {
+    const direction = sortDirection.value === 'asc' ? 1 : -1;
+    if (kind === 'mr' && sortKey.value === 'mrState') return (mrPriority(left) - mrPriority(right)
+      || (right.features.mrQuality ?? -1) - (left.features.mrQuality ?? -1) || left.code.localeCompare(right.code)) * direction;
+    if (kind === 'box' && sortKey.value === 'boxState') return defaultBoxSort(left, right) * direction;
+    const a = sortValue(left, sortKey.value), b = sortValue(right, sortKey.value);
+    if (a == null) return b == null ? left.code.localeCompare(right.code) : 1;
+    if (b == null) return -1;
+    const comparison = typeof a !== 'string' && typeof b !== 'string' ? Number(a) - Number(b) : String(a).localeCompare(String(b));
+    return comparison * direction || left.code.localeCompare(right.code);
+  }));
+  const virtual = computed(() => sortedItems.value.length > 300);
+  const virtualStart = computed(() => virtual.value
+    ? Math.min(Math.max(0, sortedItems.value.length - 28), Math.max(0, Math.floor((scrollTop.value - 80) / 64) - 8)) : 0);
+  const renderedRows = computed(() => virtual.value ? sortedItems.value.slice(virtualStart.value, virtualStart.value + 28) : sortedItems.value);
+  const bottomSpace = computed(() => virtual.value ? Math.max(0, sortedItems.value.length - virtualStart.value - renderedRows.value.length) * 64 : 0);
+  watch(sortedItems, () => { scrollTop.value = 0; if (viewport.value) viewport.value.scrollTop = 0; });
+  function toggleSort(key: SortKey) {
+    sortDirection.value = sortKey.value === key ? sortDirection.value === 'asc' ? 'desc' : 'asc'
+      : ['rank', 'name', 'setup', 'state', 'trendCandidate', 'priorCompression', 'compressionBreakout', 'trendResume'].includes(key) ? 'asc' : 'desc';
+    sortKey.value = key;
+  }
+  return reactive({ kind, title, description, columns, exporting: false, search, filter, sortKey, sortDirection, viewport, scrollTop,
+    sortedItems, virtual, virtualStart, renderedRows, bottomSpace, toggleSort,
+    groups: [...new Set(columns.map(c => c.group))].map(label => ({ label, count: columns.filter(c => c.group === label).length })),
+  });
+}
+const tables = [
+  createTable('trend', '趋势排名', '已形成趋势及趋势候选，按 Alpha/趋势质量研究。', trendColumns),
+  createTable('box', '结构机会', '识别正在形成、接近突破或刚突破的横盘结构。', boxColumns.map(c => ({ ...c, group: '箱体结构' }))),
+  createTable('mr', '超跌反弹', '识别短期极端偏离及确认反弹，不参与 Alpha 排名。', mrColumns.map(c => ({ ...c, group: '超跌反弹' }))),
+];
 const cards = computed(() => [
   ['Market Regime', summary.value.marketRegime, descriptions.marketRegime],
   ['Market Score', score(summary.value.marketScore), descriptions.marketScore],
@@ -536,6 +527,7 @@ async function load(refreshDates = false, options: { autoSelectMode?: boolean } 
   } finally {
     if (current === generation) {
       marketOverviewReady.value = true;
+      studyContextReady.value = true;
       loading.value = false;
       refreshing.value = false;
     }
@@ -590,7 +582,7 @@ function restoreRankingFocus() {
   if (!trigger) return;
   void nextTick(() => {
     const connected = trigger.el?.isConnected ? trigger.el : null;
-    const row = connected ?? Array.from(rankingViewport.value?.querySelectorAll('[data-testid="trend-row"]') ?? [])
+    const row = connected ?? tables.flatMap(table => Array.from(table.viewport?.querySelectorAll('[data-code]') ?? []))
       .find(element => element.getAttribute('data-code') === trigger.code);
     if (row instanceof HTMLElement) row.focus();
   });
@@ -657,10 +649,11 @@ async function openDetail(item: Pick<TrendSnapshot, 'code'> & { tradeDate?: stri
   }
 }
 watch(market, () => {
+  studyContextReady.value = false;
   ++detailRequestId;
   selectedDate.value = '';
-  rankingSearch.value = '';
-  stateFilter.value = 'all';
+  tables.forEach(table => { table.search = ''; });
+  tables.forEach(table => { table.filter = table.kind === 'box' ? 'opportunities' : 'all'; });
   officialSelected.value = null;
   officialLatest.value = null;
   resetPreview();
@@ -791,62 +784,7 @@ onMounted(async () => {
       {{ summary.warnings.join('；') }}
     </div>
     <div
-      role="tablist"
-      aria-label="趋势研究视图"
-      data-testid="trend-view-tabs"
-      class="flex gap-2"
-    >
-      <Button
-        role="tab"
-        :aria-selected="activeView === 'trend'"
-        :variant="activeView === 'trend' ? 'secondary' : 'ghost'"
-        data-testid="trend-view-ranking"
-        @click="activeView = 'trend'"
-      >
-        趋势排名
-      </Button>
-      <Button
-        role="tab"
-        :aria-selected="activeView === 'box'"
-        :variant="activeView === 'box' ? 'secondary' : 'ghost'"
-        data-testid="trend-view-box"
-        @click="activeView = 'box'"
-      >
-        结构机会
-      </Button>
-      <Button
-        role="tab"
-        :aria-selected="activeView === 'mr'"
-        :variant="activeView === 'mr' ? 'secondary' : 'ghost'"
-        data-testid="trend-view-mr"
-        @click="activeView = 'mr'"
-      >
-        超跌反弹
-      </Button>
-      <Button
-        role="tab"
-        :aria-selected="activeView === 'study'"
-        :variant="activeView === 'study' ? 'secondary' : 'ghost'"
-        data-testid="trend-view-study"
-        @click="activeView = 'study'"
-      >
-        策略对比
-      </Button>
-    </div>
-    <TrendEventStudy
-      v-if="activeView === 'study' && dataMode === 'official'"
-      :market="market"
-      :end-date="selectedDate || summary.tradeDate"
-    />
-    <p
-      v-else-if="activeView === 'study'"
-      data-testid="study-preview-disabled"
-      class="rounded border p-4 text-sm text-muted-foreground"
-    >
-      策略对比仅使用正式历史快照。请切换 Official；Preview 不进入 Event Study。
-    </p>
-    <div
-      v-if="activeView !== 'study' && (loading || (dataMode === 'preview' && previewLoading))"
+      v-if="loading || (dataMode === 'preview' && previewLoading)"
       class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4"
     >
       <Skeleton
@@ -856,7 +794,7 @@ onMounted(async () => {
       />
     </div>
     <div
-      v-else-if="activeView !== 'study'"
+      v-else
       class="relative space-y-4"
       :class="refreshing ? 'opacity-70' : ''"
     >
@@ -953,267 +891,299 @@ onMounted(async () => {
         </CardContent>
       </Card>
 
-      <Card v-if="showingStrategyBody">
-        <CardHeader class="flex-row flex-wrap items-center justify-between gap-3">
-          <div><CardTitle>{{ activeView === 'mr' ? '超跌反弹' : activeView === 'box' ? '结构机会' : '趋势排名' }}</CardTitle><CardDescription>{{ scope }} · 完整股票池筛选后再虚拟滚动</CardDescription></div>
-          <LoadingButton
-            variant="outline"
-            size="sm"
-            :loading="exporting"
-            loading-text="导出中…"
-            :disabled="loading || refreshing || previewLoading || forwardLoading || !sortedItems.length"
-            data-testid="trend-export-excel"
-            @click="exportRanking"
-          >
-            导出 Excel
-          </LoadingButton>
-          <div
-            v-if="activeView === 'trend'"
-            class="flex gap-1"
-            aria-label="按趋势状态筛选"
-            data-testid="trend-state-filter"
-          >
-            <Button
-              v-for="item in stateFilters"
-              :key="item.value"
+      <template v-if="showingStrategyBody">
+        <Card
+          v-for="table in tables"
+          :id="`section-${table.kind}`"
+          :key="table.kind"
+          :data-testid="`${table.kind}-section`"
+        >
+          <CardHeader class="flex flex-row flex-wrap items-center justify-between gap-3">
+            <div><CardTitle>{{ table.title }}</CardTitle><CardDescription>{{ table.description }}</CardDescription></div>
+            <LoadingButton
+              variant="outline"
               size="sm"
-              :variant="stateFilter === item.value ? 'secondary' : 'ghost'"
-              :aria-pressed="stateFilter === item.value"
-              @click="stateFilter = item.value"
+              :loading="table.exporting"
+              loading-text="导出中…"
+              :disabled="loading || refreshing || previewLoading || forwardLoading || !table.sortedItems.length"
+              :data-testid="`${table.kind}-export-excel`"
+              @click="exportRanking(table)"
             >
-              {{ item.label }}
-            </Button>
-          </div>
-          <div
-            v-if="activeView === 'box'"
-            class="flex gap-1"
-            data-testid="box-state-filter"
-            aria-label="按箱体状态筛选"
-          >
-            <Button
-              v-for="item in boxFilters"
-              :key="item.value"
-              size="sm"
-              :variant="boxFilter === item.value ? 'secondary' : 'ghost'"
-              :aria-pressed="boxFilter === item.value"
-              @click="boxFilter = item.value"
+              导出 Excel
+            </LoadingButton>
+            <div
+              v-if="table.kind === 'trend'"
+              class="flex gap-1"
+              aria-label="按趋势状态筛选"
+              data-testid="trend-state-filter"
             >
-              {{ item.label }}
-            </Button>
-          </div>
-          <p
-            v-if="activeView === 'box'"
-            class="w-full text-xs text-muted-foreground"
-          >
-            独立结构研究信号，不参与 Alpha / Entry。默认显示刚突破与待突破；旧快照需重算后才有箱体结果。
-          </p>
-          <div
-            v-if="activeView === 'mr'"
-            data-testid="mr-state-filter"
-            class="flex gap-1"
-          >
-            <Button
-              v-for="item in mrFilters"
-              :key="item.value"
-              :variant="mrFilter === item.value ? 'secondary' : 'ghost'"
-              @click="mrFilter = item.value"
+              <Button
+                v-for="item in stateFilters"
+                :key="item.value"
+                size="sm"
+                :variant="table.filter === item.value ? 'secondary' : 'ghost'"
+                :aria-pressed="table.filter === item.value"
+                @click="table.filter = item.value"
+              >
+                {{ item.label }}
+              </Button>
+            </div>
+            <div
+              v-if="table.kind === 'box'"
+              class="flex gap-1"
+              data-testid="box-state-filter"
+              aria-label="按箱体状态筛选"
             >
-              {{ item.label }}
-            </Button>
-          </div>
-          <label class="flex items-center gap-2 text-sm text-muted-foreground">搜索
-            <input
-              v-model="rankingSearch"
-              type="search"
-              aria-label="按名称或代码搜索趋势股票"
-              placeholder="股票名称或代码"
-              class="h-9 w-56 rounded-md border bg-background px-3 text-foreground"
-              data-testid="trend-ranking-search"
+              <Button
+                v-for="item in boxFilters"
+                :key="item.value"
+                size="sm"
+                :variant="table.filter === item.value ? 'secondary' : 'ghost'"
+                :aria-pressed="table.filter === item.value"
+                @click="table.filter = item.value"
+              >
+                {{ item.label }}
+              </Button>
+            </div>
+            <p
+              v-if="table.kind === 'box'"
+              class="w-full text-xs text-muted-foreground"
             >
-          </label>
-          <label class="flex items-center gap-2 text-sm text-muted-foreground">排序指标
-            <select
-              v-model="sortKey"
-              aria-label="排名排序指标"
-              class="h-9 rounded-md border bg-background px-2 text-foreground"
+              独立结构研究信号，不参与 Alpha / Entry。默认显示刚突破与待突破；旧快照需重算后才有箱体结果。
+            </p>
+            <div
+              v-if="table.kind === 'mr'"
+              data-testid="mr-state-filter"
+              class="flex gap-1"
             >
-              <option
-                v-for="column in rankingColumns"
-                :key="column.key"
-                :value="column.key"
-              >{{ column.label }}</option>
-            </select>
-          </label>
-        </CardHeader>
-        <CardContent class="px-0">
-          <p
-            v-if="forwardLoading"
-            class="p-2 text-xs text-muted-foreground"
-            role="status"
-          >
-            未来收益率加载中…
-          </p>
-          <AppApiErrorAlert
-            v-if="forwardError"
-            :error="forwardError"
-            action-label="重试收益率"
-            @action="retryForward"
-          />
-          <Empty v-if="!loading && !items.length">
-            <EmptyHeader><EmptyTitle>暂无趋势快照</EmptyTitle><EmptyDescription>请确认所选日期已完成收盘行情同步和策略计算。</EmptyDescription></EmptyHeader>
-          </Empty>
-          <div
-            v-else
-            ref="rankingViewport"
-            class="max-h-[680px] w-full overflow-auto [&_[data-slot=table-container]]:overflow-visible"
-            data-testid="trend-ranking-scroll"
-            tabindex="0"
-            aria-label="完整趋势排名，滚动查看全部股票"
-            @scroll="rankingScrollTop = ($event.target as HTMLElement).scrollTop"
-          >
-            <Table
-              class="w-full"
-              :aria-rowcount="sortedItems.length + 2"
+              <Button
+                v-for="item in mrFilters"
+                :key="item.value"
+                :variant="table.filter === item.value ? 'secondary' : 'ghost'"
+                @click="table.filter = item.value"
+              >
+                {{ item.label }}
+              </Button>
+            </div>
+            <label class="flex items-center gap-2 text-sm text-muted-foreground">搜索
+              <input
+                v-model="table.search"
+                type="search"
+                :aria-label="`按名称或代码搜索${table.title}股票`"
+                placeholder="股票名称或代码"
+                class="h-9 w-56 rounded-md border bg-background px-3 text-foreground"
+                :data-testid="`${table.kind}-ranking-search`"
+              >
+            </label>
+            <label class="flex items-center gap-2 text-sm text-muted-foreground">排序指标
+              <select
+                v-model="table.sortKey"
+                :aria-label="`${table.title}排序指标`"
+                class="h-9 rounded-md border bg-background px-2 text-foreground"
+              >
+                <option
+                  v-for="column in table.columns"
+                  :key="column.key"
+                  :value="column.key"
+                >{{ column.label }}</option>
+              </select>
+            </label>
+          </CardHeader>
+          <CardContent class="px-0">
+            <p
+              v-if="table.kind !== 'mr' && forwardLoading"
+              class="p-2 text-xs text-muted-foreground"
+              role="status"
             >
-              <TableHeader class="sticky top-0 z-30 bg-background">
-                <TableRow>
-                  <th
-                    v-for="group in rankingGroups"
-                    :key="group.label"
-                    :colspan="group.count"
-                    class="border-r px-4 py-2 text-left text-xs text-muted-foreground"
+              未来收益率加载中…
+            </p>
+            <AppApiErrorAlert
+              v-if="table.kind !== 'mr' && forwardError"
+              :error="forwardError"
+              action-label="重试收益率"
+              @action="retryForward"
+            />
+            <Empty v-if="!loading && !items.length">
+              <EmptyHeader><EmptyTitle>暂无趋势快照</EmptyTitle><EmptyDescription>请确认所选日期已完成收盘行情同步和策略计算。</EmptyDescription></EmptyHeader>
+            </Empty>
+            <div
+              v-else
+              :ref="element => { table.viewport = element as HTMLElement | null; }"
+              :class="table.kind === 'trend' ? 'max-h-[60vh]' : 'max-h-[32rem]'"
+              class="w-full overflow-auto [&_[data-slot=table-container]]:overflow-visible"
+              :data-testid="`${table.kind}-ranking-scroll`"
+              tabindex="0"
+              aria-label="完整趋势排名，滚动查看全部股票"
+              @scroll="table.scrollTop = ($event.target as HTMLElement).scrollTop"
+            >
+              <Table
+                class="w-full"
+                :aria-rowcount="table.sortedItems.length + 2"
+              >
+                <TableHeader class="sticky top-0 z-30 bg-background">
+                  <TableRow>
+                    <th
+                      v-for="group in table.groups"
+                      :key="group.label"
+                      :colspan="group.count"
+                      class="border-r px-4 py-2 text-left text-xs text-muted-foreground"
+                    >
+                      {{ group.label }}
+                    </th>
+                  </TableRow>
+                  <TableRow>
+                    <SortableTableHeader
+                      v-for="column in table.columns"
+                      :key="column.key"
+                      :label="column.label"
+                      class="min-w-32 whitespace-nowrap"
+                      :class="column.key === 'name' ? 'sticky left-0 z-20 min-w-48 bg-background' : ''"
+                      :description="column.description"
+                      :active="table.sortKey === column.key"
+                      :direction="table.sortDirection"
+                      @sort="table.toggleSort(column.key)"
+                    />
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  <tr
+                    v-if="table.virtualStart"
+                    aria-hidden="true"
+                    :style="{ height: `${table.virtualStart * 64}px` }"
                   >
-                    {{ group.label }}
-                  </th>
-                </TableRow>
-                <TableRow>
-                  <SortableTableHeader
-                    v-for="column in rankingColumns"
-                    :key="column.key"
-                    :label="column.label"
-                    class="min-w-32 whitespace-nowrap"
-                    :class="column.key === 'name' ? 'sticky left-0 z-20 min-w-48 bg-background' : ''"
-                    :description="column.description"
-                    :active="sortKey === column.key"
-                    :direction="sortDirection"
-                    @sort="toggleSort(column.key)"
-                  />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                <tr
-                  v-if="virtualStart"
-                  aria-hidden="true"
-                  :style="{ height: `${virtualStart * rankingRowHeight}px` }"
-                >
-                  <td
-                    :colspan="rankingColumns.length"
-                    class="p-0"
-                  />
-                </tr>
-                <TableRow
-                  v-for="(item, index) in renderedRankingRows"
-                  :key="item.code"
-                  class="cursor-pointer focus-visible:bg-muted/80 focus-visible:outline-none"
-                  data-testid="trend-row"
-                  :data-code="item.code"
-                  tabindex="0"
-                  :aria-rowindex="virtualStart + index + 3"
-                  :aria-haspopup="'dialog'"
-                  :aria-label="`打开 ${item.name} ${item.code} 趋势详情`"
-                  :style="virtualRanking ? { height: `${rankingRowHeight}px` } : undefined"
-                  @click="openRankingDetail(item, $event)"
-                  @keydown="onRankingRowKeydown(item, $event)"
-                >
-                  <TableCell
-                    v-for="column in rankingColumns"
-                    :key="column.key"
-                    class="min-w-32 whitespace-nowrap tabular-nums"
-                    :class="column.key === 'name' ? 'sticky left-0 z-10 min-w-48 bg-background' : column.key === 'alphaScore' ? 'font-bold text-primary' : ''"
-                    :data-column="column.key"
+                    <td
+                      :colspan="table.columns.length"
+                      class="p-0"
+                    />
+                  </tr>
+                  <TableRow
+                    v-for="(item, index) in table.renderedRows"
+                    :key="item.code"
+                    class="cursor-pointer focus-visible:bg-muted/80 focus-visible:outline-none"
+                    :data-testid="`${table.kind}-row`"
+                    :data-code="item.code"
+                    tabindex="0"
+                    :aria-rowindex="table.virtualStart + index + 3"
+                    :aria-haspopup="'dialog'"
+                    :aria-label="`打开 ${item.name} ${item.code} 趋势详情`"
+                    :style="table.virtual ? { height: `${64}px` } : undefined"
+                    @click="openRankingDetail(item, $event)"
+                    @keydown="onRankingRowKeydown(item, $event)"
                   >
-                    <template v-if="column.key === 'rank'">
-                      #{{ item.rank }}
-                    </template>
-                    <template v-else-if="column.key === 'name'">
-                      <strong class="block">{{ item.name }}</strong><span class="font-mono text-xs text-muted-foreground">{{ item.code }}</span>
-                    </template>
-                    <Badge
-                      v-else-if="column.key === 'mrState'"
-                      :variant="item.features.mrState === 'MR_REBOUND' ? 'success' : 'warning'"
+                    <TableCell
+                      v-for="column in table.columns"
+                      :key="column.key"
+                      class="min-w-32 whitespace-nowrap tabular-nums"
+                      :class="column.key === 'name' ? 'sticky left-0 z-10 min-w-48 bg-background' : column.key === 'alphaScore' ? 'font-bold text-primary' : ''"
+                      :data-column="column.key"
                     >
-                      {{ mrText(item.features.mrState) }}
-                    </Badge>
-                    <Badge
-                      v-else-if="column.key === 'boxState'"
-                      :variant="item.features.boxState === 'BOX_BREAKOUT' ? 'success' : item.features.boxState === 'BOX_READY' ? 'info' : 'outline'"
-                    >
-                      {{ boxStateText(item.features.boxState) }}
-                    </Badge>
-                    <Badge
-                      v-else-if="column.key === 'state'"
-                      :variant="badgeVariant(item.state)"
-                    >
-                      {{ stateText(item.state) }}
-                    </Badge>
-                    <template v-else-if="column.key === 'trendLifecycle'">
-                      <span class="text-xs">{{ item.trendLifecycle ?? '—' }}</span><span class="block text-xs text-muted-foreground">{{ item.trendDurationDays == null ? '—' : `${item.trendDurationDays}D` }}</span>
-                    </template>
-                    <template v-else-if="column.key === 'rankChange5D'">
-                      <div
-                        class="flex gap-3 whitespace-nowrap"
-                        data-testid="trend-rank-changes"
+                      <template v-if="column.key === 'rank'">
+                        #{{ item.rank }}
+                      </template>
+                      <template v-else-if="column.key === 'name'">
+                        <strong class="block">{{ item.name }}</strong><span class="font-mono text-xs text-muted-foreground">{{ item.code }}</span>
+                      </template>
+                      <Badge
+                        v-else-if="column.key === 'mrState'"
+                        :variant="item.features.mrState === 'MR_REBOUND' ? 'success' : 'warning'"
                       >
-                        <span
-                          v-for="[label, value] in ([['1D', item.rankChange1D], ['3D', item.rankChange3D], ['5D', item.rankChange5D]] as const)"
-                          :key="label"
-                          class="text-xs"
+                        {{ mrText(item.features.mrState) }}
+                      </Badge>
+                      <Badge
+                        v-else-if="column.key === 'boxState'"
+                        :variant="item.features.boxState === 'BOX_BREAKOUT' ? 'success' : item.features.boxState === 'BOX_READY' ? 'info' : 'outline'"
+                      >
+                        {{ boxStateText(item.features.boxState) }}
+                      </Badge>
+                      <Badge
+                        v-else-if="column.key === 'state'"
+                        :variant="badgeVariant(item.state)"
+                      >
+                        {{ stateText(item.state) }}
+                      </Badge>
+                      <template v-else-if="column.key === 'trendLifecycle'">
+                        <span class="text-xs">{{ item.trendLifecycle ?? '—' }}</span><span class="block text-xs text-muted-foreground">{{ item.trendDurationDays == null ? '—' : `${item.trendDurationDays}D` }}</span>
+                      </template>
+                      <template v-else-if="column.key === 'rankChange5D'">
+                        <div
+                          class="flex gap-3 whitespace-nowrap"
+                          data-testid="trend-rank-changes"
                         >
-                          <span class="text-muted-foreground">{{ label }}</span>
-                          <span :class="value == null || value === 0 ? 'text-muted-foreground' : value > 0 ? 'text-market-up' : 'text-market-down'">
-                            {{ rankDelta(value) }}
+                          <span
+                            v-for="[label, value] in ([['1D', item.rankChange1D], ['3D', item.rankChange3D], ['5D', item.rankChange5D]] as const)"
+                            :key="label"
+                            class="text-xs"
+                          >
+                            <span class="text-muted-foreground">{{ label }}</span>
+                            <span :class="value == null || value === 0 ? 'text-muted-foreground' : value > 0 ? 'text-market-up' : 'text-market-down'">
+                              {{ rankDelta(value) }}
+                            </span>
                           </span>
-                        </span>
-                      </div>
-                    </template>
-                    <template v-else-if="column.key === 'alphaScore'">
-                      {{ score(item.alphaScore) }}<span class="block text-xs font-normal text-muted-foreground">{{ alphaVersionLabel(item.features.alphaVersion as number | null | undefined) }}</span>
-                    </template>
-                    <template v-else>
-                      {{ rankingCell(item, column) }}
-                    </template>
-                  </TableCell>
-                </TableRow>
-                <tr
-                  v-if="rankingBottomSpace"
-                  aria-hidden="true"
-                  :style="{ height: `${rankingBottomSpace}px` }"
-                >
-                  <td
-                    :colspan="rankingColumns.length"
-                    class="p-0"
-                  />
-                </tr>
-              </TableBody>
-            </Table>
-          </div>
-          <p
-            v-if="items.length && !sortedItems.length"
-            class="px-6 pt-4 text-sm text-muted-foreground"
-            role="status"
-          >
-            没有匹配的股票，请尝试其他名称、代码或 State 筛选。
-          </p>
-          <p
-            v-if="items.length"
-            class="px-6 pt-4 text-sm text-muted-foreground"
-            data-testid="trend-ranking-count"
-          >
-            显示 {{ sortedItems.length }} / {{ items.length }} 条
-          </p>
-        </CardContent>
-      </Card>
+                        </div>
+                      </template>
+                      <template v-else-if="column.key === 'alphaScore'">
+                        {{ score(item.alphaScore) }}<span class="block text-xs font-normal text-muted-foreground">{{ alphaVersionLabel(item.features.alphaVersion as number | null | undefined) }}</span>
+                      </template>
+                      <template v-else>
+                        {{ rankingCell(item, column) }}
+                      </template>
+                    </TableCell>
+                  </TableRow>
+                  <tr
+                    v-if="table.bottomSpace"
+                    aria-hidden="true"
+                    :style="{ height: `${table.bottomSpace}px` }"
+                  >
+                    <td
+                      :colspan="table.columns.length"
+                      class="p-0"
+                    />
+                  </tr>
+                </TableBody>
+              </Table>
+            </div>
+            <p
+              v-if="items.length && !table.sortedItems.length"
+              class="px-6 pt-4 text-sm text-muted-foreground"
+              role="status"
+            >
+              没有匹配的股票，请尝试其他名称、代码或 State 筛选。
+            </p>
+            <p
+              v-if="items.length"
+              class="px-6 pt-4 text-sm text-muted-foreground"
+              :data-testid="`${table.kind}-ranking-count`"
+            >
+              显示 {{ table.sortedItems.length }} / {{ items.length }} 条
+            </p>
+          </CardContent>
+        </Card>
+      </template>
     </div>
+
+    <section
+      id="section-study"
+      class="space-y-3"
+    >
+      <h2 class="text-xl font-semibold">
+        历史策略研究
+      </h2>
+      <p class="text-sm text-muted-foreground">
+        比较四类事件在未来 5/10/20D 的事后表现，仅用于研究，不代表实际成交收益。
+      </p>
+      <TrendEventStudy
+        v-if="dataMode === 'official' && studyContextReady && (selectedDate || summary.tradeDate)"
+        :market="market"
+        :end-date="selectedDate || summary.tradeDate"
+      />
+      <p
+        v-else-if="dataMode === 'preview'"
+        data-testid="study-preview-disabled"
+        class="text-sm text-muted-foreground"
+      >
+        历史策略研究仅基于 Official 正式快照。
+      </p>
+    </section>
 
     <Dialog
       :open="detailOpen"

@@ -1,10 +1,11 @@
 import { flushPromises, mount } from '@vue/test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import AppDatePicker from '@/components/app/AppDatePicker.vue';
 import TrendEventStudy from '../TrendEventStudy.vue';
 import { trendFollowingApi } from '@/api/trendFollowing';
 import { exportExcel } from '@/utils/excelExport';
 import type { EventStudyResponse, StrategyKey, StudyRegime } from '@/types/trendFollowing';
-vi.mock('@/api/trendFollowing', () => ({ trendFollowingApi: { eventStudy: vi.fn() } }));
+vi.mock('@/api/trendFollowing', () => ({ trendFollowingApi: { eventStudySummary: vi.fn(), eventStudyEvents: vi.fn() } }));
 vi.mock('@/utils/excelExport', () => ({ exportExcel: vi.fn().mockResolvedValue(undefined) }));
 vi.mock('vue-sonner', () => ({ toast: { error: vi.fn() } }));
 const coverage = { featureCoverage: .5, featureSnapshotCount: 1, snapshotCount: 2,
@@ -30,7 +31,8 @@ function response(regime: StudyRegime = 'ALL', strategy: StrategyKey | 'ALL' = '
 describe('TrendEventStudy', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(trendFollowingApi.eventStudy).mockImplementation(async (_market, _start, _end, regime, strategy) => response(regime, strategy));
+    vi.mocked(trendFollowingApi.eventStudySummary).mockImplementation(async (_market, _start, _end, regime) => response(regime));
+    vi.mocked(trendFollowingApi.eventStudyEvents).mockImplementation(async (_market, _start, _end, regime, strategy) => response(regime, strategy));
   });
   it('shows aggregates, sample denominators, frozen context and data statuses', async () => {
     const wrapper = mount(TrendEventStudy, { props: { market: 'CN', endDate: '2026-09-01' } });
@@ -57,10 +59,14 @@ describe('TrendEventStudy', () => {
     await wrapper.findAll('th').find(th => th.text() === 'N')!.get('button').trigger('click');
     expect(wrapper.findAll('[data-testid="study-strategy-row"]')[0]!.text()).toContain('超跌反弹');
     await wrapper.setProps({ market: 'US' });
-    await wrapper.get('[aria-label="研究开始日期"]').setValue('2026-08-01');
+    await wrapper.findAll('button').find(b => b.text() === '自定义')!.trigger('click');
+    wrapper.findAllComponents(AppDatePicker)[0]!.vm.$emit('update:modelValue', '2026-08-01');
     await wrapper.get('[aria-label="研究市场环境"]').setValue('RISK_ON');
     await flushPromises();
-    expect(trendFollowingApi.eventStudy).toHaveBeenLastCalledWith('US', '2026-08-01', '2026-09-01', 'RISK_ON', 'ALL', 0, expect.any(AbortSignal));
+    expect(trendFollowingApi.eventStudySummary).toHaveBeenCalledTimes(2);
+    await wrapper.get('[data-testid="study-query"]').trigger('click');
+    await flushPromises();
+    expect(trendFollowingApi.eventStudySummary).toHaveBeenLastCalledWith('US', '2026-08-01', '2026-09-01', 'RISK_ON', expect.any(AbortSignal));
     await wrapper.findAll('button').find(b => b.text() === '导出汇总')!.trigger('click');
     await flushPromises();
     expect(exportExcel).toHaveBeenCalled();
@@ -68,7 +74,7 @@ describe('TrendEventStudy', () => {
   });
   it('ignores an obsolete response after a market change', async () => {
     let resolve!: (data: EventStudyResponse) => void;
-    vi.mocked(trendFollowingApi.eventStudy).mockReturnValueOnce(new Promise(r => { resolve = r; }));
+    vi.mocked(trendFollowingApi.eventStudySummary).mockReturnValueOnce(new Promise(r => { resolve = r; }));
     const wrapper = mount(TrendEventStudy, { props: { market: 'CN', endDate: '2026-09-01' } });
     await wrapper.setProps({ market: 'US' });
     await flushPromises();
@@ -77,4 +83,39 @@ describe('TrendEventStudy', () => {
     expect(wrapper.findAll('[data-testid="study-strategy-row"]')).toHaveLength(4);
     wrapper.unmount();
   });
+  it('defaults to 60D, keeps presets/custom as drafts, and isolates event pagination loading', async () => {
+    const wrapper = mount(TrendEventStudy, { props: { market: 'CN', endDate: '2026-09-01' } });
+    await flushPromises();
+    expect(trendFollowingApi.eventStudySummary).toHaveBeenLastCalledWith('CN', '2026-07-03', '2026-09-01', 'ALL', expect.any(AbortSignal));
+    expect(trendFollowingApi.eventStudyEvents).not.toHaveBeenCalled();
+    for (const label of ['30D', '60D', '90D', '180D', '自定义']) {
+      await wrapper.findAll('button').find(b => b.text() === label)!.trigger('click');
+    }
+    expect(wrapper.find('input[type="date"]').exists()).toBe(false);
+    expect(wrapper.findAllComponents(AppDatePicker)).toHaveLength(2);
+    expect(wrapper.findAllComponents(AppDatePicker)[0]!.props('max')).toBe('2026-09-01');
+    wrapper.findAllComponents(AppDatePicker)[0]!.vm.$emit('update:modelValue', '2026-08-01');
+    await wrapper.get('[aria-label="研究市场环境"]').setValue('RISK_OFF');
+    await flushPromises();
+    expect(trendFollowingApi.eventStudySummary).toHaveBeenCalledTimes(1);
+    await wrapper.get('[data-testid="study-query"]').trigger('click');
+    await flushPromises();
+    expect(trendFollowingApi.eventStudySummary).toHaveBeenCalledTimes(2);
+    vi.mocked(trendFollowingApi.eventStudyEvents).mockResolvedValueOnce({ ...response(), eventCount: 201 });
+    await wrapper.findAll('[data-testid="study-strategy-row"]')[0]!.trigger('click');
+    await flushPromises();
+    let resolve!: (value: EventStudyResponse) => void;
+    vi.mocked(trendFollowingApi.eventStudyEvents).mockReturnValueOnce(new Promise(r => { resolve = r; }));
+    await wrapper.findAll('button').find(b => b.text() === '下一页')!.trigger('click');
+    expect(wrapper.text()).toContain('事件样本加载中');
+    expect(wrapper.findAll('[data-testid="study-strategy-row"]')).toHaveLength(4);
+    expect(trendFollowingApi.eventStudySummary).toHaveBeenCalledTimes(2);
+    expect(trendFollowingApi.eventStudyEvents).toHaveBeenLastCalledWith('CN', '2026-08-01', '2026-09-01', 'RISK_OFF', expect.any(String), 100, expect.any(AbortSignal));
+    resolve(response());
+    await flushPromises();
+    await wrapper.setProps({ endDate: '2026-09-02' });
+    expect(trendFollowingApi.eventStudySummary).toHaveBeenCalledTimes(2);
+    wrapper.unmount();
+  });
+
 });
