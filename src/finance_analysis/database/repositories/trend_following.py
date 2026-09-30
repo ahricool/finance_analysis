@@ -14,7 +14,7 @@ from finance_analysis.database.models.stock import Instrument, StockDaily
 from finance_analysis.database.models.trend_following import TrendFollowingSnapshot, TrendFollowingSummary
 from finance_analysis.trend_following.read_models import SCORE_COMPONENT_PATHS, score_component_expression  # pragma: allowlist secret
 
-from finance_analysis.trend_following.box import BOX_SORT_FIELDS, BOX_STRING_FIELDS
+from finance_analysis.trend_following.box import BOX_SORT_FIELDS
 
 SORT_FIELDS = {
     **{key: TrendFollowingSnapshot.features[key].as_float() for key in BOX_SORT_FIELDS},
@@ -492,10 +492,46 @@ class TrendFollowingRepository:
         payload.update({key: (payload.get("features") or {}).get(key) for key in ("entry_score", "entry_type")})
         return payload
 
+    def event_study_rows(self, start_date: date, end_date: date) -> list[dict]:
+        """One scalar projection; SQL lag includes the last snapshot before the range."""
+        from finance_analysis.trend_following.event_study import NUMERIC_CONTEXT
+
+        snapshot = TrendFollowingSnapshot
+        states = select(
+            snapshot.code, snapshot.trade_date,
+            func.lag(snapshot.state).over(partition_by=snapshot.code, order_by=snapshot.trade_date).label("previous_state"),
+        ).where(snapshot.market == self.market, snapshot.trade_date <= end_date).subquery()
+        query = select(
+            snapshot.market, snapshot.trade_date, snapshot.code, Instrument.name,
+            snapshot.state, snapshot.market_regime, snapshot.reference_price,
+            snapshot.alpha_score, snapshot.trend_score, snapshot.rs_score,
+            snapshot.trend_lifecycle, snapshot.fragility_score, states.c.previous_state,
+            *(snapshot.features[key].as_string().label(key) for key in ("box_state", "mr_state", "entry_type")),
+            *(snapshot.features[key].as_boolean().label(key) for key in ("box_breakout_fresh", "trend_resume")),
+            *(snapshot.features[key].as_float().label(key) for key in NUMERIC_CONTEXT),
+        ).join(Instrument, Instrument.id == snapshot.instrument_id).join(
+            states, (states.c.code == snapshot.code) & (states.c.trade_date == snapshot.trade_date),
+        ).where(snapshot.market == self.market, snapshot.trade_date >= start_date,
+                snapshot.trade_date <= end_date).order_by(snapshot.trade_date, snapshot.code)
+        with self.db.get_session() as session:
+            return [dict(row._mapping) for row in session.execute(query)]
+
+    def event_study_bars(self, codes: set[str], start_date: date, end_date: date) -> list[dict]:
+        """One DB-only batch for event symbols plus benchmark; no provider calls."""
+        query = select(
+            Instrument.code, StockDaily.date, StockDaily.open, StockDaily.high,
+            StockDaily.low, StockDaily.close, StockDaily.volume,
+        ).join(Instrument, Instrument.id == StockDaily.instrument_id).where(
+            Instrument.market == self.market, Instrument.code.in_(sorted(codes)),
+            StockDaily.date >= start_date, StockDaily.date <= end_date,
+        )
+        with self.db.get_session() as session:
+            return [dict(row._mapping) for row in session.execute(query)]
+
     def dashboard_rows(self, trade_date: date) -> list[dict]:
         """One scalar projection for ranking and lifecycle; no eager ORM joins."""
         from finance_analysis.trend_following.read_models import (
-            BOOLEAN_FEATURE_FIELDS, DASHBOARD_FIELDS, NUMERIC_FEATURE_FIELDS, SCORE_COMPONENT_PATHS,
+            BOOLEAN_FEATURE_FIELDS, DASHBOARD_FIELDS, NUMERIC_FEATURE_FIELDS, SCORE_COMPONENT_PATHS, STRING_FEATURE_FIELDS,
             score_component_expression,
         )
 
@@ -505,7 +541,7 @@ class TrendFollowingRepository:
                 *(getattr(snapshot, key) for key in DASHBOARD_FIELDS),
                 Instrument.name,
                 snapshot.features["entry_type"].as_string().label("entry_type"),
-                *(snapshot.features[key].as_string().label(key) for key in BOX_STRING_FIELDS),
+                *(snapshot.features[key].as_string().label(key) for key in STRING_FEATURE_FIELDS),
                 *(snapshot.features[key].as_float().label(key) for key in NUMERIC_FEATURE_FIELDS),
                 *(snapshot.features[key].as_boolean().label(key) for key in BOOLEAN_FEATURE_FIELDS),
                 *(

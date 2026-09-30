@@ -71,6 +71,7 @@ def calculate_box_structure(
     """bars are ordered through T; ATR/compression are the existing T-1 values."""
     empty = {key: None for key in (*BOX_NUMERIC_FIELDS, *BOX_STRING_FIELDS)}
     empty["box_state"] = "NONE"
+    empty.update(box_breakout_fresh=False, box_prior_breakout_confirmed=False)
     if prior_atr20 <= 0:
         return empty
     atr_ratio, range_ratio = features.get("atr_contraction_ratio"), features.get("range_contraction_ratio")
@@ -156,9 +157,33 @@ def calculate_box_structure(
     distance = (high - close) / high
     breakout = (close - high) / prior_atr20
     clv = features.get("close_location_value")
+    # Yesterday is tested against the selected box excluding yesterday itself.
+    # Match yesterday's confirmation basis: ATR ending before yesterday.
+    previous = bars[-2]
+    resistance = max(bar.high for bar in bars[-selected.days - 1 : -2])
+    from .features import true_ranges
+
+    previous_atr = float(np.mean(true_ranges(bars[:-2])[-20:])) if len(bars) >= 22 else None
+    previous_z = (previous.close - resistance) / previous_atr if previous_atr and previous_atr > 0 else None
+    previous_clv = (
+        (previous.close - previous.low) / (previous.high - previous.low) if previous.high > previous.low else None
+    )
+    prior_confirmed = (
+        previous_z is not None
+        and config.box_breakout_min_atr <= previous_z <= config.box_breakout_max_atr
+        and previous_clv is not None
+        and previous_clv >= config.box_breakout_clv_min
+    )
+    result.update(
+        box_prior_breakout_confirmed=prior_confirmed,
+        box_previous_resistance=resistance,
+        box_previous_breakout_atr=previous_z,
+        box_previous_clv=previous_clv,
+    )
     state = "NONE"
     if (
-        selected.quality >= config.box_breakout_quality_min
+        not prior_confirmed
+        and selected.quality >= config.box_breakout_quality_min
         and config.box_breakout_min_atr <= breakout <= config.box_breakout_max_atr
         and clv is not None
         and clv >= config.box_breakout_clv_min
@@ -176,6 +201,7 @@ def calculate_box_structure(
     return {
         **result,
         "box_state": state,
+        "box_breakout_fresh": state == "BOX_BREAKOUT",
         "distance_to_box_high_pct": distance,
         "distance_to_box_high_atr": -breakout,
         "box_breakout_distance_atr": breakout,

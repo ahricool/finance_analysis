@@ -474,7 +474,13 @@ class TrendFollowingService:
             "score_breakdown",
             "rank",
         }
+        from .mean_reversion import calculate_mean_reversion
+
         for row in ranked:
+            prior = previous.get(row["code"], {})
+            visible = histories.get(row["code"], [])
+            prior_features = prior.get("features") if len(visible) > 1 and prior.get("trade_date") == visible[-2].trade_date else None
+            row.update(calculate_mean_reversion(visible, row, self.config, previous_features=prior_features))
             decision = decisions[row["code"]]
             snapshots.append(
                 {

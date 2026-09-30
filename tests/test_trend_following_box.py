@@ -194,3 +194,61 @@ def test_service_preview_uses_official_history_and_replaces_today_without_lookah
     histories[-2] = replace(histories[-2], high=888, low=1, close=800)
     repeated = service._run_single_date(today, persist=False, overlay_bars={"BOX.US": current, "SPY.US": current})
     assert repeated["snapshots"][0]["features"] == feature
+
+
+def test_fresh_breakout_only_once_during_three_day_continuation():
+    bars = box_bars()
+    for i in range(50, 60):
+        close = 100 + math.sin(i * 2 * math.pi / 5)
+        bars[i] = replace(bars[i], open=close, close=close, high=close + .5, low=close - .5)
+    result = calculate(bars)
+    assert result['box_quality'] >= 70
+    assert result['atr_contraction_ratio'] < 1
+    assert result['range_contraction_ratio'] < 1
+    states = []
+    for day in range(3):
+        if day:
+            bars.append(replace(bars[-1], trade_date=bars[-1].trade_date + timedelta(days=1)))
+        previous = calculate(bars)
+        close = previous['box_high'] + .3 * previous['box_atr20']
+        bars[-1] = replace(bars[-1], close=close, open=close - .5, high=close + .05, low=close - 1)
+        current = calculate(bars)
+        assert current['box_quality'] >= 70
+        states.append(current['box_state'])
+        assert current['box_prior_breakout_confirmed'] is (day > 0)
+        assert current['box_breakout_fresh'] is (day == 0)
+    assert states == ['BOX_BREAKOUT', 'NONE', 'NONE']
+
+
+@pytest.mark.parametrize('previous_kind', ['weak', 'wick', 'low_clv'])
+def test_unconfirmed_yesterday_does_not_block_first_confirmation(previous_kind):
+    bars = box_bars()
+    base = calculate(bars)
+    high, atr = base['box_high'], base['box_atr20']
+    close = high + (.05 if previous_kind == 'weak' else .3) * atr
+    if previous_kind == 'wick':
+        close = high - .2
+    yesterday = replace(bars[-1], close=close, open=close - .1, high=close + (.4 if previous_kind == 'low_clv' else .1), low=close - (.2 if previous_kind == 'low_clv' else 1))
+    bars[-1] = yesterday
+    bars.append(replace(yesterday, trade_date=yesterday.trade_date + timedelta(days=1)))
+    geometry = calculate(bars)
+    close = geometry['box_high'] + .3 * geometry['box_atr20']
+    bars[-1] = replace(bars[-1], close=close, high=close + .1, low=close - 1)
+    result = calculate(bars)
+    assert result['box_state'] == 'BOX_BREAKOUT'
+    assert result['box_prior_breakout_confirmed'] is False
+
+
+@pytest.mark.parametrize('direction', [1, -1])
+def test_flatness_rejects_directional_channel_independently_of_width(direction):
+    bars = box_bars()
+    for i, bar in enumerate(bars):
+        close = 100 + direction * i * .1
+        bars[i] = replace(bar, open=close, close=close, high=close + .15, low=close - .15)
+    # Lower the admission threshold solely to inspect the rejected candidate's components.
+    config = replace(DEFAULT_CONFIG, box_forming_quality_min=0)
+    measured = calculate(bars, config=config)
+    assert measured['box_width_pct'] < DEFAULT_CONFIG.box_max_width_pct
+    assert measured['box_flatness_quality'] < 10
+    assert measured['box_quality'] < DEFAULT_CONFIG.box_ready_quality_min
+    assert calculate(bars)['box_state'] != 'BOX_READY'

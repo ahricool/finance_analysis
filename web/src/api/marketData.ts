@@ -24,6 +24,7 @@ export interface ForwardReturnItem {
   forwardReturn3D: number | null;
   forwardReturn5D: number | null;
   forwardReturn10D: number | null;
+  forwardReturn20D?: number | null;
 }
 export const marketDataApi = {
   async forwardReturns(symbols: string[], market: string, tradeDate: string, signal?: AbortSignal): Promise<{ items: ForwardReturnItem[] }> {

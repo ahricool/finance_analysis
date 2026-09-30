@@ -16,6 +16,8 @@ export interface TrendRiskSizing {
 
 export type BoxState = 'NONE' | 'BOX_FORMING' | 'BOX_READY' | 'BOX_BREAKOUT';
 export interface BoxFeatures {
+  boxBreakoutFresh?: boolean | null;
+  boxPriorBreakoutConfirmed?: boolean | null;
   boxState?: BoxState | null;
   boxStartDate?: string | null;
   boxEndDate?: string | null;
@@ -42,7 +44,20 @@ export interface BoxFeatures {
   boxTouchQuality?: number | null;
 }
 
-export interface TrendFeatures extends BoxFeatures {
+export interface MeanReversionFeatures {
+  mrState?: 'MR_NONE' | 'MR_OVERSOLD' | 'MR_REBOUND' | null;
+  mrEpisodeConsumed?: boolean | null;
+  rsi14?: number | null;
+  distanceFromMa20Atr?: number | null;
+  return3D?: number | null;
+  mrQuality?: number | null;
+  mrOversoldQuality?: number | null;
+  mrDistanceQuality?: number | null;
+  mrShockQuality?: number | null;
+  mrReversalQuality?: number | null;
+  mrPreviousRsi14?: number | null;
+}
+export interface TrendFeatures extends BoxFeatures, MeanReversionFeatures {
   riskSizing?: TrendRiskSizing | null;
   previousLow10?: number | null;
   entryBreakdown?: { breakout: EntryBranchBreakdown; resume: EntryBranchBreakdown } | null;
@@ -158,6 +173,8 @@ export interface TrendSnapshot {
 export type TrendCandidate = Pick<TrendSnapshot, 'code' | 'name' | 'rank' | 'state' | 'alphaScore'>;
 
 export const RANKING_FEATURE_KEYS = [
+  'boxBreakoutFresh', 'boxPriorBreakoutConfirmed', 'mrEpisodeConsumed', 'rsi14', 'distanceFromMa20Atr', 'return3D',
+  'mrQuality', 'mrOversoldQuality', 'mrDistanceQuality', 'mrShockQuality', 'mrReversalQuality', 'mrPreviousRsi14',
   'boxQuality', 'boxWindowDays', 'boxHigh', 'boxLow', 'boxMid', 'boxWidthPct', 'boxSlope', 'boxSlopeAtr', 'boxRSquared', 'boxOccupancy', 'boxUpperTouches', 'boxLowerTouches', 'distanceToBoxHighPct', 'distanceToBoxHighAtr', 'boxBreakoutDistanceAtr', 'boxAtr20', 'boxWidthQuality', 'boxFlatnessQuality', 'boxOccupancyQuality', 'boxCompressionQuality', 'boxTouchQuality',
   'alphaVersion', 'pathScore', 'setupScore', 'weightedR2', 'positiveReturnConcentration',
   'atrExpansionRatio', 'downsideControlQuality', 'downsideUpsideRatio',
@@ -174,7 +191,7 @@ export const RANKING_FEATURE_KEYS = [
   'alphaTrendContribution', 'alphaRsContribution', 'alphaSetupContribution', 'alphaPathContribution',
 ] as const;
 export type RankingFeatureKey = typeof RANKING_FEATURE_KEYS[number];
-export type TrendRankingFeatures = Partial<Record<RankingFeatureKey, number | boolean | null>> & BoxFeatures;
+export type TrendRankingFeatures = Partial<Record<RankingFeatureKey, number | boolean | null>> & BoxFeatures & MeanReversionFeatures;
 
 export interface TrendRankingSnapshot extends Pick<TrendSnapshot,
   'code' | 'name' | 'rank' | 'trendDurationDays' | 'trendLifecycle' | 'fragilityScore' | 'alphaScore' | 'entryScore' | 'entryType'> {
@@ -341,4 +358,44 @@ export interface TrendDashboardResponse extends Pick<TrendSummary,
     stateCounts: Record<string, number>;
     highlights: Array<{ code: string; name: string | null; previousState: TrendState; currentState: TrendState }>;
   };
+}
+
+export type StrategyKey = 'TREND_FOLLOWING' | 'BOX_BREAKOUT' | 'PULLBACK_RESUME' | 'MEAN_REVERSION';
+export type StudyRegime = 'ALL' | TrendRegime;
+export type EvaluationStatus = 'pending' | 'missing' | 'available';
+export interface StudyCoverage {
+  featureCoverage: number | null;
+  featureSnapshotCount: number;
+  snapshotCount: number;
+  status: 'complete' | 'insufficient_feature_history';
+  earliestCompleteDate: string | null;
+  incompleteDates: string[];
+}
+export interface StudyHorizonAggregate {
+  days: number; maturedCount: number; excessMaturedCount: number; pendingCount: number; missingCount: number;
+  meanReturn: number | null; medianReturn: number | null; winRate: number | null;
+  meanExcessReturn: number | null; medianExcessReturn: number | null; excessWinRate: number | null;
+}
+export interface StudyGroup extends StudyCoverage {
+  strategy: StrategyKey; regime: StudyRegime; eventCount: number;
+  horizons: StudyHorizonAggregate[]; excursionCount: number;
+  mfe20: { mean: number | null; median: number | null };
+  mae20: { mean: number | null; median: number | null };
+}
+export interface StudyHorizon {
+  days: number; targetDate: string; status: EvaluationStatus; value: number | null;
+  benchmarkStatus: EvaluationStatus; benchmarkReturn: number | null;
+  excessStatus: EvaluationStatus; excessReturn: number | null;
+}
+export interface StudyEvent {
+  market: TrendMarket; tradeDate: string; code: string; name: string | null; strategy: StrategyKey; regime: TrendRegime;
+  signalPrice: number; evaluationBasePrice: number | null; context: Record<string, string | number | null>;
+  horizons: StudyHorizon[]; excursionStatus: EvaluationStatus; observedSessions: number; missingDates: string[];
+  mfe20: number | null; mae20: number | null;
+}
+export interface EventStudyResponse {
+  market: TrendMarket; startDate: string; endDate: string; method: 'signal_close_v1'; benchmark: string;
+  evaluatedAt: string; snapshotDates: string[]; missingSnapshotDates: string[];
+  boxFeatureCoverage: StudyCoverage; mrFeatureCoverage: StudyCoverage;
+  groups: StudyGroup[]; eventCount: number; events: StudyEvent[]; offset: number; limit: number;
 }

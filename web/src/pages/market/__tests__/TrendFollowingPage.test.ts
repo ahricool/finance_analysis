@@ -11,7 +11,7 @@ import TrendFollowingPage from '../TrendFollowingPage.vue';
 vi.mock('@/utils/excelExport', () => ({ exportExcel: vi.fn().mockResolvedValue(undefined) }));
 
 const apiMocks = vi.hoisted(() => ({
-  transitions: vi.fn(), breadthHistory: vi.fn(), ranking: vi.fn(), candidates: vi.fn(), dates: vi.fn(), detail: vi.fn(), detailHistory: vi.fn(), run: vi.fn(), preview: vi.fn(), previewStatus: vi.fn(),
+  eventStudy: vi.fn(), transitions: vi.fn(), breadthHistory: vi.fn(), ranking: vi.fn(), candidates: vi.fn(), dates: vi.fn(), detail: vi.fn(), detailHistory: vi.fn(), run: vi.fn(), preview: vi.fn(), previewStatus: vi.fn(),
 }));
 vi.mock('@/api/trendFollowing', () => ({ trendFollowingApi: apiMocks }));
 vi.mock('vue-echarts', () => ({ default: { props: ['option'], template: '<div data-testid="rank-chart" />' } }));
@@ -104,6 +104,26 @@ describe('TrendFollowingPage', () => {
     mockPreview(null);
   });
   afterEach(() => { document.body.innerHTML = ''; vi.clearAllMocks(); });
+
+  it('shows independent MR rows and keeps Preview out of Event Study', async () => {
+    const latest = snapshot();
+    latest.features = { ...latest.features, mrState: 'MR_REBOUND', mrQuality: 80, rsi14: 25, distanceFromMa20Atr: -2 };
+    apiMocks.ranking.mockResolvedValue({ ...ranking('CN'), items: [{ ...rankingSnapshot(), features: latest.features },
+      { ...rankingSnapshot(), code: 'OLD.US', name: 'Old', features: {} }] });
+    mockPreview({ ...ranking('CN'), status: 'completed', previewTime: '2026-08-28T10:00:00Z', snapshots: [latest] });
+    const wrapper = mount(TrendFollowingPage);
+    await flushPromises();
+    await wrapper.get('[data-testid="trend-view-mr"]').trigger('click');
+    expect(wrapper.findAll('[data-testid="trend-row"]')).toHaveLength(1);
+    expect(wrapper.get('[data-testid="trend-row"]').text()).toContain('反弹确认');
+    await wrapper.get('[data-testid="research-mode-preview"]').trigger('click');
+    await flushPromises();
+    expect(wrapper.get('[data-testid="trend-row"]').text()).toContain('反弹确认');
+    await wrapper.get('[data-testid="trend-view-study"]').trigger('click');
+    expect(wrapper.get('[data-testid="study-preview-disabled"]').text()).toContain('仅使用正式历史快照');
+    expect(apiMocks.eventStudy).not.toHaveBeenCalled();
+    wrapper.unmount();
+  });
 
   it('switches Box opportunities, sorts quality, filters forming, and reuses detail', async () => {
     const states = ['BOX_READY', 'BOX_BREAKOUT', 'BOX_READY', 'BOX_FORMING', 'NONE', undefined] as const;

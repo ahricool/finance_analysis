@@ -137,3 +137,17 @@ Repository测试JSON读写/标量投影/排序；API测试先过滤排序再limi
 上线后需要通过既有历史重算流程生成Box历史；本次开发未操作生产数据。
 现有Preview的前复权历史与原始盘中报价在除权日可能不在同一价格尺度（见[Entry文档](trend-entry.md#已知数据边界)）；
 该已有行情边界同样影响Box，需独立修复。回测还应考虑历史Universe的存活偏差与复权数据修订。
+
+## 后续增量：fresh breakout 与统一研究
+
+BOX_BREAKOUT现在是**新确认突破事件**，不表示连续创新高的持续状态。
+最终selected box的几何、Quality、候选选择保持V1；额外检查昨日是否已越过
+`max(High[T−N…T−2])` 达0.10–2.0倍昨日判断时的ATR基准（截止T−2），且昨日CLV≥0.60。
+若昨日已确认，今日不再生成BOX_BREAKOUT，不使用固定天数cooldown。
+`box_breakout_fresh`和`box_prior_breakout_confirmed`供Ranking/Detail解释；
+昨日弱越顶、仅上影越顶或CLV不足，不阻断今日首次真正确认。
+
+结构机会与趋势排名共用3/5/10/20D T-close收益列，Preview为空。
+正式Ranking缓存当前v9；早期Box历史缺fresh字段，在Event Study中计为覆盖不足，需重算。
+统一四策略事件定义、MR、超额收益、MFE/MAE和覆盖率见
+[trend-strategy-event-study.md](trend-strategy-event-study.md)。

@@ -35,6 +35,22 @@ class TrendFollowingConfig:
     box_quality_weights: dict[str, float] = field(default_factory=lambda: {
         "width": .25, "flatness": .30, "occupancy": .15, "compression": .20, "touch": .10,
     })
+    mr_rsi_period: int = 14
+    mr_rsi_max: float = 35.0
+    mr_distance_max_atr: float = -1.0
+    mr_return_5d_max: float = 0.0
+    mr_rebound_clv_min: float = 0.60
+    mr_rsi_quality_center: float = 30.0
+    mr_rsi_quality_scale: float = 10.0
+    mr_distance_center_atr: float = -2.25
+    mr_distance_width_atr: float = 1.25
+    mr_shock_3d_scale: float = 0.06
+    mr_shock_5d_scale: float = 0.10
+    mr_quality_weights: dict[str, float] = field(default_factory=lambda: {
+        "oversold": .35, "distance": .35, "shock": .20, "reversal": .10,
+    })
+    event_study_default_days: int = 180
+    event_study_max_days: int = 730
     history_bars: int = 60
     minimum_history_bars: int = 21
     calendar_lookback_days: int = 180

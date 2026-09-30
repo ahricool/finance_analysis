@@ -100,6 +100,8 @@ export function mergeRankingFeatures(
     else if (typeof raw === 'boolean') scalars[key] = raw;
     else scalars[key] = null;
   }
+  const mrState = features.mrState;
+  if ('mrState' in features) result.mrState = mrState === 'MR_NONE' || mrState === 'MR_OVERSOLD' || mrState === 'MR_REBOUND' ? mrState : null;
   const state = features.boxState;
   if ('boxState' in features) result.boxState = state === 'NONE' || state === 'BOX_FORMING' || state === 'BOX_READY' || state === 'BOX_BREAKOUT' ? state : null;
   if ('boxStartDate' in features) result.boxStartDate = optionalText(features.boxStartDate);

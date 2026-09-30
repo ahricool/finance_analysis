@@ -2,10 +2,10 @@ import { ref, shallowRef, watch, type Ref } from 'vue';
 import { marketDataApi, type ForwardReturnItem } from '@/api/marketData';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 
-export const forwardReturnColumns = [3, 5, 10].map(days => ({
-  key: `forwardReturn${days}D` as 'forwardReturn3D' | 'forwardReturn5D' | 'forwardReturn10D',
+export const forwardReturnColumns = [3, 5, 10, 20].map(days => ({
+  key: `forwardReturn${days}D` as 'forwardReturn3D' | 'forwardReturn5D' | 'forwardReturn10D' | 'forwardReturn20D',
   label: `未来 ${days}D`, group: 'Core', format: 'percent' as const,
-  description: `所选日收盘至未来第 ${days} 个交易日收盘的前复权收益率；未到期或行情缺失显示 —。`,
+  description: `所选日收盘至未来第 ${days} 个交易日收盘的前复权收益率；未到期或行情缺失显示 —。T 收盘基准仅用于事后研究，不代表可以按该价格成交。`,
 }));
 
 export function useForwardReturns(

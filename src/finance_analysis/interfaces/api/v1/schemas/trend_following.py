@@ -99,6 +99,19 @@ BoxState = Literal["NONE", "BOX_FORMING", "BOX_READY", "BOX_BREAKOUT"]
 
 
 class TrendRankingFeatures(BaseModel):
+    box_breakout_fresh: bool | None = None
+    box_prior_breakout_confirmed: bool | None = None
+    mr_state: Literal["MR_NONE", "MR_OVERSOLD", "MR_REBOUND"] | None = None
+    mr_episode_consumed: bool | None = None
+    rsi14: float | None = None
+    distance_from_ma20_atr: float | None = None
+    return_3d: float | None = None
+    mr_quality: float | None = None
+    mr_oversold_quality: float | None = None
+    mr_distance_quality: float | None = None
+    mr_shock_quality: float | None = None
+    mr_reversal_quality: float | None = None
+    mr_previous_rsi14: float | None = None
     box_state: BoxState | None = None
     box_start_date: str | None = None
     box_end_date: str | None = None
@@ -198,3 +211,92 @@ class TrendRankingItem(BaseModel):
     atr: float | None = None
     reference_price: float | None = None
     features: TrendRankingFeatures
+
+
+StrategyKey = Literal["TREND_FOLLOWING", "BOX_BREAKOUT", "PULLBACK_RESUME", "MEAN_REVERSION"]
+EvaluationStatus = Literal["pending", "missing", "available"]
+
+
+class StudyCoverage(BaseModel):
+    feature_coverage: float | None
+    feature_snapshot_count: int
+    snapshot_count: int
+    status: Literal["complete", "insufficient_feature_history"]
+    earliest_complete_date: date | None
+    incomplete_dates: list[date]
+
+
+class StudyStatistics(BaseModel):
+    mean: float | None
+    median: float | None
+
+
+class StudyHorizonAggregate(BaseModel):
+    days: int
+    matured_count: int
+    excess_matured_count: int
+    pending_count: int
+    missing_count: int
+    mean_return: float | None
+    median_return: float | None
+    win_rate: float | None
+    mean_excess_return: float | None
+    median_excess_return: float | None
+    excess_win_rate: float | None
+
+
+class StudyGroup(StudyCoverage):
+    strategy: StrategyKey
+    regime: Literal["ALL", "RISK_ON", "NEUTRAL", "RISK_OFF"]
+    event_count: int
+    horizons: list[StudyHorizonAggregate]
+    mfe20: StudyStatistics
+    mae20: StudyStatistics
+    excursion_count: int
+
+
+class StudyHorizon(BaseModel):
+    days: int
+    target_date: date
+    status: EvaluationStatus
+    value: float | None
+    benchmark_status: EvaluationStatus
+    benchmark_return: float | None
+    excess_status: EvaluationStatus
+    excess_return: float | None
+
+
+class StudyEvent(BaseModel):
+    market: Literal["CN", "US"]
+    trade_date: date
+    code: str
+    name: str | None
+    strategy: StrategyKey
+    regime: Literal["RISK_ON", "NEUTRAL", "RISK_OFF"]
+    signal_price: float
+    evaluation_base_price: float | None
+    context: dict[str, float | str | None]
+    horizons: list[StudyHorizon]
+    excursion_status: EvaluationStatus
+    observed_sessions: int
+    missing_dates: list[date]
+    mfe20: float | None
+    mae20: float | None
+
+
+class EventStudyResponse(BaseModel):
+    market: Literal["CN", "US"]
+    start_date: date
+    end_date: date
+    method: Literal["signal_close_v1"]
+    benchmark: str
+    evaluated_at: datetime
+    snapshot_dates: list[date]
+    missing_snapshot_dates: list[date]
+    box_feature_coverage: StudyCoverage
+    mr_feature_coverage: StudyCoverage
+    groups: list[StudyGroup]
+    event_count: int
+    events: list[StudyEvent]
+    offset: int
+    limit: int

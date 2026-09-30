@@ -4,22 +4,15 @@ from datetime import date
 from math import isfinite
 
 from finance_analysis.core.time import utc_now
-from finance_analysis.market_review import trading_calendar as calendar
+from .research import following_sessions
 
-HORIZONS = (3, 5, 10)
+HORIZONS = (3, 5, 10, 20)
 
 
 def forward_returns(service, symbols: list[str], market: str, trade_date: date, *, now=None) -> dict:
     now = now or utc_now()
-    if not calendar._XCALS_AVAILABLE:
-        raise ValueError("交易日历暂时不可用")
-    cal = calendar.xcals.get_calendar(calendar.MARKET_EXCHANGE[market.lower()])
-    session = cal.date_to_session(trade_date, direction="none")
-    targets = {}
-    for step in range(1, 11):
-        session = cal.next_session(session)
-        if step in HORIZONS:
-            targets[step] = (session.date(), cal.session_close(session).to_pydatetime())
+    plan = following_sessions(market, trade_date, max(HORIZONS))
+    targets = {step: plan[step - 1] for step in HORIZONS}
     matured = [day for day, close in targets.values() if close <= now]
     data = {}
     if matured:

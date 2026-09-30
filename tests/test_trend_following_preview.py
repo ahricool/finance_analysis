@@ -434,6 +434,8 @@ def test_preview_reuses_previous_official_snapshot_and_does_not_persist(monkeypa
             row["reference_price"], row["atr"], row["features"]["previous_low_10"],
         )
         assert row["features"]["risk_sizing"] is not None
+        assert row["features"]["mr_state"] in {"MR_NONE", "MR_OVERSOLD", "MR_REBOUND"}
+        assert "rsi14" in row["features"]
         assert "box_state" in row["features"]
         assert "box_high" in row["features"]
         assert row["features"]["alpha_version"] == 3

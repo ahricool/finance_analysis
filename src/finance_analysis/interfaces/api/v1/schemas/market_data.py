@@ -36,6 +36,7 @@ class ForwardReturnItem(BaseModel):
     code: str
     forward_return_3d: float | None
     forward_return_5d: float | None
+    forward_return_20d: float | None = None
     forward_return_10d: float | None
 
 
