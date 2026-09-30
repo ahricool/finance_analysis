@@ -16,6 +16,8 @@ export const trendIndicatorDescriptions: Record<string, string> = {
   breakout: 'Setup = 0.50×BreakoutQuality + 0.25×ExtensionQuality + 0.15×VolumeQuality + 0.10×CompressionQuality。BreakoutQuality=max(0.85×B(z10),B(z20))，z=(Close−前高)/ATR20；B(z)=100×sigmoid(z/0.15)×exp(−0.5×((z−0.75)/1)²)。Breakout Score 为 Setup 兼容别名。',
   setup: '当日短周期形态：压缩后突破前 10 日高点为 COMPRESSION_BREAKOUT；否则突破前 20 日高点为 BREAKOUT_20D；否则突破前 10 日高点为 BREAKOUT_10D；满足趋势恢复条件时可标记 PULLBACK_RESUME。',
   entry: 'Alpha 选择股票，Entry 研究当前买点；不影响 Alpha Rank、Candidate 或 State。仅支持有效 BREAKOUT / PULLBACK_RESUME。缺失 Fragility 和盘中投影量不作硬否决。',
+  riskPosition: '建议仓位按单笔账户风险预算反推：Position = RiskBudget / StopDistance，默认预算为账户净值的1%，单票最高25%。建议仓位不是股票最多可能亏损；预算是计划止损风险，跳空等情况可能使实际亏损超出预算。',
+  riskStop: '建议止损取2.5 ATR与前10日结构低点所要求距离中的较大值。结构低点不含今天，仅在有效且低于参考价时参与。ATR20为最近20个TR的简单平均。',
   atrPercent: 'ATR20 / 收盘参考价；原始 ATR 在详情保留。',
   clv: '(Close−Low)/(High−Low)，越接近1越靠近日高；High=Low 时为空。',
   trendResume: '此前5个交易日曾回踩 MA10（或距离≤0.5 ATR），期间保持上升 MA20 且未跌破结构；昨日收于 MA10 以下，今日站回且上涨，MA10>MA20、斜率及RS10为正。突破形态优先。',

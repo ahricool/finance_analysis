@@ -164,3 +164,22 @@ it('sends bounded transition filters and maps rank delta', async () => {
   });
   expect(result.items[0]).toMatchObject({ rankDelta: 9, isPreview: false });
 });
+
+
+it('preserves decimal risk sizing through official detail and preview camelCase conversion', async () => {
+  const snapshot = { features: { atr_percent: .02, previous_low_10: 24, risk_sizing: {
+    risk_budget_pct: .01, max_position_pct: .25, atr_multiple: 2.5,
+    atr_stop_pct: .05, structure_stop_pct: .04, stop_loss_pct: .05,
+    stop_price: 23.75, suggested_position_pct: .2, stop_basis: 'ATR',
+  } } };
+  vi.mocked(apiClient.get).mockResolvedValue({ data: { latest: snapshot, snapshots: [snapshot] } });
+  const official = (await trendFollowingApi.detail('000001.SZ', 'CN')).latest;
+  const preview = (await trendFollowingApi.preview('CN'))!.snapshots[0]!;
+  for (const row of [official, preview]) {
+    expect(row.features).toMatchObject({ atrPercent: .02, previousLow10: 24, riskSizing: {
+      riskBudgetPct: .01, maxPositionPct: .25, atrMultiple: 2.5,
+      atrStopPct: .05, structureStopPct: .04, stopLossPct: .05,
+      stopPrice: 23.75, suggestedPositionPct: .2, stopBasis: 'ATR',
+    } });
+  }
+});

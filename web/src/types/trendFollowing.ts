@@ -2,7 +2,21 @@ export type TrendMarket = 'CN' | 'US';
 export type TrendRegime = 'RISK_ON' | 'NEUTRAL' | 'RISK_OFF';
 export type TrendState = 'IDLE' | 'WATCHING' | 'CANDIDATE' | 'TRENDING' | 'WEAKENING' | 'BROKEN';
 
+export interface TrendRiskSizing {
+  riskBudgetPct: number;
+  maxPositionPct: number;
+  atrMultiple: number;
+  atrStopPct: number;
+  structureStopPct: number;
+  stopLossPct: number;
+  stopPrice: number;
+  suggestedPositionPct: number;
+  stopBasis: 'ATR' | 'STRUCTURE';
+}
+
 export interface TrendFeatures {
+  riskSizing?: TrendRiskSizing | null;
+  previousLow10?: number | null;
   entryBreakdown?: { breakout: EntryBranchBreakdown; resume: EntryBranchBreakdown } | null;
   alphaVersion?: number | null;
   pathScore?: number | null;

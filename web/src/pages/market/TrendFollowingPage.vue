@@ -1056,6 +1056,77 @@ onMounted(async () => {
             <div>Acceleration<strong class="block">{{ score(detail.latest.features.trendAcceleration) }}</strong></div>
             <div>Signed Efficiency<strong class="block">{{ score(detail.latest.features.signedEfficiencyRatio10D) }}</strong></div>
           </div>
+          <section
+            class="space-y-3 rounded-lg border p-4 text-sm"
+            data-testid="trend-risk-sizing"
+            aria-label="风险仓位建议"
+          >
+            <h3 class="font-semibold">
+              风险仓位建议
+            </h3>
+            <template v-if="detail.latest.features.riskSizing">
+              <dl class="grid grid-cols-4 gap-3 tabular-nums">
+                <div>
+                  <dt>
+                    <IndicatorLabel
+                      label="建议仓位"
+                      :description="descriptions.riskPosition"
+                    />
+                  </dt>
+                  <dd class="font-semibold">
+                    {{ pct(detail.latest.features.riskSizing.suggestedPositionPct) }}
+                  </dd>
+                </div>
+                <div>
+                  <dt>
+                    <IndicatorLabel
+                      label="建议止损"
+                      :description="descriptions.riskStop"
+                    />
+                  </dt>
+                  <dd class="font-semibold">
+                    {{ pct(-detail.latest.features.riskSizing.stopLossPct) }}
+                  </dd>
+                </div>
+                <div>
+                  <dt>止损价格</dt>
+                  <dd class="font-semibold">
+                    {{ detail.latest.features.riskSizing.stopPrice.toFixed(2) }}
+                  </dd>
+                </div>
+                <div>
+                  <dt>账户风险预算</dt>
+                  <dd class="font-semibold">
+                    {{ pct(detail.latest.features.riskSizing.riskBudgetPct) }}
+                  </dd>
+                </div>
+              </dl>
+              <p class="text-xs text-muted-foreground">
+                {{ detail.latest.features.riskSizing.atrMultiple }} ATR · {{ detail.latest.features.riskSizing.stopBasis === 'STRUCTURE' ? '10D 结构主导' : 'ATR 主导' }}
+              </p>
+              <p class="text-xs text-muted-foreground">
+                仓位表示按账户净值计算的风险仓位上限，不代表当前 Entry 信号。
+              </p>
+              <p
+                v-if="detail.latest.entryType === 'NONE'"
+                class="text-xs text-muted-foreground"
+              >
+                当前无有效 Entry；仓位仅表示若执行交易时的风险上限。
+              </p>
+            </template>
+            <p
+              v-else
+              class="text-muted-foreground"
+            >
+              此快照暂无风险建议。
+            </p>
+            <p
+              v-if="detailMode === 'preview'"
+              class="text-xs text-muted-foreground"
+            >
+              盘中建议基于当前临时日线，ATR 与建议止损/仓位在收盘前可能变化。
+            </p>
+          </section>
           <DailyKLineCard
             :symbol="detail.latest.code"
             :highlight-date="detail.latest.tradeDate"

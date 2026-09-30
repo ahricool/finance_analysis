@@ -29,6 +29,7 @@ from .features import calculate_features
 from .models import DailyBar
 from .preview_cache import save_preview
 from .ranking import rank_candidates
+from .risk import calculate_risk_sizing
 from .regime import calculate_market_regime
 from .state import transition_state
 from .universe import get_universe, normalize_market
@@ -519,6 +520,10 @@ class TrendFollowingService:
             entry = calculate_entry({**snapshot["features"], **snapshot}, self.config)
             snapshot["features"].update(entry)
             snapshot.update({key: entry[key] for key in ("entry_score", "entry_type")})
+            snapshot["features"]["risk_sizing"] = calculate_risk_sizing(
+                snapshot["reference_price"], snapshot["atr"],
+                snapshot["features"].get("previous_low_10"), self.config,
+            )
 
         summary = {
             "market": self.market,
