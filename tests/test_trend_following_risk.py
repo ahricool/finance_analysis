@@ -54,13 +54,20 @@ def test_invalid_required_input_returns_none(invalid, field):
                                  invalid if field == 'atr' else .5, 24) is None
 
 
-def test_extreme_arithmetic_and_nonnegative_stop():
+def test_extreme_arithmetic_returns_none():
     assert calculate_risk_sizing(1e-300, 1e300, None) is None
     assert calculate_risk_sizing(1e300, 1e-300, None) is None
-    result = calculate_risk_sizing(25, 20, None)
-    assert result['stop_price'] == 0
-    assert result['stop_loss_pct'] == 2
-    assert result['suggested_position_pct'] == .005
+
+
+@pytest.mark.parametrize('atr', [10, 20])
+def test_stop_at_or_above_one_hundred_percent_returns_none(atr):
+    assert calculate_risk_sizing(25, atr, None) is None
+
+
+def test_stop_just_below_one_hundred_percent_remains_valid():
+    result = calculate_risk_sizing(25, 9.9, None)
+    assert result['stop_loss_pct'] == pytest.approx(.99)
+    assert result['stop_price'] == pytest.approx(.25)
     json.dumps(result, allow_nan=False)
 
 

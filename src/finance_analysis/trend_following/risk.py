@@ -40,7 +40,7 @@ def calculate_risk_sizing(
     if previous_low_10 is not None and math.isfinite(previous_low_10) and 0 < previous_low_10 < reference_price:
         structure_stop_pct = (reference_price - previous_low_10) / reference_price
     stop_loss_pct = max(atr_stop_pct, structure_stop_pct)
-    if not math.isfinite(stop_loss_pct) or stop_loss_pct <= 0:
+    if not math.isfinite(stop_loss_pct) or stop_loss_pct <= 0 or stop_loss_pct >= 1:
         return None
     return TrendRiskSizing(
         risk_budget_pct=config.risk_budget_pct,

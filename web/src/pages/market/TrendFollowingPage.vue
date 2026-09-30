@@ -1065,7 +1065,7 @@ onMounted(async () => {
               风险仓位建议
             </h3>
             <template v-if="detail.latest.features.riskSizing">
-              <dl class="grid grid-cols-4 gap-3 tabular-nums">
+              <dl class="grid grid-cols-2 gap-3 tabular-nums sm:grid-cols-4">
                 <div>
                   <dt>
                     <IndicatorLabel
@@ -1091,7 +1091,7 @@ onMounted(async () => {
                 <div>
                   <dt>止损价格</dt>
                   <dd class="font-semibold">
-                    {{ detail.latest.features.riskSizing.stopPrice.toFixed(2) }}
+                    {{ price(detail.latest.features.riskSizing.stopPrice) }}
                   </dd>
                 </div>
                 <div>
