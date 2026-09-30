@@ -163,3 +163,18 @@ Alpha V3 的公式与参数见 [trend-alpha-v3.md](trend-alpha-v3.md)。
 `signedEfficiencyRatio10D` 等解释字段归入 Signals / Explain。完整股票池先经 State
 筛选、搜索和排序，再截取虚拟滚动行；缺失值始终置后。
 表格可横向滚动，股票名称固定在左侧。
+
+## 独立箱体结构研究
+
+结构机会与趋势排名共用现有页面及Official/Preview链路。箱体只使用T之前的15/20/30/40/60根正式日线，
+服务计算窗口至少61根，Box归一化使用昨日ATR20；新增指标写现有features JSON，无schema变更。
+不改变Alpha、Candidate、State、Entry或生命周期。公式、字段及参数见[trend-box-structure.md](trend-box-structure.md)。
+正式Ranking缓存当前为v10；旧快照缺少Box字段时不在GET补算，需要既有历史重算流程重新生成。
+
+## 独立策略研究与 Event Study
+
+同一页面新增超跌反弹和策略对比，MR 字段沿用 features JSON；Alpha、Entry 和趋势状态机不变。
+BOX_BREAKOUT 只在首次确认时产生事件。Event Study 只读正式历史快照，批量评价精确 session 的
+5/10/20D T-close 收益、基准超额及完整20日路径的 MFE/MAE。旧快照缺少 freshness / Box episode / MR 字段
+会标记 insufficient_feature_history，须先通过既有历史重算流程补齐；GET 不补算。
+公式、覆盖率及非交易回测限制见 [策略 Event Study](trend-strategy-event-study.md)。

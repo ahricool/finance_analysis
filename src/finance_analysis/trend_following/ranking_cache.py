@@ -5,7 +5,7 @@ from finance_analysis.core.snapshot_cache import SnapshotRankingCache, invalidat
 
 class RankingCache(SnapshotRankingCache):
     namespace = "trend_following"
-    schema_version = "v7"
+    schema_version = "v10"
 
 
 def invalidate_market(market: str) -> None:

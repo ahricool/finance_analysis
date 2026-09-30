@@ -434,6 +434,10 @@ def test_preview_reuses_previous_official_snapshot_and_does_not_persist(monkeypa
             row["reference_price"], row["atr"], row["features"]["previous_low_10"],
         )
         assert row["features"]["risk_sizing"] is not None
+        assert row["features"]["mr_state"] in {"MR_NONE", "MR_OVERSOLD", "MR_REBOUND"}
+        assert "rsi14" in row["features"]
+        assert "box_state" in row["features"]
+        assert "box_high" in row["features"]
         assert row["features"]["alpha_version"] == 3
         assert row["features"]["setup_score"] == row["breakout_score"]
         assert row["features"]["path_score"] >= 0
@@ -731,11 +735,14 @@ def test_preview_api_returns_cached_payload(monkeypatch):
     monkeypatch.setattr(
         trend_following,
         "load_preview",
-        lambda market: {"market": market, "status": "completed", "snapshots": [], "trade_date": "2026-09-10"},
+        lambda market: {"market": market, "status": "completed",
+                        "snapshots": [{"features": {"box_state": "BOX_READY", "box_quality": 88}}],
+                        "trade_date": "2026-09-10"},
     )
     payload = trend_following.preview(SimpleNamespace(id=1), "CN")
     assert payload["status"] == "completed"
     assert payload["market"] == "CN"
+    assert payload["snapshots"][0]["features"]["box_state"] == "BOX_READY"
 
 
 def test_preview_api_404_when_missing(monkeypatch):

@@ -123,3 +123,14 @@ it('maps Entry and nullable feature scalars while ignoring non-ranking quality',
     pullbackDetected: false, ma10Reclaimed: false });
   expect(row.features).not.toHaveProperty('trendQuality');
 });
+
+
+it('maps Box snake case scalars and preserves string states for official and preview', () => {
+  const row = rankingSnapshotFromDto({ code: 'BOX.US', rank: 1, alpha_score: 50,
+    features: { box_state: 'BOX_READY', box_quality: 88, box_window_days: 30, box_r_squared: .1,
+      box_start_date: '2026-01-01', box_end_date: '2026-02-01', box_episode_consumed: true, box_episode_breakout_date: '2026-02-02' } });
+  expect(row.features).toMatchObject({ boxState: 'BOX_READY', boxQuality: 88, boxWindowDays: 30, boxRSquared: .1, boxEpisodeConsumed: true, boxEpisodeBreakoutDate: '2026-02-02' });
+  const preview = asRankingSnapshot({ ...row, features: { ...row.features }, state: 'IDLE', trendScore: 50, rsScore: 50,
+    breakoutScore: 50, setup: 'NONE', atr: 2, referencePrice: 100 });
+  expect(preview.features).toEqual(row.features);
+});

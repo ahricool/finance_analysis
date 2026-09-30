@@ -11,7 +11,7 @@ import TrendFollowingPage from '../TrendFollowingPage.vue';
 vi.mock('@/utils/excelExport', () => ({ exportExcel: vi.fn().mockResolvedValue(undefined) }));
 
 const apiMocks = vi.hoisted(() => ({
-  transitions: vi.fn(), breadthHistory: vi.fn(), ranking: vi.fn(), candidates: vi.fn(), dates: vi.fn(), detail: vi.fn(), detailHistory: vi.fn(), run: vi.fn(), preview: vi.fn(), previewStatus: vi.fn(),
+  eventStudy: vi.fn(), transitions: vi.fn(), breadthHistory: vi.fn(), ranking: vi.fn(), candidates: vi.fn(), dates: vi.fn(), detail: vi.fn(), detailHistory: vi.fn(), run: vi.fn(), preview: vi.fn(), previewStatus: vi.fn(),
 }));
 vi.mock('@/api/trendFollowing', () => ({ trendFollowingApi: apiMocks }));
 vi.mock('vue-echarts', () => ({ default: { props: ['option'], template: '<div data-testid="rank-chart" />' } }));
@@ -104,6 +104,97 @@ describe('TrendFollowingPage', () => {
     mockPreview(null);
   });
   afterEach(() => { document.body.innerHTML = ''; vi.clearAllMocks(); });
+
+  it('shows independent MR rows and keeps Preview out of Event Study', async () => {
+    const latest = snapshot();
+    latest.features = { ...latest.features, mrState: 'MR_REBOUND', mrQuality: 80, rsi14: 25, distanceFromMa20Atr: -2 };
+    apiMocks.ranking.mockResolvedValue({ ...ranking('CN'), items: [{ ...rankingSnapshot(), features: latest.features },
+      { ...rankingSnapshot(), code: 'OLD.US', name: 'Old', features: {} }] });
+    mockPreview({ ...ranking('CN'), status: 'completed', previewTime: '2026-08-28T10:00:00Z', snapshots: [latest] });
+    const wrapper = mount(TrendFollowingPage);
+    await flushPromises();
+    await wrapper.get('[data-testid="trend-view-mr"]').trigger('click');
+    expect(wrapper.findAll('[data-testid="trend-row"]')).toHaveLength(1);
+    expect(wrapper.get('[data-testid="trend-row"]').text()).toContain('反弹确认');
+    await wrapper.get('[data-testid="research-mode-preview"]').trigger('click');
+    await flushPromises();
+    expect(wrapper.get('[data-testid="trend-row"]').text()).toContain('反弹确认');
+    await wrapper.get('[data-testid="trend-view-study"]').trigger('click');
+    expect(wrapper.get('[data-testid="study-preview-disabled"]').text()).toContain('仅使用正式历史快照');
+    expect(apiMocks.eventStudy).not.toHaveBeenCalled();
+    wrapper.unmount();
+  });
+
+  it('switches Box opportunities, sorts quality, filters forming, and reuses detail', async () => {
+    const states = ['BOX_READY', 'BOX_BREAKOUT', 'BOX_READY', 'BOX_FORMING', 'NONE', undefined] as const;
+    const rows = states.map((boxState, i) => ({ ...rankingSnapshot(), code: `BOX${i}.US`, name: `Box ${i}`,
+      alphaScore: 100 - i, features: { boxState, boxQuality: [95, 75, 80, 90, 0, undefined][i],
+        boxWindowDays: 30, boxWidthPct: .084, distanceToBoxHighPct: .012, boxUpperTouches: 3 } }));
+    apiMocks.ranking.mockResolvedValue({ ...ranking('CN'), items: rows });
+    const latest = snapshot();
+    latest.features = { ...latest.features, ...rows[1]!.features, boxHigh: 105, boxLow: 97 };
+    apiMocks.detail.mockResolvedValue({ metadata: latest, latest, history: [], market: 'CN' });
+    const wrapper = mount(TrendFollowingPage);
+    await flushPromises();
+    expect(wrapper.findAll('[data-testid="trend-row"]')).toHaveLength(6);
+    await wrapper.get('[data-testid="trend-view-box"]').trigger('click');
+    const codes = () => wrapper.findAll('[data-testid="trend-row"]').map(row => row.text().match(/BOX\d.US/)?.[0]);
+    expect(codes()).toEqual(['BOX1.US', 'BOX0.US', 'BOX2.US']);
+    expect(wrapper.text()).toContain('刚突破');
+    expect(wrapper.text()).toContain('待突破');
+    expect(wrapper.text()).toContain('30d');
+    expect(wrapper.text()).toContain('8.4%');
+    expect(wrapper.text()).toContain('-1.2%');
+    const qualityHeader = wrapper.findAll('th').find(header => header.text().includes('Box Quality'))!;
+    await qualityHeader.get('button').trigger('click');
+    expect(codes()).toEqual(['BOX0.US', 'BOX2.US', 'BOX1.US']);
+    await wrapper.get('[data-testid="trend-row"]').trigger('click');
+    await flushPromises();
+    expect(document.body.querySelector('[data-testid="trend-box-structure"]')?.textContent).toContain('Box Structure');
+    expect(apiMocks.detail).toHaveBeenCalled();
+    const forming = wrapper.get('[data-testid="box-state-filter"]').findAll('button').find(b => b.text() === '形成中')!;
+    await forming.trigger('click');
+    expect(codes()).toEqual(['BOX3.US']);
+    expect(wrapper.get('[data-testid="trend-row"]').text()).toContain('整理中');
+    await wrapper.get('[data-testid="trend-view-ranking"]').trigger('click');
+    expect(wrapper.findAll('[data-testid="trend-row"]')).toHaveLength(6);
+    expect(wrapper.findAll('th').some(th => th.text().includes('Alpha Rank'))).toBe(true);
+    wrapper.unmount();
+  });
+
+  it('renders Box Preview through the same adapter and drawer with provisional volume', async () => {
+    const latest = snapshot();
+    latest.features = { ...latest.features, boxState: 'BOX_BREAKOUT', boxQuality: 88,
+      boxWindowDays: 40, boxBreakoutDistanceAtr: .45, volumeProvisional: true };
+    mockPreview({ ...ranking('CN'), status: 'completed', tradeDate: '2026-08-28',
+      previewTime: '2026-08-28T10:00:00Z', snapshots: [latest] });
+    const wrapper = mount(TrendFollowingPage);
+    await flushPromises();
+    await wrapper.get('[data-testid="research-mode-preview"]').trigger('click');
+    await flushPromises();
+    await wrapper.get('[data-testid="trend-view-box"]').trigger('click');
+    expect(wrapper.get('[data-testid="trend-row"]').text()).toContain('刚突破');
+    expect(wrapper.get('[data-testid="trend-row"]').text()).toContain('+0.45 ATR');
+    expect(wrapper.get('[data-testid="trend-row"]').text()).toContain('盘中估算 —');
+    await wrapper.get('[data-testid="trend-row"]').trigger('click');
+    await flushPromises();
+    expect(document.body.querySelector('[data-testid="trend-box-structure"]')?.textContent).toContain('88.0');
+    expect(apiMocks.detail).not.toHaveBeenCalled();
+    wrapper.unmount();
+  });
+
+  it('keeps old snapshots usable and shows missing Box detail as dashes', async () => {
+    const wrapper = mount(TrendFollowingPage);
+    await flushPromises();
+    await wrapper.get('[data-testid="trend-row"]').trigger('click');
+    await flushPromises();
+    const section = document.body.querySelector('[data-testid="trend-box-structure"]')!;
+    expect(section.textContent).toContain('—');
+    expect(section.textContent).not.toContain('NaN');
+    await wrapper.get('[data-testid="trend-view-box"]').trigger('click');
+    expect(wrapper.findAll('[data-testid="trend-row"]')).toHaveLength(0);
+    wrapper.unmount();
+  });
 
   it.each(['WATCHING', 'WEAKENING', 'BROKEN'] as const)('shows risk sizing independently of %s and NONE Entry', async state => {
     const latest = { ...snapshot(), state, entryType: 'NONE' };

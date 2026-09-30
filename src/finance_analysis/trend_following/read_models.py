@@ -1,5 +1,10 @@
 """Read-only dashboard projections; strategy snapshots remain unchanged."""
 
+from .box import BOX_NUMERIC_FIELDS, BOX_STRING_FIELDS
+from .mean_reversion import MR_NUMERIC_FIELDS
+
+STRING_FEATURE_FIELDS = (*BOX_STRING_FIELDS, "mr_state")
+
 RANKING_FIELDS = (
     "code", "rank", "state", "trend_duration_days",
     "trend_lifecycle", "fragility_score",
@@ -7,10 +12,12 @@ RANKING_FIELDS = (
     "atr", "reference_price",
 )
 BOOLEAN_FEATURE_FIELDS = (
+    "box_breakout_fresh", "box_prior_breakout_confirmed", "box_episode_consumed", "mr_episode_consumed",
     "pullback_detected", "ma10_reclaimed", "volume_provisional",
     "trend_candidate", "prior_compression", "compression_breakout", "trend_resume",
 )
 NUMERIC_FEATURE_FIELDS = (
+    *BOX_NUMERIC_FIELDS, *MR_NUMERIC_FIELDS, "return_3d",
     "alpha_version", "path_score", "setup_score", "weighted_r2",
     "positive_return_concentration", "atr_expansion_ratio",
     "downside_control_quality", "downside_upside_ratio",
@@ -43,7 +50,7 @@ SCORE_COMPONENT_PATHS = (
     ("alpha_path_contribution", ("alpha", "contributions", "path")),
 )
 SCORE_COMPONENT_FIELDS = tuple(name for name, _path in SCORE_COMPONENT_PATHS)
-FEATURE_FIELDS = (*NUMERIC_FEATURE_FIELDS, *BOOLEAN_FEATURE_FIELDS, *SCORE_COMPONENT_FIELDS)
+FEATURE_FIELDS = (*STRING_FEATURE_FIELDS, *NUMERIC_FEATURE_FIELDS, *BOOLEAN_FEATURE_FIELDS, *SCORE_COMPONENT_FIELDS)
 DASHBOARD_FIELDS = RANKING_FIELDS
 CANDIDATE_FIELDS = ("code", "name", "rank", "state", "alpha_score")
 

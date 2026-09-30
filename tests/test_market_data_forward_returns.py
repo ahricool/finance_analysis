@@ -74,10 +74,22 @@ def test_api_schema_market_validation_and_errors(monkeypatch):
     response = client.post('/forward-returns', json=payload)
     assert response.status_code == 200
     assert response.json()["items"] == [{"code": "AAPL.US", "forward_return_3d": None,
-                                         "forward_return_5d": None, "forward_return_10d": None}]
+                                         "forward_return_5d": None, "forward_return_10d": None, "forward_return_20d": None}]
     assert client.post('/forward-returns', json={**payload, "market": "CN"}).status_code == 422
     assert client.post('/forward-returns', json={**payload, "symbols": []}).status_code == 422
     service.get_daily_bars.side_effect = RuntimeError("private database error")
     response = client.post('/forward-returns', json=payload)
     assert response.status_code == 503
     assert "private database error" not in response.text
+
+
+def test_twentieth_session_close_is_available_only_after_exchange_close():
+    from finance_analysis.integrations.market_data.research import following_sessions
+    plan = following_sessions('US', date(2026, 9, 18), 20)
+    target, close = plan[-1]
+    service = service_with(bar('2026-09-18'), bar(target.isoformat(), 125))
+    from datetime import timedelta
+    before = forward_returns(service, ['AAPL.US'], 'US', date(2026, 9, 18), now=close - timedelta(seconds=1))
+    after = forward_returns(service, ['AAPL.US'], 'US', date(2026, 9, 18), now=close)
+    assert before['items'][0]['forward_return_20d'] is None
+    assert after['items'][0]['forward_return_20d'] == pytest.approx(.25)

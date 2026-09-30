@@ -7,7 +7,7 @@ const snapshot = {
   trendScore: 80, rsScore: 78, breakoutScore: 80, referencePrice: 25, atr: .5,
   trendDurationDays: 13, trendLifecycle: 'EXPANSION', fragilityScore: 18,
   fragilityBreakdown: { accelerationDecay: 12, qualityDecay: 15, efficiencyDecay: 20, relativeStrengthDecay: 18, rankDecay: 24, priceStructureRisk: 15 },
-  features: { atrPercent: .02, previousLow10: 24,
+  features: { mrState: 'MR_REBOUND', mrQuality: 82, rsi14: 28, distanceFromMa20Atr: -2, boxState: 'BOX_READY', boxQuality: 88, boxWindowDays: 30, boxWidthPct: .084, atrPercent: .02, previousLow10: 24,
       riskSizing: { riskBudgetPct: .01, maxPositionPct: .25, atrMultiple: 2.5,
         atrStopPct: .05, structureStopPct: .04, stopLossPct: .05, stopPrice: 23.75,
         suggestedPositionPct: .20, stopBasis: 'ATR' },
@@ -52,7 +52,25 @@ for (const width of [1280, 1440, 1920]) {
             tradeDate, open: 100, high: 110, low: 95, close: 105, volume: 100,
           })) };
         } else if (pathname.endsWith('/market-data/forward-returns')) {
-          body = { items: [{ code: snapshot.code, forward_return_3d: .03, forward_return_5d: -.02, forward_return_10d: null }] };
+          body = { items: [{ code: snapshot.code, forward_return_3d: .03, forward_return_5d: -.02, forward_return_10d: null, forward_return_20d: .08 }] };
+        } else if (pathname.endsWith('/trend-following/event-study')) {
+          const params = new URL(route.request().url()).searchParams;
+          const market = params.get('market') || 'CN';
+          const regime = params.get('regime') || 'ALL';
+          const strategy = params.get('strategy') === 'ALL' ? 'BOX_BREAKOUT' : params.get('strategy');
+          const coverage = { featureCoverage: .5, featureSnapshotCount: 1, snapshotCount: 2, status: 'insufficient_feature_history', continuousCompleteSince: '2026-08-28', incompleteDates: [] };
+          body = { market, startDate: params.get('start_date'), endDate: params.get('end_date'), method: 'signal_close_v1', benchmark: market === 'US' ? 'SPY.US' : '510300.SH',
+            snapshotDates: ['2026-08-28'], missingSnapshotDates: [], boxFeatureCoverage: coverage, mrFeatureCoverage: coverage,
+            groups: ['TREND_FOLLOWING', 'BOX_BREAKOUT', 'PULLBACK_RESUME', 'MEAN_REVERSION'].map(key => ({
+              ...coverage, strategy: key, regime, eventCount: 1, excursionCount: 1,
+              horizons: [5, 10, 20].map(days => ({ days, maturedCount: 1, excessMaturedCount: 1, pendingCount: 0, missingCount: 0, meanReturn: .1, medianReturn: .1, winRate: 1, meanExcessReturn: .05, medianExcessReturn: .05, excessWinRate: 1 })),
+              mfe20: { mean: .15, median: .15 }, mae20: { mean: -.03, median: -.03 },
+            })), eventCount: 1, offset: 0, limit: 100,
+            events: [{ market, tradeDate: '2026-08-28', code: '000001.SZ', name: '历史样本', strategy, regime: 'RISK_OFF', signalPrice: 100, evaluationBasePrice: 100,
+              context: { boxQuality: 88, boxWindowDays: 30, boxWidthPct: .08, boxBreakoutDistanceAtr: .4 },
+              horizons: [5, 10, 20].map(days => ({ days, status: 'available', value: .1, excessStatus: 'available', excessReturn: .05 })),
+              excursionStatus: 'available', observedSessions: 20, missingDates: [], mfe20: .15, mae20: -.03 }],
+          };
         } else if (pathname.endsWith('/trend-following/breadth-history')) {
           body = { market: 'CN', points: [], dates: [], officialCount: 0, warnings: [] };
         } else if (pathname.endsWith('/trend-following/transitions')) {
@@ -81,6 +99,31 @@ for (const width of [1280, 1440, 1920]) {
       expect(await download.failure()).toBeNull();
       await download.saveAs(testInfo.outputPath('ranking.xlsx'));
 
+      await page.getByTestId('trend-view-mr').click();
+      await expect(page.getByTestId('trend-row').first()).toContainText('反弹确认');
+      await page.getByTestId('trend-view-study').click();
+      await expect(page.getByTestId('study-strategy-row')).toHaveCount(4);
+      await expect(page.getByTestId('trend-event-study')).toContainText('insufficient_feature_history');
+      await expect(page.getByTestId('trend-event-study')).toContainText('Box 连续完整自 2026-08-28');
+      await expect(page.getByTestId('trend-event-study')).toContainText('MR 连续完整自 2026-08-28');
+      await page.getByLabel('研究开始日期').fill('2026-06-01');
+      await page.getByLabel('研究市场环境').selectOption('RISK_OFF');
+      await page.getByTestId('study-strategy-row').filter({ hasText: '箱体突破' }).click();
+      await expect(page.getByTestId('study-event-row')).toContainText('历史样本');
+      await expect(page.getByTestId('study-event-row')).toContainText('Quality: 88.00');
+      await page.getByRole('radio', { name: '美股', exact: true }).click();
+      await expect(page.getByTestId('study-coverage')).toContainText('SPY.US');
+      await page.getByRole('radio', { name: 'A股', exact: true }).click();
+      await expect(page.getByTestId('study-coverage')).toContainText('510300.SH');
+      await page.screenshot({ path: testInfo.outputPath('strategy-study.png') });
+      await page.getByTestId('trend-view-box').click();
+      await expect(page.getByTestId('trend-row').first()).toContainText('待突破');
+      await expect(page.getByTestId('trend-row').first()).toContainText('30d');
+      await expect(page.getByTestId('trend-row').first().locator('[data-column="forwardReturn20D"]')).toHaveText('8.0%');
+      await page.getByTestId('trend-row').first().click();
+      await expect(page.getByTestId('trend-box-structure')).toContainText('Box Structure');
+      await page.keyboard.press('Escape');
+      await page.getByTestId('trend-view-ranking').click();
       const row = page.getByTestId('trend-row').first();
       await expect(row.locator('[data-column="forwardReturn3D"]')).toHaveText('3.0%');
       await expect(row.locator('[data-column="forwardReturn5D"]')).toHaveText('-2.0%');

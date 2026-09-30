@@ -515,3 +515,79 @@ def test_risk_sizing_does_not_change_strategy_results(monkeypatch):
         assert actual["features"].pop("risk_sizing") is not None
         assert baseline["features"].pop("risk_sizing") is None
         assert actual == baseline  # Includes Alpha, Entry, State, Candidate, Ranking and all prior features.
+
+
+def test_box_does_not_change_alpha_entry_candidate_state_or_health(monkeypatch):
+    from copy import deepcopy
+
+    monkeypatch.setattr(
+        'finance_analysis.trend_following.service.get_universe',
+        lambda market: (UniverseMember('US', 'AAA.US', 'AAA'), UniverseMember('US', 'BBB.US', 'BBB')),
+    )
+    enabled = FakeRepository()
+    TrendFollowingService('US', enabled).run(TRADE_DATE)
+    monkeypatch.setattr('finance_analysis.trend_following.box.calculate_box_structure', lambda *args, **kwargs: {})
+    baseline = FakeRepository()
+    # Reproduce original 60-bar calculation and no Box payload.
+    TrendFollowingService('US', baseline, config=replace(DEFAULT_CONFIG, box_windows=(15, 20, 30, 40))).run(TRADE_DATE)
+    cleaned = deepcopy(enabled.snapshots)
+    for row in cleaned:
+        row['features'] = {k: v for k, v in row['features'].items() if not k.startswith(('box_', 'distance_to_box'))}
+    assert cleaned == baseline.snapshots
+    assert enabled.summary == baseline.summary
+
+
+def test_box_episode_daily_runs_and_historical_rebuild_are_identical(monkeypatch):
+    from dataclasses import asdict
+    from copy import deepcopy
+    from tests.test_trend_following_box import episode_bars
+
+    bars = episode_bars()
+    days = [b.trade_date for b in bars[59:]]
+
+    class EpisodeRepository(FakeRepository):
+        def __init__(self):
+            super().__init__()
+            self.saved = {}
+
+        def load_daily_history(self, codes, trade_date, **kwargs):
+            return [dict(asdict(b), code='AAA.US', instrument_id=1) for b in bars if b.trade_date <= trade_date]
+
+        def previous_snapshots(self, trade_date, codes):
+            earlier = [d for d in self.saved if d < trade_date]
+            return {'AAA.US': deepcopy(self.saved[max(earlier)])} if earlier else {}
+
+        def latest_snapshot_date(self):
+            return max(self.saved, default=None)
+
+        def replace_day(self, trade_date, snapshots, summary):
+            self.saved[trade_date] = deepcopy(snapshots[0])
+            return 1
+
+    monkeypatch.setattr('finance_analysis.trend_following.service.get_universe',
+                        lambda _: (UniverseMember('US', 'AAA.US', 'A'),))
+    monkeypatch.setattr('finance_analysis.trend_following.service.get_trading_days_between',
+                        lambda market, start, end: [d for d in days if start <= d <= end])
+    monkeypatch.setattr('finance_analysis.trend_following.service.get_completed_trading_days', lambda *_: [days[-1]])
+    market_data = SimpleNamespace(get_daily_bars=lambda codes, start, end, **kw:
+                                 SimpleNamespace(data={'SPY.US': [b for b in bars if b.trade_date <= end]}))
+    repo = EpisodeRepository()
+    service = RealTrendFollowingService('US', repo, market_data=market_data)
+    for day in days:
+        assert service.run(day)['status'] == 'completed'
+    live = deepcopy(repo.saved)
+    assert sum(s['features']['box_breakout_fresh'] for s in live.values()) == 2
+    rebuilt = service.run(days[0])
+    assert rebuilt['rebuild_count'] == len(days)
+    keys = ('box_state', 'box_breakout_fresh', 'box_episode_consumed', 'box_episode_breakout_date')
+    for day in days:
+        assert {k: repo.saved[day]['features'][k] for k in keys} == {k: live[day]['features'][k] for k in keys}
+    # Today's preview sees only the preceding official snapshot, never its own
+    # prior preview or same-day official result, and cannot write/rearm it.
+    before = deepcopy(repo.saved)
+    preview = service._run_single_date(days[3], persist=False,
+                                      overlay_bars={'AAA.US': bars[62], 'SPY.US': bars[62]})
+    feature = preview['snapshots'][0]['features']
+    assert feature['box_episode_consumed'] is True
+    assert feature['box_breakout_fresh'] is False
+    assert repo.saved == before

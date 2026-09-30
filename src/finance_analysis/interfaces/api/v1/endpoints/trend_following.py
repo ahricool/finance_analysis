@@ -20,6 +20,8 @@ from finance_analysis.database.repositories.trend_following import (  # pragma: 
 )
 from finance_analysis.interfaces.api.deps import require_admin, require_current_user  # pragma: allowlist secret
 from finance_analysis.interfaces.api.v1.schemas.trend_following import (  # pragma: allowlist secret
+    BoxState,
+    EventStudyResponse,
     TrendFollowingRunRequest,
     TrendDashboardResponse,
     TrendRankingItem,
@@ -43,6 +45,8 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 Market = Literal["CN", "US"]
 SortField = Literal[
+    "box_quality", "box_window_days", "box_width_pct", "distance_to_box_high_pct",
+    "distance_to_box_high_atr", "box_breakout_distance_atr",
     "entry_score",
     "alpha_score", "trend_score", "rs_score", "breakout_score", "rank", "trend_duration_days", "fragility_score",
     "path_score", "setup_score", "weighted_r2", "weighted_slope_percentile",
@@ -176,6 +180,30 @@ def dashboard(
     return payload
 
 
+@router.get("/event-study", response_model=EventStudyResponse)
+def event_study(
+    market: Market = "CN",
+    start_date: date | None = None,
+    end_date: date | None = None,
+    strategy: Literal["ALL", "TREND_FOLLOWING", "BOX_BREAKOUT", "PULLBACK_RESUME", "MEAN_REVERSION"] = "ALL",
+    regime: Literal["ALL", "RISK_ON", "NEUTRAL", "RISK_OFF"] = "ALL",
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=100, ge=1, le=500),
+    _: User = Depends(require_current_user),
+):
+    from datetime import timedelta
+    from finance_analysis.core.time import utc_now
+    from finance_analysis.trend_following.event_study import run_event_study
+
+    end = end_date or utc_now().date()
+    start = start_date or end - timedelta(days=DEFAULT_CONFIG.event_study_default_days)
+    try:
+        return run_event_study(TrendFollowingRepository(market), market, start, end,
+                               strategy=strategy, regime=regime, offset=offset, limit=limit)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+
+
 @router.get("/ranking")
 def ranking(
     trade_date: date | None = None,
@@ -183,12 +211,13 @@ def ranking(
     limit: int | None = Query(default=None, ge=1, le=1000),
     _: User = Depends(require_current_user),
     market: Market = "CN",
+    box_state: BoxState | None = None,
 ):
     started = time.perf_counter()
     repository = TrendFollowingRepository(market)
     resolved = _resolve_date(repository, trade_date)
     cache = RankingCache(market, resolved)
-    body = cache.load() if sort_by == "alpha_score" and limit is None else None
+    body = cache.load() if sort_by == "alpha_score" and limit is None and box_state is None else None
     if body is not None:
         logger.info("trend_ranking market=%s date=%s cache=hit seconds=%.3f bytes=%s",
                     market, resolved, time.perf_counter() - started, len(body))
@@ -197,7 +226,8 @@ def ranking(
     summary = repository.summary_by_date(resolved)
     if not rows or summary is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"Trend Following snapshot not found for {resolved}")
-    ordered = sorted(rows, key=lambda row: (
+    filtered = [row for row in rows if box_state is None or row.get("box_state") == box_state]
+    ordered = sorted(filtered, key=lambda row: (
         row.get(sort_by) is None,
         (row.get(sort_by) or 0) * (1 if sort_by == "rank" else -1), row["code"],
     ))
@@ -215,7 +245,7 @@ def ranking(
     }
     body = json.dumps(jsonable_encoder(payload), ensure_ascii=False, allow_nan=False, separators=(",", ":")).encode()
     if (
-        sort_by == "alpha_score" and limit is None
+        sort_by == "alpha_score" and limit is None and box_state is None
         and summary.get("data_coverage", 0) >= DEFAULT_CONFIG.minimum_data_coverage
     ):
         cache.save(body)

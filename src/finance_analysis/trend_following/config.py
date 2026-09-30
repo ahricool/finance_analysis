@@ -12,6 +12,45 @@ class TrendFollowingConfig:
     risk_budget_pct: float = 0.01
     risk_stop_atr_multiple: float = 2.5
     risk_max_position_pct: float = 0.25
+    # Independent point-in-time structure research; never enters Alpha or Entry.
+    box_windows: tuple[int, ...] = (15, 20, 30, 40, 60)
+    box_min_days: int = 15
+    box_max_width_pct: float = 0.15
+    box_ideal_width_pct: float = 0.08
+    box_width_plateau_min_pct: float = 0.05
+    box_dead_width_pct: float = 0.01
+    box_flatness_scale_atr: float = 1.5
+    box_inner_margin: float = 0.10
+    box_quality_tie_tolerance: float = 3.0
+    box_ready_distance_pct: float = 0.03
+    box_forming_quality_min: float = 60.0
+    box_ready_quality_min: float = 70.0
+    box_breakout_quality_min: float = 70.0
+    box_breakout_min_atr: float = 0.10
+    box_breakout_max_atr: float = 2.0
+    box_breakout_clv_min: float = 0.60
+    box_touch_atr_tolerance: float = 0.25
+    box_touch_width_tolerance: float = 0.05
+    box_touch_target: int = 3
+    box_quality_weights: dict[str, float] = field(default_factory=lambda: {
+        "width": .25, "flatness": .30, "occupancy": .15, "compression": .20, "touch": .10,
+    })
+    mr_rsi_period: int = 14
+    mr_rsi_max: float = 35.0
+    mr_distance_max_atr: float = -1.0
+    mr_return_5d_max: float = 0.0
+    mr_rebound_clv_min: float = 0.60
+    mr_rsi_quality_center: float = 30.0
+    mr_rsi_quality_scale: float = 10.0
+    mr_distance_center_atr: float = -2.25
+    mr_distance_width_atr: float = 1.25
+    mr_shock_3d_scale: float = 0.06
+    mr_shock_5d_scale: float = 0.10
+    mr_quality_weights: dict[str, float] = field(default_factory=lambda: {
+        "oversold": .35, "distance": .35, "shock": .20, "reversal": .10,
+    })
+    event_study_default_days: int = 180
+    event_study_max_days: int = 730
     history_bars: int = 60
     minimum_history_bars: int = 21
     calendar_lookback_days: int = 180

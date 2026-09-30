@@ -24,6 +24,8 @@ from enum import Enum
 import pandas as pd
 import numpy as np
 
+from .indicators import rsi_series
+
 from finance_analysis.reporting.config import get_report_config
 
 logger = logging.getLogger(__name__)
@@ -312,27 +314,7 @@ class StockTrendAnalyzer:
         df = df.copy()
 
         for period in [self.RSI_SHORT, self.RSI_MID, self.RSI_LONG]:
-            # 计算价格变化
-            delta = df['close'].diff()
-
-            # 分离上涨和下跌
-            gain = delta.where(delta > 0, 0)
-            loss = -delta.where(delta < 0, 0)
-
-            # 计算平均涨跌幅
-            avg_gain = gain.rolling(window=period).mean()
-            avg_loss = loss.rolling(window=period).mean()
-
-            # 计算 RS 和 RSI
-            rs = avg_gain / avg_loss
-            rsi = 100 - (100 / (1 + rs))
-
-            # 填充 NaN 值
-            rsi = rsi.fillna(50)  # 默认中性值
-
-            # 添加到 DataFrame
-            col_name = f'RSI_{period}'
-            df[col_name] = rsi
+            df[f'RSI_{period}'] = rsi_series(df['close'], period)
 
         return df
     

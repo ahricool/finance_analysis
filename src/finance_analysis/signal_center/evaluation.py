@@ -1,8 +1,8 @@
 """Read-only forward performance, separate from immutable decision evidence."""
 
 from datetime import date, datetime, timedelta
-from math import isfinite
 
+from finance_analysis.integrations.market_data.research import valid_bar
 from finance_analysis.core.time import utc_now
 from finance_analysis.market_review import trading_calendar as calendar
 
@@ -32,17 +32,6 @@ def session_plan(signal):
         if i < 9:
             session = cal.next_session(session)
     return result
-
-
-def valid_bar(row):
-    if row is None:
-        return False
-    prices = [row.get(k) for k in ("open", "high", "low", "close")]
-    if any(v is None or not isfinite(v) or v <= 0 for v in prices):
-        return False
-    op, high, low, close = prices
-    volume = row.get("volume")
-    return low <= min(op, close) <= max(op, close) <= high and volume is not None and isfinite(volume) and volume > 0
 
 
 def empty_evaluation(status, reason=None):
