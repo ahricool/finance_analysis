@@ -410,12 +410,14 @@ class TrendFollowingService:
         benchmark_return_5d = benchmark_close[-1] / benchmark_close[-6] - 1.0
         benchmark_return_10d = benchmark_close[-1] / benchmark_close[-11] - 1.0
         benchmark_return_20d = benchmark_close[-1] / benchmark_close[-21] - 1.0
+        previous = self.repository.previous_snapshots(effective_date, universe_codes)
         features: list[dict[str, Any]] = []
         sufficient_histories: dict[str, list[DailyBar]] = {}
         for code in sorted(ready_codes):
             bars = histories.get(code, [])[-max(self.config.history_bars, max(self.config.box_windows) + 1) :]
             result = calculate_features(
-                bars, self.config.minimum_history_bars, self.config, preview=overlay_bars is not None
+                bars, self.config.minimum_history_bars, self.config, preview=overlay_bars is not None,
+                previous_features=previous.get(code, {}).get("features"),
             )
             if result is None or not bars or bars[-1].trade_date != effective_date:
                 continue
@@ -457,7 +459,6 @@ class TrendFollowingService:
             config=self.config,
         )
         ranked = rank_candidates(features, self.config)
-        previous = self.repository.previous_snapshots(effective_date, universe_codes)
         decisions = {
             row["code"]: transition_state(row, previous.get(row["code"]), config=self.config)
             for row in ranked

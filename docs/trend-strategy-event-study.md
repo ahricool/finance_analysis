@@ -42,7 +42,26 @@ Trend Following逐日重算流程补齐；GET不会自动回填，也不写事�
 
 保存 `box_breakout_fresh`、`box_prior_breakout_confirmed`，详情还保留
 `box_previous_resistance`、`box_previous_breakout_atr`、`box_previous_clv`。
-连续创新高fixture验证T突破、T+1/T+2不再产生事件。Box其他定义见[Box V1](trend-box-structure.md)。
+昨日确认检查只是补充，不能代表整个episode。
+
+### 一箱一事件
+
+Box从有效FORMING/READY结构开始，首次满足原突破条件时消费episode，保存
+`box_episode_consumed=true`、`box_episode_breakout_date=当日`到现有features JSON。
+之后回踩、再突破、暂时没有候选箱体都继承已消费标记，不重复生成fresh事件。
+只有重新选出quality≥forming门槛的有效箱体，且
+`box_start_date > box_episode_breakout_date`，正式计算才rearm；整个新窗口必须位于旧突破之后。
+Rearm清除消费标记和旧突破日期；当日若满足突破条件，可记录新事件。无固定天数cooldown。
+
+Service在特征计算前批量读取previous_snapshots，按股票传入上一条正式快照的Box字段。
+即使中间缺少有效候选或股票快照也不主动遗忘旧episode。Preview继承同一正式前态，
+只能改变今日临时状态，不能rearm已消费episode，也不写正式快照。
+无前态时从未消费开始，不从滚动60根K线推测完整episode历史。历史重算沿用同一逐日计算和
+持久化前态；从相同起点/前置快照重算得到相同state、freshness、consumed、breakout date。
+旧版只有昨日检查的快照须从可靠起点逐日重算，不能用单日重算恢复缺失的episode链。
+
+回归覆盖连续创新高、突破→回踩→再突破、新箱体重启、Preview和逐日运行/历史重算一致性。
+Box几何与Quality定义见[Box V1](trend-box-structure.md)。
 
 ## Mean Reversion V1
 
@@ -159,11 +178,15 @@ MFE/MAE分别提供均值、中位数及完整路径数量。
 
 Coverage按请求范围实际snapshot行计数：
 
-- Box必须同时存在box_state与box_breakout_fresh；#369旧版没有fresh字段也需要重算。
+- Box必须同时存在box_state、box_breakout_fresh与box_episode_consumed；旧版仅有昨日freshness的快照也需要重算。
 - MR必须存在mr_state；缺失不能视为MR_NONE。
 - Pullback必须存在trend_resume；Trend必须已知上一正式state。
 - 返回snapshot_dates、missing_snapshot_dates、各组feature_coverage、feature_snapshot_count、snapshot_count、
-  incomplete_dates、earliest_complete_date（区间中第一天该策略所有已有行字段齐全的日期，不代表之后全齐）。
+  incomplete_dates、continuous_complete_since。后者是延续至请求区间末尾的完整后缀起点：
+  从该日起，该策略所有已有行字段齐全，且没有应已收盘session整日缺快照；字段缺失或整日缺失均打断后缀。
+  最后应已收盘日不完整、无完整后缀或无该分组样本时为null；周末/休市和尚未收盘日不算缺失。
+  Regime分组仅检查对应Regime的已有行，但整日缺快照因无法确定Regime会打断所有分组。
+  例如完整/缺失/完整/完整对应第三日起连续完整，不再返回误导性的earliest_complete_date。
 - `box_feature_coverage`、`mr_feature_coverage`额外提供整个请求范围的覆盖摘要。
 - 任一字段缺失或应已收盘session整日无snapshot，都标记`insufficient_feature_history`。
   仍可查看已覆盖样本的描述统计，但UI明确提示不能据此判断策略优劣。
@@ -183,11 +206,14 @@ Event之间可能时间重叠，同股票反复出现，多策略也可重合，
 - 日期范围最多730天，配置 `event_study_default_days` / `event_study_max_days`。
 
 每次请求最多两次SQL：一次正式snapshot标量投影，一次所有事件股票+benchmark的DB日线OHLC批量读取。
-前态窗口仅处理code/date/state，JSON上下文投影限于请求日期范围；不加载整份features或score_breakdown。
+前态SQL先按[start_date,end_date]产生范围CTE，再对区间涉及的instrument用已有
+(instrument_id,trade_date)索引查找start之前最近一条state（ORDER BY date DESC LIMIT 1）。
+UNION ALL后才执行lag，因此window仅含范围行和每个相关股票最多一条前态；多年旧行不进入window。
+JSON上下文投影限于请求日期范围，不加载整份features或score_breakdown。
 基准不按股票重复查询，horizon不分别查询。交易日计划按不同signal date计算一次；内存派生、评价、汇总。
 空事件仅一次snapshot查询。两年CN区间仍可能较大，建议从180日开始；不设置隐藏采样或截断汇总。
 
-正式Ranking缓存v9；旧snapshot和Preview缺MR或fresh字段时显示「—」，等待正式重算/下次Preview刷新。
+正式Ranking缓存v10；旧snapshot和Preview缺MR或fresh字段时显示「—」，等待正式重算/下次Preview刷新。
 策略对比提供日期、市场和Regime过滤、任意汇总列排序、策略样本分页及汇总Excel。
 样本上下文只来自信号当日snapshot，不向当前Detail请求指标。
 

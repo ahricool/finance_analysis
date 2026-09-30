@@ -206,13 +206,15 @@ def test_fresh_breakout_only_once_during_three_day_continuation():
     assert result['atr_contraction_ratio'] < 1
     assert result['range_contraction_ratio'] < 1
     states = []
+    prior = None
     for day in range(3):
         if day:
             bars.append(replace(bars[-1], trade_date=bars[-1].trade_date + timedelta(days=1)))
         previous = calculate(bars)
         close = previous['box_high'] + .3 * previous['box_atr20']
         bars[-1] = replace(bars[-1], close=close, open=close - .5, high=close + .05, low=close - 1)
-        current = calculate(bars)
+        current = calculate(bars, previous_features=prior)
+        prior = current
         assert current['box_quality'] >= 70
         states.append(current['box_state'])
         assert current['box_prior_breakout_confirmed'] is (day > 0)
@@ -252,3 +254,55 @@ def test_flatness_rejects_directional_channel_independently_of_width(direction):
     assert measured['box_flatness_quality'] < 10
     assert measured['box_quality'] < DEFAULT_CONFIG.box_ready_quality_min
     assert calculate(bars)['box_state'] != 'BOX_READY'
+
+
+def episode_bars():
+    """Old box, breakout/retest/re-breakout, then a distinct 30-day plateau."""
+    bars = box_bars()
+    for index, close in enumerate((105, 103, 106)):
+        if index:
+            bars.append(replace(bars[-1], trade_date=bars[-1].trade_date + timedelta(days=1)))
+        bars[-1] = replace(bars[-1], open=close - .5, close=close, high=close + .05, low=close - 1)
+    for index in range(30):
+        close = 125 + 2 * math.sin(2 * math.pi * index / 5)
+        bars.append(replace(bars[-1], trade_date=bars[-1].trade_date + timedelta(days=1),
+                            open=close, close=close, high=close + 2, low=close - 2))
+    bars.append(replace(bars[-1], trade_date=bars[-1].trade_date + timedelta(days=1),
+                        open=129, close=130, high=130.05, low=129))
+    return bars
+
+
+def test_episode_survives_retest_and_rearms_only_for_new_structure():
+    bars = episode_bars()
+    previous = calculate(bars[:60])
+    results = []
+    for end in range(61, len(bars) + 1):
+        previous = calculate(bars[:end], previous_features=previous)
+        results.append(previous)
+    assert [r['box_breakout_fresh'] for r in results[:3]] == [True, False, False]
+    assert results[1]['box_state'] == 'BOX_READY'
+    assert results[2]['box_prior_breakout_confirmed'] is False  # yesterday alone would miss this
+    assert all(r['box_episode_consumed'] for r in results[:3])
+    assert {r['box_episode_breakout_date'] for r in results[:3]} == {bars[60].trade_date.isoformat()}
+    assert sum(r['box_breakout_fresh'] for r in results) == 2
+    assert results[-2]['box_episode_consumed'] is False
+    assert results[-1]['box_start_date'] > results[0]['box_episode_breakout_date']
+    assert results[-1]['box_breakout_fresh'] is True
+    assert results[-1]['box_episode_breakout_date'] == bars[-1].trade_date.isoformat()
+
+
+def test_no_candidate_does_not_reset_episode_and_preview_cannot_rearm():
+    bars = episode_bars()
+    prior = calculate(bars[:61])
+    no_box = calculate(bars[:62], previous_features=prior, config=replace(DEFAULT_CONFIG, box_windows=(100,)))
+    assert no_box['box_state'] == 'NONE'
+    assert no_box['box_episode_consumed'] is True
+    assert no_box['box_episode_breakout_date'] == prior['box_episode_breakout_date']
+    assert calculate(bars[:63], previous_features=no_box)['box_breakout_fresh'] is False
+    # Even a newly formed window cannot reset the official episode in Preview.
+    preview = calculate(bars, previous_features=prior, preview=True)
+    assert preview['box_start_date'] > prior['box_episode_breakout_date']
+    assert preview['box_episode_consumed'] is True
+    assert preview['box_episode_breakout_date'] == prior['box_episode_breakout_date']
+    assert preview['box_breakout_fresh'] is False
+    assert calculate(bars, previous_features=prior)['box_breakout_fresh'] is True

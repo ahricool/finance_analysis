@@ -89,6 +89,7 @@ def calculate_features(
     config: TrendFollowingConfig = DEFAULT_CONFIG,
     *,
     preview: bool = False,
+    previous_features: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     ordered = sorted(bars, key=lambda item: item.trade_date)
     if len(ordered) < minimum_bars:
@@ -247,7 +248,9 @@ def calculate_features(
 
     from .box import calculate_box_structure
 
-    result.update(calculate_box_structure(ordered, prior_atr20, result, config))
+    result.update(calculate_box_structure(
+        ordered, prior_atr20, result, config, previous_features=previous_features, preview=preview
+    ))
     return result
 
 

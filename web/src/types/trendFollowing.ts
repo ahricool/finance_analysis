@@ -18,6 +18,8 @@ export type BoxState = 'NONE' | 'BOX_FORMING' | 'BOX_READY' | 'BOX_BREAKOUT';
 export interface BoxFeatures {
   boxBreakoutFresh?: boolean | null;
   boxPriorBreakoutConfirmed?: boolean | null;
+  boxEpisodeConsumed?: boolean | null;
+  boxEpisodeBreakoutDate?: string | null;
   boxState?: BoxState | null;
   boxStartDate?: string | null;
   boxEndDate?: string | null;
@@ -173,7 +175,7 @@ export interface TrendSnapshot {
 export type TrendCandidate = Pick<TrendSnapshot, 'code' | 'name' | 'rank' | 'state' | 'alphaScore'>;
 
 export const RANKING_FEATURE_KEYS = [
-  'boxBreakoutFresh', 'boxPriorBreakoutConfirmed', 'mrEpisodeConsumed', 'rsi14', 'distanceFromMa20Atr', 'return3D',
+  'boxBreakoutFresh', 'boxPriorBreakoutConfirmed', 'boxEpisodeConsumed', 'mrEpisodeConsumed', 'rsi14', 'distanceFromMa20Atr', 'return3D',
   'mrQuality', 'mrOversoldQuality', 'mrDistanceQuality', 'mrShockQuality', 'mrReversalQuality', 'mrPreviousRsi14',
   'boxQuality', 'boxWindowDays', 'boxHigh', 'boxLow', 'boxMid', 'boxWidthPct', 'boxSlope', 'boxSlopeAtr', 'boxRSquared', 'boxOccupancy', 'boxUpperTouches', 'boxLowerTouches', 'distanceToBoxHighPct', 'distanceToBoxHighAtr', 'boxBreakoutDistanceAtr', 'boxAtr20', 'boxWidthQuality', 'boxFlatnessQuality', 'boxOccupancyQuality', 'boxCompressionQuality', 'boxTouchQuality',
   'alphaVersion', 'pathScore', 'setupScore', 'weightedR2', 'positiveReturnConcentration',
@@ -368,7 +370,7 @@ export interface StudyCoverage {
   featureSnapshotCount: number;
   snapshotCount: number;
   status: 'complete' | 'insufficient_feature_history';
-  earliestCompleteDate: string | null;
+  continuousCompleteSince: string | null;
   incompleteDates: string[];
 }
 export interface StudyHorizonAggregate {

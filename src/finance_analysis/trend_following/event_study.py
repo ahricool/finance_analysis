@@ -58,7 +58,11 @@ def feature_available(row, strategy):
     if strategy == "TREND_FOLLOWING":
         return row.get("previous_state") is not None
     if strategy == "BOX_BREAKOUT":
-        return row.get("box_state") is not None and row.get("box_breakout_fresh") is not None
+        return (
+            row.get("box_state") is not None
+            and row.get("box_breakout_fresh") is not None
+            and row.get("box_episode_consumed") is not None
+        )
     if strategy == "PULLBACK_RESUME":
         return row.get("trend_resume") is not None
     return row.get("mr_state") is not None
@@ -179,19 +183,23 @@ def aggregate(events, strategy, regime, coverage):
     }
 
 
-def feature_coverage(rows, strategy):
+def feature_coverage(rows, strategy, missing_snapshot_dates=()):
     available = [r for r in rows if feature_available(r, strategy)]
     dates = defaultdict(list)
     for row in rows:
         dates[row["trade_date"]].append(feature_available(row, strategy))
-    complete = sorted(d for d, flags in dates.items() if all(flags))
+    incomplete = {d for d, flags in dates.items() if not all(flags)} | set(missing_snapshot_dates)
+    last_incomplete = max(incomplete, default=None)
+    complete_suffix = sorted(
+        d for d, flags in dates.items() if all(flags) and (last_incomplete is None or d > last_incomplete)
+    )
     return {
         "feature_coverage": len(available) / len(rows) if rows else None,
         "feature_snapshot_count": len(available),
         "snapshot_count": len(rows),
-        "status": "complete" if rows and len(available) == len(rows) else "insufficient_feature_history",
-        "earliest_complete_date": min(complete, default=None),
-        "incomplete_dates": sorted(d for d, flags in dates.items() if not all(flags)),
+        "status": "complete" if rows and not incomplete else "insufficient_feature_history",
+        "continuous_complete_since": min(complete_suffix, default=None),
+        "incomplete_dates": sorted(incomplete),
     }
 
 
@@ -236,14 +244,11 @@ def run_event_study(repo, market, start_date, end_date, *, strategy="ALL", regim
             selected_events = [
                 e for e in evaluated if e["strategy"] == key and (layer == "ALL" or e["regime"] == layer)
             ]
-            coverage = feature_coverage(selected_rows, key)
-            if missing_snapshot_dates:
-                coverage["status"] = "insufficient_feature_history"
+            coverage = feature_coverage(selected_rows, key, missing_snapshot_dates)
             groups.append(aggregate(selected_events, key, layer, coverage))
     evaluated.sort(key=lambda e: (-e["trade_date"].toordinal(), e["code"], e["strategy"]))
-    box_coverage, mr_coverage = feature_coverage(rows, "BOX_BREAKOUT"), feature_coverage(rows, "MEAN_REVERSION")
-    if missing_snapshot_dates:
-        box_coverage["status"] = mr_coverage["status"] = "insufficient_feature_history"
+    box_coverage = feature_coverage(rows, "BOX_BREAKOUT", missing_snapshot_dates)
+    mr_coverage = feature_coverage(rows, "MEAN_REVERSION", missing_snapshot_dates)
     return {
         "market": market,
         "start_date": start_date,

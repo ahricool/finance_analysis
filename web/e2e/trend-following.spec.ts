@@ -58,7 +58,7 @@ for (const width of [1280, 1440, 1920]) {
           const market = params.get('market') || 'CN';
           const regime = params.get('regime') || 'ALL';
           const strategy = params.get('strategy') === 'ALL' ? 'BOX_BREAKOUT' : params.get('strategy');
-          const coverage = { featureCoverage: .5, featureSnapshotCount: 1, snapshotCount: 2, status: 'insufficient_feature_history', earliestCompleteDate: '2026-08-28', incompleteDates: [] };
+          const coverage = { featureCoverage: .5, featureSnapshotCount: 1, snapshotCount: 2, status: 'insufficient_feature_history', continuousCompleteSince: '2026-08-28', incompleteDates: [] };
           body = { market, startDate: params.get('start_date'), endDate: params.get('end_date'), method: 'signal_close_v1', benchmark: market === 'US' ? 'SPY.US' : '510300.SH',
             snapshotDates: ['2026-08-28'], missingSnapshotDates: [], boxFeatureCoverage: coverage, mrFeatureCoverage: coverage,
             groups: ['TREND_FOLLOWING', 'BOX_BREAKOUT', 'PULLBACK_RESUME', 'MEAN_REVERSION'].map(key => ({
@@ -104,6 +104,8 @@ for (const width of [1280, 1440, 1920]) {
       await page.getByTestId('trend-view-study').click();
       await expect(page.getByTestId('study-strategy-row')).toHaveCount(4);
       await expect(page.getByTestId('trend-event-study')).toContainText('insufficient_feature_history');
+      await expect(page.getByTestId('trend-event-study')).toContainText('Box 连续完整自 2026-08-28');
+      await expect(page.getByTestId('trend-event-study')).toContainText('MR 连续完整自 2026-08-28');
       await page.getByLabel('研究开始日期').fill('2026-06-01');
       await page.getByLabel('研究市场环境').selectOption('RISK_OFF');
       await page.getByTestId('study-strategy-row').filter({ hasText: '箱体突破' }).click();

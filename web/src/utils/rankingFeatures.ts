@@ -106,6 +106,7 @@ export function mergeRankingFeatures(
   if ('boxState' in features) result.boxState = state === 'NONE' || state === 'BOX_FORMING' || state === 'BOX_READY' || state === 'BOX_BREAKOUT' ? state : null;
   if ('boxStartDate' in features) result.boxStartDate = optionalText(features.boxStartDate);
   if ('boxEndDate' in features) result.boxEndDate = optionalText(features.boxEndDate);
+  if ('boxEpisodeBreakoutDate' in features) result.boxEpisodeBreakoutDate = optionalText(features.boxEpisodeBreakoutDate);
   return result;
 }
 

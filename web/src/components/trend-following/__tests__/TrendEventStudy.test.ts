@@ -8,7 +8,7 @@ vi.mock('@/api/trendFollowing', () => ({ trendFollowingApi: { eventStudy: vi.fn(
 vi.mock('@/utils/excelExport', () => ({ exportExcel: vi.fn().mockResolvedValue(undefined) }));
 vi.mock('vue-sonner', () => ({ toast: { error: vi.fn() } }));
 const coverage = { featureCoverage: .5, featureSnapshotCount: 1, snapshotCount: 2,
-  status: 'insufficient_feature_history' as const, earliestCompleteDate: '2026-09-01', incompleteDates: ['2026-08-28'] };
+  status: 'insufficient_feature_history' as const, continuousCompleteSince: '2026-09-01', incompleteDates: ['2026-08-28'] };
 function response(regime: StudyRegime = 'ALL', strategy: StrategyKey | 'ALL' = 'ALL'): EventStudyResponse {
   return {
     market: 'CN', startDate: '2026-04-01', endDate: '2026-09-01', method: 'signal_close_v1', benchmark: '510300.SH', evaluatedAt: '',
@@ -37,6 +37,9 @@ describe('TrendEventStudy', () => {
     await flushPromises();
     expect(wrapper.findAll('[data-testid="study-strategy-row"]')).toHaveLength(4);
     expect(wrapper.text()).toContain('insufficient_feature_history');
+    expect(wrapper.text()).toContain('Box 连续完整自 2026-09-01');
+    expect(wrapper.text()).toContain('MR 连续完整自 2026-09-01');
+    expect(wrapper.text()).not.toContain('最早完整日期');
     expect(wrapper.text()).toContain('不代表能按 T 收盘价真实成交');
     await wrapper.findAll('[data-testid="study-strategy-row"]').find(r => r.text().includes('箱体突破'))!.trigger('click');
     await flushPromises();

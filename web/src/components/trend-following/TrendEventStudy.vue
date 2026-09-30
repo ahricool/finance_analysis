@@ -166,7 +166,7 @@ async function exportSummary() {
         data-testid="study-coverage"
       >
         正式快照 {{ result.snapshotDates.length }} 日 · 缺少快照 {{ result.missingSnapshotDates.length }} 日 · Benchmark {{ result.benchmark }} · Box 特征 {{ pct(result.boxFeatureCoverage.featureCoverage) }} · MR 特征 {{ pct(result.mrFeatureCoverage.featureCoverage) }}
-        <p>Box 最早完整日期 {{ result.boxFeatureCoverage.earliestCompleteDate ?? '—' }} · MR 最早完整日期 {{ result.mrFeatureCoverage.earliestCompleteDate ?? '—' }}</p>
+        <p>Box 连续完整自 {{ result.boxFeatureCoverage.continuousCompleteSince ?? '—' }} · MR 连续完整自 {{ result.mrFeatureCoverage.continuousCompleteSince ?? '—' }}</p>
       </div>
       <p
         v-if="groups.some(group => group.status === 'insufficient_feature_history')"

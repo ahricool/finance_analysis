@@ -8,13 +8,14 @@ describe('trendFollowingApi', () => {
   beforeEach(() => vi.clearAllMocks());
 
   it('maps event-study metrics and forwards the official research filters', async () => {
-    vi.mocked(apiClient.get).mockResolvedValue({ data: { market: 'US', box_feature_coverage: { feature_coverage: .5 },
+    vi.mocked(apiClient.get).mockResolvedValue({ data: { market: 'US', box_feature_coverage: { feature_coverage: .5, continuous_complete_since: '2026-09-01' },
       events: [{ strategy: 'MEAN_REVERSION', trade_date: '2026-09-01', context: { rsi14: 25, distance_from_ma20_atr: -2 },
         horizons: [{ days: 20, excess_status: 'pending' }] }] } });
     const result = await trendFollowingApi.eventStudy('US', '2026-01-01', '2026-09-01', 'RISK_OFF', 'MEAN_REVERSION');
     expect(apiClient.get).toHaveBeenCalledWith('/api/v1/trend-following/event-study', {
       params: { market: 'US', start_date: '2026-01-01', end_date: '2026-09-01', regime: 'RISK_OFF', strategy: 'MEAN_REVERSION', offset: 0, limit: 100 }, signal: undefined,
     });
+    expect(result.boxFeatureCoverage.continuousCompleteSince).toBe('2026-09-01');
     expect(result.events[0]?.context.distanceFromMa20Atr).toBe(-2);
     expect(result.events[0]?.horizons[0]?.excessStatus).toBe('pending');
   });

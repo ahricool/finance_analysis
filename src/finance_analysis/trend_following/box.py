@@ -33,7 +33,7 @@ BOX_NUMERIC_FIELDS = (
     "box_compression_quality",
     "box_touch_quality",
 )
-BOX_STRING_FIELDS = ("box_state", "box_start_date", "box_end_date")
+BOX_STRING_FIELDS = ("box_state", "box_start_date", "box_end_date", "box_episode_breakout_date")
 BOX_SORT_FIELDS = (
     "box_quality",
     "box_window_days",
@@ -67,11 +67,22 @@ def calculate_box_structure(
     prior_atr20: float,
     features: dict[str, Any],
     config: TrendFollowingConfig = DEFAULT_CONFIG,
+    *,
+    previous_features: dict[str, Any] | None = None,
+    preview: bool = False,
 ) -> dict[str, Any]:
     """bars are ordered through T; ATR/compression are the existing T-1 values."""
     empty = {key: None for key in (*BOX_NUMERIC_FIELDS, *BOX_STRING_FIELDS)}
     empty["box_state"] = "NONE"
-    empty.update(box_breakout_fresh=False, box_prior_breakout_confirmed=False)
+    prior = previous_features or {}
+    consumed = prior.get("box_episode_consumed", False)
+    breakout_date = prior.get("box_episode_breakout_date")
+    empty.update(
+        box_breakout_fresh=False,
+        box_prior_breakout_confirmed=False,
+        box_episode_consumed=consumed,
+        box_episode_breakout_date=breakout_date,
+    )
     if prior_atr20 <= 0:
         return empty
     atr_ratio, range_ratio = features.get("atr_contraction_ratio"), features.get("range_contraction_ratio")
@@ -153,6 +164,10 @@ def calculate_box_structure(
         return empty
     selected = select_box(qualified, config.box_quality_tie_tolerance)
     result = selected.features.copy()
+    # A complete new structure must lie after the old event. A retest, missing
+    # candidate or moving window that still contains the event never rearms it.
+    if consumed and breakout_date and result["box_start_date"] > breakout_date and not preview:
+        consumed, breakout_date = False, None
     close, high, low = bars[-1].close, result["box_high"], result["box_low"]
     distance = (high - close) / high
     breakout = (close - high) / prior_atr20
@@ -182,7 +197,8 @@ def calculate_box_structure(
     )
     state = "NONE"
     if (
-        not prior_confirmed
+        not consumed
+        and not prior_confirmed
         and selected.quality >= config.box_breakout_quality_min
         and config.box_breakout_min_atr <= breakout <= config.box_breakout_max_atr
         and clv is not None
@@ -198,8 +214,12 @@ def calculate_box_structure(
         state = "BOX_READY"
     elif low <= close <= high:
         state = "BOX_FORMING"
+    if state == "BOX_BREAKOUT":
+        consumed, breakout_date = True, bars[-1].trade_date.isoformat()
     return {
         **result,
+        "box_episode_consumed": consumed,
+        "box_episode_breakout_date": breakout_date,
         "box_state": state,
         "box_breakout_fresh": state == "BOX_BREAKOUT",
         "distance_to_box_high_pct": distance,

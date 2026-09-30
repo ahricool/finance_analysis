@@ -12,7 +12,7 @@ RANKING_FIELDS = (
     "atr", "reference_price",
 )
 BOOLEAN_FEATURE_FIELDS = (
-    "box_breakout_fresh", "box_prior_breakout_confirmed", "mr_episode_consumed",
+    "box_breakout_fresh", "box_prior_breakout_confirmed", "box_episode_consumed", "mr_episode_consumed",
     "pullback_detected", "ma10_reclaimed", "volume_provisional",
     "trend_candidate", "prior_compression", "compression_breakout", "trend_resume",
 )

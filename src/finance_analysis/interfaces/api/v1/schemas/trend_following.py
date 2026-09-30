@@ -101,6 +101,8 @@ BoxState = Literal["NONE", "BOX_FORMING", "BOX_READY", "BOX_BREAKOUT"]
 class TrendRankingFeatures(BaseModel):
     box_breakout_fresh: bool | None = None
     box_prior_breakout_confirmed: bool | None = None
+    box_episode_consumed: bool | None = None
+    box_episode_breakout_date: str | None = None
     mr_state: Literal["MR_NONE", "MR_OVERSOLD", "MR_REBOUND"] | None = None
     mr_episode_consumed: bool | None = None
     rsi14: float | None = None
@@ -222,7 +224,7 @@ class StudyCoverage(BaseModel):
     feature_snapshot_count: int
     snapshot_count: int
     status: Literal["complete", "insufficient_feature_history"]
-    earliest_complete_date: date | None
+    continuous_complete_since: date | None
     incomplete_dates: list[date]
 
 

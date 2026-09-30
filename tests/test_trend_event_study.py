@@ -1,4 +1,4 @@
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -38,6 +38,7 @@ def row(**kwargs):
         trend_resume=False,
         box_state="BOX_BREAKOUT",
         box_breakout_fresh=True,
+        box_episode_consumed=True,
         mr_state="MR_REBOUND",
         **kwargs,
     )
@@ -148,7 +149,7 @@ def test_missing_features_are_not_negative_signals():
     coverage = feature_coverage([old, row()], "BOX_BREAKOUT")
     assert coverage["feature_coverage"] == 0.5
     assert coverage["status"] == "insufficient_feature_history"
-    assert coverage["earliest_complete_date"] is None
+    assert coverage["continuous_complete_since"] is None
 
 
 @pytest.mark.parametrize("count", [1, 200])
@@ -171,7 +172,16 @@ def test_sql_projection_lag_before_start_and_constant_query_count():
     db = _Database()
     StockDaily.__table__.create(db.engine)
     with db.session_scope() as session:
-        session.add(Instrument(id=1, market="US", code="AAA.US", name="A"))
+        session.add_all([Instrument(id=1, market="US", code="AAA.US", name="A"),
+                         Instrument(id=2, market="US", code="BBB.US", name="B"),
+                         Instrument(id=3, market="US", code="OLD.US", name="Old")])
+        for year in range(2010, 2026):
+            for instrument_id, code in ((1, "AAA.US"), (2, "BBB.US"), (3, "OLD.US")):
+                session.add(_snapshot(snapshot_id=year * 10 + instrument_id, code=code,
+                                      instrument_id=instrument_id, trade_date=date(year, 1, 2), state="WATCHING"))
+        for snapshot_id, day in ((10, date(2026, 9, 16)), (11, DAY)):
+            session.add(_snapshot(snapshot_id=snapshot_id, code="BBB.US", instrument_id=2,
+                                  trade_date=day, state="TRENDING"))
         for i, (day, state) in enumerate(
             [(date(2026, 9, 17), "CANDIDATE"), (DAY, "TRENDING"), (date(2026, 9, 21), "TRENDING")], 1
         ):
@@ -179,19 +189,43 @@ def test_sql_projection_lag_before_start_and_constant_query_count():
             snapshot.features = dict(
                 box_state="BOX_BREAKOUT" if i == 2 else "NONE",
                 box_breakout_fresh=i == 2,
+                box_episode_consumed=i >= 2,
                 trend_resume=False,
                 mr_state="MR_NONE",
             )
             session.add(snapshot)
-    queries = []
-    event.listen(db.engine, "before_cursor_execute", lambda conn, cursor, sql, *args: queries.append(sql))
+    queries, compiled = [], []
+
+    def capture(conn, cursor, sql, params, context, executemany):
+        from sqlalchemy.dialects import postgresql
+        queries.append(sql)
+        compiled.append(str(context.compiled.statement.compile(
+            dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True},
+        )))
+
+    event.listen(db.engine, "before_cursor_execute", capture)
     repo = TrendFollowingRepository("US", db)
     result = run_event_study(repo, "US", DAY, date(2026, 9, 21), now=NOW)
     assert len(queries) == 2
-    assert "lag(" in queries[0].lower()
+    sql = queries[0].lower()
+    assert "lag(" in sql
+    assert "study_range" in sql and "trade_date between" in sql
+    assert "union all" in sql
+    assert "LIMIT 1" in compiled[0]
+    assert "BETWEEN '2026-09-18' AND '2026-09-21'" in compiled[0]
+    assert "study_prior.trade_date <" in sql
+    assert "study_prior.instrument_id = study_instruments.instrument_id" in sql
+    assert "order by study_prior.trade_date desc" in sql and "limit" in sql
     assert "score_breakdown" not in queries[0]
     assert result["event_count"] == 2  # one new TRENDING episode + one fresh Box
     assert {e["trade_date"] for e in result["events"]} == {DAY}
+    projected = repo.event_study_rows(DAY, date(2026, 9, 21))
+    assert len(projected) == 3
+    assert {r['code'] for r in projected} == {'AAA.US', 'BBB.US'}
+    assert all(r['trade_date'] >= DAY for r in projected)
+    assert {(r['code'], r['trade_date']): r['previous_state'] for r in projected} == {
+        ('AAA.US', DAY): 'CANDIDATE', ('AAA.US', date(2026, 9, 21)): 'TRENDING', ('BBB.US', DAY): 'TRENDING',
+    }
 
 
 def test_api_range_regime_strategy_validation_and_schema(monkeypatch):
@@ -210,6 +244,9 @@ def test_api_range_regime_strategy_validation_and_schema(monkeypatch):
     assert response.status_code == 200
     assert response.json()["groups"][0]["strategy"] == "MEAN_REVERSION"
     assert response.json()["groups"][0]["regime"] == "RISK_OFF"
+    coverage = response.json()["box_feature_coverage"]
+    assert coverage['continuous_complete_since'] == '2026-09-18'
+    assert 'earliest_complete_date' not in coverage
     assert client.get("/event-study", params={**query, "strategy": "PREVIEW"}).status_code == 422
     assert client.get("/event-study", params={**query, "start_date": "2020-01-01"}).status_code == 422
     assert client.get("/event-study", params={**query, "start_date": "2026-09-19"}).status_code == 422
@@ -222,3 +259,58 @@ def test_missing_entire_snapshot_day_marks_study_incomplete():
     response = run_event_study(repo, "US", DAY, date(2026, 9, 21), now=NOW)
     assert response["missing_snapshot_dates"] == [date(2026, 9, 21)]
     assert all(g["status"] == "insufficient_feature_history" for g in response["groups"])
+    assert response["box_feature_coverage"]["continuous_complete_since"] is None
+    assert response["mr_feature_coverage"]["continuous_complete_since"] is None
+
+
+def test_box_retest_rebreakout_produces_one_event_until_new_box():
+    from tests.test_trend_following_box import episode_bars, calculate
+    bars = episode_bars()
+    previous, snapshots = calculate(bars[:60]), []
+    for end in range(61, len(bars) + 1):
+        previous = calculate(bars[:end], previous_features=previous)
+        snapshots.append({**row(), **previous, 'trade_date': bars[end - 1].trade_date})
+    box_events = lambda rows: [e for e in derive_events(rows) if e['strategy'] == 'BOX_BREAKOUT']
+    assert len(box_events(snapshots[:3])) == 1
+    events = box_events(snapshots)
+    assert len(events) == 2
+    assert [e['trade_date'] for e in events] == [bars[60].trade_date, bars[-1].trade_date]
+
+
+@pytest.mark.parametrize('missing_last', [False, True])
+def test_continuous_coverage_includes_missing_whole_days(missing_last):
+    days = [DAY + timedelta(days=i) for i in range(5)]
+    rows = [{**row(), 'trade_date': d} for d in days if d != days[3] and (not missing_last or d != days[4])]
+    # A single missing feature among existing rows breaks completeness that day.
+    rows.append({**row(), 'trade_date': days[1], 'code': 'B.US', 'box_breakout_fresh': None})
+    missing = [days[3], days[4]] if missing_last else [days[3]]
+    coverage = feature_coverage(rows, 'BOX_BREAKOUT', missing)
+    assert coverage['continuous_complete_since'] == (None if missing_last else days[4])
+    assert coverage['incomplete_dates'] == sorted([days[1], *missing])
+    assert coverage['status'] == 'insufficient_feature_history'
+
+
+def test_continuous_coverage_is_complete_suffix_not_first_complete_day():
+    days = [DAY + timedelta(days=i) for i in range(5)]
+    rows = [{**row(), 'trade_date': d, 'mr_state': None if d == days[1] else 'MR_NONE'} for d in days]
+    assert feature_coverage(rows, 'MEAN_REVERSION')['continuous_complete_since'] == days[2]
+    assert feature_coverage([], 'MEAN_REVERSION')['continuous_complete_since'] is None
+    assert feature_coverage([row()], 'MEAN_REVERSION')['continuous_complete_since'] == DAY
+
+
+def test_study_continuous_suffix_resets_after_missing_session():
+    repo = Mock()
+    end = date(2026, 9, 22)
+    repo.event_study_rows.return_value = [row(), {**row(), 'trade_date': end}]
+    repo.event_study_bars.return_value = []
+    response = run_event_study(repo, 'US', DAY, end, now=NOW)
+    assert response['missing_snapshot_dates'] == [date(2026, 9, 21)]
+    assert response['box_feature_coverage']['continuous_complete_since'] == end
+    assert response['mr_feature_coverage']['continuous_complete_since'] == end
+    assert all(g['continuous_complete_since'] == end for g in response['groups'] if g['regime'] == 'ALL')
+
+
+def test_legacy_yesterday_only_freshness_is_insufficient_episode_history():
+    old = {**row(), 'box_episode_consumed': None}
+    assert feature_coverage([old], 'BOX_BREAKOUT')['status'] == 'insufficient_feature_history'
+    assert all(e['strategy'] != 'BOX_BREAKOUT' for e in derive_events([old]))

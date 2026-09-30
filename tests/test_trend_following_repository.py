@@ -441,6 +441,7 @@ def test_box_json_roundtrip_projection_and_sort():
             session.add(Instrument(id=i, market='US', code=code, name=code))
             row = _snapshot(snapshot_id=i, code=code, instrument_id=i, trade_date=day)
             row.features = {'box_state': 'BOX_READY', 'box_quality': quality, 'box_high': 105.0,
+                            'box_episode_consumed': True, 'box_episode_breakout_date': '2026-08-20',
                             'box_window_days': 40, 'box_start_date': '2026-07-01', 'box_end_date': '2026-08-27'}
             session.add(row)
     repo = TrendFollowingRepository('US', database)
@@ -450,3 +451,7 @@ def test_box_json_roundtrip_projection_and_sort():
     assert projected[0]['features']['box_state'] == 'BOX_READY'
     assert projected[0]['features']['box_window_days'] == 40
     assert projected[0]['features']['box_start_date'] == '2026-07-01'
+
+    assert projected[0]['features']['box_episode_consumed'] is True
+    assert projected[0]['features']['box_episode_breakout_date'] == '2026-08-20'
+    assert rows[0]['features']['box_episode_consumed'] is True

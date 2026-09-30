@@ -493,21 +493,44 @@ class TrendFollowingRepository:
         return payload
 
     def event_study_rows(self, start_date: date, end_date: date) -> list[dict]:
-        """One scalar projection; SQL lag includes the last snapshot before the range."""
+        """Bound lag to the requested range plus one indexed predecessor per instrument."""
         from finance_analysis.trend_following.event_study import NUMERIC_CONTEXT
 
         snapshot = TrendFollowingSnapshot
+        in_range = select(
+            snapshot.code, snapshot.trade_date, snapshot.state, snapshot.instrument_id,
+        ).where(
+            snapshot.market == self.market,
+            snapshot.trade_date.between(start_date, end_date),
+        ).cte("study_range")
+        instruments = select(in_range.c.instrument_id).distinct().subquery("study_instruments")
+        prior = snapshot.__table__.alias("study_prior")
+        # One index-backed predecessor lookup per involved instrument. The
+        # existing (instrument_id, trade_date) index supports ORDER BY / LIMIT.
+        predecessor_id = select(prior.c.id).where(
+            prior.c.instrument_id == instruments.c.instrument_id,
+            prior.c.market == self.market,
+            prior.c.trade_date < start_date,
+        ).order_by(prior.c.trade_date.desc()).limit(1).correlate(instruments).scalar_subquery()
+        predecessors = select(snapshot.code, snapshot.trade_date, snapshot.state).join(
+            instruments, snapshot.id == predecessor_id,
+        )
+        bounded = select(in_range.c.code, in_range.c.trade_date, in_range.c.state).union_all(
+            predecessors,
+        ).subquery("study_bounded_states")
         states = select(
-            snapshot.code, snapshot.trade_date,
-            func.lag(snapshot.state).over(partition_by=snapshot.code, order_by=snapshot.trade_date).label("previous_state"),
-        ).where(snapshot.market == self.market, snapshot.trade_date <= end_date).subquery()
+            bounded.c.code, bounded.c.trade_date,
+            func.lag(bounded.c.state).over(
+                partition_by=bounded.c.code, order_by=bounded.c.trade_date,
+            ).label("previous_state"),
+        ).subquery()
         query = select(
             snapshot.market, snapshot.trade_date, snapshot.code, Instrument.name,
             snapshot.state, snapshot.market_regime, snapshot.reference_price,
             snapshot.alpha_score, snapshot.trend_score, snapshot.rs_score,
             snapshot.trend_lifecycle, snapshot.fragility_score, states.c.previous_state,
             *(snapshot.features[key].as_string().label(key) for key in ("box_state", "mr_state", "entry_type")),
-            *(snapshot.features[key].as_boolean().label(key) for key in ("box_breakout_fresh", "trend_resume")),
+            *(snapshot.features[key].as_boolean().label(key) for key in ("box_breakout_fresh", "box_episode_consumed", "trend_resume")),
             *(snapshot.features[key].as_float().label(key) for key in NUMERIC_CONTEXT),
         ).join(Instrument, Instrument.id == snapshot.instrument_id).join(
             states, (states.c.code == snapshot.code) & (states.c.trade_date == snapshot.trade_date),

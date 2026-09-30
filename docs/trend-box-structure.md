@@ -143,11 +143,16 @@ Repository测试JSON读写/标量投影/排序；API测试先过滤排序再limi
 BOX_BREAKOUT现在是**新确认突破事件**，不表示连续创新高的持续状态。
 最终selected box的几何、Quality、候选选择保持V1；额外检查昨日是否已越过
 `max(High[T−N…T−2])` 达0.10–2.0倍昨日判断时的ATR基准（截止T−2），且昨日CLV≥0.60。
-若昨日已确认，今日不再生成BOX_BREAKOUT，不使用固定天数cooldown。
+若昨日已确认，今日不再生成BOX_BREAKOUT。除此之外，上一正式snapshot的
+`box_episode_consumed`和`box_episode_breakout_date`持续记录整轮箱体是否已触发，
+所以突破→回踩→再突破也只产生一次fresh事件；没有候选箱体时仍保留消费状态。
+仅当新有效selected box的`box_start_date > 旧box_episode_breakout_date`时，Official才rearm。
+Preview继承正式episode且禁止rearm，不使用固定天数cooldown。
+历史须从相同前态逐日重算，不通过60根K线猜测完整episode；两个字段继续存features JSON。
 `box_breakout_fresh`和`box_prior_breakout_confirmed`供Ranking/Detail解释；
 昨日弱越顶、仅上影越顶或CLV不足，不阻断今日首次真正确认。
 
 结构机会与趋势排名共用3/5/10/20D T-close收益列，Preview为空。
-正式Ranking缓存当前v9；早期Box历史缺fresh字段，在Event Study中计为覆盖不足，需重算。
+正式Ranking缓存当前v10；早期Box历史缺fresh或episode字段，在Event Study中计为覆盖不足，需重算。
 统一四策略事件定义、MR、超额收益、MFE/MAE和覆盖率见
 [trend-strategy-event-study.md](trend-strategy-event-study.md)。
