@@ -61,7 +61,7 @@ JOB_TREND_FOLLOWING_PREVIEW_US = "trend_following_preview_us"
 JOB_TRADE_ENGINE_CN = "trade_engine_cn"
 JOB_TRADE_ENGINE_US = "trade_engine_us"
 
-EXPIRES_TRADE_ENGINE = 20 * 60
+EXPIRES_TRADE_ENGINE = 60 * 60
 
 
 def celery_task_name(job_id: str) -> str:
