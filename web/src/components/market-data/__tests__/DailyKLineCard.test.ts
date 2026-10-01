@@ -1,9 +1,10 @@
 import { flushPromises, mount } from '@vue/test-utils';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { stocksApi } from '@/api/stocks';
 import DailyKLineCard from '../DailyKLineCard.vue';
 import MarketKLineChart from '../MarketKLineChart.vue';
 import { marketDataApi, type DailyBarsResponse } from '@/api/marketData';
+import { candle, dated, engulfing, hammer } from '@/utils/__tests__/fixtures/dailyPatterns';
 vi.mock('@/api/stocks', () => ({ stocksApi: { classification: vi.fn().mockRejectedValue(new Error('offline')) } }));
 vi.mock('@/api/marketData', () => ({ marketDataApi: { dailyBars: vi.fn() } }));
 const result: DailyBarsResponse = { symbol: 'AAPL.US', market: 'US', interval: '1d', adjustment: 'forward', source: 'database',
@@ -80,5 +81,91 @@ describe('DailyKLineCard', () => {
     expect(wrapper.getComponent(MarketKLineChart).props('pricePrecision')).toBe(4);
     wrapper.unmount();
     expect(vi.mocked(marketDataApi.dailyBars).mock.lastCall![3]!.aborted).toBe(true);
+  });
+});
+
+describe('DailyKLineCard Price Action', () => {
+  beforeEach(() => { vi.clearAllMocks(); vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-10-01T12:00:00Z')); });
+  afterEach(() => vi.useRealTimers());
+  const patternOptions = { ...options, props: { symbol: 'AAPL.US', highlightDate: '2026-09-08',
+    markers: [{ timestamp: Date.parse('2026-09-08T00:00:00Z'), type: 'B' as const,
+      operations: [{ executedAt: '2026-09-08', side: 'BUY' as const, quantity: '10', price: '100' }] }] } };
+  it('creates separate pattern/date/BST overlays, shows latest evidence and supports clicks', async () => {
+    const items = dated([...engulfing(), ...hammer()]);
+    vi.mocked(marketDataApi.dailyBars).mockResolvedValue({ ...result, items });
+    const wrapper = mount(DailyKLineCard, patternOptions); await flushPromises();
+    const overlays = wrapper.getComponent(MarketKLineChart).props('overlays')!;
+    expect(overlays.map(overlay => overlay.groupId)).toEqual(expect.arrayContaining(['daily-patterns', 'research-date', 'strategy-markers']));
+    const pattern = overlays.find(overlay => overlay.id === 'daily-pattern-2026-09-08')!;
+    expect(pattern.points![0]!.value).toBe(97.5);
+    expect(pattern.extendData).toMatchObject({ type: 'bullish_engulfing', confirmed: true });
+    expect(wrapper.get('[data-testid="daily-pattern-detail"]').text()).toContain('锤子线');
+    pattern.onClick!({} as never); await wrapper.vm.$nextTick();
+    const detail = wrapper.get('[data-testid="daily-pattern-detail"]');
+    expect(detail.text()).toContain('看涨吞没');
+    expect(detail.text()).toContain('阳线实体完整吞没');
+    expect(detail.text()).toContain('7 个交易日前');
+    expect(detail.text()).toContain('Confirmed');
+    overlays.find(overlay => overlay.groupId === 'strategy-markers')!.onClick!({} as never);
+    await wrapper.vm.$nextTick();
+    expect(wrapper.get('[data-testid="trade-marker-detail"]').text()).toContain('买入10');
+    expect(wrapper.get('[data-testid="daily-pattern-detail"]').text()).toContain('看涨吞没');
+    expect(marketDataApi.dailyBars).toHaveBeenCalledTimes(1);
+    wrapper.unmount();
+  });
+  it('shows Preview for the market-local current day', async () => {
+    vi.setSystemTime(new Date('2026-09-09T02:00:00Z'));
+    vi.mocked(marketDataApi.dailyBars).mockResolvedValue({ ...result, items: engulfing() });
+    const wrapper = mount(DailyKLineCard, patternOptions); await flushPromises();
+    expect(wrapper.text()).toContain('Preview / 形成中');
+    expect(wrapper.getComponent(MarketKLineChart).props('overlays')!.find(overlay => overlay.groupId === 'daily-patterns')!.extendData).toMatchObject({ confirmed: false });
+    wrapper.unmount();
+  });
+  it('limits summary to three events in the last twenty loaded sessions, while older markers remain clickable', async () => {
+    const items = dated([...engulfing(), ...engulfing(), ...engulfing(), ...engulfing()]);
+    vi.mocked(marketDataApi.dailyBars).mockResolvedValue({ ...result, items });
+    const wrapper = mount(DailyKLineCard, options); await flushPromises();
+    const summary = wrapper.get('[data-testid="daily-pattern-summary"]');
+    expect(summary.findAll('button')).toHaveLength(2); // endDate truncates the supplied response at Sep 18
+    await wrapper.setProps({ endDate: undefined }); await flushPromises();
+    expect(wrapper.get('[data-testid="daily-pattern-summary"]').findAll('button')).toHaveLength(3);
+    expect(wrapper.get('[data-testid="daily-pattern-detail"]').text()).toContain('2026-10-02');
+    wrapper.unmount();
+  });
+  it('shows the no-pattern message when old events fall outside the recent window', async () => {
+    const items = dated([...engulfing(), ...Array.from({ length: 20 }, () => candle(100, 100))]);
+    vi.mocked(marketDataApi.dailyBars).mockResolvedValue({ ...result, items });
+    const wrapper = mount(DailyKLineCard, { ...options, props: { symbol: 'AAPL.US' } }); await flushPromises();
+    expect(wrapper.text()).toContain('最近未发现高置信度');
+    expect(wrapper.find('[data-testid="daily-pattern-detail"]').exists()).toBe(false);
+    const overlay = wrapper.getComponent(MarketKLineChart).props('overlays')!.find(overlay => overlay.groupId === 'daily-patterns')!;
+    overlay.onClick!({} as never); await wrapper.vm.$nextTick();
+    expect(wrapper.get('[data-testid="daily-pattern-detail"]').text()).toContain('看涨吞没');
+    wrapper.unmount();
+  });
+  it('clears selections and old overlays on symbol/endDate changes, loading, error and empty responses', async () => {
+    vi.mocked(marketDataApi.dailyBars).mockResolvedValueOnce({ ...result, items: engulfing() });
+    const wrapper = mount(DailyKLineCard, patternOptions); await flushPromises();
+    const overlays = wrapper.getComponent(MarketKLineChart).props('overlays')!;
+    overlays.find(overlay => overlay.groupId === 'daily-patterns')!.onClick!({} as never);
+    overlays.find(overlay => overlay.groupId === 'strategy-markers')!.onClick!({} as never);
+    let resolve!: (value: DailyBarsResponse) => void;
+    vi.mocked(marketDataApi.dailyBars).mockReturnValueOnce(new Promise(r => { resolve = r; }));
+    await wrapper.setProps({ symbol: 'MSFT.US', markers: [], highlightDate: undefined });
+    expect(wrapper.text()).toContain('加载中');
+    expect(wrapper.find('[data-testid="daily-pattern-summary"]').exists()).toBe(false);
+    expect(wrapper.find('[data-testid="trade-marker-detail"]').exists()).toBe(false);
+    resolve(result); await flushPromises();
+    expect(wrapper.getComponent(MarketKLineChart).props('overlays')).toEqual([]);
+    expect(wrapper.text()).toContain('最近未发现高置信度');
+    vi.mocked(marketDataApi.dailyBars).mockRejectedValueOnce(new Error('offline'));
+    await wrapper.setProps({ endDate: '2026-09-01' }); await flushPromises();
+    expect(wrapper.find('[role="alert"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="daily-pattern-summary"]').exists()).toBe(false);
+    vi.mocked(marketDataApi.dailyBars).mockResolvedValueOnce({ ...result, items: [] });
+    await wrapper.findAll('button').find(button => button.text() === '重试')!.trigger('click'); await flushPromises();
+    expect(wrapper.text()).toContain('暂无日 K 数据');
+    expect(wrapper.find('[data-testid="daily-pattern-summary"]').exists()).toBe(false);
+    wrapper.unmount();
   });
 });

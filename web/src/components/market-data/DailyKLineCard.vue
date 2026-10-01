@@ -8,9 +8,15 @@ import StockMembershipTags from '@/components/stocks/StockMembershipTags.vue';
 import MarketKLineChart from './MarketKLineChart.vue';
 import { tradeMarkerOverlays } from './tradeMarkerOverlay';
 import type { TradeMarker } from '@/lib/tradeMarkers';
+import { detectDailyPatterns, dailyPatternMarketDate, type DailyPatternEvent } from '@/utils/dailyPatterns';
+import { dailyPatternOverlays } from './dailyPatternOverlay';
+import { useTheme } from '@/composables/useTheme';
 
 const props = defineProps<{ symbol: string; endDate?: string; highlightDate?: string; markers?: TradeMarker[]; markerCaption?: string }>();
 const selected = ref<TradeMarker | null>(null);
+const selectedPattern = ref<DailyPatternEvent | null>(null);
+const marketDate = ref<string>();
+const { resolvedTheme } = useTheme();
 const focusTimestamp = ref<number>();
 const focusRequest = ref(0);
 function navigate(timestamp?: number) {
@@ -21,9 +27,22 @@ const loading = ref(false);
 const error = ref<ParsedApiError | null>(null);
 const data = ref<DailyBarsResponse | null>(null);
 let controller: AbortController | undefined;
-const bars = computed(() => (data.value?.items ?? [])
-  .filter(row => !props.endDate || row.tradeDate <= props.endDate)
-  .map(row => ({ timestamp: Date.parse(`${row.tradeDate}T00:00:00Z`), open: row.open,
+const dailyBars = computed(() => (data.value?.items ?? [])
+  .filter(row => !props.endDate || row.tradeDate <= props.endDate));
+const patterns = computed(() => detectDailyPatterns(dailyBars.value, { marketDate: marketDate.value }));
+const recentPatterns = computed(() => {
+  const cutoff = dailyBars.value.at(-20)?.tradeDate ?? dailyBars.value[0]?.tradeDate ?? '';
+  return patterns.value.filter(event => event.date >= cutoff).slice(-3).reverse();
+});
+const activePattern = computed(() => selectedPattern.value ?? recentPatterns.value[0]);
+function patternAge(event: DailyPatternEvent) {
+  const index = dailyBars.value.findIndex(bar => bar.tradeDate === event.date);
+  const age = dailyBars.value.length - 1 - index;
+  return age === 0 ? '最新交易日' : `${age} 个交易日前`;
+}
+const patternOverlays = computed(() => dailyPatternOverlays(patterns.value, dailyBars.value,
+  resolvedTheme.value === 'dark', event => { selectedPattern.value = event; }));
+const bars = computed(() => dailyBars.value.map(row => ({ timestamp: Date.parse(`${row.tradeDate}T00:00:00Z`), open: row.open,
     high: row.high, low: row.low, close: row.close, volume: row.volume, turnover: row.amount ?? undefined })));
 const tradeOverlays = computed(() => tradeMarkerOverlays(props.markers ?? [], timestamp => {
   const bar = bars.value.find(item => item.timestamp === timestamp) ?? bars.value.at(-1);
@@ -33,8 +52,8 @@ const highlightedBar = computed(() => bars.value.find(bar =>
   bar.timestamp === Date.parse(`${props.highlightDate}T00:00:00Z`)));
 const overlays = computed(() => {
   const bar = highlightedBar.value;
-  return [...tradeOverlays.value, ...(bar ? [{
-    name: 'tradeBst', id: 'research-date', groupId: 'strategy-markers', lock: true,
+  return [...tradeOverlays.value, ...patternOverlays.value, ...(bar ? [{
+    name: 'tradeBst', id: 'research-date', groupId: 'research-date', lock: true,
     points: [{ timestamp: bar.timestamp, value: bar.high }],
     extendData: { label: `查看日 ${props.highlightDate}`, kind: 'date' },
   }] : [])];
@@ -55,6 +74,9 @@ const pricePrecision = computed(() => bars.value.reduce((precision, bar) => {
 }, 2));
 async function load() {
   controller?.abort();
+  selected.value = null;
+  selectedPattern.value = null;
+  marketDate.value = undefined;
   focusTimestamp.value = undefined;
   const request = new AbortController();
   controller = request;
@@ -63,7 +85,10 @@ async function load() {
   loading.value = true;
   try {
     const result = await marketDataApi.dailyBars(props.symbol, props.endDate, historyStart(), request.signal);
-    if (!request.signal.aborted) data.value = result;
+    if (!request.signal.aborted) {
+      marketDate.value = dailyPatternMarketDate(result.market, new Date());
+      data.value = result;
+    }
   } catch (e) {
     if (!request.signal.aborted) error.value = getParsedApiError(e);
   } finally {
@@ -145,6 +170,71 @@ onBeforeUnmount(() => controller?.abort());
       :focus-request="focusRequest"
       :source-key="`${symbol}:${endDate ?? 'latest'}`"
     />
+    <section
+      v-if="!loading && !error && bars.length"
+      class="mt-3 border-t pt-3 text-sm"
+      data-testid="daily-pattern-summary"
+      aria-label="Price Action 最近形态"
+    >
+      <div class="flex items-center justify-between gap-3">
+        <h4 class="font-medium">
+          Price Action · 最近形态
+        </h4>
+        <span class="text-xs text-muted-foreground">最近 20 个交易日 · Quality 为规则匹配分，非胜率</span>
+      </div>
+      <p
+        v-if="!recentPatterns.length"
+        class="mt-2 text-muted-foreground"
+      >
+        最近未发现高置信度经典 K 线形态
+      </p>
+      <div
+        v-if="recentPatterns.length"
+        class="mt-2 flex flex-wrap gap-2"
+      >
+        <Button
+          v-for="event in recentPatterns"
+          :key="event.date"
+          size="sm"
+          :variant="activePattern?.date === event.date ? 'secondary' : 'ghost'"
+          :aria-pressed="activePattern?.date === event.date"
+          @click="selectedPattern = event; navigate(event.timestamp)"
+        >
+          {{ event.date.slice(5) }} {{ event.name }} · {{ event.quality }}{{ event.confirmed ? '' : ' · 形成中' }}
+        </Button>
+      </div>
+      <div
+        v-if="activePattern"
+        class="mt-2 rounded border p-3"
+        data-testid="daily-pattern-detail"
+        aria-live="polite"
+      >
+        <div class="flex flex-wrap items-center gap-2">
+          <strong :class="activePattern.direction === 'bullish' ? 'text-market-up' : 'text-market-down'">
+            {{ activePattern.direction === 'bullish' ? '↑' : '↓' }} {{ activePattern.name }}
+          </strong>
+          <span>{{ activePattern.date }} · {{ patternAge(activePattern) }}</span>
+          <span>Quality {{ activePattern.quality }}</span>
+          <span :class="activePattern.confirmed ? 'text-muted-foreground' : 'rounded border border-dashed px-2'">
+            {{ activePattern.confirmed ? 'Confirmed / 已完成日 K' : 'Preview / 形成中' }}
+          </span>
+        </div>
+        <ul class="mt-2 list-inside list-disc text-xs leading-5 text-muted-foreground">
+          <li
+            v-for="reason in activePattern.reasons"
+            :key="reason"
+          >
+            {{ reason }}
+          </li>
+        </ul>
+        <p
+          v-if="!activePattern.confirmed"
+          class="mt-2 text-xs text-muted-foreground"
+        >
+          未取得收盘确认；市场当日 K 保守显示为形成中，收盘后也不自动升级。
+        </p>
+      </div>
+    </section>
     <div
       v-if="selected"
       class="mt-3 rounded border p-3 text-sm"
