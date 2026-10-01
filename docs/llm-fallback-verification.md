@@ -20,7 +20,7 @@
 3. macOS 刚退出的进程组可能短暂返回 EPERM；清理时先回收并重新检查，不把该状态立即认定为清理失败。
    signal handler 使用独立异常，避免 selectors 吞掉 InterruptedError 而延迟清理。
 
-同时核对了 Trade Engine 的540秒 soft limit，保持原有每用户180秒上限，配置更短时从短。
+后续统一预算改动已移除 Trade Engine 的540秒 soft limit 与每用户180秒覆盖；当前行为见 `docs/llm.md`。
 
 ## 真实 Docker → Host 联调
 

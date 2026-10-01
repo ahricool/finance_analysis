@@ -500,3 +500,16 @@ def test_cli_lock_sql_failure_discards_connection(cli_lock, failure_at):
     ctx.connection.invalidate.assert_called_once()
     ctx.connection.__exit__.assert_called_once()
     assert ctx.call.call_count == (0 if failure_at == "acquire" else 1)
+
+
+def test_remote_failure_keeps_safe_partial_output_diagnostics(config, monkeypatch):
+    channel = Channel(output='{"type":"started"}\n', status=1)
+    ssh_client(monkeypatch, channel)
+    request = LLMRequest("prompt")
+    with pytest.raises(ProviderFailure):
+        remote_cli.complete(config, request)
+    assert request.diagnostics["stdout_received"] is True
+    assert request.diagnostics["stdout_bytes"] > 0
+    assert request.diagnostics["ssh_ms"] >= 0
+    assert request.diagnostics["cli_execution_ms"] >= 0
+    assert "started" not in json.dumps(request.diagnostics)

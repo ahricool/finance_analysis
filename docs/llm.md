@@ -16,7 +16,7 @@
 
 | 错误 | 行为 |
 | --- | --- |
-| 明确 quota exhausted、认证失败、模型不可用、CLI 未安装 | 不重试，切下一渠道 |
+| 明确 quota exhausted、HTTP 402 余额不足、认证失败、模型不可用、CLI 未安装 | 不重试，切下一渠道 |
 | 临时限流、网络连接失败、服务端 5xx、CLI 非零退出 | 重试三次后切换 |
 | 空文本、输出解析/业务 ValueError 校验失败 | 重试三次后切换 |
 | 单次 timeout（已确认 CLI 清理） | 直接切换 |
@@ -32,9 +32,11 @@ CLI，交还 LLMClient 决定重试或切换。无法识别的 CLI 内部重试�
 当前渠道重试只能使用预留之外的时间。预算不足可以少于三次重试。90秒总预算且三个渠道均超时时，
 依次各得30秒；600秒总预算时首次三个 attempt 各最多180秒。
 
-Signal Center 没有独立 Celery time limit，每个 bucket/final 各走上述预算；已完成的桶仍可恢复。
-Trade Engine 有540秒任务 soft limit，保留每用户 LLM 最多180秒（配置更短则从短），避免启用600秒链
-直接侵占整个任务。多用户任务原有整体时限仍生效。盘前复核已有 request.timeout 剩余任务预算继续有效。
+所有业务调用统一使用全局 `LLM_TIMEOUT`，不再在美股收盘复盘、Trade Engine 或 A 股收盘前复核中覆盖。
+Signal Center 每个 bucket/final、Trade Engine 每个用户的市场分析各有独立的全局调用预算。
+这些 LLM 任务不设置固定 Celery soft/hard time limit，A 股收盘前复核也不再以任务剩余时间压缩 LLM。
+多用户/多桶任务总耗时可以超过单次调用预算；防重入锁和已完成结果恢复机制保持不变。
+传输层仍使用内部剩余 timeout，以保证重试、锁等待和渠道切换共享同一个 deadline。
 
 所有 CLI 请求在 `LLMClient._complete_cli()` 中使用同一把 PostgreSQL session-level advisory lock
 （固定 bigint key `0x46415F4C4C4D434C`），跨 AGY/Codex、用户与进程串行执行。
@@ -126,6 +128,10 @@ CLI sandbox 和独立工作目录
   配置缺失仅写 skipped 审计行，不写 llm_usage；完整失败消息保留安全的渠道/错误链。
   Signal Center screening 与最终结果保存实际 backend（cli/agy、cli/codex 或 api）和模型；
   AGY 默认模型从本次原生日志取值，无法获知的 CLI 模型仍标记 unreported，绝不猜测。
+- JSONL 的 `diagnostics` 保存总预算、当前剩余预算、attempt 预算（毫秒），以及实际到达阶段的
+  `lock_wait_ms`、`ssh_ms`、`cli_execution_ms` 或 `api_ms`。失败也保留已采集数据。
+  `stdout_received` / `stdout_bytes` 只表示 CLI 协议输出，不代表已有最终答案；不保存部分输出或 stderr。
+  HTTP 402 分类为 `insufficient_credits`，不重试，不记录服务商原始错误。
 - 文件使用进程锁防止 Celery 并发写交错；新文件权限 0600。prompt/response 会保存，应按业务数据管理。
 - 不记录配置、API key、Authorization、SSH 密码、CLI stderr 或 vendor traceback。
   已配置密钥即使出现在 prompt/response 中也会替换。

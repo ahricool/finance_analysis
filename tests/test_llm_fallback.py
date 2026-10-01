@@ -227,3 +227,23 @@ def test_validator_programming_error_does_not_retry(ctx):
         LLMClient(ctx.config).complete_text(LLMRequest("prompt"), validator=validator)
     assert len(ctx.calls) == 1
     assert ctx.waits == []
+
+
+def test_payment_required_is_not_retried_and_audit_has_budgets(ctx):
+    class PaymentRequired(Exception):
+        status_code = 402
+
+    ctx.failures.update(agy=ProviderFailure("timeout"), codex=ProviderFailure("timeout"),
+                        api=PaymentRequired("private-api billing details"))
+    with pytest.raises(LLMError, match="api:insufficient_credits"):
+        LLMClient(ctx.config).complete_text(LLMRequest("prompt"))
+    assert len(ctx.calls) == 3
+    assert ctx.waits == []
+    content = next(ctx.config.log_dir.glob("*.log")).read_text()
+    rows = [json.loads(line) for line in content.splitlines()]
+    assert rows[-1]["error"] == "insufficient_credits"
+    assert rows[0]["diagnostics"]["total_budget_ms"] == 600000
+    assert rows[0]["diagnostics"]["attempt_budget_ms"] == 180000
+    assert rows[0]["diagnostics"]["lock_wait_ms"] == 0
+    assert "billing details" not in content
+    assert "lock_wait_ms" not in rows[-1]["diagnostics"]

@@ -28,6 +28,8 @@ def classify_exception(exc: Exception) -> ProviderFailure:
     status = getattr(exc, "status_code", None) or getattr(response, "status_code", None)
     if status in {401, 403}:
         return ProviderFailure("authentication_failed")
+    if status == 402:
+        return ProviderFailure("insufficient_credits")
     if status == 404:
         return ProviderFailure("model_unavailable")
     if status == 429:

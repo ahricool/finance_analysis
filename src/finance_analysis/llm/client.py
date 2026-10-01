@@ -84,6 +84,14 @@ class LLMClient:
                 started = time.monotonic()
                 result = None
                 failure = None
+                request = replace(
+                    request,
+                    diagnostics={
+                        "total_budget_ms": round(total * 1000),
+                        "attempt_budget_ms": round((attempt_deadline - started) * 1000),
+                        "remaining_budget_ms": round((deadline - started) * 1000),
+                    },
+                )
                 try:
                     if config.backend == "api":
                         result = api.complete(config, replace(request, timeout=attempt_deadline - time.monotonic()))
@@ -122,6 +130,7 @@ class LLMClient:
 
         from finance_analysis.database import DatabaseManager
 
+        lock_started = time.monotonic()
         try:
             with DatabaseManager.get_instance().connect() as connection:
                 # No idle transaction while waiting or executing SSH. A session lock
@@ -151,11 +160,13 @@ class LLMClient:
                     remaining = deadline - time.monotonic()
                     if remaining <= 0:
                         raise ProviderFailure("lock_wait_timeout", fatal=True)
+                    request.diagnostics["lock_wait_ms"] = round((time.monotonic() - lock_started) * 1000)
                     try:
                         return remote_cli.complete(config, replace(request, timeout=remaining))
                     except Exception as exc:
                         raise classify_exception(exc) from None
                 finally:
+                    request.diagnostics.setdefault("lock_wait_ms", round((time.monotonic() - lock_started) * 1000))
                     if acquired:
                         try:
                             if not connection.execute(text("SELECT pg_advisory_unlock(:key)"), params).scalar_one():
@@ -190,6 +201,7 @@ class LLMClient:
             response=result.text if result else None,
             usage=usage,
             duration_ms=duration_ms,
+            diagnostics=request.diagnostics,
             status=status,
             error=error,
         )

@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import logging
 import re
-import time
 from typing import Any, Optional, Sequence
 
 from finance_analysis.llm import LLMClient, LLMRequest
@@ -42,7 +41,6 @@ class ASharePreCloseLLM:
         data_quality: DataQuality,
         *,
         warnings: list[str],
-        deadline: Optional[float] = None,
     ) -> tuple[dict[str, Any], bool]:
         parsed = self._complete_json(
             system=(
@@ -53,7 +51,6 @@ class ASharePreCloseLLM:
             user=self._decision_prompt(context),
             call_type="a_share_pre_close_decision",
             warnings=warnings,
-            deadline=deadline,
         )
         if parsed is None:
             warnings.append("最终 LLM 判断不可用，已生成确定性降级建议")
@@ -71,14 +68,9 @@ class ASharePreCloseLLM:
         user: str,
         call_type: str,
         warnings: list[str],
-        deadline: Optional[float] = None,
     ) -> Optional[dict[str, Any]]:
         client = self._get_client()
         if client is None:
-            return None
-        remaining = None if deadline is None else deadline - time.monotonic()
-        if remaining is not None and remaining <= 0:
-            warnings.append(f"{call_type} 未执行: 任务时间预算已耗尽")
             return None
         try:
             self.call_count += 1
@@ -88,7 +80,6 @@ class ASharePreCloseLLM:
             result = client.complete_text(
                 LLMRequest(
                     system_prompt=system, prompt=user, temperature=0.1, max_tokens=6000,
-                    timeout=min(self.config.llm.timeout, remaining) if remaining is not None else None,
                     call_type=call_type,
                 ),
                 validator=validate,

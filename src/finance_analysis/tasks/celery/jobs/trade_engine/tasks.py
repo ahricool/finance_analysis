@@ -46,8 +46,6 @@ def _run_market(market: str) -> dict[str, Any]:
 
 @celery_app.task(
     name=CN_DEFINITION.celery_task_name,
-    time_limit=600,
-    soft_time_limit=540,
     expires=CN_DEFINITION.expires,
 )
 @track_task(
@@ -67,8 +65,6 @@ def run_trade_engine_cn(scheduler_job_id: Optional[str] = None, **_: Any) -> dic
 
 @celery_app.task(
     name=US_DEFINITION.celery_task_name,
-    time_limit=600,
-    soft_time_limit=540,
     expires=US_DEFINITION.expires,
 )
 @track_task(
