@@ -28,7 +28,7 @@ OHLC 必须有限、正数、最高价大于最低价，且包含开收盘。
 
 ## Quality
 
-Quality 是透明规则匹配分，**不是胜率或经统计验证的置信概率**。
+Quality 是规则匹配质量（rule matching quality），**不是统计置信度（confidence）或胜率（win probability）**。
 所有硬门槛通过后：
 
 ```text
@@ -42,12 +42,18 @@ Quality = round(40 + geometry × 20 + trend + closeLocation × 10 + volumeBonus)
 - 星形 geometry：`(收盘穿透比例 − 0.5) / 0.5`。
 - trend：`15 × clamp(前置同向累计变动 / 5%) + 10 × 前置同向收盘次数 / 5`。
 - closeLocation：看涨 `(收盘−最低)/振幅`，看跌 `(最高−收盘)/振幅`。
-- volumeBonus：`5 × clamp((形态日量 / 前置6日有效均量 − 1) / 0.5)`。
-  需要至少3个有限正成交量样本；缺失不扣分，也不阻断识别。
+- volumeBonus：仅 Confirmed 历史完成 K 使用
+  `5 × clamp((形态完成日量 / 此前最多20根交易日K的有效均量 − 1) / 0.5)`。
+  窗口为 `bars.slice(Math.max(0, end - 20), end)`，排除当前完成 K 与未来 K；
+  可以包含星形的第1、2根 K。它不同于必须排除整个形态的趋势窗口。
+  至少10个有限正成交量样本才启用，不要求完整20根；不足时加分为0，不阻断形态识别。
+  Preview 的 volumeBonus 恒为0，盘中累计成交量变化不影响 Quality，也不产生成交量 reason。
+  不预测盘中成交量。成交量最多加5分，仅在OHLC与上下文硬门槛通过后参与评分。
 
 只返回 Quality ≥70。调用方可以提高门槛，不能降低到70以下。
-同日先筛分数，再按星形 > 吞没 > 影线排序；同级取高分，最后按 type 稳定排序，只保留一个。
-目前同级对称形态的硬门槛互斥，仍保留分数决胜规则以便维护。
+同日先筛分数，再按 **Quality 降序 → specificity priority → stable type** 排序，只保留一个。
+只有 Quality 相同时才以星形 > 吞没 > 影线作为 UI specificity 决胜规则；
+形态复杂度不能覆盖更高的 Quality。最后按 type 稳定排序。
 
 ## 图表与摘要
 
@@ -77,7 +83,7 @@ Confirmed 仅描述日 K 日期完成状态，不表示价格反转已经被未�
 ## 验证
 
 前端单测覆盖六种形态、上下文排除、Doji/弱几何过滤、质量门槛、重叠优先级、无未来数据、
-可选成交量、坏数据、市场日期、Preview、摘要、点击、独立 overlay 和请求切换清理。
+Preview忽略成交量、Confirmed最多20日量能基线与至少10个有效样本、坏数据、市场日期、Preview、摘要、点击、独立 overlay 和请求切换清理。
 Playwright 在实际 Canvas 上点击形态文字，覆盖明暗主题，并与历史查看日同图验证。
 
 ```bash
@@ -89,5 +95,4 @@ npm run lint
 npm run test
 ```
 
-本地只读数据抽查（2025-09-01 起的已存日线）：510300.SH 251根/3次、AAPL.US 272根/11次、
-NVDA.US 272根/4次，仅检查命中密度，不代表预测效果；数据和构建产物均不提交。
+本地只读数据抽查仅用于检查命中密度，不代表预测效果；数据和构建产物均不提交。

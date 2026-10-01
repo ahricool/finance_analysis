@@ -136,7 +136,7 @@ describe('DailyKLineCard Price Action', () => {
     const items = dated([...engulfing(), ...Array.from({ length: 20 }, () => candle(100, 100))]);
     vi.mocked(marketDataApi.dailyBars).mockResolvedValue({ ...result, items });
     const wrapper = mount(DailyKLineCard, { ...options, props: { symbol: 'AAPL.US' } }); await flushPromises();
-    expect(wrapper.text()).toContain('最近未发现高置信度');
+    expect(wrapper.text()).toContain('最近未发现高质量');
     expect(wrapper.find('[data-testid="daily-pattern-detail"]').exists()).toBe(false);
     const overlay = wrapper.getComponent(MarketKLineChart).props('overlays')!.find(overlay => overlay.groupId === 'daily-patterns')!;
     overlay.onClick!({} as never); await wrapper.vm.$nextTick();
@@ -157,7 +157,7 @@ describe('DailyKLineCard Price Action', () => {
     expect(wrapper.find('[data-testid="trade-marker-detail"]').exists()).toBe(false);
     resolve(result); await flushPromises();
     expect(wrapper.getComponent(MarketKLineChart).props('overlays')).toEqual([]);
-    expect(wrapper.text()).toContain('最近未发现高置信度');
+    expect(wrapper.text()).toContain('最近未发现高质量');
     vi.mocked(marketDataApi.dailyBars).mockRejectedValueOnce(new Error('offline'));
     await wrapper.setProps({ endDate: '2026-09-01' }); await flushPromises();
     expect(wrapper.find('[role="alert"]').exists()).toBe(true);

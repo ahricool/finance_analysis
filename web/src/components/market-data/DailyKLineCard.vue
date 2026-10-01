@@ -186,7 +186,7 @@ onBeforeUnmount(() => controller?.abort());
         v-if="!recentPatterns.length"
         class="mt-2 text-muted-foreground"
       >
-        最近未发现高置信度经典 K 线形态
+        最近未发现高质量经典 K 线形态
       </p>
       <div
         v-if="recentPatterns.length"

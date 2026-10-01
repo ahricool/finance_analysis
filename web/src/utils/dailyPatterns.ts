@@ -27,6 +27,12 @@ const definitions = {
   morning_star: { name: '晨星', priority: 3 },
   evening_star: { name: '黄昏星', priority: 3 },
 } as const;
+/** Quality wins; specificity only breaks equal-score ties for display. */
+export function compareDailyPatternCandidates(
+  a: Pick<DailyPatternEvent, 'quality' | 'type'>, b: Pick<DailyPatternEvent, 'quality' | 'type'>,
+): number {
+  return b.quality - a.quality || definitions[b.type].priority - definitions[a.type].priority || a.type.localeCompare(b.type);
+}
 const clamp = (value: number) => Math.max(0, Math.min(1, value));
 function geometry(bar: DailyBar) {
   const body = Math.abs(bar.close - bar.open);
@@ -58,6 +64,7 @@ export function detectDailyPatterns(bars: readonly DailyBar[], options: DailyPat
   const events: DailyPatternEvent[] = [];
   for (let end = 6; end < bars.length; end++) {
     const current = bars[end]!;
+    const confirmed = !!options.marketDate && current.tradeDate < options.marketDate;
     const candidates: DailyPatternEvent[] = [];
     const add = (type: DailyPatternType, bullish: boolean, length: number, strength: number, reason: string) => {
       const start = end - length + 1;
@@ -73,9 +80,12 @@ export function detectDailyPatterns(bars: readonly DailyBar[], options: DailyPat
       if (!(move >= 0.02 || (steps >= 4 && move >= 0.01))) return;
       const g = geometry(current);
       const closeLocation = bullish ? (current.close - current.low) / g.range : (current.high - current.close) / g.range;
-      const volumes = prior.map(bar => bar.volume).filter(value => Number.isFinite(value) && value > 0);
+      // Trend excludes the whole pattern; volume excludes only the completion candle.
+      // Earlier candles of a multi-day pattern are completed historical volume samples.
+      const volumeReference = bars.slice(Math.max(0, end - 20), end);
+      const volumes = volumeReference.map(bar => bar.volume).filter(value => Number.isFinite(value) && value > 0);
       const averageVolume = volumes.reduce((sum, value) => sum + value, 0) / volumes.length;
-      const volumeBonus = volumes.length >= 3 && Number.isFinite(current.volume)
+      const volumeBonus = confirmed && volumes.length >= 10 && Number.isFinite(current.volume)
         ? 5 * clamp((current.volume / averageVolume - 1) / 0.5) : 0;
       const trendScore = 15 * clamp(move / 0.05) + 10 * steps / 5;
       const quality = Math.round(40 + 20 * clamp(strength) + trendScore + 10 * closeLocation + volumeBonus);
@@ -83,10 +93,10 @@ export function detectDailyPatterns(bars: readonly DailyBar[], options: DailyPat
       const reasons = [reason,
         `形态开始前 5 个交易日累计${bullish ? '下跌' : '上涨'} ${(move * 100).toFixed(1)}%，其中 ${steps}/5 日收盘${bullish ? '下降' : '上升'}`,
         `收盘位于当日区间${bullish ? '下沿向上' : '上沿向下'} ${(closeLocation * 100).toFixed(0)}% 处`];
-      if (volumeBonus > 0) reasons.push(`形态日成交量为前置 6 日有效均量的 ${(current.volume / averageVolume).toFixed(2)} 倍（轻量加分）`);
+      if (volumeBonus > 0) reasons.push(`形态完成日成交量为此前最多 20 个交易日中 ${volumes.length} 个有效样本均量的 ${(current.volume / averageVolume).toFixed(2)} 倍（轻量加分）`);
       candidates.push({ date: current.tradeDate, timestamp: Date.parse(`${current.tradeDate}T00:00:00Z`),
         type, name: definitions[type].name, direction: bullish ? 'bullish' : 'bearish', quality,
-        confirmed: !!options.marketDate && current.tradeDate < options.marketDate, reasons });
+        confirmed, reasons });
     };
     if (!valid(current)) continue;
     const g = geometry(current);
@@ -127,7 +137,7 @@ export function detectDailyPatterns(bars: readonly DailyBar[], options: DailyPat
           `首根明显${bullish ? '阴' : '阳'}线、次根小实体、第三根明显${bullish ? '阳' : '阴'}线；收盘穿透首根实体 ${(penetration * 100).toFixed(0)}%（不要求跳空）`);
       }
     }
-    candidates.sort((a, b) => definitions[b.type].priority - definitions[a.type].priority || b.quality - a.quality || a.type.localeCompare(b.type));
+    candidates.sort(compareDailyPatternCandidates);
     if (candidates[0]) events.push(candidates[0]);
   }
   return events;
