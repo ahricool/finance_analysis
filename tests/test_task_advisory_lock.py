@@ -256,10 +256,12 @@ def test_lock_ids_are_stable_and_readable() -> None:
         "CN_MARKET_SENTIMENT": 8,
         "CN_INDUSTRY_STRENGTH_PREVIEW": 9,
         "CN_DRAGON_TIGER_FLOW": 10,
+        "TRADE_ENGINE_CN": 11,
+        "TRADE_ENGINE_US": 12,
     }
 
 
-def test_lock_declarations_are_exactly_seven_nonblocking_scheduled_and_one_blocking_stock() -> None:
+def test_lock_declarations_are_exactly_nine_nonblocking_scheduled_and_one_blocking_stock() -> None:
     from finance_analysis.tasks.celery.app import celery_app
     from finance_analysis.tasks.celery.metadata import STOCK_ANALYSIS_TASK
     from finance_analysis.tasks.celery.schedule import get_scheduled_task_definitions
@@ -276,6 +278,8 @@ def test_lock_declarations_are_exactly_seven_nonblocking_scheduled_and_one_block
             )
 
     assert locked == {
+        "trade_engine_cn": (TaskAdvisoryLockId.TRADE_ENGINE_CN, False),
+        "trade_engine_us": (TaskAdvisoryLockId.TRADE_ENGINE_US, False),
         "dragon_tiger_flow_cn": (TaskAdvisoryLockId.CN_DRAGON_TIGER_FLOW, False),
         "industry_strength_cn": (TaskAdvisoryLockId.CN_INDUSTRY_STRENGTH, False),
         "industry_strength_preview_cn": (TaskAdvisoryLockId.CN_INDUSTRY_STRENGTH_PREVIEW, False),
@@ -308,3 +312,36 @@ def test_no_scheduled_slot_or_legacy_task_lock_code_remains() -> None:
         "tasks/celery/jobs/us_postmarket_review/lock.py",
     ):
         assert not (source_root / relative_path).exists()
+
+
+@pytest.mark.parametrize("market,other", [("CN", "US"), ("US", "CN")])
+def test_trade_engine_scheduled_market_mutex_skips_overlap_and_allows_other_market(market, other):
+    from finance_analysis.tasks.celery.jobs.trade_engine import tasks
+
+    database = _SharedAdvisoryDatabase()
+    lifecycle = _RecordingLifecycle()
+    lock_id = TaskAdvisoryLockId[f"TRADE_ENGINE_{market}"]
+    running = PostgreSQLAdvisoryLock(lock_id, database)
+    assert running.acquire()
+
+    def lock_factory(lock_id, *, blocking=False):
+        assert blocking is False
+        return PostgreSQLAdvisoryLock(lock_id, database, blocking=blocking)
+
+    task = getattr(tasks, f"run_trade_engine_{market.lower()}")
+    other_task = getattr(tasks, f"run_trade_engine_{other.lower()}")
+    assert task.soft_time_limit is task.time_limit is None
+    assert other_task.soft_time_limit is other_task.time_limit is None
+    with patch("finance_analysis.tasks.lifecycle.get_task_lifecycle_service", return_value=lifecycle), patch(
+        "finance_analysis.tasks.lifecycle.PostgreSQLAdvisoryLock", side_effect=lock_factory
+    ), patch.object(tasks, "_run_market", return_value={"status": "OK"}) as run:
+        assert task.run() is None
+        run.assert_not_called()
+        assert other_task.run() == {"status": "OK"}
+        run.assert_called_once_with(other)
+        running.release()
+        assert task.run() == {"status": "OK"}
+        assert run.call_args.args == (market,)
+    assert [event for event, _ in lifecycle.events] == [
+        "processing", "skipped", "processing", "completed", "processing", "completed"]
+    assert database.held == {}

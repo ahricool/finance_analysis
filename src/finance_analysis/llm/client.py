@@ -20,11 +20,6 @@ from .types import LLMRequest, LLMResult
 
 logger = logging.getLogger(__name__)
 
-# One stable bigint key for every CLI engine, host, user and worker. PostgreSQL's
-# single-bigint key space is separate from the two-integer task mutex keys.
-CLI_ADVISORY_LOCK_KEY = 0x46415F4C4C4D434C  # ASCII FA_LLMCL
-CLI_LOCK_POLL_SECONDS = 1.0
-
 
 class LLMError(RuntimeError):
     """A safe failure summary; transport exceptions may contain credentials."""
@@ -45,6 +40,7 @@ class LLMClient:
             raise ValueError("Request timeout must be positive and finite")
         if not isinstance(request.prompt, str) or not request.prompt.strip():
             raise ValueError("Request prompt must be nonempty text")
+        base_request = request
         request_id = uuid.uuid4().hex
         deadline = time.monotonic() + total
         providers = self.config.providers()
@@ -54,7 +50,10 @@ class LLMClient:
             name = config.cli_engine if config.backend == "cli" else "api"
             if not config.is_available():
                 failures.append(f"{name}:not_configured")
-                self._record(request, None, request_id, attempt, 0, "not_configured", config=config, skipped=True)
+                self._record(
+                    replace(base_request, diagnostics={}), None, request_id, attempt, 0,
+                    "not_configured", config=config, skipped=True,
+                )
                 continue
             remaining = deadline - time.monotonic()
             if remaining <= 0:
@@ -85,7 +84,7 @@ class LLMClient:
                 result = None
                 failure = None
                 request = replace(
-                    request,
+                    base_request,
                     diagnostics={
                         "total_budget_ms": round(total * 1000),
                         "attempt_budget_ms": round((attempt_deadline - started) * 1000),
@@ -124,62 +123,11 @@ class LLMClient:
         raise LLMError("LLM failed: " + " → ".join(failures or ["deadline_exceeded"])) from None
 
     def _complete_cli(self, request: LLMRequest, deadline: float, config: LLMConfig | None = None) -> LLMResult:
-        """Serialize one attempt on a pinned PostgreSQL session, within its budget."""
-        config = config or self.config
-        from sqlalchemy import text
-
-        from finance_analysis.database import DatabaseManager
-
-        lock_started = time.monotonic()
-        try:
-            with DatabaseManager.get_instance().connect() as connection:
-                # No idle transaction while waiting or executing SSH. A session lock
-                # survives autocommit and belongs to this checked-out connection.
-                connection.execution_options(isolation_level="AUTOCOMMIT")
-                acquired = False
-                params = {"key": CLI_ADVISORY_LOCK_KEY}
-                try:
-                    while not acquired:
-                        remaining = deadline - time.monotonic()
-                        if remaining <= 0:
-                            raise ProviderFailure("lock_wait_timeout", fatal=True)
-                        try:
-                            acquired = bool(
-                                connection.execute(
-                                    text("SELECT pg_try_advisory_lock(:key)"),
-                                    params,
-                                ).scalar_one()
-                            )
-                        except BaseException:
-                            # An interrupted query may have acquired the lock on the
-                            # server. Never return that uncertain session to the pool.
-                            connection.invalidate()
-                            raise
-                        if not acquired:
-                            time.sleep(min(CLI_LOCK_POLL_SECONDS, max(0, deadline - time.monotonic())))
-                    remaining = deadline - time.monotonic()
-                    if remaining <= 0:
-                        raise ProviderFailure("lock_wait_timeout", fatal=True)
-                    request.diagnostics["lock_wait_ms"] = round((time.monotonic() - lock_started) * 1000)
-                    try:
-                        return remote_cli.complete(config, replace(request, timeout=remaining))
-                    except Exception as exc:
-                        raise classify_exception(exc) from None
-                finally:
-                    request.diagnostics.setdefault("lock_wait_ms", round((time.monotonic() - lock_started) * 1000))
-                    if acquired:
-                        try:
-                            if not connection.execute(text("SELECT pg_advisory_unlock(:key)"), params).scalar_one():
-                                raise RuntimeError("CLI advisory lock was lost")
-                        except BaseException:
-                            # close()/rollback alone would leave a session lock in
-                            # the pool. Discard the physical connection on failure.
-                            connection.invalidate()
-                            raise
-        except ProviderFailure:
-            raise
-        except Exception:
-            raise ProviderFailure("lock_unavailable", fatal=True) from None
+        """Run an independent CLI attempt using only its remaining deadline."""
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise ProviderFailure("timeout")
+        return remote_cli.complete(config or self.config, replace(request, timeout=remaining))
 
     def _record(self, request, result, request_id, attempt, duration_ms, error, *, config=None, skipped=False):
         config = config or self.config

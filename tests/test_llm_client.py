@@ -3,7 +3,7 @@
 import json
 from dataclasses import replace
 from types import SimpleNamespace
-from unittest.mock import MagicMock, Mock
+from unittest.mock import Mock
 
 import paramiko
 import pytest
@@ -19,10 +19,6 @@ def config(tmp_path, monkeypatch):
     from finance_analysis.database import DatabaseManager
 
     db = Mock()
-    connection = MagicMock()
-    connection.__enter__.return_value = connection
-    connection.execute.return_value.scalar_one.return_value = True
-    db.connect.return_value = connection
     monkeypatch.setattr(DatabaseManager, "get_instance", lambda: db)
     return LLMConfig(model="openai/test", api_key="private-api-secret", log_dir=tmp_path)
 
@@ -366,140 +362,46 @@ def test_stock_analyzer_uses_shared_client_and_preserves_owner(config, monkeypat
     assert analyzer.generate_text("review") is None
 
 
-@pytest.fixture
-def cli_lock(config, monkeypatch):
+@pytest.mark.parametrize("engine", ["agy", "codex"])
+def test_cli_direct_call_uses_remaining_deadline_without_database(config, monkeypatch, engine):
     from finance_analysis.database import DatabaseManager
-    from finance_analysis.llm import client
 
-    config = replace(config, backend="cli", cli_ssh_username="user", cli_ssh_password="secret", max_retries=0)
-    connection = DatabaseManager.get_instance().connect.return_value
-    events = []
-    clock = SimpleNamespace(now=0.0)
-    monkeypatch.setattr(client.time, "monotonic", lambda: clock.now)
+    database = Mock(side_effect=AssertionError("CLI transport must not access the database"))
+    monkeypatch.setattr(DatabaseManager, "get_instance", database)
+    monkeypatch.setattr("finance_analysis.llm.client.time.monotonic", lambda: 42)
+    call = Mock(return_value=LLMResult("ok", "cli", engine=engine))
+    monkeypatch.setattr(remote_cli, "complete", call)
+    config = replace(config, backend="cli", cli_engine=engine)
+    request = LLMRequest("prompt", timeout=600)
+    assert LLMClient(config)._complete_cli(request, 100).engine == engine
+    assert call.call_args.args[1].timeout == 58
+    assert request.timeout == 600
+    with pytest.raises(ProviderFailure, match="timeout"):
+        LLMClient(config)._complete_cli(request, 42)
+    assert call.call_count == 1
+    database.assert_not_called()
 
-    def sleep(seconds):
-        assert 0 < seconds <= client.CLI_LOCK_POLL_SECONDS
-        clock.now += seconds
 
-    monkeypatch.setattr(client.time, "sleep", sleep)
+def test_cli_attempts_can_execute_concurrently(config, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+    from time import monotonic
+    from finance_analysis.database import DatabaseManager
 
-    def execute(statement, params):
-        assert params == {"key": client.CLI_ADVISORY_LOCK_KEY}
-        events.append("acquire" if "pg_try_advisory_lock" in str(statement) else "release")
-        return SimpleNamespace(scalar_one=lambda: True)
-
-    connection.execute.side_effect = execute
+    database = Mock(side_effect=AssertionError("CLI transport must not access the database"))
+    monkeypatch.setattr(DatabaseManager, "get_instance", database)
+    entered = Barrier(2)
 
     def complete(config, request):
-        events.append("call")
+        entered.wait(timeout=3)
         return LLMResult("ok", "cli", engine=config.cli_engine)
 
-    call = Mock(side_effect=complete)
-    monkeypatch.setattr(remote_cli, "complete", call)
-    return SimpleNamespace(config=config, connection=connection, events=events, clock=clock, call=call)
-
-
-@pytest.mark.parametrize("engine", ["agy", "codex"])
-def test_cli_engines_share_session_lock(cli_lock, engine):
-    ctx = cli_lock
-    result = LLMClient(replace(ctx.config, cli_engine=engine)).complete_text(LLMRequest("prompt"))
-    assert result.engine == engine
-    assert ctx.events == ["acquire", "call", "release"]
-    ctx.connection.execution_options.assert_called_once_with(isolation_level="AUTOCOMMIT")
-    ctx.connection.__exit__.assert_called_once()
-    ctx.connection.invalidate.assert_not_called()
-
-
-def test_api_does_not_acquire_lock(config, monkeypatch):
-    from finance_analysis.database import DatabaseManager
-
-    monkeypatch.setattr(api, "complete", Mock(return_value=LLMResult("ok", "api")))
-    LLMClient(config).complete_text(LLMRequest("prompt"))
-    DatabaseManager.get_instance().connect.assert_not_called()
-
-
-@pytest.mark.parametrize("error", [RuntimeError(), TimeoutError(), KeyboardInterrupt()])
-def test_cli_failure_releases_lock(cli_lock, error):
-    ctx = cli_lock
-    ctx.call.side_effect = error
-    with pytest.raises(KeyboardInterrupt if isinstance(error, KeyboardInterrupt) else LLMError):
-        LLMClient(ctx.config).complete_text(LLMRequest("prompt"))
-    assert ctx.events == ["acquire", "release"]
-    ctx.connection.__exit__.assert_called_once()
-
-
-def test_cli_lock_wait_exhausts_total_deadline(cli_lock):
-    ctx = cli_lock
-    ctx.connection.execute.side_effect = None
-    ctx.connection.execute.return_value.scalar_one.return_value = False
-    with pytest.raises(LLMError, match="lock_wait_timeout"):
-        LLMClient(replace(ctx.config, max_retries=1)).complete_text(LLMRequest("prompt", timeout=0.25))
-    assert ctx.clock.now == pytest.approx(0.25)
-    ctx.call.assert_not_called()
-    assert ctx.connection.execute.call_count == 1
-    assert all("pg_try_advisory_lock" in str(call.args[0]) for call in ctx.connection.execute.call_args_list)
-    ctx.connection.__exit__.assert_called_once()
-
-
-def test_cli_wait_reduces_remaining_timeout(cli_lock):
-    ctx = cli_lock
-    ctx.connection.execute.side_effect = [
-        SimpleNamespace(scalar_one=Mock(return_value=value)) for value in [False, False, True, True]
-    ]
-    request = LLMRequest("prompt", timeout=300)
-    LLMClient(ctx.config).complete_text(request)
-    assert ctx.call.call_args.args[1].timeout == pytest.approx(298.0)
-    assert request.timeout == 300
-
-
-def test_cli_acquired_at_deadline_releases_without_call(cli_lock):
-    ctx = cli_lock
-
-    def execute(statement, params):
-        ctx.clock.now = 300
-        ctx.events.append(str(statement))
-        return SimpleNamespace(scalar_one=lambda: True)
-
-    ctx.connection.execute.side_effect = execute
-    with pytest.raises(LLMError, match="lock_wait_timeout"):
-        LLMClient(ctx.config).complete_text(LLMRequest("prompt", timeout=300))
-    ctx.call.assert_not_called()
-    assert ctx.events == ["SELECT pg_try_advisory_lock(:key)", "SELECT pg_advisory_unlock(:key)"]
-
-
-@pytest.mark.parametrize("validation_failure", [False, True])
-def test_cli_retry_acquires_and_releases_each_attempt(cli_lock, validation_failure):
-    ctx = cli_lock
-
-    def complete(config, request):
-        ctx.events.append("call")
-        ctx.clock.now += 10
-        if ctx.call.call_count == 1:
-            if validation_failure:
-                return LLMResult("invalid", "cli")
-            raise ConnectionError()
-        return LLMResult("{}", "cli")
-
-    ctx.call.side_effect = complete
-    LLMClient(replace(ctx.config, max_retries=1)).complete_text(
-        LLMRequest("prompt", timeout=300),
-        validator=json.loads,
-    )
-    assert ctx.events == ["acquire", "call", "release"] * 2
-    assert [call.args[1].timeout for call in ctx.call.call_args_list] == [300, 290]
-    assert ctx.connection.__exit__.call_count == 2
-
-
-@pytest.mark.parametrize("failure_at", ["acquire", "release"])
-def test_cli_lock_sql_failure_discards_connection(cli_lock, failure_at):
-    ctx = cli_lock
-    success = SimpleNamespace(scalar_one=lambda: True)
-    ctx.connection.execute.side_effect = [RuntimeError()] if failure_at == "acquire" else [success, RuntimeError()]
-    with pytest.raises(LLMError):
-        LLMClient(ctx.config).complete_text(LLMRequest("prompt"))
-    ctx.connection.invalidate.assert_called_once()
-    ctx.connection.__exit__.assert_called_once()
-    assert ctx.call.call_count == (0 if failure_at == "acquire" else 1)
+    monkeypatch.setattr(remote_cli, "complete", complete)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [pool.submit(LLMClient(replace(config, cli_engine=engine))._complete_cli,
+                               LLMRequest("prompt"), monotonic() + 180) for engine in ("agy", "codex")]
+        assert [future.result().engine for future in futures] == ["agy", "codex"]
+    database.assert_not_called()
 
 
 def test_remote_failure_keeps_safe_partial_output_diagnostics(config, monkeypatch):
@@ -513,3 +415,31 @@ def test_remote_failure_keeps_safe_partial_output_diagnostics(config, monkeypatc
     assert request.diagnostics["ssh_ms"] >= 0
     assert request.diagnostics["cli_execution_ms"] >= 0
     assert "started" not in json.dumps(request.diagnostics)
+
+
+@pytest.mark.parametrize("backend", ["cli", "api"])
+def test_failed_transport_diagnostics_reach_audit(config, monkeypatch, backend):
+    config = replace(config, backend=backend, max_retries=0,
+                     cli_ssh_username="user", cli_ssh_password="secret")
+    if backend == "cli":
+        channel = Channel(output='{"type":"started"}\n', status=1)
+        ssh_client(monkeypatch, channel)
+    else:
+        import litellm
+        monkeypatch.setattr(litellm, "completion", Mock(side_effect=TimeoutError("private provider error")))
+    with pytest.raises(LLMError):
+        LLMClient(config).complete_text(LLMRequest("prompt"))
+    content = next(config.log_dir.glob("*.log")).read_text()
+    row = json.loads(content)
+    assert row["status"] == "failed"
+    diagnostics = row["diagnostics"]
+    assert {"total_budget_ms", "remaining_budget_ms", "attempt_budget_ms"} <= diagnostics.keys()
+    if backend == "cli":
+        assert diagnostics["ssh_ms"] >= 0
+        assert diagnostics["cli_execution_ms"] >= 0
+        assert diagnostics["stdout_received"] is True
+        assert diagnostics["stdout_bytes"] > 0
+        assert "started" not in content
+    else:
+        assert diagnostics["api_ms"] >= 0
+        assert "private provider error" not in content

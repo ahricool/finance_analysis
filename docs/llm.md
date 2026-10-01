@@ -20,13 +20,13 @@
 | 临时限流、网络连接失败、服务端 5xx、CLI 非零退出 | 重试三次后切换 |
 | 空文本、输出解析/业务 ValueError 校验失败 | 重试三次后切换 |
 | 单次 timeout（已确认 CLI 清理） | 直接切换 |
-| 输入非法、程序异常、锁等待耗尽、CLI 清理未确认 | 终止整条调用，不切换 |
+| 输入非法、程序异常、CLI 清理未确认 | 终止整条调用，不切换 |
 
 LiteLLM `num_retries=0`，避免 SDK 再叠加重试。API Retry-After 数字秒有效时取其与退避值的较大者；
 超出本渠道预算直接切换，不把秒级限流与长期额度耗尽混淆。AGY 原生日志的明确限流/额度错误会中断本次
 CLI，交还 LLMClient 决定重试或切换。无法识别的 CLI 内部重试仍受单次 deadline 限制。
 
-`LLM_TIMEOUT` / request.timeout 仍是**整条调用**总预算，包含锁等待、SSH、模型、清理和退避；
+`LLM_TIMEOUT` / request.timeout 仍是**整条调用**总预算，包含 SSH、模型、清理和退避；
 默认保留 180 秒，链模式生产建议 600 秒。`LLM_ATTEMPT_TIMEOUT=180` 限制链模式每次 attempt。
 进入每个渠道时，给剩余已配置渠道分别预留 `min(attempt_timeout, 剩余总预算/剩余渠道数)` 秒；
 当前渠道重试只能使用预留之外的时间。预算不足可以少于三次重试。90秒总预算且三个渠道均超时时，
@@ -36,14 +36,17 @@ CLI，交还 LLMClient 决定重试或切换。无法识别的 CLI 内部重试�
 Signal Center 每个 bucket/final、Trade Engine 每个用户的市场分析各有独立的全局调用预算。
 这些 LLM 任务不设置固定 Celery soft/hard time limit，A 股收盘前复核也不再以任务剩余时间压缩 LLM。
 多用户/多桶任务总耗时可以超过单次调用预算；防重入锁和已完成结果恢复机制保持不变。
-传输层仍使用内部剩余 timeout，以保证重试、锁等待和渠道切换共享同一个 deadline。
+传输层仍使用内部剩余 timeout，以保证重试和渠道切换共享同一个 deadline。
 
-所有 CLI 请求在 `LLMClient._complete_cli()` 中使用同一把 PostgreSQL session-level advisory lock
-（固定 bigint key `0x46415F4C4C4D434C`），跨 AGY/Codex、用户与进程串行执行。
-每次 attempt 独立获取连接，以 `pg_try_advisory_lock()` 每 1 秒轮询；等待计入原 deadline，
-获取锁后仅把剩余 timeout 传给 SSH CLI。获取和 finally 解锁使用同一个连接，期间采用 AUTOCOMMIT，
-不保持空闲事务；锁 SQL 失败会 invalidate 连接，避免持锁连接回到连接池。重试前先释放锁。
-所有实例必须连接同一个 PostgreSQL 数据库；API backend 不获取此锁。
+AGY / Codex CLI attempts may execute concurrently.
+Each attempt is independently bounded by LLM_ATTEMPT_TIMEOUT and the shared request deadline.
+上述 attempt 上限用于 fallback chain 模式；兼容单渠道模式仍使用请求剩余预算。
+`_complete_cli()` 直接把当前 attempt deadline 的剩余时间传给 SSH CLI，无全局互斥。
+API 调用同样可并发；SSH 超时、远端进程清理、重试和渠道切换机制保持不变。
+
+Trade Engine 定时任务使用独立的 CN / US task-level mutex，按市场防止整轮多用户任务跨周期重叠。
+同市场已有任务执行时，新一轮直接通过 `TaskSkipped` 记录 skipped，不阻塞等待；CN / US 互不阻塞。
+原有 uid + market advisory lock 继续保护手工入口与用户决策；不设置旧 Celery soft/hard time limit。
 
 普通分析保留原有交易规则、报告解析、完整性占位补全和通知路径。报告完整性不再发起额外 LLM 请求。
 收盘前复核只输入确定性行情、板块、持仓和已有复核上下文，直接生成 decision；没有新闻研究或新闻覆盖门槛。
@@ -129,7 +132,8 @@ CLI sandbox 和独立工作目录
   Signal Center screening 与最终结果保存实际 backend（cli/agy、cli/codex 或 api）和模型；
   AGY 默认模型从本次原生日志取值，无法获知的 CLI 模型仍标记 unreported，绝不猜测。
 - JSONL 的 `diagnostics` 保存总预算、当前剩余预算、attempt 预算（毫秒），以及实际到达阶段的
-  `lock_wait_ms`、`ssh_ms`、`cli_execution_ms` 或 `api_ms`。失败也保留已采集数据。
+  `ssh_ms`、`cli_execution_ms` 或 `api_ms`。失败也保留已采集数据。
+  每个 provider attempt 独立创建 diagnostics，skipped provider 使用空 diagnostics。
   `stdout_received` / `stdout_bytes` 只表示 CLI 协议输出，不代表已有最终答案；不保存部分输出或 stderr。
   HTTP 402 分类为 `insufficient_credits`，不重试，不记录服务商原始错误。
 - 文件使用进程锁防止 Celery 并发写交错；新文件权限 0600。prompt/response 会保存，应按业务数据管理。
