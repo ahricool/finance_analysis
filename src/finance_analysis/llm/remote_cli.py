@@ -138,6 +138,9 @@ def complete(config: LLMConfig, request: LLMRequest) -> LLMResult:
     client = paramiko.SSHClient()
     channel = None
     launched = False
+    ssh_started = time.monotonic()
+    execution_started = None
+    output = bytearray()
     try:
         client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
         client.connect(
@@ -156,6 +159,8 @@ def complete(config: LLMConfig, request: LLMRequest) -> LLMResult:
             raise TimeoutError("SSH connection deadline exceeded")
         channel = client.get_transport().open_session(timeout=remaining)
         channel.settimeout(remaining)
+        request.diagnostics["ssh_ms"] = round((time.monotonic() - ssh_started) * 1000)
+        execution_started = time.monotonic()
         launched = True
         channel.exec_command(supervised_command(config, remaining))
         # Interleave writes and both output streams to avoid SSH window deadlocks.
@@ -219,6 +224,12 @@ def complete(config: LLMConfig, request: LLMRequest) -> LLMResult:
             raise ProviderFailure("cleanup_unconfirmed", fatal=True) from None
         raise exc
     finally:
+        now = time.monotonic()
+        request.diagnostics.setdefault("ssh_ms", round((now - ssh_started) * 1000))
+        if execution_started is not None:
+            request.diagnostics["cli_execution_ms"] = round((now - execution_started) * 1000)
+        request.diagnostics["stdout_bytes"] = len(output)
+        request.diagnostics["stdout_received"] = bool(output)
         if channel is not None:
             channel.close()
         client.close()

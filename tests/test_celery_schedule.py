@@ -88,16 +88,21 @@ def test_beat_entries_carry_scheduler_kwargs_queue_and_expires():
     assert daily["options"]["expires"] > 0
 
 
-def test_intraday_expires_is_short():
-    definition = get_scheduled_task_definition("trade_engine_us")
-    assert definition.expires == 20 * 60
+def test_trade_engine_messages_expire_after_sixty_minutes():
+    schedule = build_beat_schedule()
+    for job_id in ("trade_engine_cn", "trade_engine_us"):
+        definition = get_scheduled_task_definition(job_id)
+        assert definition.expires == 60 * 60
+        entries = [entry for entry in schedule.values() if entry["kwargs"]["scheduler_job_id"] == job_id]
+        assert entries
+        assert all(entry["options"]["expires"] == 60 * 60 for entry in entries)
 
 
 def test_us_trade_engine_uses_new_york_thirty_minute_windows():
     definition = get_scheduled_task_definition("trade_engine_us")
 
     assert definition.timezone == "America/New_York"
-    assert definition.expires == 20 * 60
+    assert definition.expires == 60 * 60
     schedules = {(item.hour, item.minute, item.day_of_week, item.timezone) for item in definition.schedules}
     assert schedules == {("*", "*/30", "mon-fri", "America/New_York")}
     assert "每 30 分钟" in definition.schedule_text

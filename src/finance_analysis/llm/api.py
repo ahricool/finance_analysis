@@ -1,6 +1,7 @@
 """The only LiteLLM transport call. Retries belong to LLMClient."""
 
 import re
+import time
 from typing import Any
 
 from .config import LLMConfig
@@ -39,7 +40,11 @@ def complete(config: LLMConfig, request: LLMRequest) -> LLMResult:
         # LiteLLM/OpenAI-compatible web search. Prompt still restricts the
         # search to the current symbol; this is review, not signal generation.
         kwargs["web_search_options"] = {"search_context_size": "medium"}
-    response = litellm.completion(**kwargs)
+    started = time.monotonic()
+    try:
+        response = litellm.completion(**kwargs)
+    finally:
+        request.diagnostics["api_ms"] = round((time.monotonic() - started) * 1000)
     choices = _get(response, "choices", [])
     content = _get(_get(choices[0], "message"), "content") if choices else None
     if isinstance(content, list):

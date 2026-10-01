@@ -407,7 +407,6 @@ class USPostmarketReviewService:
                     prompt=self._user_prompt(payload),
                     temperature=0.2,
                     max_tokens=9000,
-                    timeout=120,
                     call_type="us_postmarket_review",
                 )
             )

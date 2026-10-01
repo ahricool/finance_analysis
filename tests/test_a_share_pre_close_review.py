@@ -288,6 +288,7 @@ def test_llm_receives_one_deterministic_decision_request():
     _service(client=client).run(now=NOW)
     assert len(client.requests) == 1
     request = client.requests[0]
+    assert request.timeout is None
     assert request.call_type == "a_share_pre_close_decision"
     payload = json.loads(request.prompt.split("输入：", 1)[1])
     assert "news_research" not in payload
@@ -353,5 +354,5 @@ def test_existing_intraday_task_and_new_task_are_both_registered():
     assert "scheduled.analysis_a_share_pre_close_review" in celery_app.tasks
 
     task = celery_app.tasks["scheduled.analysis_a_share_pre_close_review"]
-    assert task.soft_time_limit == 570
-    assert task.time_limit == 600
+    assert task.soft_time_limit is None
+    assert task.time_limit is None

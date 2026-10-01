@@ -6,6 +6,7 @@ import time
 from typing import Any, Optional
 
 from finance_analysis.market_review.trading_calendar import get_market_now, is_market_open  # pragma: allowlist secret
+from finance_analysis.tasks.advisory_lock import TaskAdvisoryLockId  # pragma: allowlist secret
 from finance_analysis.tasks.celery.app import celery_app  # pragma: allowlist secret
 from finance_analysis.tasks.celery.schedule import (  # pragma: allowlist secret
     JOB_TRADE_ENGINE_CN,
@@ -46,12 +47,11 @@ def _run_market(market: str) -> dict[str, Any]:
 
 @celery_app.task(
     name=CN_DEFINITION.celery_task_name,
-    time_limit=600,
-    soft_time_limit=540,
     expires=CN_DEFINITION.expires,
 )
 @track_task(
     task_type=CN_DEFINITION.task_type,
+    advisory_lock_id=TaskAdvisoryLockId.TRADE_ENGINE_CN,
     task_name=CN_DEFINITION.name,
     source="celery",
     trigger_source="scheduler",
@@ -67,12 +67,11 @@ def run_trade_engine_cn(scheduler_job_id: Optional[str] = None, **_: Any) -> dic
 
 @celery_app.task(
     name=US_DEFINITION.celery_task_name,
-    time_limit=600,
-    soft_time_limit=540,
     expires=US_DEFINITION.expires,
 )
 @track_task(
     task_type=US_DEFINITION.task_type,
+    advisory_lock_id=TaskAdvisoryLockId.TRADE_ENGINE_US,
     task_name=US_DEFINITION.name,
     source="celery",
     trigger_source="scheduler",

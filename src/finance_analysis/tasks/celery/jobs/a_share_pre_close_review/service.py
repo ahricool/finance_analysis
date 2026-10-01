@@ -6,7 +6,6 @@ import json
 import logging
 from datetime import datetime, time
 from decimal import Decimal
-from time import monotonic
 from typing import Any, Callable, Optional, Sequence
 
 from finance_analysis.integrations.market_data.codes import normalize_stock_code
@@ -63,8 +62,6 @@ class ASharePreCloseReviewService:
         now: Optional[datetime] = None,
         send_notification: bool = True,
     ) -> PreCloseReviewSummary:
-        task_deadline = monotonic() + self.limits.task_time_limit_seconds
-        llm_deadline = task_deadline - self.limits.task_completion_reserve_seconds
         run_time = get_a_share_market_now(now)
         self._validate_trading_time(run_time)
         previous_results = self._load_recent_results()
@@ -152,7 +149,6 @@ class ASharePreCloseReviewService:
             candidate_reviews,
             quality,
             warnings=warnings,
-            deadline=llm_deadline,
         )
 
         summary = PreCloseReviewSummary(

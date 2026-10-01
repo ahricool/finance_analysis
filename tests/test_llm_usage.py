@@ -123,5 +123,7 @@ def test_removed_api_and_request_surface():
         "timeout",
         "call_type",
         "uid",
+        "web_search",
+        "diagnostics",
     }
     assert not hasattr(DatabaseManager, "save_conversation_message")

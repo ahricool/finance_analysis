@@ -20,7 +20,6 @@ def ctx(tmp_path, monkeypatch):
     from finance_analysis.core import retry
 
     db = MagicMock()
-    db.connect.return_value.__enter__.return_value.execute.return_value.scalar_one.return_value = True
     monkeypatch.setattr(DatabaseManager, "get_instance", lambda: db)
     now = [0.0]
     waits = []
@@ -83,7 +82,7 @@ def test_order_and_actual_model(ctx, success, expected):
     assert [r["engine"] or r["backend"] for r in rows] == expected
     assert rows[-1]["model"] == result.model
     assert ctx.db.record_llm_usage.call_count == len(expected)
-    assert ctx.db.connect.call_count == sum(name != "api" for name in expected)
+    ctx.db.connect.assert_not_called()
 
 
 def test_three_retries_per_provider_with_248_backoff(ctx):
@@ -146,7 +145,6 @@ def test_unconfigured_api_is_audited_without_usage(ctx):
     [
         TypeError("secret"),
         ProviderFailure("cleanup_unconfirmed", fatal=True),
-        ProviderFailure("lock_wait_timeout", fatal=True),
     ],
 )
 def test_fatal_failures_do_not_switch(ctx, error):
@@ -211,14 +209,6 @@ def test_separate_model_settings_and_env(monkeypatch):
         get_llm_config.cache_clear()
 
 
-def test_lock_connection_failure_never_falls_back_to_api(ctx):
-    ctx.db.connect.side_effect = ConnectionError("private database details")
-    with pytest.raises(LLMError, match="lock_unavailable"):
-        LLMClient(ctx.config).complete_text(LLMRequest("prompt"))
-    assert ctx.calls == []
-    assert ctx.waits == []
-
-
 def test_validator_programming_error_does_not_retry(ctx):
     def validator(_):
         raise TypeError("programming mistake")
@@ -227,3 +217,71 @@ def test_validator_programming_error_does_not_retry(ctx):
         LLMClient(ctx.config).complete_text(LLMRequest("prompt"), validator=validator)
     assert len(ctx.calls) == 1
     assert ctx.waits == []
+
+
+def test_payment_required_is_not_retried_and_audit_has_budgets(ctx):
+    class PaymentRequired(Exception):
+        status_code = 402
+
+    ctx.failures.update(agy=ProviderFailure("timeout"), codex=ProviderFailure("timeout"),
+                        api=PaymentRequired("private-api billing details"))
+    with pytest.raises(LLMError, match="api:insufficient_credits"):
+        LLMClient(ctx.config).complete_text(LLMRequest("prompt"))
+    assert len(ctx.calls) == 3
+    assert ctx.waits == []
+    content = next(ctx.config.log_dir.glob("*.log")).read_text()
+    rows = [json.loads(line) for line in content.splitlines()]
+    assert rows[-1]["error"] == "insufficient_credits"
+    assert rows[0]["diagnostics"]["total_budget_ms"] == 600000
+    assert rows[0]["diagnostics"]["attempt_budget_ms"] == 180000
+    assert "billing details" not in content
+
+
+def test_diagnostics_are_isolated_across_retry_skipped_provider_and_api(ctx, monkeypatch):
+    providers = ctx.config.providers()
+    providers[1] = replace(providers[1], cli_ssh_username="")
+    monkeypatch.setattr(LLMConfig, "providers", lambda self: providers)
+    requests = []
+
+    def cli(config, request):
+        requests.append(request)
+        assert set(request.diagnostics) == {"total_budget_ms", "remaining_budget_ms", "attempt_budget_ms"}
+        request.diagnostics.update(ssh_ms=12, cli_execution_ms=34, stdout_received=True, stdout_bytes=56)
+        if len(requests) == 1:
+            raise ConnectionError("private transport error")
+        raise ProviderFailure("timeout")
+
+    def complete_api(config, request):
+        requests.append(request)
+        assert set(request.diagnostics) == {"total_budget_ms", "remaining_budget_ms", "attempt_budget_ms"}
+        request.diagnostics["api_ms"] = 78
+        return LLMResult("ok", "api")
+
+    monkeypatch.setattr(remote_cli, "complete", cli)
+    monkeypatch.setattr(api, "complete", complete_api)
+    base = LLMRequest("prompt", diagnostics={"old": 99})
+    assert LLMClient(ctx.config).complete_text(base).text == "ok"
+    rows = [json.loads(line) for line in next(ctx.config.log_dir.glob("*.log")).read_text().splitlines()]
+    assert [row["status"] for row in rows] == ["failed", "failed", "skipped", "success"]
+    assert rows[2]["engine"] == "codex"
+    assert rows[2]["diagnostics"] == {}
+    for row in rows[:2]:
+        assert row["diagnostics"]["ssh_ms"] == 12
+        assert row["diagnostics"]["cli_execution_ms"] == 34
+        assert row["diagnostics"]["stdout_received"] is True
+        assert row["diagnostics"]["stdout_bytes"] == 56
+    assert rows[-1]["diagnostics"]["api_ms"] == 78
+    assert len({id(request.diagnostics) for request in requests}) == 3
+    assert base.diagnostics == {"old": 99}
+
+
+def test_payment_required_falls_back_without_retry(ctx):
+    error = RuntimeError("private billing message")
+    error.status_code = 402
+    ctx.failures["agy"] = error
+    assert LLMClient(ctx.config).complete_text(LLMRequest("prompt")).engine == "codex"
+    assert [call[0] for call in ctx.calls] == ["agy", "codex"]
+    assert ctx.waits == []
+    content = next(ctx.config.log_dir.glob("*.log")).read_text()
+    assert json.loads(content.splitlines()[0])["error"] == "insufficient_credits"
+    assert "private billing message" not in content

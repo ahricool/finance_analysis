@@ -100,7 +100,7 @@ Celery
 历史日线同步已从分析链拆开。`fetch_and_save_stock_data()` 名称为兼容保留，但当前只验证数据库历史，不拉取或保存远程日线。不要在分析请求中恢复隐式写行情。
 
 
-LLM 调用统一进入 `llm/LLMClient`，显式配置 `LLM_FALLBACK_CHAIN=agy,codex,api` 时按 AGY → Codex → API 顺序切换；未配置时保留 `LLM_BACKEND=api|cli` 单渠道。可重试错误每渠道最多重试三次，退避 2 / 4 / 8 秒，受总时间预算和后续渠道预留约束。额度耗尽、认证失败与单次超时直接切换；清理未确认或程序错误终止调用。配置与部署见 `docs/llm.md`。
+LLM 调用统一进入 `llm/LLMClient`，显式配置 `LLM_FALLBACK_CHAIN=agy,codex,api` 时按 AGY → Codex → API 顺序切换；未配置时保留 `LLM_BACKEND=api|cli` 单渠道。可重试错误每渠道最多重试三次，退避 2 / 4 / 8 秒，受总时间预算和后续渠道预留约束。额度耗尽、认证失败与单次超时直接切换；清理未确认或程序错误终止调用。所有业务使用全局 LLM 预算，不在调用方覆盖 timeout；LLM 任务不设旧实时分析的短 Celery 时限。AGY / Codex CLI attempts may execute concurrently. Each attempt is independently bounded by LLM_ATTEMPT_TIMEOUT and the shared request deadline（链模式；兼容单渠道使用请求剩余预算）。每个 attempt 独立记录 diagnostics，skipped 不继承传输数据。HTTP 402 为 insufficient_credits，分段耗时写 JSONL diagnostics。配置与部署见 `docs/llm.md`。
 
 ## 市场数据边界
 
@@ -194,6 +194,8 @@ Alembic：
 ## Holdings / Trade Engine
 
 `portfolio/` 是 STOCK/ETF 唯一持仓事实源。`trade_engine/` 是中线持仓决策系统，不是全市场 Scanner，也不是日内交易系统。Strategy 完全无状态；Portfolio Risk 输出事实给 LLM；每个市场每 30 分钟最多一次 Market-level LLM，状态写入 `trade_llm_state`。`trade_engine_enabled=false` 不运行 Strategy，LLM target 必须等于 current，但仍计入 NAV 与风险。详见 `docs/holdings-portfolio-risk.md`。
+
+Trade Engine 定时入口使用独立 `TRADE_ENGINE_CN` / `TRADE_ENGINE_US` 非阻塞任务锁，防止同市场整轮跨周期重叠，竞争时 TaskSkipped。原有 uid + market advisory lock 继续保护用户决策；不恢复旧 Celery 时限。
 
 ## 实时行情 Streamer
 

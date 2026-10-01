@@ -181,11 +181,19 @@ def test_prompt_contains_portfolio_and_repeat_advice_guidance():
 
 
 
-def test_global_fallback_timeout_preserves_trade_engine_budget():
+def test_market_decision_uses_global_timeout():
     client = FakeClient('{"market":"US","positions":[],"portfolio_reason":"keep","state_summary":"keep"}')
     client.config.timeout = 600
     MarketDecisionResolver(client=client).decide(_context(signals=()))
-    assert client.requests[-1].timeout == 180
+    assert client.requests[-1].timeout is None
     client.config.timeout = 60
     MarketDecisionResolver(client=client).decide(_context(signals=()))
-    assert client.requests[-1].timeout == 60
+    assert client.requests[-1].timeout is None
+
+
+def test_trade_engine_tasks_do_not_truncate_multi_user_llm_calls():
+    from finance_analysis.tasks.celery.jobs.trade_engine.tasks import run_trade_engine_cn, run_trade_engine_us
+
+    for task in (run_trade_engine_cn, run_trade_engine_us):
+        assert task.soft_time_limit is None
+        assert task.time_limit is None

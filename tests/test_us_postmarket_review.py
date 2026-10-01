@@ -91,11 +91,13 @@ class FakeLLM:
         self.text = text
         self.available = available
         self.fail = fail
+        self.requests = []
 
     def is_available(self) -> bool:
         return self.available
 
     def complete_text(self, request):
+        self.requests.append(request)
         if self.fail:
             raise RuntimeError("llm down")
         return SimpleNamespace(text=self.text)
@@ -374,3 +376,10 @@ def test_persisted_financial_news_is_used_without_a_minimum_count():
     assert news[0]["related_symbols"] == ["AAPL.US"]
     assert news[0]["url"] == row.url
     assert warnings == []
+
+
+def test_postmarket_uses_global_llm_budget():
+    client = FakeLLM(_complete_markdown())
+    _service(llm=client).run(now=TRADING_DATE)
+    assert len(client.requests) == 1
+    assert client.requests[0].timeout is None
