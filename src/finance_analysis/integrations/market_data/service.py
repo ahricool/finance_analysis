@@ -509,7 +509,7 @@ class MarketDataService:
     ) -> MarketBar | None:
         """Read-only chart overlay; invalid or unavailable quotes fall through per provider."""
         from finance_analysis.market_review.trading_calendar import get_trading_days_between
-        from finance_analysis.market_stream.config import market_trading_date
+        from finance_analysis.market_stream.config import market_spec, market_trading_date
 
         from .validator import validate_bars
 
@@ -522,7 +522,13 @@ class MarketDataService:
         if providers is None:
             return None
         try:
-            today = market_trading_date(now or utc_now(), market.value)
+            current_time = now or utc_now()
+            today = market_trading_date(current_time, market.value)
+            spec = market_spec(market.value)
+            session_open = datetime.combine(today, spec.regular_sessions[0][0], tzinfo=spec.timezone)
+            # Snapshot timestamps can advance overnight while OHLCV still belongs to yesterday.
+            if current_time < session_open:
+                return None
             if not start_date <= today <= end_date:
                 return None
             if today not in get_trading_days_between(market.value.lower(), today, today):
@@ -536,7 +542,10 @@ class MarketDataService:
                 quote = self.get_realtime_quotes([code], providers=(provider,)).data.get(code)
                 if quote is None or quote.quote_time is None:
                     continue
-                if market_trading_date(quote.quote_time, market.value) != today:
+                if (
+                    market_trading_date(quote.quote_time, market.value) != today
+                    or quote.quote_time < session_open
+                ):
                     continue
                 if (
                     quote.open_price is None or quote.high is None or quote.low is None

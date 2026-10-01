@@ -217,7 +217,10 @@ def test_outside_today_or_nontrading_day_skips_quotes(realtime_api, monkeypatch,
 
 
 @pytest.mark.parametrize('code,primary,now', [
-    ('600519.SH', 'fuyao', '2026-09-20T16:30:00+00:00'),
+    ('600519.SH', 'fuyao', '2026-09-21T01:30:00+00:00'),
+    ('600519.SH', 'fuyao', '2026-09-21T04:00:00+00:00'),  # lunch recess
+    ('600519.SH', 'fuyao', '2026-09-21T08:00:00+00:00'),  # after close
+    ('AAPL.US', 'yfinance', '2026-09-21T13:30:00+00:00'),
     ('AAPL.US', 'yfinance', '2026-09-22T00:30:00+00:00'),
 ])
 def test_market_date_default_and_existing_today_replaced(realtime_api, monkeypatch, code, primary, now):
@@ -272,3 +275,43 @@ def test_stale_database_is_preserved_when_latest_remote_is_unavailable(setup_api
     assert [row['trade_date'] for row in response.json()['items']] == ['2026-09-17']
     stocks.get_daily_ranges.assert_called_once_with(('600519.SH',), date(2026, 9, 1), date(2026, 9, 20))
     stocks.upsert_daily.assert_not_called()
+
+
+@pytest.mark.parametrize('code,primary,now', [
+    ('600519.SH', 'fuyao', '2026-09-21T00:30:00+08:00'),
+    ('600519.SH', 'fuyao', '2026-09-21T09:29:59+08:00'),
+    ('AAPL.US', 'yfinance', '2026-09-21T09:29:59-04:00'),
+    ('AAPL.US', 'yfinance', '2026-01-05T09:29:59-05:00'),
+])
+def test_preopen_snapshot_cannot_duplicate_previous_daily_bar(realtime_api, monkeypatch, code, primary, now):
+    client, stocks, daily, providers = realtime_api
+    now = datetime.fromisoformat(now)
+    monkeypatch.setattr(market_data, 'utc_now', lambda: now)
+    previous = date(2026, 1, 2) if now.month == 1 else date(2026, 9, 18)
+    daily.fetch_daily_bars.return_value = BatchBarResult(data={code: [bar(code, previous)]})
+    # A snapshot can carry a new response timestamp with the previous session's OHLCV.
+    providers[primary].fetch_quotes.return_value = realtime_quote(
+        code, primary, quote_time=now, open_price=100, high=105, low=98, price=103,
+        volume=123456, amount=123456789)
+    response = client.get(f'/api/v1/market-data/daily-bars/{code}')
+    assert response.status_code == 200
+    assert [row['trade_date'] for row in response.json()['items']] == [previous.isoformat()]
+    for provider in providers.values():
+        provider.fetch_quotes.assert_not_called()
+    stocks.upsert_daily.assert_not_called()
+
+
+@pytest.mark.parametrize('code,primary,quote_time', [
+    ('600519.SH', 'fuyao', '2026-09-21T09:29:59+08:00'),
+    ('AAPL.US', 'yfinance', '2026-09-21T09:29:59-04:00'),
+])
+def test_preopen_quote_after_open_falls_back(realtime_api, code, primary, quote_time):
+    client, _, daily, providers = realtime_api
+    daily.fetch_daily_bars.return_value = BatchBarResult(data={code: [bar(code)]})
+    providers[primary].fetch_quotes.return_value = realtime_quote(
+        code, primary, quote_time=datetime.fromisoformat(quote_time), price=104)
+    providers['longbridge'].fetch_quotes.return_value = realtime_quote(code, 'longbridge')
+    response = client.get(f'/api/v1/market-data/daily-bars/{code}')
+    assert response.status_code == 200
+    assert response.json()['items'][-1]['close'] == 108
+    providers['longbridge'].fetch_quotes.assert_called_once()
