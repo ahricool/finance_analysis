@@ -5,6 +5,7 @@ import MarketKLineChart from '../MarketKLineChart.vue';
 import { useTheme } from '@/composables/useTheme';
 
 const chart = vi.hoisted(() => ({
+  removeOverlay: vi.fn(), createOverlay: vi.fn((overlays: { id?: string }[]) => overlays.map(overlay => overlay.id)),
   setStyles: vi.fn(), setSymbol: vi.fn(), setPeriod: vi.fn(), setDataLoader: vi.fn(),
   getSize: vi.fn(() => ({ width: 1000 })), convertToPixel: vi.fn(() => ({ x: 995 })), scrollByDistance: vi.fn(),
   scrollToTimestamp: vi.fn(), scrollToRealTime: vi.fn(), createIndicator: vi.fn(), resetData: vi.fn(), resize: vi.fn(),
@@ -106,4 +107,27 @@ describe('MarketKLineChart v10 lifecycle', () => {
     }
     wrapper.unmount();
   });
+});
+
+it('replaces only owned overlays across independent groups and clears removed props', async () => {
+  lifecycle.init.mockReturnValue(chart);
+  const overlays = [
+    { name: 'tradeBst', id: 'bst-1', groupId: 'strategy-markers' },
+    { name: 'tradeBst', id: 'research-date', groupId: 'research-date' },
+    { name: 'dailyPattern', id: 'daily-pattern-1', groupId: 'daily-patterns' },
+  ];
+  const wrapper = mount(MarketKLineChart, { props: { symbol: 'AAPL.US', period: '1d', bars: [bar], overlays } });
+  expect(chart.createOverlay).toHaveBeenLastCalledWith(overlays);
+  chart.removeOverlay.mockClear();
+  await wrapper.setProps({ overlays: overlays.slice(0, 2) });
+  expect(chart.removeOverlay.mock.calls).toEqual([
+    [{ id: 'bst-1' }], [{ id: 'research-date' }], [{ id: 'daily-pattern-1' }],
+  ]);
+  expect(chart.createOverlay).toHaveBeenLastCalledWith(overlays.slice(0, 2));
+  chart.removeOverlay.mockClear();
+  await wrapper.setProps({ overlays: undefined });
+  expect(chart.removeOverlay.mock.calls).toEqual([[{ id: 'bst-1' }], [{ id: 'research-date' }]]);
+  await wrapper.setProps({ overlays, sourceKey: 'new' });
+  expect(chart.createOverlay).toHaveBeenLastCalledWith(overlays);
+  wrapper.unmount();
 });

@@ -19,6 +19,7 @@ const element = ref<HTMLElement>();
 const { resolvedTheme } = useTheme();
 let chart: Chart | null = null;
 let observer: ResizeObserver | undefined;
+let appliedOverlayIds: string[] = [];
 let pushBar: ((bar: KLineData) => void) | undefined;
 
 const candleTooltipLegends: CandleTooltipLegendsCustomCallback = ({ prev, current }, styles) => {
@@ -73,11 +74,18 @@ function destroy() {
   pushBar = undefined;
   if (element.value && chart) dispose(element.value);
   chart = null;
+  appliedOverlayIds = [];
 }
 function applyOverlays() {
-  if (!chart || !props.overlays) return;
-  chart.removeOverlay({ groupId: 'strategy-markers' });
-  if (props.overlays.length) chart.createOverlay(props.overlays);
+  if (!chart) return;
+  // Remove only overlays owned by this prop, including groups removed in the new value.
+  // User drawings and other chart-owned overlays must survive updates.
+  for (const id of appliedOverlayIds) chart.removeOverlay({ id });
+  appliedOverlayIds = [];
+  if (props.overlays?.length) {
+    const created = chart.createOverlay(props.overlays);
+    appliedOverlayIds = (Array.isArray(created) ? created : [created]).filter((id): id is string => id != null);
+  }
 }
 function focusOnTimestamp(timestamp: number) {
   if (!chart) return;

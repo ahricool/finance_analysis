@@ -267,3 +267,9 @@ BTC 多策略以 `strategy_key + symbol` 隔离，代码注册表当前仅 `btc_
 页面概览、详情、正负贡献与导出来自同一响应批次；筛选切换清旧数据并用请求代次防竞态。
 3日榜隐藏累计窗口/轨迹；不添加盘中预览。游资缺值不是零，分类可能重叠，不推算“其他”。
 管理员可提交收盘采集或最近20交易日补齐，返回任务中心跟踪。见 `../docs/dragon-tiger-flow.md`。
+
+## 日 K Price Action
+
+`DailyKLineCard` 用 `utils/dailyPatterns.ts` 纯函数分析已加载日线，六种经典反转形态仅用于研究展示。
+独立 `daily-patterns` overlay 与 BST / `research-date` 共存；只显示 Quality ≥70，同日最多一个。
+当日 K 无可靠收盘标志时保守显示 Preview，不按名义收盘时间自动确认。规则与测试见 `../docs/daily-patterns.md`。
