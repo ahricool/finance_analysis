@@ -1,6 +1,5 @@
 import type { Component } from 'vue';
 import {
-  Activity,
   Banknote,
   Bitcoin,
   Building2,
