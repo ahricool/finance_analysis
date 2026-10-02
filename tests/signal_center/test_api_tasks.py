@@ -71,6 +71,12 @@ def test_history_includes_separate_typed_evaluation_without_mutating_analysis(mo
         status="completed",
         decision="BUY",
         selected_symbol="TEST.US",
+        candidate_snapshot={
+            "candidates": [
+                {"symbol": "OTHER.US", "name": "Other"},
+                {"symbol": "TEST.US", "name": "Test Company"},
+            ]
+        },
         confidence="high",
         created_at="2026-09-19T03:00:00Z",
         completed_at="2026-09-19T03:20:00Z",
@@ -88,6 +94,9 @@ def test_history_includes_separate_typed_evaluation_without_mutating_analysis(mo
     response = TestClient(app).get("/history")
     assert response.status_code == 200
     result = response.json()[0]
+    assert result["selected_name"] == "Test Company"
+    assert "candidate_snapshot" not in result
+    assert "selected_name" not in saved
     assert "evaluation" not in saved
     assert len(queries) == 1
     assert result["evaluation"]["entry_date"] == "2026-09-21"

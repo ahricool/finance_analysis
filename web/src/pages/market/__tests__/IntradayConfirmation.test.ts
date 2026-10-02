@@ -27,6 +27,15 @@ describe('intraday confirmation page', () => {
     await wrapper.get('select[aria-label="状态"]').setValue('FAILED');
     await flushPromises();
     expect(api.read).toHaveBeenLastCalledWith('CN', 'FAILED', undefined);
+    expect(wrapper.find('select[aria-label="市场"]').exists()).toBe(false);
+    const buttons = wrapper.findAll('[data-testid="intraday-market-switcher"] [role="radio"]');
+    await buttons[0]!.trigger('click');
+    await flushPromises();
+    expect(api.read).toHaveBeenLastCalledWith('US', 'FAILED', undefined);
+    expect(buttons[0]!.attributes('aria-checked')).toBe('true');
+    await buttons[1]!.trigger('click');
+    await flushPromises();
+    expect(api.read).toHaveBeenLastCalledWith('CN', 'FAILED', undefined);
     wrapper.unmount();
   });
   it('renders an unavailable current observation without implying low risk or losing confirmation', async () => {

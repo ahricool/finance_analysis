@@ -161,6 +161,7 @@ class SignalCenterRepository(ConfluenceRepository):
                     "signal_date",
                     "status",
                     "selected_symbol",
+                    "candidate_snapshot",
                     "decision",
                     "confidence",
                     "created_at",

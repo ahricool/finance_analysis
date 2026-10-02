@@ -16,7 +16,7 @@ const confidence: Record<string, string> = { high: '高', medium: '中', low: '�
     data-testid="signal-card"
   >
     <div class="flex items-center gap-3">
-      <strong class="text-xl">{{ signal.selectedSymbol || (signal.decision === 'NO_TRADE' ? '当日不交易' : '暂无交易信号') }}</strong>
+      <strong class="text-xl">{{ (signal.selectedSymbol ? [signal.selectedName, signal.selectedSymbol].filter(Boolean).join(' ') : '') || (signal.decision === 'NO_TRADE' ? '当日不交易' : '暂无交易信号') }}</strong>
       <Badge>{{ signal.decision || statuses[signal.status] }}</Badge>
       <span
         v-if="signal.confidence"

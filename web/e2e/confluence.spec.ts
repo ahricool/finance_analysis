@@ -10,6 +10,14 @@ for (const width of [1280, 1440, 1920]) {
       await page.route('**/api/v1/**', route => {
         const url = new URL(route.request().url());
         if (url.pathname.endsWith('/auth/status')) return route.fulfill({ json: { loggedIn: true, user: { uid: 1, username: 'Tester', role: 'user', extra: {} } } });
+        if (url.pathname.includes('/market-data/daily-bars/')) return route.fulfill({ json: {
+          symbol: '600001.SH', market: 'CN', interval: '1d', adjustment: 'forward', source: 'database',
+          items: Array.from({ length: 30 }, (_, index) => ({
+            trade_date: new Date(Date.UTC(2026, 8, 1 + index)).toISOString().slice(0, 10),
+            open: 10 + index * .1, high: 10.5 + index * .1, low: 9.8 + index * .1,
+            close: 10.3 + index * .1, volume: 10000 + index * 100, amount: null,
+          })),
+        } });
         if (url.pathname.endsWith('/dates')) return route.fulfill({ json: ['2026-09-22'] });
         if (url.pathname.endsWith('/ranking')) return route.fulfill({ json: raw });
         return route.fulfill({ json: {} });
@@ -22,6 +30,8 @@ for (const width of [1280, 1440, 1920]) {
       await expect(page.getByRole('table')).toContainText('ETF 无数据');
       await page.getByRole('button', { name: /测试股票/ }).click();
       const dialog = page.getByRole('dialog');
+      await expect(dialog.getByTestId('daily-kline-card')).toBeVisible();
+      await expect(dialog.getByTestId('daily-kline-card').locator('canvas').first()).toBeVisible();
       await expect(dialog).toContainText('25/25');
       await expect(dialog).toContainText('12 → 4');
       await expect(dialog).toContainText('10/20');
@@ -57,7 +67,7 @@ test('filters, partial US coverage and failed request clear old data', async ({ 
   await expect.poll(() => params.at(-1)?.get('min_signals')).toBe('4');
   expect(params.at(-1)?.get('min_score')).toBe('80');
   expect(params.at(-1)?.get('early_only')).toBe('true');
-  await page.getByRole('combobox', { name: '市场', exact: true }).selectOption('US');
+  await page.getByTestId('confluence-market-switcher').getByRole('radio', { name: '美股' }).click();
   await expect(page.getByRole('table')).toContainText('没有满足当前条件');
   await expect(page.getByText(/US 当前可能仅有/)).toBeVisible();
   fail = true;
@@ -84,8 +94,8 @@ test('snapshot changes restore saved default signal count while manual filters r
   await expect(signals).toHaveValue('4');
   expect(requests[0]?.has('min_signals')).toBe(false);
 
-  await page.getByRole('combobox', { name: '快照日期', exact: true }).selectOption('2026-09-21');
-  await page.getByRole('button', { name: '筛选', exact: true }).click();
+  await page.getByRole('button', { name: '快照日期', exact: true }).click();
+  await page.locator('[data-slot="calendar-cell-trigger"][data-value="2026-09-21"]').click();
   await expect(signals).toHaveValue('3');
   expect(requests.at(-1)?.get('trade_date')).toBe('2026-09-21');
   expect(requests.at(-1)?.has('min_signals')).toBe(false);
@@ -96,7 +106,7 @@ test('snapshot changes restore saved default signal count while manual filters r
   await expect(page.getByRole('button', { name: '筛选', exact: true })).toBeEnabled();
   await expect(signals).toHaveValue('5');
 
-  await page.getByRole('combobox', { name: '市场', exact: true }).selectOption('US');
+  await page.getByTestId('confluence-market-switcher').getByRole('radio', { name: '美股' }).click();
   await expect(signals).toHaveValue('4');
   expect(requests.at(-1)?.get('market')).toBe('US');
   expect(requests.at(-1)?.has('min_signals')).toBe(false);

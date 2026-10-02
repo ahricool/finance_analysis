@@ -4,6 +4,7 @@ import { intradayConfirmationApi as api, type Snapshot, type Confirmation, type 
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import { useAuth } from '@/composables/useAuth';
 import AppApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
+import ResearchMarketToggle from '@/components/research/ResearchMarketToggle.vue';
 import PageHeader from '@/components/layout/PageHeader.vue';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -27,6 +28,11 @@ async function load() {
     if (token === generation) result.value = data;
   } catch (cause) { if (token === generation) error.value = getParsedApiError(cause); }
   finally { if (token === generation) loading.value = false; }
+}
+function setMarket(target: Market) {
+  if (target === market.value) return;
+  market.value = target;
+  void load();
 }
 async function run() {
   submitting.value = true; error.value = null; taskId.value = '';
@@ -79,12 +85,11 @@ onBeforeUnmount(() => { ++generation; });
       任务已提交：{{ taskId }}，请在任务中心查看。运行后刷新快照。
     </p>
     <div class="flex items-center gap-4">
-      <label>市场 <select
-        v-model="market"
-        aria-label="市场"
-        class="rounded border bg-background p-2"
-        @change="load"
-      ><option>CN</option><option>US</option></select></label>
+      <ResearchMarketToggle
+        :model-value="market"
+        data-testid="intraday-market-switcher"
+        @update:model-value="setMarket"
+      />
       <label>状态 <select
         v-model="state"
         aria-label="状态"

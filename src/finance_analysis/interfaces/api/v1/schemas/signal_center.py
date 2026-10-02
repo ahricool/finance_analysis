@@ -2,7 +2,7 @@
 
 from datetime import date, datetime
 from typing import Any, Literal
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 from finance_analysis.signal_center.prompt import Decision
 
 Market = Literal["CN", "US"]
@@ -36,11 +36,22 @@ class SignalSummary(BaseModel):
     signal_date: date
     status: Literal["pending", "completed", "failed", "skipped"]
     selected_symbol: str | None = None
+    selected_name: str | None = None
     decision: Literal["BUY", "NO_TRADE"] | None = None
     confidence: Literal["low", "medium", "high"] | None = None
     created_at: datetime
     completed_at: datetime | None = None
     evaluation: SignalEvaluation
+
+    @model_validator(mode="before")
+    @classmethod
+    def name_from_snapshot(cls, data):
+        if not isinstance(data, dict):
+            return data
+        symbol = data.get("selected_symbol")
+        candidates = (data.get("candidate_snapshot") or {}).get("candidates", [])
+        name = next((c.get("name") for c in candidates if symbol and c.get("symbol") == symbol), None)
+        return {**data, "selected_name": name}
 
 
 class SignalDetail(SignalSummary):

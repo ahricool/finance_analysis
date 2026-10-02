@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { DateValue } from 'reka-ui';
 import { CalendarDays, X } from 'lucide-vue-next';
-import { parseDate } from '@internationalized/date';
+import { getDayOfWeek, parseDate } from '@internationalized/date';
 import { computed, ref, useId } from 'vue';
 import { Button } from '@/components/ui/button';
 import { Calendar } from '@/components/ui/calendar';
@@ -15,6 +15,7 @@ const props = withDefaults(
     placeholder?: string;
     disabled?: boolean;
     clearable?: boolean;
+    disableWeekends?: boolean;
     min?: string;
     max?: string;
     availableDates?: string[];
@@ -26,6 +27,7 @@ const props = withDefaults(
   {
     placeholder: '选择日期',
     clearable: true,
+    disableWeekends: false,
     disabled: false,
     modelValue: undefined,
     label: '',
@@ -64,7 +66,9 @@ const effectiveMin = computed(() => props.min ?? sortedAvailable.value[0]);
 const effectiveMax = computed(() => props.max ?? sortedAvailable.value.at(-1));
 
 function isDateUnavailable(date: DateValue) {
-  return availableSet.value.size > 0 && !availableSet.value.has(date.toString());
+  const day = getDayOfWeek(date, 'en-US');
+  return (props.disableWeekends && (day === 0 || day === 6))
+    || (availableSet.value.size > 0 && !availableSet.value.has(date.toString()));
 }
 
 const display = computed(() =>
@@ -79,6 +83,7 @@ const display = computed(() =>
 
 function choose(value: DateValue | undefined) {
   if (!value && !props.clearable) return;
+  if (value && isDateUnavailable(value)) return;
   emit('update:modelValue', value?.toString() ?? '');
   if (value) open.value = false;
 }
@@ -116,6 +121,7 @@ function choose(value: DateValue | undefined) {
         >
           <Calendar
             :model-value="selected"
+            :default-placeholder="selected ?? toDateValue(effectiveMax)"
             locale="zh-CN"
             layout="month-and-year"
             :min-value="toDateValue(effectiveMin)"

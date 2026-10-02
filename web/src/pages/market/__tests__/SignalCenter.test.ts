@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushPromises, mount } from '@vue/test-utils';
+import { createPinia } from 'pinia';
+import AppDatePicker from '@/components/app/AppDatePicker.vue';
 import SignalCenterPage from '../SignalCenterPage.vue';
 import { signalCenterApi as api, type SignalDetail } from '@/api/signalCenter';
 vi.mock('@/api/signalCenter', () => ({ signalCenterApi: { daily: vi.fn(), history: vi.fn(), detail: vi.fn() } }));
@@ -11,7 +13,7 @@ const signal: SignalDetail = { market: 'CN', signalDate: '2026-09-22', status: '
 beforeEach(() => { vi.clearAllMocks(); vi.mocked(api.daily).mockResolvedValue({ items: [signal], requestedDates: { CN: '2026-09-22', US: '2026-09-21' } }); vi.mocked(api.history).mockResolvedValue([signal]); vi.mocked(api.detail).mockResolvedValue(signal); });
 describe('Signal Center page', () => {
   it('shows NO_TRADE distinctly from a missing market and uses persisted historical detail', async () => {
-    const wrapper = mount(SignalCenterPage);
+    const wrapper = mount(SignalCenterPage, { global: { plugins: [createPinia()] } });
     await flushPromises();
     expect(wrapper.text()).toContain('当日不交易');
     expect(wrapper.text()).toContain('美股 · 2026-09-21');
@@ -22,10 +24,36 @@ describe('Signal Center page', () => {
     expect(api.detail).toHaveBeenCalledWith('CN', '2026-09-22');
     wrapper.unmount();
   });
+  it.each(['浦发银行', null])('shows stock name and code with missing-name fallback: %s', async (selectedName) => {
+    const buy: SignalDetail = { ...signal, decision: 'BUY', selectedSymbol: '600000.SH', selectedName };
+    vi.mocked(api.daily).mockResolvedValue({ items: [buy], requestedDates: { CN: '2026-09-22', US: '2026-09-21' } });
+    vi.mocked(api.history).mockResolvedValue([buy]);
+    vi.mocked(api.detail).mockResolvedValue(buy);
+    const wrapper = mount(SignalCenterPage, { global: { plugins: [createPinia()] } });
+    await flushPromises();
+    const label = selectedName ? `${selectedName} 600000.SH` : '600000.SH';
+    expect(wrapper.get('[data-testid="signal-card"] strong').text()).toBe(label);
+    expect(wrapper.get('tbody').text()).toContain(label);
+    await wrapper.get('[aria-label="查看 2026-09-22 CN 信号"]').trigger('click');
+    await flushPromises();
+    expect(document.body.textContent).toContain(label);
+    wrapper.unmount();
+  });
+  it('uses the date picker with weekends disabled and reloads the selected day', async () => {
+    const wrapper = mount(SignalCenterPage, { global: { plugins: [createPinia()] } });
+    await flushPromises();
+    expect(wrapper.find('input[type="date"]').exists()).toBe(false);
+    const picker = wrapper.getComponent(AppDatePicker);
+    expect(picker.props('disableWeekends')).toBe(true);
+    picker.vm.$emit('update:modelValue', '2026-09-25');
+    await flushPromises();
+    expect(api.daily).toHaveBeenLastCalledWith('2026-09-25');
+    wrapper.unmount();
+  });
   it('displays failure without presenting it as NO_TRADE', async () => {
     vi.mocked(api.daily).mockResolvedValue({ items: [{ ...signal, status: 'failed', decision: null, confidence: null, analysis: null }], requestedDates: { CN: '2026-09-22', US: '2026-09-21' } });
     vi.mocked(api.history).mockResolvedValue([]);
-    const wrapper = mount(SignalCenterPage); await flushPromises();
+    const wrapper = mount(SignalCenterPage, { global: { plugins: [createPinia()] } }); await flushPromises();
     expect(wrapper.text()).toContain('分析失败，未产生信号');
     expect(wrapper.text()).not.toContain('当日不交易');
     wrapper.unmount();
