@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import type { AcceptableValue } from 'reka-ui';
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
-import { Bell, ChevronDown, Clock3, LogOut, Monitor, Moon, Palette, Sun, User, UserRound } from 'lucide-vue-next';
+import { Bell, ChevronDown, Clock3, LogOut, Menu, Monitor, Moon, Palette, Sun, User, UserRound } from 'lucide-vue-next';
 import { RouterLink, RouterView, useRoute } from 'vue-router';
 import AppConfirmDialog from '@/components/app/AppConfirmDialog.vue';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -20,6 +20,12 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from '@/components/ui/sheet';
 
 import { useAuth } from '@/composables/useAuth';
 import { useTheme, type ThemePreference } from '@/composables/useTheme';
@@ -36,6 +42,7 @@ const { theme, setTheme } = useTheme();
 const timezoneStore = useTimezoneStore();
 const { displayTimezone } = storeToRefs(timezoneStore);
 const showLogoutConfirm = ref(false);
+const mobileNavOpen = ref(false);
 
 const THEME_OPTIONS: Array<{ value: ThemePreference; label: string; icon: typeof Monitor }> = [
   { value: 'system', label: '跟随系统', icon: Monitor },
@@ -81,15 +88,32 @@ async function onLogoutConfirm() {
   await logout();
 }
 
+watch(
+  () => route.fullPath,
+  () => {
+    mobileNavOpen.value = false;
+  },
+);
 </script>
 
 <template>
-  <div class="flex min-h-screen flex-col bg-background text-foreground">
-    <header class="sticky top-0 z-40 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+  <div class="flex min-h-screen flex-col overflow-x-hidden bg-background text-foreground">
+    <header class="sticky top-0 z-40 border-b border-border/80 bg-background/95 shadow-sm backdrop-blur-md supports-[backdrop-filter]:bg-background/80">
       <div
-        class="mx-auto flex h-14 w-full max-w-[1500px] items-center gap-2 px-6"
+        class="mx-auto flex h-14 w-full max-w-[1500px] items-center gap-2 px-4 sm:px-6"
         data-testid="shell-header-content"
       >
+        <Button
+          variant="ghost"
+          size="icon"
+          class="shrink-0 lg:hidden"
+          aria-label="打开导航菜单"
+          data-testid="mobile-nav-trigger"
+          @click="mobileNavOpen = true"
+        >
+          <Menu class="size-5" />
+        </Button>
+
         <RouterLink
           to="/dashboard"
           class="flex min-w-0 items-center gap-2 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -102,11 +126,11 @@ async function onLogoutConfirm() {
               class="size-7"
             />
           </span>
-          <span class="truncate text-sm font-semibold tracking-tight block">{{ APP_NAME }}</span>
+          <span class="truncate text-sm font-semibold tracking-tight">{{ APP_NAME }}</span>
         </RouterLink>
 
         <nav
-          class="ml-4 min-w-0 flex-1 items-center gap-1 flex"
+          class="ml-4 hidden min-w-0 flex-1 items-center gap-1 lg:flex"
           aria-label="主导航"
           data-testid="desktop-main-nav"
         >
@@ -124,7 +148,10 @@ async function onLogoutConfirm() {
                   size="sm"
                   :aria-label="item.label"
                   :aria-current="isNavItemActive(item) ? 'page' : undefined"
-                  :class="isNavItemActive(item) && 'bg-muted text-foreground'"
+                  :class="[
+                    'relative transition-colors',
+                    isNavItemActive(item) && 'bg-muted/80 text-foreground shadow-xs after:absolute after:inset-x-2 after:-bottom-[9px] after:h-0.5 after:rounded-full after:bg-brand',
+                  ]"
                 >
                   <component :is="item.icon" />{{ item.label }}<ChevronDown class="size-3.5 opacity-60" />
                 </Button>
@@ -158,7 +185,10 @@ async function onLogoutConfirm() {
                 :to="item.to"
                 :aria-label="item.label"
                 :aria-current="isNavItemActive(item) ? 'page' : undefined"
-                :class="isNavItemActive(item) && 'bg-muted text-foreground'"
+                :class="[
+                  'relative transition-colors',
+                  isNavItemActive(item) && 'bg-muted/80 text-foreground shadow-xs after:absolute after:inset-x-2 after:-bottom-[9px] after:h-0.5 after:rounded-full after:bg-brand',
+                ]"
               >
                 <component :is="item.icon" />{{ item.label }}
               </RouterLink>
@@ -209,7 +239,10 @@ async function onLogoutConfirm() {
                 </RouterLink>
               </DropdownMenuItem>
               <DropdownMenuItem as-child>
-                <RouterLink to="/notifications" data-testid="notification-center-link">
+                <RouterLink
+                  to="/notifications"
+                  data-testid="notification-center-link"
+                >
                   <Bell />消息中心
                 </RouterLink>
               </DropdownMenuItem>
@@ -270,8 +303,74 @@ async function onLogoutConfirm() {
       </div>
     </header>
 
-    <main class="mx-auto w-full max-w-[1500px] flex-1 px-6">
-      <RouterView />
+    <Sheet
+      :open="mobileNavOpen"
+      @update:open="mobileNavOpen = $event"
+    >
+      <SheetContent
+        side="left"
+        class="w-[min(20rem,85vw)] p-0"
+        data-testid="mobile-nav-sheet"
+      >
+        <SheetHeader class="border-b px-4 py-4 text-left">
+          <SheetTitle>{{ APP_NAME }}</SheetTitle>
+        </SheetHeader>
+        <nav
+          class="flex flex-col gap-1 overflow-y-auto p-3"
+          aria-label="移动端主导航"
+          data-testid="mobile-main-nav"
+        >
+          <template
+            v-for="item in mainNavItems"
+            :key="item.key"
+          >
+            <template v-if="item.children">
+              <p class="px-3 pb-1 pt-3 text-xs font-medium text-muted-foreground">
+                {{ item.label }}
+              </p>
+              <RouterLink
+                v-for="child in item.children"
+                :key="child.key"
+                :to="child.to"
+                class="flex items-center gap-2 rounded-md px-3 py-2.5 text-sm transition-colors hover:bg-muted"
+                :class="isDestinationActive(child) && 'bg-muted font-medium text-foreground'"
+                :aria-current="isDestinationActive(child) ? 'page' : undefined"
+              >
+                <component
+                  :is="child.icon"
+                  class="size-4 shrink-0"
+                />{{ child.label }}
+              </RouterLink>
+            </template>
+            <RouterLink
+              v-else
+              :to="item.to"
+              class="flex items-center gap-2 rounded-md px-3 py-2.5 text-sm transition-colors hover:bg-muted"
+              :class="isNavItemActive(item) && 'bg-muted font-medium text-foreground'"
+              :aria-current="isNavItemActive(item) ? 'page' : undefined"
+            >
+              <component
+                :is="item.icon"
+                class="size-4 shrink-0"
+              />{{ item.label }}
+            </RouterLink>
+          </template>
+        </nav>
+      </SheetContent>
+    </Sheet>
+
+    <main class="mx-auto w-full max-w-[1500px] min-w-0 flex-1 px-4 pb-10 pt-1 sm:px-6">
+      <RouterView v-slot="{ Component, route: activeRoute }">
+        <Transition
+          name="page"
+          mode="out-in"
+        >
+          <component
+            :is="Component"
+            :key="activeRoute.path"
+          />
+        </Transition>
+      </RouterView>
     </main>
 
     <AppConfirmDialog

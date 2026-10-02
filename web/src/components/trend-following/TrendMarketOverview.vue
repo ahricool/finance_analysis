@@ -8,10 +8,12 @@ import VChart from 'vue-echarts';
 import { trendFollowingApi } from '@/api/trendFollowing';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import AppApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
+import BilingualLabel from '@/components/app/BilingualLabel.vue';
 import { useTheme } from '@/composables/useTheme';
 import type { TrendBreadthResponse, TrendMarket } from '@/types/trendFollowing';
-import { breadthOption, delta5D, percent } from './breadthCharts';
+import { breadthOption, delta5D, delta5DValue, percent } from './breadthCharts';
 import TrendRecentTransitions from './TrendRecentTransitions.vue';
+import { signedTextClass } from '@/utils/marketTone';
 
 use([CanvasRenderer, LineChart, GridComponent, LegendComponent, TooltipComponent]);
 const props = defineProps<{ market: TrendMarket; asOf?: string; includePreview: boolean; refreshKey: number }>();
@@ -42,9 +44,9 @@ const latest = computed(() => points.value.at(-1));
 const option = computed(() => breadthOption(points.value, resolvedTheme.value === 'dark'));
 const structureOption = computed(() => breadthOption(points.value, resolvedTheme.value === 'dark', true));
 const metrics = [
-  { key: 'trendBreadth', label: 'Trend Breadth', description: '健康趋势 TRENDING' },
-  { key: 'participation', label: 'Trend Participation', description: '包含潜在趋势 CANDIDATE' },
-  { key: 'deteriorationBreadth', label: 'Deterioration', description: '趋势弱化或破坏' },
+  { key: 'trendBreadth', labelKey: 'trendBreadth', description: '健康趋势 TRENDING' },
+  { key: 'participation', labelKey: 'trendParticipation', description: '包含潜在趋势 CANDIDATE' },
+  { key: 'deteriorationBreadth', labelKey: 'deterioration', description: '趋势弱化或破坏' },
 ] as const;
 const warnings = computed(() => [
   ...(history.value?.warnings ?? []),
@@ -73,7 +75,7 @@ const warnings = computed(() => [
         </div>
         <span class="text-xs text-muted-foreground">{{ latest?.tradeDate }} <span
           v-if="latest?.isPreview"
-          class="ml-1 rounded border border-amber-500/50 px-1.5 py-0.5 text-amber-700 dark:text-amber-400"
+          class="ml-1 rounded border border-warning/50 px-1.5 py-0.5 text-warning"
         >Preview</span></span>
       </div>
       <p
@@ -91,21 +93,21 @@ const warnings = computed(() => [
         @dismiss="error = null"
       />
       <template v-else-if="points.length">
-        <div class="my-5 grid grid-cols-3 divide-x rounded-lg bg-muted/40 py-4">
+        <div class="my-5 grid grid-cols-1 gap-4 rounded-lg bg-muted/40 py-4 sm:grid-cols-3 sm:divide-x sm:gap-0">
           <div
             v-for="metric in metrics"
             :key="metric.key"
-            class="px-5"
+            class="min-w-0 px-5"
             :data-testid="`trend-kpi-${metric.key}`"
           >
             <p class="text-xs font-medium text-muted-foreground">
-              {{ metric.label }}
+              <BilingualLabel :label="metric.labelKey" />
             </p>
-            <div class="mt-2 flex items-baseline gap-3 tabular-nums">
-              <strong class="text-3xl font-semibold tracking-tight">{{ percent(latest?.[metric.key]) }}</strong>
+            <div class="mt-2 flex flex-wrap items-baseline gap-x-3 gap-y-1 tabular-nums">
+              <strong class="text-2xl font-semibold tracking-tight sm:text-3xl">{{ percent(latest?.[metric.key]) }}</strong>
               <span
                 class="text-sm"
-                :class="metric.key === 'deteriorationBreadth' ? 'text-orange-700 dark:text-orange-400' : 'text-emerald-700 dark:text-emerald-400'"
+                :class="signedTextClass(delta5DValue(points, metric.key))"
               >{{ delta5D(points, metric.key) }} <span class="text-xs text-muted-foreground">/ 5D</span></span>
             </div>
             <p class="mt-1 text-xs text-muted-foreground">

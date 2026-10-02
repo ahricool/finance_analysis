@@ -49,7 +49,7 @@ const titleTag = computed(() => props.titleAs);
     </div>
     <div
       v-else-if="$slots.icon"
-      class="flex size-11 items-center justify-center rounded-full bg-muted text-muted-foreground"
+      class="flex size-11 items-center justify-center rounded-full bg-brand/10 text-muted-foreground ring-1 ring-brand/15"
     >
       <slot name="icon" />
     </div>

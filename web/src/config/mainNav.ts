@@ -1,14 +1,22 @@
 import type { Component } from 'vue';
 import {
   Activity,
-  BarChart3,
+  Banknote,
   Bitcoin,
+  Building2,
   CalendarDays,
+  ChartCandlestick,
   ChartNoAxesCombined,
   ClipboardList,
+  Combine,
+  Crosshair,
+  Flame,
+  Globe2,
+  LayoutDashboard,
   RefreshCcw,
   Sigma,
   Star,
+  Target,
   TrendingUp,
   Wallet,
 } from 'lucide-vue-next';
@@ -32,9 +40,9 @@ export const marketNavItems: NavDestination[] = [
 ];
 
 export const researchNavItems: NavDestination[] = [
-  { key: 'intraday-confirmation', label: '盘中确认', to: '/research/intraday-confirmation', icon: Activity },
-  { key: 'signal-center', label: '信号中心', to: '/research/signal-center', icon: Activity },
-  { key: 'confluence', label: '多信号共振', to: '/research/confluence', icon: ChartNoAxesCombined },
+  { key: 'intraday-confirmation', label: '盘中确认', to: '/research/intraday-confirmation', icon: Crosshair },
+  { key: 'signal-center', label: '信号中心', to: '/research/signal-center', icon: Target },
+  { key: 'confluence', label: '多信号共振', to: '/research/confluence', icon: Combine },
   {
     key: 'etf-rotation',
     label: 'ETF 动量轮动',
@@ -47,10 +55,10 @@ export const researchNavItems: NavDestination[] = [
     to: '/research/trend-following',
     icon: TrendingUp,
   },
-  { key: 'industry-strength', label: '行业强度', to: '/research/industry-strength', icon: BarChart3 },
-  { key: 'dragon-tiger-flow', label: '龙虎榜资金流向', to: '/research/dragon-tiger-flow', icon: BarChart3 },
-  { key: 'market-sentiment', label: '市场情绪', to: '/research/market-sentiment', icon: BarChart3 },
-  { key: 'macro', label: '宏观数据', to: '/research/macro', icon: Activity },
+  { key: 'industry-strength', label: '行业强度', to: '/research/industry-strength', icon: Building2 },
+  { key: 'dragon-tiger-flow', label: '龙虎榜资金流向', to: '/research/dragon-tiger-flow', icon: Banknote },
+  { key: 'market-sentiment', label: '市场情绪', to: '/research/market-sentiment', icon: Flame },
+  { key: 'macro', label: '宏观数据', to: '/research/macro', icon: Globe2 },
   {
     key: 'quant',
     label: '量化研究',
@@ -61,12 +69,12 @@ export const researchNavItems: NavDestination[] = [
 ];
 
 export const mainNavItems: MainNavItem[] = [
-  { key: 'dashboard', label: '市场动态', to: '/dashboard', icon: Activity, exact: true },
+  { key: 'dashboard', label: '市场动态', to: '/dashboard', icon: LayoutDashboard, exact: true },
   {
     key: 'market',
     label: '市场',
     to: '/market/watch-list',
-    icon: ChartNoAxesCombined,
+    icon: ChartCandlestick,
     activePathPrefix: '/market/',
     children: marketNavItems,
   },
@@ -75,7 +83,7 @@ export const mainNavItems: MainNavItem[] = [
     key: 'research',
     label: '研究',
     to: '/research/etf-rotation',
-    icon: BarChart3,
+    icon: ChartNoAxesCombined,
     activePathPrefix: '/research/',
     children: researchNavItems,
   },

@@ -65,7 +65,7 @@ describe('Shell navigation', () => {
       const { wrapper } = await mountShell(path);
       const marketMenu = wrapper.get('button[aria-label="市场"]');
       expect(marketMenu.attributes('aria-current')).toBe('page');
-      expect(marketMenu.classes()).toContain('bg-muted');
+      expect(marketMenu.classes()).toContain('bg-muted/80');
       expect(wrapper.get('button[aria-label="研究"]').attributes('aria-current')).toBeUndefined();
     },
   );
@@ -78,7 +78,7 @@ describe('Shell navigation', () => {
     const { wrapper } = await mountShell(path);
     const researchMenu = wrapper.get('button[aria-label="研究"]');
     expect(researchMenu.attributes('aria-current')).toBe('page');
-    expect(researchMenu.classes()).toContain('bg-muted');
+    expect(researchMenu.classes()).toContain('bg-muted/80');
     expect(wrapper.get('button[aria-label="市场"]').attributes('aria-current')).toBeUndefined();
     expect(wrapper.find('[data-testid="desktop-main-nav"] a[aria-label="分析"]').exists()).toBe(false);
   });
@@ -89,7 +89,7 @@ describe('Shell navigation', () => {
       const { wrapper } = await mountShell(path);
       const taskLink = wrapper.get('[data-testid="desktop-main-nav"] a[aria-label="任务中心"]');
       expect(taskLink.attributes('aria-current')).toBe('page');
-      expect(taskLink.classes()).toContain('bg-muted');
+      expect(taskLink.classes()).toContain('bg-muted/80');
     },
   );
 
@@ -189,11 +189,14 @@ describe('Shell navigation', () => {
     wrapper.unmount();
   });
 
-  it('keeps the desktop navigation visible and links the logo to the dashboard', async () => {
+  it('keeps the desktop navigation classes and links the logo to the dashboard', async () => {
     const { wrapper } = await mountShell('/dashboard');
-    expect(wrapper.get('[data-testid="desktop-main-nav"]').classes()).not.toContain('hidden');
+    const desktopNav = wrapper.get('[data-testid="desktop-main-nav"]');
+    expect(desktopNav.classes()).toContain('hidden');
+    expect(desktopNav.classes()).toContain('lg:flex');
+    expect(wrapper.get('[data-testid="mobile-nav-trigger"]').classes()).toContain('lg:hidden');
     expect(wrapper.get('a[aria-label="回到动态"]').attributes('href')).toBe('/dashboard');
-    expect(wrapper.get('a[aria-label="市场动态"]').attributes('aria-current')).toBe('page');
+    expect(wrapper.get('[data-testid="desktop-main-nav"] a[aria-label="市场动态"]').attributes('aria-current')).toBe('page');
     wrapper.unmount();
   });
 });

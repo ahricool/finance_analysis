@@ -81,16 +81,16 @@ function selectTradeDate(value: string) {
         :active-key="activeTab"
         label="量化研究导航"
       />
-      <div class="flex shrink-0 items-end gap-3">
+      <div class="flex min-w-0 flex-wrap items-end gap-3">
         <p
-          class="flex h-10 items-center text-xs text-muted-foreground"
+          class="flex h-10 max-w-full items-center text-xs text-muted-foreground"
           data-testid="quant-scope-description"
         >
           {{ scopeDescription }}
         </p>
         <div
           v-if="activeTab !== 'datasets' && activeTab !== 'models'"
-          class="w-56"
+          class="w-full max-w-56 sm:w-56"
         >
           <AppDatePicker
             label="交易日"

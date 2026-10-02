@@ -17,9 +17,10 @@ const activeTab = computed<MarketTab>(() => {
 </script>
 
 <template>
-  <div class="space-y-6 py-4 sm:py-6">
+  <div class="page-shell">
     <PageHeader
       title="市场"
+      en="Market"
       description="管理自选股，并维护数据库中的实际持仓。"
     />
     <ModuleTabs

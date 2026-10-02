@@ -7,6 +7,8 @@ import { BINANCE_INTERVALS } from '@/types/binance';
 import BtcPerformance from '@/components/crypto/BtcPerformance.vue';
 import BtcKlineChart from '@/components/crypto/BtcKlineChart.vue';
 import AppApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
+import BilingualEnum from '@/components/app/BilingualEnum.vue';
+import BilingualLabel from '@/components/app/BilingualLabel.vue';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -23,17 +25,17 @@ const { overview, signals, loading, error, refresh, performance, performanceErro
   selectedKey, strategies, strategiesError, refreshStrategies, summaries, markers, markerError, refreshMarkers } = useCryptoStrategy(markerRange);
 const strategy = computed(() => overview.value?.strategy);
 const metrics = computed(() => [
-  ['Market Regime', strategy.value?.regime ?? '等待数据'],
-  ['Setup', strategy.value?.setup ?? '—'],
-  ['Action', strategy.value?.action ?? '—'],
-  ['Strategy State', strategy.value?.positionState ?? overview.value?.state.positionState ?? 'FLAT'],
-  ['EMA20 · 1h', number(strategy.value?.ema201H)],
-  ['EMA50 · 1h', number(strategy.value?.ema501H)],
-  ['Breakout Level · 15m', number(strategy.value?.breakoutLevel15M)],
-  ['Volume Ratio · 15m', number(strategy.value?.volumeRatio15M)],
-  ['ATR14 · 15m', number(strategy.value?.atr1415M)],
-  ['Initial Stop', number(strategy.value?.initialStop)],
-  ['Trailing Stop', number(strategy.value?.trailingStop)],
+  { kind: 'enum' as const, labelKey: 'marketRegime', value: strategy.value?.regime ?? '' },
+  { kind: 'enum' as const, label: '形态', en: 'Setup', value: strategy.value?.setup ?? '' },
+  { kind: 'enum' as const, label: '动作', en: 'Action', value: strategy.value?.action ?? '' },
+  { kind: 'text' as const, label: '策略状态', en: 'Strategy State', value: strategy.value?.positionState ?? overview.value?.state.positionState ?? 'FLAT' },
+  { kind: 'text' as const, label: 'EMA20 · 1h', value: number(strategy.value?.ema201H) },
+  { kind: 'text' as const, label: 'EMA50 · 1h', value: number(strategy.value?.ema501H) },
+  { kind: 'text' as const, label: '突破位 · 15m', en: 'Breakout Level', value: number(strategy.value?.breakoutLevel15M) },
+  { kind: 'text' as const, label: '量比 · 15m', en: 'Volume Ratio', value: number(strategy.value?.volumeRatio15M) },
+  { kind: 'text' as const, label: 'ATR14 · 15m', value: number(strategy.value?.atr1415M) },
+  { kind: 'text' as const, label: '初始止损', en: 'Initial Stop', value: number(strategy.value?.initialStop) },
+  { kind: 'text' as const, label: '移动止损', en: 'Trailing Stop', value: number(strategy.value?.trailingStop) },
 ]);
 function percent(value: string | null) { return value == null ? '—' : Number.isFinite(Number(value) * 100) ? `${(Number(value) * 100).toFixed(2)}%` : `${value} × 100%`; }
 function number(value: string | null | undefined) {
@@ -46,7 +48,7 @@ function time(value: string | null | undefined) {
 
 <template>
   <div
-    class="min-w-0 space-y-4"
+    class="page-shell min-w-0"
     data-testid="crypto-btc-page"
   >
     <header class="flex flex-wrap items-start justify-between gap-3">
@@ -100,7 +102,7 @@ function time(value: string | null | undefined) {
       </CardHeader>
       <CardContent class="min-w-0 px-2 sm:px-6">
         <div
-          class="mb-4 flex gap-2"
+          class="mb-4 flex flex-wrap gap-2"
           data-testid="btc-interval-selector"
           aria-label="K线周期"
         >
@@ -178,27 +180,48 @@ function time(value: string | null | undefined) {
         </option>
       </select>
     </div>
-    <div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
+    <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
       <Card
-        v-for="[label, value] in metrics"
-        :key="label"
+        v-for="(metric, index) in metrics"
+        :key="index"
+        class="gap-0 py-2.5! shadow-none"
       >
-        <CardHeader class="pb-2">
-          <CardDescription>{{ label }}</CardDescription>
+        <CardHeader class="px-3 pb-1 pt-0">
+          <CardDescription>
+            <BilingualLabel
+              v-if="metric.labelKey"
+              :label="metric.labelKey"
+            />
+            <BilingualLabel
+              v-else
+              :zh="metric.label"
+              :en="metric.en"
+            />
+          </CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent class="px-3 py-0">
           <Skeleton
             v-if="loading"
             class="h-6 w-20"
-          /><strong
+          />
+          <BilingualEnum
+            v-else-if="metric.kind === 'enum'"
+            :value="metric.value"
+            size="large"
+            class="w-full"
+          />
+          <strong
             v-else
-            class="text-lg tabular-nums"
-          >{{ value }}</strong>
+            class="block text-lg tabular-nums"
+          >{{ metric.value }}</strong>
         </CardContent>
       </Card>
     </div>
     <Card>
-      <CardHeader><CardTitle>Recent Signals</CardTitle><CardDescription>{{ strategy?.reason ?? '等待完整 1h EMA50 与 15m 指标预热。' }} · 每 15 分钟收盘后评估</CardDescription></CardHeader>
+      <CardHeader>
+        <CardTitle>近期信号</CardTitle>
+        <CardDescription>{{ strategy?.reason ?? '等待完整 1h EMA50 与 15m 指标预热。' }} · 每 15 分钟收盘后评估</CardDescription>
+      </CardHeader>
       <CardContent class="min-w-0 overflow-x-auto">
         <p
           v-if="!signals.length"
@@ -207,7 +230,16 @@ function time(value: string | null | undefined) {
           暂无策略快照
         </p>
         <Table v-else>
-          <TableHeader><TableRow><TableHead>时间 UTC</TableHead><TableHead>Action</TableHead><TableHead>Regime</TableHead><TableHead>Price</TableHead><TableHead>State</TableHead><TableHead>原因</TableHead></TableRow></TableHeader>
+          <TableHeader>
+            <TableRow>
+              <TableHead>时间 UTC</TableHead>
+              <TableHead><BilingualLabel label="action" compact /></TableHead>
+              <TableHead><BilingualLabel label="marketRegime" compact /></TableHead>
+              <TableHead>价格</TableHead>
+              <TableHead>状态</TableHead>
+              <TableHead>原因</TableHead>
+            </TableRow>
+          </TableHeader>
           <TableBody>
             <TableRow
               v-for="item in signals"
@@ -217,9 +249,17 @@ function time(value: string | null | undefined) {
                 {{ time(item.evaluatedAt) }}
               </TableCell><TableCell>
                 <Badge variant="outline">
-                  {{ item.action }}
+                  <BilingualEnum
+                    :value="item.action"
+                    size="badge"
+                  />
                 </Badge>
-              </TableCell><TableCell>{{ item.regime }}</TableCell><TableCell>{{ number(item.price) }}</TableCell><TableCell>{{ item.positionState }}</TableCell><TableCell class="min-w-56 whitespace-normal">
+              </TableCell><TableCell>
+                <BilingualEnum
+                  :value="item.regime"
+                  size="badge"
+                />
+              </TableCell><TableCell>{{ number(item.price) }}</TableCell><TableCell>{{ item.positionState }}</TableCell><TableCell class="min-w-56 whitespace-normal">
                 {{ item.reason }}
               </TableCell>
             </TableRow>
@@ -242,10 +282,18 @@ function time(value: string | null | undefined) {
       v-if="summaries.length >= 2"
       data-testid="btc-strategy-comparison"
     >
-      <CardHeader><CardTitle>Strategy Comparison</CardTitle></CardHeader>
+      <CardHeader><CardTitle><BilingualLabel label="strategyComparison" /></CardTitle></CardHeader>
       <CardContent class="overflow-x-auto">
         <Table>
-          <TableHeader><TableRow><TableHead>Strategy</TableHead><TableHead>Position</TableHead><TableHead>Total</TableHead><TableHead>Annualized</TableHead><TableHead>MDD</TableHead><TableHead>Win Rate</TableHead><TableHead>Days</TableHead></TableRow></TableHeader>
+          <TableHeader><TableRow>
+            <TableHead><BilingualLabel label="strategy" compact /></TableHead>
+            <TableHead><BilingualLabel label="position" compact /></TableHead>
+            <TableHead><BilingualLabel label="totalReturn" compact /></TableHead>
+            <TableHead><BilingualLabel label="annualized" compact /></TableHead>
+            <TableHead><BilingualLabel label="maxDrawdown" compact /></TableHead>
+            <TableHead><BilingualLabel label="winRate" compact /></TableHead>
+            <TableHead><BilingualLabel label="runningDays" compact /></TableHead>
+          </TableRow></TableHeader>
           <TableBody>
             <TableRow
               v-for="item in summaries"

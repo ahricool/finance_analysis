@@ -67,4 +67,9 @@ describe('main navigation', () => {
       to: '/tasks',
     });
   });
+
+  it('uses a distinct icon for each research destination', () => {
+    const icons = researchNavItems.map((item) => item.icon);
+    expect(new Set(icons).size).toBe(icons.length);
+  });
 });

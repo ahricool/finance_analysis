@@ -2,15 +2,18 @@
 import { Breadcrumb, BreadcrumbItem, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from '@/components/ui/breadcrumb';
 
 withDefaults(defineProps<{
+  /** Chinese primary title */
   title: string;
+  /** Optional muted English subtitle under the Chinese title (never above). */
+  en?: string;
   description?: string;
   section?: string;
-}>(), { description: '', section: '' });
+}>(), { description: '', section: '', en: '' });
 </script>
 
 <template>
-  <header class="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-    <div class="min-w-0 space-y-2">
+  <header class="flex flex-col gap-4 border-b border-border/60 pb-5 md:flex-row md:items-end md:justify-between">
+    <div class="min-w-0 space-y-2.5">
       <Breadcrumb v-if="section || $slots.breadcrumb">
         <BreadcrumbList>
           <slot name="breadcrumb">
@@ -21,12 +24,18 @@ withDefaults(defineProps<{
         </BreadcrumbList>
       </Breadcrumb>
       <div>
-        <h1 class="text-2xl font-semibold tracking-tight sm:text-3xl">
+        <h1 class="text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
           {{ title }}
         </h1>
         <p
+          v-if="en"
+          class="mt-1 text-xs font-normal tracking-wide text-muted-foreground sm:text-sm"
+        >
+          {{ en }}
+        </p>
+        <p
           v-if="description"
-          class="mt-1 max-w-3xl text-sm text-muted-foreground sm:text-base"
+          class="mt-1.5 max-w-3xl text-sm leading-relaxed text-muted-foreground sm:text-base"
         >
           {{ description }}
         </p>

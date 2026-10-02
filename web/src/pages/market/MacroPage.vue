@@ -31,7 +31,8 @@ onBeforeUnmount(() => { sequence++; });
   >
     <PageHeader
       title="宏观数据"
-      description="US Macro · 跨资产环境与风险偏好监控"
+      en="US Macro"
+      description="跨资产环境与风险偏好监控"
     >
       <template #actions>
         <div class="text-right">
@@ -55,7 +56,7 @@ onBeforeUnmount(() => { sequence++; });
     />
     <div
       v-if="loading && !dashboard"
-      class="grid grid-cols-3 gap-3 min-[87.5rem]:grid-cols-6"
+      class="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 min-[87.5rem]:grid-cols-6"
     >
       <Skeleton
         v-for="i in 6"

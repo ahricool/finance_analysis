@@ -17,7 +17,10 @@ import { createParsedApiError, getParsedApiError, type ParsedApiError } from '@/
 import AppApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
 import AppDatePicker from '@/components/app/AppDatePicker.vue';
 import SortableTableHeader from '@/components/stocks/SortableTableHeader.vue';
+import BilingualEnum from '@/components/app/BilingualEnum.vue';
+import BilingualLabel from '@/components/app/BilingualLabel.vue';
 import IndicatorLabel from '@/components/app/IndicatorHelpLabel.vue';
+import { metricLabel } from '@/i18n/labels';
 import LoadingButton from '@/components/app/LoadingButton.vue';
 import ResearchDataModeToggle from '@/components/research/ResearchDataModeToggle.vue';
 import ResearchDataStatusBar from '@/components/research/ResearchDataStatusBar.vue';
@@ -117,24 +120,24 @@ const detailChartHistory = computed(() => detail.value
   ? buildDetailChartHistory(detail.value.history, detail.value.latest, detailMode.value === 'preview')
   : []);
 const trendColumns = [
-  { key: 'rank', label: 'Alpha Rank', group: 'Core', format: 'number', description: descriptions.rank },
+  { key: 'rank', label: 'alphaRank', group: 'Core', format: 'number', description: descriptions.rank },
   { key: 'name', label: '股票名称', group: 'Core', format: 'text', description: undefined },
-  { key: 'state', label: 'State', group: 'Core', format: 'text', description: descriptions.state },
-  { key: 'alphaScore', label: 'Alpha Score', group: 'Core', format: 'score', description: descriptions.alpha },
-  { key: 'entryScore', label: 'Entry Score', group: 'Core', format: 'score', description: descriptions.entry },
-  { key: 'entryType', label: 'Entry Type', group: 'Core', format: 'text', description: descriptions.entry },
-  { key: 'trendScore', label: 'Trend Score', group: 'Core', format: 'score', description: descriptions.trend },
-  { key: 'rsScore', label: 'RS Score', group: 'Core', format: 'score', description: descriptions.relativeStrength },
-  { key: 'setupScore', label: 'Setup Score', group: 'Core', format: 'score', description: descriptions.breakout },
-  { key: 'pathScore', label: 'Path Score', group: 'Core', format: 'score', description: descriptions.path },
-  { key: 'distanceFromMa20', label: 'Distance From MA20', group: 'Core', format: 'percent', description: descriptions.movingAverage },
-  { key: 'atrPercent', label: 'ATR %', group: 'Core', format: 'percent', description: descriptions.atrPercent },
-  { key: 'fragilityScore', label: 'Fragility', group: 'Core', format: 'score', description: '0–100；越高表示内部恶化越快。历史不足显示 —，并不代表稳定。' },
-  { key: 'closeLocationValue', label: 'CLV', group: 'Core', format: 'ratio', description: descriptions.clv },
+  { key: 'state', label: 'state', group: 'Core', format: 'text', description: descriptions.state },
+  { key: 'alphaScore', label: 'alphaScore', group: 'Core', format: 'score', description: descriptions.alpha },
+  { key: 'entryScore', label: 'entryScore', group: 'Core', format: 'score', description: descriptions.entry },
+  { key: 'entryType', label: 'entryType', group: 'Core', format: 'text', description: descriptions.entry },
+  { key: 'trendScore', label: 'trendScore', group: 'Core', format: 'score', description: descriptions.trend },
+  { key: 'rsScore', label: 'rsScore', group: 'Core', format: 'score', description: descriptions.relativeStrength },
+  { key: 'setupScore', label: 'setupScore', group: 'Core', format: 'score', description: descriptions.breakout },
+  { key: 'pathScore', label: 'pathScore', group: 'Core', format: 'score', description: descriptions.path },
+  { key: 'distanceFromMa20', label: 'distanceFromMa20', group: 'Core', format: 'percent', description: descriptions.movingAverage },
+  { key: 'atrPercent', label: 'atrPercent', group: 'Core', format: 'percent', description: descriptions.atrPercent },
+  { key: 'fragilityScore', label: 'fragility', group: 'Core', format: 'score', description: '0–100；越高表示内部恶化越快。历史不足显示 —，并不代表稳定。' },
+  { key: 'closeLocationValue', label: 'clv', group: 'Core', format: 'ratio', description: descriptions.clv },
   ...forwardReturnColumns,
-  { key: 'trendLifecycle', label: 'Lifecycle / Age', group: 'Core', format: 'number', description: '趋势阶段与持续交易日数。MATURE 表示趋势成熟阶段。' },
+  { key: 'trendLifecycle', label: 'lifecycleAge', group: 'Core', format: 'number', description: '趋势阶段与持续交易日数。MATURE 表示趋势成熟阶段。' },
   { key: 'rankChange5D', label: '排名趋势', group: 'Core', format: 'number', description: descriptions.rankChange },
-  { key: 'referencePrice', label: 'Reference Price', group: 'Core', format: 'price', description: descriptions.reference },
+  { key: 'referencePrice', label: 'referencePrice', group: 'Core', format: 'price', description: descriptions.reference },
   { key: 'alphaTrendContribution', label: 'Trend Contribution', group: 'Alpha', format: 'score', description: descriptions.alpha },
   { key: 'alphaRsContribution', label: 'RS Contribution', group: 'Alpha', format: 'score', description: descriptions.alpha },
   { key: 'alphaSetupContribution', label: 'Setup Contribution', group: 'Alpha', format: 'score', description: descriptions.alpha },
@@ -183,31 +186,31 @@ const trendColumns = [
 const boxColumns = [
   { key: 'name', label: '股票名称', format: 'text' },
   { key: 'boxState', label: '状态', format: 'text' },
-  { key: 'boxQuality', label: 'Box Quality', format: 'score' },
-  { key: 'boxWindowDays', label: 'Box Days', format: 'number' },
-  { key: 'boxWidthPct', label: 'Box Width', format: 'percent' },
+  { key: 'boxQuality', label: 'boxQuality', format: 'score' },
+  { key: 'boxWindowDays', label: 'boxDays', format: 'number' },
+  { key: 'boxWidthPct', label: 'boxWidth', format: 'percent' },
   { key: 'distanceToBoxHighPct', label: '距箱顶', format: 'percent' },
   { key: 'boxBreakoutDistanceAtr', label: '突破距离', format: 'ratio' },
   { key: 'boxUpperTouches', label: '上沿测试', format: 'number' },
-  { key: 'rsScore', label: 'RS Score', format: 'score' },
-  { key: 'trendScore', label: 'Trend Score', format: 'score' },
-  { key: 'alphaScore', label: 'Alpha', format: 'score' },
-  { key: 'volumeRatio', label: 'Volume', format: 'ratio' },
+  { key: 'rsScore', label: 'rsScore', format: 'score' },
+  { key: 'trendScore', label: 'trendScore', format: 'score' },
+  { key: 'alphaScore', label: 'alpha', format: 'score' },
+  { key: 'volumeRatio', label: 'volume', format: 'ratio' },
   ...forwardReturnColumns,
 ] as const;
 const mrColumns = [
   { key: 'name', label: '股票名称', format: 'text' },
-  { key: 'mrState', label: 'MR State', format: 'text' },
-  { key: 'mrQuality', label: 'MR Quality', format: 'score' },
+  { key: 'mrState', label: 'mrState', format: 'text' },
+  { key: 'mrQuality', label: 'mrQuality', format: 'score' },
   { key: 'rsi14', label: 'RSI14', format: 'score' },
   { key: 'distanceFromMa20Atr', label: '距 MA20 / ATR', format: 'ratio' },
-  { key: 'return3D', label: '3D Return', format: 'percent' },
-  { key: 'return5D', label: '5D Return', format: 'percent' },
-  { key: 'closeLocationValue', label: 'CLV', format: 'ratio' },
-  { key: 'trendScore', label: 'Trend Score', format: 'score' },
-  { key: 'rsScore', label: 'RS Score', format: 'score' },
-  { key: 'alphaScore', label: 'Alpha', format: 'score' },
-  { key: 'state', label: 'State', format: 'text' },
+  { key: 'return3D', label: 'return3D', format: 'percent' },
+  { key: 'return5D', label: 'return5D', format: 'percent' },
+  { key: 'closeLocationValue', label: 'clv', format: 'ratio' },
+  { key: 'trendScore', label: 'trendScore', format: 'score' },
+  { key: 'rsScore', label: 'rsScore', format: 'score' },
+  { key: 'alphaScore', label: 'alpha', format: 'score' },
+  { key: 'state', label: 'state', format: 'text' },
 ] as const;
 const mrFilters = [{ value: 'all', label: '全部超跌机会' }, { value: 'MR_REBOUND', label: '反弹确认' }, { value: 'MR_OVERSOLD', label: '超跌观察' }];
 const mrText = (value: unknown) => value === 'MR_REBOUND' ? '反弹确认' : value === 'MR_OVERSOLD' ? '超跌观察' : '—';
@@ -316,11 +319,12 @@ async function exportRanking(table: typeof tables[number]) {
   table.exporting = true;
   try {
     const columns: ExcelColumn[] = table.columns.flatMap(column => {
-      if (column.key === 'name') return [{ label: column.label }, { label: '代码' }];
-      if (column.key === 'trendLifecycle') return [{ label: 'Lifecycle' }, { label: 'Age (D)', format: '0' }];
-      if (column.key === 'rankChange5D') return ['1D', '3D', '5D'].map(period => ({ label: `Rank Δ ${period}`, format: '+0;-0;0' }));
-      if (column.key === 'alphaScore') return [{ label: column.label, format: '0.0' }, { label: 'Alpha Version' }];
-      return [{ label: column.label, format: column.format === 'percent' ? '0.0%'
+      const zh = metricLabel(column.label).zh;
+      if (column.key === 'name') return [{ label: zh }, { label: '代码' }];
+      if (column.key === 'trendLifecycle') return [{ label: metricLabel('lifecycle').zh }, { label: '持续天数', format: '0' }];
+      if (column.key === 'rankChange5D') return ['1D', '3D', '5D'].map(period => ({ label: `排名变化${period}`, format: '+0;-0;0' }));
+      if (column.key === 'alphaScore') return [{ label: zh, format: '0.0' }, { label: 'Alpha 版本' }];
+      return [{ label: zh, format: column.format === 'percent' ? '0.0%'
         : column.format === 'r2' ? '0.000' : column.format === 'slope' ? '0.0000'
           : column.format === 'price' || column.format === 'ratio' ? '0.00' : column.key === 'rank' ? '0' : '0.0' }];
     });
@@ -400,12 +404,12 @@ const tables = [
   createTable('mr', '超跌反弹', '识别短期极端偏离及确认反弹，不参与 Alpha 排名。', mrColumns.map(c => ({ ...c, group: '超跌反弹' }))),
 ];
 const cards = computed(() => [
-  ['Market Regime', summary.value.marketRegime, descriptions.marketRegime],
-  ['Market Score', score(summary.value.marketScore), descriptions.marketScore],
-  ['Universe Size', summary.value.universeSize, descriptions.universeSize],
-  ['Data Coverage', pct(summary.value.dataCoverage), descriptions.dataCoverage],
-  ['Rankable', summary.value.rankableCount, descriptions.rankable],
-  ['Candidate', summary.value.candidateCount, descriptions.candidate],
+  ['marketRegime', summary.value.marketRegime, descriptions.marketRegime, 'enum'],
+  ['marketScore', score(summary.value.marketScore), descriptions.marketScore, 'text'],
+  ['universeSize', summary.value.universeSize, descriptions.universeSize, 'text'],
+  ['dataCoverage', pct(summary.value.dataCoverage), descriptions.dataCoverage, 'text'],
+  ['rankable', summary.value.rankableCount, descriptions.rankable, 'text'],
+  ['candidate', summary.value.candidateCount, descriptions.candidate, 'text'],
 ]);
 const previewAvailable = computed(() => previewStatus.value != null);
 const showingPreview = computed(() => dataMode.value === 'preview' && !previewLoading.value && isPreviewCompleted(previewPayload.value?.status));
@@ -519,7 +523,8 @@ async function load(refreshDates = false, options: { autoSelectMode?: boolean } 
     else applyOfficialRanking(ranking);
   } catch (reason) {
     if (current === generation) {
-      error.value = getParsedApiError(reason);
+      const parsed = getParsedApiError(reason);
+      error.value = parsed.status === 404 ? null : parsed;
       items.value = [];
       changes.value = null;
       officialSelected.value = null;
@@ -695,6 +700,9 @@ onMounted(async () => {
         <h2 class="text-lg font-semibold">
           趋势跟踪
         </h2>
+        <p class="mt-0.5 text-xs tracking-wide text-muted-foreground">
+          Trend Following
+        </p>
         <p class="mt-1 text-xs text-muted-foreground">
           {{ scope }} · 股票趋势状态与风险指标。
         </p>
@@ -800,20 +808,30 @@ onMounted(async () => {
     >
       <div
         v-if="showingStrategyBody"
-        class="grid gap-3 grid-cols-2 md:grid-cols-3 xl:grid-cols-6"
+        class="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-6"
         data-testid="trend-summary"
       >
         <Card
           v-for="card in cards"
           :key="String(card[0])"
+          class="gap-0 py-2.5! shadow-none"
         >
-          <CardContent class="p-3">
+          <CardContent class="min-w-0 space-y-1 px-3 py-0">
             <IndicatorLabel
               :label="String(card[0])"
               :description="String(card[2])"
               wrap
             />
-            <strong class="mt-1 block text-lg">{{ card[1] }}</strong>
+            <BilingualEnum
+              v-if="card[3] === 'enum'"
+              :value="String(card[1] ?? '')"
+              size="large"
+              class="w-full"
+            />
+            <strong
+              v-else
+              class="block truncate text-lg tabular-nums"
+            >{{ card[1] }}</strong>
           </CardContent>
         </Card>
       </div>
@@ -841,7 +859,7 @@ onMounted(async () => {
               data-testid="trend-market-score-change"
             >
               <IndicatorLabel
-                label="Market Score Δ"
+                label="marketScoreDelta"
                 :description="descriptions.marketScoreChange"
               />
               <strong class="mt-1 block text-lg">{{ scoreDelta(changes?.marketScoreChange) }}</strong>
@@ -851,7 +869,7 @@ onMounted(async () => {
               data-testid="trend-breadth-score-change"
             >
               <IndicatorLabel
-                label="Breadth Score Δ"
+                label="breadthScoreDelta"
                 :description="descriptions.breadthScoreChange"
               />
               <strong class="mt-1 block text-lg">{{ scoreDelta(changes?.breadthScoreChange) }}</strong>
@@ -865,7 +883,7 @@ onMounted(async () => {
           >
             <section>
               <h3 class="mb-2 text-sm font-semibold">
-                Rank / Score Movers
+                排名 / 分数变动
               </h3>
               <div class="flex flex-wrap gap-2">
                 <button
@@ -913,7 +931,7 @@ onMounted(async () => {
             </LoadingButton>
             <div
               v-if="table.kind === 'trend'"
-              class="flex gap-1"
+              class="flex max-w-full flex-wrap gap-1"
               aria-label="按趋势状态筛选"
               data-testid="trend-state-filter"
             >
@@ -930,7 +948,7 @@ onMounted(async () => {
             </div>
             <div
               v-if="table.kind === 'box'"
-              class="flex gap-1"
+              class="flex max-w-full flex-wrap gap-1"
               data-testid="box-state-filter"
               aria-label="按箱体状态筛选"
             >
@@ -985,7 +1003,7 @@ onMounted(async () => {
                   v-for="column in table.columns"
                   :key="column.key"
                   :value="column.key"
-                >{{ column.label }}</option>
+                >{{ metricLabel(column.label).zh }}</option>
               </select>
             </label>
           </CardHeader>
@@ -1099,10 +1117,16 @@ onMounted(async () => {
                         v-else-if="column.key === 'state'"
                         :variant="badgeVariant(item.state)"
                       >
-                        {{ stateText(item.state) }}
+                        <BilingualEnum
+                          :value="item.state"
+                          size="badge"
+                        />
                       </Badge>
                       <template v-else-if="column.key === 'trendLifecycle'">
-                        <span class="text-xs">{{ item.trendLifecycle ?? '—' }}</span><span class="block text-xs text-muted-foreground">{{ item.trendDurationDays == null ? '—' : `${item.trendDurationDays}D` }}</span>
+                        <BilingualEnum
+                          :value="item.trendLifecycle"
+                          size="badge"
+                        /><span class="block text-xs text-muted-foreground">{{ item.trendDurationDays == null ? '—' : `${item.trendDurationDays}D` }}</span>
                       </template>
                       <template v-else-if="column.key === 'rankChange5D'">
                         <div
@@ -1219,17 +1243,34 @@ onMounted(async () => {
         >
           <div class="flex flex-wrap gap-2">
             <Badge :variant="badgeVariant(detail.latest.state)">
-              {{ stateText(detail.latest.state) }}
+              <BilingualEnum
+                :value="detail.latest.state"
+                size="badge"
+              />
             </Badge><Badge variant="outline">
               {{ detail.latest.setup }}
             </Badge>
           </div>
-          <div class="grid grid-cols-3 gap-3 rounded-lg border p-4 text-sm">
-            <div>Trend Age<strong class="block">{{ detail.latest.trendDurationDays == null ? '—' : `${detail.latest.trendDurationDays}D` }}</strong></div>
-            <div>Lifecycle<strong class="block">{{ detail.latest.trendLifecycle ?? '—' }}</strong></div>
-            <div>Fragility<strong class="block">{{ score(detail.latest.fragilityScore) }} / 100</strong></div>
-            <div>Acceleration<strong class="block">{{ score(detail.latest.features.trendAcceleration) }}</strong></div>
-            <div>Signed Efficiency<strong class="block">{{ score(detail.latest.features.signedEfficiencyRatio10D) }}</strong></div>
+          <div class="grid grid-cols-1 gap-3 rounded-lg border p-4 text-sm sm:grid-cols-3">
+            <div><BilingualLabel
+              label="trendDuration"
+            /><strong class="mt-1 block">{{ detail.latest.trendDurationDays == null ? '—' : `${detail.latest.trendDurationDays}D` }}</strong></div>
+            <div><BilingualLabel
+              label="lifecycle"
+            /><strong class="mt-1 block"><BilingualEnum
+              :value="detail.latest.trendLifecycle"
+              size="badge"
+            /></strong></div>
+            <div><BilingualLabel
+              label="fragility"
+            /><strong class="mt-1 block">{{ score(detail.latest.fragilityScore) }} / 100</strong></div>
+            <div><BilingualLabel
+              label="acceleration"
+            /><strong class="mt-1 block">{{ score(detail.latest.features.trendAcceleration) }}</strong></div>
+            <div><BilingualLabel
+              zh="符号效率"
+              en="Signed Efficiency"
+            /><strong class="mt-1 block">{{ score(detail.latest.features.signedEfficiencyRatio10D) }}</strong></div>
           </div>
           <section
             class="space-y-3 rounded-lg border p-4 text-sm"
@@ -1312,7 +1353,7 @@ onMounted(async () => {
             <p>{{ boxStateText(detail.latest.features.boxState) }} · {{ detail.latest.features.boxStartDate ?? '—' }} → {{ detail.latest.features.boxEndDate ?? '—' }}</p>
             <p>本次新突破：{{ detail.latest.features.boxBreakoutFresh == null ? '—' : detail.latest.features.boxBreakoutFresh ? '是' : '否' }} · 昨日已确认突破：{{ detail.latest.features.boxPriorBreakoutConfirmed == null ? '—' : detail.latest.features.boxPriorBreakoutConfirmed ? '是' : '否' }}</p>
             <p>箱体事件已触发：{{ detail.latest.features.boxEpisodeConsumed == null ? '—' : detail.latest.features.boxEpisodeConsumed ? '是' : '否' }} · 突破日期：{{ detail.latest.features.boxEpisodeBreakoutDate ?? '—' }}</p>
-            <dl class="grid grid-cols-3 gap-3 tabular-nums">
+            <dl class="grid grid-cols-1 gap-3 tabular-nums sm:grid-cols-3">
               <div
                 v-for="[key, label, format] in boxDetailFields"
                 :key="key"
@@ -1346,7 +1387,7 @@ onMounted(async () => {
           />
           <details class="rounded-lg border p-4 text-sm">
             <summary class="cursor-pointer">
-              Fragility Breakdown
+              <BilingualLabel label="fragilityBreakdown" />
             </summary>
             <p class="my-2 text-xs text-muted-foreground">
               与 3 / 5 个历史正式快照日比较；缺失项不计权重，数据不足不生成总分。

@@ -12,10 +12,20 @@ export function delta5D(points: TrendBreadthPoint[], key: 'trendBreadth' | 'part
   const delta = (latest - previous) * 100;
   return `${delta > 0 ? '+' : ''}${delta.toFixed(1)}pp`;
 }
+
+export function delta5DValue(points: TrendBreadthPoint[], key: 'trendBreadth' | 'participation' | 'deteriorationBreadth'): number | null {
+  const latest = points.at(-1)?.[key];
+  const previous = points.at(-6)?.[key];
+  if (latest == null || previous == null) return null;
+  return (latest - previous) * 100;
+}
 export function breadthOption(points: TrendBreadthPoint[], dark: boolean, structure = false): Option {
-  const green = dark ? '#34d399' : '#059669';
-  const orange = dark ? '#fb923c' : '#c2410c';
-  const colors = structure ? [dark ? '#52525b' : '#d4d4d8', dark ? '#a3e635' : '#65a30d', green, orange] : [green, orange];
+  // A-share convention: strong/healthy = market-up (red), weak/deterioration = market-down (green).
+  const up = dark ? '#e86464' : '#dc2626';
+  const down = dark ? '#39b77a' : '#16854e';
+  const muted = dark ? '#52525b' : '#d4d4d8';
+  const emerging = dark ? '#fb7185' : '#f43f5e';
+  const colors = structure ? [muted, emerging, up, down] : [up, down];
   const series: Array<{ name: string; key: keyof TrendBreadthPoint }> = structure
     ? [{ name: 'Inactive · 未形成', key: 'inactive' }, { name: 'Emerging · 形成中', key: 'emerging' },
       { name: 'Healthy · 健康', key: 'healthy' }, { name: 'Deteriorating · 恶化', key: 'deteriorating' }]
@@ -23,7 +33,7 @@ export function breadthOption(points: TrendBreadthPoint[], dark: boolean, struct
   const text = dark ? '#d4d4d8' : '#52525b';
   return {
     animation: false, color: colors,
-    grid: { left: 48, right: 22, top: 52, bottom: 32 },
+    grid: { left: 48, right: 22, top: 52, bottom: 36, containLabel: false },
     legend: { top: 0, left: 0, itemWidth: 14, itemHeight: 8, textStyle: { color: text, fontSize: 11 }, selectedMode: !structure },
     tooltip: { trigger: 'axis', confine: true, renderMode: 'richText',
       backgroundColor: dark ? '#262626' : '#ffffff', borderColor: dark ? '#525252' : '#d4d4d4',

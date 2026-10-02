@@ -1,5 +1,6 @@
 import { registerOverlay, type OverlayCreate } from 'klinecharts';
 import type { TradeMarker } from '@/lib/tradeMarkers';
+import { MARKET_HEX } from '@/utils/marketColors';
 
 let registered = false;
 
@@ -16,7 +17,7 @@ export function ensureTradeMarkerOverlay() {
       const point = coordinates[0];
       if (!point) return [];
       const { label, kind } = overlay.extendData as { label: string; kind: string };
-      const color = kind === 'B' ? '#dc2626' : kind === 'S' ? '#16854e' : '#2563eb';
+      const color = kind === 'B' ? MARKET_HEX.light.up : kind === 'S' ? MARKET_HEX.light.down : '#2563eb';
       if (kind === 'date') return [{
         type: 'text',
         attrs: { x: point.x, y: point.y - 32, text: label, align: 'center', baseline: 'middle' },

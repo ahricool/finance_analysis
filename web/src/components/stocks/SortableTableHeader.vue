@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import type { HTMLAttributes } from 'vue';
 import { ArrowDown, ArrowUp, ArrowUpDown } from 'lucide-vue-next';
-import IndicatorLabel from '@/components/app/IndicatorHelpLabel.vue';
+import BilingualLabel from '@/components/app/BilingualLabel.vue';
 import { TableHead } from '@/components/ui/table';
 import { cn } from '@/utils/cn';
 
 const props = withDefaults(defineProps<{
+  /** Glossary key from metricLabels, or raw Chinese. */
   label: string;
   description?: string;
   active?: boolean;
@@ -33,30 +34,28 @@ defineEmits<{
     <div class="flex items-center gap-1">
       <button
         type="button"
-        class="flex items-center gap-1.5 whitespace-nowrap transition-colors hover:text-foreground"
+        class="flex min-w-0 items-center gap-1.5 transition-colors hover:text-foreground"
         :class="props.align === 'right' ? 'ml-auto' : ''"
         @click="$emit('sort')"
       >
-        {{ label }}
+        <BilingualLabel
+          :label="label"
+          :description="description"
+          compact
+        />
         <ArrowUp
           v-if="active && direction === 'asc'"
-          class="h-3.5 w-3.5"
+          class="h-3.5 w-3.5 shrink-0"
         />
         <ArrowDown
           v-else-if="active"
-          class="h-3.5 w-3.5"
+          class="h-3.5 w-3.5 shrink-0"
         />
         <ArrowUpDown
           v-else
-          class="h-3.5 w-3.5 opacity-50"
+          class="h-3.5 w-3.5 shrink-0 opacity-50"
         />
       </button>
-      <IndicatorLabel
-        v-if="description"
-        :label="label"
-        :description="description"
-        class="[&>span:first-child]:hidden"
-      />
     </div>
   </TableHead>
 </template>

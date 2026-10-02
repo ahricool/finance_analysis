@@ -54,7 +54,7 @@ describe('ZeroDteStatus', () => {
     expect(wrapper.text()).toContain('CALL延续');
     expect(wrapper.text()).toContain('不宜追高');
     expect(wrapper.find('svg').exists()).toBe(true);
-    expect(wrapper.get('span.border').classes()).toContain('text-red-500/80');
+    expect(wrapper.get('span.border').classes()).toContain('text-market-up/80');
   });
 
   it('explains the status without presenting an automatic holding instruction', async () => {

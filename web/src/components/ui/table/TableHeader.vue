@@ -4,7 +4,7 @@ import type { HTMLAttributes } from 'vue'; import { cn } from '@/utils/cn'; cons
 <template>
   <thead
     data-slot="table-header"
-    :class="cn('[&_tr]:border-b', props.class)"
+    :class="cn('bg-muted/30 [&_tr]:border-b', props.class)"
   >
     <slot />
   </thead>

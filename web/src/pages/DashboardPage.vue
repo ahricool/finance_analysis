@@ -7,7 +7,9 @@ import { useCurrentTime } from '@/composables/useCurrentTime';
 import MarketStructureCard from '@/components/dashboard/MarketStructureCard.vue';
 import DashboardState from '@/components/dashboard/DashboardState.vue';
 import StrategyChanges from '@/components/dashboard/StrategyChanges.vue';
-import { feedSummary, regimeText, regimeTone, upcomingEvents } from '@/components/dashboard/dashboardFormat';
+import { feedSummary, regimeTone, upcomingEvents } from '@/components/dashboard/dashboardFormat';
+import BilingualLabel from '@/components/app/BilingualLabel.vue';
+import BilingualEnum from '@/components/app/BilingualEnum.vue';
 import { importanceNames, kindLabel, marketLabel, sessionLabel } from '@/components/timeline/timelineFormat';
 import { formatDateTimeInDisplayTimezone, getDisplayTimezone } from '@/utils/format';
 import { formatScore } from '@/utils/quant';
@@ -24,22 +26,22 @@ const number = (value: string | undefined) => value && Number.isFinite(Number(va
 
 <template>
   <div
-    class="space-y-7 py-7"
+    class="space-y-7 py-6"
     data-testid="market-dashboard"
   >
-    <header class="flex items-end justify-between">
-      <div>
-        <p class="text-[10px] font-semibold tracking-[0.24em] text-muted-foreground">
-          MARKET INTELLIGENCE
-        </p>
-        <h1 class="mt-2 text-3xl font-semibold tracking-tight">
+    <header class="flex items-end justify-between gap-4">
+      <div class="min-w-0">
+        <h1 class="text-3xl font-semibold tracking-tight">
           市场动态
         </h1>
-        <p class="mt-2 text-sm text-muted-foreground">
+        <p class="mt-1 text-xs font-normal tracking-wide text-muted-foreground sm:text-sm">
+          Market Intelligence
+        </p>
+        <p class="mt-1.5 text-sm text-muted-foreground">
           市场状态、重要事件与策略变化的实时概览
         </p>
       </div>
-      <div class="text-right text-xs leading-6 text-muted-foreground">
+      <div class="shrink-0 text-right text-xs leading-6 text-muted-foreground">
         <p>{{ getDisplayTimezone() === 'Asia/Shanghai' ? '北京时间' : '美东时间' }}</p>
         <time class="tabular-nums">{{ formatDateTimeInDisplayTimezone(now.toISOString()) }}</time>
       </div>
@@ -47,12 +49,12 @@ const number = (value: string | undefined) => value && Number.isFinite(Number(va
 
     <section
       aria-label="Market Structure"
-      class="rounded-xl border"
+      class="overflow-hidden rounded-xl border border-border/80 bg-card shadow-xs transition-shadow hover:shadow-sm"
     >
-      <h2 class="border-b px-6 py-3 text-sm font-semibold">
-        市场结构 / MARKET STRUCTURE
+      <h2 class="border-b border-border/70 bg-muted/30 px-6 py-3.5 text-sm font-semibold tracking-wide">
+        <BilingualLabel label="marketStructure" />
       </h2>
-      <div class="grid grid-cols-2 divide-x">
+      <div class="grid grid-cols-1 divide-y md:grid-cols-2 md:divide-x md:divide-y-0">
         <div
           v-for="entry in markets"
           :key="entry.market"
@@ -60,19 +62,14 @@ const number = (value: string | undefined) => value && Number.isFinite(Number(va
         >
           <DashboardState
             :state="entry.structure"
-            :empty="false"
+            :empty="!entry.structure.data"
+            empty-message="暂无今日市场结构快照（非交易日或尚未生成）"
             @retry="entry.structure.refresh"
           >
             <MarketStructureCard
               v-if="entry.structure.data"
               :snapshot="entry.structure.data"
             />
-            <p
-              v-else
-              class="text-sm text-muted-foreground"
-            >
-              {{ entry.market }} · 暂无今日市场结构数据
-            </p>
           </DashboardState>
           <div
             v-if="entry.trend.data?.features?.lifecycleCounts"
@@ -85,10 +82,18 @@ const number = (value: string | undefined) => value && Number.isFinite(Number(va
               <span
                 v-for="(count, stage) in entry.trend.data.features.lifecycleCounts"
                 :key="stage"
-              >{{ stage.toUpperCase() }} <strong class="text-foreground">{{ count }}</strong></span>
+                class="inline-flex items-baseline gap-1"
+              >
+                <BilingualEnum
+                  :value="String(stage)"
+                  size="inline"
+                />
+                <strong class="text-foreground">{{ count }}</strong>
+              </span>
             </div>
-            <p class="mt-2">
-              High Fragility Trends: {{ entry.trend.data.features.highFragilityCount ?? '—' }}
+            <p class="mt-2 inline-flex flex-wrap items-baseline gap-1">
+              <BilingualLabel label="highFragilityTrends" compact />
+              <span>{{ entry.trend.data.features.highFragilityCount ?? '—' }}</span>
             </p>
           </div>
         </div>
@@ -96,48 +101,48 @@ const number = (value: string | undefined) => value && Number.isFinite(Number(va
     </section>
 
     <section
-      class="overflow-hidden rounded-xl border bg-muted/20"
-      aria-label="Market Regime"
+      class="rounded-xl border bg-muted/20"
+      aria-label="市场环境"
     >
-      <div class="flex items-center justify-between border-b px-6 py-3">
-        <h2 class="text-xs font-semibold tracking-[0.18em]">
-          市场环境 / MARKET REGIME
+      <div class="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3 sm:px-6">
+        <h2 class="text-sm font-semibold">
+          <BilingualLabel label="marketRegimeSection" />
         </h2>
-        <span class="text-xs text-muted-foreground">Trend Following · 最新交易日</span>
+        <span class="text-xs text-muted-foreground">趋势跟踪 · 最新交易日</span>
       </div>
-      <div class="grid grid-cols-2 divide-x">
+      <div class="grid grid-cols-1 divide-y lg:grid-cols-2 lg:divide-x lg:divide-y-0">
         <div
           v-for="entry in markets"
           :key="entry.market"
-          class="px-7 py-5"
+          class="min-w-0 px-4 py-5 sm:px-7"
         >
           <DashboardState
             :state="entry.trend"
             :empty="!entry.trend.data"
             @retry="entry.trend.refresh"
           >
-            <div class="mb-4 flex justify-between text-sm">
+            <div class="mb-4 flex flex-wrap justify-between gap-2 text-sm">
               <strong>{{ marketLabel(entry.market) }}</strong><span class="text-xs tabular-nums text-muted-foreground">数据日期 {{ entry.trend.data?.tradeDate }}</span>
             </div>
-            <div class="flex items-end justify-between gap-4">
-              <div>
-                <p
-                  class="text-3xl font-semibold tracking-tight"
-                  :class="regimeTone(entry.trend.data?.marketRegime)"
-                >
-                  {{ regimeText(entry.trend.data?.marketRegime) }}
-                </p>
-              </div>
-              <div class="text-right">
-                <p class="text-5xl font-light tracking-tight tabular-nums">
+            <div class="grid min-w-0 gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end sm:gap-4">
+              <BilingualEnum
+                :value="entry.trend.data?.marketRegime"
+                size="large"
+                :class="regimeTone(entry.trend.data?.marketRegime)"
+              />
+              <div class="min-w-0 sm:text-right">
+                <p class="text-4xl font-light leading-none tracking-tight tabular-nums sm:text-5xl">
                   {{ formatScore(entry.trend.data?.marketScore, 1) }}
                 </p>
-                <p class="mt-2 text-[10px] tracking-wider text-muted-foreground">
-                  MARKET SCORE / 100
+                <p class="mt-2 text-[10px] text-muted-foreground">
+                  <BilingualLabel
+                    label="marketScore"
+                    compact
+                  /> / 100
                 </p>
               </div>
             </div>
-            <div class="mt-4 flex gap-6 text-xs text-muted-foreground">
+            <div class="mt-4 flex flex-wrap gap-x-6 gap-y-2 text-xs text-muted-foreground">
               <span
                 v-for="(label, key) in { trend: '趋势', breadth: '宽度', risk: '风险' }"
                 :key="key"
@@ -151,12 +156,12 @@ const number = (value: string | undefined) => value && Number.isFinite(Number(va
     </section>
 
     <section
-      aria-label="What's Changed"
+      aria-label="策略变化"
       class="rounded-xl bg-muted/25 px-5 py-4"
     >
       <div class="flex items-center justify-between gap-3">
         <h2 class="text-lg font-semibold">
-          策略变化
+          <BilingualLabel label="strategyChanges" />
         </h2>
         <div
           class="flex gap-1"
@@ -175,7 +180,10 @@ const number = (value: string | undefined) => value && Number.isFinite(Number(va
         </div>
       </div>
       <p class="mt-1 text-xs text-muted-foreground">
-        WHAT'S CHANGED · 最新交易日与前一交易日对比
+        <BilingualLabel
+          label="whatsChanged"
+          inline
+        /> · 最新交易日与前一交易日对比
       </p>
       <div
         v-for="entry in strategyMarkets"
@@ -215,16 +223,19 @@ const number = (value: string | undefined) => value && Number.isFinite(Number(va
       </div>
     </section>
 
-    <div class="grid grid-cols-[minmax(0,1.6fr)_minmax(360px,1fr)] items-start gap-8">
+    <div class="grid grid-cols-1 items-start gap-8 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
       <section
         aria-label="Latest"
         class="min-w-0"
       >
-        <div class="mb-3 flex items-baseline justify-between border-b pb-3">
+        <div class="mb-3 flex items-baseline justify-between gap-3 border-b pb-3">
           <h2 class="text-lg font-semibold">
-            最新动态 <span class="ml-2 text-xs font-normal text-muted-foreground">LATEST</span>
+            <BilingualLabel
+              zh="最新动态"
+              en="Latest"
+            />
           </h2>
-          <span class="text-xs text-muted-foreground">按事件时间倒序 · 含未来事件</span>
+          <span class="shrink-0 text-xs text-muted-foreground">按事件时间倒序 · 含未来事件</span>
         </div>
         <DashboardState
           :state="latest"
@@ -244,10 +255,13 @@ const number = (value: string | undefined) => value && Number.isFinite(Number(va
               data-testid="dashboard-feed-item"
             >
               <div class="flex items-center justify-between gap-3 text-xs text-muted-foreground">
-                <span>{{ formatDateTimeInDisplayTimezone(item.eventTime) }} · {{ kindLabel(item) }} · {{ marketLabel(item.market) }}</span>
-                <span :class="item.importance === 'critical' ? 'text-destructive' : 'text-muted-foreground'">{{ item.importanceScore ? `${item.importanceScore}/10` : importanceNames[item.importance] }}</span>
+                <span class="min-w-0 truncate">{{ formatDateTimeInDisplayTimezone(item.eventTime) }} · {{ kindLabel(item) }} · {{ marketLabel(item.market) }}</span>
+                <span
+                  class="shrink-0"
+                  :class="item.importance === 'critical' ? 'text-destructive' : 'text-muted-foreground'"
+                >{{ item.importanceScore ? `${item.importanceScore}/10` : importanceNames[item.importance] }}</span>
               </div>
-              <h3 class="mt-2 text-base font-semibold leading-snug group-hover:text-primary">
+              <h3 class="mt-2 truncate text-base font-semibold leading-snug group-hover:text-primary">
                 {{ item.title }}
               </h3>
               <p
@@ -279,12 +293,15 @@ const number = (value: string | undefined) => value && Number.isFinite(Number(va
 
       <section
         aria-label="What's Next"
-        class="border-t pt-5"
+        class="min-w-0 border-t pt-5"
       >
-        <div class="flex items-baseline justify-between">
+        <div class="flex items-baseline justify-between gap-3">
           <h2 class="text-lg font-semibold">
-            接下来 <span class="ml-2 text-xs font-normal text-muted-foreground">WHAT'S NEXT</span>
-          </h2><span class="text-xs text-muted-foreground">未来7天 · 时间倒序</span>
+            <BilingualLabel
+              zh="接下来"
+              en="What's Next"
+            />
+          </h2><span class="shrink-0 text-xs text-muted-foreground">未来7天 · 时间倒序</span>
         </div>
         <DashboardState
           :state="upcoming"
@@ -303,9 +320,12 @@ const number = (value: string | undefined) => value && Number.isFinite(Number(va
             class="block border-b py-3 hover:bg-muted/30"
           >
             <div class="flex justify-between gap-3 text-xs text-muted-foreground">
-              <span>{{ formatDateTimeInDisplayTimezone(item.eventTime) }} {{ sessionLabel(item.detailPayload.marketSession) }}</span><span :class="item.importance === 'critical' ? 'text-destructive' : ''">{{ importanceNames[item.importance] }}</span>
+              <span class="min-w-0 truncate">{{ formatDateTimeInDisplayTimezone(item.eventTime) }} {{ sessionLabel(item.detailPayload.marketSession) }}</span><span
+                class="shrink-0"
+                :class="item.importance === 'critical' ? 'text-destructive' : ''"
+              >{{ importanceNames[item.importance] }}</span>
             </div>
-            <p class="mt-1.5 text-sm font-medium">
+            <p class="mt-1.5 truncate text-sm font-medium">
               {{ item.title }}
             </p>
           </RouterLink>
@@ -324,9 +344,12 @@ const number = (value: string | undefined) => value && Number.isFinite(Number(va
       class="min-w-0 border-t pt-5"
     >
       <h2 class="text-lg font-semibold">
-        模型研究信号 <span class="ml-2 text-xs font-normal text-muted-foreground">MODEL PULSE</span>
+        <BilingualLabel
+          zh="模型研究信号"
+          en="Model Pulse"
+        />
       </h2>
-      <div class="mt-4 grid grid-cols-2 divide-x">
+      <div class="mt-4 grid grid-cols-1 divide-y md:grid-cols-2 md:divide-x md:divide-y-0">
         <div
           v-for="entry in markets"
           :key="entry.market"

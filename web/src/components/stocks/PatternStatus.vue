@@ -126,13 +126,13 @@ const invalidationText = computed(() =>
 const formalColorClass = computed(() => {
   const value = signal.value;
   if (!value) return 'text-muted-foreground';
-  if (value.direction === 'neutral_wait' || value.stage === 'forming') return 'text-amber-500';
+  if (value.direction === 'neutral_wait' || value.stage === 'forming') return 'text-warning';
   if (
     ['bullish_continuation', 'bearish_to_bullish', 'bullish_breakout'].includes(value.direction)
   ) {
-    return 'text-red-500';
+    return 'text-market-up';
   }
-  return 'text-emerald-500';
+  return 'text-market-down';
 });
 
 function finite(value: number | null | undefined): value is number {

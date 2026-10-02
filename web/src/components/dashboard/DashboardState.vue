@@ -1,7 +1,14 @@
 <script setup lang="ts">
 import type { ParsedApiError } from '@/api/error';
 import { Skeleton } from '@/components/ui/skeleton';
-defineProps<{ state: { loading: boolean; error: ParsedApiError | null }; empty?: boolean }>();
+withDefaults(defineProps<{
+  state: { loading: boolean; error: ParsedApiError | null };
+  empty?: boolean;
+  emptyMessage?: string;
+}>(), {
+  empty: false,
+  emptyMessage: '暂无已发布数据（非交易日或尚未生成）',
+});
 defineEmits<{ retry: [] }>();
 </script>
 
@@ -18,7 +25,7 @@ defineEmits<{ retry: [] }>();
     class="flex items-center justify-between gap-3 py-6 text-sm"
     role="status"
   >
-    <span class="text-muted-foreground">暂时无法获取 · {{ state.error.title }}</span>
+    <span class="text-muted-foreground">请求失败 · {{ state.error.title }}</span>
     <button
       class="shrink-0 underline underline-offset-4"
       @click="$emit('retry')"
@@ -30,7 +37,7 @@ defineEmits<{ retry: [] }>();
     v-else-if="empty"
     class="py-6 text-sm text-muted-foreground"
   >
-    暂无已发布数据
+    {{ emptyMessage }}
   </p>
   <slot v-else />
 </template>
