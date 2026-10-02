@@ -17,6 +17,7 @@ import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { formatDateTime } from '@/utils/format';
+import { signedTextClass } from '@/utils/marketTone';
 const { filters, data, dates, error, datesError, loading, selected, stock, concept, stocks, stockRows, load, loadDates, change } = useDragonTigerFlow();
 const { currentUser } = useAuth();
 const submitting = ref(false), taskId = ref('');
@@ -76,7 +77,7 @@ const metrics = computed(() => data.value ? [
 const generatedAt = computed(() => data.value?.sourceQuality.map(q => q.generatedAt).sort().at(-1));
 const hotDetails = computed(() => data.value?.hotMoneyDetails.filter(r => r.symbol === stock.value) ?? []);
 const stockName = computed(() => stockRows.value[0]?.name ?? stock.value);
-const moneyClass = (v: number | null) => v == null ? 'text-muted-foreground' : v >= 0 ? 'text-[var(--market-up)]' : 'text-[var(--market-down)]';
+const moneyClass = (v: number | null) => signedTextClass(v);
 onMounted(() => { void load(); void loadDates(); });
 </script>
 

@@ -27,8 +27,8 @@ const label = computed(() => {
 const dotClass = computed(() => {
   const trend = props.trend;
   if (!usable.value || !trend) return 'bg-muted-foreground';
-  if (trend.state === 'neutral' || trend.streak < 2) return 'bg-amber-500';
-  return trend.state === 'above' ? 'bg-red-500' : 'bg-emerald-500';
+  if (trend.state === 'neutral' || trend.streak < 2) return 'bg-warning';
+  return trend.state === 'above' ? 'bg-market-up' : 'bg-market-down';
 });
 
 function finite(value: number | null | undefined): value is number {

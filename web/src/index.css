@@ -42,6 +42,12 @@
   --warning: 36 92% 46%;
   --market-up: 0 72% 52%;
   --market-down: 152 60% 38%;
+
+  /* Motion: keep transitions short and consistent site-wide. */
+  --motion-fast: 120ms;
+  --motion-base: 180ms;
+  --motion-slow: 280ms;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .dark {
@@ -73,6 +79,11 @@
   --warning: 38 90% 58%;
   --market-up: 0 72% 64%;
   --market-down: 152 55% 50%;
+
+  --motion-fast: 120ms;
+  --motion-base: 180ms;
+  --motion-slow: 280ms;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 @theme inline {
@@ -154,11 +165,34 @@
 }
 
 @layer utilities {
+  /* Consistent page shell spacing under Shell main (already px-6). */
+  .page-shell {
+    @apply space-y-6 py-6;
+  }
+
+  /* Numeric columns: right-aligned, tabular figures. */
+  .num {
+    @apply text-right tabular-nums font-medium;
+  }
+
+  .num-muted {
+    @apply text-right tabular-nums text-muted-foreground;
+  }
+
+  /* Truncate with tooltip-friendly single line. */
+  .cell-ellipsis {
+    @apply min-w-0 truncate;
+  }
+
+  .surface-card {
+    @apply overflow-hidden rounded-xl border border-border/80 bg-card shadow-xs;
+  }
+
   .page-enter-active,
   .page-leave-active {
     transition:
-      opacity 0.18s ease,
-      transform 0.18s ease;
+      opacity var(--motion-base) var(--ease-out),
+      transform var(--motion-base) var(--ease-out);
   }
 
   .page-enter-from,
@@ -169,8 +203,12 @@
 
   @media (prefers-reduced-motion: reduce) {
     .page-enter-active,
-    .page-leave-active {
-      transition: none;
+    .page-leave-active,
+    .animate-in,
+    .fade-in,
+    .slide-in-from-bottom-4 {
+      animation: none !important;
+      transition: none !important;
     }
 
     .page-enter-from,

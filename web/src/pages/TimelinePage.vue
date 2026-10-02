@@ -114,7 +114,7 @@ function safeUrl(value: unknown) { return typeof value === 'string' && /^https?:
 
 <template>
   <div
-    class="w-full py-6"
+    class="page-shell w-full"
     data-testid="investment-timeline"
   >
     <header class="overflow-hidden rounded-xl border border-border bg-card p-5 shadow-sm sm:p-6">

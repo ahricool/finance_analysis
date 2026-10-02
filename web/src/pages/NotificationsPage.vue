@@ -91,7 +91,7 @@ onBeforeUnmount(() => { listRequest++; detailRequest++; });
 </script>
 
 <template>
-  <div class="mx-auto w-full max-w-[1600px] space-y-6 px-6 py-6">
+  <div class="page-shell">
     <PageHeader
       title="消息中心"
       description="查看分析报告、市场提醒与系统消息。"

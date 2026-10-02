@@ -15,6 +15,8 @@ export const badgeVariants = cva(
         success: 'border-success/25 bg-success/10 text-success',
         warning: 'border-warning/25 bg-warning/10 text-warning',
         info: 'border-border bg-muted text-muted-foreground',
+        'market-up': 'border-market-up/30 bg-market-up/10 text-market-up',
+        'market-down': 'border-market-down/30 bg-market-down/10 text-market-down',
         ghost: 'hover:bg-muted hover:text-muted-foreground dark:hover:bg-muted/50',
         link: 'text-primary underline-offset-4 hover:underline',
       },

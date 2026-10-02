@@ -398,7 +398,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="space-y-6 py-4 sm:py-6">
+  <div class="page-shell">
     <PageHeader
       title="任务中心"
       :description="isAdmin ? '了解定时任务是否正常运行，并查看最近的执行结果。' : '查看自己的任务执行记录。'"

@@ -24,7 +24,7 @@ const number = (value: string | undefined) => value && Number.isFinite(Number(va
 
 <template>
   <div
-    class="space-y-7 py-7"
+    class="space-y-7 py-6"
     data-testid="market-dashboard"
   >
     <header class="flex items-end justify-between">

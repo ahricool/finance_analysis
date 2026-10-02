@@ -25,7 +25,7 @@ const activeTab = computed<ResearchTab>(() => {
 </script>
 
 <template>
-  <div class="space-y-6 py-4 sm:py-6">
+  <div class="page-shell">
     <PageHeader
       title="研究"
       description="研究量化模型、ETF 动量轮动、趋势跟踪、行业强度、龙虎榜资金、市场情绪与宏观环境。"

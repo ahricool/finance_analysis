@@ -10,8 +10,9 @@ import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import AppApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
 import { useTheme } from '@/composables/useTheme';
 import type { TrendBreadthResponse, TrendMarket } from '@/types/trendFollowing';
-import { breadthOption, delta5D, percent } from './breadthCharts';
+import { breadthOption, delta5D, delta5DValue, percent } from './breadthCharts';
 import TrendRecentTransitions from './TrendRecentTransitions.vue';
+import { signedTextClass } from '@/utils/marketTone';
 
 use([CanvasRenderer, LineChart, GridComponent, LegendComponent, TooltipComponent]);
 const props = defineProps<{ market: TrendMarket; asOf?: string; includePreview: boolean; refreshKey: number }>();
@@ -73,7 +74,7 @@ const warnings = computed(() => [
         </div>
         <span class="text-xs text-muted-foreground">{{ latest?.tradeDate }} <span
           v-if="latest?.isPreview"
-          class="ml-1 rounded border border-amber-500/50 px-1.5 py-0.5 text-amber-700 dark:text-amber-400"
+          class="ml-1 rounded border border-warning/50 px-1.5 py-0.5 text-warning"
         >Preview</span></span>
       </div>
       <p
@@ -105,7 +106,7 @@ const warnings = computed(() => [
               <strong class="text-3xl font-semibold tracking-tight">{{ percent(latest?.[metric.key]) }}</strong>
               <span
                 class="text-sm"
-                :class="metric.key === 'deteriorationBreadth' ? 'text-orange-700 dark:text-orange-400' : 'text-emerald-700 dark:text-emerald-400'"
+                :class="signedTextClass(delta5DValue(points, metric.key))"
               >{{ delta5D(points, metric.key) }} <span class="text-xs text-muted-foreground">/ 5D</span></span>
             </div>
             <p class="mt-1 text-xs text-muted-foreground">

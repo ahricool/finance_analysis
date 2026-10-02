@@ -113,7 +113,7 @@ onBeforeUnmount(() => { requestId++; });
         >
           <span
             class="text-lg"
-            :class="item.direction === 'strengthening' ? 'text-emerald-700 dark:text-emerald-400' : 'text-orange-700 dark:text-orange-400'"
+            :class="item.direction === 'strengthening' ? 'text-market-up' : 'text-market-down'"
           >{{ item.direction === 'strengthening' ? '↑' : '↓' }}<span class="sr-only">{{ item.direction === 'strengthening' ? '转强' : '转弱' }}</span></span>
           <span class="min-w-0"><strong class="block truncate font-medium">{{ item.name }}</strong><span class="font-mono text-xs text-muted-foreground">{{ item.code }}</span></span>
           <span>
@@ -123,7 +123,7 @@ onBeforeUnmount(() => { requestId++; });
           <span class="text-xs tabular-nums text-muted-foreground">Rank #{{ item.previousRank }} → #{{ item.currentRank }}<span class="ml-2">({{ item.rankDelta > 0 ? '+' : '' }}{{ item.rankDelta }})</span></span>
           <span class="text-right text-xs text-muted-foreground">{{ item.tradeDate }}<span
             v-if="item.isPreview"
-            class="ml-1 rounded border border-amber-500/50 px-1 text-amber-700 dark:text-amber-400"
+            class="ml-1 rounded border border-warning/50 px-1 text-warning"
           >Preview</span></span>
         </button>
       </div>

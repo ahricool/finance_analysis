@@ -257,12 +257,12 @@ function closeDetail() {
 </script>
 
 <template>
-  <div class="space-y-6 p-4 sm:p-6">
+  <div class="space-y-6">
     <div class="flex flex-wrap items-center justify-between gap-3">
       <div>
-        <h1 class="text-xl font-semibold">
+        <h2 class="text-base font-semibold tracking-tight">
           投资组合
-        </h1>
+        </h2>
         <p class="text-sm text-muted-foreground">
           数据库是唯一真实持仓来源，Trade Engine 每 30 分钟给出中线建议。
         </p>

@@ -7,6 +7,7 @@ import { Separator } from '@/components/ui/separator';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { formatDateTimeInDisplayTimezone } from '@/utils/format';
 import { formatSecurityLabel } from '@/utils/security';
+import { signedTextClass } from '@/utils/marketTone';
 import {
   formatDecimalText,
   formatHoldingCostAmount,
@@ -97,9 +98,7 @@ function formatSignedMarketAmount(value: number | null | undefined): string {
 }
 
 function movementClass(value: number | null | undefined): string {
-  if (value && value > 0) return 'text-red-500';
-  if (value && value < 0) return 'text-emerald-500';
-  return 'text-muted-foreground';
+  return signedTextClass(value);
 }
 </script>
 
