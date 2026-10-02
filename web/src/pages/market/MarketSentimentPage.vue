@@ -185,12 +185,12 @@ onBeforeUnmount(() => { generation++; poolGeneration++; });
       >
         口径标记未知 {{ row.unknownScopeCount }} 只；连续性未确认 {{ row.unconfirmedBoardCount }} 只。受影响指标保留缺失，不按零计算。
       </p>
-      <section class="grid grid-cols-[1.3fr_2fr] gap-4">
-        <div class="rounded-xl border bg-muted/30 p-5">
+      <section class="grid grid-cols-1 gap-4 lg:grid-cols-[1.3fr_2fr]">
+        <div class="min-w-0 rounded-xl border bg-muted/30 p-5">
           <p class="text-xs text-muted-foreground">
             FA 情绪观察 · {{ row.ruleVersion }}
           </p>
-          <div class="my-3 flex items-baseline gap-5">
+          <div class="my-3 flex flex-wrap items-baseline gap-x-5 gap-y-1">
             <h2 class="text-3xl font-semibold">
               {{ stateLabels[row.state] }}
             </h2><span class="text-2xl tabular-nums">{{ row.heatScore?.toFixed(1) ?? '—' }}<small class="ml-1 text-xs text-muted-foreground">/ 100 热度</small></span>
@@ -206,10 +206,11 @@ onBeforeUnmount(() => { generation++; poolGeneration++; });
             {{ delta(row.changes.heatScore) }} · 历史基准：此前20个完整交易日，不含当日
           </p>
         </div>
-        <div class="grid grid-cols-2 rounded-xl border p-5 lg:grid-cols-4">
+        <div class="grid min-w-0 grid-cols-2 rounded-xl border p-5 lg:grid-cols-4">
           <div
             v-for="card in cards"
             :key="card.label"
+            class="min-w-0"
           >
             <p class="text-sm text-muted-foreground">
               {{ card.label }}
@@ -219,7 +220,7 @@ onBeforeUnmount(() => { generation++; poolGeneration++; });
               {{ delta(card.change) }}
             </p>
           </div>
-          <p class="col-span-4 mt-4 text-xs text-muted-foreground">
+          <p class="col-span-2 mt-4 text-xs text-muted-foreground lg:col-span-4">
             上游全池 {{ row.upstreamTotal }} 只 · 排除 ST {{ row.excludedStCount }} / 未开板新股 {{ row.excludedNewCount }}（合并去重 {{ row.excludedUnionCount }}）
           </p>
         </div>
@@ -267,11 +268,12 @@ onBeforeUnmount(() => { generation++; poolGeneration++; });
         </Button>
       </div>
       <template v-if="view === 'full'">
-        <div class="flex gap-2">
+        <div class="flex flex-wrap gap-2">
           <Button
             v-for="b in boards"
             :key="b"
             variant="outline"
+            class="shrink-0"
             @click="filterBoard(b)"
           >
             {{ b }}板 · {{ row?.boardDistribution[b] ?? '—' }}只

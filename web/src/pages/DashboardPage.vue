@@ -223,7 +223,7 @@ const number = (value: string | undefined) => value && Number.isFinite(Number(va
       </div>
     </section>
 
-    <div class="grid grid-cols-[minmax(0,1.6fr)_minmax(360px,1fr)] items-start gap-8">
+    <div class="grid grid-cols-1 items-start gap-8 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
       <section
         aria-label="Latest"
         class="min-w-0"
@@ -252,10 +252,13 @@ const number = (value: string | undefined) => value && Number.isFinite(Number(va
               data-testid="dashboard-feed-item"
             >
               <div class="flex items-center justify-between gap-3 text-xs text-muted-foreground">
-                <span>{{ formatDateTimeInDisplayTimezone(item.eventTime) }} · {{ kindLabel(item) }} · {{ marketLabel(item.market) }}</span>
-                <span :class="item.importance === 'critical' ? 'text-destructive' : 'text-muted-foreground'">{{ item.importanceScore ? `${item.importanceScore}/10` : importanceNames[item.importance] }}</span>
+                <span class="min-w-0 truncate">{{ formatDateTimeInDisplayTimezone(item.eventTime) }} · {{ kindLabel(item) }} · {{ marketLabel(item.market) }}</span>
+                <span
+                  class="shrink-0"
+                  :class="item.importance === 'critical' ? 'text-destructive' : 'text-muted-foreground'"
+                >{{ item.importanceScore ? `${item.importanceScore}/10` : importanceNames[item.importance] }}</span>
               </div>
-              <h3 class="mt-2 text-base font-semibold leading-snug group-hover:text-primary">
+              <h3 class="mt-2 truncate text-base font-semibold leading-snug group-hover:text-primary">
                 {{ item.title }}
               </h3>
               <p
@@ -287,7 +290,7 @@ const number = (value: string | undefined) => value && Number.isFinite(Number(va
 
       <section
         aria-label="What's Next"
-        class="border-t pt-5"
+        class="min-w-0 border-t pt-5"
       >
         <div class="flex items-baseline justify-between">
           <h2 class="text-lg font-semibold">
@@ -311,9 +314,12 @@ const number = (value: string | undefined) => value && Number.isFinite(Number(va
             class="block border-b py-3 hover:bg-muted/30"
           >
             <div class="flex justify-between gap-3 text-xs text-muted-foreground">
-              <span>{{ formatDateTimeInDisplayTimezone(item.eventTime) }} {{ sessionLabel(item.detailPayload.marketSession) }}</span><span :class="item.importance === 'critical' ? 'text-destructive' : ''">{{ importanceNames[item.importance] }}</span>
+              <span class="min-w-0 truncate">{{ formatDateTimeInDisplayTimezone(item.eventTime) }} {{ sessionLabel(item.detailPayload.marketSession) }}</span><span
+                class="shrink-0"
+                :class="item.importance === 'critical' ? 'text-destructive' : ''"
+              >{{ importanceNames[item.importance] }}</span>
             </div>
-            <p class="mt-1.5 text-sm font-medium">
+            <p class="mt-1.5 truncate text-sm font-medium">
               {{ item.title }}
             </p>
           </RouterLink>

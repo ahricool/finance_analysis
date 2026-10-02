@@ -102,7 +102,7 @@ function time(value: string | null | undefined) {
       </CardHeader>
       <CardContent class="min-w-0 px-2 sm:px-6">
         <div
-          class="mb-4 flex gap-2"
+          class="mb-4 flex flex-wrap gap-2"
           data-testid="btc-interval-selector"
           aria-label="K线周期"
         >

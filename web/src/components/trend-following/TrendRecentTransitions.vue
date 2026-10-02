@@ -52,9 +52,9 @@ onBeforeUnmount(() => { requestId++; });
           展示最近交易快照中 State 发生关键变化的股票。转强表示趋势确认或恢复，转弱表示趋势弱化或破坏。
         </p>
       </div>
-      <div class="flex gap-4">
+      <div class="flex min-w-0 flex-wrap gap-2 sm:gap-4">
         <div
-          class="flex gap-1"
+          class="flex flex-wrap gap-1"
           aria-label="状态变化方向"
         >
           <Button
@@ -69,7 +69,7 @@ onBeforeUnmount(() => { requestId++; });
           </Button>
         </div>
         <div
-          class="flex gap-1"
+          class="flex flex-wrap gap-1"
           aria-label="状态变化时间范围"
         >
           <Button
@@ -102,12 +102,12 @@ onBeforeUnmount(() => { requestId++; });
     <template v-else>
       <div
         v-if="data?.items?.length"
-        class="mt-4 divide-y"
+        class="mt-4 min-w-0 divide-y overflow-x-auto"
       >
         <button
           v-for="item in data.items"
           :key="`${item.tradeDate}-${item.code}`"
-          class="grid w-full grid-cols-[24px_minmax(140px,1fr)_minmax(280px,1.6fr)_minmax(150px,1fr)_140px] items-center gap-3 rounded px-2 py-3 text-left text-sm hover:bg-muted/60 focus-visible:outline-2 focus-visible:outline-ring"
+          class="grid w-full min-w-[36rem] grid-cols-[24px_minmax(7rem,1fr)_minmax(10rem,1.6fr)_minmax(8rem,1fr)_7rem] items-center gap-3 rounded px-2 py-3 text-left text-sm hover:bg-muted/60 focus-visible:outline-2 focus-visible:outline-ring sm:min-w-[48rem] sm:grid-cols-[24px_minmax(140px,1fr)_minmax(280px,1.6fr)_minmax(150px,1fr)_140px]"
           data-testid="trend-transition"
           @click="emit('select', { code: item.code, tradeDate: item.tradeDate, preview: item.isPreview })"
         >
