@@ -31,7 +31,8 @@ onBeforeUnmount(() => { sequence++; });
   >
     <PageHeader
       title="宏观数据"
-      description="US Macro · 跨资产环境与风险偏好监控"
+      en="US Macro"
+      description="跨资产环境与风险偏好监控"
     >
       <template #actions>
         <div class="text-right">

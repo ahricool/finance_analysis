@@ -132,6 +132,57 @@ async function auditPage(page, width, routeId) {
           }
         }
       }
+
+      // Vertical clip: content taller than box with overflow hidden/clip
+      if (el.scrollHeight > el.clientHeight + 2) {
+        const overflowY = style.overflowY;
+        if (overflowY === 'hidden' || overflowY === 'clip') {
+          // Intentional scroll areas are auto/scroll; fixed-height chips/badges are the target
+          issues.push({
+            kind: 'vertical-clip',
+            tag: el.tagName.toLowerCase(),
+            text: (el.textContent || '').trim().slice(0, 80),
+            detail: `scrollHeight=${el.scrollHeight} clientHeight=${el.clientHeight} overflowY=${overflowY}`,
+          });
+        }
+      }
+    }
+
+    // Child box extends past non-visible overflow parent (e.g. Badge h-5 + stacked bilingual)
+    const clipParents = Array.from(document.querySelectorAll(
+      '[data-slot="badge"], .overflow-hidden, [class*="overflow-hidden"]',
+    )).slice(0, 200);
+    for (const parent of clipParents) {
+      const pStyle = getComputedStyle(parent);
+      const oy = pStyle.overflowY;
+      const ox = pStyle.overflowX;
+      if (oy === 'visible' && ox === 'visible') continue;
+      const pr = parent.getBoundingClientRect();
+      if (pr.width < 2 || pr.height < 2) continue;
+      for (const child of Array.from(parent.children).slice(0, 12)) {
+        const cr = child.getBoundingClientRect();
+        if (cr.width < 1 || cr.height < 1) continue;
+        const pastBottom = cr.bottom > pr.bottom + 1.5;
+        const pastTop = cr.top < pr.top - 1.5;
+        const pastRight = cr.right > pr.right + 1.5;
+        const pastLeft = cr.left < pr.left - 1.5;
+        if ((pastBottom || pastTop) && (oy === 'hidden' || oy === 'clip')) {
+          issues.push({
+            kind: 'parent-clip-y',
+            tag: parent.tagName.toLowerCase(),
+            text: (child.textContent || parent.textContent || '').trim().slice(0, 80),
+            detail: `childBottom=${Math.round(cr.bottom)} parentBottom=${Math.round(pr.bottom)}`,
+          });
+        }
+        if ((pastRight || pastLeft) && (ox === 'hidden' || ox === 'clip')) {
+          issues.push({
+            kind: 'parent-clip-x',
+            tag: parent.tagName.toLowerCase(),
+            text: (child.textContent || parent.textContent || '').trim().slice(0, 80),
+            detail: `childRight=${Math.round(cr.right)} parentRight=${Math.round(pr.right)}`,
+          });
+        }
+      }
     }
 
     // Simple overlap among metric cards / regime headings in first viewport

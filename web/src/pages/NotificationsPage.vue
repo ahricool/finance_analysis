@@ -94,6 +94,7 @@ onBeforeUnmount(() => { listRequest++; detailRequest++; });
   <div class="page-shell">
     <PageHeader
       title="消息中心"
+      en="Notifications"
       description="查看分析报告、市场提醒与系统消息。"
     />
     <form

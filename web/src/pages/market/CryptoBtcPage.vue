@@ -206,11 +206,12 @@ function time(value: string | null | undefined) {
           <BilingualEnum
             v-else-if="metric.kind === 'enum'"
             :value="metric.value"
-            size="badge"
+            size="large"
+            class="w-full"
           />
           <strong
             v-else
-            class="text-lg tabular-nums"
+            class="block text-lg tabular-nums"
           >{{ metric.value }}</strong>
         </CardContent>
       </Card>

@@ -20,6 +20,7 @@ const activeTab = computed<MarketTab>(() => {
   <div class="page-shell">
     <PageHeader
       title="市场"
+      en="Market"
       description="管理自选股，并维护数据库中的实际持仓。"
     />
     <ModuleTabs

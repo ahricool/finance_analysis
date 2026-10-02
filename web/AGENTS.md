@@ -156,9 +156,11 @@ Cookie 会话，`apiClient` 设了 `withCredentials: true`。
 - 词汇表与枚举显示：`src/i18n/labels.ts`（`metricLabels` / `enumLabels`）。
 - 复用组件：`BilingualLabel`（指标/区块/表头）、`BilingualEnum`（业务枚举展示；**不改 API 字段**）。
 - 表头空间紧时用 `compact`：只显示中文，英文进 `title` / tooltip。
+- `BilingualEnum` 的 `size="badge"`（Badge/pill/chip）默认 compact；KPI 大字用 `size="large"` 并保证标签在上、数值在下（`w-full` / block）。
+- `PageHeader`：中文 `title` 为主，可选 `en` 为小号 muted 副标题（永远在中文下方，禁止英文 eyebrow 压在标题上）。
 - 按钮与普通操作文案（刷新、交易日、筛选等）只用中文。
 - `IndicatorHelpLabel` 已包装 `BilingualLabel`；新增指标标题优先走 glossary key。
-- 不确定译法记入 `provisionalTranslations`，在 UI 审计报告中列出供确认。
+- 术语表见 `glossaryNotes`（原 `provisionalTranslations`）。
 
 `index.html` 当前仍为 `lang="en"`，这是已知的文档/可访问性差距，不应据此判断界面主语言。
 

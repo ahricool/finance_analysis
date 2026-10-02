@@ -56,6 +56,7 @@ onBeforeUnmount(() => { ++generation; });
   >
     <PageHeader
       title="盘中确认"
+      en="Intraday Confirmation"
       description="昨日选谁，今日确认。只观察开盘前冻结候选，不自动交易。"
     >
       <template #actions>

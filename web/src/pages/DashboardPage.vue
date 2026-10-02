@@ -29,19 +29,19 @@ const number = (value: string | undefined) => value && Number.isFinite(Number(va
     class="space-y-7 py-6"
     data-testid="market-dashboard"
   >
-    <header class="flex items-end justify-between">
-      <div>
-        <p class="text-[10px] font-semibold tracking-[0.24em] text-muted-foreground">
-          MARKET INTELLIGENCE
-        </p>
-        <h1 class="mt-2 text-3xl font-semibold tracking-tight">
+    <header class="flex items-end justify-between gap-4">
+      <div class="min-w-0">
+        <h1 class="text-3xl font-semibold tracking-tight">
           市场动态
         </h1>
-        <p class="mt-2 text-sm text-muted-foreground">
+        <p class="mt-1 text-xs font-normal tracking-wide text-muted-foreground sm:text-sm">
+          Market Intelligence
+        </p>
+        <p class="mt-1.5 text-sm text-muted-foreground">
           市场状态、重要事件与策略变化的实时概览
         </p>
       </div>
-      <div class="text-right text-xs leading-6 text-muted-foreground">
+      <div class="shrink-0 text-right text-xs leading-6 text-muted-foreground">
         <p>{{ getDisplayTimezone() === 'Asia/Shanghai' ? '北京时间' : '美东时间' }}</p>
         <time class="tabular-nums">{{ formatDateTimeInDisplayTimezone(now.toISOString()) }}</time>
       </div>
@@ -228,11 +228,14 @@ const number = (value: string | undefined) => value && Number.isFinite(Number(va
         aria-label="Latest"
         class="min-w-0"
       >
-        <div class="mb-3 flex items-baseline justify-between border-b pb-3">
+        <div class="mb-3 flex items-baseline justify-between gap-3 border-b pb-3">
           <h2 class="text-lg font-semibold">
-            最新动态 <span class="ml-2 text-xs font-normal text-muted-foreground">LATEST</span>
+            <BilingualLabel
+              zh="最新动态"
+              en="Latest"
+            />
           </h2>
-          <span class="text-xs text-muted-foreground">按事件时间倒序 · 含未来事件</span>
+          <span class="shrink-0 text-xs text-muted-foreground">按事件时间倒序 · 含未来事件</span>
         </div>
         <DashboardState
           :state="latest"
@@ -292,10 +295,13 @@ const number = (value: string | undefined) => value && Number.isFinite(Number(va
         aria-label="What's Next"
         class="min-w-0 border-t pt-5"
       >
-        <div class="flex items-baseline justify-between">
+        <div class="flex items-baseline justify-between gap-3">
           <h2 class="text-lg font-semibold">
-            接下来 <span class="ml-2 text-xs font-normal text-muted-foreground">WHAT'S NEXT</span>
-          </h2><span class="text-xs text-muted-foreground">未来7天 · 时间倒序</span>
+            <BilingualLabel
+              zh="接下来"
+              en="What's Next"
+            />
+          </h2><span class="shrink-0 text-xs text-muted-foreground">未来7天 · 时间倒序</span>
         </div>
         <DashboardState
           :state="upcoming"
@@ -338,7 +344,10 @@ const number = (value: string | undefined) => value && Number.isFinite(Number(va
       class="min-w-0 border-t pt-5"
     >
       <h2 class="text-lg font-semibold">
-        模型研究信号 <span class="ml-2 text-xs font-normal text-muted-foreground">MODEL PULSE</span>
+        <BilingualLabel
+          zh="模型研究信号"
+          en="Model Pulse"
+        />
       </h2>
       <div class="mt-4 grid grid-cols-1 divide-y md:grid-cols-2 md:divide-x md:divide-y-0">
         <div

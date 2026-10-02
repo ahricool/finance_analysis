@@ -82,7 +82,8 @@ onBeforeUnmount(() => { generation++; poolGeneration++; });
   >
     <PageHeader
       title="市场情绪"
-      description="Market Sentiment · A 股盘后观察 · 涨停参与度与连板接力"
+      en="Market Sentiment"
+      description="A 股盘后观察 · 涨停参与度与连板接力"
     >
       <template #actions>
         <div class="flex items-center gap-2">

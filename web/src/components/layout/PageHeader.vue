@@ -2,10 +2,13 @@
 import { Breadcrumb, BreadcrumbItem, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from '@/components/ui/breadcrumb';
 
 withDefaults(defineProps<{
+  /** Chinese primary title */
   title: string;
+  /** Optional muted English subtitle under the Chinese title (never above). */
+  en?: string;
   description?: string;
   section?: string;
-}>(), { description: '', section: '' });
+}>(), { description: '', section: '', en: '' });
 </script>
 
 <template>
@@ -24,6 +27,12 @@ withDefaults(defineProps<{
         <h1 class="text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
           {{ title }}
         </h1>
+        <p
+          v-if="en"
+          class="mt-1 text-xs font-normal tracking-wide text-muted-foreground sm:text-sm"
+        >
+          {{ en }}
+        </p>
         <p
           v-if="description"
           class="mt-1.5 max-w-3xl text-sm leading-relaxed text-muted-foreground sm:text-base"

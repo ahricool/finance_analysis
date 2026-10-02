@@ -24,4 +24,11 @@ describe('BilingualEnum', () => {
     expect(wrapper.text()).toContain('风险规避');
     expect(wrapper.text()).toContain('RISK_OFF');
   });
+
+  it('uses compact Chinese-only inside badge/chip size with English title', () => {
+    const wrapper = mount(BilingualEnum, { props: { value: 'HOLD', size: 'badge' } });
+    expect(wrapper.text()).toContain('持有');
+    expect(wrapper.text()).not.toContain('HOLD');
+    expect(wrapper.attributes('title')).toBe('HOLD');
+  });
 });

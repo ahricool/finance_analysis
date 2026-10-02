@@ -401,6 +401,7 @@ onBeforeUnmount(() => {
   <div class="page-shell">
     <PageHeader
       title="任务中心"
+      en="Tasks"
       :description="isAdmin ? '了解定时任务是否正常运行，并查看最近的执行结果。' : '查看自己的任务执行记录。'"
     >
       <template #actions>

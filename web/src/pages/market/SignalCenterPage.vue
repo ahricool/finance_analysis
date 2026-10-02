@@ -48,7 +48,8 @@ onBeforeUnmount(() => { ++generation; ++detailGeneration; });
   >
     <PageHeader
       title="信号中心"
-      description="每日跨信号综合判断。每个市场最多一只 Primary Signal，也可以不交易。"
+      en="Signal Center"
+      description="每日跨信号综合判断。每个市场最多一只主信号，也可以不交易。"
     />
     <div class="flex flex-wrap items-center gap-3">
       <label

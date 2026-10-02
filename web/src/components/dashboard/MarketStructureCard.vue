@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue';
+import { ChevronRight } from 'lucide-vue-next';
 import type { MarketStructureSnapshot } from '@/api/marketStructure';
 import BilingualLabel from '@/components/app/BilingualLabel.vue';
 import { formatPercent, formatScore } from '@/utils/quant';
@@ -16,7 +17,7 @@ const metrics = computed(() => [
     state: stateNames[props.snapshot.metrics.states.rotation ?? ''] ?? '历史不足或成员变化',
     explanation: 'ETF 综合排名与第 3 个历史快照日比较：0 稳定，50 明显轮动，100 完全反转。' },
   { key: 'leadershipConcentration', value: formatPercent(props.snapshot.leadership.leadershipConcentration5D),
-    state: 'Top 10% · 5D', explanation: '收益领先的前 10% 股票，占全体正收益之和的比例；并非市值加权的指数贡献。' },
+    state: 'Top 10% · 5D', explanation: '正收益前 10% 股票占全体正收益之和的比例；描述领涨分布，非市值加权指数贡献。' },
   { key: 'leadershipHhi', value: `${formatScore(props.snapshot.leadership.leadershipHhi5D)} / 100`,
     state: '5D · 按样本数归一化', explanation: '正收益份额的平方和归一化到 0–100。均匀上涨为 0，单只股票贡献全部上涨为 100。' },
 ]);
@@ -38,14 +39,17 @@ const metrics = computed(() => [
       <details
         v-for="metric in metrics"
         :key="metric.key"
-        class="rounded-md border p-3"
+        class="group rounded-md border p-3"
       >
-        <summary class="cursor-pointer text-xs text-muted-foreground">
-          <BilingualLabel :label="metric.key" />
-          <strong class="my-2 block text-xl tabular-nums text-foreground">{{ metric.value }}</strong>
-          <span>{{ metric.state }}</span>
+        <summary class="flex cursor-pointer list-none items-start gap-1.5 text-xs text-muted-foreground [&::-webkit-details-marker]:hidden">
+          <ChevronRight class="mt-0.5 size-3.5 shrink-0 transition-transform group-open:rotate-90" />
+          <span class="min-w-0 flex-1">
+            <BilingualLabel :label="metric.key" />
+            <strong class="my-2 block text-xl tabular-nums text-foreground">{{ metric.value }}</strong>
+            <span>{{ metric.state }}</span>
+          </span>
         </summary>
-        <p class="mt-3 text-xs leading-5 text-muted-foreground">
+        <p class="mt-3 pl-5 text-xs leading-5 text-muted-foreground">
           {{ metric.explanation }}
         </p>
       </details>

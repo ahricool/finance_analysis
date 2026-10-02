@@ -88,6 +88,7 @@ onMounted(() => { void load(); void loadDates(); });
   >
     <PageHeader
       title="龙虎榜资金流向"
+      en="Dragon Tiger Flow"
       description="从概念净额轨迹穿透到股票贡献，观察龙虎榜样本资金变化。非投资建议。"
     >
       <template #actions>

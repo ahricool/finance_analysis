@@ -700,6 +700,9 @@ onMounted(async () => {
         <h2 class="text-lg font-semibold">
           趋势跟踪
         </h2>
+        <p class="mt-0.5 text-xs tracking-wide text-muted-foreground">
+          Trend Following
+        </p>
         <p class="mt-1 text-xs text-muted-foreground">
           {{ scope }} · 股票趋势状态与风险指标。
         </p>
@@ -811,8 +814,10 @@ onMounted(async () => {
         <Card
           v-for="card in cards"
           :key="String(card[0])"
+          class="gap-0 py-3"
+          size="sm"
         >
-          <CardContent class="min-w-0 p-3">
+          <CardContent class="min-w-0 space-y-1.5 px-3 py-0">
             <IndicatorLabel
               :label="String(card[0])"
               :description="String(card[2])"
@@ -821,12 +826,12 @@ onMounted(async () => {
             <BilingualEnum
               v-if="card[3] === 'enum'"
               :value="String(card[1] ?? '')"
-              size="badge"
-              class="mt-1"
+              size="large"
+              class="w-full"
             />
             <strong
               v-else
-              class="mt-1 block truncate text-lg tabular-nums"
+              class="block truncate text-lg tabular-nums"
             >{{ card[1] }}</strong>
           </CardContent>
         </Card>

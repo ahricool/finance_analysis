@@ -414,9 +414,13 @@ onMounted(async () => {
     <header class="flex flex-wrap items-start justify-between gap-3">
       <div>
         <h2 class="text-lg font-semibold">
-          ETF 动量轮动 · Fast Rotation
-        </h2><p class="mt-1 text-xs text-muted-foreground">
-          完全基于公开市场行情的多维轮动看板；Action 是公共策略信号，不代表个人交易建议。
+          ETF 动量轮动
+        </h2>
+        <p class="mt-0.5 text-xs tracking-wide text-muted-foreground">
+          Fast Rotation
+        </p>
+        <p class="mt-1 text-xs text-muted-foreground">
+          完全基于公开市场行情的多维轮动看板；动作是公共策略信号，不代表个人交易建议。
         </p>
       </div>
       <div class="flex flex-wrap items-end gap-2">

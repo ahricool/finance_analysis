@@ -53,6 +53,7 @@ onMounted(async () => {
   >
     <PageHeader
       title="行业强度"
+      en="Industry Strength"
       description="发现行业、比较强弱与变化，并查看原因和内部广度。综合强度与状态描述 A 股行业环境，不构成买卖建议。"
     >
       <template #actions>

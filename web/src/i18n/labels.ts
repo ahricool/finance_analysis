@@ -19,8 +19,8 @@ export const metricLabels = {
   breadthAboveMa10: { zh: '站上MA10广度', en: 'Breadth > MA10' },
   breadthDivergence: { zh: '广度背离', en: 'Breadth Divergence' },
   rotationVelocity: { zh: '轮动速度', en: 'Rotation Velocity' },
-  leadershipConcentration: { zh: '领导集中度', en: 'Leadership Concentration' },
-  leadershipHhi: { zh: '领导HHI', en: 'Leadership HHI' },
+  leadershipConcentration: { zh: '领涨集中度', en: 'Leadership Concentration' },
+  leadershipHhi: { zh: '领涨 HHI', en: 'Leadership HHI' },
   highFragilityTrends: { zh: '高脆弱趋势数', en: 'High Fragility Trends' },
   benchmark: { zh: '基准', en: 'Benchmark' },
   benchmarkTrend: { zh: '基准趋势', en: 'Benchmark Trend' },
@@ -33,7 +33,7 @@ export const metricLabels = {
   trendParticipation: { zh: '趋势参与度', en: 'Trend Participation' },
   deterioration: { zh: '恶化占比', en: 'Deterioration' },
   strongConfluence: { zh: '强共振', en: 'Strong Confluence' },
-  ignitionTopIndustry: { zh: '点火+强行业', en: 'IGNITION + Top Industry' },
+  ignitionTopIndustry: { zh: '点火期行业偏强', en: 'IGNITION + Strong Industry' },
   topIndustryConfluence: { zh: '强行业共振股票', en: 'Top Industry Confluence' },
   snapshotTradeDate: { zh: '快照目标日期', en: 'Snapshot Trade Date' },
   confluence: { zh: '共振分数', en: 'Confluence' },
@@ -116,8 +116,8 @@ export const metricLabels = {
   boxQuality: { zh: '箱体质量', en: 'Box Quality' },
   boxDays: { zh: '箱体天数', en: 'Box Days' },
   boxWidth: { zh: '箱体宽度', en: 'Box Width' },
-  mrState: { zh: '反弹状态', en: 'MR State' },
-  mrQuality: { zh: '反弹质量', en: 'MR Quality' },
+  mrState: { zh: '均值回归状态', en: 'Mean Reversion State' },
+  mrQuality: { zh: '均值回归质量', en: 'Mean Reversion Quality' },
   return3D: { zh: '3日收益', en: '3D Return' },
   return5D: { zh: '5日收益', en: '5D Return' },
   return10D: { zh: '10日收益', en: '10D Return' },
@@ -186,18 +186,28 @@ export function enumLabel(value?: string | null): Bilingual {
   return { zh: value.replaceAll('_', ' '), en: normalized };
 }
 
-/** Uncertain / provisional translations for report review. */
-export const provisionalTranslations: Array<{ key: string; zh: string; en: string; note: string }> = [
-  { key: 'rankable', zh: '可排名数量', en: 'Rankable', note: '指通过数据门槛、可参与横截面排名的标的数' },
-  { key: 'ignitionTopIndustry', zh: '点火+强行业', en: 'IGNITION + Top Industry', note: 'Confluence 摘要桶名的压缩译法' },
-  { key: 'deterioration', zh: '恶化占比', en: 'Deterioration', note: '趋势弱化/破坏股票占比' },
-  { key: 'fragility', zh: '脆弱性', en: 'Fragility', note: '趋势脆弱度得分' },
-  { key: 'RISK_ON/OFF', zh: '风险偏好 / 风险规避', en: 'RISK_ON / RISK_OFF', note: '宏观/市场环境枚举，非交易指令' },
-  { key: 'leadershipHhi', zh: '领导HHI', en: 'Leadership HHI', note: 'Herfindahl–Hirschman 集中度；保留 HHI 缩写' },
-  { key: 'rotationVelocity', zh: '轮动速度', en: 'Rotation Velocity', note: 'ETF 排名相对历史快照的变化速度' },
-  { key: 'pathScore', zh: '路径得分', en: 'Path Score', note: '趋势路径质量综合分' },
-  { key: 'setupScore', zh: '形态得分', en: 'Setup Score', note: '突破/回踩形态质量' },
-  { key: 'clv', zh: '收盘位置', en: 'CLV', note: 'Close Location Value；保留 CLV 缩写' },
-  { key: 'mrState', zh: '反弹状态', en: 'MR State', note: 'Mean Reversion 状态缩写保留 MR' },
-  { key: 'signalCoverage', zh: '信号覆盖率', en: 'Signal Coverage', note: '宏观有效信号占比' },
+/** Final glossary notes for audit report (key, zh, en, meaning). */
+export const glossaryNotes: Array<{ key: string; zh: string; en: string; meaning: string }> = [
+  { key: 'rankable', zh: '可排名数量', en: 'Rankable', meaning: '通过数据门槛、可参与横截面排名的标的数' },
+  { key: 'ignitionTopIndustry', zh: '点火期行业偏强', en: 'IGNITION + Strong Industry', meaning: 'Confluence：行业信号正向且趋势生命周期为 IGNITION 的合格股票数' },
+  { key: 'deterioration', zh: '恶化占比', en: 'Deterioration', meaning: '趋势弱化或破坏股票占可排名样本的比例' },
+  { key: 'fragility', zh: '脆弱性', en: 'Fragility', meaning: '趋势内部恶化速度得分，越高越脆弱' },
+  { key: 'RISK_ON', zh: '风险偏好', en: 'RISK_ON', meaning: '市场环境枚举：适合承担风险；非交易指令' },
+  { key: 'RISK_OFF', zh: '风险规避', en: 'RISK_OFF', meaning: '市场环境枚举：降低风险；非交易指令' },
+  { key: 'leadershipConcentration', zh: '领涨集中度', en: 'Leadership Concentration', meaning: '正收益前 10% 股票占全体正收益之和的比例' },
+  { key: 'leadershipHhi', zh: '领涨 HHI', en: 'Leadership HHI', meaning: '正收益份额 HHI 归一化到 0–100；描述领涨分布集中度' },
+  { key: 'rotationVelocity', zh: '轮动速度', en: 'Rotation Velocity', meaning: 'ETF 综合排名相对历史快照的变化速度' },
+  { key: 'pathScore', zh: '路径得分', en: 'Path Score', meaning: '趋势路径质量综合分' },
+  { key: 'setupScore', zh: '形态得分', en: 'Setup Score', meaning: '突破/回踩形态质量' },
+  { key: 'clv', zh: '收盘位置', en: 'CLV', meaning: 'Close Location Value，当日收盘在高低点区间的相对位置' },
+  { key: 'mrState', zh: '均值回归状态', en: 'Mean Reversion State', meaning: 'Trend 超跌反弹（mean reversion）研究信号状态' },
+  { key: 'signalCoverage', zh: '信号覆盖率', en: 'Signal Coverage', meaning: '宏观有效且新鲜信号占比' },
 ];
+
+/** @deprecated Use glossaryNotes */
+export const provisionalTranslations = glossaryNotes.map(item => ({
+  key: item.key,
+  zh: item.zh,
+  en: item.en,
+  note: item.meaning,
+}));

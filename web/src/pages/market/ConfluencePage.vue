@@ -85,6 +85,9 @@ onBeforeUnmount(() => { ++generation; });
         <h2 class="text-lg font-semibold">
           多信号共振
         </h2>
+        <p class="mt-0.5 text-xs tracking-wide text-muted-foreground">
+          Signal Confluence
+        </p>
         <p class="mt-1 text-xs text-muted-foreground">
           面向 2–14 天的正式结果交叉确认。先看证据与覆盖，再看分数。
         </p>
