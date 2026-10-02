@@ -11,6 +11,8 @@ import { etfRotationApi } from '@/api/etfRotation';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import AppApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
 import AppDatePicker from '@/components/app/AppDatePicker.vue';
+import BilingualEnum from '@/components/app/BilingualEnum.vue';
+import BilingualLabel from '@/components/app/BilingualLabel.vue';
 import IndicatorLabel from '@/components/app/IndicatorHelpLabel.vue';
 import LoadingButton from '@/components/app/LoadingButton.vue';
 import ResearchDataModeToggle from '@/components/research/ResearchDataModeToggle.vue';
@@ -39,6 +41,7 @@ import type {
   ETFRankingResponse,
   ETFState,
 } from '@/types/etfRotation';
+import { metricLabel } from '@/i18n/labels';
 import { formatMarketCurrencyAmount } from '@/utils/marketCurrency';
 import {
   chooseDefaultResearchDataMode,
@@ -77,21 +80,21 @@ const detailMode = ref<ResearchDataMode>('official');
 const route = useRoute();
 const market = ref<ETFMarket>(route?.query.market === 'US' ? 'US' : 'CN');
 const rankingColumns = [
-  { key: 'rank', label: 'Rank', description: undefined },
-  { key: 'name', label: 'ETF', description: undefined },
-  { key: 'state', label: 'State', description: descriptions.state },
+  { key: 'rank', label: 'rank', description: undefined },
+  { key: 'name', label: 'etf', description: undefined },
+  { key: 'state', label: 'state', description: descriptions.state },
   ...forwardReturnColumns,
-  { key: 'trendDurationDays', label: '持续天数', description: descriptions.trendDuration },
-  { key: 'compositeScore', label: 'Composite', description: descriptions.composite },
-  { key: 'momentumStrengthScore', label: 'Momentum', description: descriptions.momentum },
-  { key: 'trendQualityScore', label: 'Trend Quality', description: descriptions.trendQuality },
-  { key: 'relativeStrengthScore', label: 'Relative Strength', description: descriptions.relativeStrength },
-  { key: 'action', label: 'Action', description: descriptions.action },
-  { key: 'ret5D', label: '5D', description: descriptions.return },
-  { key: 'ret20D', label: '20D', description: descriptions.return },
-  { key: 'rankChange1D', label: 'Rank Δ 1D', description: descriptions.rankChange },
-  { key: 'rankChange3D', label: 'Rank Δ 3D', description: descriptions.rankChange },
-  { key: 'rankChange5D', label: 'Rank Δ 5D', description: descriptions.rankChange },
+  { key: 'trendDurationDays', label: 'trendDuration', description: descriptions.trendDuration },
+  { key: 'compositeScore', label: 'composite', description: descriptions.composite },
+  { key: 'momentumStrengthScore', label: 'momentum', description: descriptions.momentum },
+  { key: 'trendQualityScore', label: 'trendQuality', description: descriptions.trendQuality },
+  { key: 'relativeStrengthScore', label: 'relativeStrength', description: descriptions.relativeStrength },
+  { key: 'action', label: 'action', description: descriptions.action },
+  { key: 'ret5D', label: 'ret5D', description: descriptions.return },
+  { key: 'ret20D', label: 'ret20D', description: descriptions.return },
+  { key: 'rankChange1D', label: 'rankChange1D', description: descriptions.rankChange },
+  { key: 'rankChange3D', label: 'rankChange3D', description: descriptions.rankChange },
+  { key: 'rankChange5D', label: 'rankChange5D', description: descriptions.rankChange },
 ] as const;
 type SortKey = typeof rankingColumns[number]['key'] | 'entryScore';
 const sortKey = ref<SortKey>('compositeScore');
@@ -129,8 +132,8 @@ async function exportRanking() {
   exporting.value = true;
   try {
     const columns: ExcelColumn[] = rankingColumns.flatMap(column => column.key === 'name'
-      ? [{ label: column.label }, { label: '代码' }]
-      : [{ label: column.label, format: column.key.startsWith('forwardReturn') || ['ret5D', 'ret20D'].includes(column.key)
+      ? [{ label: metricLabel(column.label).zh }, { label: '代码' }]
+      : [{ label: metricLabel(column.label).zh, format: column.key.startsWith('forwardReturn') || ['ret5D', 'ret20D'].includes(column.key)
         ? '+0.00%;-0.00%;0.00%' : column.key.endsWith('Score') ? '0.0' : '0' }]);
     const rows = sortedItems.value.map(item => rankingColumns.flatMap(column => {
       if (column.key === 'name') return [item.name, item.code];
@@ -155,18 +158,18 @@ function selectSort(event: Event) {
   sortDirection.value = defaultSortDirection(sortKey.value);
 }
 const changeGroups = computed(() => [
-  { label: 'NEW BUY', items: changes.value?.newBuys ?? [], variant: 'success' as const, transition: 'action' as const },
-  { label: 'NEW EXIT', items: changes.value?.newExits ?? [], variant: 'destructive' as const, transition: 'action' as const },
-  { label: 'NEW EMERGING', items: changes.value?.newEmerging ?? [], variant: 'info' as const, transition: 'state' as const },
-  { label: 'NEW COOLING', items: changes.value?.newCooling ?? [], variant: 'warning' as const, transition: 'state' as const },
+  { labelKey: 'newBuy' as const, items: changes.value?.newBuys ?? [], variant: 'success' as const, transition: 'action' as const },
+  { labelKey: 'newExit' as const, items: changes.value?.newExits ?? [], variant: 'destructive' as const, transition: 'action' as const },
+  { labelKey: 'newEmerging' as const, items: changes.value?.newEmerging ?? [], variant: 'info' as const, transition: 'state' as const },
+  { labelKey: 'newCooling' as const, items: changes.value?.newCooling ?? [], variant: 'warning' as const, transition: 'state' as const },
 ]);
 const previewChangeGroups = computed(() => {
   const diff = diffPreviewActionChanges(items.value, officialLatest.value?.items ?? []);
   return [
-    { label: 'NEW BUY', items: diff.newBuys, variant: 'success' as const },
-    { label: 'NEW EXIT', items: diff.newExits, variant: 'destructive' as const },
-    { label: 'NEW EMERGING', items: diff.newEmerging, variant: 'info' as const },
-    { label: 'NEW COOLING', items: diff.newCooling, variant: 'warning' as const },
+    { labelKey: 'newBuy' as const, items: diff.newBuys, variant: 'success' as const },
+    { labelKey: 'newExit' as const, items: diff.newExits, variant: 'destructive' as const },
+    { labelKey: 'newEmerging' as const, items: diff.newEmerging, variant: 'info' as const },
+    { labelKey: 'newCooling' as const, items: diff.newCooling, variant: 'warning' as const },
   ];
 });
 const previewHasChanges = computed(() => previewChangeGroups.value.some(group => group.items.length));
@@ -304,7 +307,9 @@ async function load(refreshDates = false, options: { autoSelectMode?: boolean } 
     else applyOfficialRanking(ranking);
   } catch (reason) {
     if (current === generation) {
-      error.value = getParsedApiError(reason);
+      const parsed = getParsedApiError(reason);
+      // No official snapshot yet — show empty ranking, not a hard error.
+      error.value = parsed.status === 404 ? null : parsed;
       items.value = [];
       candidates.value = [];
       exits.value = [];
@@ -409,9 +414,13 @@ onMounted(async () => {
     <header class="flex flex-wrap items-start justify-between gap-3">
       <div>
         <h2 class="text-lg font-semibold">
-          ETF 动量轮动 · Fast Rotation
-        </h2><p class="mt-1 text-xs text-muted-foreground">
-          完全基于公开市场行情的多维轮动看板；Action 是公共策略信号，不代表个人交易建议。
+          ETF 动量轮动
+        </h2>
+        <p class="mt-0.5 text-xs tracking-wide text-muted-foreground">
+          Fast Rotation
+        </p>
+        <p class="mt-1 text-xs text-muted-foreground">
+          完全基于公开市场行情的多维轮动看板；动作是公共策略信号，不代表个人交易建议。
         </p>
       </div>
       <div class="flex flex-wrap items-end gap-2">
@@ -519,37 +528,40 @@ onMounted(async () => {
     >
     <Card v-if="showingStrategyBody">
       <CardHeader>
-        <CardTitle class="flex items-center gap-2">
+        <CardTitle class="flex flex-wrap items-center gap-2">
           <IndicatorLabel
-            label="Market Regime"
+            label="marketRegime"
             :description="descriptions.regime"
           /><Badge :variant="marketSnapshot?.regime === 'RISK_ON' ? 'success' : marketSnapshot?.regime === 'RISK_OFF' ? 'destructive' : 'warning'">
-            {{ marketSnapshot?.regime ?? 'N/A' }}
+            <BilingualEnum
+              :value="marketSnapshot?.regime"
+              size="badge"
+            />
           </Badge>
         </CardTitle>
       </CardHeader>
       <CardContent class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <div class="rounded border p-3">
           <IndicatorLabel
-            label="Positive 5D Breadth"
+            label="positive5dBreadth"
             :description="descriptions.breadth"
           /><strong class="mt-1 block">{{ pct(marketSnapshot?.positive5dBreadth, false) }}</strong>
         </div>
         <div class="rounded border p-3">
           <IndicatorLabel
-            label="Breadth > MA10"
+            label="breadthAboveMa10"
             :description="descriptions.breadth"
           /><strong class="mt-1 block">{{ pct(marketSnapshot?.aboveMa10Breadth, false) }}</strong>
         </div>
         <div class="rounded border p-3">
           <IndicatorLabel
-            label="Benchmark"
+            label="benchmark"
             :description="descriptions.benchmark"
           /><strong class="mt-1 block break-words">{{ marketSnapshot?.benchmarkCode ?? '—' }}</strong>
         </div>
         <div class="rounded border p-3">
           <IndicatorLabel
-            label="Benchmark Trend"
+            label="benchmarkTrend"
             :description="descriptions.benchmarkTrend"
           /><strong class="mt-1 block">{{ marketSnapshot?.benchmarkTrend ?? '—' }}</strong>
         </div>
@@ -557,7 +569,10 @@ onMounted(async () => {
     </Card>
 
     <Card v-if="showingStrategyBody">
-      <CardHeader><CardTitle>Current Candidates</CardTitle><CardDescription>当前 BUY / HOLD 候选；采用 Top4 Entry、Top6 Hold、risk group 和 20 日相关性约束。</CardDescription></CardHeader>
+      <CardHeader>
+        <CardTitle><BilingualLabel label="currentCandidates" /></CardTitle>
+        <CardDescription>当前买入 / 持有候选；采用 Top4 Entry、Top6 Hold、risk group 和 20 日相关性约束。</CardDescription>
+      </CardHeader>
       <CardContent>
         <p
           v-if="!loading && !candidates.length"
@@ -575,15 +590,25 @@ onMounted(async () => {
           >
             <div class="flex items-center justify-between gap-2">
               <strong class="min-w-0 break-words">#{{ item.candidateRank ?? '—' }} {{ item.name }}</strong><Badge :variant="actionVariant(item.action)">
-                {{ item.action ?? '—' }}
+                <BilingualEnum
+                  :value="item.action"
+                  size="badge"
+                />
               </Badge>
             </div>
             <p class="mt-1 truncate text-xs text-muted-foreground">
               {{ item.code }} · {{ item.riskGroup }}
             </p>
-            <div class="mt-3 flex justify-between text-sm">
-              <span>Composite {{ score(item.compositeScore) }}</span><Badge :variant="stateVariant(item.state)">
-                {{ stateIcon(item.state) }} {{ item.state }}
+            <div class="mt-3 flex justify-between gap-2 text-sm">
+              <span class="inline-flex items-baseline gap-1"><BilingualLabel
+                label="composite"
+                compact
+              /> {{ score(item.compositeScore) }}</span><Badge :variant="stateVariant(item.state)">
+                {{ stateIcon(item.state) }}
+                <BilingualEnum
+                  :value="item.state"
+                  size="badge"
+                />
               </Badge>
             </div>
             <div
@@ -614,8 +639,8 @@ onMounted(async () => {
       data-testid="etf-preview-changes"
     >
       <CardHeader>
-        <CardTitle>Preview Changes</CardTitle>
-        <CardDescription>相对上次正式收盘结果的对比，不参与当前 Preview 状态计算。</CardDescription>
+        <CardTitle><BilingualLabel label="previewChanges" /></CardTitle>
+        <CardDescription>相对上次正式收盘结果的对比，不参与当前预演状态计算。</CardDescription>
       </CardHeader>
       <CardContent>
         <p
@@ -630,11 +655,11 @@ onMounted(async () => {
         >
           <section
             v-for="group in previewChangeGroups"
-            :key="group.label"
+            :key="group.labelKey"
             class="rounded border p-3"
           >
             <h3 class="mb-2 flex items-center justify-between text-sm font-semibold">
-              {{ group.label }} <Badge :variant="group.variant">
+              <BilingualLabel :label="group.labelKey" /> <Badge :variant="group.variant">
                 {{ group.items.length }}
               </Badge>
             </h3>
@@ -642,7 +667,7 @@ onMounted(async () => {
               v-for="change in group.items"
               :key="change.current.code"
               class="mb-2 block w-full rounded bg-muted/50 p-2 text-left text-xs hover:bg-muted"
-              :data-testid="`etf-preview-change-${group.label.toLowerCase().replace(' ', '-')}`"
+              :data-testid="`etf-preview-change-${group.labelKey}`"
               @click="openDetail(change.current)"
             >
               <strong>{{ change.current.name }}</strong>
@@ -654,7 +679,10 @@ onMounted(async () => {
     </Card>
 
 <Card v-if="showingStrategyBody">
-      <CardHeader><CardTitle>Today's Exit</CardTitle><CardDescription>所选交易日 action = EXIT 的全部标的；此分区不受候选数量 limit 限制。</CardDescription></CardHeader>
+      <CardHeader>
+        <CardTitle><BilingualLabel label="todaysExit" /></CardTitle>
+        <CardDescription>所选交易日动作为退出的全部标的；此分区不受候选数量 limit 限制。</CardDescription>
+      </CardHeader>
       <CardContent>
         <p
           v-if="!loading && !exits.length"
@@ -673,16 +701,26 @@ onMounted(async () => {
             <div class="flex items-center justify-between gap-2">
               <strong class="min-w-0 break-words">{{ item.name }}</strong>
               <Badge variant="destructive">
-                EXIT
+                <BilingualEnum
+                  value="EXIT"
+                  size="badge"
+                />
               </Badge>
             </div>
             <p class="mt-1 truncate font-mono text-xs text-muted-foreground">
               {{ item.code }}
             </p>
-            <div class="mt-3 flex justify-between text-sm">
-              <span>Composite {{ score(item.compositeScore) }}</span>
+            <div class="mt-3 flex justify-between gap-2 text-sm">
+              <span class="inline-flex items-baseline gap-1"><BilingualLabel
+                label="composite"
+                compact
+              /> {{ score(item.compositeScore) }}</span>
               <Badge :variant="stateVariant(item.state)">
-                {{ stateIcon(item.state) }} {{ item.state }}
+                {{ stateIcon(item.state) }}
+                <BilingualEnum
+                  :value="item.state"
+                  size="badge"
+                />
               </Badge>
             </div>
           </button>
@@ -692,7 +730,7 @@ onMounted(async () => {
 
     <Card v-if="dataMode === 'official' && showingStrategyBody">
       <CardHeader>
-        <CardTitle>Today's Changes</CardTitle>
+        <CardTitle><BilingualLabel label="todaysChanges" /></CardTitle>
         <CardDescription>相对 {{ changes?.previousTradeDate || '上一可用交易日' }} 的信号、状态和排名变化。</CardDescription>
       </CardHeader>
       <CardContent class="space-y-4">
@@ -701,17 +739,25 @@ onMounted(async () => {
           class="rounded border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-800 dark:bg-amber-950/30"
           data-testid="etf-regime-change"
         >
-          <strong>Regime Change</strong>
-          <span class="ml-2">{{ changes.regimeChange.from }} → {{ changes.regimeChange.to }}</span>
+          <strong>环境变化</strong>
+          <span class="ml-2 inline-flex flex-wrap items-center gap-1">
+            <BilingualEnum
+              :value="changes.regimeChange.from"
+              size="badge"
+            /> → <BilingualEnum
+              :value="changes.regimeChange.to"
+              size="badge"
+            />
+          </span>
         </div>
         <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           <section
             v-for="group in changeGroups"
-            :key="group.label"
+            :key="group.labelKey"
             class="rounded border p-3"
           >
             <h3 class="mb-2 flex items-center justify-between text-sm font-semibold">
-              {{ group.label }} <Badge :variant="group.variant">
+              <BilingualLabel :label="group.labelKey" /> <Badge :variant="group.variant">
                 {{ group.items.length }}
               </Badge>
             </h3>
@@ -720,12 +766,15 @@ onMounted(async () => {
                 v-for="change in group.items"
                   :key="change.code"
                 class="block w-full rounded bg-muted/50 p-2 text-left text-xs hover:bg-muted"
-                :data-testid="`etf-change-${group.label.toLowerCase().replace(' ', '-')}`"
+                :data-testid="`etf-change-${group.labelKey}`"
                   @click="openDetail(change)"
               >
                   <strong>{{ change.name }}</strong>
                   <span class="ml-1 font-mono text-muted-foreground">{{ change.code }}</span>
-                <span class="mt-1 block">{{ changeTransition(change, group.transition) }} · Composite Δ {{ scoreChange(change.compositeScoreChange) }}</span>
+                <span class="mt-1 block">{{ changeTransition(change, group.transition) }} · <BilingualLabel
+                  label="composite"
+                  compact
+                /> Δ {{ scoreChange(change.compositeScoreChange) }}</span>
               </button>
               <p
                 v-if="!group.items.length"
@@ -738,7 +787,7 @@ onMounted(async () => {
         </div>
         <section>
           <h3 class="mb-2 text-sm font-semibold">
-            Rank Movers
+            排名变动
           </h3>
           <div class="flex flex-wrap gap-2">
             <button
@@ -750,7 +799,10 @@ onMounted(async () => {
             >
                 <strong>{{ change.name }}</strong>
                 <span class="ml-2">#{{ change.previousRank ?? '—' }} → #{{ change.currentRank ?? '—' }} ({{ rankChange(change.rankChange) }})</span>
-              <span class="ml-2">Composite Δ {{ scoreChange(change.compositeScoreChange) }}</span>
+              <span class="ml-2 inline-flex items-baseline gap-1"><BilingualLabel
+                label="composite"
+                compact
+              /> Δ {{ scoreChange(change.compositeScoreChange) }}</span>
             </button>
             <span
               v-if="!changes?.rankMovers?.length"
@@ -771,7 +823,7 @@ onMounted(async () => {
 
     <Card v-if="showingStrategyBody">
       <CardHeader class="flex-row flex-wrap items-center justify-between gap-3">
-        <div><CardTitle>Rotation Ranking</CardTitle><CardDescription>比较核心得分、状态和 5D / 20D 收益；点击 ETF 查看完整指标。</CardDescription></div>
+        <div><CardTitle><BilingualLabel label="rotationRanking" /></CardTitle><CardDescription>比较核心得分、状态和 5D / 20D 收益；点击 ETF 查看完整指标。</CardDescription></div>
         <LoadingButton
           variant="outline"
           size="sm"
@@ -794,10 +846,10 @@ onMounted(async () => {
             :key="column.key"
             :value="column.key"
           >
-            {{ column.label }}
+            {{ metricLabel(column.label).zh }}
           </NativeSelectOption>
           <NativeSelectOption value="entryScore">
-            Entry
+            {{ metricLabel('entry').zh }}
           </NativeSelectOption>
         </NativeSelect>
       </CardHeader>
@@ -852,7 +904,11 @@ onMounted(async () => {
                 </TableCell>
                 <TableCell>
                   <Badge :variant="stateVariant(item.state)">
-                    {{ stateIcon(item.state) }} {{ item.state }}
+                    {{ stateIcon(item.state) }}
+                    <BilingualEnum
+                      :value="item.state"
+                      size="badge"
+                    />
                   </Badge>
                 </TableCell>
                   <TableCell
@@ -871,7 +927,10 @@ onMounted(async () => {
                 <TableCell>{{ score(item.relativeStrengthScore) }}</TableCell>
                 <TableCell>
                   <Badge :variant="actionVariant(item.action)">
-                    {{ item.action ?? '—' }}
+                    <BilingualEnum
+                      :value="item.action"
+                      size="badge"
+                    />
                   </Badge>
                 </TableCell>
                 <TableCell
@@ -940,7 +999,7 @@ onMounted(async () => {
               class="grid grid-cols-[repeat(auto-fit,minmax(9rem,1fr))] gap-3"
             >
               <div
-                v-for="factor in ([['Entry',selected.latest.entryScore,descriptions.entry],['Composite',selected.latest.compositeScore,descriptions.composite],['Momentum',selected.latest.momentumStrengthScore,descriptions.momentum],['Relative Strength',selected.latest.relativeStrengthScore,descriptions.relativeStrength],['Acceleration',selected.latest.accelerationScore,descriptions.acceleration],['Trend Quality',selected.latest.trendQualityScore,descriptions.trendQuality],['Efficiency',selected.latest.efficiencyScore,descriptions.efficiency]] as const)"
+                v-for="factor in ([['entry',selected.latest.entryScore,descriptions.entry],['composite',selected.latest.compositeScore,descriptions.composite],['momentum',selected.latest.momentumStrengthScore,descriptions.momentum],['relativeStrength',selected.latest.relativeStrengthScore,descriptions.relativeStrength],['acceleration',selected.latest.accelerationScore,descriptions.acceleration],['trendQuality',selected.latest.trendQualityScore,descriptions.trendQuality],['efficiency',selected.latest.efficiencyScore,descriptions.efficiency]] as const)"
                 :key="factor[0]"
                 class="min-w-0 rounded border p-3"
               >
@@ -956,7 +1015,7 @@ onMounted(async () => {
               :highlight-date="selected.latest.tradeDate"
             />
             <Card>
-              <CardHeader><CardTitle>Raw Metrics</CardTitle></CardHeader><CardContent
+              <CardHeader><CardTitle><BilingualLabel label="rawMetrics" /></CardTitle></CardHeader><CardContent
                 data-testid="etf-raw-metrics-grid"
                 class="grid grid-cols-[repeat(auto-fit,minmax(11rem,1fr))] gap-2"
               >
@@ -974,41 +1033,49 @@ onMounted(async () => {
               </CardContent>
             </Card>
             <Card>
-              <CardHeader><CardTitle>Eligibility & Signal</CardTitle></CardHeader><CardContent class="grid grid-cols-[repeat(auto-fit,minmax(10rem,1fr))] gap-3">
+              <CardHeader><CardTitle><BilingualLabel label="eligibilitySignal" /></CardTitle></CardHeader><CardContent class="grid grid-cols-[repeat(auto-fit,minmax(10rem,1fr))] gap-3">
                 <div>
                   <IndicatorLabel
-                    label="Absolute Trend"
+                    label="绝对趋势"
+                    en="Absolute Trend"
                     :description="descriptions.absoluteTrend"
                     wrap
                   /><strong class="block">{{ boolText(selected.latest.absoluteTrendEligible) }}</strong>
                 </div>
                 <div>
                   <IndicatorLabel
-                    label="Liquidity"
+                    label="流动性"
+                    en="Liquidity"
                     :description="descriptions.liquidity"
                     wrap
                   /><strong class="block">{{ boolText(selected.latest.liquidityEligible) }}</strong>
                 </div>
                 <div>
                   <IndicatorLabel
-                    label="State"
+                    label="state"
                     :description="descriptions.state"
                     wrap
-                  /><strong class="block">{{ selected.latest.state }}</strong>
+                  /><strong class="block"><BilingualEnum
+                    :value="selected.latest.state"
+                    size="badge"
+                  /></strong>
                 </div>
                 <div>
                   <IndicatorLabel
-                    label="Action"
+                    label="action"
                     :description="descriptions.action"
                     wrap
-                  /><strong class="block">{{ selected.latest.action ?? '—' }}</strong>
+                  /><strong class="block"><BilingualEnum
+                    :value="selected.latest.action"
+                    size="badge"
+                  /></strong>
                 </div>
               </CardContent>
             </Card>
             <Card
               data-testid="etf-detail-history"
             >
-              <CardHeader><CardTitle>History</CardTitle><CardDescription>价格/MA、Composite、Rank 与 Relative Strength；旧快照缺失字段时保留空点。</CardDescription></CardHeader><CardContent><ETFRotationHistoryCharts :history="detailChartHistory" /></CardContent>
+              <CardHeader><CardTitle><BilingualLabel label="history" /></CardTitle><CardDescription>价格/MA、综合分、排名与相对强弱；旧快照缺失字段时保留空点。</CardDescription></CardHeader><CardContent><ETFRotationHistoryCharts :history="detailChartHistory" /></CardContent>
             </Card>
           </template>
         </div>

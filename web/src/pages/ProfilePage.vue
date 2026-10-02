@@ -207,9 +207,10 @@ onBeforeUnmount(clearAvatarSource);
 </script>
 
 <template>
-  <div class="space-y-6 py-4 sm:py-6">
+  <div class="page-shell">
     <PageHeader
       title="个人中心"
+      en="Profile"
       description="管理账号资料、安全设置和通知渠道。"
     />
 

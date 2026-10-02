@@ -14,7 +14,7 @@ const props = defineProps<{ data: FlowOverview; selected: string; stocks?: FlowS
 const emit = defineEmits<{ select: [id: string]; stock: [symbol: string] }>();
 const { resolvedTheme } = useTheme();
 const text = computed(() => resolvedTheme.value === 'dark' ? '#d4d4d8' : '#52525b');
-const colors = ['#ef4444', '#f97316', '#db2777', '#b91c1c', '#be123c', '#059669', '#16a34a', '#0d9488', '#15803d', '#047857'];
+const colors = ['#dc2626', '#e11d48', '#f43f5e', '#b91c1c', '#be123c', '#16854e', '#059669', '#0d9488', '#15803d', '#047857'];
 const shown = computed(() => {
   const rows = props.data.concepts;
   const chosen = [...rows.filter(c => (c.netValue ?? 0) > 0).slice(0, 5),
@@ -56,7 +56,7 @@ function pathOption(positive: boolean) {
     series: [{ type: 'sankey', left: 5, right: 155, top: 15, bottom: 15, nodeWidth: 10, nodeGap: 16, draggable: false,
       emphasis: { focus: 'adjacency' },
       label: { color: text.value, width: 145, overflow: 'truncate', fontSize: 11, formatter: (p: { data: { label: string } }) => p.data.label },
-      itemStyle: { color: positive ? '#ef4444' : '#059669' }, lineStyle: { color: 'source', opacity: 0.35 },
+      itemStyle: { color: positive ? '#dc2626' : '#16854e' }, lineStyle: { color: 'source', opacity: 0.35 },
       data: [{ name: root, label: name, signed: rows.reduce((s, r) => s + r.value, 0) },
         ...rows.map((r, i) => ({ name: `stock-${i}`, label: `${r.name} ${money(r.value)}`, symbol: r.symbol, signed: r.value }))],
       links: rows.map((r, i) => ({ source: root, target: `stock-${i}`, value: Math.abs(r.value), signed: r.value, label: `${name} → ${r.name}`, symbol: r.symbol })),

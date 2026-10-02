@@ -2,7 +2,10 @@ import type { ETFChange, ETFRankingChanges } from '@/types/etfRotation';
 import type { TimelineItem } from '@/api/timeline';
 import { dayKey, formatEps, sessionLabel } from '@/components/timeline/timelineFormat';
 
-export const regimeText = (value?: string | null) => value ? value.replaceAll('_', ' ').toUpperCase() : '等待数据';
+import { enumLabel } from '@/i18n/labels';
+
+/** @deprecated Prefer BilingualEnum; kept for callers needing plain Chinese. */
+export const regimeText = (value?: string | null) => enumLabel(value).zh;
 export function regimeTone(value?: string | null) {
   return ['RISK_ON', 'risk_on', 'BULL'].includes(value ?? '') ? 'text-market-up'
     : ['RISK_OFF', 'risk_off', 'BEAR'].includes(value ?? '') ? 'text-market-down' : 'text-muted-foreground';

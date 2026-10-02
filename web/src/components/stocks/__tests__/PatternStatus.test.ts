@@ -63,12 +63,12 @@ afterEach(() => {
 
 describe('PatternStatus', () => {
   it.each([
-    ['bearish_to_bullish', 'warning', '空转多预警', 'text-red-500'],
-    ['bearish_to_bullish', 'confirmed', '空转多确认', 'text-red-500'],
-    ['bullish_to_bearish', 'warning', '多转空预警', 'text-emerald-500'],
-    ['bullish_to_bearish', 'confirmed', '多转空确认', 'text-emerald-500'],
-    ['bullish_continuation', 'forming', '多头整理', 'text-amber-500'],
-    ['bearish_continuation', 'forming', '空头整理', 'text-amber-500'],
+    ['bearish_to_bullish', 'warning', '空转多预警', 'text-market-up'],
+    ['bearish_to_bullish', 'confirmed', '空转多确认', 'text-market-up'],
+    ['bullish_to_bearish', 'warning', '多转空预警', 'text-market-down'],
+    ['bullish_to_bearish', 'confirmed', '多转空确认', 'text-market-down'],
+    ['bullish_continuation', 'forming', '多头整理', 'text-warning'],
+    ['bearish_continuation', 'forming', '空头整理', 'text-warning'],
   ] as const)('renders %s %s consistently', (direction, stage, text, color) => {
     const wrapper = mount(PatternStatus, {
       props: { pattern: pattern({ direction, stage, confirmed: stage === 'confirmed' }), now: NOW },

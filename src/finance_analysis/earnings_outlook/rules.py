@@ -3,6 +3,7 @@
 import hashlib
 import json
 import math
+import re
 from datetime import datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
@@ -54,6 +55,12 @@ def trading_days(start, end):
     if not calendar._XCALS_AVAILABLE:
         raise ValueError("US exchange calendar unavailable")
     return calendar.get_trading_days_between("us", start, end)
+
+
+def matches_schedule(event, schedule_hash, frozen_event=None):
+    current = schedule(event)
+    # Provider completion of the already-researched quarter is not a rescheduled release.
+    return digest(current) == schedule_hash or current == frozen_event
 
 
 def event_window(event):
@@ -120,6 +127,9 @@ def clean_research(bundle, cutoff, retrieved_at):
         for f in bundle.get("facts", [])
         if isinstance(f, dict) and f.get("source_ids") and set(f["source_ids"]).issubset(ids)
     ]
+    period = bundle.get("reporting_period")
+    if not isinstance(period, dict) or not period.get("source_ids") or not set(period["source_ids"]).issubset(ids):
+        period = None
     return {
         "sources": sources,
         "facts": facts,
@@ -137,10 +147,38 @@ def clean_research(bundle, cutoff, retrieved_at):
             and set(value["source_ids"]).issubset(ids)
             and (timestamp(value.get("as_of")) is None or timestamp(value["as_of"]) <= cutoff)
         },
+        "reporting_period": period,
         "excluded_source_ids": rejected,
-        "uncertainties": bundle.get("uncertainties", []),
+        # Free text has no source IDs: do not let rejected evidence re-enter via this field.
+        "uncertainties": [] if rejected else bundle.get("uncertainties", []),
         "publication_unknown": any(not s["publication_known"] for s in sources),
     }
+
+
+def research_quarter(bundle, event):
+    """Resolve a missing fiscal quarter only from dated official evidence for this release."""
+    period = bundle.get("reporting_period")
+    if not isinstance(period, dict):
+        return None
+    sources = {s["source_id"]: s for s in bundle.get("sources", [])}
+    cited = period.get("source_ids") or []
+    value = period.get("value")
+    if (
+        isinstance(value, str)
+        and re.fullmatch(r"\d{4}-Q[1-4]", value)
+        and period.get("symbol") == event.symbol
+        and period.get("event_date") == str(event.event_date)
+        and cited
+        and all(
+            s in sources
+            and sources[s]["publication_known"]
+            and sources[s].get("source_type") in {"official", "official_guidance"}
+            for s in cited
+        )
+        and not any(c.get("metric") == "reporting_period" for c in bundle.get("conflicts", []))
+    ):
+        return value
+    return None
 
 
 def comparable(estimate, quarter, metric):

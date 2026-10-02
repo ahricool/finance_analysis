@@ -3,6 +3,7 @@
 import json
 import logging
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from datetime import timedelta
 
 from finance_analysis.core.time import utc_now
@@ -22,6 +23,8 @@ from .rules import (
     normalize_prediction,
     timestamp,
     comparable,
+    research_quarter,
+    matches_schedule,
     review_prediction,
     trading_days,
 )
@@ -45,7 +48,7 @@ class EarningsOutlookService:
     def __init__(self, repo=None, llm=None, collector=None, resolver=None, config=None, clock=utc_now):
         self.repo = repo or EarningsOutlookRepository()
         self.llm = llm or LLMClient()
-        self.collector = collector or ContextCollector(self.repo)
+        self.collector = collector or ContextCollector(self.repo, llm=self.llm)
         self.resolver = resolver
         self.config = config or OutlookConfig.from_env()
         self.clock = clock
@@ -56,20 +59,22 @@ class EarningsOutlookService:
         now = self.clock()
         members = resolve_members(self.resolver)  # Empty/failed membership is a task failure, never broader fallback.
         today = now.astimezone(NY).date()
-        if stage == "final":
+        if event_id is not None:
+            event = self.repo.event(event_id)
+            if not event:
+                raise ValueError("Earnings event not found")
+            events = [event]
+        elif stage == "final":
             days = trading_days(today, today + timedelta(days=14))
             if today not in days:
                 return {"status": "skipped", "reason": "非美股交易日"}
             target = next(d for d in days if d > today)
             events = self.repo.events(target, target)
             events.sort(key=lambda e: (e.market_session != "bmo", e.id))
-        elif event_id is not None:
-            event = self.repo.event(event_id)
-            if not event:
-                raise ValueError("Earnings event not found")
-            events = [event]
         else:
-            events = self.repo.events(today, today + timedelta(days=self.config.lookahead_days))
+            events = self.repo.events(
+                today, today + timedelta(days=self.config.lookahead_days), include_unpredicted=True
+            )
         # Reconcile historical applicability even for removed members, without deleting versions.
         events = [e for e in events if e.calendar_type == "earnings" and e.market == "US"]
         public = self.collector.public(now) if events else {}
@@ -87,27 +92,32 @@ class EarningsOutlookService:
             raise RuntimeError("All earnings outlook events failed; see event state and task logs")
         return dict(stage=stage, results=results)
 
+    @contextmanager
+    def research_slot(self):
+        # Shared by forecasts and actual-only research, including manual requests.
+        for n in range(self.config.concurrency):
+            slot = self.repo.slot(n)
+            if slot.acquire():
+                try:
+                    yield True
+                finally:
+                    slot.release()
+                return
+        yield False
+
     def refresh(self, event_id, stage, members, public):
         with self.repo.lock(event_id) as lock:
             if not lock.acquired:
                 return dict(event_id=event_id, status="busy")
-            # A cross-worker semaphore bounds external research, including manual requests.
-            slot = None
-            for n in range(self.config.concurrency):
-                candidate = self.repo.slot(n)
-                if candidate.acquire():
-                    slot = candidate
-                    break
-            if slot is None:
-                return dict(event_id=event_id, status="busy", reason="research concurrency limit")
-            try:
-                return self._refresh(event_id, stage, members, public)
-            except Exception as exc:
-                # The successful projection/pointer is intentionally untouched.
-                self.repo.mark(event_id, "failed", str(exc)[:1000])
-                raise
-            finally:
-                slot.release()
+            with self.research_slot() as acquired:
+                if not acquired:
+                    return dict(event_id=event_id, status="busy", reason="research concurrency limit")
+                try:
+                    return self._refresh(event_id, stage, members, public)
+                except Exception as exc:
+                    # The successful projection/pointer is intentionally untouched.
+                    self.repo.mark(event_id, "failed", str(exc)[:1000])
+                    raise
 
     def _refresh(self, event_id, stage, members, public):
         now = self.clock()
@@ -122,7 +132,10 @@ class EarningsOutlookService:
         if released(event, now, window) or (state and state.frozen_schedule_hash == stamp):
             self.repo.mark(event_id, "frozen", frozen_schedule_hash=stamp)
             return dict(event_id=event_id, status="frozen")
-        if event.event_date > now.astimezone(NY).date() + timedelta(days=self.config.lookahead_days):
+        if (
+            event.event_date > now.astimezone(NY).date() + timedelta(days=self.config.lookahead_days)
+            and state and state.latest_prediction_id
+        ):
             return dict(event_id=event_id, status="skipped", reason="outside research window")
         # Cache invalidates on identity, schedule, expectations, or structured guidance changes, not quote changes.
         cache_key = digest(
@@ -176,6 +189,8 @@ class EarningsOutlookService:
                     "conflicts": [],
                     "publication_unknown": False,
                     "consensus": {},
+                    "reporting_period": None,
+                    "uncertainties": [],
                 }
             research = self.repo.save_research(
                 event_id=event_id,
@@ -192,6 +207,11 @@ class EarningsOutlookService:
             )
         bundle = research.bundle
         sources = {s["source_id"]: s for s in bundle.get("sources", [])}
+        # Preserve the provider schedule/hash; retain researched identity in the frozen input.
+        quarter = event.reporting_period or research_quarter(bundle, event)
+        context["event"]["reporting_period"] = quarter
+        if quarter and not event.reporting_period:
+            context["reporting_period_evidence"] = bundle["reporting_period"]
         for metric in ("eps", "revenue"):
             candidate = bundle.get("consensus", {}).get(metric)
             if not candidate or not candidate.get("selection_reason"):
@@ -203,12 +223,13 @@ class EarningsOutlookService:
                 and all(s in sources and sources[s]["publication_known"] for s in cited)
                 and at
                 and now - timedelta(days=30) <= at <= now
-                and comparable(candidate, event.reporting_period, metric)
+                and comparable(candidate, quarter, metric)
             ):
                 context["consensus"][metric] = candidate
         if any(
             f.get("kind") == "reported"
-            and f.get("quarter") == event.reporting_period
+            and quarter
+            and f.get("quarter") == quarter
             and any(
                 sources[s].get("source_type") in {"official", "official_guidance"} and sources[s]["publication_known"]
                 for s in f["source_ids"]
@@ -246,7 +267,7 @@ class EarningsOutlookService:
             return dict(event_id=event_id, status="cached")
         # Recheck after research and immediately before the second paid call.
         fresh = self.repo.event(event_id)
-        if digest(schedule(fresh)) != stamp or released(fresh, self.clock(), window):
+        if not matches_schedule(fresh, stamp, context["event"]) or released(fresh, self.clock(), window):
             self.repo.mark(event_id, "frozen" if released(fresh, self.clock(), window) else "superseded")
             return dict(event_id=event_id, status="frozen_or_changed")
         result = self.llm.complete_text(
@@ -280,6 +301,7 @@ class EarningsOutlookService:
             stage=stage,
             search_status=research.search_evidence["status"],
             data_cutoff=now.isoformat(),
+            event_identity=context["event"],
         )
         prediction_id = self.repo.save_prediction(
             summary=summary,
@@ -320,7 +342,7 @@ class EarningsOutlookService:
             if not lock.acquired:
                 return None
             event = self.repo.event(version.event_id)
-            if digest(schedule(event)) != version.schedule_hash:
+            if not matches_schedule(event, version.schedule_hash, version.context["event"]):
                 self.repo.mark(event.id, "superseded")
                 return None
             state = self.repo.state(event.id)
@@ -328,7 +350,10 @@ class EarningsOutlookService:
             same_version = previous and previous.get("prediction_id") == version.id
             if same_version and previous.get("status") == "completed":
                 return None
-            actual = self.collector.actual(event, version, now)
+            with self.research_slot() as acquired:
+                if not acquired:
+                    return None
+                actual = self.collector.actual(event, version, now, previous=previous if same_version else None)
             if same_version:
                 for metric in ("eps", "revenue", "ohlc"):
                     if actual.get(metric) is None:

@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import type { CryptoPerformance } from '@/types/crypto';
+import BilingualEnum from '@/components/app/BilingualEnum.vue';
+import BilingualLabel from '@/components/app/BilingualLabel.vue';
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 const props = defineProps<{ performance: CryptoPerformance; price: string | null }>();
@@ -27,7 +29,7 @@ const curve = computed(() => {
 <template>
   <Card data-testid="btc-performance">
     <CardHeader>
-      <CardTitle>Performance</CardTitle>
+      <CardTitle><BilingualLabel label="performance" /></CardTitle>
       <CardDescription>{{ performance.displayName }} · 有效起点 {{ performance.performanceStartAt ?? '等待完整仓位快照' }} · 截至 {{ performance.performanceEndAt ?? '—' }} · 15m 收盘净值，初始为 1 · 无手续费与滑点</CardDescription>
     </CardHeader>
     <CardContent class="space-y-5">
@@ -75,7 +77,7 @@ const curve = computed(() => {
       <div class="grid grid-cols-2 gap-6">
         <section>
           <h4 class="mb-2 font-medium">
-            Recent Executions
+            <BilingualLabel label="recentExecutions" />
           </h4>
           <p
             v-if="!performance.recentExecutions.length"
@@ -90,14 +92,19 @@ const curve = computed(() => {
                 v-for="item in performance.recentExecutions.slice(0, 10)"
                 :key="item.evaluatedAt"
               >
-                <TableCell>{{ item.evaluatedAt.replace('T', ' ').slice(0, 16) }}</TableCell><TableCell>{{ item.action }}</TableCell><TableCell>{{ percent(item.positionBefore) }} → {{ percent(item.positionAfter) }}</TableCell><TableCell>{{ number(item.price) }}</TableCell>
+                <TableCell>{{ item.evaluatedAt.replace('T', ' ').slice(0, 16) }}</TableCell><TableCell>
+                  <BilingualEnum
+                    :value="item.action"
+                    size="badge"
+                  />
+                </TableCell><TableCell>{{ percent(item.positionBefore) }} → {{ percent(item.positionAfter) }}</TableCell><TableCell>{{ number(item.price) }}</TableCell>
               </TableRow>
             </TableBody>
           </Table>
         </section>
         <section>
           <h4 class="mb-2 font-medium">
-            Recent Trades
+            <BilingualLabel label="recentTrades" />
           </h4>
           <p
             v-if="!performance.recentTrades.length"

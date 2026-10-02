@@ -1,12 +1,12 @@
 """Short database transactions around external calls, append-only successful versions."""
 
 from datetime import timedelta
-from sqlalchemy import select
+from sqlalchemy import select, or_
 from finance_analysis.core.time import utc_now
 from finance_analysis.database.models.market_calendar import FinanceEvent
 from finance_analysis.database.models.earnings_outlook import EarningsResearch, EarningsPrediction, EarningsOutlookState
 from finance_analysis.database.session import DatabaseManager
-from finance_analysis.earnings_outlook.rules import digest, schedule, timestamp
+from finance_analysis.earnings_outlook.rules import timestamp, matches_schedule
 from finance_analysis.earnings_outlook.facts import has_actual
 from finance_analysis.tasks.advisory_lock import PostgreSQLAdvisoryLock
 
@@ -28,17 +28,22 @@ class EarningsOutlookRepository:
                 s.expunge(row)
             return row
 
-    def events(self, start, end):
+    def events(self, start, end, include_unpredicted=False):
         with self.db.get_session() as s:
+            query = select(FinanceEvent).where(
+                FinanceEvent.calendar_type == "earnings",
+                FinanceEvent.market == "US",
+                FinanceEvent.event_date >= start,
+            )
+            if include_unpredicted:
+                query = query.outerjoin(EarningsOutlookState, EarningsOutlookState.event_id == FinanceEvent.id).where(
+                    or_(FinanceEvent.event_date <= end, EarningsOutlookState.latest_prediction_id.is_(None))
+                )
+            else:
+                query = query.where(FinanceEvent.event_date <= end)
             rows = list(
                 s.scalars(
-                    select(FinanceEvent)
-                    .where(
-                        FinanceEvent.calendar_type == "earnings",
-                        FinanceEvent.market == "US",
-                        FinanceEvent.event_date.between(start, end),
-                    )
-                    .order_by(FinanceEvent.event_date, FinanceEvent.id)
+                    query.order_by(FinanceEvent.event_date, FinanceEvent.id)
                 )
             )
             for row in rows:
@@ -172,7 +177,7 @@ class EarningsOutlookRepository:
     def save_prediction(self, summary, **values):
         def write(s):
             event = s.get(FinanceEvent, values["event_id"], with_for_update=True)
-            if digest(schedule(event)) != values["schedule_hash"] or has_actual(event):
+            if not matches_schedule(event, values["schedule_hash"], values["context"]["event"]) or has_actual(event):
                 raise ValueError("Event changed or reported during research")
             if utc_now() >= values["release_cutoff"]:
                 raise ValueError("Release cutoff passed during research")
@@ -282,7 +287,7 @@ def display_summary(event, state, members, now):
             reaction_high=False,
         )
     value = {**state.summary, "memberships": member["memberships"], "last_error": state.error}
-    if state.schedule_hash != digest(schedule(event)):
+    if not matches_schedule(event, state.schedule_hash, state.summary.get("event_identity")):
         return dict(status="superseded", memberships=member["memberships"], earnings_high=False, reaction_high=False)
     status = "current"
     if has_actual(event) or now >= timestamp(value["release_cutoff"]) or state.status == "frozen":

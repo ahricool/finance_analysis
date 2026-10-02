@@ -17,10 +17,10 @@ const label = computed(() => {
       class="h-1.5 w-1.5 rounded-full"
       :class="
         status === 'connected'
-          ? 'bg-emerald-500'
+          ? 'bg-success'
           : status === 'unauthorized'
             ? 'bg-destructive'
-            : 'animate-pulse bg-amber-500'
+            : 'animate-pulse bg-warning'
       "
     />
     {{ label }}

@@ -257,32 +257,22 @@ function closeDetail() {
 </script>
 
 <template>
-  <div class="space-y-6 p-4 sm:p-6">
-    <div class="flex flex-wrap items-center justify-between gap-3">
-      <div>
-        <h1 class="text-xl font-semibold">
-          投资组合
-        </h1>
-        <p class="text-sm text-muted-foreground">
-          数据库是唯一真实持仓来源，Trade Engine 每 30 分钟给出中线建议。
-        </p>
-      </div>
-      <div class="flex gap-2">
-        <Button
-          :variant="market === 'CN' ? 'default' : 'outline'"
-          data-testid="market-cn"
-          @click="changeMarket('CN')"
-        >
-          CN
-        </Button>
-        <Button
-          :variant="market === 'US' ? 'default' : 'outline'"
-          data-testid="market-us"
-          @click="changeMarket('US')"
-        >
-          US
-        </Button>
-      </div>
+  <div class="space-y-6">
+    <div class="flex flex-wrap items-center justify-end gap-2">
+      <Button
+        :variant="market === 'CN' ? 'default' : 'outline'"
+        data-testid="market-cn"
+        @click="changeMarket('CN')"
+      >
+        CN
+      </Button>
+      <Button
+        :variant="market === 'US' ? 'default' : 'outline'"
+        data-testid="market-us"
+        @click="changeMarket('US')"
+      >
+        US
+      </Button>
     </div>
 
     <ApiErrorAlert
@@ -374,7 +364,7 @@ function closeDetail() {
               <TableHead>市值</TableHead>
               <TableHead>仓位</TableHead>
               <TableHead>盈亏</TableHead>
-              <TableHead>Trade Engine</TableHead>
+              <TableHead>交易引擎</TableHead>
               <TableHead>操作</TableHead>
             </TableRow>
           </TableHeader>

@@ -165,9 +165,11 @@ def test_future_consensus_cannot_leak_through_research_into_analysis():
         "sources": [{"source_id": "after", "url": "https://example.com", "published_at": "2026-07-02T10:00:00Z"}],
         "consensus": {"eps": {"value": 999, "source_ids": ["after"], "as_of": "2026-07-02T10:00:00Z"}},
         "conflicts": [{"source_ids": ["after"], "description": "future result"}],
+        "uncertainties": ["Actual EPS already reported after cutoff"],
     }
     cleaned = clean_research(bundle, NOW, NOW)
     assert cleaned["consensus"] == {} and cleaned["conflicts"] == [] and cleaned["sources"] == []
+    assert cleaned["uncertainties"] == []
 
 
 def test_persisted_longbridge_revenue_preserves_unknown_basis_and_freezes():

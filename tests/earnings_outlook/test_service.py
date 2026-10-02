@@ -200,6 +200,7 @@ def test_unverified_model_sources_are_not_used_as_live_evidence(setup):
                         ],
                         "facts": [{"text": "claimed", "source_ids": ["fake"]}],
                         "conflicts": [{"source_ids": ["fake"], "description": "unverified claim"}],
+                        "uncertainties": ["Unverified actual EPS"],
                     }
                 ),
                 backend="test",
@@ -212,6 +213,7 @@ def test_unverified_model_sources_are_not_used_as_live_evidence(setup):
     detail = repo.detail(1)
     assert detail["versions"][0]["research"]["facts"] == []
     assert detail["versions"][0]["research"]["conflicts"] == []
+    assert detail["versions"][0]["research"]["uncertainties"] == []
     assert detail["versions"][0]["search_evidence"]["status"] == "unverified"
 
 
@@ -294,3 +296,117 @@ def test_review_writes_actual_separately_and_keeps_prediction_unchanged(setup):
         assert detail["actual"]["close_error"] == 0 and detail["actual"]["range_covered"]
     finally:
         module.utc_now = original
+
+
+@pytest.mark.parametrize("proof,source_type,expected", [
+    ("confirmed", "official", "beat"),
+    ("unverified", "official", "unknown"),
+    ("confirmed", "news", "unknown"),
+])
+def test_missing_calendar_quarter_uses_only_verified_release_identity(setup, proof, source_type, expected):
+    service, db, repo, llm, members = setup
+    with db.get_session() as s, s.begin():
+        s.get(FinanceEvent, 1).reporting_period = None
+    original = llm.complete_text.side_effect
+    estimates = context()["consensus"]
+
+    def call(request, validator):
+        if request.call_type == "earnings_research":
+            return LLMResult(
+                text=json.dumps({
+                    "sources": [{
+                        "source_id": "ir", "url": "https://example.com/ir",
+                        "published_at": NOW.isoformat(), "source_type": source_type,
+                    }],
+                    "reporting_period": {
+                        "value": "2026-Q2", "symbol": "A.US", "event_date": "2026-07-02", "source_ids": ["ir"],
+                    },
+                    "consensus": {
+                        k: {**v, "source_ids": ["ir"], "selection_reason": "same fiscal quarter"}
+                        for k, v in estimates.items()
+                    },
+                }),
+                backend="test", search_evidence={"status": proof},
+            )
+        return original(request, validator)
+
+    llm.complete_text.side_effect = call
+    service.refresh(1, "daily", members, {})
+    version = repo.detail(1)["versions"][0]
+    assert version["prediction"]["eps"]["judgment"] == expected
+    assert repo.event(1).reporting_period is None  # Calendar identity/hash is not rewritten.
+    if expected == "beat":
+        assert version["context"]["event"]["reporting_period"] == "2026-Q2"
+        assert version["context"]["reporting_period_evidence"]["source_ids"] == ["ir"]
+        with db.get_session() as s, s.begin():
+            s.get(FinanceEvent, 1).reporting_period = "2026-Q2"
+        summary = display_summary(repo.event(1), repo.state(1), members, NOW)
+        assert summary["status"] == "current"
+        with db.get_session() as s:
+            saved = s.scalar(select(EarningsPrediction))
+            service.collector.actual.return_value = {"eps": None, "revenue": None, "ohlc": None}
+            assert service._review_one(saved, NOW + timedelta(days=5))["status"] == "pending"
+        with db.get_session() as s, s.begin():
+            s.get(FinanceEvent, 1).reporting_period = "2026-Q3"
+        assert display_summary(repo.event(1), repo.state(1), members, NOW)["status"] == "superseded"
+    else:
+        assert version["context"]["event"]["reporting_period"] is None
+
+
+def test_final_retry_keeps_original_event_after_date_rollover(setup):
+    service, db, repo, llm, members = setup
+    service.clock = lambda: datetime(2026, 7, 2, 5, tzinfo=timezone.utc)
+    repo.events = Mock()
+    service.refresh = Mock(return_value={"event_id": 1, "status": "success"})
+    result = service.run("final", event_id=1)
+    assert result["results"][0]["event_id"] == 1
+    repo.events.assert_not_called()
+
+
+def test_busy_events_requeue_until_release_without_rescanning(monkeypatch):
+    from finance_analysis.tasks.celery.jobs.earnings_outlook import tasks
+    from .test_rules import event
+
+    row = event(id=12, session="bmo")
+    service = Mock()
+    service.clock.return_value = NOW
+    service.repo.event.return_value = row
+    service.run.return_value = {"results": [{"event_id": 12, "status": "busy"}]}
+    monkeypatch.setattr(tasks, "EarningsOutlookService", lambda: service)
+    enqueue = Mock()
+    monkeypatch.setattr(tasks.earnings_outlook, "apply_async", enqueue)
+    assert tasks._run_outlook("final")["results"][0]["status"] == "deferred"
+    enqueue.assert_called_once_with(
+        kwargs={"event_id": 12, "stage": "final"}, countdown=60,
+        expires=datetime(2026, 7, 2, 4, tzinfo=timezone.utc),
+    )
+    enqueue.reset_mock()
+    service.clock.return_value = datetime(2026, 7, 2, 4, tzinfo=timezone.utc)
+    service.run.return_value = {"results": [{"event_id": 12, "status": "busy"}]}
+    assert tasks._run_outlook("final", 12)["results"][0]["status"] == "frozen"
+    enqueue.assert_not_called()
+
+
+def test_first_snapshot_outside_seven_days_then_daily_market_refresh(setup):
+    service, db, repo, llm, members = setup
+    with db.get_session() as s, s.begin():
+        s.get(FinanceEvent, 1).event_date = date(2026, 7, 17)
+    assert [e.id for e in repo.events(NOW.date(), date(2026, 7, 8), include_unpredicted=True)] == [1]
+    assert service.refresh(1, "daily", members, {})["status"] == "success"
+    assert repo.events(NOW.date(), date(2026, 7, 8), include_unpredicted=True) == []
+    assert service.refresh(1, "daily", members, {})["status"] == "skipped"
+    assert llm.complete_text.call_count == 2
+    service.clock = lambda: datetime(2026, 7, 10, 15, tzinfo=timezone.utc)
+    original = service.collector.collect.side_effect
+
+    def collect(*args):
+        value = original(*args)
+        value["reference_price"] = 105
+        return value
+
+    service.collector.collect.side_effect = collect
+    assert service.refresh(1, "daily", members, {})["status"] == "success"
+    versions = repo.detail(1)["versions"]
+    assert len(versions) == 2
+    assert versions[0]["context"]["reference_price"] == 105
+    assert versions[1]["context"]["reference_price"] == 100

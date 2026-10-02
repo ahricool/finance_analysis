@@ -4,6 +4,30 @@ import json
 import math
 
 
+def normalize_actual(fact, estimate, metric):
+    """Convert explicit revenue scales only; never supply missing identity or basis."""
+    if not isinstance(fact, dict) or isinstance(fact.get("value"), bool):
+        return None
+    fact = dict(fact)
+    if metric != "revenue" or not estimate or fact.get("currency") != estimate.get("currency"):
+        return fact
+    currency = fact.get("currency")
+    if not currency:
+        return fact
+    scales = {"currency_units": 1, currency: 1}
+    for unit, scale in (("units", 1), ("thousand", 1e3), ("million", 1e6), ("billion", 1e9)):
+        scales.update({unit: scale, f"{currency}_{unit}": scale})
+    source, target = scales.get(fact.get("unit")), scales.get(estimate.get("unit"))
+    if source is not None and target is not None:
+        try:
+            value = float(fact["value"]) * source / target
+        except (KeyError, TypeError, ValueError):
+            return fact
+        if math.isfinite(value):
+            fact.update(value=value, unit=estimate["unit"])
+    return fact
+
+
 def raw_facts(event):
     get = event.get if isinstance(event, dict) else lambda key: getattr(event, key, None)
     raw = get("raw_payload_json") or {}

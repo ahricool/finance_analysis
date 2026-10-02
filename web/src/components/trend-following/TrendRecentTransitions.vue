@@ -52,9 +52,9 @@ onBeforeUnmount(() => { requestId++; });
           展示最近交易快照中 State 发生关键变化的股票。转强表示趋势确认或恢复，转弱表示趋势弱化或破坏。
         </p>
       </div>
-      <div class="flex gap-4">
+      <div class="flex min-w-0 flex-wrap gap-2 sm:gap-4">
         <div
-          class="flex gap-1"
+          class="flex flex-wrap gap-1"
           aria-label="状态变化方向"
         >
           <Button
@@ -69,7 +69,7 @@ onBeforeUnmount(() => { requestId++; });
           </Button>
         </div>
         <div
-          class="flex gap-1"
+          class="flex flex-wrap gap-1"
           aria-label="状态变化时间范围"
         >
           <Button
@@ -102,18 +102,18 @@ onBeforeUnmount(() => { requestId++; });
     <template v-else>
       <div
         v-if="data?.items?.length"
-        class="mt-4 divide-y"
+        class="mt-4 min-w-0 divide-y overflow-x-auto"
       >
         <button
           v-for="item in data.items"
           :key="`${item.tradeDate}-${item.code}`"
-          class="grid w-full grid-cols-[24px_minmax(140px,1fr)_minmax(280px,1.6fr)_minmax(150px,1fr)_140px] items-center gap-3 rounded px-2 py-3 text-left text-sm hover:bg-muted/60 focus-visible:outline-2 focus-visible:outline-ring"
+          class="grid w-full min-w-[36rem] grid-cols-[24px_minmax(7rem,1fr)_minmax(10rem,1.6fr)_minmax(8rem,1fr)_7rem] items-center gap-3 rounded px-2 py-3 text-left text-sm hover:bg-muted/60 focus-visible:outline-2 focus-visible:outline-ring sm:min-w-[48rem] sm:grid-cols-[24px_minmax(140px,1fr)_minmax(280px,1.6fr)_minmax(150px,1fr)_140px]"
           data-testid="trend-transition"
           @click="emit('select', { code: item.code, tradeDate: item.tradeDate, preview: item.isPreview })"
         >
           <span
             class="text-lg"
-            :class="item.direction === 'strengthening' ? 'text-emerald-700 dark:text-emerald-400' : 'text-orange-700 dark:text-orange-400'"
+            :class="item.direction === 'strengthening' ? 'text-market-up' : 'text-market-down'"
           >{{ item.direction === 'strengthening' ? '↑' : '↓' }}<span class="sr-only">{{ item.direction === 'strengthening' ? '转强' : '转弱' }}</span></span>
           <span class="min-w-0"><strong class="block truncate font-medium">{{ item.name }}</strong><span class="font-mono text-xs text-muted-foreground">{{ item.code }}</span></span>
           <span>
@@ -123,7 +123,7 @@ onBeforeUnmount(() => { requestId++; });
           <span class="text-xs tabular-nums text-muted-foreground">Rank #{{ item.previousRank }} → #{{ item.currentRank }}<span class="ml-2">({{ item.rankDelta > 0 ? '+' : '' }}{{ item.rankDelta }})</span></span>
           <span class="text-right text-xs text-muted-foreground">{{ item.tradeDate }}<span
             v-if="item.isPreview"
-            class="ml-1 rounded border border-amber-500/50 px-1 text-amber-700 dark:text-amber-400"
+            class="ml-1 rounded border border-warning/50 px-1 text-warning"
           >Preview</span></span>
         </button>
       </div>

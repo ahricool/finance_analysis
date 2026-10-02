@@ -82,7 +82,8 @@ onBeforeUnmount(() => { generation++; poolGeneration++; });
   >
     <PageHeader
       title="市场情绪"
-      description="Market Sentiment · A 股盘后观察 · 涨停参与度与连板接力"
+      en="Market Sentiment"
+      description="A 股盘后观察 · 涨停参与度与连板接力"
     >
       <template #actions>
         <div class="flex items-center gap-2">
@@ -108,7 +109,7 @@ onBeforeUnmount(() => { generation++; poolGeneration++; });
     </p>
     <div
       v-if="currentUser?.role === 'admin'"
-      class="flex items-center gap-3 rounded-lg border p-3 text-sm"
+      class="flex flex-wrap items-center gap-3 rounded-lg border p-3 text-sm"
     >
       <Button
         variant="outline"
@@ -185,12 +186,12 @@ onBeforeUnmount(() => { generation++; poolGeneration++; });
       >
         口径标记未知 {{ row.unknownScopeCount }} 只；连续性未确认 {{ row.unconfirmedBoardCount }} 只。受影响指标保留缺失，不按零计算。
       </p>
-      <section class="grid grid-cols-[1.3fr_2fr] gap-4">
-        <div class="rounded-xl border bg-muted/30 p-5">
+      <section class="grid grid-cols-1 gap-4 lg:grid-cols-[1.3fr_2fr]">
+        <div class="min-w-0 rounded-xl border bg-muted/30 p-5">
           <p class="text-xs text-muted-foreground">
             FA 情绪观察 · {{ row.ruleVersion }}
           </p>
-          <div class="my-3 flex items-baseline gap-5">
+          <div class="my-3 flex flex-wrap items-baseline gap-x-5 gap-y-1">
             <h2 class="text-3xl font-semibold">
               {{ stateLabels[row.state] }}
             </h2><span class="text-2xl tabular-nums">{{ row.heatScore?.toFixed(1) ?? '—' }}<small class="ml-1 text-xs text-muted-foreground">/ 100 热度</small></span>
@@ -206,10 +207,11 @@ onBeforeUnmount(() => { generation++; poolGeneration++; });
             {{ delta(row.changes.heatScore) }} · 历史基准：此前20个完整交易日，不含当日
           </p>
         </div>
-        <div class="grid grid-cols-4 rounded-xl border p-5">
+        <div class="grid min-w-0 grid-cols-2 rounded-xl border p-5 lg:grid-cols-4">
           <div
             v-for="card in cards"
             :key="card.label"
+            class="min-w-0"
           >
             <p class="text-sm text-muted-foreground">
               {{ card.label }}
@@ -219,12 +221,12 @@ onBeforeUnmount(() => { generation++; poolGeneration++; });
               {{ delta(card.change) }}
             </p>
           </div>
-          <p class="col-span-4 mt-4 text-xs text-muted-foreground">
+          <p class="col-span-2 mt-4 text-xs text-muted-foreground lg:col-span-4">
             上游全池 {{ row.upstreamTotal }} 只 · 排除 ST {{ row.excludedStCount }} / 未开板新股 {{ row.excludedNewCount }}（合并去重 {{ row.excludedUnionCount }}）
           </p>
         </div>
       </section>
-      <div class="grid grid-cols-3 gap-4 rounded-xl border p-4 text-sm">
+      <div class="grid grid-cols-1 gap-4 rounded-xl border p-4 text-sm sm:grid-cols-3">
         <div>
           早封率 <strong>{{ pct(row.earlyLimitUpRatio) }}</strong><p class="mt-1 text-xs text-muted-foreground">
             ≤{{ row.earlyTimeThreshold }}：{{ row.earlyLimitUpCount ?? '—' }} / 时间有效 {{ row.validLimitUpTimeCount ?? '—' }} · 覆盖 {{ pct(row.timeCoverage) }}
@@ -267,11 +269,12 @@ onBeforeUnmount(() => { generation++; poolGeneration++; });
         </Button>
       </div>
       <template v-if="view === 'full'">
-        <div class="flex gap-2">
+        <div class="flex flex-wrap gap-2">
           <Button
             v-for="b in boards"
             :key="b"
             variant="outline"
+            class="shrink-0"
             @click="filterBoard(b)"
           >
             {{ b }}板 · {{ row?.boardDistribution[b] ?? '—' }}只
@@ -280,7 +283,7 @@ onBeforeUnmount(() => { generation++; poolGeneration++; });
         <p class="text-xs text-muted-foreground">
           真实完整池人数；最高板不截断。晋级逐代码匹配真实相邻交易日；未晋级仅表示未满足续板条件，不等于跌停或亏损。
         </p>
-        <div class="grid grid-cols-4 gap-4">
+        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <details
             v-for="(p, key) in row?.promotions"
             :key="key"

@@ -12,7 +12,7 @@
 :root {
   color-scheme: light;
   font-family:
-    ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI',
+    'Inter Variable', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI',
     'PingFang SC', 'Microsoft YaHei', sans-serif;
 
   --background: 0 0% 100%;
@@ -42,6 +42,12 @@
   --warning: 36 92% 46%;
   --market-up: 0 72% 52%;
   --market-down: 152 60% 38%;
+
+  /* Motion: keep transitions short and consistent site-wide. */
+  --motion-fast: 120ms;
+  --motion-base: 180ms;
+  --motion-slow: 280ms;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .dark {
@@ -73,10 +79,15 @@
   --warning: 38 90% 58%;
   --market-up: 0 72% 64%;
   --market-down: 152 55% 50%;
+
+  --motion-fast: 120ms;
+  --motion-base: 180ms;
+  --motion-slow: 280ms;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 @theme inline {
-  --font-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --font-sans: 'Inter Variable', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
 
   --color-background: hsl(var(--background));
@@ -117,8 +128,7 @@
   }
 
   html {
-    min-width: 1200px;
-    overflow-x: auto;
+    overflow-x: hidden;
     scrollbar-gutter: stable;
     background: hsl(var(--background));
   }
@@ -131,7 +141,7 @@
 
   body {
     @apply m-0 min-h-screen bg-background font-sans text-foreground antialiased;
-    overflow-x: auto;
+    overflow-x: hidden;
   }
 
   button,
@@ -150,6 +160,68 @@
 
   ::selection {
     background: hsl(var(--brand) / 0.22);
+  }
+}
+
+@layer utilities {
+  /* Consistent page shell spacing under Shell main (already px-4/px-6). */
+  .page-shell {
+    @apply space-y-6 py-4 sm:py-6;
+  }
+
+  /* Prevent page-level horizontal overflow; tables scroll in their own containers. */
+  .page-shell,
+  [data-slot='card'],
+  main {
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  /* Numeric columns: right-aligned, tabular figures. */
+  .num {
+    @apply text-right tabular-nums font-medium;
+  }
+
+  .num-muted {
+    @apply text-right tabular-nums text-muted-foreground;
+  }
+
+  /* Truncate with tooltip-friendly single line. */
+  .cell-ellipsis {
+    @apply min-w-0 truncate;
+  }
+
+  .surface-card {
+    @apply overflow-hidden rounded-xl border border-border/80 bg-card shadow-xs;
+  }
+
+  .page-enter-active,
+  .page-leave-active {
+    transition:
+      opacity var(--motion-base) var(--ease-out),
+      transform var(--motion-base) var(--ease-out);
+  }
+
+  .page-enter-from,
+  .page-leave-to {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .page-enter-active,
+    .page-leave-active,
+    .animate-in,
+    .fade-in,
+    .slide-in-from-bottom-4 {
+      animation: none !important;
+      transition: none !important;
+    }
+
+    .page-enter-from,
+    .page-leave-to {
+      transform: none;
+    }
   }
 }
 

@@ -28,12 +28,12 @@ afterEach(() => {
 
 describe('TrendStatus', () => {
   it.each([
-    ['above', 3, '多 3', 'bg-red-500'],
-    ['below', 3, '空 3', 'bg-emerald-500'],
-    ['above', 1, '多 1', 'bg-amber-500'],
-    ['below', 1, '空 1', 'bg-amber-500'],
-    ['neutral', 1, '中 1', 'bg-amber-500'],
-    ['neutral', 3, '中 3', 'bg-amber-500'],
+    ['above', 3, '多 3', 'bg-market-up'],
+    ['below', 3, '空 3', 'bg-market-down'],
+    ['above', 1, '多 1', 'bg-warning'],
+    ['below', 1, '空 1', 'bg-warning'],
+    ['neutral', 1, '中 1', 'bg-warning'],
+    ['neutral', 3, '中 3', 'bg-warning'],
   ] as const)('renders %s streak %i', (state, streak, label, dotClass) => {
     const wrapper = mount(TrendStatus, { props: { trend: trend({ state, streak }) } });
     expect(wrapper.text()).toContain(label);

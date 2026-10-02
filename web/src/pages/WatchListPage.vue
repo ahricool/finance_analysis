@@ -26,10 +26,12 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useCurrentTime } from '@/composables/useCurrentTime';
 import { useRealtimeQuotes } from '@/composables/useRealtimeQuotes';
 import type { Market } from '@/types/stockIndex';
 import { formatSecurityLabel } from '@/utils/security';
+import { signedTextClass } from '@/utils/marketTone';
 import { calculateZeroDteStatus, zeroDteStatusSortValue } from '@/utils/zeroDteStatus';
 import { Eye, Heart, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-vue-next';
 import { computed, onMounted, ref, watch } from 'vue';
@@ -121,9 +123,7 @@ function formatSignedQuoteNumber(value: number | null | undefined, suffix = ''):
 }
 
 function movementClass(value: number | null | undefined): string {
-  if (value && value > 0) return 'text-red-500';
-  if (value && value < 0) return 'text-emerald-500';
-  return 'text-muted-foreground';
+  return signedTextClass(value);
 }
 
 function sortValue(
@@ -544,8 +544,8 @@ onMounted(loadList);
                       class="rounded-lg p-1.5 transition-colors disabled:opacity-50"
                       :class="
                         item.is_favorite
-                          ? 'text-red-500 hover:text-red-600'
-                          : 'text-muted-foreground hover:text-red-500'
+                          ? 'text-brand hover:text-brand/90'
+                          : 'text-muted-foreground hover:text-brand'
                       "
                       :disabled="togglingFavoriteId === item.id"
                       :aria-label="item.is_favorite ? '取消特别关注' : '标记为特别关注'"
@@ -558,13 +558,23 @@ onMounted(loadList);
                       />
                     </button>
                   </TableCell>
-                  <TableCell class="px-4 py-3">
-                    <button
-                      class="max-w-full truncate text-left text-sm font-semibold text-primary hover:underline"
-                      @click.stop="detailItem = item"
-                    >
-                      {{ formatSecurityLabel(item.code, item.name) }}
-                    </button>
+                  <TableCell class="max-w-[220px] px-4 py-3">
+                    <TooltipProvider :delay-duration="200">
+                      <Tooltip>
+                        <TooltipTrigger as-child>
+                          <button
+                            class="cell-ellipsis max-w-full text-left text-sm font-semibold text-primary hover:underline"
+                            :aria-label="formatSecurityLabel(item.code, item.name)"
+                            @click.stop="detailItem = item"
+                          >
+                            {{ formatSecurityLabel(item.code, item.name) }}
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          {{ formatSecurityLabel(item.code, item.name) }}
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
                   </TableCell>
                   <TableCell class="px-4 py-3">
                     <span

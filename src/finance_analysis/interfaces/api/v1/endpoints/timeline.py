@@ -59,7 +59,7 @@ def list_timeline(
 def earnings_detail(event_id: int):
     from finance_analysis.database.repositories.earnings_outlook import EarningsOutlookRepository, display_summary
     from finance_analysis.core.time import utc_now
-    from finance_analysis.earnings_outlook.rules import digest, schedule
+    from finance_analysis.earnings_outlook.rules import matches_schedule
 
     repo = EarningsOutlookRepository()
     event = repo.event(event_id)
@@ -73,7 +73,8 @@ def earnings_detail(event_id: int):
         version["applicability"] = (
             "ineligible"
             if event.symbol not in members
-            else "superseded" if version["schedule_hash"] != digest(schedule(event)) else "valid"
+            else "valid" if matches_schedule(event, version["schedule_hash"], version["context"]["event"])
+            else "superseded"
         )
     return detail
 

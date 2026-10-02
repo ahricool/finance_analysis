@@ -31,12 +31,12 @@ afterEach(() => { theme.value = 'light'; document.documentElement.removeAttribut
 describe('Macro dashboard', () => {
   it('renders regime, score, states, quality and both tables with return units and nulls', async () => {
     const wrapper = mount(MacroPage); await flushPromises();
-    expect(wrapper.text()).toContain('Risk On'); expect(wrapper.text()).toContain('72 / 100');
-    for (const label of ['利率环境宽松', '信用健康', '美元偏强', '波动平稳', '数据日期：2026-09-11', 'Signal Coverage 85%']) expect(wrapper.text()).toContain(label);
+    expect(wrapper.text()).toContain('风险偏好'); expect(wrapper.text()).toContain('RISK_ON'); expect(wrapper.text()).toContain('72 / 100');
+    for (const label of ['利率环境宽松', '信用健康', '美元偏强', '波动平稳', '数据日期：2026-09-11', '信号覆盖率', '85%']) expect(wrapper.text()).toContain(label);
     const alert = wrapper.get('[data-testid="macro-quality"]');
     expect(alert.text()).toContain('11 / 13'); for (const symbol of ['UUP.US', 'VIX.US', 'TLT.US']) expect(alert.text()).toContain(symbol);
     const table = wrapper.get('[data-testid="macro-instrument-table"]');
-    for (const label of ['TLT', '利率', '80.87', '+0.11%', '-1.46%', '↓ Down', '—']) expect(table.text()).toContain(label);
+    for (const label of ['TLT', '利率', '80.87', '+0.11%', '-1.46%', '↓ 下行', '—']) expect(table.text()).toContain(label);
     expect(table.find('.text-market-up').text()).toBe('+0.11%');
     expect(wrapper.get('[data-testid="macro-ratio-table"]').text()).toContain('数据不足');
     expect(wrapper.get('[data-testid="macro-ratio-table"]').text()).toContain('0.754');
@@ -56,7 +56,7 @@ describe('Macro dashboard', () => {
   it('isolates chart failures from dashboard and retries', async () => {
     vi.mocked(getMacroSeries).mockRejectedValueOnce(new Error('offline'));
     const wrapper = mount(MacroPage); await flushPromises();
-    expect(wrapper.text()).toContain('跨资产走势图加载失败'); expect(wrapper.text()).toContain('Risk On');
+    expect(wrapper.text()).toContain('跨资产走势图加载失败'); expect(wrapper.text()).toContain('风险偏好');
     const chart = wrapper.get('[data-testid="macro-performance-chart"]');
     await chart.findAll('button').find(b => b.text() === '重新加载')!.trigger('click'); await flushPromises();
     expect(chart.text()).not.toContain('跨资产走势图加载失败');
@@ -66,7 +66,7 @@ describe('Macro dashboard', () => {
     const wrapper = mount(MacroPage); await flushPromises();
     expect(wrapper.text()).toContain('宏观数据加载失败'); expect(wrapper.findAllComponents(MacroSeriesChart)).toHaveLength(2);
     await wrapper.findAll('button').find(b => b.text() === '重新加载')!.trigger('click'); await flushPromises();
-    expect(wrapper.text()).toContain('Risk On');
+    expect(wrapper.text()).toContain('风险偏好');
   });
 });
 describe('Macro series requests', () => {
