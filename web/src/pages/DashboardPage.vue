@@ -47,9 +47,9 @@ const number = (value: string | undefined) => value && Number.isFinite(Number(va
 
     <section
       aria-label="Market Structure"
-      class="rounded-xl border"
+      class="overflow-hidden rounded-xl border border-border/80 bg-card shadow-xs transition-shadow hover:shadow-sm"
     >
-      <h2 class="border-b px-6 py-3 text-sm font-semibold">
+      <h2 class="border-b border-border/70 bg-muted/30 px-6 py-3.5 text-sm font-semibold tracking-wide">
         市场结构 / MARKET STRUCTURE
       </h2>
       <div class="grid grid-cols-2 divide-x">

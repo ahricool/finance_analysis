@@ -85,7 +85,7 @@ async function onLogoutConfirm() {
 
 <template>
   <div class="flex min-h-screen flex-col bg-background text-foreground">
-    <header class="sticky top-0 z-40 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+    <header class="sticky top-0 z-40 border-b border-border/80 bg-background/95 shadow-sm backdrop-blur-md supports-[backdrop-filter]:bg-background/80">
       <div
         class="mx-auto flex h-14 w-full max-w-[1500px] items-center gap-2 px-6"
         data-testid="shell-header-content"
@@ -124,7 +124,10 @@ async function onLogoutConfirm() {
                   size="sm"
                   :aria-label="item.label"
                   :aria-current="isNavItemActive(item) ? 'page' : undefined"
-                  :class="isNavItemActive(item) && 'bg-muted text-foreground'"
+                  :class="[
+                    'relative transition-colors',
+                    isNavItemActive(item) && 'bg-muted/80 text-foreground shadow-xs after:absolute after:inset-x-2 after:-bottom-[9px] after:h-0.5 after:rounded-full after:bg-brand',
+                  ]"
                 >
                   <component :is="item.icon" />{{ item.label }}<ChevronDown class="size-3.5 opacity-60" />
                 </Button>
@@ -158,7 +161,10 @@ async function onLogoutConfirm() {
                 :to="item.to"
                 :aria-label="item.label"
                 :aria-current="isNavItemActive(item) ? 'page' : undefined"
-                :class="isNavItemActive(item) && 'bg-muted text-foreground'"
+                :class="[
+                  'relative transition-colors',
+                  isNavItemActive(item) && 'bg-muted/80 text-foreground shadow-xs after:absolute after:inset-x-2 after:-bottom-[9px] after:h-0.5 after:rounded-full after:bg-brand',
+                ]"
               >
                 <component :is="item.icon" />{{ item.label }}
               </RouterLink>
@@ -270,8 +276,18 @@ async function onLogoutConfirm() {
       </div>
     </header>
 
-    <main class="mx-auto w-full max-w-[1500px] flex-1 px-6">
-      <RouterView />
+    <main class="mx-auto w-full max-w-[1500px] flex-1 px-6 pb-10 pt-1">
+      <RouterView v-slot="{ Component, route: activeRoute }">
+        <Transition
+          name="page"
+          mode="out-in"
+        >
+          <component
+            :is="Component"
+            :key="activeRoute.path"
+          />
+        </Transition>
+      </RouterView>
     </main>
 
     <AppConfirmDialog

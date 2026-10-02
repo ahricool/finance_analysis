@@ -12,7 +12,7 @@
 :root {
   color-scheme: light;
   font-family:
-    ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI',
+    'Inter Variable', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI',
     'PingFang SC', 'Microsoft YaHei', sans-serif;
 
   --background: 0 0% 100%;
@@ -76,7 +76,7 @@
 }
 
 @theme inline {
-  --font-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --font-sans: 'Inter Variable', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
 
   --color-background: hsl(var(--background));
@@ -150,6 +150,33 @@
 
   ::selection {
     background: hsl(var(--brand) / 0.22);
+  }
+}
+
+@layer utilities {
+  .page-enter-active,
+  .page-leave-active {
+    transition:
+      opacity 0.18s ease,
+      transform 0.18s ease;
+  }
+
+  .page-enter-from,
+  .page-leave-to {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .page-enter-active,
+    .page-leave-active {
+      transition: none;
+    }
+
+    .page-enter-from,
+    .page-leave-to {
+      transform: none;
+    }
   }
 }
 

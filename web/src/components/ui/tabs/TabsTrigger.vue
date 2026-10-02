@@ -15,7 +15,7 @@ const forwardedProps = useForwardProps(delegatedProps);
     data-slot="tabs-trigger"
     v-bind="forwardedProps"
     :class="cn(
-      'inline-flex h-7 items-center justify-center gap-1.5 whitespace-nowrap rounded-md border border-transparent px-3 text-sm font-medium text-foreground/60 transition-all hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0',
+      'inline-flex h-8 items-center justify-center gap-1.5 whitespace-nowrap rounded-md border border-transparent px-3.5 text-sm font-medium text-foreground/60 transition-all hover:bg-background/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm data-[state=active]:ring-1 data-[state=active]:ring-brand/25 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0',
       props.class,
     )"
   >

@@ -113,9 +113,9 @@ async function handleSubmit(e: Event) {
     class="fixed inset-0 min-h-screen overflow-y-auto bg-cover bg-center bg-no-repeat"
     style="background-image: url('/background.jpg')"
   >
-    <div class="absolute inset-0 bg-black/30" />
+    <div class="absolute inset-0 bg-gradient-to-br from-black/50 via-black/35 to-black/55 backdrop-blur-[2px]" />
     <div class="relative grid min-h-screen place-items-center px-4 py-10 lg:grid-cols-2">
-      <div class="w-full max-w-sm lg:col-start-2">
+      <div class="w-full max-w-sm animate-in fade-in slide-in-from-bottom-4 duration-500 lg:col-start-2">
         <div class="mb-6 flex items-center gap-3">
           <span
             class="flex size-11 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-white"
@@ -133,10 +133,10 @@ async function handleSubmit(e: Event) {
           </span>
         </div>
 
-        <Card>
+        <Card class="border-border/70 bg-card/95 shadow-2xl ring-1 ring-white/10 backdrop-blur-md">
           <CardHeader>
-            <CardTitle class="flex items-center gap-2">
-              <Lock class="size-5 text-muted-foreground" />
+            <CardTitle class="flex items-center gap-2 text-lg">
+              <Lock class="size-5 text-brand/80" />
               <span>{{ stepTitle }}</span>
             </CardTitle>
             <CardDescription>

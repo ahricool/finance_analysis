@@ -65,7 +65,7 @@ describe('Shell navigation', () => {
       const { wrapper } = await mountShell(path);
       const marketMenu = wrapper.get('button[aria-label="市场"]');
       expect(marketMenu.attributes('aria-current')).toBe('page');
-      expect(marketMenu.classes()).toContain('bg-muted');
+      expect(marketMenu.classes()).toContain('bg-muted/80');
       expect(wrapper.get('button[aria-label="研究"]').attributes('aria-current')).toBeUndefined();
     },
   );
@@ -78,7 +78,7 @@ describe('Shell navigation', () => {
     const { wrapper } = await mountShell(path);
     const researchMenu = wrapper.get('button[aria-label="研究"]');
     expect(researchMenu.attributes('aria-current')).toBe('page');
-    expect(researchMenu.classes()).toContain('bg-muted');
+    expect(researchMenu.classes()).toContain('bg-muted/80');
     expect(wrapper.get('button[aria-label="市场"]').attributes('aria-current')).toBeUndefined();
     expect(wrapper.find('[data-testid="desktop-main-nav"] a[aria-label="分析"]').exists()).toBe(false);
   });
@@ -89,7 +89,7 @@ describe('Shell navigation', () => {
       const { wrapper } = await mountShell(path);
       const taskLink = wrapper.get('[data-testid="desktop-main-nav"] a[aria-label="任务中心"]');
       expect(taskLink.attributes('aria-current')).toBe('page');
-      expect(taskLink.classes()).toContain('bg-muted');
+      expect(taskLink.classes()).toContain('bg-muted/80');
     },
   );
 

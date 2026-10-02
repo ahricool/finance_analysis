@@ -42,9 +42,18 @@ watch(
   <ThemeProvider>
     <div
       v-if="isLoading"
-      class="flex min-h-screen items-center justify-center bg-background"
+      class="flex min-h-screen flex-col items-center justify-center gap-4 bg-background"
+      role="status"
+      aria-live="polite"
+      aria-busy="true"
     >
-      <div class="h-8 w-8 animate-spin rounded-full border-2 border-primary/20 border-t-primary" />
+      <div class="relative size-10">
+        <div class="absolute inset-0 animate-spin rounded-full border-2 border-brand/15 border-t-brand" />
+        <div class="absolute inset-1.5 animate-pulse rounded-full bg-brand/10" />
+      </div>
+      <p class="text-sm text-muted-foreground">
+        正在加载工作台…
+      </p>
     </div>
     <div
       v-else-if="loadError"
