@@ -106,7 +106,7 @@ watch(
         <Button
           variant="ghost"
           size="icon"
-          class="shrink-0 md:hidden"
+          class="shrink-0 lg:hidden"
           aria-label="打开导航菜单"
           data-testid="mobile-nav-trigger"
           @click="mobileNavOpen = true"
@@ -130,7 +130,7 @@ watch(
         </RouterLink>
 
         <nav
-          class="ml-4 hidden min-w-0 flex-1 items-center gap-1 md:flex"
+          class="ml-4 hidden min-w-0 flex-1 items-center gap-1 lg:flex"
           aria-label="主导航"
           data-testid="desktop-main-nav"
         >

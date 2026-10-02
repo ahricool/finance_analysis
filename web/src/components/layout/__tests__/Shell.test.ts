@@ -193,8 +193,8 @@ describe('Shell navigation', () => {
     const { wrapper } = await mountShell('/dashboard');
     const desktopNav = wrapper.get('[data-testid="desktop-main-nav"]');
     expect(desktopNav.classes()).toContain('hidden');
-    expect(desktopNav.classes()).toContain('md:flex');
-    expect(wrapper.get('[data-testid="mobile-nav-trigger"]').classes()).toContain('md:hidden');
+    expect(desktopNav.classes()).toContain('lg:flex');
+    expect(wrapper.get('[data-testid="mobile-nav-trigger"]').classes()).toContain('lg:hidden');
     expect(wrapper.get('a[aria-label="回到动态"]').attributes('href')).toBe('/dashboard');
     expect(wrapper.get('[data-testid="desktop-main-nav"] a[aria-label="市场动态"]').attributes('aria-current')).toBe('page');
     wrapper.unmount();

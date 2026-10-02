@@ -10,6 +10,8 @@ import { Button } from '@/components/ui/button';
 import AppDatePicker from '@/components/app/AppDatePicker.vue';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Table, TableHeader, TableHead, TableBody, TableRow, TableCell } from '@/components/ui/table';
+import BilingualEnum from '@/components/app/BilingualEnum.vue';
+import BilingualLabel from '@/components/app/BilingualLabel.vue';
 
 const markets: SignalMarket[] = ['CN', 'US'];
 const names = { CN: 'A股', US: '美股' };
@@ -122,7 +124,9 @@ onBeforeUnmount(() => { ++generation; ++detailGeneration; });
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead>日期</TableHead><TableHead>市场</TableHead><TableHead>股票</TableHead><TableHead>Decision</TableHead><TableHead>Confidence</TableHead><TableHead
+            <TableHead>日期</TableHead><TableHead>市场</TableHead><TableHead>股票</TableHead>
+            <TableHead><BilingualLabel label="decision" compact /></TableHead>
+            <TableHead><BilingualLabel label="confidence" compact /></TableHead><TableHead
               v-for="days in [1, 3, 5, 10]"
               :key="days"
             >
@@ -136,7 +140,14 @@ onBeforeUnmount(() => { ++generation; ++detailGeneration; });
             :key="`${row.market}-${row.signalDate}`"
           >
             <TableCell>{{ row.signalDate }}</TableCell><TableCell>{{ names[row.market] }}</TableCell><TableCell>{{ row.selectedSymbol ? [row.selectedName, row.selectedSymbol].filter(Boolean).join(' ') : '—' }}</TableCell>
-            <TableCell>{{ row.decision || ({ pending: '分析中', failed: '失败', skipped: '跳过', completed: '已完成' }[row.status]) }}</TableCell><TableCell>{{ row.confidence || '—' }}</TableCell>
+            <TableCell>
+              <BilingualEnum
+                v-if="row.decision"
+                :value="row.decision"
+                size="badge"
+              />
+              <span v-else>{{ ({ pending: '分析中', failed: '失败', skipped: '跳过', completed: '已完成' } as Record<string, string>)[row.status] }}</span>
+            </TableCell><TableCell>{{ row.confidence || '—' }}</TableCell>
             <TableCell
               v-for="days in [1, 3, 5, 10]"
               :key="days"

@@ -13,6 +13,7 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Table, TableHeader, TableHead, TableBody, TableRow, TableCell } from '@/components/ui/table';
+import BilingualLabel from '@/components/app/BilingualLabel.vue';
 import { formatDateTime } from '@/utils/format';
 
 const { currentUser } = useAuth();
@@ -156,18 +157,22 @@ onBeforeUnmount(() => { ++generation; });
         class="h-10 w-32"
         placeholder="名称或代码"
       /></label>
-      <label class="grid gap-1 text-sm">Lifecycle<select
+      <label class="grid gap-1 text-sm"><BilingualLabel
+        label="lifecycle"
+        compact
+      /><select
         v-model="lifecycle"
-        aria-label="Lifecycle"
+        aria-label="生命周期"
         class="block h-10 rounded-md border bg-background px-3"
       ><option value="">全部</option><option
         v-for="phase in ['IGNITION', 'EMERGING', 'EXPANSION', 'MATURE', 'EXHAUSTION', 'BROKEN']"
         :key="phase"
+        :value="phase"
       >{{ phase }}</option></select></label>
       <label class="flex items-center gap-2 text-sm"><input
         v-model="earlyOnly"
         type="checkbox"
-      >仅 IGNITION / EMERGING</label>
+      >仅点火 / 萌芽</label>
       <label class="flex items-center gap-2 text-sm"><input
         v-model="topIndustry"
         type="checkbox"
@@ -175,7 +180,7 @@ onBeforeUnmount(() => { ++generation; });
       <label class="flex items-center gap-2 text-sm"><input
         v-model="strongOnly"
         type="checkbox"
-      >Strong Confluence</label>
+      >仅强共振</label>
       <Button
         :disabled="loading"
         @click="load()"
@@ -196,7 +201,7 @@ onBeforeUnmount(() => { ++generation; });
       <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <div class="rounded-lg border p-4">
           <p class="text-sm text-muted-foreground">
-            Strong Confluence
+            <BilingualLabel label="strongConfluence" />
           </p><p class="text-2xl font-semibold">
             {{ result.summary.strongConfluence }}
           </p><p class="text-xs text-muted-foreground">
@@ -205,21 +210,21 @@ onBeforeUnmount(() => { ++generation; });
         </div>
         <div class="rounded-lg border p-4">
           <p class="text-sm text-muted-foreground">
-            IGNITION + Top Industry
+            <BilingualLabel label="ignitionTopIndustry" />
           </p><p class="text-2xl font-semibold">
             {{ result.summary.ignitionIndustryStrong }}
           </p>
         </div>
         <div class="rounded-lg border p-4">
           <p class="text-sm text-muted-foreground">
-            Top Industry 共振股票
+            <BilingualLabel label="topIndustryConfluence" />
           </p><p class="text-2xl font-semibold">
             {{ result.summary.topIndustryConfluence }}
           </p>
         </div>
         <div class="rounded-lg border p-4">
           <p class="text-sm text-muted-foreground">
-            快照目标日期
+            <BilingualLabel label="snapshotTradeDate" />
           </p><p class="text-xl font-semibold">
             {{ result.tradeDate ?? '暂无快照' }}
           </p><p class="text-xs text-muted-foreground">
@@ -249,7 +254,19 @@ onBeforeUnmount(() => { ++generation; });
       </p>
       <div class="rounded-lg border overflow-x-auto">
         <Table>
-          <TableHeader><TableRow><TableHead>股票</TableHead><TableHead>Confluence</TableHead><TableHead>Signals</TableHead><TableHead>Industry</TableHead><TableHead>Lifecycle / Fragility</TableHead><TableHead>Quant Rank</TableHead><TableHead>ETF Rank</TableHead><TableHead>龙虎榜资金</TableHead><TableHead>Why Confluence</TableHead></TableRow></TableHeader>
+          <TableHeader>
+            <TableRow>
+              <TableHead>股票</TableHead>
+              <TableHead><BilingualLabel label="confluence" compact /></TableHead>
+              <TableHead><BilingualLabel label="signals" compact /></TableHead>
+              <TableHead><BilingualLabel label="industry" compact /></TableHead>
+              <TableHead><BilingualLabel label="lifecycleFragility" compact /></TableHead>
+              <TableHead><BilingualLabel label="quantRank" compact /></TableHead>
+              <TableHead><BilingualLabel label="etfRank" compact /></TableHead>
+              <TableHead>龙虎榜资金</TableHead>
+              <TableHead><BilingualLabel label="whyConfluence" compact /></TableHead>
+            </TableRow>
+          </TableHeader>
           <TableBody>
             <TableRow
               v-for="row in result.items"
@@ -282,7 +299,7 @@ onBeforeUnmount(() => { ++generation; });
               </TableCell>
               <TableCell>
                 {{ evidence(row, 'trend', 'trendLifecycle') }}<p class="text-xs">
-                  Fragility {{ evidence(row, 'trend', 'fragilityScore') }}
+                  脆弱性 {{ evidence(row, 'trend', 'fragilityScore') }}
                 </p>
               </TableCell>
               <TableCell>{{ evidence(row, 'quant', 'universeRank') }}</TableCell><TableCell>{{ evidence(row, 'etf', 'rank') }}</TableCell>

@@ -1,5 +1,5 @@
 /**
- * Snapshot-backed UI audit screenshots.
+ * Snapshot-backed UI audit screenshots + overflow / clip / overlap probes.
  * Requires FA production snapshot at FA_SNAPSHOT_DIR (default /opt/cursor/fa-snapshot).
  * Do NOT commit snapshot JSON — it stays outside the repo.
  *
@@ -19,9 +19,11 @@ const { installFaSnapshotMocks } = await import(mockModuleUrl);
 
 const phase = process.argv[2] === 'after' ? 'after' : 'before';
 const outRoot = `/opt/cursor/artifacts/ui-audit-snapshot/${phase}`;
+const reportPath = path.join(outRoot, 'audit-report.json');
 const WEB_ORIGIN = process.env.WEB_ORIGIN || 'http://localhost:5173';
-const widths = [1440, 1280, 768, 390];
+const widths = [1440, 1280, 1024, 768, 390];
 const height = 900;
+const findings = [];
 
 const routes = [
   { id: 'dashboard', path: '/dashboard' },
@@ -71,17 +73,112 @@ async function stubBinance(page) {
   });
 }
 
-async function shot(page, dir, name) {
+async function auditPage(page, width, routeId) {
+  return page.evaluate(({ width: w, routeId: id }) => {
+    const issues = [];
+    const doc = document.documentElement;
+    if (doc.scrollWidth > window.innerWidth + 2) {
+      issues.push({
+        kind: 'page-overflow',
+        detail: `scrollWidth=${doc.scrollWidth} clientWidth=${window.innerWidth}`,
+      });
+    }
+
+    const candidates = Array.from(document.querySelectorAll(
+      'h1,h2,h3,h4,[data-slot="bilingual-label"],[data-slot="bilingual-enum"],[data-slot="card-title"],[data-slot="badge"],th,td,button,a,strong,p',
+    )).slice(0, 400);
+
+    for (const el of candidates) {
+      const style = getComputedStyle(el);
+      if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0) continue;
+      const rect = el.getBoundingClientRect();
+      if (rect.width < 2 || rect.height < 2) continue;
+
+      // Horizontal page clip (element extends past viewport without intentional scroll container)
+      if (rect.right > window.innerWidth + 1 && rect.left < window.innerWidth) {
+        let scrollParent = el.parentElement;
+        let intentional = false;
+        while (scrollParent && scrollParent !== document.body) {
+          const overflowX = getComputedStyle(scrollParent).overflowX;
+          if ((overflowX === 'auto' || overflowX === 'scroll') && scrollParent.scrollWidth > scrollParent.clientWidth + 2) {
+            intentional = true;
+            break;
+          }
+          scrollParent = scrollParent.parentElement;
+        }
+        if (!intentional) {
+          issues.push({
+            kind: 'element-clip',
+            tag: el.tagName.toLowerCase(),
+            text: (el.textContent || '').trim().slice(0, 80),
+            detail: `right=${Math.round(rect.right)} vw=${window.innerWidth}`,
+          });
+        }
+      }
+
+      // Text overflow: content wider than box with overflow hidden / no wrap
+      if (el.scrollWidth > el.clientWidth + 2) {
+        const overflow = style.overflowX;
+        if (overflow === 'hidden' || overflow === 'clip' || style.textOverflow === 'ellipsis') {
+          // ellipsis truncation is intentional; only flag when no title/tooltip and looks like cut mid-word huge type
+          const hasTip = Boolean(el.getAttribute('title') || el.closest('[title]'));
+          if (!hasTip && (parseFloat(style.fontSize) >= 28 || el.matches('[data-slot="bilingual-enum"]'))) {
+            issues.push({
+              kind: 'text-clip',
+              tag: el.tagName.toLowerCase(),
+              text: (el.textContent || '').trim().slice(0, 80),
+              detail: `scrollWidth=${el.scrollWidth} clientWidth=${el.clientWidth} font=${style.fontSize}`,
+            });
+          }
+        }
+      }
+    }
+
+    // Simple overlap among metric cards / regime headings in first viewport
+    const blocks = Array.from(document.querySelectorAll(
+      '[data-slot="bilingual-enum"], [data-testid="market-dashboard"] h2, [data-testid="trend-summary"] [data-slot="card"]',
+    )).slice(0, 40);
+    const boxes = blocks.map(el => {
+      const r = el.getBoundingClientRect();
+      return { el, r, text: (el.textContent || '').trim().slice(0, 60) };
+    }).filter(b => b.r.width > 8 && b.r.height > 8 && b.r.top < window.innerHeight && b.r.bottom > 0);
+
+    for (let i = 0; i < boxes.length; i++) {
+      for (let j = i + 1; j < boxes.length; j++) {
+        const a = boxes[i].r;
+        const b = boxes[j].r;
+        const overlapX = Math.min(a.right, b.right) - Math.max(a.left, b.left);
+        const overlapY = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
+        if (overlapX > 8 && overlapY > 8) {
+          // Ignore nested containment
+          const aContainsB = a.left <= b.left && a.right >= b.right && a.top <= b.top && a.bottom >= b.bottom;
+          const bContainsA = b.left <= a.left && b.right >= a.right && b.top <= a.top && b.bottom >= a.bottom;
+          if (!aContainsB && !bContainsA) {
+            issues.push({
+              kind: 'overlap',
+              text: `${boxes[i].text} ∩ ${boxes[j].text}`,
+              detail: `overlap=${Math.round(overlapX)}x${Math.round(overlapY)}`,
+            });
+          }
+        }
+      }
+    }
+
+    return { width: w, routeId: id, issues: issues.slice(0, 30) };
+  }, { width, routeId });
+}
+
+async function shot(page, dir, name, width) {
   fs.mkdirSync(dir, { recursive: true });
   await page.screenshot({ path: path.join(dir, `${name}.png`), fullPage: false });
-  const overflow = await page.evaluate(() => ({
-    doc: document.documentElement.scrollWidth,
-    win: window.innerWidth,
-  }));
-  if (overflow.doc > overflow.win + 2) {
-    console.warn(`OVERFLOW ${phase} ${name}: doc=${overflow.doc} win=${overflow.win}`);
+  const result = await auditPage(page, width, name);
+  if (result.issues.length) {
+    findings.push(result);
+    for (const issue of result.issues.slice(0, 8)) {
+      console.warn(`FINDING ${phase} ${width}/${name}: ${issue.kind} ${issue.detail || ''} ${issue.text || ''}`);
+    }
   } else {
-    console.log(`ok ${phase} ${name}`);
+    console.log(`ok ${phase} ${width}/${name}`);
   }
 }
 
@@ -104,21 +201,29 @@ async function capture() {
 
     const dir = path.join(outRoot, String(width));
 
-    if (width < 768) {
+    // Hamburger below lg (1024)
+    if (width < 1024) {
       const trigger = page.getByTestId('mobile-nav-trigger');
       if (await trigger.isVisible()) {
         await trigger.click();
         await page.waitForTimeout(450);
-        await shot(page, dir, 'mobile-nav-open');
+        await shot(page, dir, 'mobile-nav-open', width);
         await page.keyboard.press('Escape');
         await page.waitForTimeout(250);
+      } else {
+        findings.push({
+          width,
+          routeId: 'mobile-nav-trigger',
+          issues: [{ kind: 'missing-nav', detail: 'mobile-nav-trigger not visible below lg' }],
+        });
+        console.warn(`FINDING ${phase} ${width}: mobile-nav-trigger not visible`);
       }
     }
 
     for (const route of routes) {
       await page.goto(`${WEB_ORIGIN}${route.path}`, { waitUntil: 'domcontentloaded' });
       await page.waitForTimeout(1400);
-      await shot(page, dir, route.id);
+      await shot(page, dir, route.id, width);
     }
 
     // Empty holdings (prod snapshot) vs synthetic — only once at 390
@@ -134,7 +239,7 @@ async function capture() {
       await stubBinance(emptyPage);
       await emptyPage.goto(`${WEB_ORIGIN}/market/holdings`, { waitUntil: 'domcontentloaded' });
       await emptyPage.waitForTimeout(1200);
-      await shot(emptyPage, dir, 'holdings-empty-prod');
+      await shot(emptyPage, dir, 'holdings-empty-prod', width);
       await emptyCtx.close();
       continue;
     }
@@ -142,7 +247,7 @@ async function capture() {
     await context.close();
   }
 
-  // Failure UX probes at 768: stock history 422/500, CN preview empty, trend event-study timeout
+  // Failure UX probes at 768
   {
     const width = 768;
     const dir = path.join(outRoot, String(width));
@@ -155,18 +260,13 @@ async function capture() {
     await installFaSnapshotMocks(page, { useSyntheticHoldings: true });
     await stubBinance(page);
 
-    // Watch list → open a row if possible; else navigate trend and scroll event study
-    await page.goto(`${WEB_ORIGIN}/market/watch-list`, { waitUntil: 'domcontentloaded' });
-    await page.waitForTimeout(1200);
-
-    // ETF CN official (preview 404 should not show as hard error when switching to preview)
     await page.goto(`${WEB_ORIGIN}/research/etf-rotation`, { waitUntil: 'domcontentloaded' });
     await page.waitForTimeout(1500);
-    const previewToggle = page.getByRole('radio', { name: /盘中预览|Preview/i }).first();
+    const previewToggle = page.getByTestId('research-mode-preview');
     if (await previewToggle.count()) {
       await previewToggle.click().catch(() => {});
       await page.waitForTimeout(1000);
-      await shot(page, dir, 'etf-cn-preview-404-empty');
+      await shot(page, dir, 'etf-cn-preview-404-empty', width);
     }
 
     await page.goto(`${WEB_ORIGIN}/research/trend-following`, { waitUntil: 'domcontentloaded' });
@@ -176,13 +276,14 @@ async function capture() {
       el?.scrollIntoView({ block: 'start' });
     });
     await page.waitForTimeout(800);
-    await shot(page, dir, 'trend-event-study-cn');
+    await shot(page, dir, 'trend-event-study-cn', width);
 
     await context.close();
   }
 
+  fs.writeFileSync(reportPath, JSON.stringify({ phase, findings, count: findings.length }, null, 2));
   await browser.close();
-  console.log(`done ${phase} -> ${outRoot}`);
+  console.log(`done ${phase} -> ${outRoot} findings=${findings.length}`);
 }
 
 await capture();

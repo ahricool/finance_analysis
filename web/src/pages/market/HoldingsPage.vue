@@ -364,7 +364,7 @@ function closeDetail() {
               <TableHead>市值</TableHead>
               <TableHead>仓位</TableHead>
               <TableHead>盈亏</TableHead>
-              <TableHead>Trade Engine</TableHead>
+              <TableHead>交易引擎</TableHead>
               <TableHead>操作</TableHead>
             </TableRow>
           </TableHeader>
