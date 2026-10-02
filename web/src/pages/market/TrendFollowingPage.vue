@@ -927,7 +927,7 @@ onMounted(async () => {
             </LoadingButton>
             <div
               v-if="table.kind === 'trend'"
-              class="flex gap-1"
+              class="flex max-w-full flex-wrap gap-1"
               aria-label="按趋势状态筛选"
               data-testid="trend-state-filter"
             >
