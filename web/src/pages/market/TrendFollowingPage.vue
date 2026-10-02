@@ -879,7 +879,7 @@ onMounted(async () => {
           >
             <section>
               <h3 class="mb-2 text-sm font-semibold">
-                Rank / Score Movers
+                排名 / 分数变动
               </h3>
               <div class="flex flex-wrap gap-2">
                 <button
@@ -944,7 +944,7 @@ onMounted(async () => {
             </div>
             <div
               v-if="table.kind === 'box'"
-              class="flex gap-1"
+              class="flex max-w-full flex-wrap gap-1"
               data-testid="box-state-filter"
               aria-label="按箱体状态筛选"
             >
