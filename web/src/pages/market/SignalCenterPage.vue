@@ -7,7 +7,7 @@ import AppApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
 import SignalCard from '@/components/signal-center/SignalCard.vue';
 import { horizonText, returnClass } from '@/components/signal-center/evaluation';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import AppDatePicker from '@/components/app/AppDatePicker.vue';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Table, TableHeader, TableHead, TableBody, TableRow, TableCell } from '@/components/ui/table';
 
@@ -45,7 +45,7 @@ onBeforeUnmount(() => { ++generation; ++detailGeneration; });
     data-testid="signal-center-page"
   >
     <PageHeader
-      title="Signal Center"
+      title="信号中心"
       description="每日跨信号综合判断。每个市场最多一只 Primary Signal，也可以不交易。"
     />
     <div class="flex items-center gap-3">
@@ -53,12 +53,13 @@ onBeforeUnmount(() => { ++generation; ++detailGeneration; });
         for="signal-date"
         class="text-sm"
       >交易日期</label>
-      <Input
+      <AppDatePicker
         id="signal-date"
         v-model="date"
-        type="date"
+        disable-weekends
+        :clearable="false"
         class="w-44"
-        @change="load"
+        @update:model-value="load"
       />
       <Button
         variant="outline"
@@ -134,7 +135,7 @@ onBeforeUnmount(() => { ++generation; ++detailGeneration; });
             v-for="row in history"
             :key="`${row.market}-${row.signalDate}`"
           >
-            <TableCell>{{ row.signalDate }}</TableCell><TableCell>{{ names[row.market] }}</TableCell><TableCell>{{ row.selectedSymbol || '—' }}</TableCell>
+            <TableCell>{{ row.signalDate }}</TableCell><TableCell>{{ names[row.market] }}</TableCell><TableCell>{{ row.selectedSymbol ? [row.selectedName, row.selectedSymbol].filter(Boolean).join(' ') : '—' }}</TableCell>
             <TableCell>{{ row.decision || ({ pending: '分析中', failed: '失败', skipped: '跳过', completed: '已完成' }[row.status]) }}</TableCell><TableCell>{{ row.confidence || '—' }}</TableCell>
             <TableCell
               v-for="days in [1, 3, 5, 10]"

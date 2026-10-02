@@ -13,7 +13,7 @@ export interface SignalEvaluation {
 }
 export interface SignalSummary {
   market: SignalMarket; signalDate: string; status: 'pending' | 'completed' | 'failed' | 'skipped';
-  selectedSymbol: string | null; decision: 'BUY' | 'NO_TRADE' | null; confidence: string | null;
+  selectedSymbol: string | null; selectedName?: string | null; decision: 'BUY' | 'NO_TRADE' | null; confidence: string | null;
   createdAt: string; completedAt: string | null; evaluation?: SignalEvaluation;
 }
 export interface SignalDetail extends SignalSummary {

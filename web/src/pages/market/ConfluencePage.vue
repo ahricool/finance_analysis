@@ -4,7 +4,10 @@ import { confluenceApi as api, type ConfluenceRanking, type ConfluenceItem, type
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import { useAuth } from '@/composables/useAuth';
 import AppApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
-import PageHeader from '@/components/layout/PageHeader.vue';
+import DailyKLineCard from '@/components/market-data/DailyKLineCard.vue';
+import AppDatePicker from '@/components/app/AppDatePicker.vue';
+import ResearchMarketToggle from '@/components/research/ResearchMarketToggle.vue';
+import { RefreshCcw } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -47,6 +50,16 @@ async function load(reset = false) {
   } catch (cause) { if (token === generation) error.value = getParsedApiError(cause); }
   finally { if (token === generation) loading.value = false; }
 }
+function setMarket(target: Market) {
+  if (target === market.value) return;
+  market.value = target;
+  void load(true);
+}
+function selectDate(value: string) {
+  tradeDate.value = value;
+  minSignals.value = undefined;
+  void load();
+}
 function show(row: ConfluenceItem) { selected.value = row; dialogOpen.value = true; }
 async function run() {
   submitting.value = true; error.value = null; taskId.value = '';
@@ -63,30 +76,53 @@ onBeforeUnmount(() => { ++generation; });
 
 <template>
   <div
-    class="space-y-5"
+    class="min-w-0 space-y-4"
     data-testid="confluence-page"
   >
-    <PageHeader
-      title="多信号共振"
-      description="面向 2–14 天的正式结果交叉确认。先看证据与覆盖，再看分数。"
-    >
-      <template #actions>
+    <header class="flex flex-wrap items-start justify-between gap-3">
+      <div>
+        <h2 class="text-lg font-semibold">
+          多信号共振
+        </h2>
+        <p class="mt-1 text-xs text-muted-foreground">
+          面向 2–14 天的正式结果交叉确认。先看证据与覆盖，再看分数。
+        </p>
+      </div>
+      <div class="flex flex-wrap items-end gap-2">
+        <ResearchMarketToggle
+          :model-value="market"
+          data-testid="confluence-market-switcher"
+          @update:model-value="setMarket"
+        />
+        <AppDatePicker
+          :model-value="tradeDate || result?.tradeDate || ''"
+          label="快照日期"
+          placeholder="最新快照"
+          :available-dates="dates"
+          :disabled="loading || !dates.length"
+          disable-weekends
+          class="w-56"
+          data-testid="confluence-date"
+          @update:model-value="selectDate"
+        />
+        <Button
+          variant="outline"
+          class="h-10"
+          :disabled="loading"
+          @click="load()"
+        >
+          <RefreshCcw class="size-4" />刷新
+        </Button>
         <Button
           v-if="currentUser?.role === 'admin'"
-          variant="outline"
+          class="h-10"
           :disabled="submitting"
           @click="run"
         >
           生成快照
         </Button>
-        <Button
-          :disabled="loading"
-          @click="load()"
-        >
-          刷新
-        </Button>
-      </template>
-    </PageHeader>
+      </div>
+    </header>
     <AppApiErrorAlert
       v-if="error"
       :error="error"
@@ -98,47 +134,32 @@ onBeforeUnmount(() => { ++generation; });
       任务已提交：{{ taskId }}。完成后刷新查看。
     </p>
     <div class="flex flex-wrap items-end gap-3 rounded-lg border p-4">
-      <label class="space-y-1 text-sm">市场<select
-        v-model="market"
-        aria-label="市场"
-        class="block h-9 rounded-md border bg-background px-3"
-        @change="load(true)"
-      ><option>CN</option><option>US</option></select></label>
-      <label class="space-y-1 text-sm">快照日期<select
-        v-model="tradeDate"
-        aria-label="快照日期"
-        class="block h-9 rounded-md border bg-background px-3"
-        @change="minSignals = undefined"
-      ><option value="">最新</option><option
-        v-for="day in dates"
-        :key="day"
-      >{{ day }}</option></select></label>
-      <label class="space-y-1 text-sm">最低有效维度<Input
+      <label class="grid gap-1 text-sm">最低有效维度<Input
         v-model="minSignals"
         aria-label="最低有效维度"
-        class="w-28"
+        class="h-10 w-28"
         type="number"
         min="1"
         max="5"
       /></label>
-      <label class="space-y-1 text-sm">最低分数<Input
+      <label class="grid gap-1 text-sm">最低分数<Input
         v-model="minScore"
         aria-label="最低分数"
-        class="w-24"
+        class="h-10 w-24"
         type="number"
         min="0"
         max="100"
       /></label>
-      <label class="space-y-1 text-sm">行业<Input
+      <label class="grid gap-1 text-sm">行业<Input
         v-model="industry"
         aria-label="行业"
-        class="w-32"
+        class="h-10 w-32"
         placeholder="名称或代码"
       /></label>
-      <label class="space-y-1 text-sm">Lifecycle<select
+      <label class="grid gap-1 text-sm">Lifecycle<select
         v-model="lifecycle"
         aria-label="Lifecycle"
-        class="block h-9 rounded-md border bg-background px-3"
+        class="block h-10 rounded-md border bg-background px-3"
       ><option value="">全部</option><option
         v-for="phase in ['IGNITION', 'EMERGING', 'EXPANSION', 'MATURE', 'EXHAUSTION', 'BROKEN']"
         :key="phase"
@@ -298,9 +319,13 @@ onBeforeUnmount(() => { ++generation; });
       </div>
     </template>
     <Dialog v-model:open="dialogOpen">
-      <DialogContent class="sm:max-w-3xl max-h-[85vh] overflow-y-auto">
+      <DialogContent class="max-h-[calc(100dvh-2rem)] min-w-0 overflow-y-auto p-4 sm:max-w-4xl sm:p-6">
         <DialogHeader><DialogTitle>{{ selected?.name }} · {{ selected?.code }}</DialogTitle><DialogDescription>目标 {{ result?.tradeDate }} · {{ result?.algorithmVersion }} · 各来源以独立日期为准。</DialogDescription></DialogHeader>
         <template v-if="selected">
+          <DailyKLineCard
+            :symbol="selected.code"
+            :highlight-date="result?.tradeDate || undefined"
+          />
           <p>共振 {{ selected.confluenceScore }} = 各维度贡献合计 / {{ selected.availableWeight }} × 100。正向 {{ selected.positiveSignalCount }} / 有效 {{ selected.availableSignalCount }}。</p>
           <section
             v-for="key in keys"
