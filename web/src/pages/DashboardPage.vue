@@ -52,7 +52,7 @@ const number = (value: string | undefined) => value && Number.isFinite(Number(va
       <h2 class="border-b border-border/70 bg-muted/30 px-6 py-3.5 text-sm font-semibold tracking-wide">
         市场结构 / MARKET STRUCTURE
       </h2>
-      <div class="grid grid-cols-2 divide-x">
+      <div class="grid grid-cols-1 divide-y md:grid-cols-2 md:divide-x md:divide-y-0">
         <div
           v-for="entry in markets"
           :key="entry.market"
@@ -60,19 +60,14 @@ const number = (value: string | undefined) => value && Number.isFinite(Number(va
         >
           <DashboardState
             :state="entry.structure"
-            :empty="false"
+            :empty="!entry.structure.data"
+            empty-message="暂无今日市场结构快照（非交易日或尚未生成）"
             @retry="entry.structure.refresh"
           >
             <MarketStructureCard
               v-if="entry.structure.data"
               :snapshot="entry.structure.data"
             />
-            <p
-              v-else
-              class="text-sm text-muted-foreground"
-            >
-              {{ entry.market }} · 暂无今日市场结构数据
-            </p>
           </DashboardState>
           <div
             v-if="entry.trend.data?.features?.lifecycleCounts"
@@ -105,7 +100,7 @@ const number = (value: string | undefined) => value && Number.isFinite(Number(va
         </h2>
         <span class="text-xs text-muted-foreground">Trend Following · 最新交易日</span>
       </div>
-      <div class="grid grid-cols-2 divide-x">
+      <div class="grid grid-cols-1 divide-y md:grid-cols-2 md:divide-x md:divide-y-0">
         <div
           v-for="entry in markets"
           :key="entry.market"
@@ -326,7 +321,7 @@ const number = (value: string | undefined) => value && Number.isFinite(Number(va
       <h2 class="text-lg font-semibold">
         模型研究信号 <span class="ml-2 text-xs font-normal text-muted-foreground">MODEL PULSE</span>
       </h2>
-      <div class="mt-4 grid grid-cols-2 divide-x">
+      <div class="mt-4 grid grid-cols-1 divide-y md:grid-cols-2 md:divide-x md:divide-y-0">
         <div
           v-for="entry in markets"
           :key="entry.market"

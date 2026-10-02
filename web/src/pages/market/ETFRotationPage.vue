@@ -304,7 +304,9 @@ async function load(refreshDates = false, options: { autoSelectMode?: boolean } 
     else applyOfficialRanking(ranking);
   } catch (reason) {
     if (current === generation) {
-      error.value = getParsedApiError(reason);
+      const parsed = getParsedApiError(reason);
+      // No official snapshot yet — show empty ranking, not a hard error.
+      error.value = parsed.status === 404 ? null : parsed;
       items.value = [];
       candidates.value = [];
       exits.value = [];

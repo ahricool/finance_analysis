@@ -108,7 +108,7 @@ onBeforeUnmount(() => { generation++; poolGeneration++; });
     </p>
     <div
       v-if="currentUser?.role === 'admin'"
-      class="flex items-center gap-3 rounded-lg border p-3 text-sm"
+      class="flex flex-wrap items-center gap-3 rounded-lg border p-3 text-sm"
     >
       <Button
         variant="outline"
@@ -206,7 +206,7 @@ onBeforeUnmount(() => { generation++; poolGeneration++; });
             {{ delta(row.changes.heatScore) }} · 历史基准：此前20个完整交易日，不含当日
           </p>
         </div>
-        <div class="grid grid-cols-4 rounded-xl border p-5">
+        <div class="grid grid-cols-2 rounded-xl border p-5 lg:grid-cols-4">
           <div
             v-for="card in cards"
             :key="card.label"
@@ -224,7 +224,7 @@ onBeforeUnmount(() => { generation++; poolGeneration++; });
           </p>
         </div>
       </section>
-      <div class="grid grid-cols-3 gap-4 rounded-xl border p-4 text-sm">
+      <div class="grid grid-cols-1 gap-4 rounded-xl border p-4 text-sm sm:grid-cols-3">
         <div>
           早封率 <strong>{{ pct(row.earlyLimitUpRatio) }}</strong><p class="mt-1 text-xs text-muted-foreground">
             ≤{{ row.earlyTimeThreshold }}：{{ row.earlyLimitUpCount ?? '—' }} / 时间有效 {{ row.validLimitUpTimeCount ?? '—' }} · 覆盖 {{ pct(row.timeCoverage) }}
@@ -280,7 +280,7 @@ onBeforeUnmount(() => { generation++; poolGeneration++; });
         <p class="text-xs text-muted-foreground">
           真实完整池人数；最高板不截断。晋级逐代码匹配真实相邻交易日；未晋级仅表示未满足续板条件，不等于跌停或亏损。
         </p>
-        <div class="grid grid-cols-4 gap-4">
+        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <details
             v-for="(p, key) in row?.promotions"
             :key="key"

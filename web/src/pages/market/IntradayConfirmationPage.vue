@@ -110,7 +110,7 @@ onBeforeUnmount(() => { ++generation; });
       读取已计算快照…
     </p>
     <template v-if="result">
-      <div class="grid grid-cols-4 gap-4">
+      <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <div
           v-for="[label, count] in [['候选总数', result.summary.total], ['CONFIRMED', result.summary.confirmed], ['WAIT', result.summary.wait], ['FAILED', result.summary.failed]]"
           :key="label"

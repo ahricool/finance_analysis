@@ -161,7 +161,7 @@ onMounted(() => { void load(); void loadDates(); });
     </div>
     <div
       v-if="currentUser?.role === 'admin'"
-      class="flex items-center gap-3 rounded-lg border p-3 text-sm"
+      class="flex flex-wrap items-center gap-3 rounded-lg border p-3 text-sm"
     >
       <Button
         variant="outline"
@@ -516,7 +516,7 @@ onMounted(() => { void load(); void loadDates(); });
             <h2 class="font-semibold">
               {{ concept.name }} · 资金构成与股票贡献
             </h2>
-            <div class="grid grid-cols-3 gap-4 rounded-lg bg-muted/40 p-4 text-sm">
+            <div class="grid grid-cols-1 gap-4 rounded-lg bg-muted/40 p-4 text-sm sm:grid-cols-3">
               <p>所选口径净额 <strong :class="moneyClass(concept.netValue)">{{ money(concept.netValue) }}</strong></p>
               <p>机构净额 <strong :class="moneyClass(concept.orgNetValue)">{{ money(concept.orgNetValue) }}</strong></p>
               <p>游资净额 <strong :class="moneyClass(concept.hotMoneyNetValue)">{{ money(concept.hotMoneyNetValue) }}</strong></p>

@@ -128,8 +128,7 @@
   }
 
   html {
-    min-width: 1200px;
-    overflow-x: auto;
+    overflow-x: hidden;
     scrollbar-gutter: stable;
     background: hsl(var(--background));
   }
@@ -142,7 +141,7 @@
 
   body {
     @apply m-0 min-h-screen bg-background font-sans text-foreground antialiased;
-    overflow-x: auto;
+    overflow-x: hidden;
   }
 
   button,
@@ -165,9 +164,17 @@
 }
 
 @layer utilities {
-  /* Consistent page shell spacing under Shell main (already px-6). */
+  /* Consistent page shell spacing under Shell main (already px-4/px-6). */
   .page-shell {
-    @apply space-y-6 py-6;
+    @apply space-y-6 py-4 sm:py-6;
+  }
+
+  /* Prevent page-level horizontal overflow; tables scroll in their own containers. */
+  .page-shell,
+  [data-slot='card'],
+  main {
+    max-width: 100%;
+    min-width: 0;
   }
 
   /* Numeric columns: right-aligned, tabular figures. */

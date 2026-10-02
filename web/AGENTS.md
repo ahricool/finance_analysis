@@ -189,7 +189,7 @@ Cookie 会话，`apiClient` 设了 `withCredentials: true`。
 - **禁止**使用 `input-terminal` 类名（同上治理测试）。
 - 弹层不要改 `document.body` 的 `overflow` / `paddingRight` 造成顶栏位移；冒烟测试会查这一点。
 - 根滚动条使用 `scrollbar-gutter: stable`，路由切换时不要让页面左右跳。
-- WebUI 仅面向桌面，根最小宽度 1200px；低于此宽度允许页面级横向滚动。只维护 Desktop 导航与表格，不添加手机 Sheet 导航或 Mobile Card。验证 1280 / 1440 / 1920px；桌面宽度之间的响应式布局继续保留。
+- WebUI 面向桌面优先，并做基础响应式适配：去掉根 `min-width: 1200px`；`<768px` 顶栏收成汉堡抽屉导航；表格在容器内横向滚动，页面本身不横向溢出；卡片/统计格子可换行；弹窗限制在视口内。验证 390 / 768 / 1280 / 1440 / 1920px。
 - Dashboard 按市场结构、Trend Market Regime、ETF/Trend Changes、Timeline、Quant Signals/BTC overview 排序；市场环境通过 `/trend-following/dashboard` 读取正式 Trend 的 0–100 分数、breakdown、完整变化计数和最多3条变化摘要，不下载 ranking 明细，不请求 Quant Regime 或展示风险敞口。不得读取持仓、自选股、分析历史等私人数据；各模块独立加载和失败。
 
 新增 shadcn 组件：按 `components.json` 生成到 `src/components/ui/`，不要改 aliases，不要另开一套 primitive。

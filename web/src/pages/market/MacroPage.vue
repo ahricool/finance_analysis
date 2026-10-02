@@ -55,7 +55,7 @@ onBeforeUnmount(() => { sequence++; });
     />
     <div
       v-if="loading && !dashboard"
-      class="grid grid-cols-3 gap-3 min-[87.5rem]:grid-cols-6"
+      class="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 min-[87.5rem]:grid-cols-6"
     >
       <Skeleton
         v-for="i in 6"

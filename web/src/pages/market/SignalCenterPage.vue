@@ -48,7 +48,7 @@ onBeforeUnmount(() => { ++generation; ++detailGeneration; });
       title="信号中心"
       description="每日跨信号综合判断。每个市场最多一只 Primary Signal，也可以不交易。"
     />
-    <div class="flex items-center gap-3">
+    <div class="flex flex-wrap items-center gap-3">
       <label
         for="signal-date"
         class="text-sm"
@@ -89,7 +89,7 @@ onBeforeUnmount(() => { ++generation; ++detailGeneration; });
     </p>
     <div
       v-if="daily"
-      class="grid grid-cols-2 gap-5"
+      class="grid grid-cols-1 gap-5 md:grid-cols-2"
     >
       <section
         v-for="market in markets"

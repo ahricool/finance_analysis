@@ -519,7 +519,8 @@ async function load(refreshDates = false, options: { autoSelectMode?: boolean } 
     else applyOfficialRanking(ranking);
   } catch (reason) {
     if (current === generation) {
-      error.value = getParsedApiError(reason);
+      const parsed = getParsedApiError(reason);
+      error.value = parsed.status === 404 ? null : parsed;
       items.value = [];
       changes.value = null;
       officialSelected.value = null;
@@ -1224,7 +1225,7 @@ onMounted(async () => {
               {{ detail.latest.setup }}
             </Badge>
           </div>
-          <div class="grid grid-cols-3 gap-3 rounded-lg border p-4 text-sm">
+          <div class="grid grid-cols-1 gap-3 rounded-lg border p-4 text-sm sm:grid-cols-3">
             <div>Trend Age<strong class="block">{{ detail.latest.trendDurationDays == null ? '—' : `${detail.latest.trendDurationDays}D` }}</strong></div>
             <div>Lifecycle<strong class="block">{{ detail.latest.trendLifecycle ?? '—' }}</strong></div>
             <div>Fragility<strong class="block">{{ score(detail.latest.fragilityScore) }} / 100</strong></div>
@@ -1312,7 +1313,7 @@ onMounted(async () => {
             <p>{{ boxStateText(detail.latest.features.boxState) }} · {{ detail.latest.features.boxStartDate ?? '—' }} → {{ detail.latest.features.boxEndDate ?? '—' }}</p>
             <p>本次新突破：{{ detail.latest.features.boxBreakoutFresh == null ? '—' : detail.latest.features.boxBreakoutFresh ? '是' : '否' }} · 昨日已确认突破：{{ detail.latest.features.boxPriorBreakoutConfirmed == null ? '—' : detail.latest.features.boxPriorBreakoutConfirmed ? '是' : '否' }}</p>
             <p>箱体事件已触发：{{ detail.latest.features.boxEpisodeConsumed == null ? '—' : detail.latest.features.boxEpisodeConsumed ? '是' : '否' }} · 突破日期：{{ detail.latest.features.boxEpisodeBreakoutDate ?? '—' }}</p>
-            <dl class="grid grid-cols-3 gap-3 tabular-nums">
+            <dl class="grid grid-cols-1 gap-3 tabular-nums sm:grid-cols-3">
               <div
                 v-for="[key, label, format] in boxDetailFields"
                 :key="key"

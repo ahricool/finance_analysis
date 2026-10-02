@@ -3,6 +3,7 @@ import { onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { dispose, init, type Chart, type OverlayCreate, type KLineData,
   type CandleTooltipLegendsCustomCallback } from 'klinecharts';
 import { useTheme } from '@/composables/useTheme';
+import { readMarketCanvasColors } from '@/utils/marketColors';
 
 const props = defineProps<{
   symbol: string;
@@ -59,12 +60,11 @@ function styles() {
   if (!chart) return;
   chart.setStyles(resolvedTheme.value);
   const dark = resolvedTheme.value === 'dark';
-  const upColor = dark ? '#e86464' : '#dc2626';
-  const downColor = dark ? '#39b77a' : '#16854e';
-  const colors = { upColor, downColor, noChangeColor: '#888888' };
+  const { up, down, muted } = readMarketCanvasColors(dark);
+  const colors = { upColor: up, downColor: down, noChangeColor: muted };
   chart.setStyles({
-    candle: { bar: { ...colors, upBorderColor: upColor, downBorderColor: downColor,
-      upWickColor: upColor, downWickColor: downColor }, priceMark: { last: colors },
+    candle: { bar: { ...colors, upBorderColor: up, downBorderColor: down,
+      upWickColor: up, downWickColor: down }, priceMark: { last: colors },
     tooltip: { showRule: 'follow_cross', showType: 'rect',
       legend: { defaultValue: '--', template: candleTooltipLegends } } },
     indicator: { bars: [colors] },

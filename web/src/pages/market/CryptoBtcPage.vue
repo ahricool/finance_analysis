@@ -178,7 +178,7 @@ function time(value: string | null | undefined) {
         </option>
       </select>
     </div>
-    <div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
+    <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
       <Card
         v-for="[label, value] in metrics"
         :key="label"

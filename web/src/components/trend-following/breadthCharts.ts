@@ -20,12 +20,12 @@ export function delta5DValue(points: TrendBreadthPoint[], key: 'trendBreadth' | 
   return (latest - previous) * 100;
 }
 export function breadthOption(points: TrendBreadthPoint[], dark: boolean, structure = false): Option {
-  // Health charts use market-down (green) for healthy breadth and warning for deterioration.
+  // A-share convention: strong/healthy = market-up (red), weak/deterioration = market-down (green).
+  const up = dark ? '#e86464' : '#dc2626';
   const down = dark ? '#39b77a' : '#16854e';
-  const warning = dark ? '#fbbf24' : '#d97706';
   const muted = dark ? '#52525b' : '#d4d4d8';
-  const emerging = dark ? '#a3e635' : '#65a30d';
-  const colors = structure ? [muted, emerging, down, warning] : [down, warning];
+  const emerging = dark ? '#fb7185' : '#f43f5e';
+  const colors = structure ? [muted, emerging, up, down] : [up, down];
   const series: Array<{ name: string; key: keyof TrendBreadthPoint }> = structure
     ? [{ name: 'Inactive · 未形成', key: 'inactive' }, { name: 'Emerging · 形成中', key: 'emerging' },
       { name: 'Healthy · 健康', key: 'healthy' }, { name: 'Deteriorating · 恶化', key: 'deteriorating' }]

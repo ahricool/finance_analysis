@@ -189,11 +189,14 @@ describe('Shell navigation', () => {
     wrapper.unmount();
   });
 
-  it('keeps the desktop navigation visible and links the logo to the dashboard', async () => {
+  it('keeps the desktop navigation classes and links the logo to the dashboard', async () => {
     const { wrapper } = await mountShell('/dashboard');
-    expect(wrapper.get('[data-testid="desktop-main-nav"]').classes()).not.toContain('hidden');
+    const desktopNav = wrapper.get('[data-testid="desktop-main-nav"]');
+    expect(desktopNav.classes()).toContain('hidden');
+    expect(desktopNav.classes()).toContain('md:flex');
+    expect(wrapper.get('[data-testid="mobile-nav-trigger"]').classes()).toContain('md:hidden');
     expect(wrapper.get('a[aria-label="回到动态"]').attributes('href')).toBe('/dashboard');
-    expect(wrapper.get('a[aria-label="市场动态"]').attributes('aria-current')).toBe('page');
+    expect(wrapper.get('[data-testid="desktop-main-nav"] a[aria-label="市场动态"]').attributes('aria-current')).toBe('page');
     wrapper.unmount();
   });
 });

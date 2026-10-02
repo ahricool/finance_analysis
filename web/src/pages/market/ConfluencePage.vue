@@ -193,7 +193,7 @@ onBeforeUnmount(() => { ++generation; });
       正在读取正式快照…
     </p>
     <template v-if="result">
-      <div class="grid grid-cols-4 gap-4">
+      <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <div class="rounded-lg border p-4">
           <p class="text-sm text-muted-foreground">
             Strong Confluence
@@ -340,7 +340,7 @@ onBeforeUnmount(() => { ++generation; });
             </p>
             <dl
               v-if="selected.signals[key].status !== 'unavailable'"
-              class="grid grid-cols-3 gap-3 text-sm"
+              class="grid grid-cols-1 gap-3 text-sm sm:grid-cols-3"
             >
               <div
                 v-for="[field, label] in fields[key]"

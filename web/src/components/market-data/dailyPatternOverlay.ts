@@ -1,6 +1,7 @@
 import { registerOverlay, type OverlayCreate } from 'klinecharts';
 import type { DailyBar } from '@/api/marketData';
 import type { DailyPatternEvent, DailyPatternType } from '@/utils/dailyPatterns';
+import { MARKET_HEX } from '@/utils/marketColors';
 
 const labels: Record<DailyPatternType, string> = {
   bullish_engulfing: '↑ 吞没', bearish_engulfing: '↓ 吞没', hammer: '↑ 锤子',
@@ -20,9 +21,10 @@ export function dailyPatternOverlays(
         if (!point) return [];
         const event = overlay.extendData;
         const bullish = event.direction === 'bullish';
+        const palette = event.dark ? MARKET_HEX.dark : MARKET_HEX.light;
         return [{ type: 'text', attrs: { x: point.x, y: Math.max(10, Math.min(bounding.height - 10, point.y + (bullish ? 22 : -52))),
           text: `${labels[event.type]}${event.confirmed ? '' : ' · 形成中'}`, align: 'center', baseline: 'middle' },
-        styles: { color: bullish ? (event.dark ? '#e86464' : '#dc2626') : (event.dark ? '#39b77a' : '#16854e'),
+        styles: { color: bullish ? palette.up : palette.down,
           size: 12, weight: event.confirmed ? 'bold' : 'normal',
           backgroundColor: event.dark ? '#171717' : '#ffffff', paddingLeft: 3, paddingRight: 3 } }];
       },

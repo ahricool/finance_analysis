@@ -25,7 +25,16 @@ export function useMarketDashboard() {
         const data = await fetcher();
         if (!stopped && current === generation) state.data = data;
       } catch (error) {
-        if (!stopped && current === generation) state.error = getParsedApiError(error);
+        if (!stopped && current === generation) {
+          const parsed = getParsedApiError(error);
+          // Missing snapshot is an empty state, not a transport failure.
+          if (parsed.status === 404) {
+            state.data = null;
+            state.error = null;
+          } else {
+            state.error = parsed;
+          }
+        }
       } finally {
         if (!stopped && current === generation) state.loading = false;
       }
