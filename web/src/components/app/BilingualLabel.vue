@@ -56,13 +56,12 @@ const aria = computed(() => {
       >{{ pair.en }}</span>
     </span>
     <TooltipProvider
-      v-if="description || (compact && pair.en)"
+      v-if="description"
       :delay-duration="150"
     >
       <Tooltip>
         <TooltipTrigger as-child>
           <button
-            v-if="description"
             type="button"
             class="shrink-0 text-muted-foreground hover:text-foreground"
             :aria-label="`查看 ${pair.zh} 说明`"
@@ -70,18 +69,9 @@ const aria = computed(() => {
           >
             <CircleHelp class="size-3.5" />
           </button>
-          <span
-            v-else
-            class="sr-only"
-          >{{ pair.en }}</span>
         </TooltipTrigger>
         <TooltipContent class="max-w-[min(24rem,calc(100vw-1rem))] whitespace-normal text-left leading-5">
-          <template v-if="description">
-            {{ description }}
-          </template>
-          <template v-else>
-            {{ pair.en }}
-          </template>
+          {{ description }}
         </TooltipContent>
       </Tooltip>
     </TooltipProvider>
