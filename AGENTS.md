@@ -318,7 +318,8 @@ BTC 多策略以 `strategy_key + symbol` 隔离，代码注册表当前仅 `btc_
 ## 信息输入边界
 
 个股分析使用行情、技术、基本面，大盘复盘只使用市场结构化数据。
-系统不负责通用互联网检索。Longbridge 是唯一的外部新闻消息源，用于美股盘前新闻与盘中分析；
+系统不负责通用互联网检索。`earnings_outlook/` 是唯一财报研究例外，仅对 S&P 500/Nasdaq-100 当前有效股票并集
+通过 LLMClient 执行有传输证据的搜索；不改变其他模块边界，详见 `docs/investment-timeline.md`。Longbridge 是唯一的外部新闻消息源，用于美股盘前新闻与盘中分析；
 美股收盘复盘只读已持久化新闻，空新闻不阻断报告或通知。新闻存储与调用方见
 `docs/investment-timeline.md` 的“新闻数据边界”。
 

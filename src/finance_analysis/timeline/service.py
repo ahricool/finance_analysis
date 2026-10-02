@@ -1,12 +1,20 @@
 """One public, paginated feed across finance events and news judgments."""
 
+import logging
+
 from sqlalchemy import DateTime, String, and_, case, cast, func, literal, null, or_, select, union_all
 
-from finance_analysis.core.time import coerce_aware_utc, day_bounds_utc  # pragma: allowlist secret
+from finance_analysis.core.time import coerce_aware_utc, day_bounds_utc, utc_now  # pragma: allowlist secret
 from finance_analysis.database.models.market_calendar import FinanceEvent
 from finance_analysis.database.models.news import NewsIntel
 from finance_analysis.database.models.news_analysis import NewsAnalysis
 from finance_analysis.database.session import DatabaseManager
+from finance_analysis.database.repositories.universe import UniverseRepository, UniverseResolver
+from finance_analysis.database.repositories.earnings_outlook import EarningsOutlookRepository
+from finance_analysis.database.models.earnings_outlook import EarningsOutlookState
+from finance_analysis.earnings_outlook.universe import resolve_members
+
+logger = logging.getLogger(__name__)
 from finance_analysis.market_calendar.events import source_payloads  # pragma: allowlist secret
 from finance_analysis.timeline.cursor import TimelineCursor
 from finance_analysis.timeline.dto import TimelineItem  # pragma: allowlist secret
@@ -15,8 +23,16 @@ from finance_analysis.timeline.dto import TimelineItem  # pragma: allowlist secr
 class TimelineService:
     """Everyone sees the same feed; the timeline carries no user-owned content."""
 
-    def __init__(self, db=None):
+    def __init__(self, db=None, resolver=None):
         self.db = db or DatabaseManager.get_instance()
+        self.resolver = resolver or UniverseResolver(UniverseRepository(self.db))
+
+    def _members(self):
+        try:
+            return resolve_members(self.resolver)
+        except Exception:
+            logger.warning("Earnings membership unavailable; outlook highlights disabled", exc_info=True)
+            return {}
 
     def _projection(self, session, *, end_date=None, timezone_name, **filters):
         f, n, a = FinanceEvent, NewsIntel, NewsAnalysis
@@ -65,6 +81,10 @@ class TimelineService:
             ).join(n, n.id == a.news_intel_id),
         ).subquery()
         stmt = select(projection)
+        if filters.get("high_confidence"):
+            stmt = stmt.where(
+                projection.c.source_type == "finance_event", projection.c.source_id.in_(filters.get("high_ids", []))
+            )
         if end_date is not None:
             stmt = stmt.where(projection.c.event_time < day_bounds_utc(end_date, timezone_name)[1])
         for key in ("market", "category", "calendar_type"):
@@ -76,7 +96,22 @@ class TimelineService:
         return stmt.subquery()
 
     def list(self, *, cursor: TimelineCursor | None = None, limit=20, **query):
+        now, members = utc_now(), self._members()
         with self.db.get_session() as session:
+            if query.get("high_confidence"):
+                candidates = list(
+                    session.scalars(
+                        select(FinanceEvent)
+                        .join(EarningsOutlookState, EarningsOutlookState.event_id == FinanceEvent.id)
+                        .where(FinanceEvent.symbol.in_(members), FinanceEvent.reported_eps.is_(None))
+                    )
+                )
+                summaries = EarningsOutlookRepository.summaries(session, candidates, members, now)
+                query["high_ids"] = [
+                    key
+                    for key, value in summaries.items()
+                    if value and (value.get("earnings_high") or value.get("reaction_high"))
+                ]
             feed = self._projection(session, **query)
             count = session.scalar(select(func.count()).select_from(feed))
             stmt = select(feed)
@@ -98,8 +133,7 @@ class TimelineService:
                         feed.c.event_time.desc(),
                         feed.c.source_type,
                         feed.c.source_id.desc(),
-                    )
-                    .limit(limit + 1)
+                    ).limit(limit + 1)
                 )
                 .mappings()
                 .all()
@@ -113,7 +147,13 @@ class TimelineService:
                     coerce_aware_utc(last["event_time"]), last["source_type"], last["source_id"]
                 ).encode()
             entries = self._load_details(session, rows)
+            summaries = EarningsOutlookRepository.summaries(
+                session, [item for (source, _), item in entries.items() if source == "finance_event"], members, now
+            )
             items = [self._detail(entries, row) for row in rows if (row["source_type"], row["source_id"]) in entries]
+            for item in items:
+                if item.source_type == "finance_event":
+                    item.outlook = summaries.get(item.source_id)
             return dict(items=items, total=count, limit=limit, next_cursor=next_cursor, has_more=has_more)
 
     @staticmethod

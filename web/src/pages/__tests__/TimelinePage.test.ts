@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import TimelinePage from '../TimelinePage.vue';
 import { timelineApi, type TimelineItem } from '@/api/timeline';
 
-vi.mock('@/api/timeline', () => ({ timelineApi: { list: vi.fn() } }));
+vi.mock('@/api/timeline', () => ({ timelineApi: { list: vi.fn(), earningsDetail: vi.fn().mockResolvedValue({ versions: [], summary: null }) } }));
 
 const news: TimelineItem = {
   id: 'news:1', sourceType: 'news', sourceId: 1, category: 'news', calendarType: null, market: 'US',
@@ -40,15 +40,27 @@ function respond(items: TimelineItem[]) {
   return { items, total: items.length, nextCursor: null, hasMore: false, limit: 20 };
 }
 
+const originalIntersectionObserver = globalThis.IntersectionObserver;
+let intersectionCallback: IntersectionObserverCallback;
+const disconnect = vi.fn();
+function reachBottom(isIntersecting = true) {
+  intersectionCallback([{ isIntersecting } as IntersectionObserverEntry], {} as IntersectionObserver);
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
+  globalThis.IntersectionObserver = class extends originalIntersectionObserver {
+    constructor(callback: IntersectionObserverCallback) { super(callback); intersectionCallback = callback; }
+    observe = vi.fn();
+    disconnect = disconnect;
+  };
   localStorage.clear();
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(new Date('2026-09-09T08:00:00Z'));
   vi.mocked(timelineApi.list).mockResolvedValue(respond([news]));
 });
 
-afterEach(() => vi.useRealTimers());
+afterEach(() => { vi.useRealTimers(); globalThis.IntersectionObserver = originalIntersectionObserver; });
 
 function clickTab(wrapper: ReturnType<typeof mount>, label: string) {
   return wrapper.findAll('button').find(button => button.text() === label)!.trigger('click');
@@ -98,6 +110,18 @@ describe('Public investment timeline', () => {
     wrapper.unmount();
   });
 
+  it('sends the high-confidence filter to the backend and resets pagination', async () => {
+    const wrapper = mount(TimelinePage, { global: { plugins: [createPinia()] } });
+    await flushPromises();
+    await wrapper.get('input[type="checkbox"]').setValue(true);
+    await flushPromises();
+    expect(timelineApi.list).toHaveBeenLastCalledWith(expect.objectContaining({ high_confidence: true, cursor: undefined }));
+    await wrapper.get('input[type="checkbox"]').setValue(false);
+    await flushPromises();
+    expect(vi.mocked(timelineApi.list).mock.lastCall?.[0].high_confidence).toBeUndefined();
+    wrapper.unmount();
+  });
+
   it('renders every type as its own rounded card in API order', async () => {
     vi.mocked(timelineApi.list).mockResolvedValue(respond([earnings, macro, news, analysis]));
     const wrapper = mount(TimelinePage, { global: { plugins: [createPinia()] } });
@@ -129,12 +153,61 @@ describe('Public investment timeline', () => {
     const wrapper = mount(TimelinePage, { global: { plugins: [createPinia()] } });
     await flushPromises();
     expect(timelineApi.list).toHaveBeenLastCalledWith(expect.objectContaining({ cursor: undefined }));
-    await clickTab(wrapper, '加载更多');
+    expect(wrapper.text()).not.toContain('加载更多');
+    reachBottom(false);
+    expect(timelineApi.list).toHaveBeenCalledTimes(1);
+    reachBottom();
     await flushPromises();
     expect(timelineApi.list).toHaveBeenLastCalledWith(expect.objectContaining({ cursor: 'older-position' }));
     expect(wrapper.findAll('[data-testid="timeline-item"]').map(row => row.text()))
       .toEqual([expect.stringContaining(news.title), expect.stringContaining(older.title)]);
     wrapper.unmount();
+  });
+
+  it('continues filling the viewport and stops observing after the last page', async () => {
+    vi.mocked(timelineApi.list)
+      .mockResolvedValueOnce({ ...respond([news]), nextCursor: 'page-2', hasMore: true })
+      .mockResolvedValueOnce({ ...respond([{ ...news, id: 'news:2' }]), nextCursor: 'page-3', hasMore: true })
+      .mockResolvedValueOnce(respond([{ ...news, id: 'news:3' }]));
+    const wrapper = mount(TimelinePage, { global: { plugins: [createPinia()] } });
+    await flushPromises();
+    reachBottom();
+    await flushPromises();
+    expect(wrapper.find('[data-testid="timeline-load-more-trigger"]').exists()).toBe(true);
+    reachBottom();
+    await flushPromises();
+    expect(timelineApi.list).toHaveBeenLastCalledWith(expect.objectContaining({ cursor: 'page-3' }));
+    expect(wrapper.findAll('[data-testid="timeline-item"]')).toHaveLength(3);
+    expect(wrapper.find('[data-testid="timeline-load-more-trigger"]').exists()).toBe(false);
+    expect(disconnect).toHaveBeenCalledTimes(2);
+    wrapper.unmount();
+  });
+
+  it('keeps loaded cards on failure and retries the same cursor without an automatic retry loop', async () => {
+    vi.mocked(timelineApi.list)
+      .mockResolvedValueOnce({ ...respond([news]), nextCursor: 'page-2', hasMore: true })
+      .mockRejectedValueOnce(new Error('Network Error'))
+      .mockResolvedValueOnce(respond([{ ...news, id: 'news:2' }]));
+    const wrapper = mount(TimelinePage, { global: { plugins: [createPinia()] } });
+    await flushPromises();
+    reachBottom();
+    await flushPromises();
+    expect(wrapper.findAll('[data-testid="timeline-item"]')).toHaveLength(1);
+    expect(wrapper.find('[data-testid="timeline-load-more-trigger"]').exists()).toBe(false);
+    expect(timelineApi.list).toHaveBeenCalledTimes(2);
+    await clickTab(wrapper, '重试');
+    await flushPromises();
+    expect(timelineApi.list).toHaveBeenLastCalledWith(expect.objectContaining({ cursor: 'page-2' }));
+    expect(wrapper.findAll('[data-testid="timeline-item"]')).toHaveLength(2);
+    wrapper.unmount();
+  });
+
+  it('disconnects the bottom observer when leaving the page', async () => {
+    vi.mocked(timelineApi.list).mockResolvedValueOnce({ ...respond([news]), nextCursor: 'page-2', hasMore: true });
+    const wrapper = mount(TimelinePage, { global: { plugins: [createPinia()] } });
+    await flushPromises();
+    wrapper.unmount();
+    expect(disconnect).toHaveBeenCalledOnce();
   });
 
   it('resets items and cursor on filter change and ignores stale load-more responses', async () => {
@@ -146,9 +219,8 @@ describe('Public investment timeline', () => {
       .mockImplementationOnce(() => new Promise(resolve => { finishFiltered = resolve; }));
     const wrapper = mount(TimelinePage, { global: { plugins: [createPinia()] } });
     await flushPromises();
-    const more = wrapper.findAll('button').find(button => button.text() === '加载更多')!;
-    await more.trigger('click');
-    await more.trigger('click');
+    reachBottom();
+    reachBottom();
     expect(timelineApi.list).toHaveBeenCalledTimes(2);
     await clickTab(wrapper, '美股');
     expect(timelineApi.list).toHaveBeenLastCalledWith(expect.objectContaining({ market: 'US', cursor: undefined }));

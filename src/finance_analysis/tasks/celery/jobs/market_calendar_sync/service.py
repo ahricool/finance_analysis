@@ -25,6 +25,7 @@ class MarketCalendarSyncTaskService:
                 raise RuntimeError(f"财经日历任务失败：{reason} errors={summary.errors}")
             importance_candidate_ids = list(getattr(summary, "importance_candidate_ids", []) or [])
             self._submit_importance_task(importance_candidate_ids)
+            self._submit_outlook_task()
             logger.info(
                 "财经日历任务完成: fetched=%s inserted=%s updated=%s duplicate=%s notify=%s "
                 "importance_candidates=%s",
@@ -48,6 +49,15 @@ class MarketCalendarSyncTaskService:
         except Exception as exc:
             logger.exception("财经日历任务执行失败: %s", exc)
             raise
+
+    @staticmethod
+    def _submit_outlook_task():
+        try:
+            from finance_analysis.tasks.celery.jobs.earnings_outlook.tasks import earnings_outlook
+
+            earnings_outlook.apply_async(kwargs={"stage": "daily"}, queue="analysis")
+        except Exception:
+            logger.exception("投递财报前瞻失败；日历及重要性评分不受影响")
 
     @staticmethod
     def _submit_importance_task(event_ids: Sequence[int]) -> None:

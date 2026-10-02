@@ -14,6 +14,7 @@ class LLMRequest:
     call_type: str = "generic"
     uid: int | None = None
     web_search: bool = False
+    prefer_search: bool = False
     # Internal per-attempt measurements, shared by transport copies even on failure.
     diagnostics: dict[str, Any] = field(default_factory=dict, repr=False, compare=False)
 
@@ -26,3 +27,4 @@ class LLMResult:
     model: str | None = None
     usage: dict[str, Any] = field(default_factory=dict)
     duration_ms: int = 0
+    search_evidence: dict[str, Any] = field(default_factory=dict)

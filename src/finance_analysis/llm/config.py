@@ -24,6 +24,7 @@ class LLMConfig:
     cli_codex_path: str = "/usr/local/bin/codex"
     cli_python_path: str = "/usr/bin/python3"
     log_dir: Path = field(default_factory=lambda: get_log_dir() / "llm")
+    api_search_mode: str = "unavailable"
     model: str = ""
     base_url: str = "https://openrouter.ai/api/v1"
     api_key: str = field(default="", repr=False)
@@ -38,6 +39,8 @@ class LLMConfig:
     cli_effort: str = ""
 
     def __post_init__(self):
+        if self.api_search_mode not in {"unavailable", "chat_completions"}:
+            raise ValueError("LLM_API_SEARCH_MODE must be unavailable or chat_completions")
         if self.backend not in {"api", "cli"}:
             raise ValueError("LLM_BACKEND must be api or cli")
         if self.cli_engine not in {"agy", "codex"}:

@@ -1,12 +1,11 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { parseDate } from '@internationalized/date';
 import { storeToRefs } from 'pinia';
 import { timelineApi, type Importance, type TimelineItem, type TimelineQuery, type TimelineTab } from '@/api/timeline';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import ApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
 import AppDatePicker from '@/components/app/AppDatePicker.vue';
-import LoadingButton from '@/components/app/LoadingButton.vue';
 import TimelineEarningsCard from '@/components/timeline/TimelineEarningsCard.vue';
 import TimelineEventDetail from '@/components/timeline/TimelineEventDetail.vue';
 import TimelineMacroCard from '@/components/timeline/TimelineMacroCard.vue';
@@ -34,6 +33,7 @@ const presets = [
 const preset = ref<DatePreset>('today');
 const endDate = ref(getTodayInDisplayTimezone());
 const importance = ref<Importance | ''>('');
+const highConfidence = ref(false);
 function selectPreset(value: Exclude<DatePreset, 'custom'>) {
   preset.value = value;
   const days = presets.find(option => option.value === value)!.days;
@@ -54,9 +54,11 @@ const hasMore = ref(false);
 const loading = ref(false);
 const error = ref<ParsedApiError | null>(null);
 const detail = ref<TimelineItem | null>(null);
+const loadMoreTrigger = ref<HTMLElement | null>(null);
 
 const query = computed<TimelineQuery>(() => ({
   ...tabQuery[tab.value],
+  ...(highConfidence.value ? { high_confidence: true } : {}),
   end_date: endDate.value,
   market: market.value || undefined,
   importance: importance.value || undefined,
@@ -101,6 +103,17 @@ async function load(append = false) {
   finally { if (id === requestId) loading.value = false; }
 }
 watch([query, displayTimezone], () => { void load(); }, { immediate: true });
+
+// Re-observe after each page so short pages also fill the viewport.
+watch(loadMoreTrigger, (target, _previous, onCleanup) => {
+  if (!target) return;
+  const observer = new IntersectionObserver(entries => {
+    if (entries.some(entry => entry.isIntersecting)) void load(true);
+  }, { rootMargin: '0px 0px 240px 0px' });
+  observer.observe(target);
+  onCleanup(() => observer.disconnect());
+}, { flush: 'post' });
+onBeforeUnmount(() => { requestId++; });
 
 const newsFields = [
   ['importanceScore', '重要性评分'], ['importanceReason', '重要性依据'], ['eventType', '事件类型'],
@@ -147,6 +160,14 @@ function safeUrl(value: unknown) { return typeof value === 'string' && /^https?:
         >
           {{ option.label }}
         </button>
+        <label class="flex h-10 items-center gap-2 px-2 text-sm">
+          <input
+            v-model="highConfidence"
+            type="checkbox"
+            class="accent-primary"
+          >
+          仅高置信度
+        </label>
         <select
           v-model="importance"
           aria-label="重要性"
@@ -217,6 +238,8 @@ function safeUrl(value: unknown) { return typeof value === 'string' && /^https?:
       v-if="error"
       :error="error"
       class="mt-4"
+      action-label="重试"
+      @action="load(items.length > 0)"
     />
     <div
       v-if="loading && !items.length"
@@ -271,19 +294,21 @@ function safeUrl(value: unknown) { return typeof value === 'string' && /^https?:
     </div>
 
     <div
-      v-if="hasMore"
-      class="mt-6 text-center"
-    >
-      <LoadingButton
-        variant="outline"
-        :loading="loading"
-        @click="load(true)"
-      >
-        加载更多
-      </LoadingButton>
-    </div>
+      v-if="hasMore && !loading && !error"
+      ref="loadMoreTrigger"
+      class="h-px"
+      data-testid="timeline-load-more-trigger"
+      aria-hidden="true"
+    />
     <p
-      v-else-if="items.length"
+      v-if="loading && items.length"
+      role="status"
+      class="mt-6 text-center text-xs text-muted-foreground"
+    >
+      正在加载…
+    </p>
+    <p
+      v-else-if="!hasMore && items.length"
       class="mt-6 text-center text-xs text-muted-foreground"
     >
       已显示全部 {{ total }} 条信息
@@ -338,7 +363,6 @@ function safeUrl(value: unknown) { return typeof value === 'string' && /^https?:
               </div>
             </dl>
           </template>
-
         </template>
       </DialogScrollContent>
     </Dialog>

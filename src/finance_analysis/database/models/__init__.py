@@ -10,8 +10,14 @@ from finance_analysis.database.models.portfolio import (  # pragma: allowlist se
     TradeOperation,
 )
 from finance_analysis.database.models.trade_engine import TradeLLMState, TradeSignalRow  # pragma: allowlist secret
-from finance_analysis.database.models.industry_strength import IndustryStrengthConstituent, IndustryStrengthSnapshot  # pragma: allowlist secret
-from finance_analysis.database.models.market_sentiment import MarketSentimentSnapshot, MarketSentimentSourceSnapshot  # pragma: allowlist secret
+from finance_analysis.database.models.industry_strength import (
+    IndustryStrengthConstituent,
+    IndustryStrengthSnapshot,
+)  # pragma: allowlist secret
+from finance_analysis.database.models.market_sentiment import (
+    MarketSentimentSnapshot,
+    MarketSentimentSourceSnapshot,
+)  # pragma: allowlist secret
 
 from finance_analysis.database.models.market_structure import MarketStructureSnapshot  # pragma: allowlist secret
 
@@ -20,9 +26,16 @@ from finance_analysis.database.models.analysis import AnalysisHistory  # pragma:
 from finance_analysis.database.models.timeline import TimelineEntry  # pragma: allowlist secret
 from finance_analysis.database.models.news_analysis import NewsAnalysis  # pragma: allowlist secret
 from finance_analysis.database.models.llm_usage import LLMUsage  # pragma: allowlist secret
-from finance_analysis.database.models.etf_rotation import ETFMarketRotationSnapshot, ETFMomentumSnapshot  # pragma: allowlist secret
+from finance_analysis.database.models.etf_rotation import (
+    ETFMarketRotationSnapshot,
+    ETFMomentumSnapshot,
+)  # pragma: allowlist secret
 from finance_analysis.database.models.market_calendar import FinanceEvent  # pragma: allowlist secret
-from finance_analysis.database.models.news import FundamentalSnapshot, NewsIntel, NewsIntelUsage  # pragma: allowlist secret
+from finance_analysis.database.models.news import (
+    FundamentalSnapshot,
+    NewsIntel,
+    NewsIntelUsage,
+)  # pragma: allowlist secret
 from finance_analysis.database.models.quant import (  # pragma: allowlist secret
     MarketRegimeSnapshot,
     ModelDefinition,
@@ -37,13 +50,23 @@ from finance_analysis.database.models.stock import (  # pragma: allowlist secret
     Instrument,
     StockDaily,
 )
-from finance_analysis.database.models.universe import Universe, UniverseInclude, UniverseMember  # pragma: allowlist secret
+from finance_analysis.database.models.universe import (
+    Universe,
+    UniverseInclude,
+    UniverseMember,
+)  # pragma: allowlist secret
 from finance_analysis.database.models.task import TaskRecord  # pragma: allowlist secret
-from finance_analysis.database.models.trend_following import TrendFollowingSnapshot, TrendFollowingSummary  # pragma: allowlist secret
+from finance_analysis.database.models.trend_following import (
+    TrendFollowingSnapshot,
+    TrendFollowingSummary,
+)  # pragma: allowlist secret
 from finance_analysis.database.models.user import User  # pragma: allowlist secret
 from finance_analysis.database.models.watch_list import WatchListItem  # pragma: allowlist secret
 
-from finance_analysis.database.models.crypto import CryptoStrategySnapshot, CryptoStrategyState  # pragma: allowlist secret
+from finance_analysis.database.models.crypto import (
+    CryptoStrategySnapshot,
+    CryptoStrategyState,
+)  # pragma: allowlist secret
 
 from .dragon_tiger_flow import DragonTigerFlowBatch
 
@@ -99,4 +122,9 @@ __all__ = [
 from finance_analysis.database.models.confluence import ConfluenceRun, ConfluenceSnapshot
 
 from .signal_center import SignalCenterRun
+
 __all__.append("SignalCenterRun")
+
+from .earnings_outlook import EarningsResearch, EarningsPrediction, EarningsOutlookState
+
+__all__.extend(["EarningsResearch", "EarningsPrediction", "EarningsOutlookState"])

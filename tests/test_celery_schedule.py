@@ -15,9 +15,15 @@ from finance_analysis.tasks.celery.schedule import (  # pragma: allowlist secret
     get_scheduled_task_definition,
     get_scheduled_task_definitions,
 )
-from finance_analysis.tasks.celery.schedule.cron import LocalizedCrontab, compute_next_run, next_run_for_crontab  # pragma: allowlist secret
+from finance_analysis.tasks.celery.schedule.cron import (
+    LocalizedCrontab,
+    compute_next_run,
+    next_run_for_crontab,
+)  # pragma: allowlist secret
 
 EXPECTED_JOBS = {
+    "earnings_outlook_final": ("scheduled_earnings_outlook_final", "America/New_York"),
+    "earnings_outlook_review": ("scheduled_earnings_outlook_review", "America/New_York"),
     "intraday_confirmation_cn": ("scheduled_intraday_confirmation_cn", "Asia/Shanghai"),
     "intraday_confirmation_us": ("scheduled_intraday_confirmation_us", "America/New_York"),
     "signal_center_cn": ("scheduled_signal_center_cn", "Asia/Shanghai"),

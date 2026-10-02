@@ -6,6 +6,7 @@ from typing import Any
 
 from .config import LLMConfig
 from .failures import ProviderFailure
+from .search import evidence, supported
 from .types import LLMRequest, LLMResult
 
 
@@ -36,10 +37,12 @@ def complete(config: LLMConfig, request: LLMRequest) -> LLMResult:
         kwargs["api_base"] = config.base_url.rstrip("/")
     if request.max_tokens is not None:
         kwargs["max_tokens"] = request.max_tokens
-    if request.web_search:
+    if request.web_search and (not request.prefer_search or supported(config)):
         # LiteLLM/OpenAI-compatible web search. Prompt still restricts the
         # search to the current symbol; this is review, not signal generation.
         kwargs["web_search_options"] = {"search_context_size": "medium"}
+        if request.prefer_search:
+            kwargs.pop("temperature", None)  # Search-specialized models need not support sampling controls.
     started = time.monotonic()
     try:
         response = litellm.completion(**kwargs)
@@ -57,4 +60,18 @@ def complete(config: LLMConfig, request: LLMRequest) -> LLMResult:
         "output_tokens": int(_get(raw_usage, "completion_tokens", 0) or 0),
         "total_tokens": int(_get(raw_usage, "total_tokens", 0) or 0),
     }
-    return LLMResult(text=content, backend="api", model=config.model, usage=usage)
+    annotations = _get(_get(choices[0], "message"), "annotations", []) or []
+    citations = []
+    for annotation in annotations:
+        if _get(annotation, "type") == "url_citation":
+            c = _get(annotation, "url_citation", annotation)
+            url = _get(c, "url", "")
+            if isinstance(url, str) and url.startswith(("https://", "http://")):
+                citations.append(dict(url=url, title=_get(c, "title", "")))
+    return LLMResult(
+        text=content,
+        backend="api",
+        model=config.model,
+        usage=usage,
+        search_evidence=evidence(request.web_search, supported(config), citations),
+    )
