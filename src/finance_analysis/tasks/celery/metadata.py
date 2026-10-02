@@ -48,7 +48,15 @@ QUANT_TRAINING_TASK = CeleryTaskMetadata(
     celery_name="quant.model.train", task_type="quant_training", display_name="训练量化模型", source="celery_manual"
 )
 
+EARNINGS_OUTLOOK_TASK = CeleryTaskMetadata(
+    celery_name="analysis.earnings_outlook",
+    task_type="earnings_outlook",
+    display_name="美股财报前瞻",
+    source="celery",
+)
+
 ON_DEMAND_TASKS = (
+    EARNINGS_OUTLOOK_TASK,
     DEMO_ADD_TASK,
     STOCK_ANALYSIS_TASK,
     MARKET_REVIEW_TASK,

@@ -33,6 +33,7 @@ const presets = [
 const preset = ref<DatePreset>('today');
 const endDate = ref(getTodayInDisplayTimezone());
 const importance = ref<Importance | ''>('');
+const highConfidence = ref(false);
 function selectPreset(value: Exclude<DatePreset, 'custom'>) {
   preset.value = value;
   const days = presets.find(option => option.value === value)!.days;
@@ -57,6 +58,7 @@ const loadMoreTrigger = ref<HTMLElement | null>(null);
 
 const query = computed<TimelineQuery>(() => ({
   ...tabQuery[tab.value],
+  ...(highConfidence.value ? { high_confidence: true } : {}),
   end_date: endDate.value,
   market: market.value || undefined,
   importance: importance.value || undefined,
@@ -158,6 +160,14 @@ function safeUrl(value: unknown) { return typeof value === 'string' && /^https?:
         >
           {{ option.label }}
         </button>
+        <label class="flex h-10 items-center gap-2 px-2 text-sm">
+          <input
+            v-model="highConfidence"
+            type="checkbox"
+            class="accent-primary"
+          >
+          仅高置信度
+        </label>
         <select
           v-model="importance"
           aria-label="重要性"

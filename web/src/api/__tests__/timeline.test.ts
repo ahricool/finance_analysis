@@ -25,5 +25,5 @@ it('sends the cutoff date and calendar type as plain query parameters', async ()
 });
 
 it('no longer exposes note mutations or a summary endpoint', () => {
-  expect(Object.keys(timelineApi)).toEqual(['list']);
+  expect(Object.keys(timelineApi)).toEqual(['earningsDetail', 'refreshEarnings', 'list']);
 });

@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import TimelinePage from '../TimelinePage.vue';
 import { timelineApi, type TimelineItem } from '@/api/timeline';
 
-vi.mock('@/api/timeline', () => ({ timelineApi: { list: vi.fn() } }));
+vi.mock('@/api/timeline', () => ({ timelineApi: { list: vi.fn(), earningsDetail: vi.fn().mockResolvedValue({ versions: [], summary: null }) } }));
 
 const news: TimelineItem = {
   id: 'news:1', sourceType: 'news', sourceId: 1, category: 'news', calendarType: null, market: 'US',
@@ -107,6 +107,18 @@ describe('Public investment timeline', () => {
     await flushPromises();
     expect(timelineApi.list).toHaveBeenLastCalledWith(expect.objectContaining({ end_date: '2026-09-30' }));
     expect(timelineApi.list).not.toHaveBeenLastCalledWith(expect.objectContaining({ start_date: expect.anything() }));
+    wrapper.unmount();
+  });
+
+  it('sends the high-confidence filter to the backend and resets pagination', async () => {
+    const wrapper = mount(TimelinePage, { global: { plugins: [createPinia()] } });
+    await flushPromises();
+    await wrapper.get('input[type="checkbox"]').setValue(true);
+    await flushPromises();
+    expect(timelineApi.list).toHaveBeenLastCalledWith(expect.objectContaining({ high_confidence: true, cursor: undefined }));
+    await wrapper.get('input[type="checkbox"]').setValue(false);
+    await flushPromises();
+    expect(vi.mocked(timelineApi.list).mock.lastCall?.[0].high_confidence).toBeUndefined();
     wrapper.unmount();
   });
 

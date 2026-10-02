@@ -11,6 +11,9 @@ from finance_analysis.tasks.celery.schedule import get_scheduled_task_definition
 from finance_analysis.tasks.lifecycle import is_tracked_callable  # pragma: allowlist secret
 
 EXPECTED_CUSTOM_TASKS = {
+    "analysis.earnings_outlook",
+    "scheduled.earnings_outlook_final",
+    "scheduled.earnings_outlook_review",
     "scheduled.intraday_confirmation_cn",
     "scheduled.intraday_confirmation_us",
     "scheduled.signal_center_cn",
@@ -60,11 +63,7 @@ EXPECTED_CUSTOM_TASKS = {
 
 def _custom_registered_tasks() -> set[str]:
     celery_app.loader.import_default_modules()
-    return {
-        name
-        for name in celery_app.tasks
-        if name.startswith(("demo.", "analysis.", "scheduled.", "quant."))
-    }
+    return {name for name in celery_app.tasks if name.startswith(("demo.", "analysis.", "scheduled.", "quant."))}
 
 
 def test_worker_registers_exactly_the_expected_custom_tasks():
@@ -73,17 +72,27 @@ def test_worker_registers_exactly_the_expected_custom_tasks():
 
 
 def test_each_task_package_has_one_explicit_tasks_module_and_expected_tasks():
-    assert len(TASK_PACKAGES) == 26
-    assert len(TASK_MODULES) == 26
+    assert len(TASK_PACKAGES) == 27
+    assert len(TASK_MODULES) == 27
     for package, module_name in zip(TASK_PACKAGES, TASK_MODULES):
         assert module_name == f"{package}.tasks"
         module = importlib.import_module(module_name)
         source = Path(module.__file__).read_text(encoding="utf-8")
         if package.endswith("quant_daily"):
             expected_count = 4
-        elif package.endswith("quant_training"):
+        elif package.endswith(("quant_training", "earnings_outlook")):
             expected_count = 3
-        elif package.endswith(("market_data_sync", "market_structure", "trade_engine", "industry_strength", "confluence", "intraday_confirmation", "signal_center")):
+        elif package.endswith(
+            (
+                "market_data_sync",
+                "market_structure",
+                "trade_engine",
+                "industry_strength",
+                "confluence",
+                "intraday_confirmation",
+                "signal_center",
+            )
+        ):
             expected_count = 2
         elif package.endswith(("etf_rotation", "trend_following")):
             expected_count = 4
@@ -98,7 +107,7 @@ def test_all_custom_task_names_and_job_ids_are_unique():
     celery_names.extend(item.celery_task_name for item in scheduled)
     job_ids = [item.job_id for item in scheduled]
 
-    assert len(celery_names) == len(set(celery_names)) == 40
+    assert len(celery_names) == len(set(celery_names)) == 43
     assert len(job_ids) == len(set(job_ids))
 
 

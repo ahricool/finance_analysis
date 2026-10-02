@@ -62,6 +62,7 @@ def build_task_routes() -> dict[str, dict[str, str]]:
     routes = {definition.celery_task_name: {"queue": definition.queue} for definition in SCHEDULED_TASK_DEFINITIONS}
     routes.update(
         {
+            "analysis.earnings_outlook": {"queue": "analysis"},
             "qlib.model.train": {"queue": "qlib"},
             "qlib.model.predict": {"queue": "qlib"},
             "qlib.daily.predict": {"queue": "qlib"},

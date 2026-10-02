@@ -10,10 +10,11 @@ import paramiko
 from .cli_runner import RECEIPT
 from .config import LLMConfig
 from .failures import ProviderFailure
+from .search import evidence, supported
 from .types import LLMRequest, LLMResult
 
 
-def build_command(config: LLMConfig, timeout: float) -> str:
+def build_command(config: LLMConfig, timeout: float, web_search: bool = False, disable_search: bool = False) -> str:
     if config.cli_engine == "agy":
         command = (
             shlex.quote(config.cli_agy_path)
@@ -33,15 +34,19 @@ def build_command(config: LLMConfig, timeout: float) -> str:
             command += " --model " + shlex.quote(config.cli_model)
         if config.cli_effort:
             command += " -c " + shlex.quote("model_reasoning_effort=" + json.dumps(config.cli_effort))
+        if web_search or disable_search:
+            command += " -c " + shlex.quote('web_search="live"' if web_search else 'web_search="disabled"')
         command += " -"
     return command
 
 
-def supervised_command(config: LLMConfig, timeout: float) -> str:
+def supervised_command(
+    config: LLMConfig, timeout: float, web_search: bool = False, disable_search: bool = False
+) -> str:
     # Only trusted supervisor source/config go into argv. Prompt stays on stdin.
     source = Path(__file__).with_name("cli_runner.py").read_text()
     args = [
-        shlex.split(build_command(config, timeout)),
+        shlex.split(build_command(config, timeout, web_search, disable_search)),
         config.cli_engine,
         max(0.01, timeout - 0.5),
         config.cli_remote_workdir,
@@ -104,6 +109,7 @@ def parse_codex(stdout: str, model: str | None = None) -> LLMResult:
     text = None
     usage = {}
     completed = False
+    searches = []
     for line in stdout.splitlines():
         if not line.strip():
             continue
@@ -117,6 +123,8 @@ def parse_codex(stdout: str, model: str | None = None) -> LLMResult:
             item = event.get("item")
             if not isinstance(item, dict):
                 raise ValueError("Malformed Codex item")
+            if item.get("type") == "web_search":
+                searches.append({k: item[k] for k in ("id", "type", "query", "action") if k in item})
             if item.get("type") == "agent_message":
                 text = item.get("text")
         elif kind == "turn.completed":
@@ -126,7 +134,14 @@ def parse_codex(stdout: str, model: str | None = None) -> LLMResult:
             usage["total_tokens"] = sum(usage.values())
     if not completed or not isinstance(text, str) or not text.strip():
         raise ValueError("Codex did not complete with a final message")
-    return LLMResult(text=text, backend="cli", engine="codex", model=model, usage=usage)
+    return LLMResult(
+        text=text,
+        backend="cli",
+        engine="codex",
+        model=model,
+        usage=usage,
+        search_evidence=evidence(True, True, events=searches),
+    )
 
 
 def complete(config: LLMConfig, request: LLMRequest) -> LLMResult:
@@ -162,7 +177,9 @@ def complete(config: LLMConfig, request: LLMRequest) -> LLMResult:
         request.diagnostics["ssh_ms"] = round((time.monotonic() - ssh_started) * 1000)
         execution_started = time.monotonic()
         launched = True
-        channel.exec_command(supervised_command(config, remaining))
+        channel.exec_command(
+            supervised_command(config, remaining, request.web_search, request.call_type == "earnings_outlook")
+        )
         # Interleave writes and both output streams to avoid SSH window deadlocks.
         if config.cli_engine == "agy":
             prompt = (
@@ -214,7 +231,11 @@ def complete(config: LLMConfig, request: LLMRequest) -> LLMResult:
             raise ProviderFailure("empty_response", retryable=True)
         parser = parse_agy if config.cli_engine == "agy" else parse_codex
         try:
-            return parser(output.decode("utf-8"), config.cli_model or receipt.get("model") or None)
+            result = parser(output.decode("utf-8"), config.cli_model or receipt.get("model") or None)
+            result.search_evidence = evidence(
+                request.web_search, supported(config), events=result.search_evidence.get("tool_events", [])
+            )
+            return result
         except (ValueError, TypeError, KeyError):
             raise ProviderFailure("invalid_output", retryable=True) from None
     except ProviderFailure:

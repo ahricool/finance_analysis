@@ -16,6 +16,7 @@ from finance_analysis.core.time import utc_now
 from . import api, remote_cli
 from .config import LLMConfig, get_llm_config
 from .failures import ProviderFailure, classify_exception
+from .search import supported
 from .types import LLMRequest, LLMResult
 
 logger = logging.getLogger(__name__)
@@ -44,6 +45,10 @@ class LLMClient:
         request_id = uuid.uuid4().hex
         deadline = time.monotonic() + total
         providers = self.config.providers()
+        if request.prefer_search:
+            # Earnings-only opt-in; other business fallback order is unchanged.
+            providers = sorted(providers, key=lambda c: not supported(c))
+        unverified_result = None
         failures = []
         attempt = 0
         for index, config in enumerate(providers):
@@ -51,8 +56,14 @@ class LLMClient:
             if not config.is_available():
                 failures.append(f"{name}:not_configured")
                 self._record(
-                    replace(base_request, diagnostics={}), None, request_id, attempt, 0,
-                    "not_configured", config=config, skipped=True,
+                    replace(base_request, diagnostics={}),
+                    None,
+                    request_id,
+                    attempt,
+                    0,
+                    "not_configured",
+                    config=config,
+                    skipped=True,
                 )
                 continue
             remaining = deadline - time.monotonic()
@@ -114,12 +125,17 @@ class LLMClient:
                     request, result, request_id, attempt, duration_ms, failure.code if failure else None, config=config
                 )
                 if failure is None:
+                    if request.prefer_search and result.search_evidence.get("status") != "confirmed":
+                        unverified_result = unverified_result or result
+                        break
                     return result
                 failures.append(f"{name}:{failure.code}")
                 if failure.fatal:
                     raise LLMError("LLM failed: " + " → ".join(failures)) from None
                 if not failure.retryable:
                     break
+        if unverified_result is not None:
+            return unverified_result
         raise LLMError("LLM failed: " + " → ".join(failures or ["deadline_exceeded"])) from None
 
     def _complete_cli(self, request: LLMRequest, deadline: float, config: LLMConfig | None = None) -> LLMResult:
@@ -150,6 +166,7 @@ class LLMClient:
             usage=usage,
             duration_ms=duration_ms,
             diagnostics=request.diagnostics,
+            search_evidence=result.search_evidence if result else None,
             status=status,
             error=error,
         )

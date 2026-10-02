@@ -17,6 +17,7 @@ from finance_analysis.database.repositories.market_calendar_event import (
 )
 from finance_analysis.database.repositories.universe import UniverseResolver
 from finance_analysis.integrations.market_data import MarketDataService
+from finance_analysis.earnings_outlook.universe import resolve_members
 from finance_analysis.market_calendar.events import CALENDAR_TYPE_LABELS, merge_events, source_payloads
 
 logger = logging.getLogger(__name__)
@@ -221,9 +222,11 @@ class MarketCalendarSyncService:
             symbols = set()
             if calendar_type == "earnings":
                 try:
-                    symbols = {
-                        item.code for item in self.universe_resolver.resolve_universe(EARNINGS_UNIVERSES[market])
-                    }
+                    symbols = (
+                        set(resolve_members(self.universe_resolver))
+                        if market == "US"
+                        else {item.code for item in self.universe_resolver.resolve_universe(EARNINGS_UNIVERSES[market])}
+                    )
                     if not symbols:
                         summary.errors.append(f"empty Universe: {EARNINGS_UNIVERSES[market]}")
                 except Exception as exc:
@@ -244,6 +247,10 @@ class MarketCalendarSyncService:
                     universe_size=len(symbols),
                 )
                 summary.source_stats[key] = stats
+                if calendar_type == "earnings" and market == "US" and not symbols:
+                    stats["errors"] = 1
+                    stats["unsupported_reason"] = "US earnings universe unavailable"
+                    continue
                 try:
                     result = getattr(sources[provider], f"fetch_{calendar_type}_calendar")(
                         start_date,

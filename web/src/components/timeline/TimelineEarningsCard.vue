@@ -2,6 +2,7 @@
 import { computed } from 'vue';
 import type { TimelineItem } from '@/api/timeline';
 import TimelineCardShell from './TimelineCardShell.vue';
+import EarningsOutlookSummary from './EarningsOutlookSummary.vue';
 import { clockTime, dayHeading, dayKey, distanceLabel, formatEps, formatSurprise, hasValue, sessionLabel } from './timelineFormat';
 
 const props = defineProps<{ item: TimelineItem }>();
@@ -35,6 +36,18 @@ const surprise = computed(() => formatSurprise(payload.value.epsSurprisePct));
       >{{ payload.counterName }}</span>
     </p>
     <p
+      v-if="item.outlook?.memberships.length"
+      class="mt-1 flex flex-wrap gap-1 text-[11px] text-muted-foreground"
+    >
+      <span
+        v-for="key in item.outlook.memberships"
+        :key="key"
+        class="rounded bg-muted px-1.5 py-0.5"
+      >
+        {{ key === 'us_sp500' ? 'S&P 500' : 'Nasdaq-100' }}
+      </span>
+    </p>
+    <p
       v-if="payload.reportingPeriod || item.title"
       class="mt-1.5 break-words text-sm text-muted-foreground"
     >
@@ -54,5 +67,9 @@ const surprise = computed(() => formatSurprise(payload.value.epsSurprisePct));
         :class="(payload.epsSurprisePct as number) >= 0 ? 'text-market-up' : 'text-market-down'"
       >Surprise {{ surprise }}</span>
     </p>
+    <EarningsOutlookSummary
+      v-if="item.outlook"
+      :outlook="item.outlook"
+    />
   </TimelineCardShell>
 </template>

@@ -1,6 +1,5 @@
 """Dual-provider orchestration, Universe filtering, and notification regression tests."""
 
-
 from datetime import date, datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -39,7 +38,15 @@ def setup_service(monkeypatch):
     repo = MarketCalendarEventRepo(db=CalendarDB())
     resolver = MagicMock()
     resolver.resolve_universe.side_effect = lambda key: tuple(
-        SimpleNamespace(code=value) for value in (["NVDA.US"] if key == "us_sp500" else ["600519.SH"])
+        SimpleNamespace(
+            id=index + 1,
+            code=value,
+            name=value,
+            market="US" if key.startswith("us_") else "CN",
+            instrument_type="STOCK",
+            listing_status="ACTIVE",
+        )
+        for index, value in enumerate(["NVDA.US"] if key.startswith("us_") else ["600519.SH"])
     )
     notifier = MagicMock()
     notifier.send.return_value = NotificationResult(1, True, True)
@@ -71,7 +78,11 @@ def test_both_sources_both_markets_and_macro_always_requested(setup_service):
     for adapter in (yahoo, lb):
         assert adapter.fetch_earnings_calendar.call_count == 2
         adapter.fetch_macro_calendar.assert_called_once()
-    assert [call.args[0] for call in resolver.resolve_universe.call_args_list] == ["us_sp500", "cn_csi300"]
+    assert [call.args[0] for call in resolver.resolve_universe.call_args_list] == [
+        "us_sp500",
+        "us_nasdaq100",
+        "cn_csi300",
+    ]
     rows = repo.list_events_by_date_range(date(2026, 6, 18), date(2026, 7, 18))
     assert {row.symbol for row in rows} == {"NVDA.US", "600519.SH"}
     notifier.send.assert_not_called()
@@ -103,7 +114,10 @@ def test_empty_success_is_not_failure_but_all_core_sources_down_is_failure(setup
 def test_universe_failure_isolated_and_never_unrestricted_earnings(setup_service):
     build, _, resolver, _ = setup_service
     resolver.resolve_universe.side_effect = ValueError("missing Universe")
-    summary = build(source([event()]), source()).run(NOW)
+    yahoo, lb = source([event()]), source()
+    summary = build(yahoo, lb).run(NOW)
+    for adapter in (yahoo, lb):
+        assert all(call.args[2] != "US" for call in adapter.fetch_earnings_calendar.call_args_list)
     assert summary.inserted_count == 0
     assert any("Universe" in error for error in summary.errors)
 
@@ -238,3 +252,26 @@ def test_real_adapters_empty_cn_path_is_nonfatal_and_visible_in_summary(setup_se
     assert summary.source_stats["longbridge:earnings:CN"]["pages_succeeded"] == 2
     assert [call.args[3] for call in context.finance_calendar.call_args_list] == ["US", "SH", "SZ", "US"]
     notifier.send.assert_not_called()
+
+
+def test_nasdaq_only_members_are_included_in_calendar_sync(setup_service):
+    build, repo, resolver, notifier = setup_service
+
+    def members(key):
+        if key == "cn_csi300":
+            return (SimpleNamespace(code="600519.SH"),)
+        codes = ["NVDA.US"] if key == "us_sp500" else ["NVDA.US", "NASDAQONLY.US"]
+        return tuple(
+            SimpleNamespace(
+                id=i + 1, code=code, name=code, market="US", instrument_type="STOCK", listing_status="ACTIVE"
+            )
+            for i, code in enumerate(codes)
+        )
+
+    resolver.resolve_universe.side_effect = members
+    yahoo = source([event(symbol="NASDAQONLY.US"), event(symbol="OUTSIDE.US")])
+    result = build(yahoo, source()).run(NOW)
+    rows = repo.list_events_by_date_range(date(2026, 6, 18), date(2026, 7, 18))
+    assert {row.symbol for row in rows} == {"NASDAQONLY.US"}
+    assert result.inserted_count == 1
+    assert yahoo.fetch_earnings_calendar.call_args_list[0].kwargs["symbols"] == {"NVDA.US", "NASDAQONLY.US"}

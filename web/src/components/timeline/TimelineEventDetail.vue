@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import EarningsOutlookDetail from './EarningsOutlookDetail.vue';
 import { computed } from 'vue';
 import type { TimelineItem } from '@/api/timeline';
 import { clockTime, dayHeading, dayKey, formatEps, formatSurprise, hasValue, sessionLabel } from './timelineFormat';
@@ -61,6 +62,10 @@ const providers = computed(() => payload.value.sourceProviders ?? []);
     >
       {{ payload.content }}
     </p>
+    <EarningsOutlookDetail
+      v-if="item.market === 'US' && item.calendarType === 'earnings'"
+      :event-id="item.sourceId"
+    />
     <p
       v-if="providers.length"
       class="border-t border-border pt-3 text-xs text-muted-foreground"

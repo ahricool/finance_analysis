@@ -171,3 +171,27 @@ LLM_MAX_RETRIES=3
 ```bash
 uv run pytest tests/test_llm_client.py tests/test_llm_fallback.py tests/test_llm_cli_runner.py tests/signal_center -q
 ```
+
+## 财报专用搜索
+
+`earnings_outlook/`是财报信息研究的明确例外，不给其他业务增加自动搜索。
+`earnings_research`设置`web_search=True, prefer_search=True`：只对此请求将已配置且声明支持搜索的渠道优先，
+无执行证据时尝试现有链中后续渠道；仍共享统一deadline、重试、日志和usage。
+普通请求的AGY→Codex→API fallback顺序不变。`earnings_outlook`阶段不搜索。
+
+| 渠道 | 支持与执行证据 |
+| --- | --- |
+| Codex CLI | `exec --json ... -c 'web_search="live"'`；仅完成的`web_search` item确认执行。无工具事件为unverified。 |
+| API / LiteLLM Chat Completions | `LLM_API_SEARCH_MODE=chat_completions`显式声明模型及网关支持，发送web_search_options；响应message.annotations中的url_citation保存为传输证据。只有开关没有citation是unverified。默认unavailable，不盲发不受支持参数。 |
+| AGY CLI | 本次已安装1.2.3的help没有可核验的搜索开关，stream-json结果也没有本实现能验证的搜索契约，标unavailable；不根据response内来源列表宣称执行。 |
+
+本地检查Codex 0.159.3支持`exec --json`与`-c`覆盖；没有执行付费模型请求。
+SSH Host实际版本、账号/工作区权限、自定义模型提供商仍可能限制搜索，部署时需核对Host版本。
+OpenAI官方说明Codex搜索模式及JSON事件：[Web search](https://learn.chatgpt.com/docs/web-search)。
+API参数、模型限制和citation字段：[OpenAI web search](https://developers.openai.com/api/docs/guides/tools-web-search)。
+当前文档的Chat Completions示例为gpt-5-search-api；普通模型/兼容网关不因接受参数就具有搜索能力。
+未为用户更换LLM模型或新增搜索供应商。
+
+`LLMResult.search_evidence`保存`requested`、`configured_support`、`status`和可获取的citations/tool_events，
+同时进入统一审计。confirmed只证明工具执行，不能证明每个模型陈述都真实。来源/发布日期仍需按业务cutoff过滤。
+无执行证据的模型来源不作新增可信资料；基于已有结构化数据继续受限分析，不伪造URL或实时数字。

@@ -29,6 +29,7 @@ class TimelineItem(BaseModel):
     impact_score: int | None = None
     importance_score: int | None = None
     event_type: str | None = None
+    outlook: dict[str, Any] | None = None
     detail_type: str
     detail_payload: dict[str, Any] = Field(default_factory=dict)
 

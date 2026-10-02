@@ -16,6 +16,7 @@ from finance_analysis.database.models.market_calendar import FinanceEvent
 from finance_analysis.database.models.news import NewsIntel, NewsIntelUsage
 from finance_analysis.database.models.news_analysis import NewsAnalysis
 from finance_analysis.database.models.timeline import TimelineEntry
+from finance_analysis.database.models.earnings_outlook import EarningsOutlookState
 from finance_analysis.database.repositories.news_analysis import NewsAnalysisRepo
 from finance_analysis.database.session import DatabaseManager
 from finance_analysis.timeline.cursor import TimelineCursor
@@ -31,7 +32,7 @@ class TestDB:
 
     def __init__(self):
         self.engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
-        for model in (NewsIntel, NewsIntelUsage, NewsAnalysis, TimelineEntry, FinanceEvent):
+        for model in (NewsIntel, NewsIntelUsage, NewsAnalysis, TimelineEntry, FinanceEvent, EarningsOutlookState):
             model.__table__.create(self.engine)
 
     @contextmanager
@@ -51,6 +52,7 @@ def db():
 
 def calendar_marker(db, **overrides):
     from uuid import uuid4
+
     values = dict(event_key=uuid4().hex, calendar_type="earnings", symbol="NVDA.US", title="财报事件")
     for key in ("title", "market"):
         if key in overrides:
@@ -168,7 +170,11 @@ def test_note_routes_are_gone():
     from finance_analysis.interfaces.api.v1.endpoints import timeline  # pragma: allowlist secret
 
     paths = {(route.path, tuple(sorted(route.methods))) for route in timeline.router.routes}
-    assert paths == {("", ("GET",))}
+    assert paths == {
+        ("", ("GET",)),
+        ("/earnings/{event_id}/outlook", ("GET",)),
+        ("/earnings/{event_id}/outlook/refresh", ("POST",)),
+    }
 
 
 def test_news_upsert_updates_structure_without_duplicate_or_calendar_marker(db):
@@ -269,7 +275,9 @@ def test_news_usage_preserves_multiple_symbols_and_queries(db):
         ("AMD", "intraday_news", "q2"),
         ("AMD", "intraday_news", "q2"),
     ]:
-        manager.save_news_intel(code=symbol, usage_type=usage, items=response, provider="longbridge", query_context={"query_id": query})
+        manager.save_news_intel(
+            code=symbol, usage_type=usage, items=response, provider="longbridge", query_context={"query_id": query}
+        )
     with db.get_session() as session:
         assert session.scalar(select(func.count()).select_from(NewsIntel)) == 1
         assert session.scalar(select(func.count()).select_from(NewsIntelUsage)) == 2
@@ -351,6 +359,7 @@ def test_reporters_persist_public_reports_without_an_owner(
 
     module = importlib.import_module(f"finance_analysis.tasks.celery.jobs.{module_name}.reporter")
     from unittest.mock import Mock
+
     summary = SimpleNamespace(trading_date=NOW.date(), risk_state="high", report="# Full report", warnings=[])
     if market == "CN":
         monkeypatch.setattr(module, "render_report", lambda summary: "# Full report")
@@ -404,11 +413,8 @@ def test_news_job_persists_each_selected_fact_analysis_only(db, monkeypatch):
         manager.save_news_intel(
             code=symbol,
             usage_type="premarket_news",
-            provider="longbridge", items=[
-                    NewsItem(
-                        title="Growth", snippet="Orders", url=url, source="test", published_date=NOW.isoformat()
-                    )
-                ],
+            provider="longbridge",
+            items=[NewsItem(title="Growth", snippet="Orders", url=url, source="test", published_date=NOW.isoformat())],
             query_context={"query_id": kwargs["query_id"]},
         )
         return [LongbridgeNewsRecord(news_id="job", title="Growth", description="Orders", url=url, published_at=NOW)]
@@ -510,10 +516,21 @@ def test_feed_chronology_overrides_importance_and_pagination_is_stable(db):
 
 
 def seed_desc_fixture(db):
-    event(db, event_key="nvda", calendar_type="earnings", symbol="NVDA", title="NVDA Earnings",
-          event_datetime=datetime(2026, 10, 1, 20, tzinfo=timezone.utc))
-    event(db, event_key="fomc", calendar_type="macro", title="FOMC",
-          event_datetime=datetime(2026, 9, 20, 12, tzinfo=timezone.utc))
+    event(
+        db,
+        event_key="nvda",
+        calendar_type="earnings",
+        symbol="NVDA",
+        title="NVDA Earnings",
+        event_datetime=datetime(2026, 10, 1, 20, tzinfo=timezone.utc),
+    )
+    event(
+        db,
+        event_key="fomc",
+        calendar_type="macro",
+        title="FOMC",
+        event_datetime=datetime(2026, 9, 20, 12, tzinfo=timezone.utc),
+    )
     seed_news(db, url="https://example.com/desc-news", published=datetime(2026, 9, 10, 12, tzinfo=timezone.utc))
     calendar_marker(db, title="Analysis", event_time=datetime(2026, 9, 9, 12, tzinfo=timezone.utc))
 
@@ -659,7 +676,13 @@ def test_cursor_ties_across_all_sources(db):
     event(db, event_key="ties")
     service = TimelineService(db)
     expected = service.list(**QUERY)["items"]
-    assert [item.source_type for item in expected] == ["finance_event", "finance_event", "finance_event", "news", "news"]
+    assert [item.source_type for item in expected] == [
+        "finance_event",
+        "finance_event",
+        "finance_event",
+        "news",
+        "news",
+    ]
     assert expected[3].source_id > expected[4].source_id
     loaded = []
     cursor = None
@@ -735,8 +758,12 @@ def test_cursor_api_contract_and_round_trip(db, monkeypatch):
 @pytest.mark.parametrize("importance", ["critical", "high", "normal", "low"])
 def test_importance_filters_unified_sources_and_cursor(db, monkeypatch, importance):
     for index, level in enumerate(("critical", "high", "normal", "low")):
-        seed_news(db, score={"critical": 10, "high": 7, "normal": 5, "low": 1}[level],
-                  url=f"https://example.com/{level}", published=NOW - timedelta(minutes=index))
+        seed_news(
+            db,
+            score={"critical": 10, "high": 7, "normal": 5, "low": 1}[level],
+            url=f"https://example.com/{level}",
+            published=NOW - timedelta(minutes=index),
+        )
         with db.get_session() as session, session.begin():
             row = session.scalar(select(NewsIntel).where(NewsIntel.url == f"https://example.com/{level}"))
             row.title = level
@@ -769,24 +796,47 @@ def test_importance_filters_unified_sources_and_cursor(db, monkeypatch, importan
 
 def test_importance_combines_with_calendar_type_market_and_cutoff(db, monkeypatch):
     event(db, event_key="match", title="earnings", calendar_type="earnings", symbol="NVDA", importance_score=9)
-    event(db, event_key="later", title="later", calendar_type="earnings", symbol="NVDA", importance_score=9,
-          event_datetime=NOW + timedelta(days=1))
+    event(
+        db,
+        event_key="later",
+        title="later",
+        calendar_type="earnings",
+        symbol="NVDA",
+        importance_score=9,
+        event_datetime=NOW + timedelta(days=1),
+    )
     event(db, event_key="normal", title="normal", calendar_type="earnings", symbol="NVDA", importance_score=1)
     event(db, event_key="macro", title="CPI")
     event(db, event_key="cn", title="CN", calendar_type="earnings", symbol="NVDA", market="CN", importance_score=9)
     seed_news(db)
     calendar_marker(db, importance="critical")
-    response = timeline_client(db, monkeypatch).get("/api/v1/timeline", params=dict(
-        market="US", category="event", calendar_type="earnings", importance="critical", end_date="2026-09-06",
-    ))
+    response = timeline_client(db, monkeypatch).get(
+        "/api/v1/timeline",
+        params=dict(
+            market="US",
+            category="event",
+            calendar_type="earnings",
+            importance="critical",
+            end_date="2026-09-06",
+        ),
+    )
     assert response.status_code == 200
     assert [item["title"] for item in response.json()["items"]] == ["earnings"]
 
 
 def test_legacy_reports_never_appear_in_timeline(db):
-    db._run_write_transaction("seed-legacy", lambda session: session.add(TimelineEntry(
-        entry_type="us_premarket", event_time=NOW, title="Legacy report", summary="old", content="old",
-    )))
+    db._run_write_transaction(
+        "seed-legacy",
+        lambda session: session.add(
+            TimelineEntry(
+                entry_type="us_premarket",
+                event_time=NOW,
+                title="Legacy report",
+                summary="old",
+                content="old",
+            )
+        ),
+    )
     event(db)
     result = TimelineService(db).list(**QUERY)
     assert result["total"] == 1
