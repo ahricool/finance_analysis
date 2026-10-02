@@ -814,10 +814,9 @@ onMounted(async () => {
         <Card
           v-for="card in cards"
           :key="String(card[0])"
-          class="gap-0 py-3"
-          size="sm"
+          class="gap-0 py-2.5! shadow-none"
         >
-          <CardContent class="min-w-0 space-y-1.5 px-3 py-0">
+          <CardContent class="min-w-0 space-y-1 px-3 py-0">
             <IndicatorLabel
               :label="String(card[0])"
               :description="String(card[2])"

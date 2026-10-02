@@ -184,8 +184,9 @@ function time(value: string | null | undefined) {
       <Card
         v-for="(metric, index) in metrics"
         :key="index"
+        class="gap-0 py-2.5! shadow-none"
       >
-        <CardHeader class="pb-2">
+        <CardHeader class="px-3 pb-1 pt-0">
           <CardDescription>
             <BilingualLabel
               v-if="metric.labelKey"
@@ -198,7 +199,7 @@ function time(value: string | null | undefined) {
             />
           </CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent class="px-3 py-0">
           <Skeleton
             v-if="loading"
             class="h-6 w-20"
