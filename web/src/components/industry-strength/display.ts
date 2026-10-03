@@ -431,8 +431,8 @@ export function heatmapNormalizedRank(rank: number, rankedCount: number): number
   return 100 * (rankedCount - rank) / (rankedCount - 1);
 }
 
-export function selectedDateLeaders(rows: IndustrySnapshot[], limit = 20): IndustrySnapshot[] {
-  return [...rows].sort((a, b) => a.strengthRank - b.strengthRank).slice(0, limit);
+export function selectedDateLeaders(rows: IndustrySnapshot[]): IndustrySnapshot[] {
+  return [...rows].sort((a, b) => a.strengthRank - b.strengthRank);
 }
 
 export const heatmapMissingColor = { light: '#d4d4d8', dark: '#3f3f46' };

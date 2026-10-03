@@ -76,16 +76,16 @@ describe('industry strength display', () => {
     expect(filterRankingRows(rows, '', 'WEAK')).toHaveLength(1);
   });
 
-  it('keeps selected-day Top20 sample order and normalized ranks', () => {
+  it('keeps all selected-day industries in rank order and normalized ranks', () => {
     const rows = Array.from({ length: 25 }, (_, index) => row({
       industryCode: `${index}.TI`,
       industryName: `行业${index}`,
       strengthRank: index + 1,
     }));
     const leaders = selectedDateLeaders(rows);
-    expect(leaders).toHaveLength(20);
+    expect(leaders).toHaveLength(25);
     expect(leaders[0]?.strengthRank).toBe(1);
-    expect(leaders.at(-1)?.strengthRank).toBe(20);
+    expect(leaders.at(-1)?.strengthRank).toBe(25);
     expect(heatmapNormalizedRank(1, 21)).toBe(100);
     expect(heatmapNormalizedRank(21, 21)).toBe(0);
   });
