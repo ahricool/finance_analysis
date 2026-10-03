@@ -53,7 +53,7 @@ def dates(repo=Depends(get_repository)):
 def history(
     trade_date: date | None = None,
     limit: int = Query(20, ge=1, le=60),
-    top: int = Query(20, ge=1, le=100),
+    top: int | None = Query(None, ge=1, le=100),
     repo=Depends(get_repository),
 ):
     leaders = repo.ranking(trade_date, limit=top)

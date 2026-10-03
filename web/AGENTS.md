@@ -267,7 +267,7 @@ BTC 多策略以 `strategy_key + symbol` 隔离，代码注册表当前仅 `btc_
 
 ## 行业强度
 
-`/research/industry-strength` 位于一级“加密货币”导航；排行、矩阵、Top20 热力历史通过统一居中详情 Dialog 联动，初次加载不自动打开。
+`/research/industry-strength` 位于一级“加密货币”导航；排行、矩阵、全部行业热力历史通过统一居中详情 Dialog 联动，初次加载不自动打开。
 历史快照 Breadth 与最新成分表分开标注；成分表显示任务更新时间，Trend Rank 为物化时最新 CN 正式排名，不随历史日期变化。
 成分表所有列复用 SortableTableHeader 本地排序，缺失始终最后，同值按股票代码稳定排序。
 仅展示 A 股市场环境，不增加市场切换或交易建议，数据源密钥不得进入 WebUI。

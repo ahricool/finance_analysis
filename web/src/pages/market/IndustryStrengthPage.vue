@@ -405,7 +405,7 @@ onMounted(async () => {
             正在加载排名历史…
           </p>
           <p class="text-sm text-muted-foreground">
-            所选日 Top20 · 历史强度排名
+            所选日全部行业 · 历史强度排名
           </p>
           <IndustryRankHeatmap
             v-if="chartHistory.dates.length || !historyLoading"

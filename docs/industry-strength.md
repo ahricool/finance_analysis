@@ -154,7 +154,7 @@ Alembic `0058_industry_constituents` 新建 `industry_strength_constituent`，�
 | --- | --- |
 | `GET /api/v1/industry-strength/ranking` | `trade_date` 缺省取最新正式日期；可选 `sort_by`、`descending`、`limit`（1–500） |
 | `GET /api/v1/industry-strength/dates` | 最近250个有快照日期，降序 |
-| `GET /api/v1/industry-strength/history` | `trade_date` 截止日期，`limit` 1–60个快照日，`top` 1–100；默认20天、当日Top20 |
+| `GET /api/v1/industry-strength/history` | `trade_date` 截止日期，`limit` 1–60个快照日，`top` 可选 1–100；默认20天、所选日全部行业 |
 | `GET /api/v1/industry-strength/{industry_code}` | 可选 `trade_date`；所选日指标和截至该日20个快照日历史 |
 | `GET /api/v1/industry-strength/{industry_code}/constituents` | 纯 DB 读取最新成分表（含 trend_rank、updated_at）；无历史日期或排序参数 |
 
@@ -172,7 +172,7 @@ Alembic `0058_industry_constituents` 新建 `industry_strength_constituent`，�
 3. 三个主视图：行业排行（默认）、强度矩阵、排名历史。切换保留浏览状态，不重复请求。
 4. Ranking Table：搜索、状态筛选、核心/完整列、冻结排名与行业列。排名始终为当日原始强度排名。
 5. ECharts 气泡矩阵：X=综合强度、Y=5 日动量变化（百分点）、大小=成交脉冲、颜色=状态；四象限中文标注。
-6. ECharts 热力图：所选日期 Top20 × 已积累快照日；颜色为当日归一化排名位置，不是涨跌幅。
+6. ECharts 热力图：所选日期全部行业（按所选日排名排序）× 已积累快照日；颜色为当日归一化排名位置，不是涨跌幅。
 7. 统一居中详情 Dialog，纵向连续展示概览、历史表现、当前成分股（最新数据）。打开时独立请求详情与成分；历史日期切换仅更新详情，不重新请求成分。初次加载不自动打开。
 8. 成分表复用 `SortableTableHeader`，股票名称、Trend Rank、收盘价、涨跌幅、MA5、MA20、成交额均可本地独立排序。默认涨跌幅降序，名称/Trend Rank 首次升序，其余首次降序；缺失始终最后，同值按代码升序，不修改原始数组或重新请求。
 
