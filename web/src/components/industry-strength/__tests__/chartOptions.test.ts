@@ -104,7 +104,7 @@ describe('industry strength charts', () => {
     expect(matrixOption(allPositive, '', 'light').quadrants.map((item) => item.text)).toEqual(positive);
   });
 
-  it('keeps selected-day Top20 sample, missing style, and tooltip fields', () => {
+  it('keeps selected-day industries, missing style, and tooltip fields', () => {
     const leaders = [
       row(),
       row({ industryCode: '881102.TI', industryName: '银行', strengthRank: 2 }),
@@ -130,15 +130,15 @@ describe('industry strength charts', () => {
     expect(tooltip({ data: missingCell! })).toContain('该日无该行业快照');
   });
 
-  it('does not enlarge the sample when the selected industry is outside Top20', () => {
+  it('includes the selected industry outside the top 20', () => {
     const rows = Array.from({ length: 21 }, (_, index) => row({
       industryCode: `${index}.TI`,
       industryName: `行业${index}`,
       strengthRank: index + 1,
     }));
     const { leaders } = heatmapCells(rows, { dates: ['2026-09-16'], items: rows }, '20.TI', 'light');
-    expect(leaders).toHaveLength(20);
-    expect(leaders.some((item) => item.industryCode === '20.TI')).toBe(false);
+    expect(leaders).toHaveLength(21);
+    expect(leaders.some((item) => item.industryCode === '20.TI')).toBe(true);
   });
 
     it('draws missing heatmap cells with ECharts without treating them as ranks', async () => {

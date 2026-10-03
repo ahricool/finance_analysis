@@ -19,7 +19,6 @@ const { resolvedTheme } = useTheme();
 const leaders = computed(() => selectedDateLeaders(props.rows));
 const option = computed(() => heatmapOption(props.rows, props.history, props.selected, resolvedTheme.value === 'dark' ? 'dark' : 'light'));
 const height = computed(() => Math.max(280, leaders.value.length * 32 + 120));
-const selectedInSample = computed(() => leaders.value.some((row) => row.industryCode === props.selected));
 
 function select(event: ECElementEvent) {
   const data = event.data;
@@ -30,14 +29,8 @@ function select(event: ECElementEvent) {
 <template>
   <div data-testid="industry-heatmap">
     <p class="text-sm text-muted-foreground">
-      颜色表示按当日有效行业数归一化的排名位置，不是涨跌幅。样本固定为所选日综合强度前 20 名，不是每天各自的 Top20。
+      颜色表示按当日有效行业数归一化的排名位置，不是涨跌幅。展示所选日全部行业，按所选日综合强度排名排序。
       当前展示已积累的 {{ history.dates.length }} 个快照交易日（接口最多返回 20 个）。
-    </p>
-    <p
-      v-if="selected && !selectedInSample"
-      class="mt-2 text-sm text-muted-foreground"
-    >
-      当前选中行业不在所选日 Top20 中，热力图不扩大样本。
     </p>
     <div
       v-if="history.dates.length && leaders.length"
