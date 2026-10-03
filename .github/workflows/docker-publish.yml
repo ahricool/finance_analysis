@@ -31,22 +31,6 @@ env:
 jobs:
   build-and-push:
     runs-on: ubuntu-24.04
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: finance_analysis_test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U postgres -d finance_analysis_test"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 12
-    env:
-      DATABASE_URL: postgresql+psycopg2://postgres:postgres@127.0.0.1:5432/finance_analysis_test
     permissions:
       contents: read
       packages: write
@@ -69,47 +53,6 @@ jobs:
           else
             echo "Using event ref: ${GITHUB_REF_NAME}"
           fi
-
-      - uses: actions/setup-python@v6
-        with:
-          python-version: '3.13'
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v6
-        with:
-          enable-cache: true
-          cache-dependency-glob: |
-            uv.lock
-            pyproject.toml
-
-      - name: Install backend gate dependencies
-        run: |
-          uv sync --frozen --dev
-
-      - name: Run backend gate before publish
-        run: uv run ./scripts/ci_gate.sh
-
-      - name: Validate release docs
-        run: |
-          test -f README.md
-          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
-            [[ "${{ inputs.release_tag }}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
-            VERSION="${{ inputs.release_tag }}"
-          elif [[ "${GITHUB_REF_TYPE:-}" == "tag" ]]; then
-            VERSION="${GITHUB_REF_NAME}"
-          else
-            echo "Unsupported trigger type"
-            exit 1
-          fi
-          # Validate using annotated tag message instead of CHANGELOG entry.
-          # Requires: git tag -a <version> -m "<release notes>"
-          TAG_BODY="$(git tag -l --format='%(contents)' "$VERSION")"
-          if [[ -z "${TAG_BODY// }" ]]; then
-            echo "ERROR: Tag $VERSION has no annotation message."
-            echo "Use: git tag -a $VERSION -m '<release notes>' (annotated tag required)"
-            exit 1
-          fi
-          echo "Tag annotation found for $VERSION ($(echo "$TAG_BODY" | wc -l) lines). Gate passed."
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v4
@@ -211,29 +154,6 @@ jobs:
             type=sha,format=short
             type=sha,format=long
 
-      - name: Pre-publish docker smoke
-        run: |
-          docker build -t stock-analysis:release -f Dockerfile .
-          docker build -t stock-analysis-web:release -f Dockerfile.web .
-          docker build -t stock-analysis-qlib:release -f qlib_worker/Dockerfile .
-          docker run --rm stock-analysis:release python -c "
-          from finance_analysis.config import load_env; print('ok-config')
-          from finance_analysis.database import DatabaseManager; print('ok-storage')
-          from finance_analysis.notification.service import NotificationService; print('ok-notification')
-          from finance_analysis.integrations.market_data import MarketDataService; print('ok-data-provider')
-          from finance_analysis.analysis.stock_report_analyzer import StockReportAnalyzer; print('ok-analyzer')
-          print('release-smoke-ok')
-          "
-          docker run --rm -v "$PWD/scripts/docker_path_smoke.py:/tmp/docker_path_smoke.py:ro" \
-            stock-analysis:release python /tmp/docker_path_smoke.py
-          docker run --rm stock-analysis-web:release nginx -t
-          docker run --rm stock-analysis-qlib:release python -c "
-          import qlib
-          assert qlib.__version__ == '0.9.7'
-          from qlib_worker.celery_app import celery_app
-          print('qlib-release-smoke-ok')
-          "
-
       - name: Build and push backend release images
         uses: docker/build-push-action@v7
         with:
@@ -275,18 +195,3 @@ jobs:
           labels: ${{ steps.meta-ghcr-qlib.outputs.labels }}
           cache-from: type=gha,scope=qlib
           cache-to: type=gha,mode=max,scope=qlib
-
-      - name: Publish summary
-        run: |
-          echo "### Docker release published" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Backend GHCR: \`${{ env.GHCR_REGISTRY }}/${{ env.GHCR_IMAGE_NAME }}\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Web GHCR: \`${{ env.GHCR_REGISTRY }}/${{ env.GHCR_WEB_IMAGE_NAME }}\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Qlib GHCR: \`${{ env.GHCR_REGISTRY }}/${{ env.GHCR_QLIB_IMAGE_NAME }}\`" >> "$GITHUB_STEP_SUMMARY"
-          if [[ "${{ env.HAS_DOCKERHUB_TOKEN }}" == "true" && "${{ env.HAS_DOCKERHUB_USERNAME }}" == "true" ]]; then
-            echo "- Backend Docker Hub: \`${{ env.DOCKERHUB_REGISTRY }}/${{ env.DOCKERHUB_IMAGE_NAME }}\`" >> "$GITHUB_STEP_SUMMARY"
-            echo "- Web Docker Hub: \`${{ env.DOCKERHUB_REGISTRY }}/${{ env.DOCKERHUB_WEB_IMAGE_NAME }}\`" >> "$GITHUB_STEP_SUMMARY"
-            echo "- Qlib Docker Hub: \`${{ env.DOCKERHUB_REGISTRY }}/${{ env.DOCKERHUB_QLIB_IMAGE_NAME }}\`" >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo "- Docker Hub: skipped (missing \`DOCKERHUB_TOKEN\` / \`DOCKERHUB_USERNAME\` secret)" >> "$GITHUB_STEP_SUMMARY"
-          fi

@@ -117,12 +117,3 @@ jobs:
           labels: ${{ steps.meta-qlib.outputs.labels }}
           cache-from: type=gha,scope=qlib
           cache-to: type=gha,mode=max,scope=qlib
-
-      - name: Publish summary
-        run: |
-          echo "### Docker main images published" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Backend GHCR: \`${{ env.GHCR_REGISTRY }}/${{ env.GHCR_IMAGE_NAME }}\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Web GHCR: \`${{ env.GHCR_REGISTRY }}/${{ env.GHCR_WEB_IMAGE_NAME }}\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Qlib GHCR: \`${{ env.GHCR_REGISTRY }}/${{ env.GHCR_QLIB_IMAGE_NAME }}\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Tags: \`latest\`, \`main\`, commit SHA tags" >> "$GITHUB_STEP_SUMMARY"
