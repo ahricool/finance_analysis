@@ -55,24 +55,44 @@ onBeforeUnmount(() => { ++generation; });
     data-testid="intraday-confirmation-page"
   >
     <PageHeader
+      variant="section"
       title="盘中确认"
       en="Intraday Confirmation"
       description="昨日选谁，今日确认。只观察开盘前冻结候选，不自动交易。"
     >
       <template #actions>
+        <div class="flex min-w-0 flex-wrap items-end gap-2">
+          <ResearchMarketToggle
+            :model-value="market"
+            data-testid="intraday-market-switcher"
+            @update:model-value="setMarket"
+          />
+          <label>状态 <select
+            v-model="state"
+            aria-label="状态"
+            class="h-10 rounded-md border border-input bg-background px-3 text-sm"
+            @change="load"
+          ><option value="">全部</option><option>CONFIRMED</option><option>WAIT</option><option>FAILED</option></select></label>
+          <label>候选来源 <select
+            v-model="source"
+            aria-label="候选来源"
+            class="h-10 rounded-md border border-input bg-background px-3 text-sm"
+            @change="load"
+          ><option value="">全部</option><option value="confluence">强共振</option><option value="trend">Trend</option><option value="quant">Quant</option></select></label>
+        </div>
         <Button
-          v-if="currentUser?.role === 'admin'"
           variant="outline"
-          :disabled="submitting"
-          @click="run"
-        >
-          运行确认任务
-        </Button>
-        <Button
           :disabled="loading"
           @click="load"
         >
           刷新快照
+        </Button>
+        <Button
+          v-if="currentUser?.role === 'admin'"
+          :disabled="submitting"
+          @click="run"
+        >
+          运行确认任务
         </Button>
       </template>
     </PageHeader>
@@ -86,25 +106,7 @@ onBeforeUnmount(() => { ++generation; });
     >
       任务已提交：{{ taskId }}，请在任务中心查看。运行后刷新快照。
     </p>
-    <div class="flex items-center gap-4">
-      <ResearchMarketToggle
-        :model-value="market"
-        data-testid="intraday-market-switcher"
-        @update:model-value="setMarket"
-      />
-      <label>状态 <select
-        v-model="state"
-        aria-label="状态"
-        class="rounded border bg-background p-2"
-        @change="load"
-      ><option value="">全部</option><option>CONFIRMED</option><option>WAIT</option><option>FAILED</option></select></label>
-      <label>候选来源 <select
-        v-model="source"
-        aria-label="候选来源"
-        class="rounded border bg-background p-2"
-        @change="load"
-      ><option value="">全部</option><option value="confluence">强共振</option><option value="trend">Trend</option><option value="quant">Quant</option></select></label>
-    </div>
+
     <p
       v-if="loading"
       class="text-muted-foreground"
@@ -140,7 +142,17 @@ onBeforeUnmount(() => { ++generation; });
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>股票 / 行情时间</TableHead><TableHead>昨夜候选原因</TableHead><TableHead>状态 / 分数</TableHead><TableHead>追高风险</TableHead><TableHead>Gap</TableHead><TableHead>5m / 15m / 30m</TableHead><TableHead>距 VWAP</TableHead><TableHead>成交量≈</TableHead><TableHead>相对大盘</TableHead><TableHead><BilingualLabel label="temporaryTrend" compact /></TableHead><TableHead><BilingualLabel label="reasons" compact /></TableHead>
+              <TableHead>股票 / 行情时间</TableHead><TableHead>昨夜候选原因</TableHead><TableHead>状态 / 分数</TableHead><TableHead>追高风险</TableHead><TableHead>Gap</TableHead><TableHead>5m / 15m / 30m</TableHead><TableHead>距 VWAP</TableHead><TableHead>成交量≈</TableHead><TableHead>相对大盘</TableHead><TableHead>
+                <BilingualLabel
+                  label="temporaryTrend"
+                  compact
+                />
+              </TableHead><TableHead>
+                <BilingualLabel
+                  label="reasons"
+                  compact
+                />
+              </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -168,7 +180,9 @@ onBeforeUnmount(() => { ++generation; });
                 <Badge :variant="row.state === 'FAILED' ? 'destructive' : 'secondary'">
                   {{ row.state }}
                 </Badge><p>{{ row.confirmationScore == null ? 'unavailable' : row.confirmationScore.toFixed(1) }}</p>
-                <p class="text-xs text-muted-foreground">有效权重 {{ row.availableScoreWeight ?? 0 }}/100</p>
+                <p class="text-xs text-muted-foreground">
+                  有效权重 {{ row.availableScoreWeight ?? 0 }}/100
+                </p>
               </TableCell>
               <TableCell :class="row.chaseRisk === 'HIGH' ? 'font-semibold text-destructive' : row.chaseRisk === 'UNKNOWN' ? 'text-muted-foreground' : ''">
                 {{ row.chaseRisk }}

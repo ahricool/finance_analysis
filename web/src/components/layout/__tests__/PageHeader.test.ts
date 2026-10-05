@@ -3,6 +3,17 @@ import { describe, expect, it } from 'vitest';
 import PageHeader from '../PageHeader.vue';
 
 describe('PageHeader', () => {
+  it('keeps a nested research title at h2 and wraps actions below it', () => {
+    const wrapper = mount(PageHeader, {
+      props: { title: '行业强度', en: 'Industry Strength', variant: 'section' },
+      slots: { actions: '<button>刷新</button><button>运行</button>' },
+    });
+    expect(wrapper.find('h1').exists()).toBe(false);
+    expect(wrapper.get('h2').text()).toBe('行业强度');
+    expect(wrapper.get('header').classes()).not.toContain('md:flex-row');
+    expect(wrapper.get('.research-toolbar').findAll('button').map(button => button.text())).toEqual(['刷新', '运行']);
+  });
+
   it('composes optional breadcrumb, description, and responsive actions', () => {
     const wrapper = mount(PageHeader, {
       props: {

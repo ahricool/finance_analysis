@@ -81,12 +81,13 @@ onBeforeUnmount(() => { generation++; poolGeneration++; });
     data-testid="market-sentiment-page"
   >
     <PageHeader
+      variant="section"
       title="市场情绪"
       en="Market Sentiment"
       description="A 股盘后观察 · 涨停参与度与连板接力"
     >
       <template #actions>
-        <div class="flex items-center gap-2">
+        <div class="flex min-w-0 flex-wrap items-end gap-2">
           <AppDatePicker
             v-model="date"
             class="w-48"

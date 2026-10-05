@@ -30,6 +30,7 @@ onBeforeUnmount(() => { sequence++; });
     data-testid="macro-page"
   >
     <PageHeader
+      variant="section"
       title="宏观数据"
       en="US Macro"
       description="跨资产环境与风险偏好监控"

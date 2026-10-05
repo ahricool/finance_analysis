@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import PageHeader from '@/components/layout/PageHeader.vue';
 import { exportExcel, type ExcelColumn } from '@/utils/excelExport';
 import { forwardReturnColumns, useForwardReturns } from '@/composables/useForwardReturns';
 import { parseDate } from '@internationalized/date';
@@ -411,19 +412,13 @@ onMounted(async () => {
 
 <template>
   <div class="min-w-0 space-y-4">
-    <header class="flex flex-wrap items-start justify-between gap-3">
-      <div>
-        <h2 class="text-lg font-semibold">
-          ETF 动量轮动
-        </h2>
-        <p class="mt-0.5 text-xs tracking-wide text-muted-foreground">
-          Fast Rotation
-        </p>
-        <p class="mt-1 text-xs text-muted-foreground">
-          完全基于公开市场行情的多维轮动看板；动作是公共策略信号，不代表个人交易建议。
-        </p>
-      </div>
-      <div class="flex flex-wrap items-end gap-2">
+    <PageHeader
+      variant="section"
+      title="ETF 动量轮动"
+      en="ETF Rotation"
+      description="完全基于公开市场行情的多维轮动看板；动作是公共策略信号，不代表个人交易建议。"
+    >
+      <template #actions>
         <ResearchMarketToggle
           :model-value="market"
           data-testid="etf-market-switcher"
@@ -476,8 +471,8 @@ onMounted(async () => {
         >
           手动运行
         </LoadingButton>
-      </div>
-    </header>
+      </template>
+    </PageHeader>
     <ResearchDataStatusBar
       :mode="dataMode"
       :trade-date="dataMode === 'preview' ? previewInfo?.tradeDate : summary.tradeDate"

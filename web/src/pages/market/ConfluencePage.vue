@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import PageHeader from '@/components/layout/PageHeader.vue';
 import { onBeforeUnmount, onMounted, ref, shallowRef } from 'vue';
 import { confluenceApi as api, type ConfluenceRanking, type ConfluenceItem, type Market, type SignalKey } from '@/api/confluence';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
@@ -80,19 +81,13 @@ onBeforeUnmount(() => { ++generation; });
     class="min-w-0 space-y-4"
     data-testid="confluence-page"
   >
-    <header class="flex flex-wrap items-start justify-between gap-3">
-      <div>
-        <h2 class="text-lg font-semibold">
-          多信号共振
-        </h2>
-        <p class="mt-0.5 text-xs tracking-wide text-muted-foreground">
-          Signal Confluence
-        </p>
-        <p class="mt-1 text-xs text-muted-foreground">
-          面向 2–14 天的正式结果交叉确认。先看证据与覆盖，再看分数。
-        </p>
-      </div>
-      <div class="flex flex-wrap items-end gap-2">
+    <PageHeader
+      variant="section"
+      title="多信号共振"
+      en="Signal Confluence"
+      description="面向 2–14 天的正式结果交叉确认。先看证据与覆盖，再看分数。"
+    >
+      <template #actions>
         <ResearchMarketToggle
           :model-value="market"
           data-testid="confluence-market-switcher"
@@ -125,8 +120,8 @@ onBeforeUnmount(() => { ++generation; });
         >
           生成快照
         </Button>
-      </div>
-    </header>
+      </template>
+    </PageHeader>
     <AppApiErrorAlert
       v-if="error"
       :error="error"
