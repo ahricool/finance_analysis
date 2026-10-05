@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import PageHeader from '@/components/layout/PageHeader.vue';
 import { quantApi } from '@/api/quant';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import ApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
@@ -71,29 +72,28 @@ async function publish() {
   <div class="space-y-4">
     <RouterLink
       :to="{ path: '/research/quant/models', query: marketQuery() }"
-      class="text-sm font-medium underline-offset-4 hover:underline"
+      class="text-sm font-medium rounded-sm underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
     >
       ← 返回模型列表
     </RouterLink><ApiErrorAlert
       v-if="error"
       :error="error"
     /><template v-if="item">
-      <header class="flex items-start justify-between">
-        <div>
-          <h2 class="text-lg font-semibold">
-            {{ targetCopy?.shortName ?? item.modelKey }}
-          </h2>
-          <p class="text-xs text-muted-foreground">
-            {{ item.modelVersion }} · {{ item.status }}
-          </p>
-        </div>
-        <Button
-          v-if="isAdmin && item.status === 'candidate'"
-          @click="publish"
-        >
-          发布为 production
-        </Button>
-      </header>
+      <PageHeader
+        variant="section"
+        :title="targetCopy?.shortName ?? item.modelKey"
+        en="Model Run"
+        :description="`${item.modelVersion} · ${item.status}`"
+      >
+        <template #actions>
+          <Button
+            v-if="isAdmin && item.status === 'candidate'"
+            @click="publish"
+          >
+            发布为 production
+          </Button>
+        </template>
+      </PageHeader>
       <input
         v-if="isAdmin && item.status === 'candidate'"
         v-model="reason"
