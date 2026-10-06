@@ -286,3 +286,26 @@ def test_regular_user_cannot_read_other_user_detail():
     service = TaskQueryService(repository=_FakeTaskRepo([_record("other-task", uid=11)]), db=SimpleNamespace())
 
     assert service.get_run_detail(task_id="other-task", is_admin=False, current_uid=10) is None
+
+
+@pytest.mark.parametrize("is_admin", [True, False])
+def test_long_batch_counts_remain_structured_in_task_detail(is_admin):
+    from finance_analysis.tasks.lifecycle import _json_summary, MAX_RESULT_CHARS
+    from finance_analysis.tasks.outcomes import summarize_earnings_result
+    from finance_analysis.interfaces.api.v1.schemas.tasks import TaskRunDetail
+
+    items = [{"status": "failed", "event_id": i, "error": "e" * 1000} for i in range(39)]
+    items.append({"status": "success", "event_id": 39})
+    record = _record("long-batch", uid=10, status="partial")
+    record.result = _json_summary(summarize_earnings_result({"stage": "daily", "results": items}),
+                                  limit=MAX_RESULT_CHARS)
+    service = TaskQueryService(repository=_FakeTaskRepo([record]), db=SimpleNamespace())
+    service._load_users = lambda uids: {}
+    detail = TaskRunDetail.model_validate(service.get_run_detail(
+        task_id="long-batch", is_admin=is_admin, current_uid=10))
+    assert detail.status == "partial"
+    assert detail.result["total_count"] == 40
+    assert detail.result["failed_count"] == 39
+    assert detail.result["status_counts"] == {"failed": 39, "success": 1}
+    assert detail.result["results"][-1]["truncated"] is True
+    assert "preview" not in detail.result

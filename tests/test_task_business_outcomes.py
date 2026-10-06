@@ -73,3 +73,38 @@ def test_final_earnings_nontrading_day_is_an_expected_skip(monkeypatch):
         run=Mock(return_value={"status": "skipped", "reason": "非美股交易日"})))
     with pytest.raises(TaskSkipped, match="非美股交易日"):
         tasks._run_outlook("final")
+
+
+@pytest.mark.parametrize("failed,error", [
+    (39, "e" * 1000),
+    (54, "e" * 1000),
+    (39, '\"\\\n' * 4000),
+    (39, "错误🙂" * 2000),
+], ids=["39-long-errors", "54-long-errors", "json-escapes", "unicode"])
+def test_long_earnings_errors_keep_full_counts_and_bounded_json(failed, error):
+    from finance_analysis.tasks.lifecycle import MAX_RESULT_CHARS
+    items = [{"status": "failed", "event_id": i, "error": error, "api_key": "private-value"}
+             for i in range(failed)]
+    items.append({"status": "success", "event_id": failed})
+    result = summarize_earnings_result({"stage": "daily", "results": items})
+    repository = Mock()
+    service = TaskLifecycleService(repository=repository)
+    service.mark_outcome(task_id="long-errors", metadata=TaskLifecycleMetadata("earnings", "earnings", "celery"),
+                         outcome=earnings_batch_outcome(result), result=result)
+    stored = repository.update_status.call_args.kwargs
+    text = stored["result"]
+    summary = json.loads(text)
+    assert summary["total_count"] == failed + 1
+    assert summary["failed_count"] == failed
+    assert summary["status_counts"] == {"failed": failed, "success": 1}
+    assert summary["stage"] == "daily"
+    assert stored["status"] == "partial"
+    assert len(text) <= MAX_RESULT_CHARS
+    assert "preview" not in summary
+    assert "private-value" not in text
+    assert summary["results"][-1]["truncated"] is True
+    retained = summary["results"][:-1]
+    assert len(retained) + summary["results"][-1]["remaining_items"] == failed + 1
+    assert all(item["api_key"] == "***" for item in retained)
+    assert result["results"] is items and len(items) == failed + 1
+    assert items[0]["error"] == error  # Only persisted detail is cropped; the Celery return is untouched.

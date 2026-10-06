@@ -174,6 +174,25 @@ def _json_summary(value: Any, *, limit: int) -> Optional[str]:
         text = json.dumps(redacted, ensure_ascii=False)
     if len(text) <= limit:
         return text
+    if (
+        isinstance(redacted, dict)
+        and isinstance(redacted.get("results"), list)
+        and isinstance(redacted.get("total_count"), int)
+        and "failed_count" in redacted
+        and "status_counts" in redacted
+    ):
+        # Explicit batch aggregates must stay readable even when long errors
+        # exhaust the character budget. Crop persisted details, never counts.
+        details = list(redacted["results"])
+        if details and isinstance(details[-1], dict) and details[-1].get("truncated") is True:
+            details.pop()  # Replace the item-limit marker with one accurate total.
+        summary = {key: nested for key, nested in redacted.items() if key != "results"}
+        for kept in range(len(details), -1, -1):
+            omitted = redacted["total_count"] - kept
+            summary["results"] = details[:kept] + [{"truncated": True, "remaining_items": omitted}]
+            text = json.dumps(summary, ensure_ascii=False, default=str)
+            if len(text) <= limit:
+                return text
     preview_limit = max(200, limit - 120)
     return json.dumps(
         {

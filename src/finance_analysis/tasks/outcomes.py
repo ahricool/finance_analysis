@@ -15,10 +15,14 @@ def analysis_batch_outcome(result: dict[str, Any]) -> TaskOutcome | None:
 
 
 def summarize_earnings_result(result: dict[str, Any]) -> dict[str, Any]:
-    # Persist full aggregate counts before lifecycle detail truncation (MAX_JSON_ITEMS).
+    # Keep counters ahead of details, including the top-level item limit.
     counts = Counter(item["status"] for item in result["results"])
-    return {**result, "total_count": len(result["results"]), "failed_count": counts["failed"],
-            "status_counts": dict(counts)}
+    aggregates = {
+        "total_count": len(result["results"]),
+        "failed_count": counts["failed"],
+        "status_counts": dict(counts),
+    }
+    return aggregates | result | aggregates
 
 
 def earnings_batch_outcome(result: dict[str, Any]) -> TaskOutcome | None:

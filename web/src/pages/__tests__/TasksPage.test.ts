@@ -311,6 +311,28 @@ describe('TasksPage', () => {
     wrapper.unmount();
   });
 
+  it('renders bounded batch results with aggregate counts and the omitted-item marker', async () => {
+    vi.mocked(tasksApi.getTaskRunDetail).mockResolvedValue({
+      ...sampleRun,
+      status: 'partial',
+      result: {
+        totalCount: 40,
+        failedCount: 39,
+        statusCounts: { failed: 39, success: 1 },
+        results: [{ eventId: 1, status: 'failed' }, { truncated: true, remainingItems: 39 }],
+      },
+    });
+    const wrapper = await mountPage('/tasks/runs');
+    await wrapper.get('table').findAll('tbody tr')[0].trigger('click');
+    await flushPromises();
+    const dialog = document.body.querySelector('[data-testid="task-run-detail"]');
+    expect(dialog?.textContent).toContain('"totalCount": 40');
+    expect(dialog?.textContent).toContain('"failedCount": 39');
+    expect(dialog?.textContent).toContain('"remainingItems": 39');
+    expect(dialog?.textContent).not.toContain('"preview"');
+    wrapper.unmount();
+  });
+
   it('loads unfiltered overview stats separately from the filtered table query', async () => {
     const wrapper = await mountPage('/tasks/runs');
 
