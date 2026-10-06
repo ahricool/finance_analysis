@@ -6,9 +6,9 @@ from __future__ import annotations
 from datetime import datetime
 from typing import List, Optional
 
-from pydantic import BaseModel, Field, field_serializer, field_validator
+from pydantic import BaseModel, Field, field_serializer, field_validator, model_validator
 
-from finance_analysis.stocks.markets import normalize_market_type
+from finance_analysis.stocks.markets import canonical_watch_list_code, normalize_market_type
 from finance_analysis.core.time import utc_isoformat
 
 
@@ -29,6 +29,11 @@ class WatchListItemCreate(BaseModel):
     def normalize_market(cls, v: str) -> str:
         return normalize_market_type(v)
 
+    @model_validator(mode="after")
+    def validate_code_market(self) -> WatchListItemCreate:
+        canonical_watch_list_code(self.code, self.market_type)
+        return self
+
 
 class WatchListItemUpdate(BaseModel):
     name: Optional[str] = Field(None, max_length=64)
@@ -46,6 +51,7 @@ class WatchListItemResponse(BaseModel):
     is_favorite: bool
     created_at: datetime
     updated_at: datetime
+    validation_error: Optional[str] = None
 
     model_config = {"from_attributes": True}
 

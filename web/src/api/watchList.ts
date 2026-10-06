@@ -11,6 +11,7 @@ export interface WatchListItem {
   is_favorite: boolean;
   created_at: string;
   updated_at: string;
+  validation_error?: string | null;
 }
 
 export interface WatchListResponse {

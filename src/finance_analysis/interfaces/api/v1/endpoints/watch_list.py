@@ -24,7 +24,7 @@ from finance_analysis.interfaces.api.v1.schemas.watch_list import (
 from finance_analysis.database.repositories.watch_list import WatchListRepo
 from finance_analysis.database.repositories.stock import InstrumentRepository
 from finance_analysis.integrations.market_data import MarketDataService
-from finance_analysis.integrations.market_data.normalizer import canonical_symbol
+from finance_analysis.stocks.markets import canonical_watch_list_code
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -35,15 +35,26 @@ def _repo() -> WatchListRepo:
 
 
 def _responses(repository: WatchListRepo, items) -> list[WatchListItemResponse]:
-    canonical_codes = [canonical_symbol(item.code, item.market_type) for item in items]
+    canonical_codes = []
+    validation_errors = []
+    for item in items:
+        try:
+            canonical_codes.append(canonical_watch_list_code(item.code, item.market_type))
+            validation_errors.append(None)
+        except ValueError as exc:
+            canonical_codes.append(None)
+            validation_errors.append(str(exc))
     names = (
-        InstrumentRepository(repository.db).names_by_codes(canonical_codes)
+        InstrumentRepository(repository.db).names_by_codes([code for code in canonical_codes if code])
         if getattr(repository, "db", None) is not None
         else {}
     )
     return [
-        WatchListItemResponse.model_validate(item).model_copy(update={"name": names.get(code) or item.name})
-        for item, code in zip(items, canonical_codes)
+        WatchListItemResponse.model_validate(item).model_copy(update={
+            "name": names.get(code) or item.name,
+            "validation_error": error,
+        })
+        for item, code, error in zip(items, canonical_codes, validation_errors)
     ]
 
 
@@ -67,7 +78,7 @@ def create_watch_list_item(http_request: Request, body: WatchListItemCreate):
     name = body.name
     if not str(name or "").strip():
         try:
-            code = canonical_symbol(body.code, body.market_type)
+            code = canonical_watch_list_code(body.code, body.market_type)
             info = MarketDataService().get_instrument_info([code]).data.get(code)
             name = info.name if info is not None else None
         except Exception as exc:
@@ -81,6 +92,8 @@ def create_watch_list_item(http_request: Request, body: WatchListItemCreate):
             market_type=body.market_type,
             is_favorite=body.is_favorite,
         )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except Exception as e:
         logger.exception("创建自选股失败: %s", e)
         raise HTTPException(status_code=500, detail="创建失败，请重试") from e
@@ -96,11 +109,10 @@ def update_watch_list_item(http_request: Request, item_id: int, body: WatchListI
     if update_data.get("name") is None and "name" in update_data:
         update_data["name"] = ""
     repo = _repo()
-    item = repo.update(
-        item_id=item_id,
-        uid=uid,
-        **update_data,
-    )
+    try:
+        item = repo.update(item_id=item_id, uid=uid, **update_data)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     if item is None:
         raise HTTPException(status_code=404, detail="未找到该自选股")
     return _responses(repo, [item])[0]

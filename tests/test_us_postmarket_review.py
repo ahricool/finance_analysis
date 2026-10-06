@@ -258,6 +258,25 @@ def test_no_watchlist_still_completes() -> None:
     assert any("未配置美股自选股" in item for item in summary.warnings)
 
 
+@pytest.mark.parametrize("valid", [True, False])
+def test_legacy_watch_validation_failure_survives_report_and_is_partial(valid) -> None:
+    from finance_analysis.database.repositories.watch_list import WatchListCodes
+    from finance_analysis.tasks.outcomes import report_delivery_outcome
+
+    invalid = {"watch_list_id": 7, "code": "600519.SH", "market_type": "US", "error": "market conflict"}
+    codes = WatchListCodes(["AAPL.US"] if valid else [], validation_failures=[invalid])
+    reporter = FakeReporter()
+    summary = _service(watch_symbols=codes, reporter=reporter).run(now=TRADING_DATE)
+
+    assert summary.watchlist_count == int(valid)
+    assert summary.validation_failures == [invalid]
+    assert reporter.last_summary.validation_failures == [invalid]
+    assert any("自选股校验失败 #7" in warning for warning in summary.warnings)
+    outcome = report_delivery_outcome(summary.to_dict())
+    assert outcome.status.value == "partial"
+    assert "自选股校验失败 1 项" in outcome.message
+
+
 def test_single_watchlist_symbol_failure_does_not_stop_others() -> None:
     summary = _service(fail={"TSLA.US"}).run(now=TRADING_DATE)
 

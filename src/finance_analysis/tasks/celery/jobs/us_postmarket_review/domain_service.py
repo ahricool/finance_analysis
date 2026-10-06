@@ -82,6 +82,7 @@ class USPostmarketReviewService:
         logger.info("美股收盘复盘开始: trading_date=%s", trading_date.isoformat())
         context = self._build_context(trading_date)
         summary.warnings.extend(context.warnings)
+        summary.validation_failures = list(context.validation_failures)
         summary.benchmark_count = len(context.benchmarks)
         summary.sector_count = len(context.sector_etfs)
         summary.watchlist_count = context.watchlist_summary.total_count
@@ -154,6 +155,8 @@ class USPostmarketReviewService:
         market_regime = self._determine_market_regime(benchmarks, sectors, style_bias)
 
         watch_symbols = self._load_watch_symbols()
+        validation_failures = list(getattr(self, "_watch_list_validation_failures", []))
+        warnings.extend(f"自选股校验失败 #{item['watch_list_id']}: {item['error']}" for item in validation_failures)
         watchlist_summary = self._build_watchlist_summary(
             watch_symbols,
             trading_date,
@@ -173,6 +176,7 @@ class USPostmarketReviewService:
             watchlist_summary=watchlist_summary,
             news=news,
             warnings=warnings,
+            validation_failures=validation_failures,
         )
 
     def _load_performance_group(
@@ -283,6 +287,7 @@ class USPostmarketReviewService:
             from finance_analysis.database.repositories.watch_list import get_watch_list_codes_by_market
 
             raw_symbols = get_watch_list_codes_by_market("US")
+        self._watch_list_validation_failures = list(getattr(raw_symbols, "validation_failures", []))
         symbols = [self._normalize_us_symbol(symbol) for symbol in raw_symbols]
         return [symbol for symbol in dict.fromkeys(symbols) if symbol]
 

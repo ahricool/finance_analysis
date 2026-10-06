@@ -103,3 +103,45 @@ def test_watch_codes_use_explicit_market_and_preserve_storage_identity():
     assert repo.get_codes(uid=2) == ["AAPL.US"]
     assert repo.get_by_code("AAPL", uid=1, market_type="US").code == "AAPL"
     engine.dispose()
+
+
+def test_create_and_update_reject_region_conflicts_before_mutating_rows():
+    import pytest
+
+    db = _FakeDB()
+    with pytest.raises(ValueError):
+        WatchListRepo(db=db).create(uid=1, code="AAPL.US", market_type="CN")
+    assert db.session.item is None
+    item = WatchListItem(id=1, uid=1, code="AAPL.US", market_type="US", name="original")
+    with pytest.raises(ValueError):
+        WatchListRepo(db=_FakeDB(item)).update(1, uid=1, market_type="CN", name="changed")
+    assert item.market_type == "US" and item.name == "original"
+
+
+def test_legacy_invalid_codes_are_isolated_per_row_and_keep_uid_market_scopes(caplog):
+    from types import SimpleNamespace
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import Session
+
+    engine = create_engine("sqlite://")
+    WatchListItem.__table__.create(engine)
+    db = SimpleNamespace(get_session=lambda: Session(engine))
+    with db.get_session() as session:
+        session.add_all([
+            WatchListItem(id=1, uid=1, code="AAPL.US", market_type="CN"),
+            WatchListItem(id=2, uid=1, code="600519.SH", market_type="US"),
+            WatchListItem(id=3, uid=1, code="MSFT", market_type="US"),
+            WatchListItem(id=4, uid=2, code="600519", market_type="CN"),
+        ])
+        session.commit()
+    repo = WatchListRepo(db=db)
+    batch = repo.get_codes()
+    assert set(batch) == {"MSFT.US", "600519.SH"}
+    assert {item["watch_list_id"] for item in batch.validation_failures} == {1, 2}
+    assert all(item["error"] for item in batch.validation_failures)
+    assert "item_id=1" in caplog.text
+    own = repo.get_codes(uid=2)
+    assert own == ["600519.SH"] and own.validation_failures == []
+    us = repo.get_codes(uid=1, market_type="US")
+    assert us == ["MSFT.US"] and [item["watch_list_id"] for item in us.validation_failures] == [2]
+    engine.dispose()

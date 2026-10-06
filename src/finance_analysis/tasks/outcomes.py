@@ -42,6 +42,11 @@ def market_sync_outcome(result: dict[str, Any]) -> TaskOutcome | None:
 
 def report_delivery_outcome(result: dict[str, Any]) -> TaskOutcome | None:
     failed = [channel for channel, sent in result.get("channel_results", {}).items() if not sent]
-    if not failed:
+    issues = []
+    if result.get("validation_failures"):
+        issues.append(f"自选股校验失败 {len(result['validation_failures'])} 项")
+    if failed:
+        issues.append("推送失败渠道：" + ", ".join(failed))
+    if not issues:
         return None
-    return TaskOutcome(TaskExecutionStatus.PARTIAL, "报告已生成，推送失败渠道：" + ", ".join(failed))
+    return TaskOutcome(TaskExecutionStatus.PARTIAL, "报告已生成，" + "；".join(issues))

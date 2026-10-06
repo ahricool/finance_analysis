@@ -56,3 +56,24 @@ def infer_market_type(code: str) -> MarketType:
     if re.fullmatch(r"[A-Z]{1,5}(?:\.(?:US|[A-Z]))?", text):
         return "US"
     return DEFAULT_MARKET_TYPE
+
+
+def canonical_watch_list_code(code: str, market_type: str | None) -> str:
+    """Normalize a watch-list boundary while rejecting explicit region conflicts."""
+    from finance_analysis.integrations.market_data.normalizer import canonical_symbol, infer_market
+    from finance_analysis.database.models.stock import validate_instrument_code
+
+    value = str(code or "").strip().upper()
+    market = normalize_market_type(market_type, value)
+    explicit_market = None
+    if value.endswith(".SS"):
+        explicit_market = "CN"
+    elif value.endswith((".SH", ".SZ", ".BJ", ".HK", ".US", ".SG")):
+        explicit_market = infer_market(value).value
+    elif re.fullmatch(r"(?:SH|SZ|BJ)\d{6}", value):
+        explicit_market = "CN"
+    elif re.fullmatch(r"HK\d+", value):
+        explicit_market = "HK"
+    if explicit_market is not None and explicit_market != market:
+        raise ValueError(f"股票代码 {value} 的市场与 {market} 不一致")
+    return validate_instrument_code(market, canonical_symbol(value, market))

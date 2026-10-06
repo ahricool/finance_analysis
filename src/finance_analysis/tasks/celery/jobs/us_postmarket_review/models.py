@@ -79,6 +79,7 @@ class USPostmarketReviewContext:
     watchlist_summary: WatchlistSummary
     news: List[Dict[str, Any]]
     warnings: List[str] = field(default_factory=list)
+    validation_failures: List[Dict[str, Any]] = field(default_factory=list)
 
     def to_llm_payload(self) -> Dict[str, Any]:
         return {
@@ -127,6 +128,7 @@ class USPostmarketReviewSummary:
     channel_results: Dict[str, bool] = field(default_factory=dict)
     fallback_used: bool = False
     warnings: List[str] = field(default_factory=list)
+    validation_failures: List[Dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -141,5 +143,6 @@ class USPostmarketReviewSummary:
             "push_sent": self.push_sent,
             "channel_results": dict(self.channel_results),
             "fallback_used": self.fallback_used,
+            "validation_failures": list(self.validation_failures),
             "warnings": list(self.warnings),
         }

@@ -93,6 +93,28 @@ def test_us_premarket_news_service_runs_domain_service():
     assert domain_service.run.call_args.args[0] == ["AAPL", "TSLA"]
 
 
+def test_premarket_news_retains_watch_validation_failure_after_report_success():
+    from finance_analysis.database.repositories.watch_list import WatchListCodes
+    from finance_analysis.tasks.outcomes import report_delivery_outcome
+
+    invalid = {"watch_list_id": 7, "code": "600519.SH", "market_type": "US", "error": "market conflict"}
+    codes = WatchListCodes(["MSFT.US"], validation_failures=[invalid])
+    summary = MagicMock(symbols_count=22, channel_results={"telegram": True, "ntfy": True})
+    domain_service = MagicMock()
+    domain_service.run.return_value = summary
+    with (
+        patch("finance_analysis.analysis.pipeline_config.get_pipeline_config", return_value=MagicMock()),
+        patch("finance_analysis.database.repositories.watch_list.get_watch_list_codes_by_market", return_value=codes),
+        patch("finance_analysis.tasks.celery.jobs.us_premarket_news.domain_service.USPremarketNewsService",
+              return_value=domain_service),
+    ):
+        result = premarket_news_module.USPremarketNewsTaskService().run()
+
+    assert domain_service.run.call_args.args[0] == ["MSFT.US"]
+    assert result["validation_failures"] == [invalid]
+    assert report_delivery_outcome(result).status.value == "partial"
+
+
 def test_us_postmarket_service_returns_domain_summary():
     domain_service = MagicMock()
     domain_service.run.return_value.to_dict.return_value = {"market_regime": "risk_on"}
@@ -159,3 +181,34 @@ def test_market_calendar_importance_submission_failure_is_non_fatal():
         calendar_module.MarketCalendarSyncTaskService._submit_importance_task([1, 2])
 
     submit.assert_called_once()
+
+
+@pytest.mark.parametrize("module,getter", [
+    (daily_module, "get_watch_list_codes"),
+    (premarket_module, "get_watch_list_codes_by_market"),
+])
+@pytest.mark.parametrize("valid", [True, False])
+def test_invalid_watch_row_is_counted_without_blocking_valid_analysis(module, getter, valid):
+    from finance_analysis.database.repositories.watch_list import WatchListCodes
+    from finance_analysis.tasks.outcomes import analysis_batch_outcome
+
+    invalid = {"watch_list_id": 7, "code": "AAPL.US", "market_type": "CN", "error": "market conflict"}
+    codes = WatchListCodes(["MSFT.US"] if valid else [], validation_failures=[invalid])
+    pipeline = MagicMock()
+    pipeline.run.return_value = [MagicMock()] if valid else []
+    service_class = module.DailyAnalysisTaskService if module is daily_module else module.USPremarketAnalysisTaskService
+    with (
+        patch("finance_analysis.analysis.pipeline_config.get_pipeline_config", return_value=MagicMock()),
+        patch("finance_analysis.analysis.pipeline.StockAnalysisPipeline", return_value=pipeline) as factory,
+        patch("finance_analysis.database.repositories.watch_list." + getter, return_value=codes),
+    ):
+        result = service_class().run()
+    assert result["total_count"] == (2 if valid else 1)
+    assert result["success_count"] == (1 if valid else 0)
+    assert result["failed_count"] == 1
+    assert result["validation_failures"] == [invalid]
+    assert analysis_batch_outcome(result).status.value == ("partial" if valid else "failed")
+    if valid:
+        pipeline.run.assert_called_once_with(stock_codes=["MSFT.US"])
+    else:
+        factory.assert_not_called()
