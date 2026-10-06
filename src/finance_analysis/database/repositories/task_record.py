@@ -424,7 +424,7 @@ class TaskRecordRepository:
     def _can_apply_status(current: str, new: str) -> bool:
         if current == new:
             return True
-        terminal = {"completed", "failed", "skipped", "cancelled"}
+        terminal = {"completed", "failed", "partial", "skipped", "cancelled"}
         if current in terminal and new not in terminal:
             return False
         return True

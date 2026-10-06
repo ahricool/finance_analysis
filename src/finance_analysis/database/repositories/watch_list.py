@@ -8,6 +8,7 @@ from typing import List, Optional
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from finance_analysis.integrations.market_data.normalizer import canonical_symbol
 from finance_analysis.stocks.markets import normalize_market_type
 from finance_analysis.database.session import DatabaseManager
 from finance_analysis.database.models import WatchListItem
@@ -55,14 +56,14 @@ class WatchListRepo:
             return session.execute(stmt).scalars().first()
 
     def get_codes(self, uid: Optional[int] = None, market_type: Optional[str] = None) -> List[str]:
-        """Return all stock codes in the watch list."""
+        """Return canonical business identifiers using each row's explicit market."""
         with self.db.get_session() as session:
-            stmt = select(WatchListItem.code)
+            stmt = select(WatchListItem.code, WatchListItem.market_type)
             if uid is not None:
                 stmt = stmt.where(WatchListItem.uid == uid)
             if market_type:
                 stmt = stmt.where(WatchListItem.market_type == normalize_market_type(market_type))
-            return list(session.execute(stmt).scalars().all())
+            return [canonical_symbol(code, market) for code, market in session.execute(stmt).all()]
 
     # ── Write ─────────────────────────────────────────────────────────────────
 

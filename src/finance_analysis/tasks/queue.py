@@ -38,6 +38,7 @@ class TaskStatus(str, Enum):
     PROCESSING = "processing"
     COMPLETED = "completed"
     FAILED = "failed"
+    PARTIAL = "partial"
     SKIPPED = "skipped"
     RETRYING = "retrying"
     CANCELLED = "cancelled"

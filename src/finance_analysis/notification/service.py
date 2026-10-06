@@ -14,7 +14,7 @@ Finance Analysis - 通知层
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import List, Dict, Any, Optional, Tuple, TYPE_CHECKING
 from enum import Enum
 
@@ -62,6 +62,7 @@ class NotificationResult:
     notification_id: Optional[int] = None
     push_attempted: bool = False
     push_sent: bool = False
+    channel_results: Dict[str, bool] = field(default_factory=dict)
 
 
 class NotificationChannel(Enum):
@@ -480,10 +481,12 @@ class NotificationService(
                         )
                     else:
                         push_sent = self.send_to_ntfy(content)
+                    result.channel_results[channel.value] = bool(push_sent)
                     result.push_sent = bool(push_sent) or result.push_sent
                     if not push_sent:
                         logger.warning("%s 外部推送失败", channel.value)
                 except Exception:
+                    result.channel_results[channel.value] = False
                     logger.exception("%s 外部推送失败", channel.value)
         finally:
             if result.push_sent:

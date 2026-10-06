@@ -124,6 +124,7 @@ class USPostmarketReviewSummary:
     report: str = ""
     notification_id: int | None = None
     push_sent: bool = False
+    channel_results: Dict[str, bool] = field(default_factory=dict)
     fallback_used: bool = False
     warnings: List[str] = field(default_factory=list)
 
@@ -138,6 +139,7 @@ class USPostmarketReviewSummary:
             "watchlist_down_count": self.watchlist_down_count,
             "notification_id": self.notification_id,
             "push_sent": self.push_sent,
+            "channel_results": dict(self.channel_results),
             "fallback_used": self.fallback_used,
             "warnings": list(self.warnings),
         }

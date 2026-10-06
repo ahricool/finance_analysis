@@ -48,6 +48,7 @@ class PremarketNewsSummary:
     warnings: List[str] = field(default_factory=list)
     notification_id: int | None = None
     push_sent: bool = False
+    channel_results: Dict[str, bool] = field(default_factory=dict)
 
     @property
     def symbols_count(self) -> int:

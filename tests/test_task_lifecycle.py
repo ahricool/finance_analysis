@@ -36,6 +36,9 @@ class _RecordingLifecycleService:
     def mark_completed(self, **kwargs):
         self.events.append(("completed", kwargs))
 
+    def mark_outcome(self, **kwargs):
+        self.events.append((kwargs["outcome"].status.value, kwargs))
+
     def mark_skipped(self, **kwargs):
         self.events.append(("skipped", kwargs))
 

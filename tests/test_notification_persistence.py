@@ -148,3 +148,18 @@ def test_api_scope_filter_pagination_and_detail(repo):
     assert {x["id"] for x in repo.list_messages(uid=2)["items"]} == {other, public}
     with pytest.raises(ValueError):
         repo.list_messages(uid=None)
+
+
+def test_channel_failure_remains_visible_when_other_delivery_succeeds(repo, service):
+    service.send_to_ntfy.return_value = False
+    result = service.send("report", uid=1)
+    assert result.push_sent and result.push_attempted
+    assert result.channel_results == {"telegram": True, "ntfy": False}
+    assert repo.list_messages(uid=1)["total"] == 1
+
+
+def test_channel_exception_is_recorded_without_stopping_other_delivery(repo, service):
+    service.send_to_telegram.side_effect = RuntimeError("offline")
+    result = service.send("report", uid=1)
+    assert result.push_sent
+    assert result.channel_results == {"telegram": False, "ntfy": True}

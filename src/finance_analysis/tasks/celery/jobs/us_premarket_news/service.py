@@ -41,6 +41,7 @@ class USPremarketNewsTaskService:
             "errors": summary.errors,
             "notification_id": summary.notification_id,
             "push_sent": summary.push_sent,
+            "channel_results": dict(summary.channel_results),
             "started_at": summary.started_at.isoformat(),
             "finished_at": summary.finished_at.isoformat(),
         }

@@ -126,6 +126,7 @@ const scheduledOverview = computed(() => {
       job.schedulerStatus === 'paused'
       || job.schedulerStatus === 'unavailable'
       || job.latestRun?.status === 'failed'
+      || job.latestRun?.status === 'partial'
     ) {
       issue += 1;
       continue;
@@ -142,7 +143,7 @@ const runOverview = computed(() => ({
     + (runsOverviewStats.value.pending || 0)
     + (runsOverviewStats.value.retrying || 0),
   success: runsOverviewStats.value.completed || 0,
-  failed: runsOverviewStats.value.failed || 0,
+  failed: (runsOverviewStats.value.failed || 0) + (runsOverviewStats.value.partial || 0),
 }));
 
 const selectedStatusesLabel = computed(() => {
@@ -602,7 +603,7 @@ onBeforeUnmount(() => {
             </div>
             <div class="rounded border p-3">
               <p class="text-xs text-muted-foreground">
-                失败
+                失败 / 部分失败
               </p>
               <strong class="mt-1 block tabular-nums">{{ runOverview.failed }}</strong>
             </div>

@@ -45,7 +45,7 @@ def test_migration_is_idempotent_and_preserves_existing_memberships_and_history(
             ))
         etfs_before = {item.code: item.id for item in resolver.resolve_universe("us_index_etf")}
         scripts = ScriptDirectory.from_config(Config("alembic.ini"))
-        assert scripts.get_heads() == ["0069_earnings_outlook"]
+        assert scripts.get_heads() == ["0070_news_title_text"]
         migration = scripts.get_revision("0068_us_postmarket_sync").module
         with engine.begin() as conn:
             migration.op = Operations(MigrationContext.configure(conn))

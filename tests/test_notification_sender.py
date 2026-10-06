@@ -72,7 +72,7 @@ class TestNtfySender(unittest.TestCase):
         self.assertEqual(mock_post.call_args.args[0], "https://ntfy.sh")
         call_kw = mock_post.call_args.kwargs
         self.assertEqual(
-            call_kw["json"],
+            json.loads(call_kw["data"]),
             {
                 "topic": "fa-topic",
                 "title": "中文标题",
@@ -94,7 +94,7 @@ class TestNtfySender(unittest.TestCase):
 
         self.assertTrue(result)
         self.assertEqual(mock_post.call_args.args[0], "https://example.com/ntfy")
-        self.assertEqual(mock_post.call_args.kwargs["json"]["topic"], "fa-topic")
+        self.assertEqual(json.loads(mock_post.call_args.kwargs["data"])["topic"], "fa-topic")
 
     @mock.patch("finance_analysis.notification.senders.ntfy.requests.post")
     def test_send_returns_false_when_url_has_no_topic(self, mock_post):

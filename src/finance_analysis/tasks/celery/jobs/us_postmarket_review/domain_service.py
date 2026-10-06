@@ -105,6 +105,7 @@ class USPostmarketReviewService:
         )
         summary.notification_id = notification_result.notification_id
         summary.push_sent = notification_result.push_sent
+        summary.channel_results = dict(notification_result.channel_results)
         logger.info(
             "美股收盘复盘完成: trading_date=%s regime=%s benchmarks=%s sectors=%s watchlist=%s warnings=%s",
             trading_date.isoformat(),

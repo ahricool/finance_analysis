@@ -66,6 +66,8 @@ def _dispatch(market: str) -> dict[str, Any]:
     result = celery_app.send_task(
         "qlib.daily.predict",
         kwargs=payload,
+        # The tracked parent remains processing until the DB-owning callback finishes.
+        headers={"_skip_task_record": True},
         queue=QUEUE_QLIB,
         link=finalize_quant_daily.s(context=context, _skip_task_record=True).set(queue=QUEUE_ANALYSIS),
         link_error=fail_quant_daily.s(context=context, _skip_task_record=True).set(queue=QUEUE_ANALYSIS),

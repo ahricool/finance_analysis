@@ -8,6 +8,7 @@ const RUN_STATUS_LABELS: Record<TaskStatus, string> = {
   processing: '执行中',
   completed: '成功',
   failed: '失败',
+  partial: '部分失败',
   skipped: '已跳过',
   retrying: '重试中',
   cancelled: '已取消',
@@ -29,6 +30,7 @@ export function runStatusLabel(value?: string | null): string {
 export function runStatusVariant(value?: string | null): BadgeVariants['variant'] {
   if (value === 'completed') return 'success';
   if (value === 'failed') return 'destructive';
+  if (value === 'partial') return 'warning';
   if (value === 'processing') return 'info';
   if (value === 'retrying' || value === 'pending') return 'warning';
   return 'outline';

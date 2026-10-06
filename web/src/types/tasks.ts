@@ -3,6 +3,7 @@ export type TaskStatus =
   | 'processing'
   | 'completed'
   | 'failed'
+  | 'partial'
   | 'skipped'
   | 'retrying'
   | 'cancelled';

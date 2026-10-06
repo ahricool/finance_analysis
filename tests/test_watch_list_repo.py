@@ -78,3 +78,28 @@ def test_watch_list_update_accepts_market_type_and_favorite_flag():
 
 def test_watch_list_unique_identity_includes_market_type():
     assert ("uid", "market_type", "code") in _unique_constraint_columns(WatchListItem)
+
+
+def test_watch_codes_use_explicit_market_and_preserve_storage_identity():
+    from types import SimpleNamespace
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import Session
+
+    engine = create_engine("sqlite://")
+    WatchListItem.__table__.create(engine)
+    db = SimpleNamespace(get_session=lambda: Session(engine))
+    repo = WatchListRepo(db=db)
+    with db.get_session() as session:
+        session.add_all([
+            WatchListItem(uid=1, code="AAPL", market_type="US"),
+            WatchListItem(uid=1, code="BRK.B", market_type="US"),
+            WatchListItem(uid=1, code="600519", market_type="CN"),
+            WatchListItem(uid=1, code="00700", market_type="HK"),
+            WatchListItem(uid=2, code="AAPL.US", market_type="US"),
+        ])
+        session.commit()
+    assert set(repo.get_codes(uid=1)) == {"AAPL.US", "BRK.B.US", "600519.SH", "700.HK"}
+    assert set(repo.get_codes(uid=1, market_type="US")) == {"AAPL.US", "BRK.B.US"}
+    assert repo.get_codes(uid=2) == ["AAPL.US"]
+    assert repo.get_by_code("AAPL", uid=1, market_type="US").code == "AAPL"
+    engine.dispose()

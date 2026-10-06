@@ -5,12 +5,15 @@ from finance_analysis.earnings_outlook.rules import event_window, released
 from finance_analysis.tasks.celery.app import celery_app
 from finance_analysis.tasks.celery.metadata import EARNINGS_OUTLOOK_TASK
 from finance_analysis.tasks.celery.schedule import require_scheduled_task_definition
-from finance_analysis.tasks.lifecycle import track_task
+from finance_analysis.tasks.lifecycle import TaskSkipped, track_task
+from finance_analysis.tasks.outcomes import earnings_batch_outcome, summarize_earnings_result
 
 
 def _run_outlook(stage, event_id=None):
     service = EarningsOutlookService()
     result = service.run(stage=stage, event_id=event_id)
+    if result.get("status") == "skipped":
+        raise TaskSkipped(result["reason"])
     # Retry only contended events, retaining the original target even across midnight.
     # Broker expiry and the service's release check both forbid post-release forecasts.
     for item in result.get("results", []):
@@ -28,7 +31,7 @@ def _run_outlook(stage, event_id=None):
             expires=window["cutoff"],
         )
         item["status"] = "deferred"
-    return result
+    return summarize_earnings_result(result)
 
 
 @celery_app.task(name=EARNINGS_OUTLOOK_TASK.celery_name)
@@ -37,6 +40,7 @@ def _run_outlook(stage, event_id=None):
     task_name=EARNINGS_OUTLOOK_TASK.display_name,
     source="celery",
     record_result=True,
+    outcome_getter=earnings_batch_outcome,
     strip_lifecycle_kwargs=True,
 )
 def earnings_outlook(event_id=None, stage="daily", **kwargs):
@@ -55,6 +59,7 @@ REVIEW = require_scheduled_task_definition("earnings_outlook_review")
     trigger_source="scheduler",
     scheduler_job_id=FINAL.job_id,
     record_result=True,
+    outcome_getter=earnings_batch_outcome,
     strip_lifecycle_kwargs=True,
 )
 def earnings_outlook_final(**kwargs):
@@ -69,7 +74,8 @@ def earnings_outlook_final(**kwargs):
     trigger_source="scheduler",
     scheduler_job_id=REVIEW.job_id,
     record_result=True,
+    outcome_getter=earnings_batch_outcome,
     strip_lifecycle_kwargs=True,
 )
 def earnings_outlook_review(**kwargs):
-    return EarningsOutlookService().review()
+    return summarize_earnings_result(EarningsOutlookService().review())

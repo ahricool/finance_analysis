@@ -55,6 +55,7 @@ class TaskExecutionStatus(str, Enum):
     PROCESSING = "processing"
     COMPLETED = "completed"
     FAILED = "failed"
+    PARTIAL = "partial"
     SKIPPED = "skipped"
     RETRYING = "retrying"
     CANCELLED = "cancelled"
@@ -74,6 +75,18 @@ class TaskLifecycleMetadata:
     triggered_by_uid: Optional[int] = None
     scheduler_job_id: Optional[str] = None
     parent_task_id: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class TaskOutcome:
+    """Explicit business failure, independent of Celery transport/retry state."""
+
+    status: TaskExecutionStatus
+    message: str
+
+    def __post_init__(self) -> None:
+        if self.status not in {TaskExecutionStatus.FAILED, TaskExecutionStatus.PARTIAL}:
+            raise ValueError("Business outcome must be failed or partial")
 
 
 @dataclass(frozen=True)
@@ -303,6 +316,35 @@ class TaskLifecycleService:
             ),
         )
 
+    def mark_outcome(
+        self,
+        *,
+        task_id: str,
+        metadata: TaskLifecycleMetadata,
+        outcome: TaskOutcome,
+        result: Optional[Any] = None,
+    ) -> None:
+        self._safe_write(
+            "mark task business outcome",
+            lambda repo: repo.update_status(
+                task_id=task_id,
+                task_type=metadata.task_type,
+                task_name=metadata.task_name,
+                uid=metadata.uid,
+                source=metadata.source,
+                status=outcome.status.value,
+                progress=100,
+                message=outcome.message,
+                error=_redact_error_text(outcome.message),
+                result=_json_summary(result, limit=MAX_RESULT_CHARS),
+                finished_at=utc_now(),
+                parent_task_id=metadata.parent_task_id,
+                scheduler_job_id=metadata.scheduler_job_id,
+                trigger_source=metadata.trigger_source,
+                triggered_by_uid=metadata.triggered_by_uid,
+            ),
+        )
+
     def mark_skipped(
         self,
         *,
@@ -479,6 +521,7 @@ def track_task(
     scheduler_job_id: Optional[str] = None,
     record_result: bool = True,
     success_message: Optional[str] = None,
+    outcome_getter: Optional[Callable[[Any], Optional[TaskOutcome]]] = None,
     strip_lifecycle_kwargs: bool = False,
     advisory_lock_id: Optional[TaskAdvisoryLockId] = None,
     advisory_lock_blocking: bool = False,
@@ -529,6 +572,7 @@ def track_task(
 
                     call_kwargs = _strip_lifecycle_kwargs(kwargs) if strip_lifecycle_kwargs else kwargs
                     result = func(*args, **call_kwargs)
+                    outcome = outcome_getter(result) if outcome_getter is not None else None
                 except TaskSkipped as exc:
                     service.mark_skipped(
                         task_id=task_id,
@@ -548,6 +592,15 @@ def track_task(
                             message=result.message,
                         )
                         return result.value
+                    if outcome is not None:
+                        service.mark_outcome(
+                            task_id=task_id,
+                            metadata=metadata,
+                            outcome=outcome,
+                            result=result if record_result else None,
+                        )
+                        # Returning normally preserves callbacks and does not repeat completed side effects.
+                        return result
                     service.mark_completed(
                         task_id=task_id,
                         metadata=metadata,
