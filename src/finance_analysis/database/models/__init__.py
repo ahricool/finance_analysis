@@ -128,3 +128,7 @@ __all__.append("SignalCenterRun")
 from .earnings_outlook import EarningsResearch, EarningsPrediction, EarningsOutlookState
 
 __all__.extend(["EarningsResearch", "EarningsPrediction", "EarningsOutlookState"])
+
+from .options_intelligence import OptionContract, OptionQuoteSnapshot, OptionDailyMetrics, OptionAnomalyEvent, OptionAnalysis
+
+__all__.extend(["OptionContract", "OptionQuoteSnapshot", "OptionDailyMetrics", "OptionAnomalyEvent", "OptionAnalysis"])

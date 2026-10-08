@@ -33,6 +33,7 @@ describe('main navigation', () => {
       children: marketNavItems,
     });
     expect(researchNavItems).toMatchObject([
+      { key: 'options-intelligence', to: '/research/options-intelligence' },
       { key: 'intraday-confirmation', to: '/research/intraday-confirmation' },
       { key: 'signal-center', to: '/research/signal-center' },
       { key: 'confluence', to: '/research/confluence' },
@@ -49,6 +50,7 @@ describe('main navigation', () => {
       'watch-list',
       'holdings',
       'timeline',
+      'options-intelligence',
       'intraday-confirmation',
       'signal-center',
       'confluence',

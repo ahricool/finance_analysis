@@ -6,11 +6,12 @@ import PageHeader from '@/components/layout/PageHeader.vue';
 import { Separator } from '@/components/ui/separator';
 import { researchNavItems } from '@/config/mainNav';
 
-type ResearchTab = 'signal-center' | 'intraday-confirmation' | 'confluence' | 'dragon-tiger-flow' | 'market-sentiment' | 'industry-strength' | 'macro' | 'quant' | 'etf-rotation' | 'trend-following';
+type ResearchTab = 'options-intelligence' | 'signal-center' | 'intraday-confirmation' | 'confluence' | 'dragon-tiger-flow' | 'market-sentiment' | 'industry-strength' | 'macro' | 'quant' | 'etf-rotation' | 'trend-following';
 
 const route = useRoute();
 
 const activeTab = computed<ResearchTab>(() => {
+  if (route.path.startsWith('/research/options-intelligence')) return 'options-intelligence';
   if (route.path.startsWith('/research/signal-center')) return 'signal-center';
   if (route.path.startsWith('/research/intraday-confirmation')) return 'intraday-confirmation';
   if (route.path.startsWith('/research/confluence')) return 'confluence';

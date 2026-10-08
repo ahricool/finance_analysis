@@ -499,6 +499,14 @@ class MarketDataService:
         )
         return self.router.route_minute(request, providers)
 
+    def get_option_chain(self, symbol: str, *, now=None):
+        """US options: Yahoo primary, Alpaca capability fallback without cross-feed stitching."""
+        from finance_analysis.integrations.options.service import OptionsDataService
+        canonical = canonical_symbol(symbol)
+        if not canonical.endswith(".US"):
+            raise ValueError("Options Intelligence supports US securities only")
+        return OptionsDataService().fetch(canonical, now)
+
     def get_realtime_quotes(
         self, symbols: Iterable[str], *, providers: Iterable[str] | None = None
     ) -> BatchQuoteResult:
