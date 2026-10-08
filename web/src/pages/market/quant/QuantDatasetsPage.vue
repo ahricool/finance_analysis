@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import PageHeader from '@/components/layout/PageHeader.vue';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import { quantApi } from '@/api/quant';
 import ApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
@@ -167,23 +168,22 @@ watch(
 
 <template>
   <div class="min-w-0 space-y-4">
-    <header class="flex flex-wrap items-start justify-between gap-3">
-      <div>
-        <h2 class="text-lg font-semibold">
-          数据集
-        </h2>
-        <p class="text-xs text-muted-foreground">
-          数据集由后台异步构建；只有已就绪且存在制品的数据集可以用于训练。
-        </p>
-      </div>
-      <Button
-        v-if="isAdmin"
-        data-testid="open-dataset-build"
-        @click="buildOpen = true"
-      >
-        构建数据集
-      </Button>
-    </header>
+    <PageHeader
+      variant="section"
+      title="数据集"
+      en="Datasets"
+      description="数据集由后台异步构建；只有已就绪且存在制品的数据集可以用于训练。"
+    >
+      <template #actions>
+        <Button
+          v-if="isAdmin"
+          data-testid="open-dataset-build"
+          @click="buildOpen = true"
+        >
+          构建数据集
+        </Button>
+      </template>
+    </PageHeader>
 
     <ApiErrorAlert
       v-if="error"

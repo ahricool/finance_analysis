@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import PageHeader from '@/components/layout/PageHeader.vue';
 import DailyKLineCard from '@/components/market-data/DailyKLineCard.vue';
 import { quantApi } from '@/api/quant';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
@@ -39,22 +40,19 @@ watch(
   <div class="space-y-4">
     <RouterLink
       :to="{ path: '/research/quant/signals', query: marketQuery() }"
-      class="text-sm font-medium underline-offset-4 hover:underline"
+      class="text-sm font-medium rounded-sm underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
     >
       ← 返回排名
     </RouterLink><ApiErrorAlert
       v-if="error"
       :error="error"
     /><template v-if="item">
-      <header>
-        <h2 class="text-lg font-semibold">
-          {{ formatSecurityLabel(item.code, item.name) }}
-        </h2>
-        <p class="text-xs text-muted-foreground">
-          {{ item.tradeDate }} · 排名 {{ item.universeRank ?? '—' }} · {{ item.signal }} · 预测
-          {{ formatPredictedReturn(item.predictedReturn) }}
-        </p>
-      </header>
+      <PageHeader
+        variant="section"
+        :title="formatSecurityLabel(item.code, item.name)"
+        en="Signal Detail"
+        :description="`${item.tradeDate} · 排名 ${item.universeRank ?? '—'} · ${item.signal} · 预测 ${formatPredictedReturn(item.predictedReturn)}`"
+      />
       <section class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <div
           v-for="row in [

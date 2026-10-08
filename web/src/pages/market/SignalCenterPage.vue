@@ -47,39 +47,42 @@ onBeforeUnmount(() => { ++generation; ++detailGeneration; });
     data-testid="signal-center-page"
   >
     <PageHeader
+      variant="section"
       title="信号中心"
       en="Signal Center"
       description="每日跨信号综合判断。每个市场最多一只主信号，也可以不交易。"
-    />
-    <div class="flex flex-wrap items-center gap-3">
-      <label
-        for="signal-date"
-        class="text-sm"
-      >交易日期</label>
-      <AppDatePicker
-        id="signal-date"
-        v-model="date"
-        disable-weekends
-        :clearable="false"
-        class="w-44"
-        @update:model-value="load"
-      />
-      <Button
-        variant="outline"
-        :disabled="loading"
-        @click="date = ''; load()"
-      >
-        各市场今天
-      </Button>
-      <Button
-        variant="outline"
-        :disabled="loading"
-        @click="load"
-      >
-        刷新
-      </Button>
-      <span class="text-xs text-muted-foreground">今天按各市场当地日期显示；历史分析保持不变，收益随已入库日线更新。</span>
-    </div>
+    >
+      <template #actions>
+        <label
+          for="signal-date"
+          class="text-sm"
+        >交易日期</label>
+        <AppDatePicker
+          id="signal-date"
+          v-model="date"
+          disable-weekends
+          :clearable="false"
+          class="w-44"
+          @update:model-value="load"
+        />
+        <Button
+          variant="outline"
+          :disabled="loading"
+          @click="date = ''; load()"
+        >
+          各市场今天
+        </Button>
+        <Button
+          variant="outline"
+          :disabled="loading"
+          @click="load"
+        >
+          刷新
+        </Button>
+        <span class="text-xs text-muted-foreground">今天按各市场当地日期显示；历史分析保持不变，收益随已入库日线更新。</span>
+      </template>
+    </PageHeader>
+
     <AppApiErrorAlert
       v-if="error"
       :error="error"

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import PageHeader from '@/components/layout/PageHeader.vue';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { parseDate } from '@internationalized/date';
 import { storeToRefs } from 'pinia';
@@ -130,17 +131,11 @@ function safeUrl(value: unknown) { return typeof value === 'string' && /^https?:
     class="page-shell w-full"
     data-testid="investment-timeline"
   >
-    <header class="overflow-hidden rounded-xl border border-border bg-card p-5 shadow-sm sm:p-6">
-      <p class="text-xs tracking-[0.2em] text-muted-foreground">
-        INVESTMENT TIMELINE
-      </p>
-      <h1 class="mt-1 text-2xl font-semibold tracking-tight sm:text-3xl">
-        投资时间线
-      </h1>
-      <p class="mt-2 max-w-3xl text-sm text-muted-foreground">
-        公共市场信息看板：财报、宏观、新闻与市场分析统一按事件时间从新到旧排列，未来事件同样排在最前。
-      </p>
-    </header>
+    <PageHeader
+      title="投资时间线"
+      en="Investment Timeline"
+      description="公共市场信息看板：财报、宏观、新闻与市场分析统一按事件时间从新到旧排列，未来事件同样排在最前。"
+    />
 
     <div class="mt-4 space-y-3 rounded-xl border border-border bg-card p-3 shadow-sm sm:p-4">
       <div
@@ -151,7 +146,7 @@ function safeUrl(value: unknown) { return typeof value === 'string' && /^https?:
           v-for="option in markets"
           :key="option.value"
           type="button"
-          class="h-10 rounded-lg border px-3.5 text-sm transition-colors duration-150"
+          class="h-10 rounded-lg border px-3.5 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 transition-colors duration-150"
           :class="market === option.value
             ? 'border-transparent bg-foreground text-background font-medium'
             : 'border-border text-muted-foreground hover:bg-muted'"
@@ -193,7 +188,7 @@ function safeUrl(value: unknown) { return typeof value === 'string' && /^https?:
           v-for="option in tabs"
           :key="option.value"
           type="button"
-          class="h-9 shrink-0 whitespace-nowrap rounded-lg px-3.5 text-sm transition-colors duration-150"
+          class="h-9 shrink-0 whitespace-nowrap rounded-lg px-3.5 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 transition-colors duration-150"
           :class="tab === option.value
             ? 'bg-primary/10 font-semibold text-primary'
             : 'text-muted-foreground hover:bg-muted'"
@@ -215,7 +210,7 @@ function safeUrl(value: unknown) { return typeof value === 'string' && /^https?:
             v-for="option in presets"
             :key="option.value"
             type="button"
-            class="h-10 shrink-0 whitespace-nowrap rounded-lg px-3 text-sm transition-colors"
+            class="h-10 shrink-0 whitespace-nowrap rounded-lg px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 transition-colors"
             :class="preset === option.value ? 'bg-primary/10 font-semibold text-primary' : 'text-muted-foreground hover:bg-muted'"
             :aria-label="option.label"
             :aria-pressed="preset === option.value"
@@ -243,7 +238,8 @@ function safeUrl(value: unknown) { return typeof value === 'string' && /^https?:
     />
     <div
       v-if="loading && !items.length"
-      class="mt-4 columns-4 gap-3"
+      class="mt-4 columns-1 gap-3 md:columns-2"
+      role="status"
       aria-label="正在加载"
     >
       <div class="mb-3 h-36 break-inside-avoid animate-pulse rounded-xl bg-muted" />
@@ -275,7 +271,7 @@ function safeUrl(value: unknown) { return typeof value === 'string' && /^https?:
           {{ dayHeading(group.key) }}
         </h2>
         <div
-          class="columns-4 gap-3"
+          class="columns-1 gap-3 md:columns-2"
           data-testid="timeline-columns"
         >
           <div
@@ -320,7 +316,7 @@ function safeUrl(value: unknown) { return typeof value === 'string' && /^https?:
     >
       <DialogScrollContent class="sm:max-w-3xl">
         <template v-if="detail">
-          <DialogHeader>
+          <DialogHeader class="pr-8">
             <DialogTitle>{{ detail.title }}</DialogTitle>
             <DialogDescription>
               {{ kindLabel(detail) }}{{ detail.market ? ` · ${marketLabel(detail.market)}` : '' }} ·

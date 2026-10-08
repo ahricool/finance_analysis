@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import PageHeader from '@/components/layout/PageHeader.vue';
 import { computed, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { quantApi } from '@/api/quant';
@@ -120,23 +121,22 @@ watch(
 
 <template>
   <div class="space-y-4">
-    <header class="flex flex-wrap items-start justify-between gap-3">
-      <div>
-        <h2 class="text-lg font-semibold">
-          模型运行
-        </h2>
-        <p class="text-xs text-muted-foreground">
-          候选模型必须由管理员手动发布，训练不会自动替换 production。
-        </p>
-      </div>
-      <Button
-        v-if="isAdmin"
-        data-testid="open-quant-training"
-        @click="openTraining"
-      >
-        创建训练任务
-      </Button>
-    </header>
+    <PageHeader
+      variant="section"
+      title="模型运行"
+      en="Model Runs"
+      description="候选模型必须由管理员手动发布，训练不会自动替换 production。"
+    >
+      <template #actions>
+        <Button
+          v-if="isAdmin"
+          data-testid="open-quant-training"
+          @click="openTraining"
+        >
+          创建训练任务
+        </Button>
+      </template>
+    </PageHeader>
 
     <ApiErrorAlert
       v-if="error"
@@ -218,11 +218,13 @@ watch(
               <TableCell>
                 <RouterLink
                   :to="{ path: `/research/quant/models/${item.id}`, query: marketQuery() }"
-                  class="font-medium underline-offset-4 hover:underline"
+                  class="font-medium rounded-sm underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                 >
                   {{ isTrainableModelKey(item.modelKey) ? MODEL_TARGET_COPY[item.modelKey].shortName : item.modelKey }}
                 </RouterLink>
-              </TableCell><TableCell>{{ item.modelVersion }}</TableCell><TableCell>
+              </TableCell><TableCell class="max-w-64 whitespace-normal break-all">
+                {{ item.modelVersion }}
+              </TableCell><TableCell>
                 <Badge variant="outline">
                   {{ item.status }}
                 </Badge>

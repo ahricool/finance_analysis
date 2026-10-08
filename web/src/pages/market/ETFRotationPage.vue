@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import PageHeader from '@/components/layout/PageHeader.vue';
 import { exportExcel, type ExcelColumn } from '@/utils/excelExport';
 import { forwardReturnColumns, useForwardReturns } from '@/composables/useForwardReturns';
 import { parseDate } from '@internationalized/date';
@@ -411,19 +412,13 @@ onMounted(async () => {
 
 <template>
   <div class="min-w-0 space-y-4">
-    <header class="flex flex-wrap items-start justify-between gap-3">
-      <div>
-        <h2 class="text-lg font-semibold">
-          ETF 动量轮动
-        </h2>
-        <p class="mt-0.5 text-xs tracking-wide text-muted-foreground">
-          Fast Rotation
-        </p>
-        <p class="mt-1 text-xs text-muted-foreground">
-          完全基于公开市场行情的多维轮动看板；动作是公共策略信号，不代表个人交易建议。
-        </p>
-      </div>
-      <div class="flex flex-wrap items-end gap-2">
+    <PageHeader
+      variant="section"
+      title="ETF 动量轮动"
+      en="ETF Rotation"
+      description="完全基于公开市场行情的多维轮动看板；动作是公共策略信号，不代表个人交易建议。"
+    >
+      <template #actions>
         <ResearchMarketToggle
           :model-value="market"
           data-testid="etf-market-switcher"
@@ -476,8 +471,8 @@ onMounted(async () => {
         >
           手动运行
         </LoadingButton>
-      </div>
-    </header>
+      </template>
+    </PageHeader>
     <ResearchDataStatusBar
       :mode="dataMode"
       :trade-date="dataMode === 'preview' ? previewInfo?.tradeDate : summary.tradeDate"
@@ -888,13 +883,18 @@ onMounted(async () => {
                 />
               </TableRow>
             </TableHeader><TableBody>
-              <TableRow
-                v-for="item in sortedItems"
-                :key="item.code"
-                class="cursor-pointer"
-                data-testid="etf-ranking-row"
-                @click="openDetail(item)"
-              >
+                <TableRow
+                  v-for="item in sortedItems"
+                  :key="item.code"
+                  class="cursor-pointer focus-visible:bg-muted/80 focus-visible:outline-none"
+                  data-testid="etf-ranking-row"
+                  tabindex="0"
+                  aria-haspopup="dialog"
+                  :aria-label="`打开 ${item.name} ${item.code} ETF 详情`"
+                  @click="openDetail(item)"
+                  @keydown.enter.prevent="openDetail(item)"
+                  @keydown.space.prevent="openDetail(item)"
+                >
                 <TableCell>#{{ item.rank ?? '—' }}</TableCell>
                 <TableCell
                   class="sticky left-0 z-10 min-w-48 max-w-60 bg-background"
@@ -961,7 +961,7 @@ onMounted(async () => {
         data-testid="etf-detail-modal"
         class="flex max-h-[calc(100dvh-2rem)] w-[calc(100%-1rem)] max-w-[calc(100%-1rem)] flex-col overflow-hidden p-0 sm:max-w-[calc(100%-2rem)] lg:max-w-6xl"
       >
-        <DialogHeader class="border-b p-5 text-left">
+        <DialogHeader class="border-b p-5 pr-12 text-left">
           <DialogTitle class="break-words">
             {{ selected?.metadata.name }} · {{ selected?.metadata.code }}
           </DialogTitle><DialogDescription>{{ selected?.metadata.category }} / {{ selected?.metadata.theme }} · {{ selected?.metadata.riskGroup }}</DialogDescription>

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import PageHeader from '@/components/layout/PageHeader.vue';
 import { quantApi } from '@/api/quant';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import ApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
@@ -54,14 +55,12 @@ watch(
 
 <template>
   <div class="space-y-5">
-    <header>
-      <h2 class="text-lg font-semibold">
-        总览
-      </h2>
-      <p class="text-xs text-muted-foreground">
-        展示市场状态、Qlib 模型选股和目标组合。
-      </p>
-    </header>
+    <PageHeader
+      variant="section"
+      title="总览"
+      en="Overview"
+      description="展示市场状态、Qlib 模型选股和目标组合。"
+    />
     <ApiErrorAlert
       v-if="error"
       :error="error"

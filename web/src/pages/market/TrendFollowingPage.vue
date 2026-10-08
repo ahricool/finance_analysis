@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import PageHeader from '@/components/layout/PageHeader.vue';
 import TrendEventStudy from '@/components/trend-following/TrendEventStudy.vue';
 import { alphaVersionLabel } from '@/utils/trendFollowing';
 import { exportExcel, type ExcelColumn } from '@/utils/excelExport';
@@ -695,19 +696,13 @@ onMounted(async () => {
     class="min-w-0 space-y-4"
     data-testid="trend-following-page"
   >
-    <header class="flex flex-wrap items-start justify-between gap-3">
-      <div>
-        <h2 class="text-lg font-semibold">
-          趋势跟踪
-        </h2>
-        <p class="mt-0.5 text-xs tracking-wide text-muted-foreground">
-          Trend Following
-        </p>
-        <p class="mt-1 text-xs text-muted-foreground">
-          {{ scope }} · 股票趋势状态与风险指标。
-        </p>
-      </div>
-      <div class="flex flex-wrap items-end gap-2">
+    <PageHeader
+      variant="section"
+      title="趋势跟踪"
+      en="Trend Following"
+      :description="`${scope} · 股票趋势状态与风险指标。`"
+    >
+      <template #actions>
         <ResearchMarketToggle
           :model-value="market"
           data-testid="trend-market"
@@ -756,8 +751,8 @@ onMounted(async () => {
         >
           运行最新数据
         </LoadingButton>
-      </div>
-    </header>
+      </template>
+    </PageHeader>
     <ResearchDataStatusBar
       :mode="dataMode"
       :trade-date="dataMode === 'preview' ? previewInfo?.tradeDate : summary.tradeDate"

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import PageHeader from '@/components/layout/PageHeader.vue';
 import { quantApi } from '@/api/quant';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import ApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
@@ -38,14 +39,12 @@ watch(
 
 <template>
   <div class="space-y-4">
-    <header>
-      <h2 class="text-lg font-semibold">
-        模型目标组合
-      </h2>
-      <p class="text-xs text-muted-foreground">
-        由当日模型排名生成，不读取真实用户持仓，也不执行券商订单。
-      </p>
-    </header>
+    <PageHeader
+      variant="section"
+      title="模型目标组合"
+      en="Target Portfolio"
+      description="由当日模型排名生成，不读取真实用户持仓，也不执行券商订单。"
+    />
     <ApiErrorAlert
       v-if="error"
       :error="error"

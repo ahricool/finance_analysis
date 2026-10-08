@@ -75,13 +75,18 @@ function selectTradeDate(value: string) {
 
 <template>
   <div class="min-w-0 space-y-4">
-    <div class="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+    <div class="flex min-w-0 flex-col gap-3">
       <ModuleTabs
         :items="navItems"
         :active-key="activeTab"
         label="量化研究导航"
       />
-      <div class="flex min-w-0 flex-wrap items-end gap-3">
+      <div class="research-toolbar flex min-w-0 flex-wrap items-end gap-2">
+        <ResearchMarketToggle
+          :model-value="market"
+          data-testid="quant-market-switcher"
+          @update:model-value="setMarket"
+        />
         <p
           class="flex h-10 max-w-full items-center text-xs text-muted-foreground"
           data-testid="quant-scope-description"
@@ -103,11 +108,7 @@ function selectTradeDate(value: string) {
             @update:model-value="selectTradeDate"
           />
         </div>
-        <ResearchMarketToggle
-          :model-value="market"
-          data-testid="quant-market-switcher"
-          @update:model-value="setMarket"
-        />
+
       </div>
     </div>
     <AppApiErrorAlert

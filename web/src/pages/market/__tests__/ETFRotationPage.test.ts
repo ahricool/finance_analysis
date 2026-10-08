@@ -393,6 +393,20 @@ describe('ETFRotationPage', () => {
     expect(wrapper.text()).toContain('$95.00');
   });
 
+  it.each(['Enter', ' '])('opens ranking detail with %s without activating the focused close button', async (key) => {
+    const wrapper = mount(ETFRotationPage, { attachTo: document.body });
+    await flushPromises();
+    const row = wrapper.get('[data-testid="etf-ranking-row"]');
+    expect(row.attributes('tabindex')).toBe('0');
+    const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true });
+    row.element.dispatchEvent(event);
+    await flushPromises();
+    expect(event.defaultPrevented).toBe(true);
+    expect(document.body.querySelector('[data-testid="etf-detail-modal"]')).not.toBeNull();
+    expect(apiMocks.detail).toHaveBeenCalledWith('588000.SH', 'CN', 60, '2026-08-25');
+    wrapper.unmount();
+  });
+
   it('opens a centered viewport-bounded detail modal with factor and raw metrics', async () => {
     mount(ETFRotationPage, { attachTo: document.body });
     await flushPromises();

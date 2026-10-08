@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import PageHeader from '@/components/layout/PageHeader.vue';
 import { quantApi } from '@/api/quant';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import ApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
@@ -52,15 +53,12 @@ watch(
 
 <template>
   <div class="space-y-4">
-    <header>
-      <h2 class="text-lg font-semibold">
-        模型选股排名
-      </h2>
-      <p class="text-xs text-muted-foreground">
-        模型预测仅用于研究和生成目标组合，不代表真实订单。
-        <span v-if="ranking?.modelVersion">当前版本：{{ ranking.modelVersion }}。</span>
-      </p>
-    </header>
+    <PageHeader
+      variant="section"
+      title="模型选股排名"
+      en="Model Signals"
+      :description="`模型预测仅用于研究和生成目标组合，不代表真实订单。${ranking?.modelVersion ? `当前版本：${ranking.modelVersion}。` : ''}`"
+    />
     <ApiErrorAlert
       v-if="error"
       :error="error"
@@ -105,7 +103,7 @@ watch(
                 <TableCell>
                   <RouterLink
                     :to="{ path: `/research/quant/signals/${item.code}`, query: marketQuery() }"
-                    class="font-medium underline-offset-4 hover:underline"
+                    class="font-medium rounded-sm underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                   >
                     {{ formatSecurityLabel(item.code, item.name) }}
                   </RouterLink>

@@ -33,7 +33,7 @@ const score = computed(() =>
     :aria-label="`查看${item.title}`"
     :class="[
       'group relative block w-full min-w-0 overflow-hidden rounded-xl border border-border/80 bg-card p-3 text-left',
-      'transition duration-150 hover:-translate-y-px hover:border-foreground/15 hover:shadow-xs',
+      'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 transition duration-150 hover:-translate-y-px hover:border-foreground/15 hover:shadow-xs',
       'before:absolute before:inset-y-0 before:left-0 before:w-0.5 before:opacity-70',
       accent,
     ]"
