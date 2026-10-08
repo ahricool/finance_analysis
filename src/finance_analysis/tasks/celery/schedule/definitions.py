@@ -113,6 +113,24 @@ class ScheduledTaskDefinition:
 
 SCHEDULED_TASK_DEFINITIONS = (
     ScheduledTaskDefinition(
+        job_id="options_intelligence_intraday", name="期权异常盘中扫描 US",
+        description="Yahoo主链、Alpaca缺失能力回退；实际交易时段每30分钟低频扫描",
+        task_type="scheduled_options_intelligence_intraday",
+        celery_task_name=celery_task_name("options_intelligence_intraday"),
+        schedules=(CronSchedule(minute="0,30", hour="9-15", day_of_week="mon-fri", timezone=US_TIMEZONE),),
+        schedule_text="美股实际交易时段每30分钟（America/New_York）",
+        timezone=US_TIMEZONE, queue=QUEUE_INGESTION, expires=1500,
+    ),
+    ScheduledTaskDefinition(
+        job_id="options_intelligence_daily", name="期权异常盘后快照 US",
+        description="收盘30分钟后保存日度基线与最新已发布OI；14/17点覆盖提前及常规收盘",
+        task_type="scheduled_options_intelligence_daily",
+        celery_task_name=celery_task_name("options_intelligence_daily"),
+        schedules=(CronSchedule(minute="0", hour="14,17", day_of_week="mon-fri", timezone=US_TIMEZONE),),
+        schedule_text="交易日14:00/17:00检查实际收盘（America/New_York），日度基线幂等",
+        timezone=US_TIMEZONE, queue=QUEUE_INGESTION, expires=3600,
+    ),
+    ScheduledTaskDefinition(
         job_id=JOB_INTRADAY_CONFIRMATION_CN, name="盘中确认 CN",
         description="开盘前冻结昨日正式候选，交易时段每5分钟确认；休市和午休跳过",
         task_type="scheduled_intraday_confirmation_cn",

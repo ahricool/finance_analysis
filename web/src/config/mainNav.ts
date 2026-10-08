@@ -39,6 +39,7 @@ export const marketNavItems: NavDestination[] = [
 ];
 
 export const researchNavItems: NavDestination[] = [
+  { key: 'options-intelligence', label: '期权情报', to: '/research/options-intelligence', icon: ChartNoAxesCombined },
   { key: 'intraday-confirmation', label: '盘中确认', to: '/research/intraday-confirmation', icon: Crosshair },
   { key: 'signal-center', label: '信号中心', to: '/research/signal-center', icon: Target },
   { key: 'confluence', label: '多信号共振', to: '/research/confluence', icon: Combine },

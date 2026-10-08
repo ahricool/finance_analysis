@@ -15,7 +15,9 @@ import {
   getMarketCurrencyCode,
   getMarketCurrencySymbol,
 } from '@/utils/marketCurrency';
-import { computed } from 'vue';
+import { computed, ref, watch } from 'vue';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import OptionsPanel from '@/components/options-intelligence/OptionsPanel.vue';
 
 export interface StockDetailRecord {
   id: number;
@@ -34,9 +36,13 @@ export interface StockDetailRecord {
 const props = defineProps<{
   stock: StockDetailRecord | null;
   quote?: RealtimeQuote;
-  kind: 'watchlist' | 'holding';
+  kind: 'watchlist' | 'holding' | 'research';
+  initialTab?: 'overview' | 'options';
 }>();
 const emit = defineEmits<{ 'update:open': [value: boolean] }>();
+
+const activeTab = ref(props.initialTab ?? 'overview');
+watch(() => props.stock?.code, () => { activeTab.value = props.initialTab ?? 'overview'; });
 
 const marketName = computed(
   () => ({ CN: 'A 股', HK: '港股', US: '美股' })[props.stock?.market_type ?? 'CN'],
@@ -117,12 +123,34 @@ function movementClass(value: number | null | undefined): string {
         </DialogTitle>
         <DialogDescription>股票完整信息与每 5 秒更新的行情快照</DialogDescription>
       </DialogHeader>
+      <Tabs
+        v-if="stock?.market_type === 'US'"
+        v-model="activeTab"
+        class="shrink-0 px-6 pb-3"
+      >
+        <TabsList data-testid="stock-detail-tabs">
+          <TabsTrigger value="overview">
+            股票
+          </TabsTrigger><TabsTrigger value="options">
+            期权
+          </TabsTrigger>
+        </TabsList>
+      </Tabs>
       <Separator />
       <div
         v-if="stock"
         class="min-h-0 flex-1 overflow-y-auto overscroll-contain [scrollbar-gutter:stable]"
       >
-        <div class="space-y-6 p-6">
+        <OptionsPanel
+          v-if="activeTab === 'options' && stock.market_type === 'US'"
+          :key="stock.code"
+          :symbol="stock.code"
+          class="p-6"
+        />
+        <div
+          v-else
+          class="space-y-6 p-6"
+        >
           <section>
             <h3 class="mb-3 text-sm font-semibold text-foreground">
               实时行情
@@ -191,9 +219,13 @@ function movementClass(value: number | null | undefined): string {
           </section>
 
           <DailyKLineCard :symbol="stock.code" />
-          <ResearchEvidence :key="stock.code" :symbol="stock.code" :market="stock.market_type" />
+          <ResearchEvidence
+            :key="stock.code"
+            :symbol="stock.code"
+            :market="stock.market_type"
+          />
 
-          <section>
+          <section v-if="kind !== 'research'">
             <h3 class="mb-3 text-sm font-semibold text-foreground">
               {{ kind === 'holding' ? '持仓信息' : '自选信息' }}
             </h3>

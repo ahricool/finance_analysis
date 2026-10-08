@@ -30,6 +30,7 @@ class TaskAdvisoryLockId(IntEnum):
     CN_DRAGON_TIGER_FLOW = 10
     TRADE_ENGINE_CN = 11
     TRADE_ENGINE_US = 12
+    OPTIONS_INTELLIGENCE = 13
 
 
 @dataclass

@@ -258,6 +258,7 @@ def test_lock_ids_are_stable_and_readable() -> None:
         "CN_DRAGON_TIGER_FLOW": 10,
         "TRADE_ENGINE_CN": 11,
         "TRADE_ENGINE_US": 12,
+        "OPTIONS_INTELLIGENCE": 13,
     }
 
 
@@ -278,6 +279,8 @@ def test_lock_declarations_are_exactly_nine_nonblocking_scheduled_and_one_blocki
             )
 
     assert locked == {
+        "options_intelligence_intraday": (TaskAdvisoryLockId.OPTIONS_INTELLIGENCE, False),
+        "options_intelligence_daily": (TaskAdvisoryLockId.OPTIONS_INTELLIGENCE, False),
         "trade_engine_cn": (TaskAdvisoryLockId.TRADE_ENGINE_CN, False),
         "trade_engine_us": (TaskAdvisoryLockId.TRADE_ENGINE_US, False),
         "dragon_tiger_flow_cn": (TaskAdvisoryLockId.CN_DRAGON_TIGER_FLOW, False),
