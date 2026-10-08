@@ -1,6 +1,5 @@
 """Read-only future outcomes, never written into initial scores or signal evidence."""
 
-from datetime import timedelta
 from math import log, sqrt
 from statistics import stdev
 from finance_analysis.core.time import coerce_aware_utc, utc_now
@@ -14,7 +13,11 @@ def evaluate(event, bars, now=None):
         return {"status": "unavailable", "reason": "calendar_unavailable"}
     cal = calendar.xcals.get_calendar("XNYS")
     local_day = calendar.get_market_now("us", known).date()
-    first = cal.date_to_session(local_day + timedelta(days=1), direction="next")
+    first = cal.date_to_session(local_day, direction="next")
+    # A pre-open event can use that session's still-future opening; all other events
+    # use the next effective opening, including weekends/holidays and shortened sessions.
+    if cal.session_open(first).to_pydatetime() <= known:
+        first = cal.next_session(first)
     days = []
     for _ in range(21):
         days.append(first)
@@ -24,7 +27,7 @@ def evaluate(event, bars, now=None):
     start = days[0].date()
     base = prices.get(start, {}).get("open")
     result = {
-        "method": "next_session_open; exact_session_alignment",
+        "method": "first_session_open_after_known_at; exact_session_alignment",
         "entry_date": start.isoformat(),
         "entry_price": base,
         "status": "partial",

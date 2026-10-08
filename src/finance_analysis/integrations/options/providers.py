@@ -3,6 +3,7 @@
 import math
 import os
 import re
+from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
@@ -43,6 +44,118 @@ def occ(symbol):
         raise ValueError("Invalid OCC option symbol")
     root, expiry, kind, strike = match.groups()
     return root, datetime.strptime(expiry, "%y%m%d").date(), "call" if kind == "C" else "put", int(strike) / 1000
+
+
+def expiry_priority(expirations, session_date):
+    """Protect the 30D bracket, then 7D/60D, before extra nearby expirations."""
+    days = sorted(set(expirations))
+    anchors = []
+    for candidates in (
+        [d for d in days if (d - session_date).days <= 30],
+        [d for d in days if (d - session_date).days >= 30],
+    ):
+        if candidates:
+            anchors.append(min(candidates, key=lambda d: abs((d - session_date).days - 30)))
+    for target in (7, 30, 60):
+        if days:
+            anchors.append(min(days, key=lambda d: abs((d - session_date).days - target)))
+    return list(dict.fromkeys(anchors + days))
+
+
+def select_contracts(rows, session_date, config):
+    """Bound one source/feed, allocating expiry budgets and alternating Call/Put.
+
+    Each side starts with ATM and then a representative OTM (25Δ when supplied).
+    Unknown spot never uses an absolute-strike prefix as a supposedly valid chain.
+    """
+    unique = {r.symbol: r for r in rows}
+    eligible = [
+        r
+        for r in unique.values()
+        if 0 < (r.expiration - session_date).days <= config.max_dte
+        and r.strike > 0
+        and r.multiplier in {None, 100}
+        and not any(c.isdigit() for c in occ(r.symbol)[0])
+    ]
+    priced = all(number(r.underlying_price) and r.underlying_price > 0 for r in eligible)
+    if priced:
+        eligible = [
+            r for r in eligible if config.min_moneyness <= r.strike / r.underlying_price <= config.max_moneyness
+        ]
+    by_expiry = defaultdict(list)
+    for row in eligible:
+        by_expiry[row.expiration].append(row)
+    priority = expiry_priority(by_expiry, session_date)[: config.max_expirations]
+    # Reserve a Call/Put pair per retained expiry when possible.
+    if len(eligible) > config.max_contracts:
+        priority = priority[: max(1, config.max_contracts // 2)]
+    queues = {}
+    for expiry in priority:
+        sides = []
+        common = {r.strike for r in by_expiry[expiry] if r.option_type == "call"} & {
+            r.strike for r in by_expiry[expiry] if r.option_type == "put"
+        }
+        spot = by_expiry[expiry][0].underlying_price
+        atm_strike = min(common, key=lambda strike: (abs(strike / spot - 1), strike)) if priced and common else None
+        for kind in ("call", "put"):
+            side = [r for r in by_expiry[expiry] if r.option_type == kind]
+            if priced:
+                side.sort(
+                    key=lambda r: (
+                        r.strike != atm_strike if atm_strike is not None else False,
+                        abs(r.strike / r.underlying_price - 1),
+                        r.symbol,
+                    )
+                )
+                otm = [
+                    r
+                    for r in side
+                    if (r.strike > r.underlying_price if kind == "call" else r.strike < r.underlying_price)
+                ]
+                delta_otm = [
+                    r
+                    for r in otm
+                    if r.delta is not None and (0 < r.delta <= 1 if kind == "call" else -1 <= r.delta < 0)
+                ]
+                representative = (
+                    min(delta_otm, key=lambda r: abs(abs(r.delta) - 0.25))
+                    if delta_otm
+                    else otm[len(otm) // 2] if otm else None
+                )
+                if side and representative and representative is not side[0]:
+                    side = [side[0], representative] + [r for r in side[1:] if r is not representative]
+            sides.append(side)
+        queues[expiry] = [
+            row for i in range(max(map(len, sides), default=0)) for side in sides if i < len(side) for row in [side[i]]
+        ]
+    retained = []
+    if not priced and len(eligible) > config.max_contracts:
+        status = "underlying_missing_selection_unavailable"
+    else:
+        # Round-robin gives small expiry chains their full allocation without wasting budget.
+        while len(retained) < config.max_contracts and any(queues.values()):
+            for expiry in priority:
+                if queues[expiry] and len(retained) < config.max_contracts:
+                    retained.append(queues[expiry].pop(0))
+        status = (
+            "complete" if priced and len(retained) == len(eligible) else "limited" if priced else "underlying_missing"
+        )
+    counts = {}
+    for expiry, contracts in sorted(by_expiry.items()):
+        kept = [r for r in retained if r.expiration == expiry]
+        counts[expiry.isoformat()] = {
+            "available": {kind: sum(r.option_type == kind for r in contracts) for kind in ("call", "put")},
+            "retained": {kind: sum(r.option_type == kind for r in kept) for kind in ("call", "put")},
+        }
+    return retained, {
+        "eligible_contract_count": len(eligible),
+        "retained_contract_count": len(retained),
+        "covered_expirations": sorted({r.expiration.isoformat() for r in retained}),
+        "expiration_counts": counts,
+        "truncated_contracts": len(retained) < len(eligible),
+        "selection_status": status,
+        "moneyness_filter_applied": priced,
+    }
 
 
 def yahoo_observation(row, symbol, expiration, kind, now, session_date, underlying):
@@ -89,18 +202,7 @@ class YahooOptionsProvider:
         expirations = [date.fromisoformat(value) for value in retry_call(lambda: ticker.options)]
         expirations = [day for day in expirations if 0 < (day - session_date).days <= config.max_dte]
         result = OptionChain(symbol=symbol, observed_at=now)
-        # Daily expiries must not crowd out 30/60D capability coverage.
-        anchors = []
-        for target in (7, 30, 60):
-            if expirations:
-                anchors.append(min(expirations, key=lambda d: abs((d - session_date).days - target)))
-        for candidates in (
-            [d for d in expirations if (d - session_date).days <= 30],
-            [d for d in expirations if (d - session_date).days >= 30],
-        ):
-            if candidates:
-                anchors.append(min(candidates, key=lambda d: abs((d - session_date).days - 30)))
-        selected = sorted(list(dict.fromkeys(anchors + expirations))[: config.max_expirations])
+        selected = sorted(expiry_priority(expirations, session_date)[: config.max_expirations])
         for expiration in selected:
             try:
                 chain = retry_call(lambda: ticker.option_chain(expiration.isoformat()))
@@ -109,7 +211,7 @@ class YahooOptionsProvider:
                     for row in frame.to_dict("records"):
                         observation = yahoo_observation(row, symbol, expiration, kind, now, session_date, underlying)
                         spot = observation.underlying_price
-                        if spot and config.min_moneyness <= observation.strike / spot <= config.max_moneyness:
+                        if not spot or config.min_moneyness <= observation.strike / spot <= config.max_moneyness:
                             result.observations.append(observation)
             except Exception as exc:
                 result.errors.append(f"yfinance:{expiration}:{type(exc).__name__}")
@@ -118,9 +220,11 @@ class YahooOptionsProvider:
             "selected_expirations": [d.isoformat() for d in selected],
             "truncated_expirations": len(expirations) > len(selected),
         }
-        if len(result.observations) > config.max_contracts:
-            result.observations = result.observations[: config.max_contracts]
-            result.coverage["truncated_contracts"] = True
+        if all(number(r.underlying_price) for r in result.observations):
+            result.observations, coverage = select_contracts(result.observations, session_date, config)
+            result.coverage.update(coverage)
+        else:
+            result.coverage["selection_status"] = "deferred_missing_underlying"
         return result
 
 
@@ -247,19 +351,17 @@ class AlpacaOptionsProvider:
                 result.observations.append(
                     alpaca_observation(option_symbol, symbol, row, contracts.get(option_symbol, {}), now, config.feed)
                 )
-        expirations = sorted({r.expiration for r in result.observations})
-        anchors = [
-            min(expirations, key=lambda d: abs((d - session_date).days - target))
-            for target in (7, 30, 60)
-            if expirations
-        ]
-        selected = set(list(dict.fromkeys(anchors + expirations))[: config.max_expirations])
+        selected = set(
+            expiry_priority({r.expiration for r in result.observations}, session_date)[: config.max_expirations]
+        )
         result.observations = [r for r in result.observations if r.expiration in selected]
-        if len(result.observations) > config.max_contracts:
-            result.observations.sort(
-                key=lambda r: abs(r.strike / underlying_price - 1) if underlying_price else r.strike
-            )
-            result.observations = result.observations[: config.max_contracts]
-            result.coverage["truncated_contracts"] = True
+        if number(underlying_price) and underlying_price > 0:
+            for row in result.observations:
+                row.underlying_price = underlying_price  # Independent stock reference, not an option field.
+            result.observations, coverage = select_contracts(result.observations, session_date, config)
+            result.coverage.update(coverage)
+        else:
+            # Keep the bounded raw response until the facade can retry its stock-quote capability.
+            result.coverage["selection_status"] = "deferred_missing_underlying"
         result.coverage["selected_expirations"] = sorted(d.isoformat() for d in selected)
         return result

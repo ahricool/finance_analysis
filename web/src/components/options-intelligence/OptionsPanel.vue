@@ -317,7 +317,7 @@ onBeforeUnmount(() => { generation++; clearTimeout(timer); });
         <h4 class="font-semibold">
           历史异常与事后验证
         </h4><p class="text-xs text-muted-foreground">
-          收益以信号后的首个交易日开盘为基准，按1/3/5交易日精确对齐。缺失不顺延，事后结果不修改原始信号。
+          收益以首次可知时间后的首个有效开盘为基准（盘前可用当天），按1/3/5交易日精确对齐。缺失不顺延，事后结果不修改原始信号。
         </p><p
           v-if="!data?.events.length"
           class="text-sm text-muted-foreground"

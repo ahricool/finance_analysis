@@ -9,6 +9,8 @@ from pydantic import BaseModel
 from finance_analysis.core.time import utc_now
 from finance_analysis.market_review import trading_calendar as calendar
 from finance_analysis.integrations.market_data.service import MarketDataService
+from finance_analysis.integrations.options.service import attach_reference, quote_reference, limit_chain
+from finance_analysis.integrations.options.providers import number
 from finance_analysis.database.repositories.options_intelligence import OptionsRepository
 from finance_analysis.llm import LLMClient, LLMRequest, parse_llm_json_response
 from .config import get_options_config
@@ -90,13 +92,17 @@ class OptionsIntelligenceService:
         for row in chain.observations:
             if row.volume is not None and row.volume_date != day:
                 row.limitations.append("volume_session_unknown_or_stale")
-        if not any(r.underlying_price for r in chain.observations):
+        if chain.observations and not any(number(r.underlying_price) for r in chain.observations):
             quotes = self.market.get_realtime_quotes([symbol])
-            quote = quotes.data.get(symbol)
-            if quote and quote.price and quote.quote_time:
-                for row in chain.observations:
-                    row.underlying_price, row.underlying_timestamp = quote.price, quote.quote_time
-                    row.limitations.append(f"underlying_price_source:{quote.provider}")
+            if realtime_run:
+                now = utc_now()
+            reference = quote_reference(quotes.data.get(symbol), now)
+            if reference:
+                attach_reference(chain.observations, reference)
+        # Also re-filter a chain whose stock reference was supplied after its initial fetch.
+        limit_chain(chain, day, self.config)
+        if not chain.observations:
+            raise ValueError("Options data unavailable: " + "; ".join(chain.errors))
         history = self.repo.history(symbol, day, self.config.history_days, mode)
         oi_history = self.repo.history(symbol, day, 7, "daily")
         changes = {}

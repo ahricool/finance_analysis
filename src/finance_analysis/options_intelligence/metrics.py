@@ -68,7 +68,13 @@ def liquidity(row, now, session_date, config):
         notes.append("very_low_premium")
     if dte <= config.near_expiry_days:
         notes.append("near_expiry")
-    moneyness = row.strike / row.underlying_price if row.underlying_price else None
+    moneyness = (
+        row.strike / row.underlying_price
+        if row.underlying_price is not None and isfinite(row.underlying_price) and row.underlying_price > 0
+        else None
+    )
+    if moneyness is None:
+        notes.append("underlying_price_missing")
     if (
         moneyness
         and row.quote_timestamp
@@ -181,7 +187,7 @@ def cohort(row, session_date):
     dte = (row.expiration - session_date).days
     dte_bucket = next((i for i, limit in enumerate((7, 21, 45, 90, 180)) if dte <= limit), 5)
     # Moneyness buckets avoid shifting strikes; use consistent moneyness even when some feeds supply delta.
-    if not row.underlying_price or row.underlying_price <= 0:
+    if not row.underlying_price or not isfinite(row.underlying_price) or row.underlying_price <= 0:
         return None
     m = row.strike / row.underlying_price
     money_bucket = next((i for i, limit in enumerate((0.9, 0.97, 1.03, 1.1)) if m <= limit), 4)
@@ -212,7 +218,14 @@ def term_metrics(rows, session_date, now, config):
     result = []
     for expiration in sorted({r.expiration for r in rows}):
         group = [r for r in rows if r.expiration == expiration]
-        spot = next((r.underlying_price for r in group if r.underlying_price), None)
+        spot = next(
+            (
+                r.underlying_price
+                for r in group
+                if r.underlying_price is not None and isfinite(r.underlying_price) and r.underlying_price > 0
+            ),
+            None,
+        )
         if not spot:
             continue
         # Same strike ATM straddle and IV; no mismatched call/put strikes.

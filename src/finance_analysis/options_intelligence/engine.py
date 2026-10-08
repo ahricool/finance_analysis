@@ -2,6 +2,7 @@
 
 from collections import defaultdict
 from statistics import mean
+from math import isfinite
 
 from .metrics import (
     cohort,
@@ -45,18 +46,33 @@ def analyze(chain, session_date, now, history, mode, config, closes=(), oi_chang
                 baselines[key].append((item["trade_date"], old.volume))
     contracts, candidates = [], []
     source_metrics = {key: term_metrics(groups[key], session_date, now, config) for key in source_order}
-    # Each tenor is an independent capability: a valid 7D IV cannot block a fallback 30D IV.
-    term = next(
-        (
-            source_metrics[k]
-            for k in source_order
-            if any(t["atm_iv"] is not None or t["expected_move"] is not None for t in source_metrics[k])
-        ),
-        [],
-    )
+    # Keep each provider's complete calculations intact; choose a whole row per actual expiry.
+    expirations = sorted({t["expiration"] for items in source_metrics.values() for t in items})
+    displayed = {}
+    for expiry in expirations:
+        choices = [t for key in source_order for t in source_metrics[key] if t["expiration"] == expiry]
+        displayed[expiry] = next(
+            (t for t in choices if t["atm_iv"] is not None),
+            next((t for t in choices if t["expected_move"] is not None), choices[0]),
+        )
     iv30_term = next((source_metrics[k] for k in source_order if standard_iv(source_metrics[k])[0] is not None), [])
     iv30, iv30_method = standard_iv(iv30_term)
     selected_source = (iv30_term[0]["source"], iv30_term[0]["feed_type"]) if iv30_term else None
+    # If Yahoo lacks the *30D target*, display the coherent fallback bracket used by that target.
+    # Do not hide one interpolation leg behind a Yahoo-only expiry with a different IV.
+    iv30_references = []
+    valid_iv30 = sorted((t for t in iv30_term if t["atm_iv"] is not None), key=lambda t: t["dte"])
+    exact = next((t for t in valid_iv30 if t["dte"] == 30), None)
+    if exact:
+        iv30_references = [exact]
+    else:
+        for left, right in zip(valid_iv30, valid_iv30[1:]):
+            if left["dte"] < 30 < right["dte"]:
+                iv30_references = [left, right]
+                break
+    for item in iv30_references:
+        displayed[item["expiration"]] = item
+    term = [displayed[expiry] for expiry in expirations]
     iv_history = [
         h["metrics"].get("iv_30d") for h in comparable if h["metrics"].get("iv_source") == list(selected_source or ())
     ]
@@ -101,28 +117,66 @@ def analyze(chain, session_date, now, history, mode, config, closes=(), oi_chang
         None,
     )
     skew_change = skew30["value"] - prior_skew if skew30["value"] is not None and prior_skew is not None else None
-    ratios = []
+    ratios, ratio_coverage = [], []
     for low, high in ((1, 7), (8, 21), (22, 45), (46, config.max_dte)):
-        subset = [r for r in primary if low <= (r.expiration - session_date).days <= high]
+
+        def valid(r):
+            return r.volume_date == session_date and r.volume is not None and isfinite(r.volume) and r.volume >= 0
+
+        unique = {}
+        raw = [r for r in primary if low <= (r.expiration - session_date).days <= high]
+        for row in raw:
+            identity = row.symbol, row.option_type, row.expiration, row.strike
+            if identity not in unique or not valid(unique[identity]) and valid(row):
+                unique[identity] = row
+        subset = list(unique.values())
         put = [r for r in subset if r.option_type == "put"]
         call = [r for r in subset if r.option_type == "call"]
 
         def ratio(field):
             pv, cv = [getattr(r, field) for r in put], [getattr(r, field) for r in call]
-            if field == "volume" and any(r.volume_date != session_date for r in put + call):
-                return None
             if not pv or not cv or any(v is None for v in pv + cv) or sum(cv) <= 0:
                 return None
             return sum(pv) / sum(cv)
 
+        # Only this source/feed's valid current-session observations contribute to volume.
+        valid_put, valid_call = [r for r in put if valid(r)], [r for r in call if valid(r)]
+        call_volume = sum(r.volume for r in valid_call)
+        volume_ratio = sum(r.volume for r in valid_put) / call_volume if valid_put and call_volume > 0 else None
+        complete = len(valid_put) == len(put) and len(valid_call) == len(call)
+        ratio_coverage.append(
+            {
+                "dte_min": low,
+                "dte_max": high,
+                "source": primary[0].data_source if primary else None,
+                "feed_type": primary[0].feed_type if primary else None,
+                "put_contracts": len(put),
+                "call_contracts": len(call),
+                "duplicate_contracts_excluded": len(raw) - len(subset),
+                "valid_put_contracts": len(valid_put),
+                "valid_call_contracts": len(valid_call),
+                "put_valid_fraction": len(valid_put) / len(put) if put else None,
+                "call_valid_fraction": len(valid_call) / len(call) if call else None,
+                "confidence": "low" if not complete or not valid_put or not call_volume else "filtered_chain_only",
+            }
+        )
         ratios.append(
             {
                 "dte_min": low,
                 "dte_max": high,
-                "volume_ratio": ratio("volume"),
+                "volume_ratio": volume_ratio,
                 "oi_ratio": ratio("open_interest"),
                 "source": primary[0].data_source if primary else None,
-                "reason": "filtered_chain_observed_session; OI_date_unknown" if subset else "no_contracts",
+                "reason": (
+                    "no_contracts"
+                    if not subset
+                    else (
+                        "valid_current_volume_unavailable"
+                        if volume_ratio is None
+                        else "partial_valid_volume_subset" if not complete else "filtered_chain_observed_session"
+                    )
+                )
+                + ("; OI_date_unknown" if any(r.oi_date is None for r in subset) else ""),
             }
         )
     pc30 = ratios[2]["volume_ratio"]
@@ -348,6 +402,8 @@ def analyze(chain, session_date, now, history, mode, config, closes=(), oi_chang
         "historical_percentiles" if any(v is not None for v in bearish_values[:3]) else "initial_skew_change_oi_rules",
         "insufficient_protection_demand_evidence",
     )
+    if pc30 is not None and ratio_coverage[2]["confidence"] == "low":
+        bearish["confidence"] = "low"
     risk_score = weighted_score(
         [mean(liquidity_scores)] if liquidity_scores else [],
         (1,),
@@ -366,6 +422,7 @@ def analyze(chain, session_date, now, history, mode, config, closes=(), oi_chang
         or skew30["feed_type"] == "indicative"
         or (put_iv_source and put_iv_source[1] == "indicative")
         or any(r.feed_type == "indicative" for r in activity_rows.values())
+        or (pc30 is not None and ratio_coverage[2]["confidence"] == "low")
     ):
         grade = "C"
     # A requires timestamped real OPRA IV too; Alpaca snapshots without IV timestamps cannot earn A.
@@ -416,23 +473,27 @@ def analyze(chain, session_date, now, history, mode, config, closes=(), oi_chang
             "标准化30D ATM IV历史分位数升高。",
             *selected_source,
         )
-    valid_term = [t for t in term if t["atm_iv"] is not None]
-    if len(valid_term) >= 2 and valid_term[0]["atm_iv"] - valid_term[-1]["atm_iv"] >= config.term_inversion_alert:
-        stock_event(
-            "IV_TERM_INVERSION",
-            valid_term[0]["atm_iv"] - valid_term[-1]["atm_iv"],
-            {"front": valid_term[0], "back": valid_term[-1]},
-            75,
-            "同来源短期限ATM IV高于长期限；注意实际期限与事件驱动。",
-            valid_term[0]["source"],
-            valid_term[0]["feed_type"],
-        )
+    for key in source_order:
+        valid_term = [t for t in term if t["atm_iv"] is not None and (t["source"], t["feed_type"]) == key]
+        if len(valid_term) >= 2 and valid_term[0]["atm_iv"] - valid_term[-1]["atm_iv"] >= config.term_inversion_alert:
+            stock_event(
+                "IV_TERM_INVERSION",
+                valid_term[0]["atm_iv"] - valid_term[-1]["atm_iv"],
+                {"front": valid_term[0], "back": valid_term[-1]},
+                75,
+                "同来源短期限ATM IV高于长期限；注意实际期限与事件驱动。",
+                *key,
+            )
     rv = realized_volatility(closes)
     limitations = list(dict.fromkeys(chain.errors + [note for row in rows for note in row.limitations]))
     if iv30 is None:
         limitations.append("valid_30d_atm_iv_unavailable")
     if base_days < config.min_history_days:
         limitations.append(f"历史预热：{base_days}/{config.min_history_days}个可比交易日")
+    if any(
+        r["confidence"] == "low" and r["valid_put_contracts"] + r["valid_call_contracts"] > 0 for r in ratio_coverage
+    ):
+        limitations.append("partial_put_call_volume_coverage")
     return {
         "symbol": chain.symbol,
         "trade_date": session_date.isoformat(),
@@ -440,7 +501,14 @@ def analyze(chain, session_date, now, history, mode, config, closes=(), oi_chang
         "computed_at": now.isoformat(),
         "rule_version": config.rule_version,
         "mode": mode,
-        "underlying_price": next((r.underlying_price for r in rows if r.underlying_price), None),
+        "underlying_price": next(
+            (
+                r.underlying_price
+                for r in rows
+                if r.underlying_price is not None and isfinite(r.underlying_price) and r.underlying_price > 0
+            ),
+            None,
+        ),
         "scores": {"bearish_demand": bearish, "unusual_activity": activity, "liquidity_risk": risk_score},
         "evidence_grade": grade,
         "direction": "protection_demand_reference",
@@ -475,7 +543,12 @@ def analyze(chain, session_date, now, history, mode, config, closes=(), oi_chang
         ),
         "premium_volume_method": "reported_opra_daily_vwap_times_volume",
         "limitations": limitations,
-        "coverage": chain.coverage,
+        "coverage": {
+            **chain.coverage,
+            "put_call_volume": ratio_coverage,
+            "provider_term_structure": {":".join(key): value for key, value in source_metrics.items()},
+            "iv_30d_reference_expirations": [t["expiration"] for t in iv30_references],
+        },
         "contracts": contracts,
         "events": [
             {

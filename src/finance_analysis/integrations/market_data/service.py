@@ -505,7 +505,7 @@ class MarketDataService:
         canonical = canonical_symbol(symbol)
         if not canonical.endswith(".US"):
             raise ValueError("Options Intelligence supports US securities only")
-        return OptionsDataService().fetch(canonical, now)
+        return OptionsDataService(underlying_quote_loader=self.get_realtime_quotes).fetch(canonical, now)
 
     def get_realtime_quotes(
         self, symbols: Iterable[str], *, providers: Iterable[str] | None = None
