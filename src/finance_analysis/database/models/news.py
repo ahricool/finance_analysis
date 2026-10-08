@@ -11,7 +11,7 @@ class NewsIntel(Base):
     """One original news fact per URL; all usage belongs to NewsIntelUsage."""
     __tablename__ = "news_intel"
     id = Column(Integer, primary_key=True)
-    title = Column(Text, nullable=False)
+    title = Column(String(300), nullable=False)
     snippet = Column(Text)
     url = Column(String(1000), nullable=False)
     source = Column(String(100))

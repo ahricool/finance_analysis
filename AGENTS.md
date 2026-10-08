@@ -383,3 +383,13 @@ Beat复用analysis队列，CN20:40–21:50、US23:10–23:50每10分钟主动检
 页面`/research/signal-center`，历史GET只读已存快照。详见`docs/signal-center.md`。
 
 Signal Center 历史 BUY 在 GET 时复用 DB 前复权日线批量计算 1/3/5/10D、前10日 MFE/MAE 与收盘回撤；基准是实际生成后首个可用交易日开盘。交易日精确对齐，缺日不顺延，评价与不可变分析分开，不新增任务/迁移。见 `docs/signal-center.md`。
+
+## Options Intelligence
+
+`options_intelligence/` 独立做美股低频期权异常与风险研究，不预测/下单。`MarketDataService.get_option_chain` →
+`integrations/options/`：yfinance 主链，Alpaca 缺失能力回退；合约/OI 日期来自 Alpaca 只读 Trading API。
+报价/IV 不跨来源拼接，Indicative 非 NBBO；未知报价时间不实时评分，未知 OI 日期不次日确认。
+三个评分独立，历史预热可 N/A；事件初始证据不可变，次日 OI 与事后股票收益放验证字段。
+Beat `options_intelligence_intraday/daily` 复用 ingestion 与独立任务锁，真实 NYSE 时段检查；GET 仅读库。
+页面 `/research/options-intelligence` 与现有美股股票详情「期权」Tab。迁移 `0070_options_intelligence`；
+规则、数据能力、OPRA 检查与配置见 `docs/options-intelligence.md`，离线测试 `tests/options_intelligence/`。

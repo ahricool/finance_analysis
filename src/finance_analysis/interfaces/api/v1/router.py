@@ -103,3 +103,6 @@ from .endpoints import intraday_confirmation
 router.include_router(intraday_confirmation.router, prefix="/intraday-confirmation", tags=["Intraday Confirmation"])
 from .endpoints import signal_center
 router.include_router(signal_center.router, prefix="/signal-center", tags=["Signal Center"])
+
+from .endpoints import options_intelligence
+router.include_router(options_intelligence.router, prefix="/options-intelligence", tags=["Options Intelligence"])

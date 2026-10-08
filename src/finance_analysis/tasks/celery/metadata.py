@@ -55,7 +55,12 @@ EARNINGS_OUTLOOK_TASK = CeleryTaskMetadata(
     source="celery",
 )
 
+OPTIONS_TASK = CeleryTaskMetadata(
+    celery_name="options.request", task_type="options_intelligence", display_name="期权分析", source="celery_manual"
+)
+
 ON_DEMAND_TASKS = (
+    OPTIONS_TASK,
     EARNINGS_OUTLOOK_TASK,
     DEMO_ADD_TASK,
     STOCK_ANALYSIS_TASK,

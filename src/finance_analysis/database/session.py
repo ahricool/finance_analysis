@@ -336,8 +336,10 @@ class DatabaseManager(LLMUsageMixin):
                 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
                 insert = pg_insert if session.bind.dialect.name == "postgresql" else sqlite_insert
+                # Hash the complete original headline above; only the stored
+                # display title is bounded by the existing VARCHAR(300) schema.
                 values = dict(
-                            title=title,
+                            title=title[:300],
                             snippet=snippet,
                             url=url_key,
                             source=source,

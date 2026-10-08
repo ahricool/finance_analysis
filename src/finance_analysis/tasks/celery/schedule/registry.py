@@ -63,6 +63,7 @@ def build_task_routes() -> dict[str, dict[str, str]]:
     routes.update(
         {
             "analysis.earnings_outlook": {"queue": "analysis"},
+            "options.request": {"queue": "ingestion"},
             "qlib.model.train": {"queue": "qlib"},
             "qlib.model.predict": {"queue": "qlib"},
             "qlib.daily.predict": {"queue": "qlib"},
