@@ -101,3 +101,68 @@ class TestPipelinePrefetchBehavior(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class _PrefetchProvider:
+    """Network-free provider behind the real service and routing validation."""
+
+    def __init__(self):
+        self.quote_requests = []
+        self.instrument_requests = []
+
+    def fetch_quotes(self, request):
+        from finance_analysis.integrations.market_data.models import BatchQuoteResult
+        self.quote_requests.append(request.symbols)
+        return BatchQuoteResult()
+
+    def get_instrument_info(self, request):
+        from finance_analysis.integrations.market_data.models import BatchInstrumentResult
+        self.instrument_requests.append(request.symbols)
+        return BatchInstrumentResult()
+
+
+def test_mixed_market_batch_uses_real_router_and_one_aggregate(monkeypatch):
+    from finance_analysis.integrations.market_data import MarketDataService
+    from finance_analysis.integrations.market_data.registry import (
+        INSTRUMENT_INFO, REALTIME_QUOTES, ProviderRegistry,
+    )
+    from finance_analysis.integrations.market_data.normalizer import infer_market
+
+    provider = _PrefetchProvider()
+    registry = ProviderRegistry()
+    registry.register("offline", provider, capabilities={INSTRUMENT_INFO, REALTIME_QUOTES})
+    monkeypatch.setattr("finance_analysis.integrations.market_data.router.provider_order", lambda *_: ("offline",))
+    pipeline = TestPipelinePrefetchBehavior._build_pipeline(process_result=None)
+    pipeline.fetcher_manager = MarketDataService(registry=registry)
+    pipeline.process_single_stock.side_effect = lambda code, **_: SimpleNamespace(code=code, success=True)
+    pipeline._send_notifications = MagicMock()
+    codes = ["600519.SH", "MSFT.US", "700.HK", "000001.SZ", "AAPL.US"]
+
+    results = pipeline.run(stock_codes=codes, send_notification=False)
+
+    expected = [("600519.SH", "000001.SZ"), ("MSFT.US", "AAPL.US"), ("700.HK",)]
+    assert provider.quote_requests == expected
+    assert provider.instrument_requests == expected
+    assert all(len({infer_market(code) for code in batch}) == 1 for batch in expected)
+    assert {result.code for result in results} == set(codes)
+    assert pipeline.process_single_stock.call_count == len(codes)
+    pipeline._send_notifications.assert_called_once()
+    assert pipeline._send_notifications.call_args.args[0] is results
+    assert pipeline._send_notifications.call_args.kwargs == {"push": False}
+
+
+def test_small_mixed_market_batch_prefetches_names_only(monkeypatch):
+    from finance_analysis.integrations.market_data import MarketDataService
+    from finance_analysis.integrations.market_data.registry import (
+        INSTRUMENT_INFO, REALTIME_QUOTES, ProviderRegistry,
+    )
+
+    provider = _PrefetchProvider()
+    registry = ProviderRegistry()
+    registry.register("offline", provider, capabilities={INSTRUMENT_INFO, REALTIME_QUOTES})
+    monkeypatch.setattr("finance_analysis.integrations.market_data.router.provider_order", lambda *_: ("offline",))
+    pipeline = TestPipelinePrefetchBehavior._build_pipeline(process_result=None)
+    pipeline.fetcher_manager = MarketDataService(registry=registry)
+    pipeline.run(stock_codes=["600519.SH", "MSFT.US"], send_notification=False)
+    assert provider.instrument_requests == [("600519.SH",), ("MSFT.US",)]
+    assert provider.quote_requests == []

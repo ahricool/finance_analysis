@@ -23,6 +23,7 @@ class DailyAnalysisTaskService:
         logger.info("每日全量分析任务开始执行 - %s", started_at.strftime("%Y-%m-%d %H:%M:%S"))
         results: List[Any] = []
         total_count = 0
+        validation_failures: list[dict[str, Any]] = []
         report: Optional[str] = None
         try:
             from finance_analysis.analysis.pipeline import StockAnalysisPipeline
@@ -31,11 +32,13 @@ class DailyAnalysisTaskService:
 
             config = get_pipeline_config()
             stock_codes = get_watch_list_codes()
-            total_count = len(stock_codes)
-            if not stock_codes:
+            validation_failures = list(getattr(stock_codes, "validation_failures", []))
+            total_count = len(stock_codes) + len(validation_failures)
+            if not total_count:
                 raise TaskSkipped("未配置自选股，本次每日全量分析已跳过")
-            pipeline = StockAnalysisPipeline(config=config)
-            results = pipeline.run(stock_codes=stock_codes)
+            if stock_codes:
+                pipeline = StockAnalysisPipeline(config=config)
+                results = pipeline.run(stock_codes=stock_codes)
             if results:
                 report = pipeline._generate_aggregate_report(results, resolve_report_type(config))
         except TaskSkipped:
@@ -50,6 +53,7 @@ class DailyAnalysisTaskService:
                 "total_count": total_count,
                 "success_count": len(results),
                 "failed_count": max(0, total_count - len(results)),
+                "validation_failures": validation_failures,
                 "report": report,
                 "started_at": started_at.isoformat(),
                 "finished_at": finished_at.isoformat(),

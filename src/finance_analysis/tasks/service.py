@@ -27,6 +27,7 @@ TASK_STATUSES = (
     "processing",
     "completed",
     "failed",
+    "partial",
     "skipped",
     "cancelled",
     "retrying",

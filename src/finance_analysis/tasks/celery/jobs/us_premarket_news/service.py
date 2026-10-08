@@ -26,6 +26,7 @@ class USPremarketNewsTaskService:
             from .domain_service import USPremarketNewsService
 
             watch_symbols = get_watch_list_codes_by_market("US")
+            validation_failures = list(getattr(watch_symbols, "validation_failures", []))
             summary = USPremarketNewsService(config=get_pipeline_config()).run(watch_symbols, now=started_at)
         except Exception as exc:
             logger.exception("美股盘前新闻情报任务执行失败: %s", exc)
@@ -41,6 +42,8 @@ class USPremarketNewsTaskService:
             "errors": summary.errors,
             "notification_id": summary.notification_id,
             "push_sent": summary.push_sent,
+            "validation_failures": validation_failures,
+            "channel_results": dict(summary.channel_results),
             "started_at": summary.started_at.isoformat(),
             "finished_at": summary.finished_at.isoformat(),
         }

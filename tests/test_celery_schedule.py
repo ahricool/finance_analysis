@@ -453,3 +453,17 @@ def test_industry_preview_schedule_includes_1005():
     }
     assert industry.queue == "analysis"
     assert industry.allow_manual_run is False
+
+
+def test_before_publish_skips_internal_qlib_child_without_changing_protocol():
+    from unittest.mock import MagicMock, patch
+    from finance_analysis.tasks.celery import app as app_module
+
+    service = MagicMock()
+    with patch.object(app_module, "get_task_lifecycle_service", return_value=service):
+        app_module._create_pending_task_record(
+            sender="qlib.daily.predict",
+            headers={"id": "qlib-child", "_skip_task_record": True},
+            body=([], {"protocol_version": 1, "market": "US"}, {}),
+        )
+    service.create_pending.assert_not_called()

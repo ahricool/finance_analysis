@@ -4,11 +4,13 @@
 
 ## 入库与外部推送结果
 
-`send()` 返回 `NotificationResult`：`notification_id` 非空表示消息已入库；`push_attempted` 表示实际尝试了外推；`push_sent` 表示至少一个渠道成功。后两个字段只存在于返回值中，不写入数据库。
+`send()` 返回 `NotificationResult`：`notification_id` 非空表示消息已入库；`push_attempted` 表示实际尝试了外推；`push_sent` 表示至少一个渠道成功。`channel_results` 记录各实际尝试渠道的布尔结果；上述推送字段不写入 `notification` 表。美股盘前新闻和盘后复盘将渠道结果保存在任务执行结果中，任一渠道失败记录为 `partial`，报告与站内消息仍保留。
 
-业务状态仅依据 `notification_id is not None` 推进。`push=False`、无渠道和 Noise Control suppress 均返回未尝试推送，不产生任务异常；外推失败仅记录日志。入库失败仍可尝试推送，但不能标记业务消息已处理。
+业务状态仅依据 `notification_id is not None` 推进。`push=False`、无渠道和 Noise Control suppress 均返回未尝试推送，不产生任务异常；外推失败记录日志和渠道结果，不自动重跑业务或重新生成通知。入库失败仍可尝试推送，但不能标记业务消息已处理。
 
 `content` 始终保存完整正文；可选 `push_content` 供渠道推送及原有 Noise Control 内容哈希使用，未传则使用 `content`。显式 dedup/cooldown key 语义不变。A股收盘前保存完整报告，外推简版摘要。
+
+ntfy 使用紧凑 UTF-8 JSON 发布，按实际消息字节及序列化 JSON 总字节分段（默认 4096 / 8192 字节）。分段编号计入预算，全部段发送成功才返回成功；失败仅沿用当前段的瞬态重试，不重发已成功段。
 
 ## 数据与用户范围
 

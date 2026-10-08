@@ -3,15 +3,27 @@
 
 from __future__ import annotations
 
-from typing import List, Optional
+import logging
+from typing import Any, Iterable, List, Optional
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from finance_analysis.stocks.markets import normalize_market_type
+from finance_analysis.stocks.markets import canonical_watch_list_code, normalize_market_type
 from finance_analysis.database.session import DatabaseManager
 from finance_analysis.database.models import WatchListItem
 from finance_analysis.core.time import utc_now
+
+
+logger = logging.getLogger(__name__)
+
+
+class WatchListCodes(list[str]):
+    """List-compatible valid codes with visible per-row input failures for batch jobs."""
+
+    def __init__(self, codes: Iterable[str] = (), *, validation_failures: Optional[List[dict[str, Any]]] = None):
+        super().__init__(codes)
+        self.validation_failures = list(validation_failures or [])
 
 
 def get_db() -> DatabaseManager:
@@ -55,14 +67,22 @@ class WatchListRepo:
             return session.execute(stmt).scalars().first()
 
     def get_codes(self, uid: Optional[int] = None, market_type: Optional[str] = None) -> List[str]:
-        """Return all stock codes in the watch list."""
+        """Return canonical business identifiers using each row's explicit market."""
         with self.db.get_session() as session:
-            stmt = select(WatchListItem.code)
+            stmt = select(WatchListItem.id, WatchListItem.code, WatchListItem.market_type)
             if uid is not None:
                 stmt = stmt.where(WatchListItem.uid == uid)
             if market_type:
                 stmt = stmt.where(WatchListItem.market_type == normalize_market_type(market_type))
-            return list(session.execute(stmt).scalars().all())
+            codes = WatchListCodes()
+            for item_id, code, market in session.execute(stmt).all():
+                try:
+                    codes.append(canonical_watch_list_code(code, market))
+                except ValueError as exc:
+                    failure = {"watch_list_id": item_id, "code": code, "market_type": market, "error": str(exc)}
+                    codes.validation_failures.append(failure)
+                    logger.warning("自选股校验失败 item_id=%s: %s", item_id, exc)
+            return codes
 
     # ── Write ─────────────────────────────────────────────────────────────────
 
@@ -76,12 +96,14 @@ class WatchListRepo:
         market_type: Optional[str] = None,
         is_favorite: bool = False,
     ) -> WatchListItem:
+        resolved_market = normalize_market_type(market_type, code)
+        canonical_watch_list_code(code, resolved_market)  # Validate before entering the write transaction.
         item = WatchListItem(
             uid=uid,
             code=code.upper().strip(),
             name=(name or "").strip() or None,
             notes=(notes or "").strip() or None,
-            market_type=normalize_market_type(market_type, code),
+            market_type=resolved_market,
             is_favorite=bool(is_favorite),
             created_at=utc_now(),
             updated_at=utc_now(),
@@ -112,12 +134,14 @@ class WatchListRepo:
                 return None
             if uid is not None and obj.uid != uid:
                 return None
+            resolved_market = normalize_market_type(market_type, obj.code) if market_type is not None else obj.market_type
+            canonical_watch_list_code(obj.code, resolved_market)  # Validate before mutating any row fields.
             if name is not None:
                 obj.name = name.strip() or None
             if notes is not None:
                 obj.notes = notes.strip() or None
             if market_type is not None:
-                obj.market_type = normalize_market_type(market_type, obj.code)
+                obj.market_type = resolved_market
             if is_favorite is not None:
                 obj.is_favorite = bool(is_favorite)
             obj.updated_at = utc_now()

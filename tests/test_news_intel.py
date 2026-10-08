@@ -83,6 +83,16 @@ class NewsIntelStorageTestCase(unittest.TestCase):
             self.assertEqual(usage.query_id, "task_001")
             self.assertEqual(usage.symbol, "600519")
 
+    def test_long_title_is_truncated_without_rolling_back_news_batch(self) -> None:
+        title = "新" * 347
+        items = [NewsItem(title=title, snippet="news", url="https://news.example/long", source="example"),
+                 NewsItem(title="short title", snippet="news", url="https://news.example/short", source="example")]
+        assert self.db.save_news_intel(code="MSFT.US", usage_type="premarket_news", items=items,
+                                       provider="longbridge") == 2
+        with self.db.get_session() as session:
+            assert session.query(NewsIntel).filter_by(url="https://news.example/long").one().title == title[:300]
+            assert session.query(NewsIntel).count() == 2
+
     def test_save_news_intel_without_url_fallback_key(self) -> None:
         """无 URL 时使用兜底键去重"""
         result = NewsItem(

@@ -134,6 +134,7 @@ class USPremarketNewsService:
         notification_result = self.reporter.send_notification(summary)
         summary.notification_id = notification_result.notification_id
         summary.push_sent = notification_result.push_sent
+        summary.channel_results = dict(notification_result.channel_results)
         logger.info(
             "美股盘前新闻情报任务完成: symbols=%s fetched=%s inserted=%s candidates=%s top=%s warnings=%s",
             summary.symbols_count,

@@ -64,6 +64,7 @@ const listResponse: TaskRunsResponse = {
     processing: 0,
     completed: 1,
     failed: 0,
+    partial: 0,
     skipped: 0,
     retrying: 0,
     cancelled: 0,
@@ -81,6 +82,7 @@ const overviewResponse: TaskRunsResponse = {
     retrying: 1,
     completed: 100,
     failed: 2,
+    partial: 3,
     skipped: 1,
     cancelled: 1,
   },
@@ -115,7 +117,7 @@ function expectOverview(wrapper: Awaited<ReturnType<typeof mountPage>>) {
   expect(text).toContain('总记录109');
   expect(text).toContain('执行中5');
   expect(text).toContain('成功100');
-  expect(text).toContain('失败2');
+  expect(text).toContain('失败/部分失败5');
 }
 
 function expectNoBusinessFilters(query?: TaskRunQuery) {
@@ -219,6 +221,17 @@ describe('TasksPage', () => {
     wrapper.unmount();
   });
 
+  it('counts a partially failed latest run as an issue without treating it as in flight', async () => {
+    vi.mocked(tasksApi.getScheduledTasks).mockResolvedValue({
+      items: [{ ...cnDailySync, latestRun: { ...sampleRun, status: 'partial' } }],
+    });
+    const wrapper = await mountPage();
+    const overview = wrapper.get('[data-testid="scheduled-overview"]').text().replace(/\s+/g, '');
+    expect(overview).toContain('异常/不可用1');
+    expect(wrapper.get('[data-testid="scheduled-table"]').text()).toContain('部分失败');
+    wrapper.unmount();
+  });
+
   it('submits a full CN daily sync from the scheduled task detail dialog', async () => {
     const wrapper = await mountPage();
     const detailDialog = await openFirstScheduledDetail(wrapper);
@@ -295,6 +308,28 @@ describe('TasksPage', () => {
     expect(detailDialog?.textContent).toContain('Payload');
     expect(detailDialog?.textContent).toContain('定时任务');
 
+    wrapper.unmount();
+  });
+
+  it('renders bounded batch results with aggregate counts and the omitted-item marker', async () => {
+    vi.mocked(tasksApi.getTaskRunDetail).mockResolvedValue({
+      ...sampleRun,
+      status: 'partial',
+      result: {
+        totalCount: 40,
+        failedCount: 39,
+        statusCounts: { failed: 39, success: 1 },
+        results: [{ eventId: 1, status: 'failed' }, { truncated: true, remainingItems: 39 }],
+      },
+    });
+    const wrapper = await mountPage('/tasks/runs');
+    await wrapper.get('table').findAll('tbody tr')[0].trigger('click');
+    await flushPromises();
+    const dialog = document.body.querySelector('[data-testid="task-run-detail"]');
+    expect(dialog?.textContent).toContain('"totalCount": 40');
+    expect(dialog?.textContent).toContain('"failedCount": 39');
+    expect(dialog?.textContent).toContain('"remainingItems": 39');
+    expect(dialog?.textContent).not.toContain('"preview"');
     wrapper.unmount();
   });
 

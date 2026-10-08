@@ -10,6 +10,7 @@ from finance_analysis.tasks.celery.schedule import (
     require_scheduled_task_definition,
 )
 from finance_analysis.tasks.lifecycle import track_task
+from finance_analysis.tasks.outcomes import analysis_batch_outcome
 
 from .service import DailyAnalysisTaskService
 
@@ -24,6 +25,7 @@ DEFINITION = require_scheduled_task_definition(JOB_DAILY_ANALYSIS)
     trigger_source="scheduler",
     scheduler_job_id=DEFINITION.job_id,
     record_result=True,
+    outcome_getter=analysis_batch_outcome,
     success_message="定时任务执行完成",
     strip_lifecycle_kwargs=True,
 )

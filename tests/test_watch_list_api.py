@@ -99,3 +99,46 @@ def test_create_watch_list_item_allows_same_code_in_different_market(monkeypatch
     assert response.code == "00700"
     assert response.market_type == "US"
     assert repo.get_by_code_args == {"code": "00700", "uid": 7, "market_type": "US"}
+
+
+def test_create_rejects_default_market_conflict_before_any_write_or_name_lookup(monkeypatch):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from unittest.mock import Mock
+
+    repo = _FakeRepo()
+    market = Mock()
+    monkeypatch.setattr(watch_list, "_repo", lambda: repo)
+    monkeypatch.setattr(watch_list, "get_effective_uid", lambda _request: 7)
+    monkeypatch.setattr(watch_list, "MarketDataService", market)
+    app = FastAPI()
+    app.include_router(watch_list.router, prefix="/watch-list")
+    with TestClient(app) as client:
+        response = client.post("/watch-list", json={"code": "AAPL.US", "name": "Apple"})
+    assert response.status_code == 422
+    assert repo.create_kwargs is None and repo.get_by_code_args is None
+    market.assert_not_called()
+
+
+def test_legacy_invalid_row_stays_visible_without_breaking_list_response():
+    repo = _FakeRepo()
+    rows = [repo.create(uid=7, code=code, name=None, notes=None, market_type=market, is_favorite=False)
+            for code, market in [("AAPL.US", "CN"), ("MSFT", "US")]]
+    result = watch_list._responses(repo, rows)
+    assert result[0].code == "AAPL.US" and result[0].market_type == "CN"
+    assert result[0].validation_error
+    assert result[1].code == "MSFT" and result[1].validation_error is None
+
+
+def test_update_validation_error_is_422(monkeypatch):
+    import pytest
+    from fastapi import HTTPException
+    from unittest.mock import Mock
+
+    repo = _FakeRepo()
+    repo.update = Mock(side_effect=ValueError("code/market conflict"))
+    monkeypatch.setattr(watch_list, "_repo", lambda: repo)
+    monkeypatch.setattr(watch_list, "get_effective_uid", lambda _request: 7)
+    with pytest.raises(HTTPException) as error:
+        watch_list.update_watch_list_item(SimpleNamespace(), 3, WatchListItemUpdate(market_type="CN"))
+    assert error.value.status_code == 422

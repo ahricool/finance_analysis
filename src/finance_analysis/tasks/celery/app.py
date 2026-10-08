@@ -109,7 +109,7 @@ def _create_pending_task_record(
     kwargs = payload.get("kwargs") if isinstance(payload, dict) else {}
     if not isinstance(kwargs, dict):
         kwargs = {}
-    if kwargs.get("_skip_task_record"):
+    if headers.get("_skip_task_record") or kwargs.get("_skip_task_record"):
         return
 
     definition = get_definition_by_task_name(task_name)

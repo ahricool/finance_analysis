@@ -246,6 +246,8 @@ def test_scheduled_daily_pipeline_dispatches_the_fixed_market_universe(monkeypat
     assert captured["link"].task == "quant.daily.finalize"
     assert captured["link"].kwargs["context"]["lifecycle_task_id"] == "parent-task-id"
     assert captured["link"].kwargs["_skip_task_record"] is True
+    assert captured["headers"] == {"_skip_task_record": True}
+    assert "_skip_task_record" not in captured["kwargs"]
     assert captured["link"].options["queue"] == "analysis"
     errbacks = captured["link_error"]
     assert errbacks.task == "quant.daily.failed" or (

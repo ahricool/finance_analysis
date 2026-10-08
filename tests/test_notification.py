@@ -13,6 +13,7 @@ TODO:
 1. 添加发送渠道以外的测试，如：
     - 生成日报
 """
+import json
 import os
 import sys
 import unittest
@@ -468,7 +469,7 @@ class TestNotificationServiceReportGeneration(unittest.TestCase):
         self.assertTrue(ok.push_sent)
         mock_post.assert_called_once()
         self.assertEqual(mock_post.call_args.args[0], "https://ntfy.sh")
-        self.assertEqual(mock_post.call_args.kwargs["json"]["topic"], "fa-topic")
+        self.assertEqual(json.loads(mock_post.call_args.kwargs["data"])["topic"], "fa-topic")
 
     @mock.patch("finance_analysis.notification.service.get_notification_config")
     def test_ntfy_url_without_topic_is_not_available(self, mock_get_config: mock.MagicMock):

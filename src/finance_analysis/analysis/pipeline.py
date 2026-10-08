@@ -25,7 +25,7 @@ from finance_analysis.analysis.pipeline_config import PipelineConfig, get_pipeli
 from finance_analysis.database import get_db
 from finance_analysis.integrations.market_data import MarketDataService
 from finance_analysis.integrations.market_data.codes import normalize_stock_code
-from finance_analysis.integrations.market_data.normalizer import canonical_symbol
+from finance_analysis.integrations.market_data.normalizer import canonical_symbol, infer_market
 from finance_analysis.integrations.market_data.realtime_state.data_source import get_default_sync_realtime_source
 from finance_analysis.integrations.market_data.realtime_types import ChipDistribution
 from finance_analysis.analysis.stock_report_analyzer import (
@@ -866,15 +866,24 @@ class StockAnalysisPipeline:
         
         # === 批量预取实时行情（优化：避免每只股票都触发全量拉取）===
         # 只有股票数量 >= 5 时才进行预取，少量股票直接逐个查询更高效
+        # The market-data router accepts exactly one market per request.
+        # Keep one analysis batch/report, but partition both prefetch boundaries.
+        market_batches: Dict[Any, List[str]] = {}
+        for code in stock_codes:
+            market_batches.setdefault(infer_market(code), []).append(code)
         if len(stock_codes) >= 5:
-            prefetch_count = len(self.fetcher_manager.get_realtime_quotes(stock_codes).data)
+            prefetch_count = sum(
+                len(self.fetcher_manager.get_realtime_quotes(codes).data)
+                for codes in market_batches.values()
+            )
             if prefetch_count > 0:
                 logger.info(f"已启用批量预取架构：一次拉取全市场数据，{len(stock_codes)} 只股票共享缓存")
 
         # Issue #455: 预取股票名称，避免并发分析时显示「股票xxxxx」
         # dry_run 仅做数据拉取，不需要名称预取，避免额外网络开销
         if not dry_run:
-            self.fetcher_manager.get_instrument_info(stock_codes)
+            for codes in market_batches.values():
+                self.fetcher_manager.get_instrument_info(codes)
 
         # 单股推送模式（#55）：从配置读取
         single_stock_notify = getattr(self.config, 'single_stock_notify', False)

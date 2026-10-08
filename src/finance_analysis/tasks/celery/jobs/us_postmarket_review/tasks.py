@@ -10,6 +10,7 @@ from finance_analysis.tasks.celery.schedule import (
     require_scheduled_task_definition,
 )
 from finance_analysis.tasks.lifecycle import track_task
+from finance_analysis.tasks.outcomes import report_delivery_outcome
 
 from .service import USPostmarketReviewTaskService
 
@@ -24,6 +25,7 @@ DEFINITION = require_scheduled_task_definition(JOB_US_POSTMARKET_REVIEW)
     trigger_source="scheduler",
     scheduler_job_id=DEFINITION.job_id,
     record_result=True,
+    outcome_getter=report_delivery_outcome,
     success_message="定时任务执行完成",
     strip_lifecycle_kwargs=True,
 )
