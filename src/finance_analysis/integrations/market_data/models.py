@@ -48,12 +48,16 @@ class DailyBarsRequest:
     start_date: date
     end_date: date
     adjustment: Adjustment = Adjustment.RAW
+    required_dates: tuple[date, ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "symbols", _symbols(self.symbols))
         object.__setattr__(self, "adjustment", adjustment_from_value(self.adjustment))
         if self.start_date > self.end_date:
             raise ValueError("start_date must not be after end_date")
+        object.__setattr__(self, "required_dates", tuple(sorted(set(self.required_dates))))
+        if any(day < self.start_date or day > self.end_date for day in self.required_dates):
+            raise ValueError("required_dates must be within the requested window")
 
 
 @dataclass(frozen=True, slots=True)

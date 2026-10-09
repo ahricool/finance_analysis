@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import logging
+from dataclasses import replace
 from datetime import date, datetime, timedelta
 from functools import partial
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence
@@ -40,6 +41,7 @@ _OUTPERFORM_THRESHOLD_PCT = 1.0
 _UNUSUAL_VOLUME_RATIO = 1.5
 _FLAT_THRESHOLD_PCT = 0.05
 _NEWS_LIMIT = 15
+_PerformanceCache = Dict[tuple[str, date], InstrumentPerformance | Exception]
 
 
 class USPostmarketReviewService:
@@ -139,10 +141,13 @@ class USPostmarketReviewService:
 
     def _build_context(self, trading_date: date) -> USPostmarketReviewContext:
         warnings: List[str] = []
+        # Share results (including failures) only within this context build.
+        performance_cache: _PerformanceCache = {}
         benchmarks = self._load_performance_group(
             US_POSTMARKET_BENCHMARKS,
             trading_date,
             warnings,
+            performance_cache=performance_cache,
         )
         spy_change = self._find_change_pct(benchmarks, "SPY.US")
         qqq_change = self._find_change_pct(benchmarks, "QQQ.US")
@@ -152,6 +157,7 @@ class USPostmarketReviewService:
             US_POSTMARKET_SECTOR_ETFS,
             trading_date,
             warnings,
+            performance_cache=performance_cache,
         )
         self._apply_relative_returns(sectors, spy_change=spy_change, qqq_change=qqq_change)
         sector_top3 = sorted(sectors, key=lambda item: item.change_pct, reverse=True)[:3]
@@ -168,6 +174,7 @@ class USPostmarketReviewService:
             qqq_change,
             spy_change,
             warnings,
+            performance_cache=performance_cache,
         )
         news = self._load_news(watch_symbols, warnings)
         return USPostmarketReviewContext(
@@ -189,15 +196,38 @@ class USPostmarketReviewService:
         symbols: Dict[str, str],
         trading_date: date,
         warnings: List[str],
+        *,
+        performance_cache: _PerformanceCache | None = None,
     ) -> List[InstrumentPerformance]:
         items: List[InstrumentPerformance] = []
         for symbol, name in symbols.items():
             try:
-                items.append(self._fetch_daily_performance(symbol, name, trading_date))
+                items.append(self._cached_daily_performance(symbol, name, trading_date, performance_cache))
             except Exception as exc:
                 logger.warning("美股收盘复盘行情获取失败 %s: %s", symbol, exc, exc_info=True)
                 warnings.append(f"{symbol} 行情获取失败: {exc}")
         return items
+
+    def _cached_daily_performance(
+        self,
+        symbol: str,
+        name: str,
+        trading_date: date,
+        cache: _PerformanceCache | None,
+    ) -> InstrumentPerformance:
+        if cache is None:
+            return self._fetch_daily_performance(symbol, name, trading_date)
+        key = (symbol, trading_date)
+        if key not in cache:
+            try:
+                cache[key] = self._fetch_daily_performance(symbol, name, trading_date)
+            except Exception as exc:
+                cache[key] = exc
+        value = cache[key]
+        if isinstance(value, Exception):
+            raise value
+        # Names and relative returns belong to each report section, not the cache.
+        return replace(value, name=name)
 
     def _fetch_daily_performance(
         self,
@@ -303,6 +333,8 @@ class USPostmarketReviewService:
         qqq_change: Optional[float],
         spy_change: Optional[float],
         warnings: List[str],
+        *,
+        performance_cache: _PerformanceCache | None = None,
     ) -> WatchlistSummary:
         summary = WatchlistSummary()
         if not symbols:
@@ -312,7 +344,7 @@ class USPostmarketReviewService:
         performances: List[InstrumentPerformance] = []
         for symbol in symbols:
             try:
-                item = self._fetch_daily_performance(symbol, symbol, trading_date)
+                item = self._cached_daily_performance(symbol, symbol, trading_date, performance_cache)
                 self._apply_relative_returns([item], spy_change=spy_change, qqq_change=qqq_change)
                 performances.append(item)
             except Exception as exc:

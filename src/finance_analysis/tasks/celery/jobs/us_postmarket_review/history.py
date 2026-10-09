@@ -21,17 +21,11 @@ def load_review_history(
     )
     required = {sessions[-2], target_date}
 
-    def read(policy):
-        result = market.get_daily_bars(
-            [symbol], sessions[0], target_date, adjustment="forward", source_policy=policy
-        )
-        rows = {bar.trade_date: bar for bar in result.data.get(symbol, []) if bar.trade_date in sessions}
-        return result, rows
-
-    result, rows = read("db_latest")
-    # A fresh but very short DB window still cannot establish the daily return.
-    if not required.issubset(rows) and result.providers_used.get(symbol) == "database":
-        result, rows = read("remote_only")
+    result = market.get_daily_bars(
+        [symbol], sessions[0], target_date, adjustment="forward", source_policy="db_latest",
+        required_dates=required,
+    )
+    rows = {bar.trade_date: bar for bar in result.data.get(symbol, []) if bar.trade_date in sessions}
     if not required.issubset(rows):
         reason = result.failed_symbols.get(symbol) or result.request_errors.get(symbol) or "missing daily bars"
         missing = ",".join(str(day) for day in sorted(required.difference(rows)))
