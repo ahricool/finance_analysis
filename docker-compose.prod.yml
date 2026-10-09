@@ -84,6 +84,7 @@ services:
         "finance_analysis.tasks.celery.app:celery_app",
         "worker",
         "--loglevel=INFO",
+        "--concurrency=3",
         "-Q",
         "celery,alerts,analysis,ingestion,maintenance",
       ]
