@@ -2,14 +2,29 @@
 
 from finance_analysis.core.time import utc_now
 from finance_analysis.options_intelligence.config import get_options_config
-from finance_analysis.options_intelligence.service import OptionsIntelligenceService, session_context
+from finance_analysis.options_intelligence.service import (
+    OptionsIntelligenceService,
+    session_context,
+    PREVIEW_BUDGET_SECONDS,
+    PREVIEW_HARD_LIMIT_SECONDS,
+)
 from finance_analysis.tasks.celery.app import celery_app
 from finance_analysis.tasks.celery.schedule import require_scheduled_task_definition
-from finance_analysis.tasks.lifecycle import track_task, TaskSkipped
+from finance_analysis.tasks.lifecycle import track_task, TaskSkipped, TaskOutcome, TaskExecutionStatus
 from finance_analysis.tasks.advisory_lock import TaskAdvisoryLockId
 
 INTRADAY = require_scheduled_task_definition("options_intelligence_intraday")
 DAILY = require_scheduled_task_definition("options_intelligence_daily")
+
+
+def scan_outcome(result):
+    if not isinstance(result, dict) or "failed_count" not in result:
+        return None
+    failed, unfinished = result["failed_count"], result["unfinished_count"]
+    if failed or unfinished:
+        status = TaskExecutionStatus.FAILED if failed == result["total_count"] else TaskExecutionStatus.PARTIAL
+        return TaskOutcome(status, f"采集失败 {failed}，未完成 {unfinished}")
+    return None
 
 
 def _scheduled(phase):
@@ -27,7 +42,9 @@ def _scheduled(phase):
     return OptionsIntelligenceService(config=config).scan(view="preview" if phase == "intraday" else "official")
 
 
-@celery_app.task(name=INTRADAY.celery_task_name)
+@celery_app.task(
+    name=INTRADAY.celery_task_name, soft_time_limit=PREVIEW_BUDGET_SECONDS, time_limit=PREVIEW_HARD_LIMIT_SECONDS
+)
 @track_task(
     task_type=INTRADAY.task_type,
     task_name=INTRADAY.name,
@@ -36,6 +53,7 @@ def _scheduled(phase):
     scheduler_job_id=INTRADAY.job_id,
     advisory_lock_id=TaskAdvisoryLockId.OPTIONS_INTELLIGENCE,
     record_result=True,
+    outcome_getter=scan_outcome,
     strip_lifecycle_kwargs=True,
 )
 def scan_options_intraday(**kwargs):
@@ -51,6 +69,7 @@ def scan_options_intraday(**kwargs):
     scheduler_job_id=DAILY.job_id,
     advisory_lock_id=TaskAdvisoryLockId.OPTIONS_INTELLIGENCE,
     record_result=True,
+    outcome_getter=scan_outcome,
     strip_lifecycle_kwargs=True,
 )
 def scan_options_daily(**kwargs):
@@ -64,6 +83,7 @@ def scan_options_daily(**kwargs):
     source="celery_manual",
     advisory_lock_id=TaskAdvisoryLockId.OPTIONS_INTELLIGENCE,
     record_result=True,
+    outcome_getter=scan_outcome,
     strip_lifecycle_kwargs=True,
 )
 def options_request(symbol=None, explain=False, view=None, trade_date=None, **kwargs):

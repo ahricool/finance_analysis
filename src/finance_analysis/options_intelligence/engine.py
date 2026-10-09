@@ -28,20 +28,24 @@ def analyze(chain, session_date, now, history, mode, config, closes=(), oi_chang
     def valid_volume(row):
         return row.volume_date == session_date and row.volume is not None and isfinite(row.volume) and row.volume >= 0
 
-    # Select a complete source with usable 22–45D Put/Call observations before
-    # allowing yesterday's Yahoo volumes to hide a usable fallback capability.
+    def volume_window(source, low, high):
+        raw = [r for r in source if low <= (r.expiration - session_date).days <= high]
+        unique = {}
+        for row in raw:
+            identity = row.symbol, row.option_type, row.expiration, row.strike
+            if identity not in unique or not valid_volume(unique[identity]) and valid_volume(row):
+                unique[identity] = row
+        return raw, list(unique.values())
+
+    def can_compute_ratio(source):
+        _, window = volume_window(source, 22, 45)
+        puts = [r for r in window if r.option_type == "put"]
+        calls = [r for r in window if r.option_type == "call"]
+        return bool(puts and calls) and all(valid_volume(r) for r in puts + calls) and sum(r.volume for r in calls) > 0
+
+    # Prefer an actually computable complete ratio, retaining whole source/feed rows.
     primary = next(
-        (
-            groups[key]
-            for key in source_order
-            if all(
-                any(
-                    valid_volume(r) and r.option_type == kind and 22 <= (r.expiration - session_date).days <= 45
-                    for r in groups[key]
-                )
-                for kind in ("call", "put")
-            )
-        ),
+        (groups[key] for key in source_order if can_compute_ratio(groups[key])),
         None,
     )
     if primary is None:
@@ -149,16 +153,7 @@ def analyze(chain, session_date, now, history, mode, config, closes=(), oi_chang
     ratios, ratio_coverage = [], []
     for low, high in ((1, 7), (8, 21), (22, 45), (46, config.max_dte)):
 
-        def valid(r):
-            return r.volume_date == session_date and r.volume is not None and isfinite(r.volume) and r.volume >= 0
-
-        unique = {}
-        raw = [r for r in primary if low <= (r.expiration - session_date).days <= high]
-        for row in raw:
-            identity = row.symbol, row.option_type, row.expiration, row.strike
-            if identity not in unique or not valid(unique[identity]) and valid(row):
-                unique[identity] = row
-        subset = list(unique.values())
+        raw, subset = volume_window(primary, low, high)
         put = [r for r in subset if r.option_type == "put"]
         call = [r for r in subset if r.option_type == "call"]
 
@@ -169,7 +164,7 @@ def analyze(chain, session_date, now, history, mode, config, closes=(), oi_chang
             return sum(pv) / sum(cv)
 
         # Only this source/feed's valid current-session observations contribute to volume.
-        valid_put, valid_call = [r for r in put if valid(r)], [r for r in call if valid(r)]
+        valid_put, valid_call = [r for r in put if valid_volume(r)], [r for r in call if valid_volume(r)]
         call_volume = sum(r.volume for r in valid_call)
         volume_ratio = sum(r.volume for r in valid_put) / call_volume if valid_put and call_volume > 0 else None
         complete = len(valid_put) == len(put) and len(valid_call) == len(call)

@@ -21,6 +21,8 @@ const loading = ref(false), error = ref<ParsedApiError | null>(null), selected =
 const pending = ref('');
 const mode = ref<OptionsView>('official'), requestedDate = ref(''), selectedDate = ref('');
 const dates = ref<string[]>([]), reason = ref<string | null>(null);
+const failedCount = ref(0), failureSource = ref<string | null>(null);
+const taskSummary = ref<{ failedCount: number; totalCount: number } | null>(null);
 let generation = 0;
 const filtered = computed(() => items.value.filter(r => r.symbol.toLowerCase().includes(query.value.toLowerCase()) &&
   (!eventType.value || r.eventTypes?.includes(eventType.value))).sort((a, b) => {
@@ -31,11 +33,15 @@ const filtered = computed(() => items.value.filter(r => r.symbol.toLowerCase().i
 async function load() {
   const version = ++generation;
   loading.value = true; error.value = null; items.value = []; reason.value = null;
+  failedCount.value = 0; failureSource.value = null;
+  taskSummary.value = null;
   try {
     const response = await optionsIntelligenceApi.scan({ view: mode.value, tradeDate: mode.value === 'official' ? requestedDate.value || undefined : undefined });
     if (version !== generation) return;
     items.value = response.items; dates.value = response.availableDates ?? [];
     selectedDate.value = response.tradeDate ?? ''; reason.value = response.reason ?? null;
+    failedCount.value = response.failedCount ?? 0; failureSource.value = response.failureSource ?? null;
+    taskSummary.value = response.latestTaskSummary ?? null;
   }
   catch (e) { if (version === generation) error.value = getParsedApiError(e); }
   finally { if (version === generation) loading.value = false; }
@@ -89,6 +95,18 @@ onBeforeUnmount(() => { generation++; });
       :error="error"
       @dismiss="error = null"
     />
+    <p
+      v-if="failedCount || failureSource"
+      class="text-xs text-muted-foreground"
+    >
+      已记录采集失败 {{ failedCount }} 只。{{ failureSource }}
+    </p>
+    <p
+      v-if="taskSummary"
+      class="text-xs text-muted-foreground"
+    >
+      最近正式任务（TaskRecord，整轮范围）：失败 {{ taskSummary.failedCount }} / 计划 {{ taskSummary.totalCount }} 只；逐股明细可能被截断。
+    </p>
     <p
       v-if="pending"
       class="text-sm"
@@ -204,7 +222,23 @@ onBeforeUnmount(() => { generation++; });
               :class="{ 'bg-orange-500/10 font-bold': (r.scores?.liquidityRisk.value ?? 0) >= 80 }"
             >
               {{ num(r.scores?.liquidityRisk.value, 1) }}
-            </TableCell><TableCell>{{ pct(r.skew30D) }}</TableCell><TableCell>{{ num(r.putCallVolumeRatio) }}</TableCell><TableCell>{{ r.topEvent ? eventLabels[r.topEvent.eventType] : r.status === 'failed' ? '采集失败' : r.status === 'not_scanned' ? '尚未采集' : '无满足规则的异常' }}</TableCell><TableCell>
+            </TableCell><TableCell>{{ pct(r.skew30D) }}</TableCell><TableCell>{{ num(r.putCallVolumeRatio) }}</TableCell><TableCell>
+              <template v-if="r.refreshStatus === 'failed'">
+                刷新失败，显示上次预演
+                <p class="text-xs text-muted-foreground">
+                  {{ r.refreshReason }}
+                </p>
+              </template>
+              <template v-else-if="r.status === 'failed'">
+                采集失败
+                <p class="text-xs text-muted-foreground">
+                  {{ r.limitations[0] }}
+                </p>
+              </template>
+              <template v-else>
+                {{ r.topEvent ? eventLabels[r.topEvent.eventType] : r.status === 'not_scanned' ? (mode === 'preview' ? '本轮预演尚未采集' : '无正式快照／未确认执行结果') : '无满足规则的异常' }}
+              </template>
+            </TableCell><TableCell>
               {{ r.evidenceGrade ?? 'N/A' }}<p class="text-xs text-muted-foreground">
                 {{ r.status === 'warming_up' ? `预热 ${r.historyDays}D` : '' }}
               </p>

@@ -89,7 +89,7 @@ def test_cache_expires_at_local_midnight_and_rejects_other_dates(now):
     payload = {"trade_date": now.date().isoformat(), "items": []}
     save_preview(payload, client=cache, now=now)
     assert cache.ttl == 6 * 3600  # 22:00 UTC is 18:00 EDT.
-    assert load_preview(client=cache, now=now) == payload
+    assert load_preview(client=cache, now=now) == {**payload, "failures": []}
     assert load_preview(client=cache, now=now + timedelta(days=1)) is None
     with pytest.raises(ValueError, match="previous session"):
         save_preview(payload, client=cache, now=now + timedelta(days=1))
@@ -126,11 +126,11 @@ def test_failed_preview_preserves_previous_and_single_refresh_merges(repository,
     engine = service(repository, observation, intraday, config, cache)
     engine.scan(["AAPL.US"], intraday, view="preview")
     assert {r["symbol"] for r in load_preview(client=cache, now=intraday)["items"]} == {"MSFT.US", "AAPL.US"}
-    previous = cache.get(PREVIEW_KEY)
     engine.market.get_option_chain.return_value = OptionChain(symbol="AAPL.US", observed_at=intraday)
-    with pytest.raises(ValueError, match="All option scans failed"):
-        engine.scan(["AAPL.US"], intraday, view="preview")
-    assert cache.get(PREVIEW_KEY) == previous
+    result = engine.scan(["AAPL.US"], intraday, view="preview")
+    assert result["failed_count"] == 1
+    assert load_preview(client=cache, now=intraday, symbol="AAPL.US")["refresh_status"] == "failed"
+    assert {r["symbol"] for r in load_preview(client=cache, now=intraday)["items"]} == {"MSFT.US", "AAPL.US"}
 
 
 def test_only_after_close_chains_can_become_official(repository, observation, now, config):

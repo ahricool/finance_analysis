@@ -30,6 +30,18 @@ def load_preview(*, client=None, now=None, symbol=None, strict=False):
             isinstance(payload, dict)
             and payload.get("trade_date") == now.astimezone(ZoneInfo("America/New_York")).date().isoformat()
         ):
+            failures = {r["symbol"]: r for r in payload.get("failures", [])}
+            payload["items"] = [
+                {
+                    **row,
+                    **(
+                        {"refresh_status": "failed", "refresh_reason": failures[row["symbol"]]["reason"]}
+                        if row["symbol"] in failures
+                        else {}
+                    ),
+                }
+                for row in payload.get("items", [])
+            ]
             if symbol is not None:
                 summary = next((r for r in payload.get("items", []) if r["symbol"] == symbol), None)
                 if summary is None:
@@ -39,6 +51,9 @@ def load_preview(*, client=None, now=None, symbol=None, strict=False):
                 # A concurrent publication may occur between these GETs; never mix generations.
                 if not isinstance(detail, dict) or detail.get("computed_at") != summary.get("computed_at"):
                     return None
+                failure = next((r for r in payload.get("failures", []) if r["symbol"] == symbol), None)
+                if failure:
+                    detail = {**detail, "refresh_status": "failed", "refresh_reason": failure["reason"]}
                 return detail
             return payload
     except Exception:
@@ -61,6 +76,10 @@ def save_preview(payload, *, client=None, now=None, merge=False):
     previous = load_preview(client=redis_client, now=now, strict=True) if merge else None
     summaries = {r["symbol"]: r for r in (previous or {}).get("items", [])}
     summaries.update({r["symbol"]: scan_view(r) for r in payload["items"]})
+    failures = {r["symbol"]: r for r in (previous or {}).get("failures", [])}
+    for row in payload["items"]:
+        failures.pop(row["symbol"], None)
+    failures.update({r["symbol"]: r for r in payload.get("failures", [])})
     # A compact manifest keeps list reads independent of the size of 100 raw chains.
     # Publish details and manifest in a single transaction; Redis failure fails the task.
     transaction = redis_client.pipeline(transaction=True)
@@ -72,7 +91,11 @@ def save_preview(payload, *, client=None, now=None, merge=False):
         )
     transaction.set(
         PREVIEW_KEY,
-        json.dumps({**payload, "items": list(summaries.values())}, ensure_ascii=False, allow_nan=False),
+        json.dumps(
+            {**payload, "items": list(summaries.values()), "failures": list(failures.values())},
+            ensure_ascii=False,
+            allow_nan=False,
+        ),
         ex=ttl,
     )
     if not all(transaction.execute()):

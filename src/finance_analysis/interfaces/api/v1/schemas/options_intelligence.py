@@ -25,6 +25,8 @@ class OptionsScanResponse(BaseModel):
     observed_at: str | None = None
     reason: str | None = None
     failed_count: int = 0
+    failure_source: str | None = None
+    latest_task_summary: dict | None = None
 
 
 class OptionsDetailResponse(BaseModel):

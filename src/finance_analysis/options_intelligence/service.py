@@ -3,8 +3,10 @@
 import json
 import logging
 import re
+from time import monotonic
 from datetime import datetime, timedelta
 
+from billiard.exceptions import SoftTimeLimitExceeded
 from pydantic import BaseModel
 from finance_analysis.core.time import utc_now, coerce_aware_utc
 from finance_analysis.market_review import trading_calendar as calendar
@@ -18,6 +20,8 @@ from .engine import analyze
 from .metrics import oi_change
 
 logger = logging.getLogger(__name__)
+PREVIEW_BUDGET_SECONDS = 20 * 60
+PREVIEW_HARD_LIMIT_SECONDS = PREVIEW_BUDGET_SECONDS + 60
 
 
 def us_symbol(value):
@@ -82,7 +86,9 @@ class OptionsIntelligenceService:
             raise ValueError("Unknown options data view")
         if view == "preview" and (phase != "intraday" or day != calendar.get_market_now("us", now).date()):
             raise ValueError("Options preview requires an open US session")
-        if view == "official" and (phase != "daily" or (now - close).total_seconds() < 1800):
+        if view == "official" and (
+            day != calendar.get_market_now("us", now).date() or phase != "daily" or (now - close).total_seconds() < 1800
+        ):
             raise ValueError("Official options scan requires at least 30 minutes after close")
         bucket = now.replace(minute=now.minute // 30 * 30, second=0, microsecond=0)
         mode = "daily" if phase == "daily" else calendar.get_market_now("us", bucket).strftime("%H:%M")
@@ -91,7 +97,12 @@ class OptionsIntelligenceService:
             # Network completion is the first time a fetched chain can be known to this system.
             now = utc_now()
             current_day, current_phase, _, _ = session_context(now)
-            if current_day != day or view == "preview" and current_phase != "intraday":
+            if (
+                current_day != day
+                or calendar.get_market_now("us", now).date() != day
+                or view == "preview"
+                and current_phase != "intraday"
+            ):
                 raise ValueError("US session changed while fetching the option chain")
         if not chain.observations:
             raise ValueError("Options data unavailable: " + "; ".join(chain.errors))
@@ -110,6 +121,8 @@ class OptionsIntelligenceService:
             reference = quote_reference(quotes.data.get(symbol), now)
             if reference:
                 attach_reference(chain.observations, reference)
+        if calendar.get_market_now("us", now).date() != day or view == "preview" and now > close:
+            raise ValueError("US session changed while fetching the stock reference")
         # Also re-filter a chain whose stock reference was supplied after its initial fetch.
         limit_chain(chain, day, self.config)
         if not chain.observations:
@@ -170,12 +183,12 @@ class OptionsIntelligenceService:
             "evidence_grade": metrics["evidence_grade"],
         }
 
-    def _publish_preview(self, items, now, merge=False, failures=()):
+    def _publish_preview(self, items, now, merge=False, failures=(), trade_date=None):
         from .preview_cache import save_preview
 
         save_preview(
             {
-                "trade_date": calendar.get_market_now("us", now).date().isoformat(),
+                "trade_date": (trade_date or calendar.get_market_now("us", now).date()).isoformat(),
                 "observed_at": now.isoformat(),
                 "items": items,
                 "failures": list(failures),
@@ -191,12 +204,36 @@ class OptionsIntelligenceService:
         if not selected:
             raise ValueError("No Nasdaq-100 constituents or US watch-list symbols available")
         now = now or utc_now()
-        view = view or ("preview" if session_context(now)[1] == "intraday" else "official")
+        day, phase, _, close = session_context(now)
+        view = view or ("preview" if phase == "intraday" else "official")
+        if view == "official" and (
+            day != calendar.get_market_now("us", now).date() or phase != "daily" or now < close + timedelta(minutes=30)
+        ):
+            raise ValueError("Official options scan requires at least 30 minutes after close on today's US session")
+        if view == "preview" and (phase != "intraday" or day != calendar.get_market_now("us", now).date()):
+            raise ValueError("Options preview requires an open US session")
+        started = monotonic()
+        deadline = min(now + timedelta(seconds=PREVIEW_BUDGET_SECONDS), close)
         results = []
+        if view == "preview" and symbols is None:
+            # Rebuild this round; subsequent atomic checkpoints survive a worker hard timeout.
+            self._publish_preview([], now, trade_date=day)
         # Sequential requests plus a process-wide task mutex keep request concurrency at one.
         for symbol in selected:
+            if calendar.get_market_now("us", supplied_now or utc_now()).date() != day:
+                break  # Never label a later session's results as this round's trade_date.
+            if view == "preview" and (
+                monotonic() - started >= PREVIEW_BUDGET_SECONDS or (supplied_now or utc_now()) >= deadline
+            ):
+                break
             try:
                 results.append(self.run(symbol, supplied_now, view=view, publish_preview=False))
+            except SoftTimeLimitExceeded:
+                if view != "preview":
+                    raise
+                # Keep completed results and release the common lock before the daily task.
+                logger.warning("Options preview execution budget reached symbol=%s", symbol)
+                break
             except Exception as exc:
                 logger.warning("Options scan failed symbol=%s category=%s", symbol, type(exc).__name__)
                 results.append(
@@ -206,18 +243,44 @@ class OptionsIntelligenceService:
                         "reason": str(exc) if isinstance(exc, ValueError) else type(exc).__name__,
                     }
                 )
-        if all(r["status"] == "failed" for r in results):
-            raise ValueError("All option scans failed; " + "; ".join(r["reason"] for r in results[:3]))
+            if view == "preview":
+                row = results[-1]
+                self._publish_preview(
+                    [row] if row["status"] != "failed" else [],
+                    supplied_now or utc_now(),
+                    merge=True,
+                    failures=[row] if row["status"] == "failed" else [],
+                    trade_date=day,
+                )
         failures = [r for r in results if r["status"] == "failed"]
+        unfinished = len(selected) - len(results)
+        logger.info(
+            "Options scan view=%s trade_date=%s elapsed_seconds=%.1f success=%s failed=%s unfinished=%s",
+            view,
+            day,
+            monotonic() - started,
+            len(results) - len(failures),
+            len(failures),
+            unfinished,
+        )
         if view == "preview":
             self._publish_preview(
                 [r for r in results if r["status"] != "failed"],
                 supplied_now or utc_now(),
                 merge=symbols is not None,
                 failures=failures,
+                trade_date=day,
             )
         return {
             "view": view,
+            "trade_date": day.isoformat(),
+            "total_count": len(selected),
+            "unfinished_count": unfinished,
+            "status_counts": {
+                "success": len(results) - len(failures),
+                "failed": len(failures),
+                "unfinished": unfinished,
+            },
             "results": [{k: r[k] for k in ("symbol", "status", "reason", "snapshot_id") if k in r} for r in results],
             "failed_count": len(failures),
         }

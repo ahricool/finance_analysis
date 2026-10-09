@@ -11,7 +11,12 @@ from finance_analysis.interfaces.api.v1.schemas.options_intelligence import (
     OptionsDetailResponse,
 )
 from finance_analysis.options_intelligence.config import get_options_config
-from finance_analysis.options_intelligence.service import us_symbol
+from finance_analysis.options_intelligence.service import (
+    us_symbol,
+    session_context,
+    PREVIEW_BUDGET_SECONDS,
+    PREVIEW_HARD_LIMIT_SECONDS,
+)
 from finance_analysis.database.repositories.options_intelligence import OptionsRepository
 
 from finance_analysis.options_intelligence.views import scan_view
@@ -33,6 +38,16 @@ def submit(user, symbol=None, explain=False, view=None, trade_date=None):
     if not get_options_config().enabled:
         raise HTTPException(409, "期权分析已关闭")
     try:
+        # Manual previews receive the same worker limits as scheduled previews.
+        from finance_analysis.core.time import utc_now
+
+        if not explain and view is None:
+            # Freeze the intended mode before queue delay can move the task past close.
+            view = "preview" if session_context(utc_now())[1] == "intraday" else "official"
+        preview = not explain and view == "preview"
+        limits = (
+            {"soft_time_limit": PREVIEW_BUDGET_SECONDS, "time_limit": PREVIEW_HARD_LIMIT_SECONDS} if preview else {}
+        )
         task = options_request.apply_async(
             kwargs={
                 "symbol": symbol,
@@ -45,6 +60,7 @@ def submit(user, symbol=None, explain=False, view=None, trade_date=None):
             },
             queue="ingestion",
             expires=1800,
+            **(limits if not explain else {}),
         )
     except Exception as exc:
         raise HTTPException(503, "无法提交期权分析任务") from exc
@@ -59,7 +75,7 @@ def scan(
 ):
     repo = OptionsRepository()
     symbols = repo.monitored_symbols(uid=user.id)
-    dates = repo.dates(symbols)
+    dates = repo.dates(symbols, uid=user.id)
     if view == "preview":
         payload = load_preview()
         successes = {row["symbol"]: row for row in (payload or {}).get("items", [])}
@@ -91,11 +107,15 @@ def scan(
             "failed_count": sum(symbol in failures for symbol in symbols),
         }
     selected = trade_date or (dates[0] if dates else None)
+    items = [scan_view(row) for row in repo.scan(symbols, selected, uid=user.id)]
     return {
-        "items": [scan_view(row) for row in repo.scan(symbols, selected)],
+        "items": items,
         "view": view,
         "trade_date": selected,
         "available_dates": dates,
+        "failed_count": sum(row["status"] == "failed" for row in items),
+        "latest_task_summary": repo.scan_task_summary(selected, uid=user.id),
+        "failure_source": "TaskRecord：所选交易日已记录的逐股结果；截断或旧任务缺失的结果保持未知",
     }
 
 
@@ -117,7 +137,7 @@ def detail(
 
     symbol = validated_symbol(symbol)
     repo = OptionsRepository()
-    dates = repo.dates([symbol])
+    dates = repo.dates([symbol], uid=user.id)
     selected = trade_date or (dates[0] if dates else None)
     if view == "preview":
         latest = load_preview(symbol=symbol)

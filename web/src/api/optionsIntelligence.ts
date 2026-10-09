@@ -34,6 +34,7 @@ export interface OptionExplanation {
 }
 export interface OptionMetrics {
   symbol: string; status: string; tradeDate?: string; observedAt?: string; computedAt?: string;
+  refreshStatus?: string; refreshReason?: string; failureSource?: string;
   underlyingPrice?: number | null; scores: OptionScores | null; evidenceGrade?: string; confidence?: string;
   historyDays?: number; iv30D?: number | null; iv30DMethod?: string; ivPercentile?: number | null; ivSampleCount?: number;
   volumeHistoryDays?: number; volatilityComparison?: string;
@@ -65,6 +66,8 @@ export interface OptionsScan {
   items: OptionMetrics[]; view?: OptionsView; tradeDate?: string; availableDates?: string[];
   observedAt?: string; reason?: string | null;
   failedCount?: number;
+  failureSource?: string | null;
+  latestTaskSummary?: { failedCount: number; totalCount: number } | null;
 }
 const base = '/api/v1/options-intelligence';
 export const optionsIntelligenceApi = {

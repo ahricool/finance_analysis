@@ -108,11 +108,11 @@ def test_historical_explanation_does_not_use_context_or_prices_after_snapshot(re
     assert market.get_daily_bars.call_args.args[2] == now.date()
 
 
-def test_auto_explanation_is_once_per_snapshot_session_even_before_next_open(repository, observation, config):
+def test_auto_explanation_is_once_per_snapshot_session(repository, observation, config):
     from dataclasses import replace
 
-    now = datetime(2026, 10, 7, 13, tzinfo=timezone.utc)
-    previous_day = date(2026, 10, 6)
+    now = datetime(2026, 10, 7, 22, tzinfo=timezone.utc)
+    previous_day = now.date()
     row = observation.model_copy(update={"observed_at": now, "volume_date": previous_day, "volume": 1000})
     market = Mock()
     market.get_option_chain.return_value = OptionChain(symbol="AAPL.US", observed_at=now, observations=[row])

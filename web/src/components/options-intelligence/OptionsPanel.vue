@@ -46,7 +46,7 @@ async function poll(id: string, version: number) {
   try {
     const task = await tasksApi.getTaskRunDetail(id);
     if (version !== generation) return;
-    if (['completed', 'failed', 'cancelled', 'skipped'].includes(task.status)) {
+    if (['completed', 'partial', 'failed', 'cancelled', 'skipped'].includes(task.status)) {
       working.value = false;
       if (task.status !== 'completed') error.value = getParsedApiError(new Error(task.error || task.message || '任务未完成，请在任务中心查看原因'));
       await load(version);
@@ -139,6 +139,12 @@ onBeforeUnmount(() => { generation++; clearTimeout(timer); });
       {{ data.reason }}
     </p>
     <template v-if="latest">
+      <p
+        v-if="latest.refreshStatus === 'failed'"
+        class="text-sm text-amber-600 dark:text-amber-400"
+      >
+        刷新失败，显示上次预演：{{ latest.refreshReason }}
+      </p>
       <OptionsScores :scores="latest.scores" />
       <p class="text-sm text-muted-foreground">
         {{ latest.riskSummary }}

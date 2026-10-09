@@ -12,6 +12,7 @@ from finance_analysis.database.models.options_intelligence import (
     OptionAnalysis,
 )
 from finance_analysis.database.repositories.options_intelligence import OptionsRepository
+from finance_analysis.database.models.task import TaskRecord
 from finance_analysis.integrations.options.models import OptionObservation
 from finance_analysis.options_intelligence.config import OptionsConfig
 
@@ -56,7 +57,14 @@ def observation(now):
 @pytest.fixture
 def repository():
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
-    for model in (OptionContract, OptionQuoteSnapshot, OptionDailyMetrics, OptionAnomalyEvent, OptionAnalysis):
+    for model in (
+        OptionContract,
+        OptionQuoteSnapshot,
+        OptionDailyMetrics,
+        OptionAnomalyEvent,
+        OptionAnalysis,
+        TaskRecord,
+    ):
         model.__table__.create(engine)
 
     class DB:

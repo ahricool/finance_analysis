@@ -3,7 +3,8 @@
 import hashlib
 import json
 from datetime import date, datetime, timedelta
-from sqlalchemy import select
+from zoneinfo import ZoneInfo
+from sqlalchemy import select, or_
 from finance_analysis.core.time import coerce_aware_utc
 from finance_analysis.database.models.options_intelligence import (
     OptionContract,
@@ -45,9 +46,9 @@ class OptionsRepository:
             symbols = set(session.scalars(constituents)) | set(session.scalars(watches))
             return sorted({s.upper() if s.upper().endswith(".US") else s.upper() + ".US" for s in symbols})
 
-    def dates(self, symbols):
+    def dates(self, symbols, uid=None):
         with self.db.get_session() as session:
-            return list(
+            dates = set(
                 session.scalars(
                     select(OptionDailyMetrics.trade_date)
                     .where(OptionDailyMetrics.symbol.in_(symbols))
@@ -55,6 +56,11 @@ class OptionsRepository:
                     .order_by(OptionDailyMetrics.trade_date.desc())
                 )
             )
+            # A failed-only date must remain selectable even without any daily snapshots.
+            for result in self._scan_task_results(session, uid):
+                if any(row.get("symbol") in symbols for row in result.get("results", [])):
+                    dates.add(date.fromisoformat(result["trade_date"]))
+            return sorted(dates, reverse=True)
 
     def history(self, symbol, before, lookback, mode=None):
         with self.db.get_session() as session:
@@ -111,11 +117,73 @@ class OptionsRepository:
                 "llm_analysis": analysis.explanation if analysis else None,
             }
 
-    def scan(self, symbols, trade_date=None):
+    @staticmethod
+    def _scan_task_results(session, uid, trade_date=None):
+        from finance_analysis.database.models.task import TaskRecord
+
+        query = (
+            select(TaskRecord)
+            .where(
+                TaskRecord.task_type.in_(("options_intelligence", "scheduled_options_intelligence_daily")),
+                TaskRecord.status.in_(("completed", "partial", "failed")),
+                or_(TaskRecord.uid.is_(None), TaskRecord.uid == uid),
+            )
+            .order_by(TaskRecord.started_at.desc(), TaskRecord.id.desc())
+        )
+        if trade_date is not None:
+            start = datetime.combine(trade_date, datetime.min.time(), ZoneInfo("America/New_York"))
+            end = datetime.combine(trade_date + timedelta(days=1), datetime.min.time(), start.tzinfo)
+            query = query.where(
+                TaskRecord.started_at >= coerce_aware_utc(start), TaskRecord.started_at < coerce_aware_utc(end)
+            )
+        else:
+            query = query.limit(200)  # Bounded discovery of recent failed-only dates.
+        for record in session.scalars(query):
+            try:
+                result = json.loads(record.result or "null")
+                if not isinstance(result, dict) or result.get("view") != "official" or record.started_at is None:
+                    continue
+                day = date.fromisoformat(result.get("trade_date", ""))
+            except (ValueError, TypeError):
+                continue
+            if day != coerce_aware_utc(record.started_at).astimezone(ZoneInfo("America/New_York")).date():
+                continue
+            if trade_date is None or day == trade_date:
+                yield result
+
+    def scan_failures(self, symbols, trade_date, uid=None):
+        """Only explicit, same-session outcomes from public or this user's tasks."""
+        if trade_date is None:
+            return {}
+        outcomes = {}
+        with self.db.get_session() as session:
+            for result in self._scan_task_results(session, uid, trade_date):
+                # Lifecycle summaries can truncate results; absent entries are unknown.
+                for row in result.get("results", []):
+                    symbol = row.get("symbol")
+                    if symbol in symbols and symbol not in outcomes:
+                        outcomes[symbol] = row
+        return {
+            symbol: row.get("reason", "期权采集失败")
+            for symbol, row in outcomes.items()
+            if row.get("status") == "failed"
+        }
+
+    def scan_task_summary(self, trade_date, uid=None):
+        if trade_date is None:
+            return None
+        with self.db.get_session() as session:
+            for result in self._scan_task_results(session, uid, trade_date):
+                if "failed_count" in result and "total_count" in result:
+                    return {"failed_count": result["failed_count"], "total_count": result["total_count"]}
+        return None
+
+    def scan(self, symbols, trade_date=None, uid=None):
         # A single official date for every row; never mix failed symbols' older sessions into it.
         if trade_date is None:
-            dates = self.dates(symbols)
+            dates = self.dates(symbols, uid=uid)
             trade_date = dates[0] if dates else None
+        failures = self.scan_failures(symbols, trade_date, uid)
         with self.db.get_session() as session:
             rows = session.scalars(
                 select(OptionDailyMetrics).where(
@@ -129,9 +197,12 @@ class OptionsRepository:
                     symbol,
                     {
                         "symbol": symbol,
-                        "status": "not_scanned",
+                        "status": "failed" if symbol in failures else "not_scanned",
+                        "failure_source": "TaskRecord" if symbol in failures else None,
                         "scores": None,
-                        "limitations": ["尚未采集，请启动Worker/Beat或手动刷新"],
+                        "limitations": (
+                            [failures[symbol]] if symbol in failures else ["无正式快照或可确认的逐股失败记录"]
+                        ),
                     },
                 )
                 for symbol in symbols
