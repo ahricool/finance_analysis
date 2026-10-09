@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import OptionHelp from './OptionHelp.vue';
 import { computed } from 'vue';
 import { use } from 'echarts/core';
 import { LineChart } from 'echarts/charts';
@@ -29,27 +30,43 @@ const skew = computed(() => ({ ...common.value,
   <div class="grid gap-4 md:grid-cols-2">
     <section class="min-w-0 rounded-xl border p-3">
       <h4 class="text-sm">
-        IV 期限结构
-      </h4><VChart
-        class="h-56"
-        :option="term"
-        autoresize
-      />
+        <OptionHelp
+          label="IV 期限结构"
+          compact
+        />
+      </h4><div
+        class="relative h-56 w-full min-w-0 overflow-hidden"
+        data-testid="options-chart-frame"
+      >
+        <VChart
+          class="absolute inset-0 h-full w-full"
+          :option="term"
+          autoresize
+        />
+      </div>
     </section>
     <section class="min-w-0 rounded-xl border p-3">
       <h4 class="text-sm">
-        25Δ Skew 日度历史
-      </h4><VChart
-        v-if="history.some(h => h.skew30D != null)"
-        class="h-56"
-        :option="skew"
-        autoresize
-      /><p
-        v-else
-        class="py-20 text-center text-sm text-muted-foreground"
+        <OptionHelp
+          label="25Δ Skew 日度历史"
+          compact
+        />
+      </h4><div
+        class="relative h-56 w-full min-w-0 overflow-hidden"
+        data-testid="options-chart-frame"
       >
-        N/A · 有效日度 Skew 历史不足
-      </p>
+        <VChart
+          v-if="history.some(h => h.skew30D != null)"
+          class="absolute inset-0 h-full w-full"
+          :option="skew"
+          autoresize
+        /><p
+          v-else
+          class="py-20 text-center text-sm text-muted-foreground"
+        >
+          N/A · 有效日度 Skew 历史不足
+        </p>
+      </div>
     </section>
   </div>
 </template>

@@ -109,3 +109,44 @@ def test_confirmed_multiplier_fills_missing_master_without_overwriting_snapshot(
         assert session.get(OptionContract, observation.symbol).multiplier == 100
     prior = repository.history("AAPL.US", now.date() + timedelta(days=1), 7, "daily")[0]
     assert prior["rows"][0].multiplier is None
+
+
+def test_monitored_universe_is_active_nasdaq100_plus_visible_us_watches(repository):
+    from finance_analysis.database.models import Instrument, Universe, UniverseMember, WatchListItem
+
+    with repository.db.get_session() as session:
+        for model in (Instrument, Universe, UniverseMember, WatchListItem):
+            model.__table__.create(session.get_bind())
+    with repository.db.session_scope() as session:
+        nasdaq = Universe(key="us_nasdaq100", name="NDX", market="US")
+        other = Universe(key="us_sp500", name="SPX", market="US")
+        session.add_all([nasdaq, other])
+        session.flush()
+        for code, status, universe in (
+            ("AAPL.US", "ACTIVE", nasdaq),
+            ("OLD.US", "DELISTED", nasdaq),
+            ("SPXONLY.US", "ACTIVE", other),
+        ):
+            stock = Instrument(
+                market="US",
+                code=code,
+                native_code=code[:-3],
+                name=code,
+                instrument_type="STOCK",
+                currency="USD",
+                listing_status=status,
+                source="test",
+            )
+            session.add(stock)
+            session.flush()
+            session.add(UniverseMember(universe_id=universe.id, instrument_id=stock.id, source="test"))
+        session.add_all(
+            [
+                WatchListItem(uid=7, code="TSM", market_type="US"),
+                WatchListItem(uid=7, code="AAPL.US", market_type="US"),
+                WatchListItem(uid=8, code="PRIVATE.US", market_type="US"),
+                WatchListItem(uid=7, code="600519.SH", market_type="CN"),
+            ]
+        )
+    assert repository.monitored_symbols(uid=7) == ["AAPL.US", "TSM.US"]
+    assert repository.monitored_symbols() == ["AAPL.US", "PRIVATE.US", "TSM.US"]

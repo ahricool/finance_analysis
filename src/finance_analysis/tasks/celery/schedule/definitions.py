@@ -114,7 +114,7 @@ class ScheduledTaskDefinition:
 SCHEDULED_TASK_DEFINITIONS = (
     ScheduledTaskDefinition(
         job_id="options_intelligence_intraday", name="期权异常盘中扫描 US",
-        description="Yahoo主链、Alpaca缺失能力回退；实际交易时段每30分钟低频扫描",
+        description="Nasdaq-100+美股自选；Yahoo主链、Alpaca回退，盘中预演仅写Redis",
         task_type="scheduled_options_intelligence_intraday",
         celery_task_name=celery_task_name("options_intelligence_intraday"),
         schedules=(CronSchedule(minute="0,30", hour="9-15", day_of_week="mon-fri", timezone=US_TIMEZONE),),
@@ -123,7 +123,7 @@ SCHEDULED_TASK_DEFINITIONS = (
     ),
     ScheduledTaskDefinition(
         job_id="options_intelligence_daily", name="期权异常盘后快照 US",
-        description="收盘30分钟后保存日度基线与最新已发布OI；14/17点覆盖提前及常规收盘",
+        description="Nasdaq-100+美股自选；盘后正式结果写DB，14/17点覆盖提前及常规收盘",
         task_type="scheduled_options_intelligence_daily",
         celery_task_name=celery_task_name("options_intelligence_daily"),
         schedules=(CronSchedule(minute="0", hour="14,17", day_of_week="mon-fri", timezone=US_TIMEZONE),),

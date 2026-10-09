@@ -18,7 +18,7 @@ from finance_analysis.options_intelligence.config import OptionsConfig
 
 @pytest.fixture
 def now():
-    return datetime(2026, 10, 7, 18, 0, tzinfo=timezone.utc)
+    return datetime(2026, 10, 7, 22, 0, tzinfo=timezone.utc)
 
 
 @pytest.fixture

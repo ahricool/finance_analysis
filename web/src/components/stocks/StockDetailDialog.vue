@@ -17,6 +17,7 @@ import {
 } from '@/utils/marketCurrency';
 import { computed, ref, watch } from 'vue';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import type { OptionsView } from '@/api/optionsIntelligence';
 import OptionsPanel from '@/components/options-intelligence/OptionsPanel.vue';
 
 export interface StockDetailRecord {
@@ -38,6 +39,8 @@ const props = defineProps<{
   quote?: RealtimeQuote;
   kind: 'watchlist' | 'holding' | 'research';
   initialTab?: 'overview' | 'options';
+  optionsView?: OptionsView;
+  optionsDate?: string;
 }>();
 const emit = defineEmits<{ 'update:open': [value: boolean] }>();
 
@@ -139,12 +142,14 @@ function movementClass(value: number | null | undefined): string {
       <Separator />
       <div
         v-if="stock"
-        class="min-h-0 flex-1 overflow-y-auto overscroll-contain [scrollbar-gutter:stable]"
+        class="w-full min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain [scrollbar-gutter:stable]"
       >
         <OptionsPanel
           v-if="activeTab === 'options' && stock.market_type === 'US'"
           :key="stock.code"
           :symbol="stock.code"
+          :initial-view="optionsView"
+          :initial-date="optionsDate"
           class="p-6"
         />
         <div

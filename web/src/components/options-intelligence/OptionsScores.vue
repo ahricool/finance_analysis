@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import OptionHelp from './OptionHelp.vue';
 import type { OptionScores } from '@/api/optionsIntelligence';
 import { formatOptionNumber, reasonLabel } from './labels';
 defineProps<{ scores: OptionScores | null | undefined }>();
@@ -16,7 +17,11 @@ const cards = [
       class="rounded-xl border bg-card p-4"
     >
       <p class="text-sm">
-        {{ card.name }}
+        <OptionHelp
+          :label="card.name"
+          :en="card.en"
+          compact
+        />
       </p>
       <p class="text-xs text-muted-foreground">
         {{ card.en }}
@@ -35,7 +40,8 @@ const cards = [
         />
       </div>
       <p class="mt-2 text-xs text-muted-foreground">
-        {{ scores?.[card.key]?.method === 'historical_percentiles' ? '历史分位数 / 独立证据' : '初始规则 / 低可信度' }}
+        {{ scores?.[card.key]?.method === 'historical_percentiles' ? `历史分位数 / ${scores?.[card.key]?.confidence === 'medium' ? '中等可信度' : '低可信度'}` : scores?.[card.key]?.method === 'observed_quote_liquidity_rules' ? '采集报价研究代理 / 低可信度' : '初始规则 / 低可信度' }}
+        {{ scores?.[card.key]?.initialRulesUsed && scores?.[card.key]?.method === 'historical_percentiles' ? '（含初始规则）' : '' }}
       </p>
       <p
         v-if="scores?.[card.key]?.reason"

@@ -24,7 +24,7 @@ def _scheduled(phase):
         raise TaskSkipped("非对应美股交易时段")
     if phase == "daily" and (now - close).total_seconds() < 1800:
         raise TaskSkipped("等待盘后数据")
-    return OptionsIntelligenceService(config=config).scan()
+    return OptionsIntelligenceService(config=config).scan(view="preview" if phase == "intraday" else "official")
 
 
 @celery_app.task(name=INTRADAY.celery_task_name)
@@ -66,11 +66,13 @@ def scan_options_daily(**kwargs):
     record_result=True,
     strip_lifecycle_kwargs=True,
 )
-def options_request(symbol=None, explain=False, **kwargs):
+def options_request(symbol=None, explain=False, view=None, trade_date=None, **kwargs):
     config = get_options_config()
     if not config.enabled:
         raise TaskSkipped("期权分析已关闭")
     service = OptionsIntelligenceService(config=config)
     if explain:
-        return service.explain(symbol)
-    return service.scan([symbol] if symbol else None)
+        from datetime import date
+
+        return service.explain(symbol, date.fromisoformat(trade_date) if trade_date else None)
+    return service.scan([symbol] if symbol else None, view=view)

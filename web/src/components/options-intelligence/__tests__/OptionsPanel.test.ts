@@ -20,7 +20,7 @@ describe('OptionsPanel', () => {
     expect(wrapper.text()).toContain('证据 C');
     expect(wrapper.text()).toContain('OI 数据日期未知');
     expect(wrapper.text()).toContain('报价时间未知');
-    expect(mock).toHaveBeenCalledWith('AAPL.US');
+    expect(mock).toHaveBeenCalledWith('AAPL.US', { view: 'official', tradeDate: undefined });
     wrapper.unmount();
   });
   it('clears stale results when switching symbols', async () => {
@@ -54,6 +54,21 @@ describe('OptionsPanel', () => {
     await flushPromises();
     expect(wrapper.text()).toContain('AAPL261016P00100000');
     expect(wrapper.text()).not.toContain('AAPL261009P00100000');
+    wrapper.unmount();
+  });
+  it('inherits the list date and mode, and ignores late responses after switching', async () => {
+    let finish: (response: Awaited<ReturnType<typeof optionsIntelligenceApi.detail>>) => void = () => {};
+    mock.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    const wrapper = mount(OptionsPanel, { props: { symbol: 'AAPL.US', initialView: 'official', initialDate: '2026-10-06' }, global: { stubs } });
+    expect(mock).toHaveBeenLastCalledWith('AAPL.US', { view: 'official', tradeDate: '2026-10-06' });
+    mock.mockResolvedValueOnce({ symbol: 'AAPL.US', latest: null, dailyHistory: [], events: [], analyses: [], reason: '今日预演暂无数据' });
+    await wrapper.setProps({ initialView: 'preview', initialDate: undefined });
+    await flushPromises();
+    expect(mock).toHaveBeenLastCalledWith('AAPL.US', { view: 'preview', tradeDate: undefined });
+    finish({ symbol: 'AAPL.US', latest: null, dailyHistory: [], events: [], analyses: [], reason: '旧日期的数据' });
+    await flushPromises();
+    expect(wrapper.text()).toContain('今日预演暂无数据');
+    expect(wrapper.text()).not.toContain('旧日期的数据');
     wrapper.unmount();
   });
 });

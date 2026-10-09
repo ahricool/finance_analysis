@@ -26,7 +26,9 @@ def test_warmup_scores_separate_and_null(observation, now, config):
     assert result["evidence_grade"] == "C"
     assert result["iv_percentile"] is None
     assert result["skew_30d"] is None
-    assert all(score["value"] is None for score in result["scores"].values())
+    assert result["scores"]["bearish_demand"]["value"] is None
+    assert result["scores"]["unusual_activity"]["value"] is None
+    assert result["scores"]["liquidity_risk"]["value"] is not None
     assert "total_score" not in result
 
 
@@ -38,7 +40,8 @@ def test_no_actual_premium_from_mid_or_latest_trade(observation, now, config):
     assert result["contracts"][0]["premium_volume"] is None
     assert result["contracts"][0]["premium_estimate"] == 500 * 2.1 * 100
     assert result["scores"]["unusual_activity"]["method"] == "initial_absolute_volume_oi_rules"
-    assert result["scores"]["liquidity_risk"]["value"] is None
+    assert result["scores"]["liquidity_risk"]["value"] is not None
+    assert result["scores"]["liquidity_risk"]["method"] == "observed_quote_liquidity_rules"
 
 
 def test_history_uses_only_prior_same_phase_source_cohorts(observation, now, config):
@@ -86,7 +89,8 @@ def test_indicative_never_scores_real_liquidity(observation, now, config):
     result = analyze(
         OptionChain(symbol="AAPL.US", observed_at=now, observations=[row]), now.date(), now, [], "daily", config
     )
-    assert result["scores"]["liquidity_risk"]["value"] is None
+    assert result["scores"]["liquidity_risk"]["value"] is not None
+    assert result["scores"]["liquidity_risk"]["method"] == "observed_quote_liquidity_rules"
     assert result["order_flow"]["available"] is False
     assert not any(e["event_type"] == "WIDE_BID_ASK_SPREAD" for e in result["events"])
 

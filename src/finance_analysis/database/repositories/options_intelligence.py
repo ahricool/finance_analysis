@@ -3,7 +3,7 @@
 import hashlib
 import json
 from datetime import date, datetime, timedelta
-from sqlalchemy import select, func
+from sqlalchemy import select
 from finance_analysis.core.time import coerce_aware_utc
 from finance_analysis.database.models.options_intelligence import (
     OptionContract,
@@ -23,20 +23,38 @@ class OptionsRepository:
             db = DatabaseManager.get_instance()
         self.db = db
 
-    def monitored_symbols(self, defaults, uid=None):
-        from finance_analysis.database.models import PortfolioPosition, WatchListItem
+    def monitored_symbols(self, uid=None):
+        from finance_analysis.database.models import Instrument, Universe, UniverseMember, WatchListItem
 
         with self.db.get_session() as session:
-            positions = select(PortfolioPosition.symbol).where(
-                PortfolioPosition.market == "US", PortfolioPosition.quantity > 0
+            constituents = (
+                select(Instrument.code)
+                .join(UniverseMember, UniverseMember.instrument_id == Instrument.id)
+                .join(Universe, Universe.id == UniverseMember.universe_id)
+                .where(
+                    Universe.key == "us_nasdaq100",
+                    Universe.enabled.is_(True),
+                    Instrument.market == "US",
+                    Instrument.listing_status == "ACTIVE",
+                    Instrument.instrument_type == "STOCK",
+                )
             )
             watches = select(WatchListItem.code).where(WatchListItem.market_type == "US")
             if uid is not None:
-                positions, watches = positions.where(PortfolioPosition.uid == uid), watches.where(
-                    WatchListItem.uid == uid
+                watches = watches.where(WatchListItem.uid == uid)
+            symbols = set(session.scalars(constituents)) | set(session.scalars(watches))
+            return sorted({s.upper() if s.upper().endswith(".US") else s.upper() + ".US" for s in symbols})
+
+    def dates(self, symbols):
+        with self.db.get_session() as session:
+            return list(
+                session.scalars(
+                    select(OptionDailyMetrics.trade_date)
+                    .where(OptionDailyMetrics.symbol.in_(symbols))
+                    .distinct()
+                    .order_by(OptionDailyMetrics.trade_date.desc())
                 )
-            symbols = set(defaults) | set(session.scalars(positions)) | set(session.scalars(watches))
-            return sorted(s if s.endswith(".US") else s + ".US" for s in symbols)
+            )
 
     def history(self, symbol, before, lookback, mode=None):
         with self.db.get_session() as session:
@@ -72,12 +90,16 @@ class OptionsRepository:
             ],
         }
 
-    def latest(self, symbol):
+    def latest(self, symbol, trade_date=None):
         with self.db.get_session() as session:
             row = session.scalars(
                 select(OptionQuoteSnapshot)
-                .where(OptionQuoteSnapshot.symbol == symbol)
-                .order_by(OptionQuoteSnapshot.observed_at.desc(), OptionQuoteSnapshot.id.desc())
+                .join(OptionDailyMetrics, OptionDailyMetrics.snapshot_id == OptionQuoteSnapshot.id)
+                .where(
+                    OptionQuoteSnapshot.symbol == symbol,
+                    *([OptionDailyMetrics.trade_date == trade_date] if trade_date else []),
+                )
+                .order_by(OptionDailyMetrics.trade_date.desc())
                 .limit(1)
             ).first()
             if row is None:
@@ -89,28 +111,19 @@ class OptionsRepository:
                 "llm_analysis": analysis.explanation if analysis else None,
             }
 
-    def scan(self, symbols):
-        # One latest-row query for the user's visible universe; never return someone else's membership.
+    def scan(self, symbols, trade_date=None):
+        # A single official date for every row; never mix failed symbols' older sessions into it.
+        if trade_date is None:
+            dates = self.dates(symbols)
+            trade_date = dates[0] if dates else None
         with self.db.get_session() as session:
-            ranked = (
-                select(
-                    OptionQuoteSnapshot.id,
-                    func.row_number()
-                    .over(
-                        partition_by=OptionQuoteSnapshot.symbol,
-                        order_by=(OptionQuoteSnapshot.observed_at.desc(), OptionQuoteSnapshot.id.desc()),
-                    )
-                    .label("rank"),
-                )
-                .where(OptionQuoteSnapshot.symbol.in_(symbols))
-                .subquery()
-            )
             rows = session.scalars(
-                select(OptionQuoteSnapshot)
-                .join(ranked, ranked.c.id == OptionQuoteSnapshot.id)
-                .where(ranked.c.rank == 1)
+                select(OptionDailyMetrics).where(
+                    OptionDailyMetrics.symbol.in_(symbols), OptionDailyMetrics.trade_date == trade_date
+                )
             ).all()
-            found = {r.symbol: self._metrics_view(r) for r in rows}
+            # Daily metrics omit contracts: listing 100 stocks must not load every raw chain.
+            found = {r.symbol: r.metrics for r in rows}
             return [
                 found.get(
                     symbol,
@@ -125,6 +138,8 @@ class OptionsRepository:
             ]
 
     def save(self, chain, metrics, bucket, mode):
+        if mode != "daily":
+            raise ValueError("Only daily options results may be persisted")
         payload = chain.model_dump(mode="json")
         fingerprint = hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
         trade_date = date.fromisoformat(metrics["trade_date"])
@@ -291,25 +306,31 @@ class OptionsRepository:
                             "meaning": "net_OI_increase_not_direction_or_realtime_opening",
                         }
 
-    def events(self, symbol, limit=100):
+    def events(self, symbol, limit=100, through=None):
         with self.db.get_session() as session:
             return [
                 {c.name: getattr(row, c.name) for c in OptionAnomalyEvent.__table__.columns}
                 for row in session.scalars(
                     select(OptionAnomalyEvent)
-                    .where(OptionAnomalyEvent.symbol == symbol)
+                    .where(
+                        OptionAnomalyEvent.symbol == symbol,
+                        *([OptionAnomalyEvent.trade_date <= through] if through else []),
+                    )
                     .order_by(OptionAnomalyEvent.occurred_at.desc(), OptionAnomalyEvent.id.desc())
                     .limit(limit)
                 )
             ]
 
-    def daily(self, symbol, limit=120):
+    def daily(self, symbol, limit=120, through=None):
         with self.db.get_session() as session:
             return [
                 r.metrics
                 for r in session.scalars(
                     select(OptionDailyMetrics)
-                    .where(OptionDailyMetrics.symbol == symbol)
+                    .where(
+                        OptionDailyMetrics.symbol == symbol,
+                        *([OptionDailyMetrics.trade_date <= through] if through else []),
+                    )
                     .order_by(OptionDailyMetrics.trade_date.desc())
                     .limit(limit)
                 )
@@ -328,14 +349,17 @@ class OptionsRepository:
                     )
                 )
 
-    def analysis_history(self, symbol):
+    def analysis_history(self, symbol, through=None):
         with self.db.get_session() as session:
             return [
                 {"created_at": row.created_at, "trade_date": day, "explanation": row.explanation, "model": row.model}
                 for row, day in session.execute(
                     select(OptionAnalysis, OptionQuoteSnapshot.trade_date)
                     .join(OptionQuoteSnapshot)
-                    .where(OptionQuoteSnapshot.symbol == symbol)
+                    .where(
+                        OptionQuoteSnapshot.symbol == symbol,
+                        *([OptionQuoteSnapshot.trade_date <= through] if through else []),
+                    )
                     .order_by(OptionAnalysis.created_at.desc())
                     .limit(30)
                 )

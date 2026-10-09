@@ -78,6 +78,36 @@ def test_explanation_is_structured_cached_and_uses_existing_llm(repository, obse
     assert client.complete_text.call_args.args[0].web_search is False
 
 
+def test_historical_explanation_does_not_use_context_or_prices_after_snapshot(repository, observation, now, config):
+    import json
+    from finance_analysis.llm import LLMResult
+
+    market = Mock()
+    market.get_option_chain.return_value = OptionChain(symbol="AAPL.US", observed_at=now, observations=[observation])
+    market.get_daily_bars.return_value = SimpleNamespace(data={})
+    client = Mock()
+    client.complete_text.return_value = LLMResult(
+        text=json.dumps(
+            dict(
+                why_it_matters="",
+                possible_catalysts=[],
+                protection_vs_direction="",
+                alternative_explanations=[],
+                data_limits=[],
+                trading_risks=[],
+            )
+        ),
+        backend="api",
+        model="test",
+    )
+    repository.context = Mock(return_value={"news": [], "calendar": []})
+    engine = OptionsIntelligenceService(repository, market, config, client)
+    engine.run("AAPL.US", now, view="official")
+    engine.explain("AAPL.US", now.date())
+    assert repository.context.call_args.args[1] == now
+    assert market.get_daily_bars.call_args.args[2] == now.date()
+
+
 def test_auto_explanation_is_once_per_snapshot_session_even_before_next_open(repository, observation, config):
     from dataclasses import replace
 

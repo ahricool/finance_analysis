@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { RouterLink } from 'vue-router';
-import { optionsIntelligenceApi, type OptionsDetail } from '@/api/optionsIntelligence';
+import { optionsIntelligenceApi, type OptionsDetail, type OptionsView } from '@/api/optionsIntelligence';
 import { tasksApi } from '@/api/tasks';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import AppApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
@@ -11,9 +11,14 @@ import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { formatDateTimeInDisplayTimezone } from '@/utils/format';
 import OptionsScores from './OptionsScores.vue';
+import OptionsDataControls from './OptionsDataControls.vue';
+import OptionHelp from './OptionHelp.vue';
 import OptionsCharts from './OptionsCharts.vue';
 import { eventLabels, formatOptionNumber as num, formatOptionPct as pct, reasonLabel } from './labels';
-const props = defineProps<{ symbol: string }>();
+const props = defineProps<{ symbol: string; initialView?: OptionsView; initialDate?: string }>();
+const mode = ref<OptionsView>(props.initialView ?? 'official'), requestedDate = ref(props.initialDate ?? '');
+const visibleDate = computed(() => data.value?.tradeDate ?? requestedDate.value);
+const dates = computed(() => data.value?.availableDates ?? []);
 const data = ref<OptionsDetail | null>(null);
 const error = ref<ParsedApiError | null>(null);
 const loading = ref(false), working = ref(false), taskId = ref('');
@@ -29,7 +34,7 @@ const anomalies = computed(() => [...(latest.value?.events ?? [])].sort((a, b) =
 async function load(version = generation) {
   loading.value = true;
   try {
-    const response = await optionsIntelligenceApi.detail(props.symbol);
+    const response = await optionsIntelligenceApi.detail(props.symbol, { view: mode.value, tradeDate: mode.value === 'official' ? requestedDate.value || undefined : undefined });
     if (version !== generation) return;
     data.value = response;
     if (!expirations.value.some(e => e.value === expiry.value)) expiry.value = expirations.value[0]?.value ?? '';
@@ -54,13 +59,16 @@ async function refresh(explain = false) {
   const version = generation;
   working.value = true; error.value = null;
   try {
-    const task = await optionsIntelligenceApi.refresh(props.symbol, explain);
+    const task = await optionsIntelligenceApi.refresh(props.symbol, explain, { view: mode.value, tradeDate: visibleDate.value || undefined });
     if (version !== generation) return;
     taskId.value = task.taskId;
     void poll(task.taskId, version);
   } catch (e) { if (version === generation) { error.value = getParsedApiError(e); working.value = false; } }
 }
-watch(() => props.symbol, () => {
+watch(() => [props.initialView, props.initialDate], () => {
+  mode.value = props.initialView ?? 'official'; requestedDate.value = props.initialDate ?? '';
+});
+watch(() => [props.symbol, mode.value, requestedDate.value], () => {
   generation++; clearTimeout(timer); expiry.value = ''; source.value = 'yfinance';
   data.value = null; error.value = null; taskId.value = ''; working.value = false;
   void load();
@@ -69,7 +77,7 @@ onBeforeUnmount(() => { generation++; clearTimeout(timer); });
 </script>
 <template>
   <div
-    class="min-w-0 space-y-5"
+    class="w-full min-w-0 max-w-full space-y-5"
     data-testid="options-panel"
   >
     <div class="flex flex-wrap items-center justify-between gap-3">
@@ -88,13 +96,20 @@ onBeforeUnmount(() => { generation++; clearTimeout(timer); });
           刷新期权链
         </LoadingButton><Button
           variant="outline"
-          :disabled="working || !latest"
+          :disabled="working || !latest || mode === 'preview'"
           @click="refresh(true)"
         >
           解释异常
         </Button>
       </div>
     </div>
+    <OptionsDataControls
+      :mode="mode"
+      :date="visibleDate"
+      :dates="dates"
+      @update:mode="mode = $event"
+      @update:date="requestedDate = $event"
+    />
     <AppApiErrorAlert
       v-if="error"
       :error="error"
@@ -128,6 +143,12 @@ onBeforeUnmount(() => { generation++; clearTimeout(timer); });
       <p class="text-sm text-muted-foreground">
         {{ latest.riskSummary }}
       </p>
+      <p
+        v-if="mode === 'preview'"
+        class="text-xs text-muted-foreground"
+      >
+        盘中成交仅用当日绝对规则，不与全天成交比较；IV/Skew参考先前正式收盘样本，可信度较低。
+      </p>
       <details class="rounded-xl border p-3 text-sm">
         <summary class="cursor-pointer">
           数据限制 · 历史 {{ latest.historyDays }} 个可比交易日
@@ -144,7 +165,10 @@ onBeforeUnmount(() => { generation++; clearTimeout(timer); });
       </details>
       <section class="space-y-3">
         <h4 class="font-semibold">
-          波动率与保护需求
+          <OptionHelp
+            label="波动率与保护需求"
+            compact
+          />
         </h4>
         <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <div
@@ -153,7 +177,10 @@ onBeforeUnmount(() => { generation++; clearTimeout(timer); });
             class="rounded-xl border p-3"
           >
             <p class="text-xs text-muted-foreground">
-              {{ m.label }}
+              <OptionHelp
+                :label="m.label"
+                compact
+              />
             </p><p class="mt-2 font-semibold tabular-nums">
               {{ m.value }}
             </p>
@@ -181,9 +208,38 @@ onBeforeUnmount(() => { generation++; clearTimeout(timer); });
           :latest="latest"
           :history="data?.dailyHistory ?? []"
         />
-        <div class="overflow-x-auto">
+        <div class="min-w-0 max-w-full overflow-x-auto">
           <Table>
-            <TableHeader><TableRow><TableHead>实际期限</TableHead><TableHead>ATM IV</TableHead><TableHead>Expected Move ($)</TableHead><TableHead>计算方法</TableHead><TableHead>来源</TableHead></TableRow></TableHeader><TableBody>
+            <TableHeader>
+              <TableRow>
+                <TableHead>
+                  <OptionHelp
+                    label="实际期限"
+                    compact
+                  />
+                </TableHead><TableHead>
+                  <OptionHelp
+                    label="ATM IV"
+                    compact
+                  />
+                </TableHead><TableHead>
+                  <OptionHelp
+                    label="Expected Move ($)"
+                    compact
+                  />
+                </TableHead><TableHead>
+                  <OptionHelp
+                    label="计算方法"
+                    compact
+                  />
+                </TableHead><TableHead>
+                  <OptionHelp
+                    label="来源"
+                    compact
+                  />
+                </TableHead>
+              </TableRow>
+            </TableHeader><TableBody>
               <TableRow
                 v-for="term in latest.termStructure"
                 :key="term.expiration"
@@ -203,7 +259,10 @@ onBeforeUnmount(() => { generation++; clearTimeout(timer); });
       </section>
       <section class="space-y-3">
         <h4 class="font-semibold">
-          期权链
+          <OptionHelp
+            label="期权链"
+            compact
+          />
         </h4>
         <div class="grid gap-3 sm:grid-cols-3">
           <FieldSelect
@@ -220,9 +279,53 @@ onBeforeUnmount(() => { generation++; clearTimeout(timer); });
             :options="sources"
           />
         </div>
-        <div class="overflow-x-auto rounded-xl border">
+        <div class="min-w-0 max-w-full overflow-x-auto rounded-xl border">
           <Table>
-            <TableHeader><TableRow><TableHead>类型/Strike</TableHead><TableHead>Bid / Ask</TableHead><TableHead>最优可见 Size</TableHead><TableHead>Volume / OI</TableHead><TableHead>OI日期</TableHead><TableHead>IV / Delta</TableHead><TableHead>Spread / Vol:OI</TableHead><TableHead>风险与来源</TableHead></TableRow></TableHeader><TableBody>
+            <TableHeader>
+              <TableRow>
+                <TableHead>
+                  <OptionHelp
+                    label="类型/Strike"
+                    compact
+                  />
+                </TableHead><TableHead>
+                  <OptionHelp
+                    label="Bid / Ask"
+                    compact
+                  />
+                </TableHead><TableHead>
+                  <OptionHelp
+                    label="最优可见 Size"
+                    compact
+                  />
+                </TableHead><TableHead>
+                  <OptionHelp
+                    label="Volume / OI"
+                    compact
+                  />
+                </TableHead><TableHead>
+                  <OptionHelp
+                    label="OI日期"
+                    compact
+                  />
+                </TableHead><TableHead>
+                  <OptionHelp
+                    label="IV / Delta"
+                    compact
+                  />
+                </TableHead><TableHead>
+                  <OptionHelp
+                    label="Spread / Vol:OI"
+                    compact
+                  />
+                </TableHead><TableHead>
+                  <OptionHelp
+                    label="风险与来源"
+                    compact
+                  />
+                </TableHead>
+              </TableRow>
+            </TableHeader><TableBody>
               <TableRow
                 v-for="c in chain"
                 :key="`${c.symbol}:${c.dataSource}`"
@@ -238,7 +341,7 @@ onBeforeUnmount(() => { generation++; clearTimeout(timer); });
                   </p>
                 </TableCell><TableCell>{{ c.oiDate ?? 'N/A · 日期未知' }}</TableCell><TableCell>{{ pct(c.iv) }} / {{ num(c.delta) }}</TableCell><TableCell>{{ pct(c.spread) }} / {{ num(c.volumeOi) }}</TableCell><TableCell class="max-w-48 whitespace-normal">
                   <p class="text-orange-600 dark:text-orange-400">
-                    风险 {{ num(c.risk.value) }}
+                    研究风险 {{ num(c.observedRisk?.value ?? c.risk.value) }}
                   </p><p class="text-xs">
                     {{ c.feedType }} · {{ reasonLabel(c.quoteStatus) }}
                   </p><p
@@ -267,7 +370,10 @@ onBeforeUnmount(() => { generation++; clearTimeout(timer); });
       </section>
       <section class="space-y-3">
         <h4 class="font-semibold">
-          异常合约与规则
+          <OptionHelp
+            label="异常合约与规则"
+            compact
+          />
         </h4><p
           v-if="!anomalies.length"
           class="text-sm text-muted-foreground"
@@ -292,7 +398,10 @@ onBeforeUnmount(() => { generation++; clearTimeout(timer); });
         class="space-y-2 rounded-xl border p-4"
       >
         <h4 class="font-semibold">
-          辅助解释
+          <OptionHelp
+            label="辅助解释"
+            compact
+          />
         </h4><p class="text-sm">
           {{ latest.llmAnalysis.whyItMatters }}
         </p><p class="text-sm">
@@ -315,7 +424,10 @@ onBeforeUnmount(() => { generation++; clearTimeout(timer); });
       </section>
       <section class="space-y-3">
         <h4 class="font-semibold">
-          历史异常与事后验证
+          <OptionHelp
+            label="历史异常与事后验证"
+            compact
+          />
         </h4><p class="text-xs text-muted-foreground">
           收益以首次可知时间后的首个有效开盘为基准（盘前可用当天），按1/3/5交易日精确对齐。缺失不顺延，事后结果不修改原始信号。
         </p><p
@@ -359,9 +471,38 @@ onBeforeUnmount(() => { generation++; clearTimeout(timer); });
       >
         <h4 class="font-semibold">
           日度评分历史
-        </h4><div class="overflow-x-auto">
+        </h4><div class="min-w-0 max-w-full overflow-x-auto">
           <Table>
-            <TableHeader><TableRow><TableHead>交易日</TableHead><TableHead>看跌保护</TableHead><TableHead>异常活动</TableHead><TableHead>流动性风险</TableHead><TableHead>证据</TableHead></TableRow></TableHeader><TableBody>
+            <TableHeader>
+              <TableRow>
+                <TableHead>
+                  <OptionHelp
+                    label="交易日"
+                    compact
+                  />
+                </TableHead><TableHead>
+                  <OptionHelp
+                    label="看跌保护"
+                    compact
+                  />
+                </TableHead><TableHead>
+                  <OptionHelp
+                    label="异常活动"
+                    compact
+                  />
+                </TableHead><TableHead>
+                  <OptionHelp
+                    label="流动性风险"
+                    compact
+                  />
+                </TableHead><TableHead>
+                  <OptionHelp
+                    label="证据"
+                    compact
+                  />
+                </TableHead>
+              </TableRow>
+            </TableHeader><TableBody>
               <TableRow
                 v-for="h in [...data.dailyHistory].reverse()"
                 :key="h.tradeDate"

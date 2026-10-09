@@ -33,9 +33,15 @@ def current_view(metrics, now=None):
 
 
 def scan_view(metrics):
-    current = current_view(metrics)
-    return {
-        **{k: v for k, v in current.items() if k not in {"contracts", "events"}},
-        "event_types": sorted({e["event_type"] for e in current.get("events", [])}),
-        "top_event": max(current.get("events", []), key=lambda e: e["severity"], default=None),
-    }
+    # Stored research scores describe the observation time, including historical dates.
+    # Live execution freshness remains a separate contract risk/quote_status field.
+    current = metrics
+    result = {k: v for k, v in current.items() if k not in {"contracts", "events"}}
+    if "events" in current:
+        result["event_types"] = sorted({e["event_type"] for e in current["events"]})
+        result["top_event"] = max(current["events"], key=lambda e: e["severity"], default=None)
+    else:
+        # Redis already stores compact summaries; don't discard their anomaly evidence.
+        result.setdefault("event_types", [])
+        result.setdefault("top_event", None)
+    return result
