@@ -107,6 +107,21 @@ def test_timeout_switches_and_preserves_later_budgets(ctx):
     assert ctx.waits == []
 
 
+@pytest.mark.parametrize("total,expected", [(600, 200), (900, 300)])
+def test_longer_global_attempt_limit_still_reserves_fallback_budget(ctx, total, expected):
+    config = replace(ctx.config, timeout=total, attempt_timeout=300)
+
+    def timeout(request):
+        ctx.now[0] += request.timeout
+        return ProviderFailure("timeout")
+
+    ctx.failures.update(agy=timeout, codex=timeout, api=timeout)
+    with pytest.raises(LLMError, match="api:timeout"):
+        LLMClient(config).complete_text(LLMRequest("one earnings event"))
+    assert [call[2].timeout for call in ctx.calls] == [expected] * 3
+    assert ctx.now[0] == total
+
+
 def test_short_override_allocates_budget_to_all_providers(ctx):
     def timeout(request):
         ctx.now[0] += request.timeout

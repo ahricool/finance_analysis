@@ -32,6 +32,11 @@ CLI，交还 LLMClient 决定重试或切换。无法识别的 CLI 内部重试�
 当前渠道重试只能使用预留之外的时间。预算不足可以少于三次重试。90秒总预算且三个渠道均超时时，
 依次各得30秒；600秒总预算时首次三个 attempt 各最多180秒。
 
+财报搜索一次只处理一个公司/财报事件；搜索输入不携带第二阶段价格预测所需的完整行情。
+若精简输入后仍频繁触及单次180秒上限，可统一配置 `LLM_ATTEMPT_TIMEOUT=300` 与 `LLM_TIMEOUT=900` 后观察。
+只增加总预算不会突破单次 attempt 上限；两项均是全局配置，会影响其他 LLM 任务。
+`quota_exhausted` / `insufficient_credits` 需要恢复渠道额度，增加时间预算不能解决。
+
 所有业务调用统一使用全局 `LLM_TIMEOUT`，不再在美股收盘复盘、Trade Engine 或 A 股收盘前复核中覆盖。
 Signal Center 每个 bucket/final、Trade Engine 每个用户的市场分析各有独立的全局调用预算。
 这些 LLM 任务不设置固定 Celery soft/hard time limit，A 股收盘前复核也不再以任务剩余时间压缩 LLM。

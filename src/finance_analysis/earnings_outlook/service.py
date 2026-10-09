@@ -11,7 +11,7 @@ from finance_analysis.database.repositories.earnings_outlook import EarningsOutl
 from finance_analysis.llm import LLMClient, LLMRequest
 from finance_analysis.llm.json_parse import parse_llm_json_response
 from .config import OutlookConfig, PROMPT_VERSION
-from .context import ContextCollector, consensus, raw_facts
+from .context import ContextCollector, consensus, raw_facts, research_context
 from .prompts import RESEARCH, OUTLOOK
 from .rules import (
     NY,
@@ -169,7 +169,7 @@ class EarningsOutlookService:
         if research is None:
             result = self.llm.complete_text(
                 LLMRequest(
-                    prompt=json.dumps(context, ensure_ascii=False, default=str),
+                    prompt=json.dumps(research_context(context), ensure_ascii=False, default=str),
                     system_prompt=RESEARCH,
                     call_type="earnings_research",
                     web_search=True,

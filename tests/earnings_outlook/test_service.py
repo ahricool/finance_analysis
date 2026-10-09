@@ -156,6 +156,38 @@ def test_cache_final_snapshot_and_failed_refresh_preserves_success(setup):
         assert s.scalar(select(func.count()).select_from(EarningsPrediction)) == 2
 
 
+def test_search_has_single_event_evidence_and_outlook_retains_full_price_context(setup):
+    service, db, repo, llm, members = setup
+    collect = service.collector.collect.side_effect
+    market = {"benchmarks": {"SPY.US": {"bars": [{"close": 100}] * 4000}}}
+    technical = {"bars": [{"close": 100}] * 30, "return_pct": 2}
+
+    def with_price_context(*args):
+        return {**collect(*args), "market": market, "technical": technical}
+
+    service.collector.collect.side_effect = with_price_context
+    assert service.refresh(1, "daily", members, {})["status"] == "success"
+    research, outlook = [call.args[0] for call in llm.complete_text.call_args_list]
+    search_input = json.loads(research.prompt)
+    forecast_input = json.loads(outlook.prompt)["context"]
+    assert search_input["event"]["symbol"] == "A.US"
+    assert search_input["event"]["reporting_period"] == "2026-Q2"
+    assert search_input["company"] == members["A.US"]
+    assert search_input["consensus"] == forecast_input["consensus"]
+    assert search_input["guidance_evidence"] == forecast_input["guidance_evidence"]
+    assert search_input["data_cutoff"] == forecast_input["data_cutoff"]
+    assert "market" not in search_input and "technical" not in search_input and "reference_price" not in search_input
+    assert len(research.prompt) < 2000 and len(outlook.prompt) > 50000
+    assert research.web_search and research.prefer_search
+    assert research.timeout is None and outlook.timeout is None  # Both retain the unified global budget.
+    assert forecast_input["market"] == market and forecast_input["technical"] == technical
+    with db.get_session() as session:
+        prediction = session.get(EarningsPrediction, repo.state(1).latest_prediction_id)
+        assert prediction.context["market"] == market and prediction.context["technical"] == technical
+    assert service.refresh(1, "daily", members, {})["status"] == "cached"
+    assert llm.complete_text.call_count == 2
+
+
 def test_event_lock_and_global_slots_never_call_llm_when_busy(setup):
     service, db, repo, llm, members = setup
     with repo.lock(1):

@@ -52,6 +52,21 @@ def consensus(event):
     return result
 
 
+def research_context(context):
+    """One company/event's operating evidence; price context belongs to outlook."""
+    keys = (
+        "event",
+        "time_certainty",
+        "company",
+        "data_cutoff",
+        "consensus",
+        "guidance_evidence",
+        "analyst_revisions",
+        "historical_earnings",
+    )
+    return {key: context[key] for key in keys if key in context}
+
+
 class ContextCollector:
     def __init__(self, repo, market=None, llm=None):
         self.repo, self.market, self.llm = repo, market or MarketDataService(), llm

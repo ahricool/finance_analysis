@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import logging
 from datetime import date, datetime, timedelta
+from functools import partial
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence
 
 from sqlalchemy import desc, func, select
@@ -49,6 +50,7 @@ class USPostmarketReviewService:
         *,
         config: Optional[Any] = None,
         history_loader: Optional[Callable[..., Any]] = None,
+        market_data_service: Optional[Any] = None,
         llm_client: Optional[Any] = None,
         reporter: Optional[USPostmarketReviewReporter] = None,
         watch_symbols_provider: Optional[Callable[[], Sequence[str]]] = None,
@@ -56,9 +58,12 @@ class USPostmarketReviewService:
     ) -> None:
         self.config = config or self._load_config()
         if history_loader is None:
-            from finance_analysis.analysis.history.loader import load_history_df
+            from finance_analysis.integrations.market_data import MarketDataService
+            from .history import load_review_history
 
-            history_loader = load_history_df
+            if market_data_service is None:
+                market_data_service = MarketDataService()
+            history_loader = partial(load_review_history, market_data=market_data_service)
         self.history_loader = history_loader
         self.llm_client = llm_client
         self.reporter = reporter or USPostmarketReviewReporter()
@@ -203,8 +208,8 @@ class USPostmarketReviewService:
         df, source = self.history_loader(symbol, target_date=trading_date, days=35)
 
         rows = self._rows_until_trading_date(df, trading_date)
-        if not rows:
-            raise RuntimeError("未找到交易日之前的日线数据")
+        if len(rows) < 2 or self._coerce_row_date(rows[-1].get("date")) != trading_date:
+            raise RuntimeError("复盘需要目标交易日与前一条日线数据")
 
         latest = rows[-1]
         previous = rows[-2] if len(rows) >= 2 else None
