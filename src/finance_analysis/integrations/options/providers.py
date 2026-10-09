@@ -4,6 +4,7 @@ import math
 import os
 import re
 from collections import defaultdict
+from billiard.exceptions import SoftTimeLimitExceeded
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
@@ -213,6 +214,8 @@ class YahooOptionsProvider:
                         spot = observation.underlying_price
                         if not spot or config.min_moneyness <= observation.strike / spot <= config.max_moneyness:
                             result.observations.append(observation)
+            except SoftTimeLimitExceeded:
+                raise
             except Exception as exc:
                 result.errors.append(f"yfinance:{expiration}:{type(exc).__name__}")
         result.coverage = {

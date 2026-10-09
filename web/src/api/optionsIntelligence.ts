@@ -3,6 +3,7 @@ import { toCamelCase } from './utils';
 
 export interface OptionScore {
   value: number | null; method: string; evidenceCount: number; confidence: string; reason: string | null;
+  initialRulesUsed?: boolean;
 }
 export interface OptionScores { bearishDemand: OptionScore; unusualActivity: OptionScore; liquidityRisk: OptionScore }
 export interface OptionTerm {
@@ -24,6 +25,7 @@ export interface OptionContract {
   spread: number | null; volumeOi: number | null; quoteStatus: string; quoteTimestamp: string | null;
   dataSource: string; feedType: string; observedAt: string; notes: string[]; limitations: string[];
   risk: OptionScore; volumePercentile: number | null; baselineDays: number;
+  observedRisk?: OptionScore;
   premiumEstimate: number | null; premiumVolume: number | null; events: string[];
 }
 export interface OptionExplanation {
@@ -32,8 +34,10 @@ export interface OptionExplanation {
 }
 export interface OptionMetrics {
   symbol: string; status: string; tradeDate?: string; observedAt?: string; computedAt?: string;
+  refreshStatus?: string; refreshReason?: string; failureSource?: string;
   underlyingPrice?: number | null; scores: OptionScores | null; evidenceGrade?: string; confidence?: string;
   historyDays?: number; iv30D?: number | null; iv30DMethod?: string; ivPercentile?: number | null; ivSampleCount?: number;
+  volumeHistoryDays?: number; volatilityComparison?: string;
   ivSource?: string[]; rv20D?: number | null; ivRvRatio?: number | null; skew30D?: number | null; skewChange?: number | null;
   putCallVolumeRatio?: number | null; volumeSource?: string | null;
   putCallRatios?: Array<{ dteMin: number; dteMax: number; volumeRatio: number | null; oiRatio: number | null; source: string }>;
@@ -54,17 +58,30 @@ export interface OptionEvent {
 export interface OptionsDetail {
   symbol: string; latest: OptionMetrics | null; dailyHistory: OptionMetrics[]; events: OptionEvent[];
   analyses: Array<{ createdAt: string; explanation: OptionExplanation; model: string | null }>; reason: string | null;
+  view?: OptionsView; tradeDate?: string; availableDates?: string[];
+}
+export type OptionsView = 'preview' | 'official';
+export interface OptionsSelection { view?: OptionsView; tradeDate?: string }
+export interface OptionsScan {
+  items: OptionMetrics[]; view?: OptionsView; tradeDate?: string; availableDates?: string[];
+  observedAt?: string; reason?: string | null;
+  failedCount?: number;
+  failureSource?: string | null;
+  latestTaskSummary?: { failedCount: number; totalCount: number } | null;
 }
 const base = '/api/v1/options-intelligence';
 export const optionsIntelligenceApi = {
-  async scan(): Promise<{ items: OptionMetrics[] }> {
-    return toCamelCase((await apiClient.get(base)).data);
+  async scan(selection?: OptionsSelection): Promise<OptionsScan> {
+    return toCamelCase((await apiClient.get(base, { params: { view: selection?.view, trade_date: selection?.tradeDate } })).data);
   },
-  async detail(symbol: string): Promise<OptionsDetail> {
-    return toCamelCase((await apiClient.get(`${base}/${encodeURIComponent(symbol)}`)).data);
+  async detail(symbol: string, selection?: OptionsSelection): Promise<OptionsDetail> {
+    return toCamelCase((await apiClient.get(`${base}/${encodeURIComponent(symbol)}`, { params: {
+      view: selection?.view, trade_date: selection?.tradeDate,
+    } })).data);
   },
-  async refresh(symbol: string, explain = false): Promise<{ taskId: string; status: string }> {
-    return toCamelCase((await apiClient.post(`${base}/${encodeURIComponent(symbol)}/${explain ? 'explain' : 'refresh'}`)).data);
+  async refresh(symbol: string, explain = false, selection?: OptionsSelection): Promise<{ taskId: string; status: string }> {
+    return toCamelCase((await apiClient.post(`${base}/${encodeURIComponent(symbol)}/${explain ? 'explain' : 'refresh'}`,
+      explain ? undefined : { view: selection?.view }, { params: explain ? { trade_date: selection?.tradeDate } : undefined })).data);
   },
-  async run(): Promise<{ taskId: string }> { return toCamelCase((await apiClient.post(`${base}/run`, {})).data); },
+  async run(view?: OptionsView): Promise<{ taskId: string }> { return toCamelCase((await apiClient.post(`${base}/run`, { view })).data); },
 };

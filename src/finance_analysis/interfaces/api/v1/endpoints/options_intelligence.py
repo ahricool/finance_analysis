@@ -1,6 +1,8 @@
 """Read-only views; explicit refresh/explain actions publish tracked Celery tasks."""
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from datetime import date
+from typing import Literal
 from finance_analysis.interfaces.api.deps import require_current_user, require_admin
 from finance_analysis.interfaces.api.v1.schemas.options_intelligence import (
     OptionsRunRequest,
@@ -9,10 +11,16 @@ from finance_analysis.interfaces.api.v1.schemas.options_intelligence import (
     OptionsDetailResponse,
 )
 from finance_analysis.options_intelligence.config import get_options_config
-from finance_analysis.options_intelligence.service import us_symbol
+from finance_analysis.options_intelligence.service import (
+    us_symbol,
+    session_context,
+    PREVIEW_BUDGET_SECONDS,
+    PREVIEW_HARD_LIMIT_SECONDS,
+)
 from finance_analysis.database.repositories.options_intelligence import OptionsRepository
 
-from finance_analysis.options_intelligence.views import current_view, scan_view
+from finance_analysis.options_intelligence.views import scan_view
+from finance_analysis.options_intelligence.preview_cache import load_preview
 
 router = APIRouter()
 
@@ -24,22 +32,35 @@ def validated_symbol(symbol):
         raise HTTPException(422, str(exc)) from exc
 
 
-def submit(user, symbol=None, explain=False):
+def submit(user, symbol=None, explain=False, view=None, trade_date=None):
     from finance_analysis.tasks.celery.jobs.options_intelligence.tasks import options_request
 
     if not get_options_config().enabled:
         raise HTTPException(409, "期权分析已关闭")
     try:
+        # Manual previews receive the same worker limits as scheduled previews.
+        from finance_analysis.core.time import utc_now
+
+        if not explain and view is None:
+            # Freeze the intended mode before queue delay can move the task past close.
+            view = "preview" if session_context(utc_now())[1] == "intraday" else "official"
+        preview = not explain and view == "preview"
+        limits = (
+            {"soft_time_limit": PREVIEW_BUDGET_SECONDS, "time_limit": PREVIEW_HARD_LIMIT_SECONDS} if preview else {}
+        )
         task = options_request.apply_async(
             kwargs={
                 "symbol": symbol,
                 "explain": explain,
+                "view": view,
+                "trade_date": trade_date.isoformat() if trade_date else None,
                 "owner_uid": user.id,
                 "_trigger_source": "manual",
                 "_triggered_by_uid": user.id,
             },
             queue="ingestion",
             expires=1800,
+            **(limits if not explain else {}),
         )
     except Exception as exc:
         raise HTTPException(503, "无法提交期权分析任务") from exc
@@ -47,44 +68,104 @@ def submit(user, symbol=None, explain=False):
 
 
 @router.get("", response_model=OptionsScanResponse)
-def scan(user=Depends(require_current_user)):
+def scan(
+    view: Literal["preview", "official"] = "official",
+    trade_date: date | None = None,
+    user=Depends(require_current_user),
+):
     repo = OptionsRepository()
-    symbols = repo.monitored_symbols(get_options_config().default_symbols, uid=user.id)
-    return {"items": [scan_view(row) for row in repo.scan(symbols)]}
+    symbols = repo.monitored_symbols(uid=user.id)
+    dates = repo.dates(symbols, uid=user.id)
+    if view == "preview":
+        payload = load_preview()
+        successes = {row["symbol"]: row for row in (payload or {}).get("items", [])}
+        failures = {row["symbol"]: row for row in (payload or {}).get("failures", [])}
+        items = (
+            [
+                (
+                    scan_view(successes[symbol])
+                    if symbol in successes
+                    else {
+                        "symbol": symbol,
+                        "status": "failed" if symbol in failures else "not_scanned",
+                        "scores": None,
+                        "limitations": [failures[symbol]["reason"]] if symbol in failures else ["本轮预演尚未采集"],
+                    }
+                )
+                for symbol in symbols
+            ]
+            if payload
+            else []
+        )
+        return {
+            "items": items,
+            "view": view,
+            "trade_date": (payload or {}).get("trade_date"),
+            "available_dates": dates,
+            "observed_at": (payload or {}).get("observed_at"),
+            "reason": None if payload else "暂无今日盘中预演，等待交易时段扫描",
+            "failed_count": sum(symbol in failures for symbol in symbols),
+        }
+    selected = trade_date or (dates[0] if dates else None)
+    items = [scan_view(row) for row in repo.scan(symbols, selected, uid=user.id)]
+    return {
+        "items": items,
+        "view": view,
+        "trade_date": selected,
+        "available_dates": dates,
+        "failed_count": sum(row["status"] == "failed" for row in items),
+        "latest_task_summary": repo.scan_task_summary(selected, uid=user.id),
+        "failure_source": "TaskRecord：所选交易日已记录的逐股结果；截断或旧任务缺失的结果保持未知",
+    }
 
 
 @router.post("/run", status_code=202, response_model=OptionsTaskAccepted)
 def run(body: OptionsRunRequest, user=Depends(require_admin)):
-    return submit(user, validated_symbol(body.symbol) if body.symbol else None)
+    return submit(user, validated_symbol(body.symbol) if body.symbol else None, view=body.view)
 
 
 @router.get("/{symbol}", response_model=OptionsDetailResponse)
-def detail(symbol: str, history_limit: int = Query(90, ge=1, le=120), user=Depends(require_current_user)):
+def detail(
+    symbol: str,
+    history_limit: int = Query(90, ge=1, le=120),
+    view: Literal["preview", "official"] = "official",
+    trade_date: date | None = None,
+    user=Depends(require_current_user),
+):
     from finance_analysis.integrations.market_data.service import MarketDataService
     from finance_analysis.options_intelligence.evaluation import with_evaluations
 
     symbol = validated_symbol(symbol)
     repo = OptionsRepository()
-    latest = current_view(repo.latest(symbol))
-    events = with_evaluations(repo.events(symbol), MarketDataService())
+    dates = repo.dates([symbol], uid=user.id)
+    selected = trade_date or (dates[0] if dates else None)
+    if view == "preview":
+        latest = load_preview(symbol=symbol)
+        selected = date.fromisoformat(latest["trade_date"]) if latest else None
+    else:
+        latest = repo.latest(symbol, selected)
+    events = with_evaluations(repo.events(symbol, through=selected), MarketDataService())
     return {
         "symbol": symbol,
         "latest": latest,
-        "daily_history": repo.daily(symbol, history_limit),
+        "daily_history": repo.daily(symbol, history_limit, through=selected),
         "events": events,
-        "analyses": repo.analysis_history(symbol),
-        "reason": None if latest else "尚未采集该美股期权链，可点击刷新异步采集",
+        "analyses": repo.analysis_history(symbol, through=selected),
+        "view": view,
+        "trade_date": selected,
+        "available_dates": dates,
+        "reason": None if latest else ("暂无今日盘中预演" if view == "preview" else "所选日期尚无正式期权数据"),
     }
 
 
 @router.post("/{symbol}/refresh", status_code=202, response_model=OptionsTaskAccepted)
-def refresh(symbol: str, user=Depends(require_current_user)):
-    return submit(user, validated_symbol(symbol))
+def refresh(symbol: str, body: OptionsRunRequest | None = None, user=Depends(require_current_user)):
+    return submit(user, validated_symbol(symbol), view=body.view if body else None)
 
 
 @router.post("/{symbol}/explain", status_code=202, response_model=OptionsTaskAccepted)
-def explain(symbol: str, user=Depends(require_current_user)):
+def explain(symbol: str, trade_date: date | None = None, user=Depends(require_current_user)):
     symbol = validated_symbol(symbol)
-    if OptionsRepository().latest(symbol) is None:
+    if OptionsRepository().latest(symbol, trade_date) is None:
         raise HTTPException(409, "请先采集期权链")
-    return submit(user, symbol, True)
+    return submit(user, symbol, True, trade_date=trade_date)

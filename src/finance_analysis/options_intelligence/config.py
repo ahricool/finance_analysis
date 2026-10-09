@@ -30,6 +30,7 @@ class OptionsConfig:
     premium_alert: float = 1_000_000
     percentile_alert: float = 95.0
     skew_alert: float = 0.08
+    put_call_demand_reference: float = 1.0
     skew_change_alert: float = 0.03
     term_inversion_alert: float = 0.05
     oi_change_alert: int = 100
@@ -50,13 +51,12 @@ class OptionsConfig:
     put_iv_max_moneyness: float = 1.03
     llm_score: float = 85.0
     auto_explain: bool = False
-    default_symbols: tuple[str, ...] = ("SPY.US", "QQQ.US", "NVDA.US", "AAPL.US", "MSFT.US", "TSLA.US")
     # Evidence weights are normalized over available inputs, never across the three scores.
     corroboration_increment: float = 25.0
     activity_weights: tuple[float, ...] = (0.45, 0.2, 0.15, 0.1, 0.1)
     bearish_weights: tuple[float, ...] = (0.25, 0.15, 0.25, 0.15, 0.1, 0.1)
     liquidity_weights: tuple[float, ...] = (0.45, 0.1, 0.15, 0.15, 0.15)
-    rule_version: str = "options-v1"
+    rule_version: str = "options-v2"
 
 
 @lru_cache(maxsize=1)

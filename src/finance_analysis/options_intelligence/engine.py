@@ -24,7 +24,33 @@ def analyze(chain, session_date, now, history, mode, config, closes=(), oi_chang
     for row in rows:
         groups[(row.data_source, row.feed_type)].append(row)
     source_order = sorted(groups, key=lambda key: (key[0] != "yfinance", key[1] == "indicative"))
-    primary = next((groups[key] for key in source_order if any(r.volume is not None for r in groups[key])), [])
+
+    def valid_volume(row):
+        return row.volume_date == session_date and row.volume is not None and isfinite(row.volume) and row.volume >= 0
+
+    def volume_window(source, low, high):
+        raw = [r for r in source if low <= (r.expiration - session_date).days <= high]
+        unique = {}
+        for row in raw:
+            identity = row.symbol, row.option_type, row.expiration, row.strike
+            if identity not in unique or not valid_volume(unique[identity]) and valid_volume(row):
+                unique[identity] = row
+        return raw, list(unique.values())
+
+    def can_compute_ratio(source):
+        _, window = volume_window(source, 22, 45)
+        puts = [r for r in window if r.option_type == "put"]
+        calls = [r for r in window if r.option_type == "call"]
+        return bool(puts and calls) and all(valid_volume(r) for r in puts + calls) and sum(r.volume for r in calls) > 0
+
+    # Prefer an actually computable complete ratio, retaining whole source/feed rows.
+    primary = next(
+        (groups[key] for key in source_order if can_compute_ratio(groups[key])),
+        None,
+    )
+    if primary is None:
+        primary = next((groups[key] for key in source_order if any(valid_volume(r) for r in groups[key])), [])
+    primary_ids = {id(r) for r in primary}
     # Volume/OI capability falls back per complete source observation, never by joining fields.
     activity_rows = {}
     for key in source_order:
@@ -37,7 +63,12 @@ def analyze(chain, session_date, now, history, mode, config, closes=(), oi_chang
                 activity_rows[row.symbol] = row
     # A closed-session chain is the volume baseline. Intraday comparison uses the same clock bucket only.
     comparable = [h for h in history if h["trade_date"] < session_date and h["mode"] == mode]
-    base_days = len({h["trade_date"] for h in comparable})
+    volatility_comparable = (
+        comparable
+        if mode == "daily"
+        else [h for h in history if h["trade_date"] < session_date and h["mode"] == "daily"]
+    )
+    base_days = len({h["trade_date"] for h in volatility_comparable})
     baselines = defaultdict(list)
     for item in comparable:
         for old in item["rows"]:
@@ -74,7 +105,9 @@ def analyze(chain, session_date, now, history, mode, config, closes=(), oi_chang
         displayed[item["expiration"]] = item
     term = [displayed[expiry] for expiry in expirations]
     iv_history = [
-        h["metrics"].get("iv_30d") for h in comparable if h["metrics"].get("iv_source") == list(selected_source or ())
+        h["metrics"].get("iv_30d")
+        for h in volatility_comparable
+        if h["metrics"].get("iv_source") == list(selected_source or ())
     ]
     iv_percentile = percentile(iv30, iv_history, config.min_history_days)
     target_skews = []
@@ -103,13 +136,13 @@ def analyze(chain, session_date, now, history, mode, config, closes=(), oi_chang
     skew30 = target_skews[1]
     skew_history = [
         h["metrics"].get("skew_30d")
-        for h in comparable
+        for h in volatility_comparable
         if h["metrics"].get("skew_source") == [skew30["source"], skew30["feed_type"]]
     ]
     prior_skew = next(
         (
             h["metrics"].get("skew_30d")
-            for h in reversed(comparable)
+            for h in reversed(volatility_comparable)
             if h["metrics"].get("skew_source") == [skew30["source"], skew30["feed_type"]]
             and h["metrics"].get("skew_terms", [{}, {}, {}])[1].get("expiration") == skew30["expiration"]
             and h["metrics"].get("skew_30d") is not None
@@ -120,16 +153,7 @@ def analyze(chain, session_date, now, history, mode, config, closes=(), oi_chang
     ratios, ratio_coverage = [], []
     for low, high in ((1, 7), (8, 21), (22, 45), (46, config.max_dte)):
 
-        def valid(r):
-            return r.volume_date == session_date and r.volume is not None and isfinite(r.volume) and r.volume >= 0
-
-        unique = {}
-        raw = [r for r in primary if low <= (r.expiration - session_date).days <= high]
-        for row in raw:
-            identity = row.symbol, row.option_type, row.expiration, row.strike
-            if identity not in unique or not valid(unique[identity]) and valid(row):
-                unique[identity] = row
-        subset = list(unique.values())
+        raw, subset = volume_window(primary, low, high)
         put = [r for r in subset if r.option_type == "put"]
         call = [r for r in subset if r.option_type == "call"]
 
@@ -140,7 +164,7 @@ def analyze(chain, session_date, now, history, mode, config, closes=(), oi_chang
             return sum(pv) / sum(cv)
 
         # Only this source/feed's valid current-session observations contribute to volume.
-        valid_put, valid_call = [r for r in put if valid(r)], [r for r in call if valid(r)]
+        valid_put, valid_call = [r for r in put if valid_volume(r)], [r for r in call if valid_volume(r)]
         call_volume = sum(r.volume for r in valid_call)
         volume_ratio = sum(r.volume for r in valid_put) / call_volume if valid_put and call_volume > 0 else None
         complete = len(valid_put) == len(put) and len(valid_call) == len(call)
@@ -155,6 +179,8 @@ def analyze(chain, session_date, now, history, mode, config, closes=(), oi_chang
                 "duplicate_contracts_excluded": len(raw) - len(subset),
                 "valid_put_contracts": len(valid_put),
                 "valid_call_contracts": len(valid_call),
+                "valid_put_volume": sum(r.volume for r in valid_put),
+                "valid_call_volume": call_volume,
                 "put_valid_fraction": len(valid_put) / len(put) if put else None,
                 "call_valid_fraction": len(valid_call) / len(call) if call else None,
                 "confidence": "low" if not complete or not valid_put or not call_volume else "filtered_chain_only",
@@ -201,9 +227,10 @@ def analyze(chain, session_date, now, history, mode, config, closes=(), oi_chang
             put_iv, put_iv_source = mean(put_iv_values), list(key)
             break
     put_iv_history = [
-        h["metrics"].get("put_iv") for h in comparable if h["metrics"].get("put_iv_source") == put_iv_source
+        h["metrics"].get("put_iv") for h in volatility_comparable if h["metrics"].get("put_iv_source") == put_iv_source
     ]
-    activity_percentiles, liquidity_scores, active_ratios = [], [], []
+    activity_percentiles, active_ratios = [], []
+    liquidity_by_contract = {}
     directional_anomalies = defaultdict(set)
     estimated_put_premiums = []
     for row in rows:
@@ -252,11 +279,18 @@ def analyze(chain, session_date, now, history, mode, config, closes=(), oi_chang
             "oi_change": oi,
             "events": [],
         }
-        if risk["risk"]["value"] is not None:
-            liquidity_scores.append(risk["risk"]["value"])
+        if risk["observed_risk"]["value"] is not None:
+            priority = (
+                risk["quote_status"] != "valid",
+                risk["quote_status"] != "indicative_not_nbbo",
+                row.data_source != "yfinance",
+            )
+            previous = liquidity_by_contract.get(row.symbol)
+            if previous is None or priority < previous[0]:
+                liquidity_by_contract[row.symbol] = (priority, risk["observed_risk"]["value"])
         if activity_rows.get(row.symbol) is row and ratio is not None:
             active_ratios.append(min(100, ratio / config.volume_oi_alert * config.activity_rule_level))
-        if row in primary:
+        if id(row) in primary_ids:
             if volume_pct is not None:
                 activity_percentiles.append(volume_pct)
             if row.option_type == "put" and premium is not None:
@@ -264,7 +298,7 @@ def analyze(chain, session_date, now, history, mode, config, closes=(), oi_chang
 
         def event(kind, value, reference, severity, explanation):
             detail["events"].append(kind)
-            if (row in primary or activity_rows.get(row.symbol) is row) and kind in {
+            if (id(row) in primary_ids or activity_rows.get(row.symbol) is row) and kind in {
                 "PUT_VOLUME_SPIKE",
                 "CALL_VOLUME_SPIKE",
                 "VOLUME_OI_ANOMALY",
@@ -313,7 +347,7 @@ def analyze(chain, session_date, now, history, mode, config, closes=(), oi_chang
                 min(100, ratio / config.volume_oi_alert * config.activity_rule_level),
                 "满足最小成交量和OI；交易活跃度不代表净开仓。",
             )
-        if premium is not None and premium >= config.premium_alert and row in primary:
+        if premium is not None and premium >= config.premium_alert and id(row) in primary_ids:
             event(
                 "LARGE_PREMIUM_ACTIVITY",
                 premium,
@@ -384,10 +418,24 @@ def analyze(chain, session_date, now, history, mode, config, closes=(), oi_chang
         "historical_percentiles" if activity_percentiles else "initial_absolute_volume_oi_rules",
         "insufficient_history_and_absolute_activity_evidence",
     )
+    pc_percentile = percentile(pc30, pc_history, config.min_history_days)
+    skew_percentile = percentile(skew30["value"], skew_history, config.min_history_days)
+    put_iv_percentile = percentile(put_iv, put_iv_history, config.min_history_days)
+    pc_rule = (
+        min(100, pc30 / config.put_call_demand_reference * 50)
+        if pc30 is not None
+        and ratio_coverage[2]["valid_put_volume"] + ratio_coverage[2]["valid_call_volume"] >= config.min_volume
+        else None
+    )
+    skew_rule = (
+        min(100, max(0, skew30["value"]) / config.skew_alert * config.activity_rule_level)
+        if skew30["value"] is not None
+        else None
+    )
     bearish_values = [
-        percentile(pc30, pc_history, config.min_history_days),
-        percentile(put_iv, put_iv_history, config.min_history_days),
-        percentile(skew30["value"], skew_history, config.min_history_days),
+        pc_percentile if pc_percentile is not None else pc_rule,
+        put_iv_percentile,
+        skew_percentile if skew_percentile is not None else skew_rule,
         (
             min(100, max(0, skew_change) / config.skew_change_alert * config.activity_rule_level)
             if skew_change is not None
@@ -399,16 +447,26 @@ def analyze(chain, session_date, now, history, mode, config, closes=(), oi_chang
     bearish = weighted_score(
         bearish_values,
         config.bearish_weights,
-        "historical_percentiles" if any(v is not None for v in bearish_values[:3]) else "initial_skew_change_oi_rules",
+        (
+            "historical_percentiles"
+            if any(v is not None for v in (pc_percentile, put_iv_percentile, skew_percentile))
+            else "initial_protection_demand_rules"
+        ),
         "insufficient_protection_demand_evidence",
     )
-    if pc30 is not None and ratio_coverage[2]["confidence"] == "low":
+    bearish["initial_rules_used"] = (
+        pc_percentile is None and pc_rule is not None or skew_percentile is None and skew_rule is not None
+    )
+    if bearish["initial_rules_used"] or pc30 is not None and ratio_coverage[2]["confidence"] == "low":
         bearish["confidence"] = "low"
+    if mode != "daily":
+        bearish["confidence"] = "low"  # Intraday IV is compared to prior closing observations.
+    liquidity_scores = [value for _, value in liquidity_by_contract.values()]
     risk_score = weighted_score(
         [mean(liquidity_scores)] if liquidity_scores else [],
         (1,),
-        "initial_price_dte_moneyness_rules",
-        "fresh_real_quotes_unavailable",
+        "observed_quote_liquidity_rules",
+        "observed_quotes_unavailable",
     )
     grade = (
         "C"
@@ -514,6 +572,8 @@ def analyze(chain, session_date, now, history, mode, config, closes=(), oi_chang
         "direction": "protection_demand_reference",
         "confidence": "low" if grade == "C" else "medium",
         "history_days": base_days,
+        "volume_history_days": len({h["trade_date"] for h in comparable}),
+        "volatility_comparison": "prior_daily_closes" if mode != "daily" else "same_phase_daily",
         "status": "warming_up" if base_days < config.min_history_days else "ready",
         "iv_30d": iv30,
         "iv_30d_method": iv30_method,

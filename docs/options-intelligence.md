@@ -15,13 +15,14 @@ uv run alembic upgrade head
 迁移 `0070_options_intelligence` 接在 `0069_earnings_outlook` 后，创建：
 
 - `option_contract`：OCC 唯一合约身份、标的、类型、到期日、strike、multiplier。
-- `option_quote_snapshot`：每股票/30分钟桶的来源隔离链批次；原始标准化数据只保存一次，包含报价时间、成交时间、OI 日期与来源。
+- `option_quote_snapshot`：每股票/30分钟桶的正式盘后来源隔离链批次；原始标准化数据只保存一次，包含报价时间、成交时间、OI 日期与来源。
 - `option_daily_metrics`：每股票/交易日首个有效盘后结果，不由后来发布的 OI 或补充扫描覆盖。
 - `option_anomaly_event`：每日股票/合约/事件/来源/feed唯一；初始证据不可变，最新证据和关键变化分开。
 - `option_analysis`：关联快照的结构化 LLM 解释、prompt、原始结果与模型，每快照一次。
 
-扫描初始范围为 SPY、QQQ、NVDA、AAPL、MSFT、TSLA，加全部用户的美股当前持仓与自选股。
-读扫描页只显示默认股票与**当前用户自己的**美股持仓/自选范围，不泄漏其他用户的监控成员关系。
+扫描范围为数据库 `Universe.key=us_nasdaq100` 中当前有效的 Nasdaq-100 股票成分股，加全部用户的美股自选股，规范代码后去重。成分股复用证券主数据维护，不在扫描中联网同步。
+读扫描页只显示 Nasdaq-100 与**当前用户自己的**美股自选范围，不泄漏其他用户的监控成员关系。默认六标的与持仓补充池已移除。
+历史列表按当前可见范围过滤，未重建历史成分；按所选日期精确查正式结果，缺日不回退旧日期。
 详情为共享市场研究事实；普通用户可显式刷新单只美股，管理员可以运行全范围扫描。
 首次安装无数据时为空态；点击「刷新期权链」提交 Celery 任务，页面跟踪任务状态后读取已存数据。
 需要实际运行 Worker，不在 HTTP GET 中抓取或写入市场数据。
@@ -42,7 +43,7 @@ Redis缓存整批源观察900秒，读取缓存保留原始观察时间，缓存
 3. 合约/OI来自 **Trading API只读** `GET /v2/options/contracts`，不是 Market Data端点。显式到期日边界覆盖默认近周末限制；保存 `open_interest_date`，读取 `multiplier`/`size`。
 
 同一合约不同来源保留不同观察，前端可切来源，绝不字段拼接。Volume/OI、ATM IV优先Yahoo；标准30D IV、近ATM Put IV与每个7/30/60D Skew分别按该能力的可用性回退。Yahoo只有短期限IV不能挡住Alpaca有效30D数据，最近到期日缺Delta时选择容忍区间内真正可用的同到期IV+Delta。
-流动性只用有真实时间且新鲜的非Indicative独立报价；OI确认只用同来源有日期的相邻交易日数据。
+实时可成交风险与流动性异常事件只用有真实时间且新鲜的非Indicative独立报价。页面的 Liquidity Risk 是采集时点的研究代理，允许有效的未知报价时间/Indicative，以及属于该交易日的收盘报价；始终低可信度，不声称实时NBBO。已知属于其他交易日或未来的报价不评分；同合约只选一份完整来源评分（新鲜真实优先），不双重计数。OI确认只用同来源有日期的相邻交易日数据。
 Yahoo缺少有效标的现价时，通过注入现有股票行情门面的报价方法取得独立现价及时间，再进行Alpaca筛选；不创建递归的期权门面调用。首次缺价但稍后补价时重新筛选。始终缺价且合约超限时明确报告无法筛选，不按最低strike截断；未超限的原始链可以展示，但ATM、Moneyness等相关指标为N/A。独立现价另存来源限制与时间，不借标的价格伪造缺失Greeks。
 
 Yahoo不提供可靠bid/ask时间、IV时间或OI日期；lastTradeDate不是quote时间。
@@ -72,7 +73,7 @@ OPRA缺失不阻塞Yahoo主链。未来获得权限时可设置 `OPTIONS_FEED=op
 ## 指标
 
 - Spread = `(ask-bid)/((ask+bid)/2)`；负数、零ask、crossed、非有限/缺失报价不可用。零bid单独提示。
-- Quote Freshness：真实quote timestamp距当前时间≤300秒；未知、未来或过期不参与实时评分。GET再次检查，过期显示N/A，但历史快照评分保持原值。
+- Quote Freshness：真实quote timestamp距计算时间≤300秒；未知、未来或过期不参与实时可成交风险/异常。GET保留采集时点的研究评分和报价状态，不用打开页面时的时钟重新覆盖快照。
 - 可见size只描述最优报价可见数量，不是完整订单簿。
 - Volume/OI：达到默认volume≥100、OI≥100才用于评分/异常，避免小分母。
 - Premium估算 = `mid × volume × multiplier`，明确标为估算，不是真实成交权利金，latest trade不能代替全日VWAP。
@@ -92,9 +93,9 @@ OPRA缺失不阻塞Yahoo主链。未来获得权限时可设置 `OPTIONS_FEED=op
 
 三个0–100评分独立，不生成总分，不等价于股价下跌概率。
 
-- Bearish Demand：可用Put/Call Volume、相似DTE/Moneyness Put IV、25Δ Skew的历史分位数，Skew变化、Put权利金估算活跃度及发布后的OI佐证。证据缺失则N/A，按可用独立分量归一权重。
+- Bearish Demand：可用Put/Call Volume、相似DTE/Moneyness Put IV、25Δ Skew的历史分位数，Skew变化、Put权利金估算活跃度及发布后的OI佐证。预热期间允许绝对规则：22–45D当日双边有效成交总量≥`min_volume`时，Put/Call比率÷`OPTIONS_PUT_CALL_DEMAND_REFERENCE`×50（默认比率1对应50）；有效Skew的正值÷`skew_alert`×`activity_rule_level`。封顶100，无相应证据仍N/A。历史分位数足够时优先采用；绝对规则参与的评分明确low，不伪造历史。按可用独立分量归一权重。
 - Unusual Activity：同类Volume历史分位数、满足绝对门槛的Volume/OI、权利金估算分位数、OI佐证及同类型多合约共同出现。历史不足时仅有明确门槛的绝对证据可给初始规则分，否则N/A。
-- Liquidity Risk：价差、时效、volume、OI、最优size的可用分量。Spread容忍值随权利金、DTE、Moneyness变化；极低权利金、深价外、近到期、零bid单独提示。初始规则尚未按标的历史流动性校准，可信度low。
+- Liquidity Risk：观察报价研究代理，使用价差、当日volume、OI、最优size的可用分量，不把报价年龄当作历史流动性风险。实时合约 `risk` 另含时效且要求新鲜真实报价，`observed_risk` 为研究代理。Spread容忍值随权利金、DTE、Moneyness变化；极低权利金、深价外、近到期、零bid单独提示。初始规则尚未按标的历史流动性校准，可信度low。
 
 方法、证据数量、方向、confidence、evidence_grade分开存储。
 A要求有效OPRA、明确IV时间与充足历史；当前Alpaca快照不提供IV时间，不能自动获得A。
@@ -115,19 +116,28 @@ OI有明确日期、同来源且相邻有效交易日才比较；变化于网络
 `options_intelligence_daily`：纽约14:00/17:00检查，收盘至少30分钟后执行；14:00覆盖13:00提前收盘，17:00覆盖常规16:00收盘。日度基线每交易日只保存一次，后来OI仍可更新独立事件验证。
 复用ingestion队列与TaskRecord生命周期，不创建新的Worker。
 
+`intraday` 仅写Redis：摘要键 `options_intelligence:preview:v2:US`，单股详情键附加纽约交易日和symbol。
+摘要与详情同一Redis事务发布，在纽约午夜过期，GET拒绝旧日期。只保留最新盘中状态；单股刷新合并同日已有摘要，全范围扫描重新发布本轮成功股票。全部失败保留上轮结果并报错；部分失败在TaskRecord摘要中明确数量，失败股票不会回填正式数据。Redis写入失败让任务失败。
+`daily` 写 PostgreSQL，并使用现有独立日度基线；同一标的/交易日的首个基线不覆盖。禁止将收盘前缓存链转成正式日度数据，也禁止仓储保存非daily结果。历史盘中记录不删除，但正式GET通过日度基线关联读取，避免与旧盘中链混合。读取历史评分不随当前时间重新判过期。
+盘中成交累计不能与正式全天成交直接比较，所以preview历史成交分位数仍为N/A；可用绝对规则照常计算。IV/Skew可对比先前正式收盘观察，显式标记`volatility_comparison=prior_daily_closes`并保持看跌评分低可信度，`volume_history_days`单独报告。
+前端扫描页和股票期权Tab都有「盘中预演 / 正式收盘」与正式日期选择，列表打开详情继承当前模式/日期。预演缺失独立显示空态，不回退正式结果。正式LLM解读可指定所选日期；preview不自动写LLM/异常事件表。
+规则版本 `options-v2` 从新扫描起生效，已有正式评分保留，不自动重写历史。
+
 | API | 行为 |
 | --- | --- |
-| GET `/api/v1/options-intelligence` | 当前用户监控范围的最新摘要 |
-| GET `/api/v1/options-intelligence/{symbol}` | 最新链、指标、日度历史、事件与事后评价、LLM历史；history_limit≤120 |
-| POST `/api/v1/options-intelligence/{symbol}/refresh` | 显式异步单股刷新，返回task_id |
-| POST `/api/v1/options-intelligence/{symbol}/explain` | 已有快照的用户主动LLM解释 |
-| POST `/api/v1/options-intelligence/run` | 管理员异步扫描，body可选symbol |
+| GET `/api/v1/options-intelligence` | `view=official|preview`；`trade_date=YYYY-MM-DD`选择精确正式日期；返回available_dates与摘要 |
+| GET `/api/v1/options-intelligence/{symbol}` | 同样支持view/trade_date；返回对应链、指标、截至日期的日度历史、事件与事后评价、LLM历史；history_limit≤120 |
+| POST `/api/v1/options-intelligence/{symbol}/refresh` | 显式异步单股刷新，body可选view；仅符合所选模式的时段可执行，返回task_id |
+| POST `/api/v1/options-intelligence/{symbol}/explain` | 已有正式快照的用户主动LLM解释，可选trade_date |
+| POST `/api/v1/options-intelligence/run` | 管理员异步扫描，body可选symbol和view |
 
-GET不拉远程行情。所有接口受既有Cookie/JWT会话保护，手动任务归属当前uid，可在任务中心跟踪。
+GET不拉远程行情；按view只读Redis预演或PostgreSQL正式结果。所有接口受既有Cookie/JWT会话保护，手动任务归属当前uid，可在任务中心跟踪。
 
-LLM沿用LLMClient，仅显式请求或配置自动重要异常时调用，自动解释按快照所属交易日每标的最多一次，跨日盘前刷新也不会重复自动解释上一交易日。
-提供已算分数、来源、异常合约、IV/Skew、DB近期价格、已持久化Longbridge新闻与财经日历。
+LLM沿用LLMClient，仅显式请求或配置自动重要异常时调用，自动解释按快照所属交易日每标的最多一次，下一交易日盘前普通刷新会被拒绝，不补写或重新解释上一交易日。
+提供已算分数、来源、异常合约、IV/Skew、DB近期价格、已持久化Longbridge新闻与财经日历。解释所选历史快照时，新闻/日历可知时间与日线截止均限制在快照计算时点，不能借用后续事实。
 不启用通用Web Search：仓库现有信息边界只允许earnings_outlook做联网研究例外。
+2026-10-09 Review只读抽取生产AAPL既有日度链1770条观察，在开发环境纯计算重放（未写生产数据）。零历史样本下v2得到Bearish Demand 24.6、Liquidity Risk 50.2，均为low；历史分位数仍不可用。旧前端同时有IV与Skew图时，在离线浏览器mock中1.5秒内高度从140px增长到700px；v2用固定224px父容器和绝对定位图表阻断百分比高度/自动resize反馈。
+
 结构化解释包含关注原因、可能催化剂、保护需求与方向证据区分、其他解释、数据限制与交易风险。
 LLM失败不撤销已成功存储的期权数据。
 
@@ -142,7 +152,7 @@ FA_WEB_SMOKE_BACKEND_CMD='uv run uvicorn finance_analysis.interfaces.api.app:app
 ```
 
 离线单测覆盖公式、无效/旧报价、极小OI、来源归一化与回退、历史预热、次日OI不污染原始信号、事件去重、迁移上下行、API权限/异步归属和事后交易日对齐。
-前端冒烟测试使用明确mock，只验证应用路由、详情Tab、空值和390/768/1024/1280/1440/1920px深浅色布局；不把Mock冒烟测试当作真实市场验证。
+前端冒烟测试使用明确mock，验证应用路由、详情Tab、空值、模式继承、指标hint、连续resize周期图表尺寸稳定及390/768/1024/1280/1440/1920px深浅色布局；不把Mock冒烟测试当作真实市场验证。
 初始实现审查后聚焦后端111项、前端单测6项、浏览器12项通过；Vue构建、后端syntax/flake8和修改文件ESLint通过。全量后端2622通过、39个失败/4个错误；全量前端664通过、38个失败。失败列表与修改前基线完全一致，全量lint既有3个错误也在基线复现，未宣称全量门禁全绿。迁移在临时SQLite执行上下行并对齐模型/唯一约束；开发机PostgreSQL测试连接不可用，未执行生产迁移或生产部署。
 
 提交前自审修复了期限能力回退、缺失Delta到期日选择、Call-only OI导致无依据看跌零分、OI纽约日期边界、多来源OI重复计数、事件参考基线变化遗漏、合约乘数补全、跨日自动解释去重、无IV时真实Straddle计算以及前端到期日刷新；对应行为有离线回归测试。
@@ -151,3 +161,39 @@ FA_WEB_SMOKE_BACKEND_CMD='uv run uvicorn finance_analysis.interfaces.api.app:app
 没有完整历史时正常展示原始指标和明确初始规则/N/A，通过实际日度采样积累历史，不用未来OI回填过去评分。
 
 PR #383遗留问题修复仅在本地执行离线验证，新增37项回归用例，覆盖密集近月合约预算、现价早期/晚期回退及请求完成时间、Volume日期及覆盖、独立来源期限/30D插值、盘前和夏令时评价。全部期权测试101项、相关行情/API/Celery/任务生命周期测试190项、前端单测6项通过，失败0项；后端syntax/flake8、修改文件严格F检查、组件ESLint及TypeScript/Vue构建通过。本轮未重跑全量门禁或浏览器冒烟，不改变数据库结构、公共API契约、评分阈值或权重，也没有重新访问生产环境或验证外部行情权限。
+
+
+## PR #386 业务修复与扫描预算
+
+正式扫描要求纽约当前日期本身是 XNYS 交易日、会话日期等于当前日期、距离该日实际收盘至少30分钟。
+周末、节假日和下一交易日盘前均拒绝普通正式扫描；提前收盘仍使用交易日历，首个有效日度评分不可覆盖。
+Put/Call 来源选择先去重，再优先选择当日完整 Put/Call 且 Call 总量大于零的整套来源；Yahoo 0/0、缺失或昨日成交允许回退 Alpaca，不拼接来源。
+
+单股预演合并同日成功与失败状态，成功清除旧失败，失败保留上次有效结果并标注 `refresh_status=failed` 与简要原因。
+全范围扫描重建本轮状态，包括全部失败的情况；摘要和详情仍同一 Redis transaction 发布，纽约午夜过期。
+Redis 发布或合并读取失败仍使任务失败。全失败/部分失败及预算中止通过现有 TaskOutcome 记录 failed/partial，并保留 TaskRecord 结果。
+正式列表只使用同日、全局或本人 TaskRecord 中明确记录的逐股结果；原始日度评分不因读取改变。
+任务摘要有40条逐股记录/字符上限，因此未记录部分保持未知；页面另显示最近正式任务整轮失败总数及 TaskRecord 来源，不将总数推断成逐股失败。
+仅失败而没有快照的近期日期也可选：从最多200条用户可见任务发现日期，已有正式快照日期保持完整；显式历史日期查询不受这个发现窗口限制。
+
+预演/正式/手动扫描继续共用非阻塞 `OPTIONS_INTELLIGENCE` advisory lock，复用 ingestion 与普通 prefork Worker。
+Beat 预演在纽约9–15点每半小时发布（25分钟消息有效期），正式任务在14:00/17:00检查实际收盘后30分钟（60分钟消息有效期）。
+修复前没有扫描总时限。Yahoo 至多查询1个到期日目录+12条期限链，底层单请求默认30秒；应用最多4次尝试、退避合计14秒，
+仅按这个请求层估算是13×(4×30+14)=1742秒/股。Alpaca 两个接口各最多50页、单请求20秒，类似估算为100×(4×20+14)=9400秒/股。
+100股合计约309.5小时请求等待预算；这是保守故障场景的数量级估算，不能当作严格运行时上界：
+yfinance 内部还可能处理 cookie/crumb/重试，httpx 的 timeout 是各网络阶段限制，股票参考报价、DB、计算也需要时间。
+因此15:30预演占锁到17:00是明确风险，无法凭串行方式或单请求超时排除。
+
+本次采用最小执行预算：每轮预演最多继续扫描20分钟，并在实际收盘时停止启动下一股（支持提前收盘）。
+定时和 API 手动预演均设20分钟 Celery soft limit、21分钟 hard limit；软超时可中断当前股，发布已完成数据及失败状态，未完成计数保留。
+Yahoo/Alpaca 期权回退不吞掉软超时；每股完成后原子发布进度，硬时限仅为阻塞调用的最终兜底；强制终止仍保留已发布结果，但正在采集的股票及最终任务摘要可能不完整。
+API 自动模式在提交时冻结，避免排队后的预演转成正式采集；整轮交易日固定，跨纽约日期后不再扫描下一股，预演发布也不重新标记旧日期。正式扫描不受预演时限限制，不新增并发请求、队列或历史补扫。
+日志包含模式、交易日、耗时、成功、失败、未完成数。即便15:30消息接近25分钟有效期末开始，21分钟兜底仍在17:00之前；提前收盘对应12:30/14:00同理。
+这只解决期权预演长期占锁的问题，不保证共享 Worker 被其他任务占用时的排队时延，也不保证盘后全量快速完成。
+
+验证仅使用已有观察 fixture、内存 Redis fake 和本地 SQLite：离线重放100股计算；模拟每股50秒时，15:30开始只完成24股、剩余76股记为未完成；
+提前收盘12:50开始、每股60秒时完成10股后停止。另覆盖软超时部分发布、手动任务限时、全失败任务状态与锁释放。
+本轮没有连接生产数据库、执行生产性能测试或修改历史评分，也没有运行浏览器/Playwright。
+自审还补齐期权详情对 partial 任务的终止轮询处理，避免预算中止后一直显示执行中。
+
+本轮最终检查：相关后端208项、前端13项通过；后端syntax/flake8、期权相关文件严格F检查、TypeScript、相关ESLint及git diff --check通过。未重跑全量门禁，既有Pydantic弃用警告仍存在。

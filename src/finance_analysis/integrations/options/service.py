@@ -3,6 +3,7 @@
 import hashlib
 import os
 from collections import defaultdict
+from billiard.exceptions import SoftTimeLimitExceeded
 
 from finance_analysis.core.time import utc_now
 from finance_analysis.market_review.trading_calendar import get_effective_trading_date, get_market_now, is_market_open
@@ -97,6 +98,8 @@ class OptionsDataService:
             quotes = self.underlying_quote_loader([symbol])
             # A live quote can arrive after the scan's start while providers are fetching.
             return quote_reference(quotes.data.get(symbol), max(now, utc_now()))
+        except SoftTimeLimitExceeded:
+            raise
         except Exception:
             return None  # An unavailable stock quote must not fabricate a moneyness reference.
 
@@ -118,10 +121,14 @@ class OptionsDataService:
                     if missing and (reference := self._reference(symbol, now)):
                         attach_reference(missing, reference)
                     return limit_chain(result, session_date, self.config)
+            except SoftTimeLimitExceeded:
+                raise
             except Exception:
                 pass  # Cache is optional; source errors remain in the response.
         try:
             result = self.yahoo.fetch(symbol, now, session_date, self.config)
+        except SoftTimeLimitExceeded:
+            raise
         except Exception as exc:
             result = OptionChain(symbol=symbol, observed_at=now, errors=[f"yfinance:{type(exc).__name__}"])
         # Yahoo lacks Greeks, quote timestamps/depth and dated OI: fallback only for these capabilities.
@@ -147,6 +154,8 @@ class OptionsDataService:
                 result.observations.extend(fallback.observations)
                 result.errors.extend(fallback.errors)
                 result.coverage["alpaca"] = fallback.coverage
+            except SoftTimeLimitExceeded:
+                raise
             except Exception as exc:
                 # AlpacaHTTPError only contains sanitized classifications.
                 from finance_analysis.integrations.market_data.providers.alpaca import AlpacaHTTPError
@@ -171,6 +180,8 @@ class OptionsDataService:
         if self.cache is not None and result.observations:
             try:
                 self.cache.setex(key, self.config.cache_seconds, result.model_dump_json())
+            except SoftTimeLimitExceeded:
+                raise
             except Exception:
                 pass
         return result

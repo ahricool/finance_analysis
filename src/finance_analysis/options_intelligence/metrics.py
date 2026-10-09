@@ -112,12 +112,27 @@ def liquidity(row, now, session_date, config):
     score = weighted_score(
         components if status == "valid" else [], config.liquidity_weights, "initial_price_dte_moneyness_rules", status
     )
+    # Research proxy from the observed chain. Indicative/undated quotes are explicitly
+    # low confidence; stale *dated* quotes from prior sessions must remain unavailable.
+    from finance_analysis.market_review.trading_calendar import get_market_now
+
+    same_session = row.quote_timestamp is not None and get_market_now("us", row.quote_timestamp).date() == session_date
+    observed_usable = relative is not None and (
+        row.quote_timestamp is None or same_session and row.quote_timestamp <= now
+    )
+    observed_score = weighted_score(
+        [components[0], None, *components[2:]] if observed_usable else [],
+        config.liquidity_weights,
+        "observed_quote_liquidity_rules",
+        "observed_quotes_unavailable",
+    )
     return {
         "spread": relative,
         "mid": mid,
         "spread_allowance": allowance,
         "quote_status": status,
         "risk": score,
+        "observed_risk": observed_score,
         "notes": notes,
         "volume_oi": volume_oi(row.volume, row.open_interest, config) if row.volume_date == session_date else None,
     }

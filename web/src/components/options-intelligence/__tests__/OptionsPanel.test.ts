@@ -20,7 +20,7 @@ describe('OptionsPanel', () => {
     expect(wrapper.text()).toContain('证据 C');
     expect(wrapper.text()).toContain('OI 数据日期未知');
     expect(wrapper.text()).toContain('报价时间未知');
-    expect(mock).toHaveBeenCalledWith('AAPL.US');
+    expect(mock).toHaveBeenCalledWith('AAPL.US', { view: 'official', tradeDate: undefined });
     wrapper.unmount();
   });
   it('clears stale results when switching symbols', async () => {
@@ -56,4 +56,46 @@ describe('OptionsPanel', () => {
     expect(wrapper.text()).not.toContain('AAPL261009P00100000');
     wrapper.unmount();
   });
+  it('inherits the list date and mode, and ignores late responses after switching', async () => {
+    let finish: (response: Awaited<ReturnType<typeof optionsIntelligenceApi.detail>>) => void = () => {};
+    mock.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    const wrapper = mount(OptionsPanel, { props: { symbol: 'AAPL.US', initialView: 'official', initialDate: '2026-10-06' }, global: { stubs } });
+    expect(mock).toHaveBeenLastCalledWith('AAPL.US', { view: 'official', tradeDate: '2026-10-06' });
+    mock.mockResolvedValueOnce({ symbol: 'AAPL.US', latest: null, dailyHistory: [], events: [], analyses: [], reason: '今日预演暂无数据' });
+    await wrapper.setProps({ initialView: 'preview', initialDate: undefined });
+    await flushPromises();
+    expect(mock).toHaveBeenLastCalledWith('AAPL.US', { view: 'preview', tradeDate: undefined });
+    finish({ symbol: 'AAPL.US', latest: null, dailyHistory: [], events: [], analyses: [], reason: '旧日期的数据' });
+    await flushPromises();
+    expect(wrapper.text()).toContain('今日预演暂无数据');
+    expect(wrapper.text()).not.toContain('旧日期的数据');
+    wrapper.unmount();
+  });
+  it('marks retained preview results after a failed refresh', async () => {
+    mock.mockResolvedValue({ symbol: 'AAPL.US', latest: { symbol: 'AAPL.US', status: 'warming_up',
+      scores: null, limitations: [], contracts: [], refreshStatus: 'failed', refreshReason: 'provider timeout' },
+    dailyHistory: [], events: [], analyses: [], reason: null });
+    const wrapper = mount(OptionsPanel, { props: { symbol: 'AAPL.US', initialView: 'preview' }, global: { stubs } });
+    await flushPromises();
+    expect(wrapper.text()).toContain('刷新失败，显示上次预演');
+    expect(wrapper.text()).toContain('provider timeout');
+    wrapper.unmount();
+  });
+
+  it('stops polling and reloads data when the preview budget produces a partial task', async () => {
+    mock.mockResolvedValue({ symbol: 'AAPL.US', latest: null, dailyHistory: [], events: [], analyses: [], reason: '暂无预演' });
+    vi.mocked(optionsIntelligenceApi.refresh).mockResolvedValue({ taskId: 'partial-task', status: 'pending' });
+    vi.mocked(tasksApi.getTaskRunDetail).mockResolvedValue({ status: 'partial', message: '未完成 1' } as Awaited<ReturnType<typeof tasksApi.getTaskRunDetail>>);
+    const wrapper = mount(OptionsPanel, { props: { symbol: 'AAPL.US', initialView: 'preview' }, global: { stubs } });
+    await flushPromises();
+    const previousCalls = mock.mock.calls.length;
+    await wrapper.findAll('button').find(b => b.text().includes('刷新期权链'))!.trigger('click');
+    await flushPromises();
+    expect(mock.mock.calls.length).toBe(previousCalls + 1);
+    expect(wrapper.text()).toContain('任务已结束');
+    expect(wrapper.text()).not.toContain('任务执行中，可离开页面稍后查看');
+    expect(wrapper.text()).toContain('未完成 1');
+    wrapper.unmount();
+  });
+
 });

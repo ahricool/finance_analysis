@@ -390,6 +390,8 @@ Signal Center 历史 BUY 在 GET 时复用 DB 前复权日线批量计算 1/3/5/
 `integrations/options/`：yfinance 主链，Alpaca 缺失能力回退；合约/OI 日期来自 Alpaca 只读 Trading API。
 报价/IV 不跨来源拼接，Indicative 非 NBBO；未知报价时间不实时评分，未知 OI 日期不次日确认。
 三个评分独立，历史预热可 N/A；事件初始证据不可变，次日 OI 与事后股票收益放验证字段。
-Beat `options_intelligence_intraday/daily` 复用 ingestion 与独立任务锁，真实 NYSE 时段检查；GET 仅读库。
+扫描范围为数据库当前有效 `us_nasdaq100` 成分股 + 美股自选股，不含默认六标的/持仓补充池。
+Beat `options_intelligence_intraday/daily` 复用 ingestion 与独立任务锁，真实 NYSE 时段检查；intraday 仅写 Redis preview（纽约午夜过期），daily 写 PostgreSQL，GET 只读相应存储。
+API/页面支持 preview/official 与正式日期选择；正式读取关联日度基线，不回退旧日期或重算历史报价时效。看跌保护初始规则与采集报价流动性研究代理均标注低可信度，不伪装历史分位数或实时 NBBO。
 页面 `/research/options-intelligence` 与现有美股股票详情「期权」Tab。迁移 `0070_options_intelligence`；
 规则、数据能力、OPRA 检查与配置见 `docs/options-intelligence.md`，离线测试 `tests/options_intelligence/`。
