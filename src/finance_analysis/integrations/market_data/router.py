@@ -130,6 +130,13 @@ class MarketDataRouter:
                             f"provider returned {bars[0].adjustment.value} bars for "
                             f"requested adjustment={request.adjustment.value}"
                         )
+                    if capability == DAILY_BARS and request.required_dates:
+                        missing_dates = set(request.required_dates).difference(bar.trade_date for bar in bars)
+                        if missing_dates:
+                            missing = ",".join(str(day) for day in sorted(missing_dates))
+                            raise ValueError(f"missing required daily bars: {missing}")
+                        if failure:
+                            raise ValueError(failure)
                 except Exception as exc:
                     errors[symbol].append(f"{registration.name}: {exc}")
                     if complete_fallback:
@@ -139,6 +146,8 @@ class MarketDataRouter:
                 if bars:
                     result.data[symbol] = bars
                     result.providers_used[symbol] = registration.name
+                    if capability == DAILY_BARS and request.required_dates and not failure:
+                        result.request_errors.pop(symbol, None)
                     if complete_fallback and not failure:
                         # A fresh full-window response replaces a failed primary, not a partial-page merge.
                         result.request_errors.pop(symbol, None)

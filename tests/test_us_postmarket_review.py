@@ -402,3 +402,59 @@ def test_postmarket_uses_global_llm_budget():
     _service(llm=client).run(now=TRADING_DATE)
     assert len(client.requests) == 1
     assert client.requests[0].timeout is None
+
+
+def test_context_fetches_overlapping_symbols_once_and_does_not_share_mutable_results():
+    from collections import Counter
+    from unittest.mock import Mock
+
+    service = _service(watch_symbols=["SPY.US", "XLK.US", "AAPL.US", "SPY.US"])
+    service.history_loader = Mock(wraps=service.history_loader)
+    context = service._build_context(TRADING_DATE.date())
+    counts = Counter(call.args[0] for call in service.history_loader.call_args_list)
+    expected = set(US_POSTMARKET_BENCHMARKS) | set(US_POSTMARKET_SECTOR_ETFS) | {"AAPL.US"}
+    assert counts == {symbol: 1 for symbol in expected}
+    benchmark = next(item for item in context.benchmarks if item.symbol == "SPY.US")
+    watched = next(item for item in context.watchlist_summary.gainers if item.symbol == "SPY.US")
+    assert benchmark is not watched
+    assert benchmark.name == US_POSTMARKET_BENCHMARKS["SPY.US"]
+    assert watched.name == "SPY.US"
+    watched.relative_to_spy = 999
+    assert benchmark.relative_to_spy == 0
+
+    service._build_context(TRADING_DATE.date())
+    assert Counter(call.args[0] for call in service.history_loader.call_args_list) == {
+        symbol: 2 for symbol in expected
+    }
+
+
+def test_context_failure_is_fetched_once_but_keeps_each_section_warning_and_retries_next_run():
+    from unittest.mock import Mock
+
+    service = _service(watch_symbols=["SPY.US"], fail={"SPY.US"})
+    service.history_loader = Mock(wraps=service.history_loader)
+    context = service._build_context(TRADING_DATE.date())
+    assert sum(call.args[0] == "SPY.US" for call in service.history_loader.call_args_list) == 1
+    warnings = [warning for warning in context.warnings if "SPY.US" in warning]
+    assert len(warnings) == 2
+    assert any("自选股行情获取失败" in warning for warning in warnings)
+    assert context.watchlist_summary.total_count == 0
+    service._build_context(TRADING_DATE.date())
+    assert sum(call.args[0] == "SPY.US" for call in service.history_loader.call_args_list) == 2
+
+
+def test_performance_cache_keeps_dates_and_canonical_markets_separate():
+    from unittest.mock import Mock
+    from finance_analysis.tasks.celery.jobs.us_postmarket_review.models import InstrumentPerformance
+
+    service = _service()
+    service._fetch_daily_performance = Mock(side_effect=lambda symbol, name, day: InstrumentPerformance(
+        symbol=symbol, name=name, close=100, change_pct=1,
+    ))
+    cache = {}
+    day = TRADING_DATE.date()
+    service._cached_daily_performance("SPY.US", "first", day, cache)
+    service._cached_daily_performance("SPY.US", "second", day, cache)
+    service._cached_daily_performance("SPY.US", "next", day + timedelta(days=1), cache)
+    service._cached_daily_performance("SPY.HK", "other", day, cache)
+    assert service._fetch_daily_performance.call_count == 3

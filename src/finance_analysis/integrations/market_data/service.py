@@ -310,12 +310,15 @@ class MarketDataService:
         adjustment: Adjustment | str,
         providers: Iterable[str] | None = None,
         source_policy: Literal["db_only", "db_first", "db_latest", "db_fresh", "remote_only"] = "db_first",
+        required_dates: Iterable[date] = (),
     ) -> BatchBarResult:
         """Prefer existing local history, otherwise return remote bars without writes.
 
         db_first trusts any local history; db_fresh refreshes only stale tails.
         db_latest trusts DB only when the expected completed session exists;
         otherwise providers serve the whole requested window in memory only.
+        Optional required_dates (db_latest/remote_only) must all exist in one
+        source; incomplete providers are skipped without merging their bars.
         Only explicit maintenance jobs persist daily history. Local existence is
         not a trading-calendar completeness claim (suspensions and IPOs have gaps).
         """
@@ -325,9 +328,12 @@ class MarketDataService:
             raise ValueError("Daily bars are stored and served only as forward-adjusted prices")
         if source_policy not in {"db_only", "db_first", "db_latest", "db_fresh", "remote_only"}:
             raise ValueError("source_policy must be db_only, db_first, db_latest, db_fresh, or remote_only")
+        required_dates = tuple(required_dates)
+        if required_dates and source_policy not in {"db_latest", "remote_only"}:
+            raise ValueError("required_dates requires db_latest or remote_only")
         if not canonical:
             return BatchBarResult()
-        request = DailyBarsRequest(canonical, start_date, end_date, Adjustment.FORWARD)
+        request = DailyBarsRequest(canonical, start_date, end_date, Adjustment.FORWARD, required_dates)
         if source_policy == "db_only":
             # One bulk history query, with no existence probes or provider routing.
             _, stocks = self._repositories()
@@ -366,8 +372,9 @@ class MarketDataService:
         """Daily K HTTP API is read-only: trust DB as-is if its expected session exists.
 
         Freshness is ONLY the latest completed trading day on or before end_date.
-        Do not check historical gaps. Missing/stale DB falls back to providers for
-        this request only, never to database synchronization or persistence.
+        Historical gaps are checked only for explicitly required dates.
+        Missing/stale DB falls back to providers for this request only, never
+        to database synchronization or persistence.
         """
         _, stocks = self._repositories()
         result = BatchBarResult()
@@ -383,7 +390,7 @@ class MarketDataService:
             # Also probe expected when the requested window starts on a weekend
             # or after now. Never include that extra probe date in the response.
             rows = stocks.get_range(code, min(request.start_date, expected), request.end_date)
-            if not any(row.date == expected for row in rows):
+            if not {expected, *request.required_dates}.issubset(row.date for row in rows):
                 missing.append(code)
                 continue
             result.providers_used[code] = "database"
