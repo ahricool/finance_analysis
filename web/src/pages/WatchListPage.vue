@@ -376,7 +376,10 @@ onMounted(loadList);
         <h2 class="text-lg font-semibold tracking-tight text-foreground">
           自选股
         </h2>
-        <p class="text-xs text-muted-foreground">
+        <p class="mt-1 text-sm text-muted-foreground">
+          跟踪关注标的的实时行情，查看价格走势与股票详情。
+        </p>
+        <p class="mt-1 text-xs text-muted-foreground">
           共 {{ total }} 只
         </p>
       </div>

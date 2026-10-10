@@ -416,7 +416,7 @@ onMounted(async () => {
       variant="section"
       title="ETF 动量轮动"
       en="ETF Rotation"
-      description="完全基于公开市场行情的多维轮动看板；动作是公共策略信号，不代表个人交易建议。"
+      description="比较 ETF 的动量强弱、排名变化与轮动信号，结合市场环境观察策略表现。"
     >
       <template #actions>
         <ResearchMarketToggle

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import PageHeader from '@/components/layout/PageHeader.vue';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import {
   holdingsApi,
@@ -258,22 +259,29 @@ function closeDetail() {
 
 <template>
   <div class="space-y-6">
-    <div class="flex flex-wrap items-center justify-end gap-2">
-      <Button
-        :variant="market === 'CN' ? 'default' : 'outline'"
-        data-testid="market-cn"
-        @click="changeMarket('CN')"
-      >
-        CN
-      </Button>
-      <Button
-        :variant="market === 'US' ? 'default' : 'outline'"
-        data-testid="market-us"
-        @click="changeMarket('US')"
-      >
-        US
-      </Button>
-    </div>
+    <PageHeader
+      variant="section"
+      title="投资组合"
+      en="Portfolio"
+      description="管理实际持仓与账户现金，查看资产分布、持仓盈亏和调仓建议。"
+    >
+      <template #actions>
+        <Button
+          :variant="market === 'CN' ? 'default' : 'outline'"
+          data-testid="market-cn"
+          @click="changeMarket('CN')"
+        >
+          CN
+        </Button>
+        <Button
+          :variant="market === 'US' ? 'default' : 'outline'"
+          data-testid="market-us"
+          @click="changeMarket('US')"
+        >
+          US
+        </Button>
+      </template>
+    </PageHeader>
 
     <ApiErrorAlert
       v-if="error"

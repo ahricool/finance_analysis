@@ -11,6 +11,7 @@ declare module 'vue-router' {
 }
 
 const MarketPage = () => import('@/pages/MarketPage.vue');
+const CryptoPage = () => import('@/pages/CryptoPage.vue');
 const ResearchPage = () => import('@/pages/ResearchPage.vue');
 const MarketWatchListPage = () => import('@/pages/WatchListPage.vue');
 const MarketHoldingsPage = () => import('@/pages/market/HoldingsPage.vue');
@@ -64,8 +65,14 @@ const router = createRouter({
           component: () => import('@/pages/DashboardPage.vue'),
           meta: { title: '市场动态' },
         },
-        { path: 'crypto', redirect: redirectWithQuery('/crypto/btc') },
-        { path: 'crypto/btc', name: 'crypto-btc', component: CryptoBtcPage, meta: { title: 'BTC交易' } },
+        {
+          path: 'crypto',
+          component: CryptoPage,
+          children: [
+            { path: '', redirect: redirectWithQuery('/crypto/btc') },
+            { path: 'btc', name: 'crypto-btc', component: CryptoBtcPage, meta: { title: 'BTC交易' } },
+          ],
+        },
         { path: 'research/crypto/btc', name: 'research-crypto-btc', redirect: redirectWithQuery('/crypto/btc') },
         { path: 'timeline', name: 'timeline', component: TimelinePage, meta: { title: '投资时间线' } },
         {

@@ -4,6 +4,7 @@ import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import AppApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
 import ResearchMarketToggle from '@/components/research/ResearchMarketToggle.vue';
 import AppDatePicker from '@/components/app/AppDatePicker.vue';
+import PageHeader from '@/components/layout/PageHeader.vue';
 import ModuleTabs from '@/components/layout/ModuleTabs.vue';
 import { useQuantMarket } from '@/composables/useQuantMarket';
 import { BarChart3, Bot, BriefcaseBusiness, Database, LayoutDashboard } from 'lucide-vue-next';
@@ -75,6 +76,12 @@ function selectTradeDate(value: string) {
 
 <template>
   <div class="min-w-0 space-y-4">
+    <PageHeader
+      variant="section"
+      title="量化研究"
+      en="Quant Research"
+      description="查看市场状态与模型选股，管理研究数据集、模型运行和目标组合。"
+    />
     <div class="flex min-w-0 flex-col gap-3">
       <ModuleTabs
         :items="navItems"

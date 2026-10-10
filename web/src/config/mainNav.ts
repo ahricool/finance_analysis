@@ -7,6 +7,8 @@ import {
   ChartCandlestick,
   ChartNoAxesCombined,
   ClipboardList,
+  ClipboardCheck,
+  ListChecks,
   Combine,
   Crosshair,
   Flame,
@@ -27,6 +29,7 @@ export type NavDestination = {
   icon: Component;
   activePathPrefix?: string;
   exact?: boolean;
+  adminOnly?: boolean;
 };
 
 export type MainNavItem = NavDestination & {
@@ -68,6 +71,15 @@ export const researchNavItems: NavDestination[] = [
   },
 ];
 
+export const cryptoNavItems: NavDestination[] = [
+  { key: 'crypto-btc', label: 'BTC 交易', to: '/crypto/btc', icon: Bitcoin },
+];
+
+export const taskNavItems: NavDestination[] = [
+  { key: 'scheduled', label: '定时任务', to: '/tasks/scheduled', icon: ClipboardCheck, adminOnly: true },
+  { key: 'runs', label: '执行记录', to: '/tasks/runs', icon: ListChecks },
+];
+
 export const mainNavItems: MainNavItem[] = [
   { key: 'dashboard', label: '市场动态', to: '/dashboard', icon: LayoutDashboard, exact: true },
   {
@@ -93,9 +105,9 @@ export const mainNavItems: MainNavItem[] = [
     to: '/crypto/btc',
     icon: Bitcoin,
     activePathPrefix: '/crypto/',
-    children: [{ key: 'crypto-btc', label: 'BTC 交易', to: '/crypto/btc', icon: Bitcoin }],
+    children: cryptoNavItems,
   },
-  { key: 'tasks', label: '任务中心', to: '/tasks', icon: ClipboardList },
+  { key: 'tasks', label: '任务中心', to: '/tasks', icon: ClipboardList, children: taskNavItems },
 ];
 
 export const allNavDestinations = mainNavItems.flatMap((item) => item.children ?? [item]);

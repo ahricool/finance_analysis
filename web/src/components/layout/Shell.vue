@@ -44,6 +44,11 @@ const { displayTimezone } = storeToRefs(timezoneStore);
 const showLogoutConfirm = ref(false);
 const mobileNavOpen = ref(false);
 
+const visibleMainNavItems = computed(() => mainNavItems.map((item) => ({
+  ...item,
+  children: item.children?.filter((child) => !child.adminOnly || currentUser.value?.role === 'admin'),
+})));
+
 const THEME_OPTIONS: Array<{ value: ThemePreference; label: string; icon: typeof Monitor }> = [
   { value: 'system', label: '跟随系统', icon: Monitor },
   { value: 'light', label: '浅色', icon: Sun },
@@ -64,7 +69,7 @@ function isDestinationActive(item: NavDestination): boolean {
 }
 
 function isNavItemActive(item: MainNavItem): boolean {
-  return item.children?.some(isDestinationActive) ?? isDestinationActive(item);
+  return isDestinationActive(item) || (item.children?.some(isDestinationActive) ?? false);
 }
 
 const initials = computed(() =>
@@ -135,7 +140,7 @@ watch(
           data-testid="desktop-main-nav"
         >
           <template
-            v-for="item in mainNavItems"
+            v-for="item in visibleMainNavItems"
             :key="item.key"
           >
             <DropdownMenu
@@ -321,7 +326,7 @@ watch(
           data-testid="mobile-main-nav"
         >
           <template
-            v-for="item in mainNavItems"
+            v-for="item in visibleMainNavItems"
             :key="item.key"
           >
             <template v-if="item.children">

@@ -191,7 +191,7 @@ test.describe('web smoke', () => {
     await expect(page.getByRole('link', { name: '分析' })).toHaveCount(0);
     await expect(page.getByRole('link', { name: '时间线' })).toBeVisible();
     await expect(page.getByRole('button', { name: '研究' })).toBeVisible();
-    await expect(page.getByRole('link', { name: '任务中心' })).toBeVisible();
+    await expect(page.getByRole('button', { name: '任务中心' })).toBeVisible();
     await expect(page.getByRole('link', { name: '问股' })).toHaveCount(0);
     await expect(page.getByText('历史分析', { exact: true })).toHaveCount(0);
   });
