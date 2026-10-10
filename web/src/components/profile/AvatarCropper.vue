@@ -57,8 +57,8 @@ function emitCropped() {
         emit('error', '头像裁切失败');
         return;
       }
-      if (blob.size > 2 * 1024 * 1024) {
-        emit('error', '头像不能超过 2MB');
+      if (blob.size > 5 * 1024 * 1024) {
+        emit('error', '头像不能超过 5MB');
         return;
       }
       emit('cropped', new File([blob], 'avatar.jpg', { type: 'image/jpeg' }));

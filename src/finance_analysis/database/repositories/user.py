@@ -8,13 +8,14 @@ import hashlib
 import hmac
 import logging
 import secrets
+from uuid import uuid4
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from finance_analysis.database.session import DatabaseManager
-from finance_analysis.database.models import User
+from finance_analysis.database.models import User, UserAvatar
 
 logger = logging.getLogger(__name__)
 
@@ -177,17 +178,40 @@ class UserRepository:
         updated_uid = self.db._run_write_transaction("users.update_profile", _write)
         return self.get_by_uid(updated_uid) if updated_uid else None
 
-    def set_avatar_url(self, uid: int, avatar_url: str) -> Optional[User]:
+    def save_avatar(self, uid: int, data: bytes) -> Optional[User]:
         def _write(session: Session) -> Optional[int]:
-            row = session.get(User, uid)
-            if row is None:
+            # Serialize uploads and deletion, including the first upload with no avatar row yet.
+            user = session.execute(select(User).where(User.id == uid).with_for_update()).scalar_one_or_none()
+            if user is None:
                 return None
-            row.avatar_url = avatar_url
-            row.extra = normalize_user_extra(row.extra)
+            avatar = session.get(UserAvatar, uid)
+            if avatar is None:
+                avatar = UserAvatar(user_id=uid)
+                session.add(avatar)
+            avatar.data = data
+            avatar.version = uuid4().hex
+            user.avatar_url = f"/api/v1/auth/avatar/{uid}.webp?v={avatar.version}"
             session.flush()
-            return row.id
+            return uid
 
-        updated_uid = self.db._run_write_transaction("users.set_avatar_url", _write)
+        updated_uid = self.db._run_write_transaction("users.save_avatar", _write)
+        return self.get_by_uid(updated_uid) if updated_uid else None
+
+    def get_avatar(self, uid: int) -> Optional[UserAvatar]:
+        with self.db.get_session() as session:
+            return session.get(UserAvatar, uid)
+
+    def delete_avatar(self, uid: int) -> Optional[User]:
+        def _write(session: Session) -> Optional[int]:
+            user = session.execute(select(User).where(User.id == uid).with_for_update()).scalar_one_or_none()
+            if user is None:
+                return None
+            session.execute(delete(UserAvatar).where(UserAvatar.user_id == uid))
+            user.avatar_url = None
+            session.flush()
+            return uid
+
+        updated_uid = self.db._run_write_transaction("users.delete_avatar", _write)
         return self.get_by_uid(updated_uid) if updated_uid else None
 
     def any_user_has_password(self) -> bool:

@@ -5,17 +5,15 @@ from __future__ import annotations
 
 import logging
 import os
-import time
-from io import BytesIO
 from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, File, Request, UploadFile
-from fastapi.responses import FileResponse, JSONResponse, Response
-from PIL import Image, UnidentifiedImageError
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
+from starlette.concurrency import run_in_threadpool
 
-from finance_analysis.core.paths import get_avatar_upload_dir
+from finance_analysis.users.avatar import AVATAR_FORMATS, MAX_AVATAR_BYTES, InvalidAvatar, normalize_avatar
 from finance_analysis.users.auth import (
     COOKIE_NAME,
     JWT_EXPIRE_SECONDS,
@@ -32,8 +30,6 @@ from finance_analysis.database.repositories.user import VALID_GENDERS, UserRepos
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-MAX_AVATAR_BYTES = 2 * 1024 * 1024
-ALLOWED_AVATAR_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp"}
 
 
 class EmailLookupRequest(BaseModel):
@@ -206,67 +202,87 @@ async def auth_update_profile(request: Request, body: ProfileUpdateRequest):
     return repo.to_profile_dict(user)
 
 
-@router.post(
-    "/avatar",
-    summary="Upload current user avatar",
-    description="Uploads a square avatar image and stores it as data/uploads/avatars/{uid}.jpg.",
-)
+@router.post("/avatar", summary="Upload current user avatar")
 async def auth_upload_avatar(request: Request, file: UploadFile = File(...)):
     uid = _get_request_uid(request)
     if not uid:
         return JSONResponse(status_code=401, content={"error": "unauthorized", "message": "Login required"})
-
-    if file.content_type not in ALLOWED_AVATAR_CONTENT_TYPES:
-        return JSONResponse(
-            status_code=400,
-            content={"error": "invalid_avatar_type", "message": "Unsupported image type"},
-        )
-
-    blob = await file.read(MAX_AVATAR_BYTES + 1)
-    if len(blob) > MAX_AVATAR_BYTES:
-        return JSONResponse(
-            status_code=413,
-            content={"error": "avatar_too_large", "message": "Avatar must be 2MB or less"},
-        )
-
     try:
-        image = Image.open(BytesIO(blob))
-        image.load()
-    except (UnidentifiedImageError, OSError):
-        return JSONResponse(status_code=400, content={"error": "invalid_avatar", "message": "Invalid image"})
+        if file.content_type not in AVATAR_FORMATS:
+            return JSONResponse(
+                status_code=400, content={"error": "invalid_avatar_type", "message": "仅支持 JPEG、PNG 和 WebP"}
+            )
+        blob = await file.read(MAX_AVATAR_BYTES + 1)
+        if len(blob) > MAX_AVATAR_BYTES:
+            return JSONResponse(status_code=413, content={"error": "avatar_too_large", "message": "头像不能超过 5MB"})
+        data = await run_in_threadpool(normalize_avatar, blob, file.content_type)
+        repo = UserRepository()
+        user = await run_in_threadpool(repo.save_avatar, uid, data)
+        if user is None:
+            return JSONResponse(status_code=401, content={"error": "unauthorized", "message": "Login required"})
+        return {"ok": True, "user": repo.to_public_dict(user)}
+    except InvalidAvatar as exc:
+        return JSONResponse(status_code=400, content={"error": "invalid_avatar", "message": str(exc)})
+    except Exception:
+        logger.exception("Avatar upload failed for uid=%s", uid)
+        return JSONResponse(
+            status_code=500, content={"error": "avatar_save_failed", "message": "头像保存失败，请稍后重试"}
+        )
+    finally:
+        await file.close()
 
-    if image.width != image.height:
-        return JSONResponse(status_code=400, content={"error": "avatar_not_square", "message": "Avatar must be square"})
 
-    avatar_dir = get_avatar_upload_dir()
-    avatar_dir.mkdir(parents=True, exist_ok=True)
-    avatar_path = avatar_dir / f"{uid}.jpg"
-    image.convert("RGB").save(avatar_path, format="JPEG", quality=90, optimize=True)
-
-    avatar_url = f"/api/v1/auth/avatar/{uid}.jpg?v={int(time.time())}"
-    repo = UserRepository()
-    user = repo.set_avatar_url(uid, avatar_url)
-    if user is None:
-        return JSONResponse(status_code=401, content={"error": "unauthorized", "message": "Login required"})
-    return {"ok": True, "user": repo.to_public_dict(user)}
-
-
-@router.get(
-    "/avatar/{uid}.jpg",
-    summary="Get user avatar",
-    description="Returns the stored avatar image for the current user.",
-)
-async def auth_get_avatar(request: Request, uid: int):
+@router.get("/avatar/{uid}.jpg", include_in_schema=False)
+@router.get("/avatar/{uid}.webp", summary="Get current user avatar")
+def auth_get_avatar(request: Request, uid: int):
     current_uid = _get_request_uid(request)
     if not current_uid:
         return JSONResponse(status_code=401, content={"error": "unauthorized", "message": "Login required"})
     if current_uid != uid:
         return JSONResponse(status_code=403, content={"error": "forbidden", "message": "Avatar access denied"})
+    try:
+        avatar = UserRepository().get_avatar(uid)
+    except Exception:
+        logger.exception("Avatar read failed for uid=%s", uid)
+        return JSONResponse(
+            status_code=500, content={"error": "avatar_read_failed", "message": "头像读取失败，请稍后重试"}
+        )
+    if avatar is None:
+        return JSONResponse(
+            status_code=404,
+            content={"error": "avatar_not_found", "message": "Avatar not found"},
+            headers={"Cache-Control": "no-store"},
+        )
+    etag = f'"{avatar.version}"'
+    # Revalidate private cached bytes so logout, replacement and deletion take effect.
+    headers = {
+        "Cache-Control": "private, no-cache",
+        "ETag": etag,
+        "Vary": "Cookie",
+        "X-Content-Type-Options": "nosniff",
+    }
+    candidates = [value.strip().removeprefix("W/") for value in request.headers.get("if-none-match", "").split(",")]
+    if etag in candidates or "*" in candidates:
+        return Response(status_code=304, headers=headers)
+    return Response(content=avatar.data, media_type="image/webp", headers=headers)
 
-    avatar_path = get_avatar_upload_dir() / f"{uid}.jpg"
-    if not avatar_path.is_file():
-        return JSONResponse(status_code=404, content={"error": "avatar_not_found", "message": "Avatar not found"})
-    return FileResponse(avatar_path, media_type="image/jpeg", headers={"Cache-Control": "no-cache"})
+
+@router.delete("/avatar", summary="Delete current user avatar")
+def auth_delete_avatar(request: Request):
+    uid = _get_request_uid(request)
+    if not uid:
+        return JSONResponse(status_code=401, content={"error": "unauthorized", "message": "Login required"})
+    try:
+        repo = UserRepository()
+        user = repo.delete_avatar(uid)
+        if user is None:
+            return JSONResponse(status_code=401, content={"error": "unauthorized", "message": "Login required"})
+        return {"ok": True, "user": repo.to_public_dict(user)}
+    except Exception:
+        logger.exception("Avatar deletion failed for uid=%s", uid)
+        return JSONResponse(
+            status_code=500, content={"error": "avatar_delete_failed", "message": "头像删除失败，请稍后重试"}
+        )
 
 
 @router.post(

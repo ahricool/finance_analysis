@@ -284,3 +284,9 @@ BTC 多策略以 `strategy_key + symbol` 隔离，代码注册表当前仅 `btc_
 `DailyKLineCard` 用 `utils/dailyPatterns.ts` 纯函数分析已加载日线，六种经典反转形态仅用于研究展示。
 独立 `daily-patterns` overlay 与 BST / `research-date` 共存；只显示 Quality ≥70，同日最多一个。
 当日 K 无可靠收盘标志时保守显示 Preview，不按名义收盘时间自动确认。规则与测试见 `../docs/daily-patterns.md`。
+
+## 用户头像
+
+沿用个人中心裁剪 UI 与 URL 展示，源文件/上传文件上限均为 5 MiB。
+后端统一生成 256×256 WebP（quality 82），存独立 `user_avatar` BYTEA 表；上传返回随机版本 URL，
+刷新用户资料后自动更新顶栏和个人头像。删除接口 `DELETE /auth/avatar`，不新增 UI。见 `../docs/user-avatars.md`。
