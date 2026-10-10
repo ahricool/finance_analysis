@@ -88,11 +88,27 @@ class FakeUserRepository:
         user.extra = extra
         return user
 
-    def set_avatar_url(self, uid: int, avatar_url: str):
+    avatars = {}
+
+    def save_avatar(self, uid: int, data: bytes):
+        from uuid import uuid4
+
         user = self.get_by_uid(uid)
         if user is None:
             return None
-        user.avatar_url = avatar_url
+        version = uuid4().hex
+        self.avatars[uid] = SimpleNamespace(data=data, version=version)
+        user.avatar_url = f"/api/v1/auth/avatar/{uid}.webp?v={version}"
+        return user
+
+    def get_avatar(self, uid: int):
+        return self.avatars.get(uid)
+
+    def delete_avatar(self, uid: int):
+        user = self.get_by_uid(uid)
+        if user:
+            self.avatars.pop(uid, None)
+            user.avatar_url = None
         return user
 
     def any_user_has_password(self) -> bool:
@@ -140,6 +156,7 @@ class AuthApiTestCase(unittest.TestCase):
         self.env_path.write_text("STOCK_LIST=600519\nGEMINI_API_KEY=test\n", encoding="utf-8")
         os.environ["ENV_FILE"] = str(self.env_path)
         os.environ["SECRET_KEY"] = "auth-api-test-secret"
+        FakeUserRepository.avatars = {}
         FakeUserRepository.users = {
             DEFAULT_ADMIN_EMAIL: FakeUser(
                 uid=1,
@@ -223,7 +240,9 @@ class AuthApiTestCase(unittest.TestCase):
         user.extra = {"gender": "female"}
 
         with patch.object(auth_endpoint, "parse_session_uid", return_value=user.id):
-            data = asyncio.run(auth_endpoint.auth_status(self._build_request(cookies={auth.COOKIE_NAME: "test-session"})))
+            data = asyncio.run(
+                auth_endpoint.auth_status(self._build_request(cookies={auth.COOKIE_NAME: "test-session"}))
+            )
 
         self.assertTrue(data["loggedIn"])
         self.assertEqual(data["user"]["extra"]["gender"], "female")
@@ -342,25 +361,57 @@ class AuthApiTestCase(unittest.TestCase):
         self.assertEqual(data["extra"]["notification"]["ntfy"], [{"url": "https://ntfy.sh/demo"}])
         self.assertEqual(data["extra"]["notification"]["telegram"], [{"bot_token": "token", "chat_id": "42"}])
 
-    def test_avatar_upload_stores_jpeg_and_updates_avatar_url(self) -> None:
-        token = auth.create_session(uid=1)
-        request = self._build_request(cookies={auth.COOKIE_NAME: token})
+    def test_avatar_upload_stores_webp_and_updates_avatar_url(self) -> None:
+        request = self._build_request(cookies={auth.COOKIE_NAME: auth.create_session(uid=1)})
+        upload = self._jpeg_upload(size=(96, 48))
+        data = asyncio.run(auth_endpoint.auth_upload_avatar(request, upload))
+        self.assertTrue(upload.file.closed)
+        self.assertTrue(data["user"]["avatarUrl"].startswith("/api/v1/auth/avatar/1.webp?v="))
+        image = Image.open(io.BytesIO(FakeUserRepository.avatars[1].data))
+        self.assertEqual(image.format, "WEBP")
+        self.assertEqual(image.size, (256, 256))
+        self.assertFalse((self.data_dir / "avatars").exists())
 
-        avatar_dir = self.data_dir / "avatars"
-        with patch.object(auth_endpoint, "get_avatar_upload_dir", return_value=avatar_dir):
-            data = asyncio.run(auth_endpoint.auth_upload_avatar(request, self._jpeg_upload()))
+    def test_avatar_read_cache_replacement_and_delete(self) -> None:
+        request = self._build_request(cookies={auth.COOKIE_NAME: auth.create_session(uid=1)})
+        first = asyncio.run(auth_endpoint.auth_upload_avatar(request, self._jpeg_upload()))
+        response = auth_endpoint.auth_get_avatar(request, 1)
+        self.assertEqual(response.headers["content-type"], "image/webp")
+        self.assertEqual(response.body, FakeUserRepository.avatars[1].data)
+        request.headers["if-none-match"] = '"other", W/' + response.headers["etag"]
+        self.assertEqual(auth_endpoint.auth_get_avatar(request, 1).status_code, 304)
+        second = asyncio.run(auth_endpoint.auth_upload_avatar(request, self._jpeg_upload()))
+        self.assertNotEqual(first["user"]["avatarUrl"], second["user"]["avatarUrl"])
+        self.assertEqual(auth_endpoint.auth_get_avatar(request, 1).status_code, 200)
+        self.assertIsNone(auth_endpoint.auth_delete_avatar(request)["user"]["avatarUrl"])
+        self.assertEqual(auth_endpoint.auth_get_avatar(request, 1).status_code, 404)
+        self.assertTrue(auth_endpoint.auth_delete_avatar(request)["ok"])
 
-        avatar_path = avatar_dir / "1.jpg"
-        self.assertTrue(avatar_path.is_file())
-        self.assertTrue(data["user"]["avatarUrl"].startswith("/api/v1/auth/avatar/1.jpg?v="))
+    def test_avatar_authorization(self) -> None:
+        self.assertEqual(auth_endpoint.auth_get_avatar(self._build_request(), 1).status_code, 401)
+        self.assertEqual(auth_endpoint.auth_delete_avatar(self._build_request()).status_code, 401)
+        request = self._build_request(cookies={auth.COOKIE_NAME: auth.create_session(uid=1)})
+        self.assertEqual(auth_endpoint.auth_get_avatar(request, 2).status_code, 403)
 
-    def test_avatar_upload_rejects_non_square_image(self) -> None:
-        token = auth.create_session(uid=1)
-        request = self._build_request(cookies={auth.COOKIE_NAME: token})
+    def test_avatar_rejects_oversize_and_bad_content(self) -> None:
+        request = self._build_request(cookies={auth.COOKIE_NAME: auth.create_session(uid=1)})
+        for blob, mime, expected in [
+            (b"x" * (5 * 1024 * 1024 + 1), "image/jpeg", 413),
+            (b"not an image", "image/png", 400),
+            (b"<svg/>", "image/svg+xml", 400),
+        ]:
+            upload = UploadFile(file=io.BytesIO(blob), headers=Headers({"content-type": mime}))
+            response = asyncio.run(auth_endpoint.auth_upload_avatar(request, upload))
+            self.assertEqual(response.status_code, expected)
+            self.assertTrue(upload.file.closed)
+        self.assertFalse(FakeUserRepository.avatars)
 
-        response = asyncio.run(auth_endpoint.auth_upload_avatar(request, self._jpeg_upload(size=(64, 48))))
-
-        self.assertEqual(response.status_code, 400)
+    def test_avatar_storage_errors_are_handled(self) -> None:
+        request = self._build_request(cookies={auth.COOKIE_NAME: auth.create_session(uid=1)})
+        with patch.object(FakeUserRepository, "save_avatar", side_effect=RuntimeError("database down")):
+            response = asyncio.run(auth_endpoint.auth_upload_avatar(request, self._jpeg_upload()))
+        self.assertEqual(response.status_code, 500)
+        self.assertNotIn(b"database down", response.body)
 
     def test_protected_api_returns_401_without_session(self) -> None:
         request = self._middleware_request("/api/v1/auth/profile")

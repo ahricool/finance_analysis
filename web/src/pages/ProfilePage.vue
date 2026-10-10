@@ -121,12 +121,12 @@ function onAvatarFileChange(event: Event) {
   if (!file) return;
 
   avatarError.value = null;
-  if (!file.type.startsWith('image/')) {
-    avatarError.value = '请选择图片文件';
+  if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+    avatarError.value = '请选择 JPEG、PNG 或 WebP 图片';
     return;
   }
-  if (file.size > 2 * 1024 * 1024) {
-    avatarError.value = '头像不能超过 2MB';
+  if (file.size > 5 * 1024 * 1024) {
+    avatarError.value = '头像不能超过 5MB';
     return;
   }
 

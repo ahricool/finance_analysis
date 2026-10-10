@@ -60,6 +60,7 @@ from finance_analysis.database.models.trend_following import (
     TrendFollowingSnapshot,
     TrendFollowingSummary,
 )  # pragma: allowlist secret
+from finance_analysis.database.models.user_avatar import UserAvatar  # noqa: F401
 from finance_analysis.database.models.user import User  # pragma: allowlist secret
 from finance_analysis.database.models.watch_list import WatchListItem  # pragma: allowlist secret
 
@@ -116,6 +117,7 @@ __all__ = [
     "TrendFollowingSnapshot",
     "TrendFollowingSummary",
     "User",
+    "UserAvatar",
     "WatchListItem",
 ]
 

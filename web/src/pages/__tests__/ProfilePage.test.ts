@@ -107,3 +107,28 @@ describe('ProfilePage route navigation', () => {
     wrapper.unmount();
   });
 });
+
+
+it('accepts a 3 MiB avatar and rejects files over 5 MiB before cropping', async () => {
+  vi.mocked(authApi.getProfile).mockResolvedValue(profile);
+  const createObjectURL = vi.fn().mockReturnValue('blob:avatar-preview');
+  vi.stubGlobal('URL', { createObjectURL, revokeObjectURL: vi.fn() });
+  const { wrapper } = await mountProfile('/profile/info');
+  try {
+    const input = wrapper.get('input[type="file"]');
+    Object.defineProperty(input.element, 'files', {
+      configurable: true, value: [new File([new Uint8Array(3 * 1024 * 1024)], 'avatar.png', { type: 'image/png' })],
+    });
+    await input.trigger('change');
+    expect(createObjectURL).toHaveBeenCalledTimes(1);
+    Object.defineProperty(input.element, 'files', {
+      configurable: true, value: [new File([new Uint8Array(5 * 1024 * 1024 + 1)], 'avatar.png', { type: 'image/png' })],
+    });
+    await input.trigger('change');
+    expect(wrapper.text()).toContain('头像不能超过 5MB');
+    expect(createObjectURL).toHaveBeenCalledTimes(1);
+  } finally {
+    wrapper.unmount();
+    vi.unstubAllGlobals();
+  }
+});
