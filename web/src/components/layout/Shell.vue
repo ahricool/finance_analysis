@@ -28,6 +28,7 @@ import {
 } from '@/components/ui/sheet';
 
 import { useAuth } from '@/composables/useAuth';
+import { useCurrentTime } from '@/composables/useCurrentTime';
 import { useTheme, type ThemePreference } from '@/composables/useTheme';
 import { APP_NAME } from '@/config/app';
 import { mainNavItems, type MainNavItem, type NavDestination } from '@/config/mainNav';
@@ -43,6 +44,19 @@ const timezoneStore = useTimezoneStore();
 const { displayTimezone } = storeToRefs(timezoneStore);
 const showLogoutConfirm = ref(false);
 const mobileNavOpen = ref(false);
+const now = useCurrentTime(1000);
+const timezoneOptions = computed(() => DISPLAY_TIMEZONES.map((option) => ({
+  ...option,
+  currentTime: new Intl.DateTimeFormat('zh-CN', {
+    timeZone: option.value,
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+  }).format(now.value),
+})));
 
 const visibleMainNavItems = computed(() => mainNavItems.map((item) => ({
   ...item,
@@ -294,11 +308,14 @@ watch(
                     @update:model-value="setTimezonePreference"
                   >
                     <DropdownMenuRadioItem
-                      v-for="option in DISPLAY_TIMEZONES"
+                      v-for="option in timezoneOptions"
                       :key="option.value"
                       :value="option.value"
                     >
-                      {{ option.label }}
+                      <span class="flex flex-col gap-0.5">
+                        <span>{{ option.label }}</span>
+                        <span class="text-xs tabular-nums text-muted-foreground">{{ option.currentTime }}</span>
+                      </span>
                     </DropdownMenuRadioItem>
                   </DropdownMenuRadioGroup>
                 </DropdownMenuSubContent>
