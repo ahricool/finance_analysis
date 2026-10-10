@@ -81,6 +81,7 @@ layout（Shell / PageHeader / ModuleLayout）+ ui/app 组件
 
 1. 一级模块容器不展示重复的标题、英文副标题或介绍；具体子页按需使用 `PageHeader` 与操作区
 2. `ModuleLayout`：桌面左侧导航 + 右侧内容，窄屏隐藏二级侧栏，通过顶部主导航或用户菜单切换页面，不在主体内容上方重复显示导航按钮；`items` 用 `RouterLink`
+   个人中心例外：使用 `keepSidebarOnMobile` 在窄屏保留左侧二级导航，确保资料、密码、通知入口可达。
 3. 具体内容页应展示标题和一句简要功能介绍；有三级导航时（如量化），介绍置于横向导航上方，不恢复一级模块介绍。
 4. 默认插槽放 `<RouterView />` 或页内内容；`ModuleSidebar` 负责纵向导航链接与当前页面状态；量化等三级导航保留顶部横向 `ModuleTabs`，不要嵌套第二列侧栏
 

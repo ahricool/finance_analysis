@@ -220,6 +220,7 @@ onBeforeUnmount(clearAvatarSource);
       :items="tabs"
       :active-key="activeTab"
       label="个人中心设置导航"
+      keep-sidebar-on-mobile
     >
       <section class="min-w-0">
         <Card v-if="activeTab === 'info'">
