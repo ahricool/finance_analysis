@@ -700,7 +700,7 @@ onMounted(async () => {
       variant="section"
       title="趋势跟踪"
       en="Trend Following"
-      :description="`${scope} · 股票趋势状态与风险指标。`"
+      :description="`${scope} · 跟踪股票趋势强弱、排名变化与风险指标，观察趋势延续和转弱。`"
     >
       <template #actions>
         <ResearchMarketToggle

@@ -99,6 +99,11 @@ export const authApi = {
     return data.user;
   },
 
+  async deleteAvatar(): Promise<AuthStatusResponse['user']> {
+    const { data } = await apiClient.delete<{ ok: boolean; user: AuthStatusResponse['user'] }>('/api/v1/auth/avatar');
+    return data.user;
+  },
+
   async logout(): Promise<void> {
     await apiClient.post('/api/v1/auth/logout');
   },

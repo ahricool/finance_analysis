@@ -48,7 +48,7 @@ function time(value: string | null | undefined) {
 
 <template>
   <div
-    class="page-shell min-w-0"
+    class="min-w-0 space-y-6"
     data-testid="crypto-btc-page"
   >
     <header class="flex flex-wrap items-start justify-between gap-3">

@@ -32,8 +32,8 @@ for (const width of [1280, 1440, 1920]) {
         return route.fulfill({ json: {} });
       });
       await page.goto('/research/macro');
-      await expect(page.getByRole('heading', { name: '宏观', exact: true })).toBeVisible();
-      await expect(page.getByTestId('module-tabs').getByRole('tab', { name: '宏观', exact: true })).toHaveAttribute('data-state', 'active');
+      await expect(page.getByRole('heading', { name: '宏观数据', exact: true })).toBeVisible();
+      await expect(page.getByTestId('module-tabs').getByRole('link', { name: '宏观数据', exact: true })).toHaveAttribute('data-state', 'active');
       await expect(page.getByTestId('macro-risk-score')).toContainText('72 / 100');
       await expect(page.locator('canvas')).toHaveCount(2);
       await expect.poll(() => page.getByTestId('macro-states').evaluate(el => getComputedStyle(el).gridTemplateColumns.split(' ').length)).toBe(width >= 1400 ? 6 : 3);

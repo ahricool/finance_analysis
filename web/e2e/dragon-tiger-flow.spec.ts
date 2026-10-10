@@ -16,7 +16,7 @@ for (const width of [1280, 1440, 1920]) {
       });
       await page.goto('/research/dragon-tiger-flow');
       await expect(page.getByRole('heading', { name: '龙虎榜资金流向', exact: true })).toBeVisible();
-      await expect(page.getByTestId('module-tabs').getByRole('tab', { name: '龙虎榜资金流向' })).toHaveAttribute('data-state', 'active');
+      await expect(page.getByTestId('module-tabs').getByRole('link', { name: '龙虎榜资金流向' })).toHaveAttribute('data-state', 'active');
       await expect(page.getByTestId('flow-stock-dialog')).toHaveCount(0);
       await expect(page.getByRole('button', { name: '最近单日', exact: true })).toHaveAttribute('aria-pressed', 'true');
       await expect(page.getByTestId('flow-all-stocks').locator('tbody tr')).toHaveCount(16);

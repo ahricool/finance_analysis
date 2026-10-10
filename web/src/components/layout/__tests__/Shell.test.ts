@@ -42,6 +42,24 @@ describe('Shell navigation', () => {
     setActivePinia(createPinia());
   });
 
+  it.each(['admin', 'user'])('shows permitted task destinations in the dropdown for %s', async (role) => {
+    useAuthStore().currentUser = {
+      uid: 1, username: 'Tester', email: 'tester@example.test', avatarUrl: null, role,
+    };
+    const { wrapper } = await mountShell('/tasks/runs');
+    try {
+      const trigger = wrapper.get('button[aria-label="任务中心"]');
+      expect(trigger.attributes('aria-current')).toBe('page');
+      await trigger.trigger('click');
+      await vi.waitFor(() => {
+        expect(document.body.querySelector('[role="menuitem"][href="/tasks/runs"]')).not.toBeNull();
+      });
+      expect(document.body.querySelector('[role="menuitem"][href="/tasks/scheduled"]') !== null).toBe(role === 'admin');
+    } finally {
+      wrapper.unmount();
+    }
+  });
+
   it('keeps account details out of the header and exposes a click user-menu trigger', async () => {
     useAuthStore().currentUser = {
       uid: 1,
@@ -87,7 +105,7 @@ describe('Shell navigation', () => {
     'marks the task navigation active on %s',
     async (path) => {
       const { wrapper } = await mountShell(path);
-      const taskLink = wrapper.get('[data-testid="desktop-main-nav"] a[aria-label="任务中心"]');
+      const taskLink = wrapper.get('[data-testid="desktop-main-nav"] button[aria-label="任务中心"]');
       expect(taskLink.attributes('aria-current')).toBe('page');
       expect(taskLink.classes()).toContain('bg-muted/80');
     },
@@ -194,7 +212,15 @@ describe('Shell navigation', () => {
     const desktopNav = wrapper.get('[data-testid="desktop-main-nav"]');
     expect(desktopNav.classes()).toContain('hidden');
     expect(desktopNav.classes()).toContain('lg:flex');
-    expect(wrapper.get('[data-testid="mobile-nav-trigger"]').classes()).toContain('lg:hidden');
+    const mobileLogo = wrapper.get('[data-testid="mobile-nav-trigger"]');
+    expect(mobileLogo.classes()).toContain('lg:hidden');
+    expect(mobileLogo.find('img').exists()).toBe(true);
+    expect(wrapper.get('a[aria-label="回到动态"]').classes()).toContain('hidden');
+    await mobileLogo.trigger('click');
+    expect(mobileLogo.attributes('aria-expanded')).toBe('true');
+    await vi.waitFor(() => {
+      expect(document.body.querySelector('[data-testid="mobile-nav-sheet"] img')).not.toBeNull();
+    });
     expect(wrapper.get('a[aria-label="回到动态"]').attributes('href')).toBe('/dashboard');
     expect(wrapper.get('[data-testid="desktop-main-nav"] a[aria-label="市场动态"]').attributes('aria-current')).toBe('page');
     wrapper.unmount();

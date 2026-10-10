@@ -204,7 +204,7 @@ describe('TasksPage', () => {
     const wrapper = await mountPage();
 
     expect(wrapper.text()).not.toContain('APScheduler');
-    expect(wrapper.text()).toContain('Celery Beat');
+    expect(wrapper.text()).toContain('查看任务的运行计划、最近结果与下次执行时间');
     expect(wrapper.get('[data-testid="scheduled-overview"]').text()).toContain('定时任务');
 
     const tableText = wrapper.get('[data-testid="scheduled-table"]').text();

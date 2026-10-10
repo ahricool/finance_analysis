@@ -27,7 +27,7 @@ for (const width of [1280, 1440, 1920]) {
         return route.fulfill({ json: {} });
       });
       await page.goto('/research/intraday-confirmation');
-      await expect(page.getByTestId('module-tabs').getByRole('tab', { name: '盘中确认' })).toHaveAttribute('data-state', 'active');
+      await expect(page.getByTestId('module-tabs').getByRole('link', { name: '盘中确认' })).toHaveAttribute('data-state', 'active');
       await expect(page.getByRole('table')).toContainText('HIGH');
       await expect(page.getByRole('table')).toContainText('unavailable');
       await page.screenshot({ path: testInfo.outputPath('list.png'), fullPage: true });

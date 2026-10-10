@@ -23,7 +23,7 @@ for (const width of [1280, 1440, 1920]) {
         return route.fulfill({ json: {} });
       });
       await page.goto('/research/confluence');
-      await expect(page.getByTestId('module-tabs').getByRole('tab', { name: '多信号共振' })).toHaveAttribute('data-state', 'active');
+      await expect(page.getByTestId('module-tabs').getByRole('link', { name: '多信号共振' })).toHaveAttribute('data-state', 'active');
       await expect(page.getByRole('table')).toContainText('88.2');
       await expect(page.getByRole('table')).toContainText('3/4');
       await expect(page.getByRole('table')).toContainText('2026-09-21');

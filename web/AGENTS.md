@@ -45,7 +45,7 @@ web/
       ui/           # shadcn-vue 原子组件（Button、Dialog、Table…）
       app/          # 产品级封装（日期选择、确认框、API 错误条）
       forms/        # FieldInput / FieldSelect 等表单字段封装
-      layout/       # Shell、PageHeader、ModuleTabs
+      layout/       # Shell、PageHeader、ModuleLayout、ModuleSidebar、ModuleTabs
       */            # 业务块：stocks、quant、etf-rotation…
     composables/    # 可复用组合式逻辑
     stores/         # Pinia
@@ -72,16 +72,18 @@ web/
 ```
 路由页 pages/  →  composables / stores  →  api/  →  FastAPI /api/v1/*
        ↓
-layout（Shell / PageHeader / ModuleTabs）+ ui/app 组件
+layout（Shell / PageHeader / ModuleLayout）+ ui/app 组件
 ```
 
 `App.vue` 负责三件事：主题根节点、鉴权就绪门闩（loading / 错误重试 / `RouterView`）、全局 `Toaster`。已登录后的顶栏、主导航、用户菜单在 `components/layout/Shell.vue`。
 
-子模块页（市场、研究、量化、任务、个人中心）的固定套路：
+二级模块页（市场、研究、加密货币、任务、个人中心）的固定套路：
 
-1. `PageHeader`：标题 + 描述 + 可选 `actions` 插槽
-2. `ModuleTabs`：二级导航，`items` 用 `RouterLink`
-3. `Separator` + `<RouterView />` 或页内 tab 内容
+1. 一级模块容器不展示重复的标题、英文副标题或介绍；具体子页按需使用 `PageHeader` 与操作区
+2. `ModuleLayout`：桌面左侧导航 + 右侧内容，窄屏隐藏二级侧栏，通过顶部主导航或用户菜单切换页面，不在主体内容上方重复显示导航按钮；`items` 用 `RouterLink`
+   个人中心例外：使用 `keepSidebarOnMobile` 在窄屏保留左侧二级导航，确保资料、密码、通知入口可达。
+3. 具体内容页应展示标题和一句简要功能介绍；有三级导航时（如量化），介绍置于横向导航上方，不恢复一级模块介绍。
+4. 默认插槽放 `<RouterView />` 或页内内容；`ModuleSidebar` 负责纵向导航链接与当前页面状态；量化等三级导航保留顶部横向 `ModuleTabs`，不要嵌套第二列侧栏
 
 同一页面多子路由时，优先**一个页面组件 + 路由名区分 tab**（`ProfilePage`、`TasksPage`），不要为每个 tab 复制一整页。
 
@@ -110,6 +112,7 @@ layout（Shell / PageHeader / ModuleTabs）+ ui/app 组件
 - ETF 轮动和趋势排名的「导出 Excel」在浏览器中导出当前筛选、排序后的完整数据（含虚拟滚动未渲染行），保留数值格式；文件名包含市场、快照日期和 official/preview。导出库按需加载，不调用后端导出接口。
 - 研究走 `/research/**`，市场走 `/market/**`。加密货币走 `/crypto/**`。不要把 Quant / ETF / 趋势跟踪 / BTC 再挂到 `/market`。
 - 旧 `/market/quant*`、`/market/etf-rotation`、`/market/trend-following`、`/market/crypto/btc` 只作为 compatibility redirect，内部导航必须用 canonical URL。
+- 加密货币使用 `CryptoPage` 二级侧栏，BTC 子页保留自身介绍；任务中心顶栏下拉与侧栏共用 `taskNavItems`，定时任务仅向管理员显示。
 - BTC 的旧 `/research/crypto/btc` 同样重定向到 `/crypto/btc`；一级“加密货币”菜单位于“任务中心”之前。
 - `/chat` 只保留到 `/dashboard` 的 legacy redirect，前端不再有问股或个股分析页面。
 - 量化范围用 query `?market=US|CN`。在量化子路由之间跳转时，守卫会保留已有 `market`。读写市场用 `useQuantMarket()`，不要手写丢 query 的 `router.push`。
@@ -199,7 +202,7 @@ Cookie 会话，`apiClient` 设了 `withCredentials: true`。
 - **禁止**使用 `input-terminal` 类名（同上治理测试）。
 - 弹层不要改 `document.body` 的 `overflow` / `paddingRight` 造成顶栏位移；冒烟测试会查这一点。
 - 根滚动条使用 `scrollbar-gutter: stable`，路由切换时不要让页面左右跳。
-- WebUI 面向桌面优先，并做基础响应式适配：去掉根 `min-width: 1200px`；`<1024px`（`lg`）顶栏收成汉堡抽屉导航；表格在容器内横向滚动，页面本身不横向溢出；卡片/统计格子可换行；弹窗限制在视口内。验证 390 / 768 / 1024 / 1280 / 1440 / 1920px。
+- WebUI 面向桌面优先，并做基础响应式适配：去掉根 `min-width: 1200px`；`<1024px`（`lg`）顶栏通过点击 Logo 打开左侧抽屉导航，不显示独立汉堡按钮；表格在容器内横向滚动，页面本身不横向溢出；卡片/统计格子可换行；弹窗限制在视口内。验证 390 / 768 / 1024 / 1280 / 1440 / 1920px。
 - 标签语言：中文为主、英文 muted 小号副标题。复用 `BilingualLabel` / `BilingualEnum` 与 `i18n/labels.ts`；表头空间紧时用 `compact`（英文进 tooltip）。按钮与普通操作文案只用中文。业务枚举仅改展示，不改 API 字段。
 - Dashboard 按市场结构、Trend Market Regime、ETF/Trend Changes、Timeline、Quant Signals/BTC overview 排序；市场环境通过 `/trend-following/dashboard` 读取正式 Trend 的 0–100 分数、breakdown、完整变化计数和最多3条变化摘要，不下载 ranking 明细，不请求 Quant Regime 或展示风险敞口。不得读取持仓、自选股、分析历史等私人数据；各模块独立加载和失败。
 
@@ -236,7 +239,7 @@ Cookie 会话，`apiClient` 设了 `withCredentials: true`。
 
 ## 改功能时的检查清单
 
-1. 路由、`mainNav`、页面 `ModuleTabs` 三者是否一致。
+1. 路由、`mainNav`、页面 `ModuleLayout` 三者是否一致。
 2. 未登录路径是否仍被守卫拦住；公开页是否标了 `meta.public`。
 3. 量化跳转是否带上 `market` query。
 4. 错误是否经过 `parseApiError` / `AppApiErrorAlert`。
@@ -284,3 +287,9 @@ BTC 多策略以 `strategy_key + symbol` 隔离，代码注册表当前仅 `btc_
 `DailyKLineCard` 用 `utils/dailyPatterns.ts` 纯函数分析已加载日线，六种经典反转形态仅用于研究展示。
 独立 `daily-patterns` overlay 与 BST / `research-date` 共存；只显示 Quality ≥70，同日最多一个。
 当日 K 无可靠收盘标志时保守显示 Preview，不按名义收盘时间自动确认。规则与测试见 `../docs/daily-patterns.md`。
+
+## 用户头像
+
+沿用个人中心裁剪 UI 与 URL 展示，源文件/上传文件上限均为 5 MiB。
+后端统一生成 256×256 WebP（quality 82），存独立 `user_avatar` BYTEA 表；上传返回随机版本 URL，
+刷新用户资料后自动更新顶栏和个人头像。删除接口 `DELETE /auth/avatar`，不新增 UI。见 `../docs/user-avatars.md`。

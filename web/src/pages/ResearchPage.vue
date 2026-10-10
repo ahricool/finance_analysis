@@ -1,9 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { RouterView, useRoute } from 'vue-router';
-import ModuleTabs from '@/components/layout/ModuleTabs.vue';
-import PageHeader from '@/components/layout/PageHeader.vue';
-import { Separator } from '@/components/ui/separator';
+import ModuleLayout from '@/components/layout/ModuleLayout.vue';
 import { researchNavItems } from '@/config/mainNav';
 
 type ResearchTab = 'options-intelligence' | 'signal-center' | 'intraday-confirmation' | 'confluence' | 'dragon-tiger-flow' | 'market-sentiment' | 'industry-strength' | 'macro' | 'quant' | 'etf-rotation' | 'trend-following';
@@ -27,19 +25,14 @@ const activeTab = computed<ResearchTab>(() => {
 
 <template>
   <div class="page-shell">
-    <PageHeader
-      title="研究"
-      en="Research"
-      description="研究量化模型、ETF 动量轮动、趋势跟踪、行业强度、龙虎榜资金、市场情绪与宏观环境。"
-    />
-    <ModuleTabs
+    <ModuleLayout
       :items="researchNavItems"
       :active-key="activeTab"
       label="研究页面导航"
-    />
-    <Separator />
-    <section class="min-w-0">
-      <RouterView />
-    </section>
+    >
+      <section class="min-w-0">
+        <RouterView />
+      </section>
+    </ModuleLayout>
   </div>
 </template>

@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import LoadingButton from '@/components/app/LoadingButton.vue';
 import FieldInput from '@/components/forms/FieldInput.vue';
 import FieldSelect from '@/components/forms/FieldSelect.vue';
-import PageHeader from '@/components/layout/PageHeader.vue';
+import ModuleLayout from '@/components/layout/ModuleLayout.vue';
 import AvatarCropper from '@/components/profile/AvatarCropper.vue';
 import ChangePasswordCard from '@/components/settings/ChangePasswordCard.vue';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -20,7 +20,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useAuthStore } from '@/stores/authStore';
 import { Bell, Camera, LockKeyhole, Save, Upload, UserRound } from 'lucide-vue-next';
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue';
-import { RouterLink, useRoute } from 'vue-router';
+import { useRoute } from 'vue-router';
 
 type ProfileTab = 'info' | 'password' | 'notification';
 
@@ -121,12 +121,12 @@ function onAvatarFileChange(event: Event) {
   if (!file) return;
 
   avatarError.value = null;
-  if (!file.type.startsWith('image/')) {
-    avatarError.value = '请选择图片文件';
+  if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+    avatarError.value = '请选择 JPEG、PNG 或 WebP 图片';
     return;
   }
-  if (file.size > 2 * 1024 * 1024) {
-    avatarError.value = '头像不能超过 2MB';
+  if (file.size > 5 * 1024 * 1024) {
+    avatarError.value = '头像不能超过 5MB';
     return;
   }
 
@@ -208,12 +208,6 @@ onBeforeUnmount(clearAvatarSource);
 
 <template>
   <div class="page-shell">
-    <PageHeader
-      title="个人中心"
-      en="Profile"
-      description="管理账号资料、安全设置和通知渠道。"
-    />
-
     <Alert
       v-if="pageError"
       variant="destructive"
@@ -222,30 +216,12 @@ onBeforeUnmount(clearAvatarSource);
       <AlertDescription>{{ pageError.message }}</AlertDescription>
     </Alert>
 
-    <div class="grid items-start gap-6 lg:grid-cols-[13.5rem_minmax(0,1fr)]">
-      <aside>
-        <nav
-          aria-label="个人中心设置导航"
-          class="flex flex-col gap-1 rounded-xl border border-border bg-card p-2 shadow-sm ring-1 ring-foreground/10"
-        >
-          <RouterLink
-            v-for="item in tabs"
-            :key="item.key"
-            :to="item.to"
-            :data-state="activeTab === item.key ? 'active' : undefined"
-            :aria-current="activeTab === item.key ? 'page' : undefined"
-            class="flex items-center gap-2 rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-            :class="activeTab === item.key && 'bg-muted font-medium text-foreground'"
-          >
-            <component
-              :is="item.icon"
-              class="size-4"
-            />
-            {{ item.label }}
-          </RouterLink>
-        </nav>
-      </aside>
-
+    <ModuleLayout
+      :items="tabs"
+      :active-key="activeTab"
+      label="个人中心设置导航"
+      keep-sidebar-on-mobile
+    >
       <section class="min-w-0">
         <Card v-if="activeTab === 'info'">
           <CardHeader>
@@ -450,6 +426,6 @@ onBeforeUnmount(clearAvatarSource);
           </CardContent>
         </Card>
       </section>
-    </div>
+    </ModuleLayout>
   </div>
 </template>

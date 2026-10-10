@@ -2,7 +2,7 @@
 import type { AcceptableValue } from 'reka-ui';
 import { computed, ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
-import { Bell, ChevronDown, Clock3, LogOut, Menu, Monitor, Moon, Palette, Sun, User, UserRound } from 'lucide-vue-next';
+import { Bell, ChevronDown, Clock3, LogOut, Monitor, Moon, Palette, Sun, User, UserRound } from 'lucide-vue-next';
 import { RouterLink, RouterView, useRoute } from 'vue-router';
 import AppConfirmDialog from '@/components/app/AppConfirmDialog.vue';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -28,6 +28,7 @@ import {
 } from '@/components/ui/sheet';
 
 import { useAuth } from '@/composables/useAuth';
+import { useCurrentTime } from '@/composables/useCurrentTime';
 import { useTheme, type ThemePreference } from '@/composables/useTheme';
 import { APP_NAME } from '@/config/app';
 import { mainNavItems, type MainNavItem, type NavDestination } from '@/config/mainNav';
@@ -43,6 +44,24 @@ const timezoneStore = useTimezoneStore();
 const { displayTimezone } = storeToRefs(timezoneStore);
 const showLogoutConfirm = ref(false);
 const mobileNavOpen = ref(false);
+const now = useCurrentTime(1000);
+const timezoneOptions = computed(() => DISPLAY_TIMEZONES.map((option) => ({
+  ...option,
+  currentTime: new Intl.DateTimeFormat('zh-CN', {
+    timeZone: option.value,
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+  }).format(now.value),
+})));
+
+const visibleMainNavItems = computed(() => mainNavItems.map((item) => ({
+  ...item,
+  children: item.children?.filter((child) => !child.adminOnly || currentUser.value?.role === 'admin'),
+})));
 
 const THEME_OPTIONS: Array<{ value: ThemePreference; label: string; icon: typeof Monitor }> = [
   { value: 'system', label: '跟随系统', icon: Monitor },
@@ -64,7 +83,7 @@ function isDestinationActive(item: NavDestination): boolean {
 }
 
 function isNavItemActive(item: MainNavItem): boolean {
-  return item.children?.some(isDestinationActive) ?? isDestinationActive(item);
+  return isDestinationActive(item) || (item.children?.some(isDestinationActive) ?? false);
 }
 
 const initials = computed(() =>
@@ -103,20 +122,28 @@ watch(
         class="mx-auto flex h-14 w-full max-w-[1500px] items-center gap-2 px-4 sm:px-6"
         data-testid="shell-header-content"
       >
-        <Button
-          variant="ghost"
-          size="icon"
-          class="shrink-0 lg:hidden"
+        <button
+          type="button"
+          class="flex min-w-0 items-center gap-2 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring lg:hidden"
           aria-label="打开导航菜单"
+          aria-haspopup="dialog"
+          :aria-expanded="mobileNavOpen"
           data-testid="mobile-nav-trigger"
           @click="mobileNavOpen = true"
         >
-          <Menu class="size-5" />
-        </Button>
+          <span class="flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-md bg-brand/15">
+            <img
+              src="/flower.svg"
+              alt=""
+              class="size-7"
+            />
+          </span>
+          <span class="truncate text-sm font-semibold tracking-tight">{{ APP_NAME }}</span>
+        </button>
 
         <RouterLink
           to="/dashboard"
-          class="flex min-w-0 items-center gap-2 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          class="hidden min-w-0 items-center gap-2 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring lg:flex"
           aria-label="回到动态"
         >
           <span class="flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-md bg-brand/15">
@@ -135,7 +162,7 @@ watch(
           data-testid="desktop-main-nav"
         >
           <template
-            v-for="item in mainNavItems"
+            v-for="item in visibleMainNavItems"
             :key="item.key"
           >
             <DropdownMenu
@@ -281,11 +308,14 @@ watch(
                     @update:model-value="setTimezonePreference"
                   >
                     <DropdownMenuRadioItem
-                      v-for="option in DISPLAY_TIMEZONES"
+                      v-for="option in timezoneOptions"
                       :key="option.value"
                       :value="option.value"
                     >
-                      {{ option.label }}
+                      <span class="flex flex-col gap-0.5">
+                        <span>{{ option.label }}</span>
+                        <span class="text-xs tabular-nums text-muted-foreground">{{ option.currentTime }}</span>
+                      </span>
                     </DropdownMenuRadioItem>
                   </DropdownMenuRadioGroup>
                 </DropdownMenuSubContent>
@@ -312,8 +342,17 @@ watch(
         class="w-[min(20rem,85vw)] p-0"
         data-testid="mobile-nav-sheet"
       >
-        <SheetHeader class="border-b px-4 py-4 text-left">
-          <SheetTitle>{{ APP_NAME }}</SheetTitle>
+        <SheetHeader class="h-14 justify-center border-b px-4 py-0 text-left">
+          <SheetTitle class="flex min-w-0 items-center gap-2">
+            <span class="flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-md bg-brand/15">
+              <img
+                src="/flower.svg"
+                alt=""
+                class="size-7"
+              />
+            </span>
+            <span class="truncate text-sm font-semibold tracking-tight">{{ APP_NAME }}</span>
+          </SheetTitle>
         </SheetHeader>
         <nav
           class="flex flex-col gap-1 overflow-y-auto p-3"
@@ -321,7 +360,7 @@ watch(
           data-testid="mobile-main-nav"
         >
           <template
-            v-for="item in mainNavItems"
+            v-for="item in visibleMainNavItems"
             :key="item.key"
           >
             <template v-if="item.children">
