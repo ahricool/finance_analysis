@@ -1,35 +1,95 @@
 <script setup lang="ts">
 import type { Component } from 'vue';
-import { RouterLink, type RouteLocationRaw } from 'vue-router';
+import type { RouteLocationRaw } from 'vue-router';
+import { nextTick, onMounted, ref, watch } from 'vue';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 export type ModuleTab = { key: string; label: string; icon?: Component; to: RouteLocationRaw };
-defineProps<{ items: ModuleTab[]; activeKey: string; label: string }>();
-defineEmits<{ navigate: [] }>();
+const props = defineProps<{ items: ModuleTab[]; activeKey: string; label: string }>();
+
+const scroller = ref<HTMLElement | null>(null);
+const canScrollLeft = ref(false);
+const canScrollRight = ref(false);
+
+function updateFade() {
+  const el = scroller.value;
+  if (!el) {
+    canScrollLeft.value = false;
+    canScrollRight.value = false;
+    return;
+  }
+  const max = el.scrollWidth - el.clientWidth;
+  canScrollLeft.value = el.scrollLeft > 2;
+  canScrollRight.value = max - el.scrollLeft > 2;
+}
+
+function scrollActiveIntoView() {
+  const el = scroller.value;
+  if (!el) return;
+  const active = el.querySelector<HTMLElement>('[data-state="active"], [aria-current="page"]');
+  if (active && typeof active.scrollIntoView === 'function') {
+    active.scrollIntoView({ inline: 'nearest', block: 'nearest', behavior: 'smooth' });
+  }
+  updateFade();
+}
+
+watch(
+  () => props.activeKey,
+  async () => {
+    await nextTick();
+    scrollActiveIntoView();
+  },
+);
+
+onMounted(async () => {
+  await nextTick();
+  updateFade();
+  scrollActiveIntoView();
+});
 </script>
 
 <template>
   <nav
     :aria-label="label"
-    class="flex flex-col gap-1 rounded-xl border border-border bg-card p-2"
+    class="relative"
     data-testid="module-tabs"
   >
-    <RouterLink
-      v-for="item in items"
-      :key="item.key"
-      :to="item.to"
-      :aria-current="activeKey === item.key ? 'page' : undefined"
-      :data-state="activeKey === item.key ? 'active' : 'inactive'"
-      class="flex min-h-10 items-center gap-2 rounded-md border border-transparent px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-      :class="activeKey === item.key && 'border-brand/25 bg-brand/10 font-medium text-foreground'"
-      @click="$emit('navigate')"
+    <div
+      v-show="canScrollLeft"
+      class="pointer-events-none absolute inset-y-0 left-0 z-10 w-8 bg-gradient-to-r from-background to-transparent"
+      aria-hidden="true"
+      data-testid="module-tabs-fade-left"
+    />
+    <div
+      v-show="canScrollRight"
+      class="pointer-events-none absolute inset-y-0 right-0 z-10 w-8 bg-gradient-to-l from-background to-transparent"
+      aria-hidden="true"
+      data-testid="module-tabs-fade-right"
+    />
+    <div
+      ref="scroller"
+      class="w-full overflow-x-auto whitespace-nowrap [scrollbar-width:thin]"
+      data-testid="module-tabs-scroller"
+      @scroll="updateFade"
     >
-      <component
-        :is="item.icon"
-        v-if="item.icon"
-        class="size-4 shrink-0"
-        aria-hidden="true"
-      />
-      {{ item.label }}
-    </RouterLink>
+      <Tabs :model-value="activeKey">
+        <TabsList>
+          <TabsTrigger
+            v-for="item in items"
+            :key="item.key"
+            :value="item.key"
+            as-child
+          >
+            <RouterLink :to="item.to">
+              <component
+                :is="item.icon"
+                v-if="item.icon"
+              />
+              {{ item.label }}
+            </RouterLink>
+          </TabsTrigger>
+        </TabsList>
+      </Tabs>
+    </div>
   </nav>
 </template>

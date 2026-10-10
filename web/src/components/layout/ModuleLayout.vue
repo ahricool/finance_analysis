@@ -5,9 +5,9 @@ import { useMediaQuery } from '@vueuse/core';
 import { PanelLeft } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
-import ModuleTabs, { type ModuleTab } from './ModuleTabs.vue';
+import ModuleSidebar, { type ModuleNavItem } from './ModuleSidebar.vue';
 
-const props = defineProps<{ items: ModuleTab[]; activeKey: string; label: string }>();
+const props = defineProps<{ items: ModuleNavItem[]; activeKey: string; label: string }>();
 const open = ref(false);
 const route = useRoute();
 const desktop = useMediaQuery('(min-width: 1024px)');
@@ -21,7 +21,7 @@ watch([() => route.fullPath, desktop], () => { open.value = false; });
     data-testid="module-layout"
   >
     <aside class="hidden min-w-0 lg:sticky lg:top-20 lg:block lg:max-h-[calc(100dvh-6rem)] lg:overflow-y-auto">
-      <ModuleTabs
+      <ModuleSidebar
         :items="items"
         :active-key="activeKey"
         :label="label"
@@ -49,7 +49,7 @@ watch([() => route.fullPath, desktop], () => { open.value = false; });
             <SheetTitle>{{ label }}</SheetTitle>
           </SheetHeader>
           <div class="min-h-0 overflow-y-auto p-4 pt-0">
-            <ModuleTabs
+            <ModuleSidebar
               :items="items"
               :active-key="activeKey"
               :label="label"

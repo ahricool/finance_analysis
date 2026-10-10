@@ -45,7 +45,7 @@ web/
       ui/           # shadcn-vue 原子组件（Button、Dialog、Table…）
       app/          # 产品级封装（日期选择、确认框、API 错误条）
       forms/        # FieldInput / FieldSelect 等表单字段封装
-      layout/       # Shell、PageHeader、ModuleLayout、ModuleTabs
+      layout/       # Shell、PageHeader、ModuleLayout、ModuleSidebar、ModuleTabs
       */            # 业务块：stocks、quant、etf-rotation…
     composables/    # 可复用组合式逻辑
     stores/         # Pinia
@@ -77,11 +77,11 @@ layout（Shell / PageHeader / ModuleLayout）+ ui/app 组件
 
 `App.vue` 负责三件事：主题根节点、鉴权就绪门闩（loading / 错误重试 / `RouterView`）、全局 `Toaster`。已登录后的顶栏、主导航、用户菜单在 `components/layout/Shell.vue`。
 
-子模块页（市场、研究、量化、任务、个人中心）的固定套路：
+二级模块页（市场、研究、任务、个人中心）的固定套路：
 
 1. 一级模块容器不展示重复的标题、英文副标题或介绍；具体子页按需使用 `PageHeader` 与操作区
 2. `ModuleLayout`：桌面左侧导航 + 右侧内容，窄屏以按钮打开左侧抽屉；`items` 用 `RouterLink`
-3. 默认插槽放 `<RouterView />` 或页内内容；`ModuleTabs` 仅负责纵向导航链接与当前页面状态
+3. 默认插槽放 `<RouterView />` 或页内内容；`ModuleSidebar` 负责纵向导航链接与当前页面状态；量化等三级导航保留顶部横向 `ModuleTabs`，不要嵌套第二列侧栏
 
 同一页面多子路由时，优先**一个页面组件 + 路由名区分 tab**（`ProfilePage`、`TasksPage`），不要为每个 tab 复制一整页。
 

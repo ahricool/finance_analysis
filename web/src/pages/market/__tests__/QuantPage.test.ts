@@ -32,7 +32,7 @@ async function mountQuant(path: string) {
 }
 
 describe('QuantPage', () => {
-  it('renders responsive secondary navigation with the market switcher alongside the tabs', async () => {
+  it('keeps tertiary navigation horizontal above the market switcher', async () => {
     const wrapper = await mountQuant('/research/quant');
 
     expect(wrapper.get('[data-testid="module-tabs"]').attributes('aria-label')).toBe('量化研究导航');

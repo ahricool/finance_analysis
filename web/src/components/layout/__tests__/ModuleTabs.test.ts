@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import ModuleTabs from '../ModuleTabs.vue';
 
 describe('ModuleTabs', () => {
-  it('exposes route links with the current page', async () => {
+  it('uses native horizontal scroll with fade hooks and active route state', async () => {
     const router = createRouter({
       history: createMemoryHistory(),
       routes: [
@@ -28,10 +28,9 @@ describe('ModuleTabs', () => {
     });
 
     expect(wrapper.get('nav').attributes('aria-label')).toBe('模块导航');
-    expect(wrapper.get('a[href="/two"]').attributes('aria-current')).toBe('page');
-    expect(wrapper.get('a[href="/one"]').attributes('aria-current')).toBeUndefined();
-    await wrapper.get('a[href="/one"]').trigger('click');
-    expect(wrapper.emitted('navigate')).toHaveLength(1);
+    expect(wrapper.get('[data-testid="module-tabs-scroller"]').classes()).toContain('overflow-x-auto');
+    expect(wrapper.find('[data-testid="module-tabs-fade-left"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="module-tabs-fade-right"]').exists()).toBe(true);
     expect(wrapper.get('a[href="/two"]').attributes('data-state')).toBe('active');
     expect(wrapper.get('a[href="/one"]').attributes('data-state')).toBe('inactive');
   });
