@@ -79,7 +79,7 @@ layout（Shell / PageHeader / ModuleLayout）+ ui/app 组件
 
 子模块页（市场、研究、量化、任务、个人中心）的固定套路：
 
-1. `PageHeader`：标题 + 描述 + 可选 `actions` 插槽
+1. 一级模块容器不展示重复的标题、英文副标题或介绍；具体子页按需使用 `PageHeader` 与操作区
 2. `ModuleLayout`：桌面左侧导航 + 右侧内容，窄屏以按钮打开左侧抽屉；`items` 用 `RouterLink`
 3. 默认插槽放 `<RouterView />` 或页内内容；`ModuleTabs` 仅负责纵向导航链接与当前页面状态
 

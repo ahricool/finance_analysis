@@ -2,7 +2,6 @@
 import { computed } from 'vue';
 import { RouterView, useRoute } from 'vue-router';
 import ModuleLayout from '@/components/layout/ModuleLayout.vue';
-import PageHeader from '@/components/layout/PageHeader.vue';
 import { marketNavItems } from '@/config/mainNav';
 
 type MarketTab = 'watch-list' | 'holdings';
@@ -17,11 +16,6 @@ const activeTab = computed<MarketTab>(() => {
 
 <template>
   <div class="page-shell">
-    <PageHeader
-      title="市场"
-      en="Market"
-      description="管理自选股，并维护数据库中的实际持仓。"
-    />
     <ModuleLayout
       :items="marketNavItems"
       :active-key="activeTab"

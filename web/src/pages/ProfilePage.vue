@@ -11,7 +11,6 @@ import LoadingButton from '@/components/app/LoadingButton.vue';
 import FieldInput from '@/components/forms/FieldInput.vue';
 import FieldSelect from '@/components/forms/FieldSelect.vue';
 import ModuleLayout from '@/components/layout/ModuleLayout.vue';
-import PageHeader from '@/components/layout/PageHeader.vue';
 import AvatarCropper from '@/components/profile/AvatarCropper.vue';
 import ChangePasswordCard from '@/components/settings/ChangePasswordCard.vue';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -209,12 +208,6 @@ onBeforeUnmount(clearAvatarSource);
 
 <template>
   <div class="page-shell">
-    <PageHeader
-      title="个人中心"
-      en="Profile"
-      description="管理账号资料、安全设置和通知渠道。"
-    />
-
     <Alert
       v-if="pageError"
       variant="destructive"

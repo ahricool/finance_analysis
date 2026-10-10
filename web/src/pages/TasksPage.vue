@@ -7,7 +7,6 @@ import AppDatePicker from '@/components/app/AppDatePicker.vue';
 import AppPagination from '@/components/app/AppPagination.vue';
 import LoadingButton from '@/components/app/LoadingButton.vue';
 import ModuleLayout from '@/components/layout/ModuleLayout.vue';
-import PageHeader from '@/components/layout/PageHeader.vue';
 import ScheduledTaskDetailDialog from '@/components/tasks/ScheduledTaskDetailDialog.vue';
 import TaskRunDetailDialog from '@/components/tasks/TaskRunDetailDialog.vue';
 import {
@@ -399,12 +398,12 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="page-shell">
-    <PageHeader
-      title="任务中心"
-      en="Tasks"
-      :description="isAdmin ? '了解定时任务是否正常运行，并查看最近的执行结果。' : '查看自己的任务执行记录。'"
+    <ModuleLayout
+      :items="navItems"
+      :active-key="activeTab"
+      label="任务中心导航"
     >
-      <template #actions>
+      <div class="flex justify-end">
         <LoadingButton
           variant="outline"
           size="sm"
@@ -414,14 +413,7 @@ onBeforeUnmount(() => {
           <RefreshCcw class="size-4" />
           刷新
         </LoadingButton>
-      </template>
-    </PageHeader>
-
-    <ModuleLayout
-      :items="navItems"
-      :active-key="activeTab"
-      label="任务中心导航"
-    >
+      </div>
       <AppApiErrorAlert
         v-if="pageError"
         :error="pageError"

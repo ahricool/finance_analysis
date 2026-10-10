@@ -2,7 +2,6 @@
 import { computed } from 'vue';
 import { RouterView, useRoute } from 'vue-router';
 import ModuleLayout from '@/components/layout/ModuleLayout.vue';
-import PageHeader from '@/components/layout/PageHeader.vue';
 import { researchNavItems } from '@/config/mainNav';
 
 type ResearchTab = 'options-intelligence' | 'signal-center' | 'intraday-confirmation' | 'confluence' | 'dragon-tiger-flow' | 'market-sentiment' | 'industry-strength' | 'macro' | 'quant' | 'etf-rotation' | 'trend-following';
@@ -26,11 +25,6 @@ const activeTab = computed<ResearchTab>(() => {
 
 <template>
   <div class="page-shell">
-    <PageHeader
-      title="研究"
-      en="Research"
-      description="研究量化模型、ETF 动量轮动、趋势跟踪、行业强度、龙虎榜资金、市场情绪与宏观环境。"
-    />
     <ModuleLayout
       :items="researchNavItems"
       :active-key="activeTab"
