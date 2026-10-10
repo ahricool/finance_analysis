@@ -212,7 +212,15 @@ describe('Shell navigation', () => {
     const desktopNav = wrapper.get('[data-testid="desktop-main-nav"]');
     expect(desktopNav.classes()).toContain('hidden');
     expect(desktopNav.classes()).toContain('lg:flex');
-    expect(wrapper.get('[data-testid="mobile-nav-trigger"]').classes()).toContain('lg:hidden');
+    const mobileLogo = wrapper.get('[data-testid="mobile-nav-trigger"]');
+    expect(mobileLogo.classes()).toContain('lg:hidden');
+    expect(mobileLogo.find('img').exists()).toBe(true);
+    expect(wrapper.get('a[aria-label="回到动态"]').classes()).toContain('hidden');
+    await mobileLogo.trigger('click');
+    expect(mobileLogo.attributes('aria-expanded')).toBe('true');
+    await vi.waitFor(() => {
+      expect(document.body.querySelector('[data-testid="mobile-nav-sheet"] img')).not.toBeNull();
+    });
     expect(wrapper.get('a[aria-label="回到动态"]').attributes('href')).toBe('/dashboard');
     expect(wrapper.get('[data-testid="desktop-main-nav"] a[aria-label="市场动态"]').attributes('aria-current')).toBe('page');
     wrapper.unmount();
