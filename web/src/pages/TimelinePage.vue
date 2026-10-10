@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { Button } from '@/components/ui/button';
 import PageHeader from '@/components/layout/PageHeader.vue';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { parseDate } from '@internationalized/date';
@@ -142,31 +143,30 @@ function safeUrl(value: unknown) { return typeof value === 'string' && /^https?:
         class="flex flex-wrap items-center gap-2"
         aria-label="市场筛选"
       >
-        <button
+        <Button
           v-for="option in markets"
           :key="option.value"
           type="button"
-          class="h-10 rounded-lg border px-3.5 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 transition-colors duration-150"
-          :class="market === option.value
-            ? 'border-transparent bg-foreground text-background font-medium'
-            : 'border-border text-muted-foreground hover:bg-muted'"
+          size="lg"
+          class="px-3.5"
+          :variant="market === option.value ? 'default' : 'outline'"
           :aria-pressed="market === option.value"
           @click="market = option.value"
         >
           {{ option.label }}
-        </button>
+        </Button>
         <label class="flex h-10 items-center gap-2 px-2 text-sm">
           <input
             v-model="highConfidence"
             type="checkbox"
-            class="accent-primary"
+            class="size-4 rounded accent-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30 focus-visible:ring-offset-2"
           >
           仅高置信度
         </label>
         <select
           v-model="importance"
           aria-label="重要性"
-          class="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm sm:ml-auto sm:w-40"
+          class="h-10 w-full rounded-md border border-input bg-background px-3 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30 sm:ml-auto sm:w-40"
         >
           <option value="">
             全部重要性
@@ -184,19 +184,18 @@ function safeUrl(value: unknown) { return typeof value === 'string' && /^https?:
         class="-mx-1 flex gap-1 overflow-x-auto px-1 pb-1"
         aria-label="内容类型筛选"
       >
-        <button
+        <Button
           v-for="option in tabs"
           :key="option.value"
           type="button"
-          class="h-9 shrink-0 whitespace-nowrap rounded-lg px-3.5 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 transition-colors duration-150"
-          :class="tab === option.value
-            ? 'bg-primary/10 font-semibold text-primary'
-            : 'text-muted-foreground hover:bg-muted'"
+          size="lg"
+          class="px-3.5"
+          :variant="tab === option.value ? 'default' : 'ghost'"
           :aria-pressed="tab === option.value"
           @click="tab = option.value"
         >
           {{ option.label }}
-        </button>
+        </Button>
         <span class="ml-auto shrink-0 self-center pl-3 text-xs text-muted-foreground block">
           {{ displayTimezone === 'Asia/Shanghai' ? '北京时间' : '美东时间' }}
         </span>
@@ -206,18 +205,19 @@ function safeUrl(value: unknown) { return typeof value === 'string' && /^https?:
           class="flex max-w-full gap-1 overflow-x-auto"
           aria-label="截止日期快捷筛选"
         >
-          <button
+          <Button
             v-for="option in presets"
             :key="option.value"
             type="button"
-            class="h-10 shrink-0 whitespace-nowrap rounded-lg px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 transition-colors"
-            :class="preset === option.value ? 'bg-primary/10 font-semibold text-primary' : 'text-muted-foreground hover:bg-muted'"
+            size="lg"
+            class="px-3"
+            :variant="preset === option.value ? 'default' : 'ghost'"
             :aria-label="option.label"
             :aria-pressed="preset === option.value"
             @click="selectPreset(option.value)"
           >
             {{ option.label }}
-          </button>
+          </Button>
         </div>
         <AppDatePicker
           :model-value="endDate"
