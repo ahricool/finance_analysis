@@ -45,7 +45,7 @@ web/
       ui/           # shadcn-vue 原子组件（Button、Dialog、Table…）
       app/          # 产品级封装（日期选择、确认框、API 错误条）
       forms/        # FieldInput / FieldSelect 等表单字段封装
-      layout/       # Shell、PageHeader、ModuleTabs
+      layout/       # Shell、PageHeader、ModuleLayout、ModuleTabs
       */            # 业务块：stocks、quant、etf-rotation…
     composables/    # 可复用组合式逻辑
     stores/         # Pinia
@@ -72,7 +72,7 @@ web/
 ```
 路由页 pages/  →  composables / stores  →  api/  →  FastAPI /api/v1/*
        ↓
-layout（Shell / PageHeader / ModuleTabs）+ ui/app 组件
+layout（Shell / PageHeader / ModuleLayout）+ ui/app 组件
 ```
 
 `App.vue` 负责三件事：主题根节点、鉴权就绪门闩（loading / 错误重试 / `RouterView`）、全局 `Toaster`。已登录后的顶栏、主导航、用户菜单在 `components/layout/Shell.vue`。
@@ -80,8 +80,8 @@ layout（Shell / PageHeader / ModuleTabs）+ ui/app 组件
 子模块页（市场、研究、量化、任务、个人中心）的固定套路：
 
 1. `PageHeader`：标题 + 描述 + 可选 `actions` 插槽
-2. `ModuleTabs`：二级导航，`items` 用 `RouterLink`
-3. `Separator` + `<RouterView />` 或页内 tab 内容
+2. `ModuleLayout`：桌面左侧导航 + 右侧内容，窄屏以按钮打开左侧抽屉；`items` 用 `RouterLink`
+3. 默认插槽放 `<RouterView />` 或页内内容；`ModuleTabs` 仅负责纵向导航链接与当前页面状态
 
 同一页面多子路由时，优先**一个页面组件 + 路由名区分 tab**（`ProfilePage`、`TasksPage`），不要为每个 tab 复制一整页。
 
@@ -236,7 +236,7 @@ Cookie 会话，`apiClient` 设了 `withCredentials: true`。
 
 ## 改功能时的检查清单
 
-1. 路由、`mainNav`、页面 `ModuleTabs` 三者是否一致。
+1. 路由、`mainNav`、页面 `ModuleLayout` 三者是否一致。
 2. 未登录路径是否仍被守卫拦住；公开页是否标了 `meta.public`。
 3. 量化跳转是否带上 `market` query。
 4. 错误是否经过 `parseApiError` / `AppApiErrorAlert`。

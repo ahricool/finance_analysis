@@ -4,7 +4,7 @@ import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import AppApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
 import ResearchMarketToggle from '@/components/research/ResearchMarketToggle.vue';
 import AppDatePicker from '@/components/app/AppDatePicker.vue';
-import ModuleTabs from '@/components/layout/ModuleTabs.vue';
+import ModuleLayout from '@/components/layout/ModuleLayout.vue';
 import { useQuantMarket } from '@/composables/useQuantMarket';
 import { BarChart3, Bot, BriefcaseBusiness, Database, LayoutDashboard } from 'lucide-vue-next';
 import { computed, ref, watch } from 'vue';
@@ -74,41 +74,37 @@ function selectTradeDate(value: string) {
 </script>
 
 <template>
-  <div class="min-w-0 space-y-4">
-    <div class="flex min-w-0 flex-col gap-3">
-      <ModuleTabs
-        :items="navItems"
-        :active-key="activeTab"
-        label="量化研究导航"
+  <ModuleLayout
+    :items="navItems"
+    :active-key="activeTab"
+    label="量化研究导航"
+  >
+    <div class="research-toolbar flex min-w-0 flex-wrap items-end gap-2">
+      <ResearchMarketToggle
+        :model-value="market"
+        data-testid="quant-market-switcher"
+        @update:model-value="setMarket"
       />
-      <div class="research-toolbar flex min-w-0 flex-wrap items-end gap-2">
-        <ResearchMarketToggle
-          :model-value="market"
-          data-testid="quant-market-switcher"
-          @update:model-value="setMarket"
+      <p
+        class="flex h-10 max-w-full items-center text-xs text-muted-foreground"
+        data-testid="quant-scope-description"
+      >
+        {{ scopeDescription }}
+      </p>
+      <div
+        v-if="activeTab !== 'datasets' && activeTab !== 'models'"
+        class="w-full max-w-56 sm:w-56"
+      >
+        <AppDatePicker
+          label="交易日"
+          :model-value="tradeDate"
+          :available-dates="availableDates"
+          :disabled="datesLoading || !availableDates.length"
+          placeholder="最新数据"
+          data-testid="quant-trade-date"
+          class="w-full"
+          @update:model-value="selectTradeDate"
         />
-        <p
-          class="flex h-10 max-w-full items-center text-xs text-muted-foreground"
-          data-testid="quant-scope-description"
-        >
-          {{ scopeDescription }}
-        </p>
-        <div
-          v-if="activeTab !== 'datasets' && activeTab !== 'models'"
-          class="w-full max-w-56 sm:w-56"
-        >
-          <AppDatePicker
-            label="交易日"
-            :model-value="tradeDate"
-            :available-dates="availableDates"
-            :disabled="datesLoading || !availableDates.length"
-            placeholder="最新数据"
-            data-testid="quant-trade-date"
-            class="w-full"
-            @update:model-value="selectTradeDate"
-          />
-        </div>
-
       </div>
     </div>
     <AppApiErrorAlert
@@ -118,5 +114,5 @@ function selectTradeDate(value: string) {
     <section class="min-w-0">
       <RouterView />
     </section>
-  </div>
+  </ModuleLayout>
 </template>

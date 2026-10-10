@@ -45,7 +45,7 @@ for (const width of [1280, 1440, 1920]) {
       await mockIndustryApis(page);
       await page.goto('/research/industry-strength');
       await expect(page.getByRole('heading', { name: '行业强度', exact: true })).toBeVisible();
-      await expect(page.getByTestId('module-tabs').getByRole('tab', { name: '行业强度' })).toHaveAttribute('data-state', 'active');
+      await expect(page.getByTestId('module-tabs').getByRole('link', { name: '行业强度' })).toHaveAttribute('data-state', 'active');
       await expect(page.getByTestId('industry-detail-dialog')).toHaveCount(0);
       await expect(page.getByTestId('industry-ranking').locator('tbody tr')).toHaveCount(20);
       await expect(page.getByTestId('industry-summary')).toContainText('动量降速最大');

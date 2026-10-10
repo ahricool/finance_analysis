@@ -6,7 +6,7 @@ import AppConfirmDialog from '@/components/app/AppConfirmDialog.vue';
 import AppDatePicker from '@/components/app/AppDatePicker.vue';
 import AppPagination from '@/components/app/AppPagination.vue';
 import LoadingButton from '@/components/app/LoadingButton.vue';
-import ModuleTabs from '@/components/layout/ModuleTabs.vue';
+import ModuleLayout from '@/components/layout/ModuleLayout.vue';
 import PageHeader from '@/components/layout/PageHeader.vue';
 import ScheduledTaskDetailDialog from '@/components/tasks/ScheduledTaskDetailDialog.vue';
 import TaskRunDetailDialog from '@/components/tasks/TaskRunDetailDialog.vue';
@@ -32,7 +32,6 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
 import { Input } from '@/components/ui/input';
-import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useAuthStore } from '@/stores/authStore';
@@ -418,289 +417,87 @@ onBeforeUnmount(() => {
       </template>
     </PageHeader>
 
-    <ModuleTabs
+    <ModuleLayout
       :items="navItems"
       :active-key="activeTab"
       label="任务中心导航"
-    />
-    <Separator />
-
-    <AppApiErrorAlert
-      v-if="pageError"
-      :error="pageError"
-      @dismiss="dismissPageError"
-    />
-
-    <section
-      v-if="activeTab === 'scheduled' && isAdmin"
-      class="min-w-0 space-y-4"
     >
-      <Card>
-        <CardHeader class="border-b">
-          <CardTitle>定时任务</CardTitle>
-          <CardDescription>
-            由 Celery Beat 按代码中的周期定义调度，Celery Worker 负责执行。
-          </CardDescription>
-          <CardAction>
-            <Badge variant="outline">
-              {{ scheduledOverview.total }} 项
-            </Badge>
-          </CardAction>
-        </CardHeader>
-        <CardContent class="space-y-4">
-          <div
-            data-testid="scheduled-overview"
-            class="grid gap-3 sm:grid-cols-4"
-          >
-            <div class="rounded border p-3">
-              <p class="text-xs text-muted-foreground">
-                定时任务
-              </p>
-              <strong class="mt-1 block tabular-nums">{{ scheduledOverview.total }}</strong>
-            </div>
-            <div class="rounded border p-3">
-              <p class="text-xs text-muted-foreground">
-                正常
-              </p>
-              <strong class="mt-1 block tabular-nums">{{ scheduledOverview.ok }}</strong>
-            </div>
-            <div class="rounded border p-3">
-              <p class="text-xs text-muted-foreground">
-                执行中
-              </p>
-              <strong class="mt-1 block tabular-nums">{{ scheduledOverview.running }}</strong>
-            </div>
-            <div class="rounded border p-3">
-              <p class="text-xs text-muted-foreground">
-                异常 / 不可用
-              </p>
-              <strong class="mt-1 block tabular-nums">{{ scheduledOverview.issue }}</strong>
-            </div>
-          </div>
+      <AppApiErrorAlert
+        v-if="pageError"
+        :error="pageError"
+        @dismiss="dismissPageError"
+      />
 
-          <div
-            v-if="scheduledInitialLoading"
-            class="space-y-2"
-          >
-            <Skeleton
-              v-for="index in 4"
-              :key="index"
-              class="h-9 w-full"
-            />
-          </div>
-          <Empty v-else-if="!scheduledItems.length">
-            <EmptyHeader>
-              <EmptyTitle>暂无定时任务</EmptyTitle>
-              <EmptyDescription>当前没有可展示的周期任务定义。</EmptyDescription>
-            </EmptyHeader>
-          </Empty>
-          <div
-            v-else
-            class="relative"
-            :aria-busy="scheduledRefreshing || undefined"
-          >
+      <section
+        v-if="activeTab === 'scheduled' && isAdmin"
+        class="min-w-0 space-y-4"
+      >
+        <Card>
+          <CardHeader class="border-b">
+            <CardTitle>定时任务</CardTitle>
+            <CardDescription>
+              由 Celery Beat 按代码中的周期定义调度，Celery Worker 负责执行。
+            </CardDescription>
+            <CardAction>
+              <Badge variant="outline">
+                {{ scheduledOverview.total }} 项
+              </Badge>
+            </CardAction>
+          </CardHeader>
+          <CardContent class="space-y-4">
             <div
-              v-if="scheduledRefreshing"
-              class="pointer-events-none absolute inset-x-0 top-2 z-10 flex justify-center"
+              data-testid="scheduled-overview"
+              class="grid gap-3 sm:grid-cols-4"
             >
-              <div class="flex items-center gap-2 rounded-full border bg-background/95 px-3 py-1 text-xs text-muted-foreground shadow-sm">
-                <Loader2 class="size-3.5 animate-spin" />
-                加载中
+              <div class="rounded border p-3">
+                <p class="text-xs text-muted-foreground">
+                  定时任务
+                </p>
+                <strong class="mt-1 block tabular-nums">{{ scheduledOverview.total }}</strong>
+              </div>
+              <div class="rounded border p-3">
+                <p class="text-xs text-muted-foreground">
+                  正常
+                </p>
+                <strong class="mt-1 block tabular-nums">{{ scheduledOverview.ok }}</strong>
+              </div>
+              <div class="rounded border p-3">
+                <p class="text-xs text-muted-foreground">
+                  执行中
+                </p>
+                <strong class="mt-1 block tabular-nums">{{ scheduledOverview.running }}</strong>
+              </div>
+              <div class="rounded border p-3">
+                <p class="text-xs text-muted-foreground">
+                  异常 / 不可用
+                </p>
+                <strong class="mt-1 block tabular-nums">{{ scheduledOverview.issue }}</strong>
               </div>
             </div>
-            <Table
-              data-testid="scheduled-table"
-              :class="scheduledRefreshing ? 'opacity-70' : undefined"
+
+            <div
+              v-if="scheduledInitialLoading"
+              class="space-y-2"
             >
-              <TableHeader>
-                <TableRow>
-                  <TableHead>任务</TableHead>
-                  <TableHead>任务 ID</TableHead>
-                  <TableHead class="w-[10rem]">
-                    调度规则
-                  </TableHead>
-                  <TableHead>最近执行</TableHead>
-                  <TableHead>下次执行</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                <TableRow
-                  v-for="job in scheduledItems"
-                  :key="job.jobId"
-                  class="cursor-pointer"
-                  @click="scheduledDetail = job"
-                >
-                  <TableCell class="max-w-[16rem] truncate font-medium">
-                    {{ job.name }}
-                  </TableCell>
-                  <TableCell class="max-w-[12rem] truncate font-mono text-xs text-muted-foreground">
-                    {{ job.jobId }}
-                  </TableCell>
-                  <TableCell class="max-w-[10rem] truncate text-muted-foreground">
-                    {{ job.schedule }}
-                  </TableCell>
-                  <TableCell>
-                    <div
-                      v-if="job.latestRun"
-                      class="flex items-center gap-2"
-                    >
-                      <Badge :variant="runStatusVariant(job.latestRun.status)">
-                        {{ runStatusLabel(job.latestRun.status) }}
-                      </Badge>
-                      <span class="truncate text-xs text-muted-foreground">
-                        {{ lastRunTime(job) }}
-                      </span>
-                    </div>
-                    <span
-                      v-else
-                      class="text-sm text-muted-foreground"
-                    >暂无记录</span>
-                  </TableCell>
-                  <TableCell class="text-muted-foreground">
-                    {{ formatDateTimeInDisplayTimezone(job.nextRunTime) }}
-                  </TableCell>
-                </TableRow>
-              </TableBody>
-            </Table>
-          </div>
-        </CardContent>
-      </Card>
-    </section>
-
-    <section
-      v-else
-      class="min-w-0 space-y-4"
-    >
-      <Card>
-        <CardHeader class="border-b">
-          <CardTitle>执行记录</CardTitle>
-          <CardDescription>
-            {{ isAdmin ? '查看全部用户和系统任务的运行结果。' : '查看自己的任务运行结果、耗时和失败原因。' }}
-          </CardDescription>
-        </CardHeader>
-        <CardContent class="space-y-4">
-          <div
-            data-testid="runs-overview"
-            class="grid gap-3 sm:grid-cols-4"
-          >
-            <div class="rounded border p-3">
-              <p class="text-xs text-muted-foreground">
-                总记录
-              </p>
-              <strong class="mt-1 block tabular-nums">{{ runOverview.total }}</strong>
-            </div>
-            <div class="rounded border p-3">
-              <p class="text-xs text-muted-foreground">
-                执行中
-              </p>
-              <strong class="mt-1 block tabular-nums">{{ runOverview.running }}</strong>
-            </div>
-            <div class="rounded border p-3">
-              <p class="text-xs text-muted-foreground">
-                成功
-              </p>
-              <strong class="mt-1 block tabular-nums">{{ runOverview.success }}</strong>
-            </div>
-            <div class="rounded border p-3">
-              <p class="text-xs text-muted-foreground">
-                失败 / 部分失败
-              </p>
-              <strong class="mt-1 block tabular-nums">{{ runOverview.failed }}</strong>
-            </div>
-          </div>
-
-          <div
-            data-testid="runs-filter"
-            class="flex flex-wrap items-center gap-2"
-          >
-            <div class="relative min-w-[220px] flex-1">
-              <Search class="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                v-model="filters.keyword"
-                class="pl-8"
-                placeholder="搜索任务名称、消息或任务 ID"
-                @keyup.enter="applyKeywordImmediately"
-                @update:model-value="scheduleKeywordApply"
+              <Skeleton
+                v-for="index in 4"
+                :key="index"
+                class="h-9 w-full"
               />
             </div>
-            <DropdownMenu>
-              <DropdownMenuTrigger as-child>
-                <Button
-                  variant="outline"
-                  size="sm"
-                >
-                  <SlidersHorizontal class="size-4" />
-                  {{ selectedStatusesLabel }}
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent
-                align="start"
-                class="w-48"
-              >
-                <DropdownMenuLabel>状态</DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                <DropdownMenuCheckboxItem
-                  v-for="item in TASK_STATUS_OPTIONS"
-                  :key="item.value"
-                  :model-value="filters.statuses.includes(item.value)"
-                  @update:model-value="(checked) => toggleStatus(item.value, Boolean(checked))"
-                  @select.prevent
-                >
-                  {{ item.label }}
-                </DropdownMenuCheckboxItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-            <Input
-              v-model="filters.taskType"
-              class="w-[180px]"
-              placeholder="任务类型"
-              @keyup.enter="loadRuns(1)"
-              @blur="loadRuns(1)"
-            />
-            <AppDatePicker
-              v-model="filters.startedFrom"
-              class="w-[168px]"
-              placeholder="开始日期"
-              @update:model-value="loadRuns(1)"
-            />
-            <AppDatePicker
-              v-model="filters.startedTo"
-              class="w-[168px]"
-              placeholder="结束日期"
-              @update:model-value="loadRuns(1)"
-            />
-            <Button
-              variant="ghost"
-              size="sm"
-              @click="resetFilters"
-            >
-              重置
-            </Button>
-          </div>
-
-          <div
-            v-if="runsInitialLoading"
-            class="space-y-2"
-          >
-            <Skeleton
-              v-for="index in 5"
-              :key="index"
-              class="h-9 w-full"
-            />
-          </div>
-          <Empty v-else-if="!runs.length">
-            <EmptyHeader>
-              <EmptyTitle>暂无执行记录</EmptyTitle>
-              <EmptyDescription>调整筛选条件后再试，或等待任务执行完成。</EmptyDescription>
-            </EmptyHeader>
-          </Empty>
-          <template v-else>
+            <Empty v-else-if="!scheduledItems.length">
+              <EmptyHeader>
+                <EmptyTitle>暂无定时任务</EmptyTitle>
+                <EmptyDescription>当前没有可展示的周期任务定义。</EmptyDescription>
+              </EmptyHeader>
+            </Empty>
             <div
+              v-else
               class="relative"
-              :aria-busy="runsRefreshing || undefined"
+              :aria-busy="scheduledRefreshing || undefined"
             >
               <div
-                v-if="runsRefreshing"
+                v-if="scheduledRefreshing"
                 class="pointer-events-none absolute inset-x-0 top-2 z-10 flex justify-center"
               >
                 <div class="flex items-center gap-2 rounded-full border bg-background/95 px-3 py-1 text-xs text-muted-foreground shadow-sm">
@@ -708,78 +505,279 @@ onBeforeUnmount(() => {
                   加载中
                 </div>
               </div>
-              <Table :class="runsRefreshing ? 'opacity-70' : undefined">
+              <Table
+                data-testid="scheduled-table"
+                :class="scheduledRefreshing ? 'opacity-70' : undefined"
+              >
                 <TableHeader>
                   <TableRow>
                     <TableHead>任务</TableHead>
-                    <TableHead>状态</TableHead>
-                    <TableHead>开始时间</TableHead>
-                    <TableHead>耗时</TableHead>
-                    <TableHead>结果摘要</TableHead>
+                    <TableHead>任务 ID</TableHead>
+                    <TableHead class="w-[10rem]">
+                      调度规则
+                    </TableHead>
+                    <TableHead>最近执行</TableHead>
+                    <TableHead>下次执行</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   <TableRow
-                    v-for="run in runs"
-                    :key="run.taskId"
+                    v-for="job in scheduledItems"
+                    :key="job.jobId"
                     class="cursor-pointer"
-                    @click="openRunDetail(run)"
+                    @click="scheduledDetail = job"
                   >
                     <TableCell class="max-w-[16rem] truncate font-medium">
-                      {{ run.taskName || run.taskType }}
+                      {{ job.name }}
+                    </TableCell>
+                    <TableCell class="max-w-[12rem] truncate font-mono text-xs text-muted-foreground">
+                      {{ job.jobId }}
+                    </TableCell>
+                    <TableCell class="max-w-[10rem] truncate text-muted-foreground">
+                      {{ job.schedule }}
                     </TableCell>
                     <TableCell>
-                      <Badge :variant="runStatusVariant(run.status)">
-                        {{ runStatusLabel(run.status) }}
-                      </Badge>
+                      <div
+                        v-if="job.latestRun"
+                        class="flex items-center gap-2"
+                      >
+                        <Badge :variant="runStatusVariant(job.latestRun.status)">
+                          {{ runStatusLabel(job.latestRun.status) }}
+                        </Badge>
+                        <span class="truncate text-xs text-muted-foreground">
+                          {{ lastRunTime(job) }}
+                        </span>
+                      </div>
+                      <span
+                        v-else
+                        class="text-sm text-muted-foreground"
+                      >暂无记录</span>
                     </TableCell>
                     <TableCell class="text-muted-foreground">
-                      {{ runStartTime(run) }}
-                    </TableCell>
-                    <TableCell class="text-muted-foreground">
-                      {{ formatDuration(run.durationSeconds) }}
-                    </TableCell>
-                    <TableCell class="max-w-[20rem] truncate text-muted-foreground">
-                      {{ truncateText(run.message, 72) || '—' }}
+                      {{ formatDateTimeInDisplayTimezone(job.nextRunTime) }}
                     </TableCell>
                   </TableRow>
                 </TableBody>
               </Table>
             </div>
-            <AppPagination
-              :current-page="runsPage"
-              :total-pages="totalPages"
-              class="pt-2"
-              @page-change="loadRuns"
-            />
-          </template>
-        </CardContent>
-      </Card>
-    </section>
+          </CardContent>
+        </Card>
+      </section>
 
-    <ScheduledTaskDetailDialog
-      :job="scheduledDetail"
-      :running="runningJobId !== null"
-      @update:open="(open) => { if (!open) closeScheduledDetail() }"
-      @run="requestJobRun"
-    />
-    <TaskRunDetailDialog
-      :open="detailOpen"
-      :detail="detail"
-      :loading="detailLoading"
-      :error="detailError"
-      :is-admin="isAdmin"
-      @update:open="(open) => { if (!open) closeRunDetail() }"
-      @dismiss-error="detailError = null"
-    />
-    <AppConfirmDialog
-      :open="!!pendingJob"
-      :title="confirmTitle"
-      :description="confirmDescription"
-      confirm-text="立即执行"
-      :destructive="pendingSyncMode === 'full'"
-      @confirm="confirmRunScheduled"
-      @update:open="(open) => { if (!open) cancelConfirm() }"
-    />
+      <section
+        v-else
+        class="min-w-0 space-y-4"
+      >
+        <Card>
+          <CardHeader class="border-b">
+            <CardTitle>执行记录</CardTitle>
+            <CardDescription>
+              {{ isAdmin ? '查看全部用户和系统任务的运行结果。' : '查看自己的任务运行结果、耗时和失败原因。' }}
+            </CardDescription>
+          </CardHeader>
+          <CardContent class="space-y-4">
+            <div
+              data-testid="runs-overview"
+              class="grid gap-3 sm:grid-cols-4"
+            >
+              <div class="rounded border p-3">
+                <p class="text-xs text-muted-foreground">
+                  总记录
+                </p>
+                <strong class="mt-1 block tabular-nums">{{ runOverview.total }}</strong>
+              </div>
+              <div class="rounded border p-3">
+                <p class="text-xs text-muted-foreground">
+                  执行中
+                </p>
+                <strong class="mt-1 block tabular-nums">{{ runOverview.running }}</strong>
+              </div>
+              <div class="rounded border p-3">
+                <p class="text-xs text-muted-foreground">
+                  成功
+                </p>
+                <strong class="mt-1 block tabular-nums">{{ runOverview.success }}</strong>
+              </div>
+              <div class="rounded border p-3">
+                <p class="text-xs text-muted-foreground">
+                  失败 / 部分失败
+                </p>
+                <strong class="mt-1 block tabular-nums">{{ runOverview.failed }}</strong>
+              </div>
+            </div>
+
+            <div
+              data-testid="runs-filter"
+              class="flex flex-wrap items-center gap-2"
+            >
+              <div class="relative min-w-[220px] flex-1">
+                <Search class="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  v-model="filters.keyword"
+                  class="pl-8"
+                  placeholder="搜索任务名称、消息或任务 ID"
+                  @keyup.enter="applyKeywordImmediately"
+                  @update:model-value="scheduleKeywordApply"
+                />
+              </div>
+              <DropdownMenu>
+                <DropdownMenuTrigger as-child>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                  >
+                    <SlidersHorizontal class="size-4" />
+                    {{ selectedStatusesLabel }}
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent
+                  align="start"
+                  class="w-48"
+                >
+                  <DropdownMenuLabel>状态</DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuCheckboxItem
+                    v-for="item in TASK_STATUS_OPTIONS"
+                    :key="item.value"
+                    :model-value="filters.statuses.includes(item.value)"
+                    @update:model-value="(checked) => toggleStatus(item.value, Boolean(checked))"
+                    @select.prevent
+                  >
+                    {{ item.label }}
+                  </DropdownMenuCheckboxItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <Input
+                v-model="filters.taskType"
+                class="w-[180px]"
+                placeholder="任务类型"
+                @keyup.enter="loadRuns(1)"
+                @blur="loadRuns(1)"
+              />
+              <AppDatePicker
+                v-model="filters.startedFrom"
+                class="w-[168px]"
+                placeholder="开始日期"
+                @update:model-value="loadRuns(1)"
+              />
+              <AppDatePicker
+                v-model="filters.startedTo"
+                class="w-[168px]"
+                placeholder="结束日期"
+                @update:model-value="loadRuns(1)"
+              />
+              <Button
+                variant="ghost"
+                size="sm"
+                @click="resetFilters"
+              >
+                重置
+              </Button>
+            </div>
+
+            <div
+              v-if="runsInitialLoading"
+              class="space-y-2"
+            >
+              <Skeleton
+                v-for="index in 5"
+                :key="index"
+                class="h-9 w-full"
+              />
+            </div>
+            <Empty v-else-if="!runs.length">
+              <EmptyHeader>
+                <EmptyTitle>暂无执行记录</EmptyTitle>
+                <EmptyDescription>调整筛选条件后再试，或等待任务执行完成。</EmptyDescription>
+              </EmptyHeader>
+            </Empty>
+            <template v-else>
+              <div
+                class="relative"
+                :aria-busy="runsRefreshing || undefined"
+              >
+                <div
+                  v-if="runsRefreshing"
+                  class="pointer-events-none absolute inset-x-0 top-2 z-10 flex justify-center"
+                >
+                  <div class="flex items-center gap-2 rounded-full border bg-background/95 px-3 py-1 text-xs text-muted-foreground shadow-sm">
+                    <Loader2 class="size-3.5 animate-spin" />
+                    加载中
+                  </div>
+                </div>
+                <Table :class="runsRefreshing ? 'opacity-70' : undefined">
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>任务</TableHead>
+                      <TableHead>状态</TableHead>
+                      <TableHead>开始时间</TableHead>
+                      <TableHead>耗时</TableHead>
+                      <TableHead>结果摘要</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    <TableRow
+                      v-for="run in runs"
+                      :key="run.taskId"
+                      class="cursor-pointer"
+                      @click="openRunDetail(run)"
+                    >
+                      <TableCell class="max-w-[16rem] truncate font-medium">
+                        {{ run.taskName || run.taskType }}
+                      </TableCell>
+                      <TableCell>
+                        <Badge :variant="runStatusVariant(run.status)">
+                          {{ runStatusLabel(run.status) }}
+                        </Badge>
+                      </TableCell>
+                      <TableCell class="text-muted-foreground">
+                        {{ runStartTime(run) }}
+                      </TableCell>
+                      <TableCell class="text-muted-foreground">
+                        {{ formatDuration(run.durationSeconds) }}
+                      </TableCell>
+                      <TableCell class="max-w-[20rem] truncate text-muted-foreground">
+                        {{ truncateText(run.message, 72) || '—' }}
+                      </TableCell>
+                    </TableRow>
+                  </TableBody>
+                </Table>
+              </div>
+              <AppPagination
+                :current-page="runsPage"
+                :total-pages="totalPages"
+                class="pt-2"
+                @page-change="loadRuns"
+              />
+            </template>
+          </CardContent>
+        </Card>
+      </section>
+
+      <ScheduledTaskDetailDialog
+        :job="scheduledDetail"
+        :running="runningJobId !== null"
+        @update:open="(open) => { if (!open) closeScheduledDetail() }"
+        @run="requestJobRun"
+      />
+      <TaskRunDetailDialog
+        :open="detailOpen"
+        :detail="detail"
+        :loading="detailLoading"
+        :error="detailError"
+        :is-admin="isAdmin"
+        @update:open="(open) => { if (!open) closeRunDetail() }"
+        @dismiss-error="detailError = null"
+      />
+      <AppConfirmDialog
+        :open="!!pendingJob"
+        :title="confirmTitle"
+        :description="confirmDescription"
+        confirm-text="立即执行"
+        :destructive="pendingSyncMode === 'full'"
+        @confirm="confirmRunScheduled"
+        @update:open="(open) => { if (!open) cancelConfirm() }"
+      />
+    </ModuleLayout>
   </div>
 </template>

@@ -1,9 +1,8 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { RouterView, useRoute } from 'vue-router';
-import ModuleTabs from '@/components/layout/ModuleTabs.vue';
+import ModuleLayout from '@/components/layout/ModuleLayout.vue';
 import PageHeader from '@/components/layout/PageHeader.vue';
-import { Separator } from '@/components/ui/separator';
 import { marketNavItems } from '@/config/mainNav';
 
 type MarketTab = 'watch-list' | 'holdings';
@@ -23,14 +22,14 @@ const activeTab = computed<MarketTab>(() => {
       en="Market"
       description="管理自选股，并维护数据库中的实际持仓。"
     />
-    <ModuleTabs
+    <ModuleLayout
       :items="marketNavItems"
       :active-key="activeTab"
       label="市场页面导航"
-    />
-    <Separator />
-    <section class="min-w-0">
-      <RouterView />
-    </section>
+    >
+      <section class="min-w-0">
+        <RouterView />
+      </section>
+    </ModuleLayout>
   </div>
 </template>
