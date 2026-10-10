@@ -77,11 +77,12 @@ layout（Shell / PageHeader / ModuleLayout）+ ui/app 组件
 
 `App.vue` 负责三件事：主题根节点、鉴权就绪门闩（loading / 错误重试 / `RouterView`）、全局 `Toaster`。已登录后的顶栏、主导航、用户菜单在 `components/layout/Shell.vue`。
 
-二级模块页（市场、研究、任务、个人中心）的固定套路：
+二级模块页（市场、研究、加密货币、任务、个人中心）的固定套路：
 
 1. 一级模块容器不展示重复的标题、英文副标题或介绍；具体子页按需使用 `PageHeader` 与操作区
 2. `ModuleLayout`：桌面左侧导航 + 右侧内容，窄屏以按钮打开左侧抽屉；`items` 用 `RouterLink`
-3. 默认插槽放 `<RouterView />` 或页内内容；`ModuleSidebar` 负责纵向导航链接与当前页面状态；量化等三级导航保留顶部横向 `ModuleTabs`，不要嵌套第二列侧栏
+3. 具体内容页应展示标题和一句简要功能介绍；有三级导航时（如量化），介绍置于横向导航上方，不恢复一级模块介绍。
+4. 默认插槽放 `<RouterView />` 或页内内容；`ModuleSidebar` 负责纵向导航链接与当前页面状态；量化等三级导航保留顶部横向 `ModuleTabs`，不要嵌套第二列侧栏
 
 同一页面多子路由时，优先**一个页面组件 + 路由名区分 tab**（`ProfilePage`、`TasksPage`），不要为每个 tab 复制一整页。
 
@@ -110,6 +111,7 @@ layout（Shell / PageHeader / ModuleLayout）+ ui/app 组件
 - ETF 轮动和趋势排名的「导出 Excel」在浏览器中导出当前筛选、排序后的完整数据（含虚拟滚动未渲染行），保留数值格式；文件名包含市场、快照日期和 official/preview。导出库按需加载，不调用后端导出接口。
 - 研究走 `/research/**`，市场走 `/market/**`。加密货币走 `/crypto/**`。不要把 Quant / ETF / 趋势跟踪 / BTC 再挂到 `/market`。
 - 旧 `/market/quant*`、`/market/etf-rotation`、`/market/trend-following`、`/market/crypto/btc` 只作为 compatibility redirect，内部导航必须用 canonical URL。
+- 加密货币使用 `CryptoPage` 二级侧栏，BTC 子页保留自身介绍；任务中心顶栏下拉与侧栏共用 `taskNavItems`，定时任务仅向管理员显示。
 - BTC 的旧 `/research/crypto/btc` 同样重定向到 `/crypto/btc`；一级“加密货币”菜单位于“任务中心”之前。
 - `/chat` 只保留到 `/dashboard` 的 legacy redirect，前端不再有问股或个股分析页面。
 - 量化范围用 query `?market=US|CN`。在量化子路由之间跳转时，守卫会保留已有 `market`。读写市场用 `useQuantMarket()`，不要手写丢 query 的 `router.push`。

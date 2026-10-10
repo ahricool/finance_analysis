@@ -62,11 +62,16 @@ describe('main navigation', () => {
       'macro',
       'quant',
       'crypto-btc',
-      'tasks',
+      'scheduled',
+      'runs',
     ]);
     expect(mainNavItems.find((item) => item.key === 'tasks')).toMatchObject({
       label: '任务中心',
       to: '/tasks',
+      children: [
+        { key: 'scheduled', to: '/tasks/scheduled', adminOnly: true },
+        { key: 'runs', to: '/tasks/runs' },
+      ],
     });
   });
 

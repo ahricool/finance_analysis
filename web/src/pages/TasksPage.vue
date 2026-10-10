@@ -6,6 +6,7 @@ import AppConfirmDialog from '@/components/app/AppConfirmDialog.vue';
 import AppDatePicker from '@/components/app/AppDatePicker.vue';
 import AppPagination from '@/components/app/AppPagination.vue';
 import LoadingButton from '@/components/app/LoadingButton.vue';
+import { taskNavItems } from '@/config/mainNav';
 import ModuleLayout from '@/components/layout/ModuleLayout.vue';
 import ScheduledTaskDetailDialog from '@/components/tasks/ScheduledTaskDetailDialog.vue';
 import TaskRunDetailDialog from '@/components/tasks/TaskRunDetailDialog.vue';
@@ -20,7 +21,7 @@ import {
 } from '@/components/tasks/taskPresentation';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -42,7 +43,7 @@ import type {
   TaskStatus,
 } from '@/types/tasks';
 import { formatDateTimeInDisplayTimezone, toUtcIsoString } from '@/utils/format';
-import { ClipboardCheck, ListChecks, Loader2, RefreshCcw, Search, SlidersHorizontal } from 'lucide-vue-next';
+import { Loader2, RefreshCcw, Search, SlidersHorizontal } from 'lucide-vue-next';
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { toast } from 'vue-sonner';
@@ -97,19 +98,7 @@ const scheduledRefreshing = computed(() => scheduledLoading.value && scheduledHa
 const runsInitialLoading = computed(() => runsLoading.value && !runsHasLoaded.value);
 const runsRefreshing = computed(() => runsLoading.value && runsHasLoaded.value);
 
-const navItems = computed(() => [
-  ...(isAdmin.value
-    ? [
-        {
-          key: 'scheduled' as const,
-          label: '定时任务',
-          icon: ClipboardCheck,
-          to: '/tasks/scheduled',
-        },
-      ]
-    : []),
-  { key: 'runs' as const, label: '执行记录', icon: ListChecks, to: '/tasks/runs' },
-]);
+const navItems = computed(() => taskNavItems.filter((item) => !item.adminOnly || isAdmin.value));
 
 const scheduledOverview = computed(() => {
   let ok = 0;
@@ -403,7 +392,22 @@ onBeforeUnmount(() => {
       :active-key="activeTab"
       label="任务中心导航"
     >
-      <div class="flex justify-end">
+      <header class="flex flex-wrap items-start justify-between gap-4 border-b border-border/60 pb-5">
+        <div class="min-w-0 max-w-3xl">
+          <h2 class="text-lg font-semibold tracking-tight">
+            {{ activeTab === 'scheduled' ? '定时任务' : '执行记录' }}
+          </h2>
+          <p class="mt-1 text-sm text-muted-foreground">
+            {{ activeTab === 'scheduled' ? 'Scheduled Tasks' : 'Task Runs' }}
+          </p>
+          <p class="mt-1.5 text-sm leading-relaxed text-muted-foreground">
+            {{ activeTab === 'scheduled'
+              ? '查看任务的运行计划、最近结果与下次执行时间，打开详情可手动运行任务。'
+              : isAdmin
+                ? '查看系统与用户任务的执行进度、耗时和结果，按状态或日期定位失败原因。'
+                : '查看自己的任务执行进度、耗时和结果，按状态或日期定位失败原因。' }}
+          </p>
+        </div>
         <LoadingButton
           variant="outline"
           size="sm"
@@ -413,7 +417,7 @@ onBeforeUnmount(() => {
           <RefreshCcw class="size-4" />
           刷新
         </LoadingButton>
-      </div>
+      </header>
       <AppApiErrorAlert
         v-if="pageError"
         :error="pageError"
@@ -425,21 +429,10 @@ onBeforeUnmount(() => {
         class="min-w-0 space-y-4"
       >
         <Card>
-          <CardHeader class="border-b">
-            <CardTitle>定时任务</CardTitle>
-            <CardDescription>
-              由 Celery Beat 按代码中的周期定义调度，Celery Worker 负责执行。
-            </CardDescription>
-            <CardAction>
-              <Badge variant="outline">
-                {{ scheduledOverview.total }} 项
-              </Badge>
-            </CardAction>
-          </CardHeader>
           <CardContent class="space-y-4">
             <div
               data-testid="scheduled-overview"
-              class="grid gap-3 sm:grid-cols-4"
+              class="grid grid-cols-2 gap-3 sm:grid-cols-4"
             >
               <div class="rounded border p-3">
                 <p class="text-xs text-muted-foreground">
@@ -561,16 +554,10 @@ onBeforeUnmount(() => {
         class="min-w-0 space-y-4"
       >
         <Card>
-          <CardHeader class="border-b">
-            <CardTitle>执行记录</CardTitle>
-            <CardDescription>
-              {{ isAdmin ? '查看全部用户和系统任务的运行结果。' : '查看自己的任务运行结果、耗时和失败原因。' }}
-            </CardDescription>
-          </CardHeader>
           <CardContent class="space-y-4">
             <div
               data-testid="runs-overview"
-              class="grid gap-3 sm:grid-cols-4"
+              class="grid grid-cols-2 gap-3 sm:grid-cols-4"
             >
               <div class="rounded border p-3">
                 <p class="text-xs text-muted-foreground">
@@ -600,71 +587,82 @@ onBeforeUnmount(() => {
 
             <div
               data-testid="runs-filter"
-              class="flex flex-wrap items-center gap-2"
+              class="space-y-3 rounded-lg border bg-muted/20 p-3"
             >
-              <div class="relative min-w-[220px] flex-1">
-                <Search class="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  v-model="filters.keyword"
-                  class="pl-8"
-                  placeholder="搜索任务名称、消息或任务 ID"
-                  @keyup.enter="applyKeywordImmediately"
-                  @update:model-value="scheduleKeywordApply"
+              <div class="flex flex-wrap items-center gap-2">
+                <div class="relative min-w-0 basis-full sm:flex-1 sm:basis-auto">
+                  <Search class="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    v-model="filters.keyword"
+                    class="pl-8"
+                    placeholder="搜索任务名称、消息或任务 ID"
+                    aria-label="搜索执行记录"
+                    @keyup.enter="applyKeywordImmediately"
+                    @update:model-value="scheduleKeywordApply"
+                  />
+                </div>
+                <DropdownMenu>
+                  <DropdownMenuTrigger as-child>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                    >
+                      <SlidersHorizontal class="size-4" />
+                      状态：{{ selectedStatusesLabel }}
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent
+                    align="start"
+                    class="w-48"
+                  >
+                    <DropdownMenuLabel>状态</DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuCheckboxItem
+                      v-for="item in TASK_STATUS_OPTIONS"
+                      :key="item.value"
+                      :model-value="filters.statuses.includes(item.value)"
+                      @update:model-value="(checked) => toggleStatus(item.value, Boolean(checked))"
+                      @select.prevent
+                    >
+                      {{ item.label }}
+                    </DropdownMenuCheckboxItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  @click="resetFilters"
+                >
+                  重置
+                </Button>
+              </div>
+              <div class="grid gap-3 sm:grid-cols-3">
+                <label class="grid min-w-0 gap-2 text-sm font-medium leading-none">
+                  <span>任务类型</span>
+                  <Input
+                    v-model="filters.taskType"
+                    class="h-10 w-full font-normal"
+                    aria-label="任务类型"
+                    placeholder="任务类型"
+                    @keyup.enter="loadRuns(1)"
+                    @blur="loadRuns(1)"
+                  />
+                </label>
+                <AppDatePicker
+                  v-model="filters.startedFrom"
+                  class="w-full"
+                  label="开始日期"
+                  placeholder="开始日期"
+                  @update:model-value="loadRuns(1)"
+                />
+                <AppDatePicker
+                  v-model="filters.startedTo"
+                  class="w-full"
+                  label="结束日期"
+                  placeholder="结束日期"
+                  @update:model-value="loadRuns(1)"
                 />
               </div>
-              <DropdownMenu>
-                <DropdownMenuTrigger as-child>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                  >
-                    <SlidersHorizontal class="size-4" />
-                    {{ selectedStatusesLabel }}
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent
-                  align="start"
-                  class="w-48"
-                >
-                  <DropdownMenuLabel>状态</DropdownMenuLabel>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuCheckboxItem
-                    v-for="item in TASK_STATUS_OPTIONS"
-                    :key="item.value"
-                    :model-value="filters.statuses.includes(item.value)"
-                    @update:model-value="(checked) => toggleStatus(item.value, Boolean(checked))"
-                    @select.prevent
-                  >
-                    {{ item.label }}
-                  </DropdownMenuCheckboxItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-              <Input
-                v-model="filters.taskType"
-                class="w-[180px]"
-                placeholder="任务类型"
-                @keyup.enter="loadRuns(1)"
-                @blur="loadRuns(1)"
-              />
-              <AppDatePicker
-                v-model="filters.startedFrom"
-                class="w-[168px]"
-                placeholder="开始日期"
-                @update:model-value="loadRuns(1)"
-              />
-              <AppDatePicker
-                v-model="filters.startedTo"
-                class="w-[168px]"
-                placeholder="结束日期"
-                @update:model-value="loadRuns(1)"
-              />
-              <Button
-                variant="ghost"
-                size="sm"
-                @click="resetFilters"
-              >
-                重置
-              </Button>
             </div>
 
             <div
