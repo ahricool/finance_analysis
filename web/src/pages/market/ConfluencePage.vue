@@ -14,7 +14,8 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Table, TableHeader, TableHead, TableBody, TableRow, TableCell } from '@/components/ui/table';
-import BilingualLabel from '@/components/app/BilingualLabel.vue';
+import IndicatorHelpLabel from '@/components/app/IndicatorHelpLabel.vue';
+import { metricHint } from '@/utils/metricHints';
 import { formatDateTime } from '@/utils/format';
 
 const { currentUser } = useAuth();
@@ -155,7 +156,8 @@ onBeforeUnmount(() => { ++generation; });
         class="h-10 w-32"
         placeholder="名称或代码"
       /></label>
-      <label class="grid gap-1 text-sm"><BilingualLabel
+      <label class="grid gap-1 text-sm"><IndicatorHelpLabel
+        scope="confluence"
         label="lifecycle"
         compact
       /><select
@@ -199,7 +201,10 @@ onBeforeUnmount(() => { ++generation; });
       <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <div class="rounded-lg border p-4">
           <p class="text-sm text-muted-foreground">
-            <BilingualLabel label="strongConfluence" />
+            <IndicatorHelpLabel
+              scope="confluence"
+              label="strongConfluence"
+            />
           </p><p class="text-2xl font-semibold">
             {{ result.summary.strongConfluence }}
           </p><p class="text-xs text-muted-foreground">
@@ -208,21 +213,30 @@ onBeforeUnmount(() => { ++generation; });
         </div>
         <div class="rounded-lg border p-4">
           <p class="text-sm text-muted-foreground">
-            <BilingualLabel label="ignitionTopIndustry" />
+            <IndicatorHelpLabel
+              scope="confluence"
+              label="ignitionTopIndustry"
+            />
           </p><p class="text-2xl font-semibold">
             {{ result.summary.ignitionIndustryStrong }}
           </p>
         </div>
         <div class="rounded-lg border p-4">
           <p class="text-sm text-muted-foreground">
-            <BilingualLabel label="topIndustryConfluence" />
+            <IndicatorHelpLabel
+              scope="confluence"
+              label="topIndustryConfluence"
+            />
           </p><p class="text-2xl font-semibold">
             {{ result.summary.topIndustryConfluence }}
           </p>
         </div>
         <div class="rounded-lg border p-4">
           <p class="text-sm text-muted-foreground">
-            <BilingualLabel label="snapshotTradeDate" />
+            <IndicatorHelpLabel
+              scope="confluence"
+              label="snapshotTradeDate"
+            />
           </p><p class="text-xl font-semibold">
             {{ result.tradeDate ?? '暂无快照' }}
           </p><p class="text-xs text-muted-foreground">
@@ -254,15 +268,69 @@ onBeforeUnmount(() => { ++generation; });
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>股票</TableHead>
-              <TableHead><BilingualLabel label="confluence" compact /></TableHead>
-              <TableHead><BilingualLabel label="signals" compact /></TableHead>
-              <TableHead><BilingualLabel label="industry" compact /></TableHead>
-              <TableHead><BilingualLabel label="lifecycleFragility" compact /></TableHead>
-              <TableHead><BilingualLabel label="quantRank" compact /></TableHead>
-              <TableHead><BilingualLabel label="etfRank" compact /></TableHead>
-              <TableHead>龙虎榜资金</TableHead>
-              <TableHead><BilingualLabel label="whyConfluence" compact /></TableHead>
+              <TableHead>
+                <IndicatorHelpLabel
+                  scope="confluence"
+                  label="股票"
+                  compact
+                />
+              </TableHead>
+              <TableHead>
+                <IndicatorHelpLabel
+                  scope="confluence"
+                  label="confluence"
+                  compact
+                />
+              </TableHead>
+              <TableHead>
+                <IndicatorHelpLabel
+                  scope="confluence"
+                  label="signals"
+                  compact
+                />
+              </TableHead>
+              <TableHead>
+                <IndicatorHelpLabel
+                  scope="confluence"
+                  label="industry"
+                  compact
+                />
+              </TableHead>
+              <TableHead>
+                <IndicatorHelpLabel
+                  scope="confluence"
+                  label="lifecycleFragility"
+                  compact
+                />
+              </TableHead>
+              <TableHead>
+                <IndicatorHelpLabel
+                  scope="confluence"
+                  label="quantRank"
+                  compact
+                />
+              </TableHead>
+              <TableHead>
+                <IndicatorHelpLabel
+                  scope="confluence"
+                  label="etfRank"
+                  compact
+                />
+              </TableHead>
+              <TableHead>
+                <IndicatorHelpLabel
+                  scope="confluence"
+                  label="龙虎榜资金"
+                  compact
+                />
+              </TableHead>
+              <TableHead>
+                <IndicatorHelpLabel
+                  scope="confluence"
+                  label="whyConfluence"
+                  compact
+                />
+              </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -362,7 +430,12 @@ onBeforeUnmount(() => { ++generation; });
                 :key="field"
               >
                 <dt class="text-muted-foreground">
-                  {{ label }}
+                  <IndicatorHelpLabel
+                    :scope="`confluence-${key}`"
+                    :label="label"
+                    :description="metricHint(`confluence-${key}`, field)"
+                    compact
+                  />
                 </dt><dd>{{ evidence(selected, key, field) }}</dd>
               </div>
             </dl>

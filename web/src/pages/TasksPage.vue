@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import IndicatorHelpLabel from '@/components/app/IndicatorHelpLabel.vue';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import { tasksApi, type TaskRunQuery } from '@/api/tasks';
 import AppApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
@@ -496,13 +497,41 @@ onBeforeUnmount(() => {
               >
                 <TableHeader>
                   <TableRow>
-                    <TableHead>任务</TableHead>
-                    <TableHead>任务 ID</TableHead>
-                    <TableHead class="w-[10rem]">
-                      调度规则
+                    <TableHead>
+                      <IndicatorHelpLabel
+                        scope="tasks"
+                        label="任务"
+                        compact
+                      />
                     </TableHead>
-                    <TableHead>最近执行</TableHead>
-                    <TableHead>下次执行</TableHead>
+                    <TableHead>
+                      <IndicatorHelpLabel
+                        scope="tasks"
+                        label="任务 ID"
+                        compact
+                      />
+                    </TableHead>
+                    <TableHead class="w-[10rem]">
+                      <IndicatorHelpLabel
+                        scope="tasks"
+                        label="调度规则"
+                        compact
+                      />
+                    </TableHead>
+                    <TableHead>
+                      <IndicatorHelpLabel
+                        scope="tasks"
+                        label="最近执行"
+                        compact
+                      />
+                    </TableHead>
+                    <TableHead>
+                      <IndicatorHelpLabel
+                        scope="tasks"
+                        label="下次执行"
+                        compact
+                      />
+                    </TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -698,11 +727,41 @@ onBeforeUnmount(() => {
                 <Table :class="runsRefreshing ? 'opacity-70' : undefined">
                   <TableHeader>
                     <TableRow>
-                      <TableHead>任务</TableHead>
-                      <TableHead>状态</TableHead>
-                      <TableHead>开始时间</TableHead>
-                      <TableHead>耗时</TableHead>
-                      <TableHead>结果摘要</TableHead>
+                      <TableHead>
+                        <IndicatorHelpLabel
+                          scope="tasks"
+                          label="任务"
+                          compact
+                        />
+                      </TableHead>
+                      <TableHead>
+                        <IndicatorHelpLabel
+                          scope="tasks"
+                          label="状态"
+                          compact
+                        />
+                      </TableHead>
+                      <TableHead>
+                        <IndicatorHelpLabel
+                          scope="tasks"
+                          label="开始时间"
+                          compact
+                        />
+                      </TableHead>
+                      <TableHead>
+                        <IndicatorHelpLabel
+                          scope="tasks"
+                          label="耗时"
+                          compact
+                        />
+                      </TableHead>
+                      <TableHead>
+                        <IndicatorHelpLabel
+                          scope="tasks"
+                          label="结果摘要"
+                          compact
+                        />
+                      </TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>

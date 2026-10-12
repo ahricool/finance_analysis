@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import type { IndustrySnapshot, IndustryState } from '@/api/industryStrength';
-import { CircleHelp } from 'lucide-vue-next';
+import MetricHint from '@/components/app/MetricHint.vue';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -234,21 +234,10 @@ defineExpose({ scroller, query, stateFilter, columnMode, sortKey, descending, cl
                   {{ column.unit ? `${column.short}（${column.unit}）` : column.short }}
                   <span class="text-muted-foreground">{{ sortKey === column.key ? (descending ? '↓' : '↑') : '' }}</span>
                 </button>
-                <TooltipProvider :delay-duration="150">
-                  <Tooltip>
-                    <TooltipTrigger as-child>
-                      <button
-                        type="button"
-                        class="text-muted-foreground hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
-                        :aria-label="`查看${column.label}说明`"
-                        @click.stop
-                      >
-                        <CircleHelp class="size-3.5" />
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent>{{ column.hint }}</TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
+                <MetricHint
+                  :label="column.label"
+                  :description="column.hint"
+                />
               </div>
             </TableHead>
           </TableRow>

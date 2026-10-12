@@ -131,12 +131,12 @@ const trendColumns = [
   { key: 'rsScore', label: 'rsScore', group: 'Core', format: 'score', description: descriptions.relativeStrength },
   { key: 'setupScore', label: 'setupScore', group: 'Core', format: 'score', description: descriptions.breakout },
   { key: 'pathScore', label: 'pathScore', group: 'Core', format: 'score', description: descriptions.path },
-  { key: 'distanceFromMa20', label: 'distanceFromMa20', group: 'Core', format: 'percent', description: descriptions.movingAverage },
+  { key: 'distanceFromMa20', label: 'distanceFromMa20', group: 'Core', format: 'percent', description: descriptions.distanceFromMa20 },
   { key: 'atrPercent', label: 'atrPercent', group: 'Core', format: 'percent', description: descriptions.atrPercent },
-  { key: 'fragilityScore', label: 'fragility', group: 'Core', format: 'score', description: '0–100；越高表示内部恶化越快。历史不足显示 —，并不代表稳定。' },
+  { key: 'fragilityScore', label: 'fragility', group: 'Core', format: 'score', description: descriptions.fragility },
   { key: 'closeLocationValue', label: 'clv', group: 'Core', format: 'ratio', description: descriptions.clv },
   ...forwardReturnColumns,
-  { key: 'trendLifecycle', label: 'lifecycleAge', group: 'Core', format: 'number', description: '趋势阶段与持续交易日数。MATURE 表示趋势成熟阶段。' },
+  { key: 'trendLifecycle', label: 'lifecycleAge', group: 'Core', format: 'number', description: descriptions.lifecycle },
   { key: 'rankChange5D', label: '排名趋势', group: 'Core', format: 'number', description: descriptions.rankChange },
   { key: 'referencePrice', label: 'referencePrice', group: 'Core', format: 'price', description: descriptions.reference },
   { key: 'alphaTrendContribution', label: 'Trend Contribution', group: 'Alpha', format: 'score', description: descriptions.alpha },
@@ -164,7 +164,7 @@ const trendColumns = [
   { key: 'priorCompression', label: 'Prior Compression', group: 'Signals / Explain', format: 'boolean', description: descriptions.volumeCompression },
   { key: 'compressionBreakout', label: 'Compression Breakout', group: 'Signals / Explain', format: 'boolean', description: descriptions.setup },
   { key: 'trendResume', label: 'Trend Resume', group: 'Signals / Explain', format: 'boolean', description: descriptions.trendResume },
-  { key: 'signedEfficiencyRatio10D', label: 'Signed Efficiency 10D', group: 'Signals / Explain', format: 'score', description: descriptions.path },
+  { key: 'signedEfficiencyRatio10D', label: 'Signed Efficiency 10D', group: 'Signals / Explain', format: 'score', description: descriptions.signedEfficiency },
   { key: 'rawWeightedSlope', label: 'Weighted Slope 15D', group: 'Signals / Explain', format: 'slope', description: descriptions.weightedSlope },
   { key: 'weightedR2', label: 'Weighted R²', group: 'Signals / Explain', format: 'r2', description: descriptions.r2 },
   { key: 'return5D', label: '5D Return', group: 'Signals / Explain', format: 'percent', description: descriptions.return },
@@ -180,38 +180,38 @@ const trendColumns = [
   { key: 'downsideUpsideRatio', label: 'Downside / Upside', group: 'Signals / Explain', format: 'ratio', description: descriptions.downside },
   { key: 'ma10', label: 'MA10', group: 'Signals / Explain', format: 'score', description: descriptions.movingAverage },
   { key: 'ma20', label: 'MA20', group: 'Signals / Explain', format: 'score', description: descriptions.movingAverage },
-  { key: 'ma10Slope', label: 'MA10 Slope', group: 'Signals / Explain', format: 'percent', description: descriptions.movingAverage },
-  { key: 'ma20Slope', label: 'MA20 Slope', group: 'Signals / Explain', format: 'percent', description: descriptions.movingAverage },
-  { key: 'trendAcceleration', label: 'Trend Acceleration', group: 'Risk / Health', format: 'score', description: undefined },
+  { key: 'ma10Slope', label: 'MA10 Slope', group: 'Signals / Explain', format: 'percent', description: descriptions.maSlope },
+  { key: 'ma20Slope', label: 'MA20 Slope', group: 'Signals / Explain', format: 'percent', description: descriptions.maSlope },
+  { key: 'trendAcceleration', label: 'Trend Acceleration', group: 'Risk / Health', format: 'score', description: descriptions.trendAcceleration },
 ] as const;
 const boxColumns = [
   { key: 'name', label: '股票名称', format: 'text' },
-  { key: 'boxState', label: '状态', format: 'text' },
-  { key: 'boxQuality', label: 'boxQuality', format: 'score' },
-  { key: 'boxWindowDays', label: 'boxDays', format: 'number' },
-  { key: 'boxWidthPct', label: 'boxWidth', format: 'percent' },
-  { key: 'distanceToBoxHighPct', label: '距箱顶', format: 'percent' },
-  { key: 'boxBreakoutDistanceAtr', label: '突破距离', format: 'ratio' },
-  { key: 'boxUpperTouches', label: '上沿测试', format: 'number' },
-  { key: 'rsScore', label: 'rsScore', format: 'score' },
-  { key: 'trendScore', label: 'trendScore', format: 'score' },
-  { key: 'alphaScore', label: 'alpha', format: 'score' },
-  { key: 'volumeRatio', label: 'volume', format: 'ratio' },
+  { key: 'boxState', label: '状态', format: 'text', description: descriptions.boxState },
+  { key: 'boxQuality', label: 'boxQuality', format: 'score', description: descriptions.boxQuality },
+  { key: 'boxWindowDays', label: 'boxDays', format: 'number', description: descriptions.boxWindowDays },
+  { key: 'boxWidthPct', label: 'boxWidth', format: 'percent', description: descriptions.boxWidthPct },
+  { key: 'distanceToBoxHighPct', label: '距箱顶', format: 'percent', description: descriptions.distanceToBoxHighPct },
+  { key: 'boxBreakoutDistanceAtr', label: '突破距离', format: 'ratio', description: descriptions.boxBreakoutDistanceAtr },
+  { key: 'boxUpperTouches', label: '上沿测试', format: 'number', description: descriptions.boxUpperTouches },
+  { key: 'rsScore', label: 'rsScore', format: 'score', description: descriptions.relativeStrength },
+  { key: 'trendScore', label: 'trendScore', format: 'score', description: descriptions.trend },
+  { key: 'alphaScore', label: 'alpha', format: 'score', description: descriptions.alpha },
+  { key: 'volumeRatio', label: 'volume', format: 'ratio', description: descriptions.volumeCompression },
   ...forwardReturnColumns,
 ] as const;
 const mrColumns = [
   { key: 'name', label: '股票名称', format: 'text' },
-  { key: 'mrState', label: 'mrState', format: 'text' },
-  { key: 'mrQuality', label: 'mrQuality', format: 'score' },
-  { key: 'rsi14', label: 'RSI14', format: 'score' },
-  { key: 'distanceFromMa20Atr', label: '距 MA20 / ATR', format: 'ratio' },
-  { key: 'return3D', label: 'return3D', format: 'percent' },
-  { key: 'return5D', label: 'return5D', format: 'percent' },
-  { key: 'closeLocationValue', label: 'clv', format: 'ratio' },
-  { key: 'trendScore', label: 'trendScore', format: 'score' },
-  { key: 'rsScore', label: 'rsScore', format: 'score' },
-  { key: 'alphaScore', label: 'alpha', format: 'score' },
-  { key: 'state', label: 'state', format: 'text' },
+  { key: 'mrState', label: 'mrState', format: 'text', description: descriptions.mrState },
+  { key: 'mrQuality', label: 'mrQuality', format: 'score', description: descriptions.mrQuality },
+  { key: 'rsi14', label: 'RSI14', format: 'score', description: descriptions.rsi14 },
+  { key: 'distanceFromMa20Atr', label: '距 MA20 / ATR', format: 'ratio', description: descriptions.distanceFromMa20Atr },
+  { key: 'return3D', label: 'return3D', format: 'percent', description: descriptions.return },
+  { key: 'return5D', label: 'return5D', format: 'percent', description: descriptions.return },
+  { key: 'closeLocationValue', label: 'clv', format: 'ratio', description: descriptions.clv },
+  { key: 'trendScore', label: 'trendScore', format: 'score', description: descriptions.trend },
+  { key: 'rsScore', label: 'rsScore', format: 'score', description: descriptions.relativeStrength },
+  { key: 'alphaScore', label: 'alpha', format: 'score', description: descriptions.alpha },
+  { key: 'state', label: 'state', format: 'text', description: descriptions.state },
 ] as const;
 const mrFilters = [{ value: 'all', label: '全部超跌机会' }, { value: 'MR_REBOUND', label: '反弹确认' }, { value: 'MR_OVERSOLD', label: '超跌观察' }];
 const mrText = (value: unknown) => value === 'MR_REBOUND' ? '反弹确认' : value === 'MR_OVERSOLD' ? '超跌观察' : value === 'MR_NONE' ? '无超跌机会' : '—';
@@ -1257,25 +1257,40 @@ onMounted(async () => {
             </Badge>
           </div>
           <div class="grid grid-cols-1 gap-3 rounded-lg border p-4 text-sm sm:grid-cols-3">
-            <div><BilingualLabel
-              label="trendDuration"
-            /><strong class="mt-1 block">{{ detail.latest.trendDurationDays == null ? '—' : `${detail.latest.trendDurationDays}D` }}</strong></div>
-            <div><BilingualLabel
-              label="lifecycle"
-            /><strong class="mt-1 block"><BilingualEnum
-              :value="detail.latest.trendLifecycle"
-              size="badge"
-            /></strong></div>
-            <div><BilingualLabel
-              label="fragility"
-            /><strong class="mt-1 block">{{ score(detail.latest.fragilityScore) }} / 100</strong></div>
-            <div><BilingualLabel
-              label="acceleration"
-            /><strong class="mt-1 block">{{ score(detail.latest.features.trendAcceleration) }}</strong></div>
-            <div><BilingualLabel
-              zh="符号效率"
-              en="Signed Efficiency"
-            /><strong class="mt-1 block">{{ score(detail.latest.features.signedEfficiencyRatio10D) }}</strong></div>
+            <div>
+              <BilingualLabel
+                :description="descriptions.trendDuration"
+                label="trendDuration"
+              /><strong class="mt-1 block">{{ detail.latest.trendDurationDays == null ? '—' : `${detail.latest.trendDurationDays}D` }}</strong>
+            </div>
+            <div>
+              <BilingualLabel
+                :description="descriptions.lifecycle"
+                label="lifecycle"
+              /><strong class="mt-1 block"><BilingualEnum
+                :value="detail.latest.trendLifecycle"
+                size="badge"
+              /></strong>
+            </div>
+            <div>
+              <BilingualLabel
+                :description="descriptions.fragility"
+                label="fragility"
+              /><strong class="mt-1 block">{{ score(detail.latest.fragilityScore) }} / 100</strong>
+            </div>
+            <div>
+              <BilingualLabel
+                :description="descriptions.trendAcceleration"
+                label="acceleration"
+              /><strong class="mt-1 block">{{ score(detail.latest.features.trendAcceleration) }}</strong>
+            </div>
+            <div>
+              <BilingualLabel
+                zh="符号效率"
+                :description="descriptions.signedEfficiency"
+                en="Signed Efficiency"
+              /><strong class="mt-1 block">{{ score(detail.latest.features.signedEfficiencyRatio10D) }}</strong>
+            </div>
           </div>
           <section
             class="space-y-3 rounded-lg border p-4 text-sm"
@@ -1310,13 +1325,25 @@ onMounted(async () => {
                   </dd>
                 </div>
                 <div>
-                  <dt>止损价格</dt>
+                  <dt>
+                    <IndicatorLabel
+                      label="止损价格"
+                      :description="descriptions.riskStop"
+                      compact
+                    />
+                  </dt>
                   <dd class="font-semibold">
                     {{ price(detail.latest.features.riskSizing.stopPrice) }}
                   </dd>
                 </div>
                 <div>
-                  <dt>账户风险预算</dt>
+                  <dt>
+                    <IndicatorLabel
+                      label="账户风险预算"
+                      :description="descriptions.riskPosition"
+                      compact
+                    />
+                  </dt>
                   <dd class="font-semibold">
                     {{ pct(detail.latest.features.riskSizing.riskBudgetPct) }}
                   </dd>
@@ -1355,7 +1382,13 @@ onMounted(async () => {
             <h3 class="font-semibold">
               箱体结构 / Box Structure
             </h3>
-            <p>{{ boxStateText(detail.latest.features.boxState) }} · {{ detail.latest.features.boxStartDate ?? '—' }} → {{ detail.latest.features.boxEndDate ?? '—' }}</p>
+            <p>
+              <IndicatorLabel
+                label="箱体状态"
+                :description="descriptions.boxState"
+                compact
+              /> {{ boxStateText(detail.latest.features.boxState) }} · {{ detail.latest.features.boxStartDate ?? '—' }} → {{ detail.latest.features.boxEndDate ?? '—' }}
+            </p>
             <p>本次新突破：{{ detail.latest.features.boxBreakoutFresh == null ? '—' : detail.latest.features.boxBreakoutFresh ? '是' : '否' }} · 昨日已确认突破：{{ detail.latest.features.boxPriorBreakoutConfirmed == null ? '—' : detail.latest.features.boxPriorBreakoutConfirmed ? '是' : '否' }}</p>
             <p>箱体事件已触发：{{ detail.latest.features.boxEpisodeConsumed == null ? '—' : detail.latest.features.boxEpisodeConsumed ? '是' : '否' }} · 突破日期：{{ detail.latest.features.boxEpisodeBreakoutDate ?? '—' }}</p>
             <dl class="grid grid-cols-1 gap-3 tabular-nums sm:grid-cols-3">
@@ -1363,7 +1396,13 @@ onMounted(async () => {
                 v-for="[key, label, format] in boxDetailFields"
                 :key="key"
               >
-                <dt>{{ label }}</dt><dd class="font-semibold">
+                <dt>
+                  <IndicatorLabel
+                    :label="label"
+                    :description="descriptions[key]"
+                    compact
+                  />
+                </dt><dd class="font-semibold">
                   {{ boxDetailValue(key, format) }}
                 </dd>
               </div>
@@ -1379,8 +1418,28 @@ onMounted(async () => {
             <h3 class="font-semibold">
               超跌反弹 / Mean Reversion
             </h3>
-            <p>{{ mrText(detail.latest.features.mrState) }} · Quality {{ score(detail.latest.features.mrQuality) }}</p>
-            <p>RSI14 {{ score(detail.latest.features.rsi14) }} · 距 MA20 / ATR {{ score(detail.latest.features.distanceFromMa20Atr) }}</p>
+            <p>
+              <IndicatorLabel
+                label="超跌状态"
+                :description="descriptions.mrState"
+                compact
+              /> {{ mrText(detail.latest.features.mrState) }} · <IndicatorLabel
+                label="质量"
+                :description="descriptions.mrQuality"
+                compact
+              /> {{ score(detail.latest.features.mrQuality) }}
+            </p>
+            <p>
+              <IndicatorLabel
+                label="RSI14"
+                :description="descriptions.rsi14"
+                compact
+              /> {{ score(detail.latest.features.rsi14) }} · <IndicatorLabel
+                label="距 MA20 / ATR"
+                :description="descriptions.distanceFromMa20Atr"
+                compact
+              /> {{ score(detail.latest.features.distanceFromMa20Atr) }}
+            </p>
             <p>Oversold {{ score(detail.latest.features.mrOversoldQuality) }} · Distance {{ score(detail.latest.features.mrDistanceQuality) }} · Shock {{ score(detail.latest.features.mrShockQuality) }} · Reversal {{ score(detail.latest.features.mrReversalQuality) }}</p>
             <p class="text-muted-foreground">
               先超跌再确认反弹；同一次超跌过程只触发一次。独立研究信号，不改变 Entry。
@@ -1392,7 +1451,10 @@ onMounted(async () => {
           />
           <details class="rounded-lg border p-4 text-sm">
             <summary class="cursor-pointer">
-              <BilingualLabel label="fragilityBreakdown" />
+              <BilingualLabel
+                label="fragilityBreakdown"
+                :description="descriptions.fragility"
+              />
             </summary>
             <p class="my-2 text-xs text-muted-foreground">
               与 3 / 5 个历史正式快照日比较；缺失项不计权重，数据不足不生成总分。
@@ -1402,7 +1464,13 @@ onMounted(async () => {
                 v-for="(value, key) in detail.latest.fragilityBreakdown"
                 :key="key"
               >
-                <dt>{{ key }}</dt><dd>{{ score(value) }}</dd>
+                <dt>
+                  <IndicatorLabel
+                    :label="String(key)"
+                    :description="descriptions[key]"
+                    compact
+                  />
+                </dt><dd>{{ score(value) }}</dd>
               </div>
             </dl>
           </details>
@@ -1641,3 +1709,4 @@ onMounted(async () => {
     </Dialog>
   </div>
 </template>
+

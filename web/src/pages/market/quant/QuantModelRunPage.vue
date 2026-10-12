@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import IndicatorHelpLabel from '@/components/app/IndicatorHelpLabel.vue';
 import PageHeader from '@/components/layout/PageHeader.vue';
 import { quantApi } from '@/api/quant';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
@@ -103,19 +104,31 @@ async function publish() {
       <section class="grid gap-3 md:grid-cols-3">
         <div class="rounded-xl border border-border bg-card p-3">
           <p class="text-xs text-muted-foreground">
-            训练方式
+            <IndicatorHelpLabel
+              scope="quant"
+              label="训练方式"
+              compact
+            />
           </p>
           <p>Walk-forward</p>
         </div>
         <div class="rounded-xl border border-border bg-card p-3">
           <p class="text-xs text-muted-foreground">
-            预测目标
+            <IndicatorHelpLabel
+              scope="quant"
+              label="预测目标"
+              compact
+            />
           </p>
           <p>{{ targetCopy?.target ?? '—' }}</p>
         </div>
         <div class="rounded-xl border border-border bg-card p-3">
           <p class="text-xs text-muted-foreground">
-            预测周期
+            <IndicatorHelpLabel
+              scope="quant"
+              label="预测周期"
+              compact
+            />
           </p>
           <p>{{ PRODUCTION_PREDICTION_HORIZON }} 个交易日</p>
           <p
@@ -143,7 +156,11 @@ async function publish() {
             class="rounded-lg bg-background p-2"
           >
             <p class="text-xs text-muted-foreground">
-              {{ key }}
+              <IndicatorHelpLabel
+                scope="quant"
+                :label="key"
+                compact
+              />
             </p>
             <p>{{ formatScore(value) }}</p>
           </div>

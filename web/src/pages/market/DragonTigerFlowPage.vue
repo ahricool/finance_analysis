@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import IndicatorHelpLabel from '@/components/app/IndicatorHelpLabel.vue';
 import { computed, onMounted, ref } from 'vue';
 import { RouterLink } from 'vue-router';
 import { useAuth } from '@/composables/useAuth';
@@ -284,7 +285,11 @@ onMounted(() => { void load(); void loadDates(); });
         >
           <CardContent class="p-4">
             <p class="text-xs text-muted-foreground">
-              {{ metric[0] }}
+              <IndicatorHelpLabel
+                scope="flow"
+                :label="metric[0]!"
+                compact
+              />
             </p><p class="mt-2 text-lg font-semibold tabular-nums">
               {{ metric[1] }}
             </p>
@@ -316,11 +321,16 @@ onMounted(() => { void load(); void loadDates(); });
               <thead class="sticky top-0 bg-muted">
                 <tr>
                   <th class="p-3 text-left">
-                    股票
+                    <IndicatorHelpLabel
+                      scope="flow"
+                      label="股票"
+                      compact
+                    />
                   </th>
                   <SortableTableHeader
                     v-for="column in amountColumns"
                     :key="column.key"
+                    scope="flow"
                     :label="!data.complete && column.key === 'observedNetValue' ? '已采集日净额' : column.label"
                     align="right"
                     :active="allStockSort === column.key"
@@ -328,9 +338,17 @@ onMounted(() => { void load(); void loadDates(); });
                     @sort="sortAllStocks(column.key)"
                   />
                   <th class="p-3 text-right">
-                    上榜日数
+                    <IndicatorHelpLabel
+                      scope="flow"
+                      label="上榜日数"
+                      compact
+                    />
                   </th><th class="p-3 text-left">
-                    观测概念
+                    <IndicatorHelpLabel
+                      scope="flow"
+                      label="观测概念"
+                      compact
+                    />
                   </th>
                 </tr>
               </thead>
@@ -392,13 +410,29 @@ onMounted(() => { void load(); void loadDates(); });
             <thead class="sticky top-0 bg-muted">
               <tr>
                 <th class="p-2 text-left">
-                  日期
+                  <IndicatorHelpLabel
+                    scope="flow"
+                    label="日期"
+                    compact
+                  />
                 </th><th class="p-2 text-left">
-                  股票
+                  <IndicatorHelpLabel
+                    scope="flow"
+                    label="股票"
+                    compact
+                  />
                 </th><th class="p-2 text-left">
-                  席位
+                  <IndicatorHelpLabel
+                    scope="flow"
+                    label="席位"
+                    compact
+                  />
                 </th><th class="p-2 text-right">
-                  样本净额
+                  <IndicatorHelpLabel
+                    scope="flow"
+                    label="样本净额"
+                    compact
+                  />
                 </th>
               </tr>
             </thead>
@@ -541,17 +575,20 @@ onMounted(() => { void load(); void loadDates(); });
                 <thead class="sticky top-0 bg-muted">
                   <tr>
                     <SortableTableHeader
+                      scope="flow"
                       label="股票"
                       :active="stockSort === 'name'"
                       :direction="stockDescending ? 'desc' : 'asc'"
                       @sort="sortStocks('name')"
                     /><SortableTableHeader
+                      scope="flow"
                       label="所选概念贡献"
                       align="right"
                       :active="stockSort === 'netValue'"
                       :direction="stockDescending ? 'desc' : 'asc'"
                       @sort="sortStocks('netValue')"
                     /><SortableTableHeader
+                      scope="flow"
                       label="观察记录"
                       align="right"
                       :active="stockSort === 'days'"
@@ -606,13 +643,29 @@ onMounted(() => { void load(); void loadDates(); });
           <thead>
             <tr>
               <th class="p-2 text-left">
-                日期 / 周期
+                <IndicatorHelpLabel
+                  scope="flow"
+                  label="日期 / 周期"
+                  compact
+                />
               </th><th class="p-2 text-right">
-                股票整体净额
+                <IndicatorHelpLabel
+                  scope="flow"
+                  label="股票整体净额"
+                  compact
+                />
               </th><th class="p-2 text-right">
-                所选口径原始净额
+                <IndicatorHelpLabel
+                  scope="flow"
+                  label="所选口径原始净额"
+                  compact
+                />
               </th><th class="p-2 text-left">
-                当日概念 / 每概念权重
+                <IndicatorHelpLabel
+                  scope="flow"
+                  label="当日概念 / 每概念权重"
+                  compact
+                />
               </th>
             </tr>
           </thead>

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import IndicatorHelpLabel from '@/components/app/IndicatorHelpLabel.vue';
 import { computed, ref } from 'vue';
 import type { Constituent, Constituents, IndustryDetail, IndustrySnapshot } from '@/api/industryStrength';
 import type { ParsedApiError } from '@/api/error';
@@ -207,7 +208,11 @@ function ma(value: boolean | null) {
                 class="rounded-lg bg-muted/50 p-3"
               >
                 <p class="text-xs text-muted-foreground">
-                  {{ item[0] }}
+                  <IndicatorHelpLabel
+                    scope="industry"
+                    :label="item[0]!"
+                    compact
+                  />
                 </p>
                 <p
                   class="mt-2 font-semibold tabular-nums whitespace-nowrap"
@@ -294,7 +299,11 @@ function ma(value: boolean | null) {
                     v-for="label in ['日期', '强度排名', '综合强度', '5 日超额（百分点）', '10 日超额（百分点）', '20 日超额（百分点）', '5 日动量（百分点）', '上涨占比（%）', 'MA5（%）', 'MA20（%）', '成交脉冲（×）']"
                     :key="label"
                   >
-                    {{ label }}
+                    <IndicatorHelpLabel
+                      scope="industry"
+                      :label="label"
+                      compact
+                    />
                   </TableHead>
                 </TableRow>
               </TableHeader>
@@ -416,6 +425,7 @@ function ma(value: boolean | null) {
                     <SortableTableHeader
                       v-for="column in columns"
                       :key="column.key"
+                      scope="industry"
                       :label="previewMode && column.key === 'price' ? '最新价' : column.label"
                       :description="'description' in column ? column.description : undefined"
                       :active="sortKey === column.key"

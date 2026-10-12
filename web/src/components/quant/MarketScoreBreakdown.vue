@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import IndicatorHelpLabel from '@/components/app/IndicatorHelpLabel.vue';
+import { metricHint } from '@/utils/metricHints';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import type { MarketScoreBreakdown, MarketScoreComponent } from '@/types/quant';
 import { formatPercent, formatScore } from '@/utils/quant';
@@ -28,7 +30,11 @@ function formatRaw(component: MarketScoreComponent): string {
             {{ group.label }}
           </h4>
           <p class="text-xs text-muted-foreground">
-            分组得分 {{ formatScore(group.score) }}
+            <IndicatorHelpLabel
+              scope="quant"
+              label="分组得分"
+              compact
+            /> {{ formatScore(group.score) }}
           </p>
         </div>
         <div class="text-right text-xs text-muted-foreground">
@@ -40,11 +46,41 @@ function formatRaw(component: MarketScoreComponent): string {
         <Table class="min-w-[620px]">
           <TableHeader>
             <TableRow>
-              <TableHead>指标</TableHead>
-              <TableHead>原始值</TableHead>
-              <TableHead>标准化得分</TableHead>
-              <TableHead>权重</TableHead>
-              <TableHead>贡献</TableHead>
+              <TableHead>
+                <IndicatorHelpLabel
+                  scope="quant"
+                  label="指标"
+                  compact
+                />
+              </TableHead>
+              <TableHead>
+                <IndicatorHelpLabel
+                  scope="quant"
+                  label="原始值"
+                  compact
+                />
+              </TableHead>
+              <TableHead>
+                <IndicatorHelpLabel
+                  scope="quant"
+                  label="标准化得分"
+                  compact
+                />
+              </TableHead>
+              <TableHead>
+                <IndicatorHelpLabel
+                  scope="quant"
+                  label="权重"
+                  compact
+                />
+              </TableHead>
+              <TableHead>
+                <IndicatorHelpLabel
+                  scope="quant"
+                  label="贡献"
+                  compact
+                />
+              </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -53,7 +89,11 @@ function formatRaw(component: MarketScoreComponent): string {
               :key="component.key"
             >
               <TableCell class="font-medium">
-                {{ component.label }}
+                <IndicatorHelpLabel
+                  :label="component.label"
+                  :description="metricHint('quant', component.key)"
+                  compact
+                />
               </TableCell>
               <TableCell>{{ formatRaw(component) }}</TableCell>
               <TableCell>{{ formatScore(component.score) }}</TableCell>

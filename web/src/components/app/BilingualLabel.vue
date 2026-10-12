@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { CircleHelp } from 'lucide-vue-next';
+import MetricHint from '@/components/app/MetricHint.vue';
 import { enumLabel, metricLabel, type Bilingual } from '@/i18n/labels';
 
 const props = withDefaults(defineProps<{
@@ -55,25 +54,10 @@ const aria = computed(() => {
         :class="wrap ? 'whitespace-normal break-words' : 'truncate'"
       >{{ pair.en }}</span>
     </span>
-    <TooltipProvider
+    <MetricHint
       v-if="description"
-      :delay-duration="150"
-    >
-      <Tooltip>
-        <TooltipTrigger as-child>
-          <button
-            type="button"
-            class="shrink-0 text-muted-foreground hover:text-foreground"
-            :aria-label="`查看 ${pair.zh} 说明`"
-            @click.stop
-          >
-            <CircleHelp class="size-3.5" />
-          </button>
-        </TooltipTrigger>
-        <TooltipContent class="max-w-[min(24rem,calc(100vw-1rem))] whitespace-normal text-left leading-5">
-          {{ description }}
-        </TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
+      :label="pair.zh"
+      :description="description"
+    />
   </span>
 </template>

@@ -9,6 +9,7 @@ import DashboardState from '@/components/dashboard/DashboardState.vue';
 import StrategyChanges from '@/components/dashboard/StrategyChanges.vue';
 import { feedSummary, regimeTone, upcomingEvents } from '@/components/dashboard/dashboardFormat';
 import BilingualLabel from '@/components/app/BilingualLabel.vue';
+import { metricHint } from '@/utils/metricHints';
 import BilingualEnum from '@/components/app/BilingualEnum.vue';
 import { importanceNames, kindLabel, marketLabel, sessionLabel } from '@/components/timeline/timelineFormat';
 import { formatDateTimeInDisplayTimezone, getDisplayTimezone } from '@/utils/format';
@@ -92,7 +93,11 @@ const number = (value: string | undefined) => value && Number.isFinite(Number(va
               </span>
             </div>
             <p class="mt-2 inline-flex flex-wrap items-baseline gap-1">
-              <BilingualLabel label="highFragilityTrends" compact />
+              <BilingualLabel
+                label="highFragilityTrends"
+                :description="metricHint('trend', 'highFragilityTrends')"
+                compact
+              />
               <span>{{ entry.trend.data.features.highFragilityCount ?? '—' }}</span>
             </p>
           </div>
@@ -137,6 +142,7 @@ const number = (value: string | undefined) => value && Number.isFinite(Number(va
                 <p class="mt-2 text-[10px] text-muted-foreground">
                   <BilingualLabel
                     label="marketScore"
+                    :description="metricHint('trend', 'marketScore')"
                     compact
                   /> / 100
                 </p>

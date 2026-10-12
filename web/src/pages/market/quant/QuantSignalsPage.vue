@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import IndicatorHelpLabel from '@/components/app/IndicatorHelpLabel.vue';
 import PageHeader from '@/components/layout/PageHeader.vue';
 import { quantApi } from '@/api/quant';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
@@ -75,7 +76,15 @@ watch(
     </div>
     <template v-else>
       <Card>
-        <CardHeader><CardTitle>筛选排名</CardTitle><CardDescription>按股票代码或名称缩小结果范围。</CardDescription></CardHeader><CardContent>
+        <CardHeader>
+          <CardTitle>筛选排名</CardTitle><CardDescription>
+            <IndicatorHelpLabel
+              scope="quant"
+              label="按股票代码或名称缩小结果范围。"
+              compact
+            />
+          </CardDescription>
+        </CardHeader><CardContent>
           <FieldInput
             v-model="filter"
             placeholder="股票代码或名称"
@@ -90,9 +99,73 @@ watch(
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>排名</TableHead><TableHead class="min-w-[220px]">
-                  股票
-                </TableHead><TableHead>最终得分</TableHead><TableHead>横截面</TableHead><TableHead>时间序列</TableHead><TableHead>风险扣分</TableHead><TableHead>预测收益</TableHead><TableHead>3D收益</TableHead><TableHead>5D收益</TableHead><TableHead>至今收益</TableHead><TableHead>信号</TableHead>
+                <TableHead>
+                  <IndicatorHelpLabel
+                    scope="quant"
+                    label="排名"
+                    compact
+                  />
+                </TableHead><TableHead class="min-w-[220px]">
+                  <IndicatorHelpLabel
+                    scope="quant"
+                    label="股票"
+                    compact
+                  />
+                </TableHead><TableHead>
+                  <IndicatorHelpLabel
+                    scope="quant"
+                    label="最终得分"
+                    compact
+                  />
+                </TableHead><TableHead>
+                  <IndicatorHelpLabel
+                    scope="quant"
+                    label="横截面"
+                    compact
+                  />
+                </TableHead><TableHead>
+                  <IndicatorHelpLabel
+                    scope="quant"
+                    label="时间序列"
+                    compact
+                  />
+                </TableHead><TableHead>
+                  <IndicatorHelpLabel
+                    scope="quant"
+                    label="风险扣分"
+                    compact
+                  />
+                </TableHead><TableHead>
+                  <IndicatorHelpLabel
+                    scope="quant"
+                    label="预测收益"
+                    compact
+                  />
+                </TableHead><TableHead>
+                  <IndicatorHelpLabel
+                    scope="quant"
+                    label="3D收益"
+                    compact
+                  />
+                </TableHead><TableHead>
+                  <IndicatorHelpLabel
+                    scope="quant"
+                    label="5D收益"
+                    compact
+                  />
+                </TableHead><TableHead>
+                  <IndicatorHelpLabel
+                    scope="quant"
+                    label="至今收益"
+                    compact
+                  />
+                </TableHead><TableHead>
+                  <IndicatorHelpLabel
+                    scope="quant"
+                    label="信号"
+                    compact
+                  />
+                </TableHead>
               </TableRow>
             </TableHeader><TableBody>
               <TableRow

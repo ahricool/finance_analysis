@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import IndicatorHelpLabel from '@/components/app/IndicatorHelpLabel.vue';
 import type { MacroDashboard } from '@/api/macro';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetTrigger, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet';
@@ -22,7 +23,35 @@ defineProps<{ dashboard: MacroDashboard }>();
       <SheetHeader><SheetTitle>Risk Score 构成</SheetTitle><SheetDescription>后端返回的信号与贡献；N/A 不计入可用权重。</SheetDescription></SheetHeader>
       <div class="px-4 pb-6">
         <Table>
-          <TableHeader><TableRow><TableHead>信号</TableHead><TableHead>趋势</TableHead><TableHead>Risk On 条件</TableHead><TableHead>贡献 / 权重</TableHead></TableRow></TableHeader>
+          <TableHeader>
+            <TableRow>
+              <TableHead>
+                <IndicatorHelpLabel
+                  scope="macroSignal"
+                  label="信号"
+                  compact
+                />
+              </TableHead><TableHead>
+                <IndicatorHelpLabel
+                  scope="macroSignal"
+                  label="趋势"
+                  compact
+                />
+              </TableHead><TableHead>
+                <IndicatorHelpLabel
+                  scope="macroSignal"
+                  label="Risk On 条件"
+                  compact
+                />
+              </TableHead><TableHead>
+                <IndicatorHelpLabel
+                  scope="macroSignal"
+                  label="贡献 / 权重"
+                  compact
+                />
+              </TableHead>
+            </TableRow>
+          </TableHeader>
           <TableBody>
             <TableRow
               v-for="signal in dashboard.signals"

@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Table, TableHeader, TableHead, TableBody, TableRow, TableCell } from '@/components/ui/table';
-import BilingualLabel from '@/components/app/BilingualLabel.vue';
+import IndicatorHelpLabel from '@/components/app/IndicatorHelpLabel.vue';
 import { formatDateTime } from '@/utils/format';
 
 const { currentUser } = useAuth();
@@ -121,7 +121,10 @@ onBeforeUnmount(() => { ++generation; });
           class="rounded-lg border p-4"
         >
           <p class="text-sm text-muted-foreground">
-            {{ label }}
+            <IndicatorHelpLabel
+              scope="intraday"
+              :label="String(label)"
+            />
           </p><p class="text-2xl font-semibold">
             {{ count }}
           </p>
@@ -142,13 +145,69 @@ onBeforeUnmount(() => { ++generation; });
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>股票 / 行情时间</TableHead><TableHead>昨夜候选原因</TableHead><TableHead>状态 / 分数</TableHead><TableHead>追高风险</TableHead><TableHead>Gap</TableHead><TableHead>5m / 15m / 30m</TableHead><TableHead>距 VWAP</TableHead><TableHead>成交量≈</TableHead><TableHead>相对大盘</TableHead><TableHead>
-                <BilingualLabel
+              <TableHead>
+                <IndicatorHelpLabel
+                  scope="intraday"
+                  label="股票 / 行情时间"
+                  compact
+                />
+              </TableHead><TableHead>
+                <IndicatorHelpLabel
+                  scope="intraday"
+                  label="昨夜候选原因"
+                  compact
+                />
+              </TableHead><TableHead>
+                <IndicatorHelpLabel
+                  scope="intraday"
+                  label="状态 / 分数"
+                  compact
+                />
+              </TableHead><TableHead>
+                <IndicatorHelpLabel
+                  scope="intraday"
+                  label="追高风险"
+                  compact
+                />
+              </TableHead><TableHead>
+                <IndicatorHelpLabel
+                  scope="intraday"
+                  label="Gap"
+                  compact
+                />
+              </TableHead><TableHead>
+                <IndicatorHelpLabel
+                  scope="intraday"
+                  label="5m / 15m / 30m"
+                  compact
+                />
+              </TableHead><TableHead>
+                <IndicatorHelpLabel
+                  scope="intraday"
+                  label="距 VWAP"
+                  compact
+                />
+              </TableHead><TableHead>
+                <IndicatorHelpLabel
+                  scope="intraday"
+                  label="成交量≈"
+                  compact
+                />
+              </TableHead><TableHead>
+                <IndicatorHelpLabel
+                  scope="intraday"
+                  label="相对大盘"
+                  compact
+                />
+              </TableHead><TableHead>
+                <IndicatorHelpLabel
+                  scope="intraday"
                   label="temporaryTrend"
                   compact
                 />
               </TableHead><TableHead>
-                <BilingualLabel
+                <IndicatorHelpLabel
+                  scope="intraday"
                   label="reasons"
                   compact
                 />

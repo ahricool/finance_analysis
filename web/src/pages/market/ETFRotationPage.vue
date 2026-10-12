@@ -81,7 +81,7 @@ const detailMode = ref<ResearchDataMode>('official');
 const route = useRoute();
 const market = ref<ETFMarket>(route?.query.market === 'US' ? 'US' : 'CN');
 const rankingColumns = [
-  { key: 'rank', label: 'rank', description: undefined },
+  { key: 'rank', label: 'rank', description: descriptions.rank },
   { key: 'name', label: 'etf', description: undefined },
   { key: 'state', label: 'state', description: descriptions.state },
   ...forwardReturnColumns,
@@ -521,334 +521,334 @@ onMounted(async () => {
       class="relative space-y-4"
       :class="refreshing ? 'opacity-70' : ''"
     >
-    <Card v-if="showingStrategyBody">
-      <CardHeader>
-        <CardTitle class="flex flex-wrap items-center gap-2">
-          <IndicatorLabel
-            label="marketRegime"
-            :description="descriptions.regime"
-          /><Badge :variant="marketSnapshot?.regime === 'RISK_ON' ? 'success' : marketSnapshot?.regime === 'RISK_OFF' ? 'destructive' : 'warning'">
-            <BilingualEnum
-              :value="marketSnapshot?.regime"
-              size="badge"
-            />
-          </Badge>
-        </CardTitle>
-      </CardHeader>
-      <CardContent class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <div class="rounded border p-3">
-          <IndicatorLabel
-            label="positive5dBreadth"
-            :description="descriptions.breadth"
-          /><strong class="mt-1 block">{{ pct(marketSnapshot?.positive5dBreadth, false) }}</strong>
-        </div>
-        <div class="rounded border p-3">
-          <IndicatorLabel
-            label="breadthAboveMa10"
-            :description="descriptions.breadth"
-          /><strong class="mt-1 block">{{ pct(marketSnapshot?.aboveMa10Breadth, false) }}</strong>
-        </div>
-        <div class="rounded border p-3">
-          <IndicatorLabel
-            label="benchmark"
-            :description="descriptions.benchmark"
-          /><strong class="mt-1 block break-words">{{ marketSnapshot?.benchmarkCode ?? '—' }}</strong>
-        </div>
-        <div class="rounded border p-3">
-          <IndicatorLabel
-            label="benchmarkTrend"
-            :description="descriptions.benchmarkTrend"
-          /><strong class="mt-1 block">{{ marketSnapshot?.benchmarkTrend ?? '—' }}</strong>
-        </div>
-      </CardContent>
-    </Card>
+      <Card v-if="showingStrategyBody">
+        <CardHeader>
+          <CardTitle class="flex flex-wrap items-center gap-2">
+            <IndicatorLabel
+              label="marketRegime"
+              :description="descriptions.regime"
+            /><Badge :variant="marketSnapshot?.regime === 'RISK_ON' ? 'success' : marketSnapshot?.regime === 'RISK_OFF' ? 'destructive' : 'warning'">
+              <BilingualEnum
+                :value="marketSnapshot?.regime"
+                size="badge"
+              />
+            </Badge>
+          </CardTitle>
+        </CardHeader>
+        <CardContent class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div class="rounded border p-3">
+            <IndicatorLabel
+              label="positive5dBreadth"
+              :description="descriptions.breadth"
+            /><strong class="mt-1 block">{{ pct(marketSnapshot?.positive5dBreadth, false) }}</strong>
+          </div>
+          <div class="rounded border p-3">
+            <IndicatorLabel
+              label="breadthAboveMa10"
+              :description="descriptions.breadth"
+            /><strong class="mt-1 block">{{ pct(marketSnapshot?.aboveMa10Breadth, false) }}</strong>
+          </div>
+          <div class="rounded border p-3">
+            <IndicatorLabel
+              label="benchmark"
+              :description="descriptions.benchmark"
+            /><strong class="mt-1 block break-words">{{ marketSnapshot?.benchmarkCode ?? '—' }}</strong>
+          </div>
+          <div class="rounded border p-3">
+            <IndicatorLabel
+              label="benchmarkTrend"
+              :description="descriptions.benchmarkTrend"
+            /><strong class="mt-1 block">{{ marketSnapshot?.benchmarkTrend ?? '—' }}</strong>
+          </div>
+        </CardContent>
+      </Card>
 
-    <Card v-if="showingStrategyBody">
-      <CardHeader>
-        <CardTitle><BilingualLabel label="currentCandidates" /></CardTitle>
-        <CardDescription>当前买入 / 持有候选；采用 Top4 Entry、Top6 Hold、risk group 和 20 日相关性约束。</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <p
-          v-if="!loading && !candidates.length"
-          class="text-sm text-muted-foreground"
-        >
-          暂无当前候选
-        </p>
-        <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-          <button
-            v-for="item in candidates"
-            :key="item.code"
-            data-testid="rotation-candidate"
-            class="min-w-0 rounded border p-3 text-left hover:bg-muted/50"
-            @click="openDetail(item)"
+      <Card v-if="showingStrategyBody">
+        <CardHeader>
+          <CardTitle><BilingualLabel label="currentCandidates" /></CardTitle>
+          <CardDescription>当前买入 / 持有候选；采用 Top4 Entry、Top6 Hold、risk group 和 20 日相关性约束。</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <p
+            v-if="!loading && !candidates.length"
+            class="text-sm text-muted-foreground"
           >
-            <div class="flex items-center justify-between gap-2">
-              <strong class="min-w-0 break-words">#{{ item.candidateRank ?? '—' }} {{ item.name }}</strong><Badge :variant="actionVariant(item.action)">
-                <BilingualEnum
-                  :value="item.action"
-                  size="badge"
-                />
-              </Badge>
-            </div>
-            <p class="mt-1 truncate text-xs text-muted-foreground">
-              {{ item.code }} · {{ item.riskGroup }}
-            </p>
-            <div class="mt-3 flex justify-between gap-2 text-sm">
-              <span class="inline-flex items-baseline gap-1"><BilingualLabel
-                label="composite"
-                compact
-              /> {{ score(item.compositeScore) }}</span><Badge :variant="stateVariant(item.state)">
-                {{ stateIcon(item.state) }}
-                <BilingualEnum
-                  :value="item.state"
-                  size="badge"
-                />
-              </Badge>
-            </div>
-            <div
-              v-if="vsOfficial(item)"
-              class="mt-2 space-y-1 text-xs text-amber-700 dark:text-amber-300"
-              data-testid="rotation-candidate-vs-official"
-            >
-              <p v-if="vsOfficial(item)?.scoreDelta != null">
-                {{ vsOfficial(item)!.scoreDelta! >= 0 ? '↑' : '↓' }} {{ scoreChange(vsOfficial(item)!.scoreDelta) }} vs 正式
-              </p>
-              <p v-if="vsOfficial(item)?.rankDelta != null">
-                Rank #{{ item.rank ?? '—' }}
-                <span v-if="vsOfficial(item)!.rankDelta"> {{ vsOfficial(item)!.rankDelta! > 0 ? '↑' : '↓' }} {{ Math.abs(vsOfficial(item)!.rankDelta!) }}</span>
-              </p>
-            </div>
-            <div class="mt-2 text-xs">
-              趋势 {{ boolText(item.absoluteTrendEligible) }} · 流动性 {{ boolText(item.liquidityEligible) }}
-            </div><div class="mt-1 break-words text-xs">
-              {{ correlationText(item) }} · Stop {{ stopPct(item.stopLossPct) }} · {{ price(item.suggestedStopPrice) }}
-            </div>
-          </button>
-        </div>
-      </CardContent>
-    </Card>
-
-        <Card
-      v-if="showingPreview"
-      data-testid="etf-preview-changes"
-    >
-      <CardHeader>
-        <CardTitle><BilingualLabel label="previewChanges" /></CardTitle>
-        <CardDescription>相对上次正式收盘结果的对比，不参与当前预演状态计算。</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <p
-          v-if="!previewHasChanges"
-          class="text-sm text-muted-foreground"
-        >
-          暂无相对上次正式收盘的新变化
-        </p>
-        <div
-          v-else
-          class="grid gap-3 md:grid-cols-2 xl:grid-cols-4"
-        >
-          <section
-            v-for="group in previewChangeGroups"
-            :key="group.labelKey"
-            class="rounded border p-3"
-          >
-            <h3 class="mb-2 flex items-center justify-between text-sm font-semibold">
-              <BilingualLabel :label="group.labelKey" /> <Badge :variant="group.variant">
-                {{ group.items.length }}
-              </Badge>
-            </h3>
+            暂无当前候选
+          </p>
+          <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
             <button
-              v-for="change in group.items"
-              :key="change.current.code"
-              class="mb-2 block w-full rounded bg-muted/50 p-2 text-left text-xs hover:bg-muted"
-              :data-testid="`etf-preview-change-${group.labelKey}`"
-              @click="openDetail(change.current)"
+              v-for="item in candidates"
+              :key="item.code"
+              data-testid="rotation-candidate"
+              class="min-w-0 rounded border p-3 text-left hover:bg-muted/50"
+              @click="openDetail(item)"
             >
-              <strong>{{ change.current.name }}</strong>
-              <span class="ml-1 font-mono text-muted-foreground">{{ change.current.code }}</span>
+              <div class="flex items-center justify-between gap-2">
+                <strong class="min-w-0 break-words">#{{ item.candidateRank ?? '—' }} {{ item.name }}</strong><Badge :variant="actionVariant(item.action)">
+                  <BilingualEnum
+                    :value="item.action"
+                    size="badge"
+                  />
+                </Badge>
+              </div>
+              <p class="mt-1 truncate text-xs text-muted-foreground">
+                {{ item.code }} · {{ item.riskGroup }}
+              </p>
+              <div class="mt-3 flex justify-between gap-2 text-sm">
+                <span class="inline-flex items-baseline gap-1"><BilingualLabel
+                  label="composite"
+                  compact
+                /> {{ score(item.compositeScore) }}</span><Badge :variant="stateVariant(item.state)">
+                  {{ stateIcon(item.state) }}
+                  <BilingualEnum
+                    :value="item.state"
+                    size="badge"
+                  />
+                </Badge>
+              </div>
+              <div
+                v-if="vsOfficial(item)"
+                class="mt-2 space-y-1 text-xs text-amber-700 dark:text-amber-300"
+                data-testid="rotation-candidate-vs-official"
+              >
+                <p v-if="vsOfficial(item)?.scoreDelta != null">
+                  {{ vsOfficial(item)!.scoreDelta! >= 0 ? '↑' : '↓' }} {{ scoreChange(vsOfficial(item)!.scoreDelta) }} vs 正式
+                </p>
+                <p v-if="vsOfficial(item)?.rankDelta != null">
+                  Rank #{{ item.rank ?? '—' }}
+                  <span v-if="vsOfficial(item)!.rankDelta"> {{ vsOfficial(item)!.rankDelta! > 0 ? '↑' : '↓' }} {{ Math.abs(vsOfficial(item)!.rankDelta!) }}</span>
+                </p>
+              </div>
+              <div class="mt-2 text-xs">
+                趋势 {{ boolText(item.absoluteTrendEligible) }} · 流动性 {{ boolText(item.liquidityEligible) }}
+              </div><div class="mt-1 break-words text-xs">
+                {{ correlationText(item) }} · Stop {{ stopPct(item.stopLossPct) }} · {{ price(item.suggestedStopPrice) }}
+              </div>
             </button>
-          </section>
-        </div>
-      </CardContent>
-    </Card>
+          </div>
+        </CardContent>
+      </Card>
 
-<Card v-if="showingStrategyBody">
-      <CardHeader>
-        <CardTitle><BilingualLabel label="todaysExit" /></CardTitle>
-        <CardDescription>所选交易日动作为退出的全部标的；此分区不受候选数量 limit 限制。</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <p
-          v-if="!loading && !exits.length"
-          class="text-sm text-muted-foreground"
-        >
-          今日无退出信号
-        </p>
-        <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-          <button
-            v-for="item in exits"
-            :key="item.code"
-            data-testid="rotation-exit"
-            class="min-w-0 rounded border border-destructive/30 p-3 text-left hover:bg-muted/50"
-            @click="openDetail(item)"
+      <Card
+        v-if="showingPreview"
+        data-testid="etf-preview-changes"
+      >
+        <CardHeader>
+          <CardTitle><BilingualLabel label="previewChanges" /></CardTitle>
+          <CardDescription>相对上次正式收盘结果的对比，不参与当前预演状态计算。</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <p
+            v-if="!previewHasChanges"
+            class="text-sm text-muted-foreground"
           >
-            <div class="flex items-center justify-between gap-2">
-              <strong class="min-w-0 break-words">{{ item.name }}</strong>
-              <Badge variant="destructive">
-                <BilingualEnum
-                  value="EXIT"
-                  size="badge"
-                />
-              </Badge>
-            </div>
-            <p class="mt-1 truncate font-mono text-xs text-muted-foreground">
-              {{ item.code }}
-            </p>
-            <div class="mt-3 flex justify-between gap-2 text-sm">
-              <span class="inline-flex items-baseline gap-1"><BilingualLabel
-                label="composite"
-                compact
-              /> {{ score(item.compositeScore) }}</span>
-              <Badge :variant="stateVariant(item.state)">
-                {{ stateIcon(item.state) }}
-                <BilingualEnum
-                  :value="item.state"
-                  size="badge"
-                />
-              </Badge>
-            </div>
-          </button>
-        </div>
-      </CardContent>
-    </Card>
-
-    <Card v-if="dataMode === 'official' && showingStrategyBody">
-      <CardHeader>
-        <CardTitle><BilingualLabel label="todaysChanges" /></CardTitle>
-        <CardDescription>相对 {{ changes?.previousTradeDate || '上一可用交易日' }} 的信号、状态和排名变化。</CardDescription>
-      </CardHeader>
-      <CardContent class="space-y-4">
-        <div
-          v-if="changes?.regimeChange"
-          class="rounded border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-800 dark:bg-amber-950/30"
-          data-testid="etf-regime-change"
-        >
-          <strong>环境变化</strong>
-          <span class="ml-2 inline-flex flex-wrap items-center gap-1">
-            <BilingualEnum
-              :value="changes.regimeChange.from"
-              size="badge"
-            /> → <BilingualEnum
-              :value="changes.regimeChange.to"
-              size="badge"
-            />
-          </span>
-        </div>
-        <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          <section
-            v-for="group in changeGroups"
-            :key="group.labelKey"
-            class="rounded border p-3"
+            暂无相对上次正式收盘的新变化
+          </p>
+          <div
+            v-else
+            class="grid gap-3 md:grid-cols-2 xl:grid-cols-4"
           >
-            <h3 class="mb-2 flex items-center justify-between text-sm font-semibold">
-              <BilingualLabel :label="group.labelKey" /> <Badge :variant="group.variant">
-                {{ group.items.length }}
-              </Badge>
-            </h3>
-            <div class="space-y-2">
+            <section
+              v-for="group in previewChangeGroups"
+              :key="group.labelKey"
+              class="rounded border p-3"
+            >
+              <h3 class="mb-2 flex items-center justify-between text-sm font-semibold">
+                <BilingualLabel :label="group.labelKey" /> <Badge :variant="group.variant">
+                  {{ group.items.length }}
+                </Badge>
+              </h3>
               <button
                 v-for="change in group.items"
-                  :key="change.code"
-                class="block w-full rounded bg-muted/50 p-2 text-left text-xs hover:bg-muted"
-                :data-testid="`etf-change-${group.labelKey}`"
-                  @click="openDetail(change)"
+                :key="change.current.code"
+                class="mb-2 block w-full rounded bg-muted/50 p-2 text-left text-xs hover:bg-muted"
+                :data-testid="`etf-preview-change-${group.labelKey}`"
+                @click="openDetail(change.current)"
               >
+                <strong>{{ change.current.name }}</strong>
+                <span class="ml-1 font-mono text-muted-foreground">{{ change.current.code }}</span>
+              </button>
+            </section>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card v-if="showingStrategyBody">
+        <CardHeader>
+          <CardTitle><BilingualLabel label="todaysExit" /></CardTitle>
+          <CardDescription>所选交易日动作为退出的全部标的；此分区不受候选数量 limit 限制。</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <p
+            v-if="!loading && !exits.length"
+            class="text-sm text-muted-foreground"
+          >
+            今日无退出信号
+          </p>
+          <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+            <button
+              v-for="item in exits"
+              :key="item.code"
+              data-testid="rotation-exit"
+              class="min-w-0 rounded border border-destructive/30 p-3 text-left hover:bg-muted/50"
+              @click="openDetail(item)"
+            >
+              <div class="flex items-center justify-between gap-2">
+                <strong class="min-w-0 break-words">{{ item.name }}</strong>
+                <Badge variant="destructive">
+                  <BilingualEnum
+                    value="EXIT"
+                    size="badge"
+                  />
+                </Badge>
+              </div>
+              <p class="mt-1 truncate font-mono text-xs text-muted-foreground">
+                {{ item.code }}
+              </p>
+              <div class="mt-3 flex justify-between gap-2 text-sm">
+                <span class="inline-flex items-baseline gap-1"><BilingualLabel
+                  label="composite"
+                  compact
+                /> {{ score(item.compositeScore) }}</span>
+                <Badge :variant="stateVariant(item.state)">
+                  {{ stateIcon(item.state) }}
+                  <BilingualEnum
+                    :value="item.state"
+                    size="badge"
+                  />
+                </Badge>
+              </div>
+            </button>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card v-if="dataMode === 'official' && showingStrategyBody">
+        <CardHeader>
+          <CardTitle><BilingualLabel label="todaysChanges" /></CardTitle>
+          <CardDescription>相对 {{ changes?.previousTradeDate || '上一可用交易日' }} 的信号、状态和排名变化。</CardDescription>
+        </CardHeader>
+        <CardContent class="space-y-4">
+          <div
+            v-if="changes?.regimeChange"
+            class="rounded border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-800 dark:bg-amber-950/30"
+            data-testid="etf-regime-change"
+          >
+            <strong>环境变化</strong>
+            <span class="ml-2 inline-flex flex-wrap items-center gap-1">
+              <BilingualEnum
+                :value="changes.regimeChange.from"
+                size="badge"
+              /> → <BilingualEnum
+                :value="changes.regimeChange.to"
+                size="badge"
+              />
+            </span>
+          </div>
+          <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <section
+              v-for="group in changeGroups"
+              :key="group.labelKey"
+              class="rounded border p-3"
+            >
+              <h3 class="mb-2 flex items-center justify-between text-sm font-semibold">
+                <BilingualLabel :label="group.labelKey" /> <Badge :variant="group.variant">
+                  {{ group.items.length }}
+                </Badge>
+              </h3>
+              <div class="space-y-2">
+                <button
+                  v-for="change in group.items"
+                  :key="change.code"
+                  class="block w-full rounded bg-muted/50 p-2 text-left text-xs hover:bg-muted"
+                  :data-testid="`etf-change-${group.labelKey}`"
+                  @click="openDetail(change)"
+                >
                   <strong>{{ change.name }}</strong>
                   <span class="ml-1 font-mono text-muted-foreground">{{ change.code }}</span>
-                <span class="mt-1 block">{{ changeTransition(change, group.transition) }} · <BilingualLabel
+                  <span class="mt-1 block">{{ changeTransition(change, group.transition) }} · <BilingualLabel
+                    label="composite"
+                    compact
+                  /> Δ {{ scoreChange(change.compositeScoreChange) }}</span>
+                </button>
+                <p
+                  v-if="!group.items.length"
+                  class="text-xs text-muted-foreground"
+                >
+                  无
+                </p>
+              </div>
+            </section>
+          </div>
+          <section>
+            <h3 class="mb-2 text-sm font-semibold">
+              排名变动
+            </h3>
+            <div class="flex flex-wrap gap-2">
+              <button
+                v-for="change in changes?.rankMovers ?? []"
+                :key="change.code"
+                data-testid="etf-rank-mover"
+                class="rounded border px-3 py-2 text-left text-xs hover:bg-muted/50"
+                @click="openDetail(change)"
+              >
+                <strong>{{ change.name }}</strong>
+                <span class="ml-2">#{{ change.previousRank ?? '—' }} → #{{ change.currentRank ?? '—' }} ({{ rankChange(change.rankChange) }})</span>
+                <span class="ml-2 inline-flex items-baseline gap-1"><BilingualLabel
                   label="composite"
                   compact
                 /> Δ {{ scoreChange(change.compositeScoreChange) }}</span>
               </button>
-              <p
-                v-if="!group.items.length"
+              <span
+                v-if="!changes?.rankMovers?.length"
                 class="text-xs text-muted-foreground"
-              >
-                无
-              </p>
+              >无显著排名变化</span>
             </div>
           </section>
-        </div>
-        <section>
-          <h3 class="mb-2 text-sm font-semibold">
-            排名变动
-          </h3>
-          <div class="flex flex-wrap gap-2">
-            <button
-              v-for="change in changes?.rankMovers ?? []"
-                :key="change.code"
-              data-testid="etf-rank-mover"
-              class="rounded border px-3 py-2 text-left text-xs hover:bg-muted/50"
-                @click="openDetail(change)"
-            >
-                <strong>{{ change.name }}</strong>
-                <span class="ml-2">#{{ change.previousRank ?? '—' }} → #{{ change.currentRank ?? '—' }} ({{ rankChange(change.rankChange) }})</span>
-              <span class="ml-2 inline-flex items-baseline gap-1"><BilingualLabel
-                label="composite"
-                compact
-              /> Δ {{ scoreChange(change.compositeScoreChange) }}</span>
-            </button>
-            <span
-              v-if="!changes?.rankMovers?.length"
-              class="text-xs text-muted-foreground"
-            >无显著排名变化</span>
-          </div>
-        </section>
-      </CardContent>
-    </Card>
+        </CardContent>
+      </Card>
 
-    <ETFRankHistoryChart
-      v-if="!loading"
-      :market="market"
-      :as-of="dataMode === 'official' ? selectedDate || undefined : undefined"
-      :include-preview="dataMode === 'preview'"
-      :refresh-key="rankHistoryRefreshKey"
-    />
+      <ETFRankHistoryChart
+        v-if="!loading"
+        :market="market"
+        :as-of="dataMode === 'official' ? selectedDate || undefined : undefined"
+        :include-preview="dataMode === 'preview'"
+        :refresh-key="rankHistoryRefreshKey"
+      />
 
-    <Card v-if="showingStrategyBody">
-      <CardHeader class="flex-row flex-wrap items-center justify-between gap-3">
-        <div><CardTitle><BilingualLabel label="rotationRanking" /></CardTitle><CardDescription>比较核心得分、状态和 5D / 20D 收益；点击 ETF 查看完整指标。</CardDescription></div>
-        <LoadingButton
-          variant="outline"
-          size="sm"
-          :loading="exporting"
-          loading-text="导出中…"
-          :disabled="loading || refreshing || previewLoading || forwardLoading || !sortedItems.length"
-          data-testid="etf-export-excel"
-          @click="exportRanking"
-        >
-          导出 Excel
-        </LoadingButton>
-        <NativeSelect
-          :model-value="sortKey"
-          aria-label="排名排序字段"
-          size="sm"
-          @change="selectSort"
-        >
-          <NativeSelectOption
-            v-for="column in rankingColumns"
-            :key="column.key"
-            :value="column.key"
+      <Card v-if="showingStrategyBody">
+        <CardHeader class="flex-row flex-wrap items-center justify-between gap-3">
+          <div><CardTitle><BilingualLabel label="rotationRanking" /></CardTitle><CardDescription>比较核心得分、状态和 5D / 20D 收益；点击 ETF 查看完整指标。</CardDescription></div>
+          <LoadingButton
+            variant="outline"
+            size="sm"
+            :loading="exporting"
+            loading-text="导出中…"
+            :disabled="loading || refreshing || previewLoading || forwardLoading || !sortedItems.length"
+            data-testid="etf-export-excel"
+            @click="exportRanking"
           >
-            {{ metricLabel(column.label).zh }}
-          </NativeSelectOption>
-          <NativeSelectOption value="entryScore">
-            {{ metricLabel('entry').zh }}
-          </NativeSelectOption>
-        </NativeSelect>
-      </CardHeader>
-      <CardContent class="px-0">
+            导出 Excel
+          </LoadingButton>
+          <NativeSelect
+            :model-value="sortKey"
+            aria-label="排名排序字段"
+            size="sm"
+            @change="selectSort"
+          >
+            <NativeSelectOption
+              v-for="column in rankingColumns"
+              :key="column.key"
+              :value="column.key"
+            >
+              {{ metricLabel(column.label).zh }}
+            </NativeSelectOption>
+            <NativeSelectOption value="entryScore">
+              {{ metricLabel('entry').zh }}
+            </NativeSelectOption>
+          </NativeSelect>
+        </CardHeader>
+        <CardContent class="px-0">
           <p
             v-if="forwardLoading"
             class="p-2 text-xs text-muted-foreground"
@@ -862,27 +862,27 @@ onMounted(async () => {
             action-label="重试收益率"
             @action="retryForward"
           />
-        <div
-          class="max-h-[680px] w-full overflow-auto [&_[data-slot=table-container]]:overflow-visible"
-          data-testid="etf-ranking-scroll"
-          tabindex="0"
-          aria-label="ETF 排名，滚动查看全部指标"
-        >
-          <Table class="w-full">
-            <TableHeader class="sticky top-0 z-30 bg-background">
-              <TableRow>
-                <SortableTableHeader
-                  v-for="column in rankingColumns"
-                  :key="column.key"
-                  :label="column.label"
-                  :description="column.description"
-                  :class="column.key === 'name' ? 'sticky left-0 z-20 min-w-48 bg-background' : ''"
-                  :active="sortKey === column.key"
-                  :direction="sortDirection"
-                  @sort="toggleSort(column.key)"
-                />
-              </TableRow>
-            </TableHeader><TableBody>
+          <div
+            class="max-h-[680px] w-full overflow-auto [&_[data-slot=table-container]]:overflow-visible"
+            data-testid="etf-ranking-scroll"
+            tabindex="0"
+            aria-label="ETF 排名，滚动查看全部指标"
+          >
+            <Table class="w-full">
+              <TableHeader class="sticky top-0 z-30 bg-background">
+                <TableRow>
+                  <SortableTableHeader
+                    v-for="column in rankingColumns"
+                    :key="column.key"
+                    :label="column.label"
+                    :description="column.description"
+                    :class="column.key === 'name' ? 'sticky left-0 z-20 min-w-48 bg-background' : ''"
+                    :active="sortKey === column.key"
+                    :direction="sortDirection"
+                    @sort="toggleSort(column.key)"
+                  />
+                </TableRow>
+              </TableHeader><TableBody>
                 <TableRow
                   v-for="item in sortedItems"
                   :key="item.code"
@@ -895,22 +895,22 @@ onMounted(async () => {
                   @keydown.enter.prevent="openDetail(item)"
                   @keydown.space.prevent="openDetail(item)"
                 >
-                <TableCell>#{{ item.rank ?? '—' }}</TableCell>
-                <TableCell
-                  class="sticky left-0 z-10 min-w-48 max-w-60 bg-background"
-                  data-column="name"
-                >
-                  <strong class="block break-words">{{ item.name }}</strong><span class="font-mono text-xs text-muted-foreground">{{ item.code }}</span>
-                </TableCell>
-                <TableCell>
-                  <Badge :variant="stateVariant(item.state)">
-                    {{ stateIcon(item.state) }}
-                    <BilingualEnum
-                      :value="item.state"
-                      size="badge"
-                    />
-                  </Badge>
-                </TableCell>
+                  <TableCell>#{{ item.rank ?? '—' }}</TableCell>
+                  <TableCell
+                    class="sticky left-0 z-10 min-w-48 max-w-60 bg-background"
+                    data-column="name"
+                  >
+                    <strong class="block break-words">{{ item.name }}</strong><span class="font-mono text-xs text-muted-foreground">{{ item.code }}</span>
+                  </TableCell>
+                  <TableCell>
+                    <Badge :variant="stateVariant(item.state)">
+                      {{ stateIcon(item.state) }}
+                      <BilingualEnum
+                        :value="item.state"
+                        size="badge"
+                      />
+                    </Badge>
+                  </TableCell>
                   <TableCell
                     v-for="column in forwardReturnColumns"
                     :key="column.key"
@@ -918,39 +918,39 @@ onMounted(async () => {
                   >
                     {{ pct(forwardReturn(item.code, column.key)) }}
                   </TableCell>
-                <TableCell>{{ durationText(item.trendDurationDays) }}</TableCell>
-                <TableCell class="font-bold text-primary">
-                  {{ score(item.compositeScore) }}
-                </TableCell>
-                <TableCell>{{ score(item.momentumStrengthScore) }}</TableCell>
-                <TableCell>{{ score(item.trendQualityScore) }}</TableCell>
-                <TableCell>{{ score(item.relativeStrengthScore) }}</TableCell>
-                <TableCell>
-                  <Badge :variant="actionVariant(item.action)">
-                    <BilingualEnum
-                      :value="item.action"
-                      size="badge"
-                    />
-                  </Badge>
-                </TableCell>
-                <TableCell
-                  v-for="key in (['ret5D','ret20D'] as const)"
-                  :key="key"
-                >
-                  {{ pct(item[key]) }}
-                </TableCell>
-                <TableCell
-                  v-for="key in (['rankChange1D', 'rankChange3D', 'rankChange5D'] as const)"
-                  :key="key"
-                >
-                  {{ rankChange(item[key]) }}
-                </TableCell>
-              </TableRow>
-            </TableBody>
-          </Table>
-        </div>
-      </CardContent>
-    </Card>
+                  <TableCell>{{ durationText(item.trendDurationDays) }}</TableCell>
+                  <TableCell class="font-bold text-primary">
+                    {{ score(item.compositeScore) }}
+                  </TableCell>
+                  <TableCell>{{ score(item.momentumStrengthScore) }}</TableCell>
+                  <TableCell>{{ score(item.trendQualityScore) }}</TableCell>
+                  <TableCell>{{ score(item.relativeStrengthScore) }}</TableCell>
+                  <TableCell>
+                    <Badge :variant="actionVariant(item.action)">
+                      <BilingualEnum
+                        :value="item.action"
+                        size="badge"
+                      />
+                    </Badge>
+                  </TableCell>
+                  <TableCell
+                    v-for="key in (['ret5D','ret20D'] as const)"
+                    :key="key"
+                  >
+                    {{ pct(item[key]) }}
+                  </TableCell>
+                  <TableCell
+                    v-for="key in (['rankChange1D', 'rankChange3D', 'rankChange5D'] as const)"
+                    :key="key"
+                  >
+                    {{ rankChange(item[key]) }}
+                  </TableCell>
+                </TableRow>
+              </TableBody>
+            </Table>
+          </div>
+        </CardContent>
+      </Card>
     </div>
 
     <Dialog

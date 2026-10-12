@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import IndicatorHelpLabel from '@/components/app/IndicatorHelpLabel.vue';
 import ResearchEvidence from './ResearchEvidence.vue';
 import DailyKLineCard from '@/components/market-data/DailyKLineCard.vue';
 import type { RealtimeQuote } from '@/api/realtimeMarket';
@@ -175,7 +176,11 @@ function movementClass(value: number | null | undefined): string {
                 class="min-w-0 rounded-xl border border-border/60 bg-background p-4"
               >
                 <dt class="text-sm text-muted-foreground">
-                  {{ metric.label }}
+                  <IndicatorHelpLabel
+                    scope="watch"
+                    :label="metric.label"
+                    compact
+                  />
                 </dt>
                 <dd
                   class="mt-2 break-words text-xl font-semibold tabular-nums"
@@ -212,7 +217,11 @@ function movementClass(value: number | null | undefined): string {
                 :class="['行情标识', '行情时间', '接收时间'].includes(entry[0] ?? '') ? 'col-span-2' : ''"
               >
                 <dt class="text-xs leading-5 text-muted-foreground">
-                  {{ entry[0] }}
+                  <IndicatorHelpLabel
+                    scope="watch"
+                    :label="entry[0]!"
+                    compact
+                  />
                 </dt>
                 <dd
                   class="mt-1 break-words text-sm leading-6 tabular-nums text-foreground"
@@ -239,7 +248,11 @@ function movementClass(value: number | null | undefined): string {
             >
               <div class="col-span-2">
                 <dt class="text-xs text-muted-foreground">
-                  股票
+                  <IndicatorHelpLabel
+                    scope="watch"
+                    label="股票"
+                    compact
+                  />
                 </dt>
                 <dd class="mt-1 text-sm text-foreground">
                   {{ formatSecurityLabel(stock.code, stock.name) }}
@@ -247,7 +260,11 @@ function movementClass(value: number | null | undefined): string {
               </div>
               <div>
                 <dt class="text-xs text-muted-foreground">
-                  所属市场
+                  <IndicatorHelpLabel
+                    scope="watch"
+                    label="所属市场"
+                    compact
+                  />
                 </dt>
                 <dd class="mt-1 text-sm text-foreground">
                   {{ marketName }}
@@ -255,7 +272,11 @@ function movementClass(value: number | null | undefined): string {
               </div>
               <div>
                 <dt class="text-xs text-muted-foreground">
-                  计价币种
+                  <IndicatorHelpLabel
+                    scope="watch"
+                    label="计价币种"
+                    compact
+                  />
                 </dt>
                 <dd class="mt-1 text-sm text-foreground">
                   {{ currencyCode }}
@@ -264,7 +285,11 @@ function movementClass(value: number | null | undefined): string {
               <template v-if="kind === 'holding'">
                 <div>
                   <dt class="text-xs text-muted-foreground">
-                    持仓数量
+                    <IndicatorHelpLabel
+                      scope="watch"
+                      label="持仓数量"
+                      compact
+                    />
                   </dt>
                   <dd class="mt-1 text-sm text-foreground">
                     {{ formatDecimalText(stock.quantity) }} 股
@@ -272,7 +297,11 @@ function movementClass(value: number | null | undefined): string {
                 </div>
                 <div>
                   <dt class="text-xs text-muted-foreground">
-                    平均成本
+                    <IndicatorHelpLabel
+                      scope="watch"
+                      label="平均成本"
+                      compact
+                    />
                   </dt>
                   <dd class="mt-1 text-sm text-foreground">
                     {{ formatMarketCurrencyAmount(stock.avg_cost, stock.market_type) }}
@@ -280,7 +309,11 @@ function movementClass(value: number | null | undefined): string {
                 </div>
                 <div>
                   <dt class="text-xs text-muted-foreground">
-                    持仓成本金额
+                    <IndicatorHelpLabel
+                      scope="watch"
+                      label="持仓成本金额"
+                      compact
+                    />
                   </dt>
                   <dd class="mt-1 text-sm text-foreground">
                     {{ formatHoldingCostAmount(stock.quantity, stock.avg_cost, stock.market_type) }}
@@ -288,7 +321,11 @@ function movementClass(value: number | null | undefined): string {
                 </div>
                 <div>
                   <dt class="text-xs text-muted-foreground">
-                    最新市值
+                    <IndicatorHelpLabel
+                      scope="watch"
+                      label="最新市值"
+                      compact
+                    />
                   </dt>
                   <dd class="mt-1 text-sm text-foreground">
                     {{ formatMarketCurrencyAmount(holdingMarketValue, stock.market_type) }}
@@ -296,7 +333,11 @@ function movementClass(value: number | null | undefined): string {
                 </div>
                 <div>
                   <dt class="text-xs text-muted-foreground">
-                    浮动盈亏
+                    <IndicatorHelpLabel
+                      scope="watch"
+                      label="浮动盈亏"
+                      compact
+                    />
                   </dt>
                   <dd
                     class="mt-1 text-sm font-medium"
@@ -307,7 +348,11 @@ function movementClass(value: number | null | undefined): string {
                 </div>
                 <div>
                   <dt class="text-xs text-muted-foreground">
-                    持仓收益率
+                    <IndicatorHelpLabel
+                      scope="watch"
+                      label="持仓收益率"
+                      compact
+                    />
                   </dt>
                   <dd
                     class="mt-1 text-sm font-medium"
@@ -318,7 +363,11 @@ function movementClass(value: number | null | undefined): string {
                 </div>
                 <div>
                   <dt class="text-xs text-muted-foreground">
-                    首次建仓时间
+                    <IndicatorHelpLabel
+                      scope="watch"
+                      label="首次建仓时间"
+                      compact
+                    />
                   </dt>
                   <dd class="mt-1 text-sm text-foreground">
                     {{ formatDateTimeInDisplayTimezone(stock.opened_at) }}
@@ -327,7 +376,11 @@ function movementClass(value: number | null | undefined): string {
               </template>
               <div v-else>
                 <dt class="text-xs text-muted-foreground">
-                  特别关注
+                  <IndicatorHelpLabel
+                    scope="watch"
+                    label="特别关注"
+                    compact
+                  />
                 </dt>
                 <dd class="mt-1 text-sm text-foreground">
                   {{ stock.is_favorite ? '是' : '否' }}
@@ -335,7 +388,11 @@ function movementClass(value: number | null | undefined): string {
               </div>
               <div class="col-span-2">
                 <dt class="text-xs text-muted-foreground">
-                  备注
+                  <IndicatorHelpLabel
+                    scope="watch"
+                    label="备注"
+                    compact
+                  />
                 </dt>
                 <dd class="mt-1 whitespace-pre-wrap break-words text-sm text-foreground">
                   {{ stock.notes || '—' }}
@@ -343,7 +400,11 @@ function movementClass(value: number | null | undefined): string {
               </div>
               <div>
                 <dt class="text-xs text-muted-foreground">
-                  记录 ID
+                  <IndicatorHelpLabel
+                    scope="watch"
+                    label="记录 ID"
+                    compact
+                  />
                 </dt>
                 <dd class="mt-1 font-mono text-sm text-foreground">
                   {{ stock.id }}
@@ -351,7 +412,11 @@ function movementClass(value: number | null | undefined): string {
               </div>
               <div>
                 <dt class="text-xs text-muted-foreground">
-                  添加时间
+                  <IndicatorHelpLabel
+                    scope="watch"
+                    label="添加时间"
+                    compact
+                  />
                 </dt>
                 <dd class="mt-1 text-sm text-foreground">
                   {{ formatDateTimeInDisplayTimezone(stock.created_at) }}
@@ -359,7 +424,11 @@ function movementClass(value: number | null | undefined): string {
               </div>
               <div>
                 <dt class="text-xs text-muted-foreground">
-                  更新时间
+                  <IndicatorHelpLabel
+                    scope="watch"
+                    label="更新时间"
+                    compact
+                  />
                 </dt>
                 <dd class="mt-1 text-sm text-foreground">
                   {{ formatDateTimeInDisplayTimezone(stock.updated_at) }}

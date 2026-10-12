@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import IndicatorHelpLabel from '@/components/app/IndicatorHelpLabel.vue';
 import { computed, onBeforeUnmount, ref, shallowRef, watch } from 'vue';
 import { trendFollowingApi } from '@/api/trendFollowing';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
@@ -249,6 +250,7 @@ async function exportSummary() {
             <SortableTableHeader
               v-for="column in columns"
               :key="column.key"
+              scope="study"
               :label="column.label"
               :active="sortKey === column.key"
               :direction="direction"
@@ -293,7 +295,11 @@ async function exportSummary() {
                 :key="label"
                 class="p-2 text-left text-xs"
               >
-                {{ label }}
+                <IndicatorHelpLabel
+                  scope="study"
+                  :label="label"
+                  compact
+                />
               </th>
             </TableRow>
           </TableHeader>
@@ -330,7 +336,11 @@ async function exportSummary() {
                 :key="label"
                 class="whitespace-nowrap p-2 text-left text-xs"
               >
-                {{ label }}
+                <IndicatorHelpLabel
+                  scope="study"
+                  :label="label"
+                  compact
+                />
               </th>
             </TableRow>
           </TableHeader>

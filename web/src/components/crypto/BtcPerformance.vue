@@ -2,7 +2,7 @@
 import { computed } from 'vue';
 import type { CryptoPerformance } from '@/types/crypto';
 import BilingualEnum from '@/components/app/BilingualEnum.vue';
-import BilingualLabel from '@/components/app/BilingualLabel.vue';
+import IndicatorHelpLabel from '@/components/app/IndicatorHelpLabel.vue';
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 const props = defineProps<{ performance: CryptoPerformance; price: string | null }>();
@@ -29,7 +29,12 @@ const curve = computed(() => {
 <template>
   <Card data-testid="btc-performance">
     <CardHeader>
-      <CardTitle><BilingualLabel label="performance" /></CardTitle>
+      <CardTitle>
+        <IndicatorHelpLabel
+          scope="crypto"
+          label="performance"
+        />
+      </CardTitle>
       <CardDescription>{{ performance.displayName }} · 有效起点 {{ performance.performanceStartAt ?? '等待完整仓位快照' }} · 截至 {{ performance.performanceEndAt ?? '—' }} · 15m 收盘净值，初始为 1 · 无手续费与滑点</CardDescription>
     </CardHeader>
     <CardContent class="space-y-5">
@@ -46,7 +51,11 @@ const curve = computed(() => {
             曲线显示抽样点，收益与回撤仍按全部 {{ performance.equityPointsTotal }} 条快照计算。
           </p>
           <p class="text-xs text-muted-foreground">
-            {{ label }}
+            <IndicatorHelpLabel
+              scope="crypto"
+              :label="String(label)"
+              compact
+            />
           </p><strong class="tabular-nums">{{ value }}</strong>
         </div>
       </div>
@@ -77,7 +86,10 @@ const curve = computed(() => {
       <div class="grid grid-cols-2 gap-6">
         <section>
           <h4 class="mb-2 font-medium">
-            <BilingualLabel label="recentExecutions" />
+            <IndicatorHelpLabel
+              scope="crypto"
+              label="recentExecutions"
+            />
           </h4>
           <p
             v-if="!performance.recentExecutions.length"
@@ -86,7 +98,35 @@ const curve = computed(() => {
             暂无完整仓位变化
           </p>
           <Table v-else>
-            <TableHeader><TableRow><TableHead>时间 UTC</TableHead><TableHead>操作</TableHead><TableHead>仓位</TableHead><TableHead>价格</TableHead></TableRow></TableHeader>
+            <TableHeader>
+              <TableRow>
+                <TableHead>
+                  <IndicatorHelpLabel
+                    scope="crypto"
+                    label="时间 UTC"
+                    compact
+                  />
+                </TableHead><TableHead>
+                  <IndicatorHelpLabel
+                    scope="crypto"
+                    label="操作"
+                    compact
+                  />
+                </TableHead><TableHead>
+                  <IndicatorHelpLabel
+                    scope="crypto"
+                    label="仓位"
+                    compact
+                  />
+                </TableHead><TableHead>
+                  <IndicatorHelpLabel
+                    scope="crypto"
+                    label="价格"
+                    compact
+                  />
+                </TableHead>
+              </TableRow>
+            </TableHeader>
             <TableBody>
               <TableRow
                 v-for="item in performance.recentExecutions.slice(0, 10)"
@@ -104,7 +144,10 @@ const curve = computed(() => {
         </section>
         <section>
           <h4 class="mb-2 font-medium">
-            <BilingualLabel label="recentTrades" />
+            <IndicatorHelpLabel
+              scope="crypto"
+              label="recentTrades"
+            />
           </h4>
           <p
             v-if="!performance.recentTrades.length"
@@ -113,7 +156,29 @@ const curve = computed(() => {
             暂无完整持仓周期
           </p>
           <Table v-else>
-            <TableHeader><TableRow><TableHead>入场 / 退出 UTC</TableHead><TableHead>持有</TableHead><TableHead>收益</TableHead></TableRow></TableHeader>
+            <TableHeader>
+              <TableRow>
+                <TableHead>
+                  <IndicatorHelpLabel
+                    scope="crypto"
+                    label="入场 / 退出 UTC"
+                    compact
+                  />
+                </TableHead><TableHead>
+                  <IndicatorHelpLabel
+                    scope="crypto"
+                    label="持有"
+                    compact
+                  />
+                </TableHead><TableHead>
+                  <IndicatorHelpLabel
+                    scope="crypto"
+                    label="收益"
+                    compact
+                  />
+                </TableHead>
+              </TableRow>
+            </TableHeader>
             <TableBody>
               <TableRow
                 v-for="item in performance.recentTrades.slice(0, 10)"

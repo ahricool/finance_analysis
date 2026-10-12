@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import IndicatorHelpLabel from '@/components/app/IndicatorHelpLabel.vue';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import { quantApi } from '@/api/quant';
 import ApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
@@ -372,49 +373,81 @@ watch(modelKey, () => {
           <dl class="mt-3 grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
             <div class="flex justify-between gap-3">
               <dt class="text-muted-foreground">
-                训练方式
+                <IndicatorHelpLabel
+                  scope="quant"
+                  label="训练方式"
+                  compact
+                />
               </dt>
               <dd>Walk-forward</dd>
             </div>
             <div class="flex justify-between gap-3">
               <dt class="text-muted-foreground">
-                训练窗口
+                <IndicatorHelpLabel
+                  scope="quant"
+                  label="训练窗口"
+                  compact
+                />
               </dt>
               <dd>3 年</dd>
             </div>
             <div class="flex justify-between gap-3">
               <dt class="text-muted-foreground">
-                验证窗口
+                <IndicatorHelpLabel
+                  scope="quant"
+                  label="验证窗口"
+                  compact
+                />
               </dt>
               <dd>3 个月</dd>
             </div>
             <div class="flex justify-between gap-3">
               <dt class="text-muted-foreground">
-                测试窗口
+                <IndicatorHelpLabel
+                  scope="quant"
+                  label="测试窗口"
+                  compact
+                />
               </dt>
               <dd>3 个月</dd>
             </div>
             <div class="flex justify-between gap-3">
               <dt class="text-muted-foreground">
-                重训频率
+                <IndicatorHelpLabel
+                  scope="quant"
+                  label="重训频率"
+                  compact
+                />
               </dt>
               <dd>3 个月</dd>
             </div>
             <div class="flex justify-between gap-3">
               <dt class="text-muted-foreground">
-                预测周期
+                <IndicatorHelpLabel
+                  scope="quant"
+                  label="预测周期"
+                  compact
+                />
               </dt>
               <dd>5 个交易日</dd>
             </div>
             <div class="flex justify-between gap-3">
               <dt class="text-muted-foreground">
-                Embargo
+                <IndicatorHelpLabel
+                  scope="quant"
+                  label="Embargo"
+                  compact
+                />
               </dt>
               <dd>2 个交易日</dd>
             </div>
             <div class="flex justify-between gap-3">
               <dt class="text-muted-foreground">
-                特征
+                <IndicatorHelpLabel
+                  scope="quant"
+                  label="特征"
+                  compact
+                />
               </dt>
               <dd class="text-right">
                 Alpha158
@@ -422,7 +455,11 @@ watch(modelKey, () => {
             </div>
             <div class="flex justify-between gap-3 sm:col-span-2">
               <dt class="text-muted-foreground">
-                标签
+                <IndicatorHelpLabel
+                  scope="quant"
+                  label="标签"
+                  compact
+                />
               </dt>
               <dd class="text-right">
                 {{ selectedTarget.target }}
