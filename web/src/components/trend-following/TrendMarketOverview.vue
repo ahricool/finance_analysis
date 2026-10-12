@@ -8,7 +8,7 @@ import VChart from 'vue-echarts';
 import { trendFollowingApi } from '@/api/trendFollowing';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import AppApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
-import BilingualLabel from '@/components/app/BilingualLabel.vue';
+import IndicatorHelpLabel from '@/components/app/IndicatorHelpLabel.vue';
 import { useTheme } from '@/composables/useTheme';
 import type { TrendBreadthResponse, TrendMarket } from '@/types/trendFollowing';
 import { breadthOption, delta5D, delta5DValue, percent } from './breadthCharts';
@@ -101,7 +101,10 @@ const warnings = computed(() => [
             :data-testid="`trend-kpi-${metric.key}`"
           >
             <p class="text-xs font-medium text-muted-foreground">
-              <BilingualLabel :label="metric.labelKey" />
+              <IndicatorHelpLabel
+                scope="trend"
+                :label="metric.labelKey"
+              />
             </p>
             <div class="mt-2 flex flex-wrap items-baseline gap-x-3 gap-y-1 tabular-nums">
               <strong class="text-2xl font-semibold tracking-tight sm:text-3xl">{{ percent(latest?.[metric.key]) }}</strong>

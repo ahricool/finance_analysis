@@ -2,6 +2,9 @@
 import type { HTMLAttributes } from 'vue';
 import { ArrowDown, ArrowUp, ArrowUpDown } from 'lucide-vue-next';
 import BilingualLabel from '@/components/app/BilingualLabel.vue';
+import MetricHint from '@/components/app/MetricHint.vue';
+import { metricLabel } from '@/i18n/labels';
+import { metricHint } from '@/utils/metricHints';
 import { TableHead } from '@/components/ui/table';
 import { cn } from '@/utils/cn';
 
@@ -9,12 +12,14 @@ const props = withDefaults(defineProps<{
   /** Glossary key from metricLabels, or raw Chinese. */
   label: string;
   description?: string;
+  scope?: string;
   active?: boolean;
   direction?: 'asc' | 'desc';
   align?: 'left' | 'right';
   class?: HTMLAttributes['class'];
 }>(), {
   description: undefined,
+  scope: undefined,
   active: false,
   direction: 'asc',
   align: 'left',
@@ -40,7 +45,6 @@ defineEmits<{
       >
         <BilingualLabel
           :label="label"
-          :description="description"
           compact
         />
         <ArrowUp
@@ -56,6 +60,11 @@ defineEmits<{
           class="h-3.5 w-3.5 shrink-0 opacity-50"
         />
       </button>
+      <MetricHint
+        v-if="description ?? metricHint(scope, label)"
+        :label="metricLabel(label).zh"
+        :description="(description ?? metricHint(scope, label))!"
+      />
     </div>
   </TableHead>
 </template>

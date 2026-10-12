@@ -460,24 +460,28 @@ onMounted(loadList);
             <TableHeader class="border-b border-border/70 text-xs text-muted-foreground">
               <TableRow>
                 <SortableTableHeader
+                  scope="watch"
                   label="关注"
                   :active="sortKey === 'is_favorite'"
                   :direction="sortDirection"
                   @sort="toggleSort('is_favorite')"
                 />
                 <SortableTableHeader
+                  scope="watch"
                   label="股票"
                   :active="sortKey === 'code'"
                   :direction="sortDirection"
                   @sort="toggleSort('code')"
                 />
                 <SortableTableHeader
+                  scope="watch"
                   label="市场"
                   :active="sortKey === 'market_type'"
                   :direction="sortDirection"
                   @sort="toggleSort('market_type')"
                 />
                 <SortableTableHeader
+                  scope="watch"
                   label="最新价"
                   align="right"
                   :active="sortKey === 'last_price'"
@@ -485,6 +489,7 @@ onMounted(loadList);
                   @sort="toggleSort('last_price')"
                 />
                 <SortableTableHeader
+                  scope="watch"
                   label="今日涨跌额"
                   align="right"
                   :active="sortKey === 'change_amount'"
@@ -492,6 +497,7 @@ onMounted(loadList);
                   @sort="toggleSort('change_amount')"
                 />
                 <SortableTableHeader
+                  scope="watch"
                   label="今日涨跌幅"
                   align="right"
                   :active="sortKey === 'change_pct'"
@@ -499,18 +505,21 @@ onMounted(loadList);
                   @sort="toggleSort('change_pct')"
                 />
                 <SortableTableHeader
+                  scope="watch"
                   label="趋势持续"
                   :active="sortKey === 'trend'"
                   :direction="sortDirection"
                   @sort="toggleSort('trend')"
                 />
                 <SortableTableHeader
+                  scope="watch"
                   label="最近形态"
                   :active="sortKey === 'pattern'"
                   :direction="sortDirection"
                   @sort="toggleSort('pattern')"
                 />
                 <SortableTableHeader
+                  scope="watch"
                   label="0DTE状态"
                   :active="sortKey === 'zero_dte'"
                   :direction="sortDirection"

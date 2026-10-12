@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import IndicatorHelpLabel from '@/components/app/IndicatorHelpLabel.vue';
 import PageHeader from '@/components/layout/PageHeader.vue';
 import { computed, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
@@ -200,14 +201,66 @@ watch(
     <Card v-else-if="rows.length">
       <CardHeader>
         <CardTitle>模型运行列表</CardTitle>
-        <CardDescription>Walk-forward 候选模型必须由管理员手动发布。</CardDescription>
+        <CardDescription>
+          <IndicatorHelpLabel
+            scope="quantModel"
+            label="Walk-forward 候选模型必须由管理员手动发布。"
+            compact
+          />
+        </CardDescription>
       </CardHeader>
       <CardContent>
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>模型</TableHead><TableHead>版本</TableHead><TableHead>状态</TableHead><TableHead>训练方式</TableHead><TableHead>核心指标</TableHead><TableHead>辅助指标</TableHead><TableHead>进度</TableHead><TableHead v-if="isAdmin">
-                操作
+              <TableHead>
+                <IndicatorHelpLabel
+                  scope="quantModel"
+                  label="模型"
+                  compact
+                />
+              </TableHead><TableHead>
+                <IndicatorHelpLabel
+                  scope="quantModel"
+                  label="版本"
+                  compact
+                />
+              </TableHead><TableHead>
+                <IndicatorHelpLabel
+                  scope="quantModel"
+                  label="状态"
+                  compact
+                />
+              </TableHead><TableHead>
+                <IndicatorHelpLabel
+                  scope="quantModel"
+                  label="训练方式"
+                  compact
+                />
+              </TableHead><TableHead>
+                <IndicatorHelpLabel
+                  scope="quantModel"
+                  label="核心指标"
+                  compact
+                />
+              </TableHead><TableHead>
+                <IndicatorHelpLabel
+                  scope="quantModel"
+                  label="辅助指标"
+                  compact
+                />
+              </TableHead><TableHead>
+                <IndicatorHelpLabel
+                  scope="quantModel"
+                  label="进度"
+                  compact
+                />
+              </TableHead><TableHead v-if="isAdmin">
+                <IndicatorHelpLabel
+                  scope="quantModel"
+                  label="操作"
+                  compact
+                />
               </TableHead>
             </TableRow>
           </TableHeader><TableBody>

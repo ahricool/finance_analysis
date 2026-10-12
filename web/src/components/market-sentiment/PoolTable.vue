@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import IndicatorHelpLabel from '@/components/app/IndicatorHelpLabel.vue';
 import type { Pool } from '@/api/marketSentiment';
 import { pct, money, flag } from './display';
 defineProps<{ pool: Pool | null }>();
@@ -17,8 +18,66 @@ defineProps<{ pool: Pool | null }>();
     <table class="w-full text-left text-xs">
       <thead class="bg-muted">
         <tr>
-          <th>代码 / 名称</th><th>连板文本</th><th>涨跌幅</th><th>涨停时间</th><th>当前封单额</th><th>峰值封单额</th><th>留存比</th><th>原始涨停原因</th><th>ST / 未开板新股</th><th v-if="pool.kind !== 'limit_up'">
-            补充字段
+          <th>
+            <IndicatorHelpLabel
+              scope="sentiment"
+              label="代码 / 名称"
+              compact
+            />
+          </th><th>
+            <IndicatorHelpLabel
+              scope="sentiment"
+              label="连板文本"
+              compact
+            />
+          </th><th>
+            <IndicatorHelpLabel
+              scope="sentiment"
+              label="涨跌幅"
+              compact
+            />
+          </th><th>
+            <IndicatorHelpLabel
+              scope="sentiment"
+              label="涨停时间"
+              compact
+            />
+          </th><th>
+            <IndicatorHelpLabel
+              scope="sentiment"
+              label="当前封单额"
+              compact
+            />
+          </th><th>
+            <IndicatorHelpLabel
+              scope="sentiment"
+              label="峰值封单额"
+              compact
+            />
+          </th><th>
+            <IndicatorHelpLabel
+              scope="sentiment"
+              label="留存比"
+              compact
+            />
+          </th><th>
+            <IndicatorHelpLabel
+              scope="sentiment"
+              label="原始涨停原因"
+              compact
+            />
+          </th><th>
+            <IndicatorHelpLabel
+              scope="sentiment"
+              label="ST / 未开板新股"
+              compact
+            />
+          </th><th v-if="pool.kind !== 'limit_up'">
+            <IndicatorHelpLabel
+              scope="sentiment"
+              label="补充字段"
+              compact
+            />
           </th>
         </tr>
       </thead>

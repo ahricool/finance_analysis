@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import IndicatorHelpLabel from '@/components/app/IndicatorHelpLabel.vue';
 import type { SignalEvaluation } from '@/api/signalCenter';
 import { formatRealizedReturn } from '@/utils/quant';
 import { formatDateTime } from '@/utils/format';
@@ -13,7 +14,11 @@ const states = { pending: '等待首日收盘', partial: '持续观察', complet
     data-testid="signal-evaluation"
   >
     <h4 class="font-semibold">
-      收益回看 · {{ states[evaluation.status] }}
+      <IndicatorHelpLabel
+        scope="signal"
+        label="收益回看"
+        compact
+      /> · {{ states[evaluation.status] }}
     </h4>
     <p class="text-xs text-muted-foreground">
       基准：{{ evaluation.entryDate || '待确定' }} 开盘 {{ evaluation.entryPrice?.toFixed(2) ?? '—' }}（前复权）
@@ -26,7 +31,11 @@ const states = { pending: '等待首日收盘', partial: '持续观察', complet
         class="rounded border p-2"
       >
         <p class="text-xs text-muted-foreground">
-          {{ days }}D 收益
+          <IndicatorHelpLabel
+            scope="signal"
+            :label="`${days}D 收益`"
+            compact
+          />
         </p>
         <p :class="returnClass(evaluation.horizons.find(h => h.days === days)?.value)">
           {{ horizonText(evaluation, days) }}
@@ -37,9 +46,27 @@ const states = { pending: '等待首日收盘', partial: '持续观察', complet
       </div>
     </div>
     <div class="grid grid-cols-3 gap-2">
-      <p>最大有利变动 <span :class="returnClass(evaluation.mfe)">{{ formatRealizedReturn(evaluation.mfe) }}</span></p>
-      <p>最大不利变动 <span :class="returnClass(evaluation.mae)">{{ formatRealizedReturn(evaluation.mae) }}</span></p>
-      <p>收盘最大回撤 <span :class="returnClass(evaluation.maxDrawdownClose)">{{ formatRealizedReturn(evaluation.maxDrawdownClose) }}</span></p>
+      <p>
+        <IndicatorHelpLabel
+          scope="signal"
+          label="最大有利变动"
+          compact
+        /> <span :class="returnClass(evaluation.mfe)">{{ formatRealizedReturn(evaluation.mfe) }}</span>
+      </p>
+      <p>
+        <IndicatorHelpLabel
+          scope="signal"
+          label="最大不利变动"
+          compact
+        /> <span :class="returnClass(evaluation.mae)">{{ formatRealizedReturn(evaluation.mae) }}</span>
+      </p>
+      <p>
+        <IndicatorHelpLabel
+          scope="signal"
+          label="收盘最大回撤"
+          compact
+        /> <span :class="returnClass(evaluation.maxDrawdownClose)">{{ formatRealizedReturn(evaluation.maxDrawdownClose) }}</span>
+      </p>
     </div>
     <p
       v-if="evaluation.missingDates.length"

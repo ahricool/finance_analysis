@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import IndicatorHelpLabel from '@/components/app/IndicatorHelpLabel.vue';
 import { onBeforeUnmount, onMounted } from 'vue';
 import { useRoute } from 'vue-router';
 import { parseDate } from '@internationalized/date';
@@ -113,7 +114,11 @@ onMounted(async () => {
       <dl class="flex flex-wrap gap-x-5 gap-y-1">
         <div class="flex gap-2">
           <dt class="text-muted-foreground">
-            快照
+            <IndicatorHelpLabel
+              scope="industry"
+              label="快照"
+              compact
+            />
           </dt>
           <dd data-testid="industry-snapshot-kind">
             {{ previewMode ? '盘中预览' : '正式收盘' }}
@@ -121,7 +126,11 @@ onMounted(async () => {
         </div>
         <div class="flex gap-2">
           <dt class="text-muted-foreground">
-            数据有效日期
+            <IndicatorHelpLabel
+              scope="industry"
+              label="数据有效日期"
+              compact
+            />
           </dt>
           <dd
             class="font-medium tabular-nums"
@@ -132,7 +141,11 @@ onMounted(async () => {
         </div>
         <div class="flex gap-2">
           <dt class="text-muted-foreground">
-            生成/更新
+            <IndicatorHelpLabel
+              scope="industry"
+              label="生成/更新"
+              compact
+            />
           </dt>
           <dd class="tabular-nums">
             {{ formatDateTime(snapshotMeta?.updatedAt) }}
@@ -140,7 +153,11 @@ onMounted(async () => {
         </div>
         <div class="flex gap-2">
           <dt class="text-muted-foreground">
-            行业覆盖
+            <IndicatorHelpLabel
+              scope="industry"
+              label="行业覆盖"
+              compact
+            />
           </dt>
           <dd
             class="tabular-nums"

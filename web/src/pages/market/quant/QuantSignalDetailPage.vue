@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import IndicatorHelpLabel from '@/components/app/IndicatorHelpLabel.vue';
 import PageHeader from '@/components/layout/PageHeader.vue';
 import DailyKLineCard from '@/components/market-data/DailyKLineCard.vue';
 import { quantApi } from '@/api/quant';
@@ -66,7 +67,11 @@ watch(
           class="rounded-xl border border-border bg-card p-3"
         >
           <p class="text-xs text-muted-foreground">
-            {{ row[0] }}
+            <IndicatorHelpLabel
+              scope="quant"
+              :label="String(row[0])"
+              compact
+            />
           </p>
           <p class="mt-1 font-semibold">
             {{ formatScore(row[1] as number | null) }}

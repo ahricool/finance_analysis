@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import IndicatorHelpLabel from '@/components/app/IndicatorHelpLabel.vue';
+import { metricHint } from '@/utils/metricHints';
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef } from 'vue';
 import { marketSentimentApi as api, type Overview, type History, type Pool, type Ladder } from '@/api/marketSentiment';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
@@ -194,8 +196,16 @@ onBeforeUnmount(() => { generation++; poolGeneration++; });
           </p>
           <div class="my-3 flex flex-wrap items-baseline gap-x-5 gap-y-1">
             <h2 class="text-3xl font-semibold">
-              {{ stateLabels[row.state] }}
-            </h2><span class="text-2xl tabular-nums">{{ row.heatScore?.toFixed(1) ?? '—' }}<small class="ml-1 text-xs text-muted-foreground">/ 100 热度</small></span>
+              <IndicatorHelpLabel
+                scope="sentiment"
+                :label="stateLabels[row.state]!"
+                :description="metricHint('sentiment', '情绪状态')"
+              />
+            </h2><span class="text-2xl tabular-nums">{{ row.heatScore?.toFixed(1) ?? '—' }}<small class="ml-1 text-xs text-muted-foreground">/ 100 <IndicatorHelpLabel
+              scope="sentiment"
+              label="热度"
+              compact
+            /></small></span>
           </div>
           <p
             v-for="r in row.stateReasons"
@@ -215,7 +225,11 @@ onBeforeUnmount(() => { generation++; poolGeneration++; });
             class="min-w-0"
           >
             <p class="text-sm text-muted-foreground">
-              {{ card.label }}
+              <IndicatorHelpLabel
+                scope="sentiment"
+                :label="card.label"
+                compact
+              />
             </p><p class="my-3 text-3xl tabular-nums">
               {{ card.value ?? '—' }}
             </p><p class="text-xs text-muted-foreground">
@@ -229,21 +243,33 @@ onBeforeUnmount(() => { generation++; poolGeneration++; });
       </section>
       <div class="grid grid-cols-1 gap-4 rounded-xl border p-4 text-sm sm:grid-cols-3">
         <div>
-          早封率 <strong>{{ pct(row.earlyLimitUpRatio) }}</strong><p class="mt-1 text-xs text-muted-foreground">
+          <IndicatorHelpLabel
+            scope="sentiment"
+            label="早封率"
+            compact
+          /> <strong>{{ pct(row.earlyLimitUpRatio) }}</strong><p class="mt-1 text-xs text-muted-foreground">
             ≤{{ row.earlyTimeThreshold }}：{{ row.earlyLimitUpCount ?? '—' }} / 时间有效 {{ row.validLimitUpTimeCount ?? '—' }} · 覆盖 {{ pct(row.timeCoverage) }}
           </p><p class="text-xs text-muted-foreground">
             {{ delta(row.changes.earlyLimitUpRatio, true) }}；上游仅称“涨停时间”
           </p>
         </div>
         <div>
-          封单留存中位数 <strong>{{ pct(row.sealRetentionMedian) }}</strong><p class="mt-1 text-xs text-muted-foreground">
+          <IndicatorHelpLabel
+            scope="sentiment"
+            label="封单留存中位数"
+            compact
+          /> <strong>{{ pct(row.sealRetentionMedian) }}</strong><p class="mt-1 text-xs text-muted-foreground">
             有效 {{ row.validSealRetentionCount ?? '—' }} 只 · 覆盖 {{ pct(row.sealRetentionCoverage) }}
           </p><p class="text-xs text-muted-foreground">
             {{ delta(row.changes.sealRetentionMedian, true) }}；封单结构代理，不保证不开板
           </p>
         </div>
         <div>
-          当前封单额有效样本合计 <strong>{{ money(row.sealMoneySum) }}</strong><p class="mt-1 text-xs text-muted-foreground">
+          <IndicatorHelpLabel
+            scope="sentiment"
+            label="当前封单额有效样本合计"
+            compact
+          /> <strong>{{ money(row.sealMoneySum) }}</strong><p class="mt-1 text-xs text-muted-foreground">
             有效 {{ row.validSealMoneyCount ?? '—' }} 只 · 金额覆盖 {{ pct(row.sealMoneyCoverage) }}；字段不全时并非全市场总额
           </p>
         </div>
@@ -316,7 +342,11 @@ onBeforeUnmount(() => { generation++; poolGeneration++; });
             <thead>
               <tr>
                 <th class="p-2">
-                  日期
+                  <IndicatorHelpLabel
+                    scope="sentiment"
+                    label="日期"
+                    compact
+                  />
                 </th><th
                   v-for="(label, key) in officialBoards"
                   :key="key"

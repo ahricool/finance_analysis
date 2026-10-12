@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import IndicatorHelpLabel from '@/components/app/IndicatorHelpLabel.vue';
 import type { MacroInstrument, MacroRatio } from '@/api/macro';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -19,18 +20,46 @@ const categories: Record<string, string> = { EQUITY: '权益', RATES: '利率', 
         <TableHeader>
           <TableRow>
             <TableHead>{{ ratios ? '指标' : '资产' }}</TableHead><TableHead v-if="!ratios">
-              类别
+              <IndicatorHelpLabel
+                scope="macro"
+                label="类别"
+                compact
+              />
             </TableHead><TableHead class="text-right">
-              {{ ratios ? '当前值' : '最新价' }}
+              <IndicatorHelpLabel
+                scope="macro"
+                :label="ratios ? '当前值' : '最新价'"
+                compact
+              />
             </TableHead><TableHead
               v-for="period in ['1D', '5D', '20D']"
               :key="period"
               class="text-right"
             >
-              {{ period }}
-            </TableHead><TableHead>趋势</TableHead><TableHead v-if="ratios">
-              信号
-            </TableHead><TableHead>数据日期</TableHead>
+              <IndicatorHelpLabel
+                scope="macro"
+                :label="period"
+                compact
+              />
+            </TableHead><TableHead>
+              <IndicatorHelpLabel
+                scope="macro"
+                label="趋势"
+                compact
+              />
+            </TableHead><TableHead v-if="ratios">
+              <IndicatorHelpLabel
+                scope="macro"
+                label="信号"
+                compact
+              />
+            </TableHead><TableHead>
+              <IndicatorHelpLabel
+                scope="macro"
+                label="数据日期"
+                compact
+              />
+            </TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>

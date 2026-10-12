@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import IndicatorHelpLabel from '@/components/app/IndicatorHelpLabel.vue';
 import PageHeader from '@/components/layout/PageHeader.vue';
 import { quantApi } from '@/api/quant';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
@@ -88,28 +89,52 @@ watch(
       <section class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <Card>
           <CardHeader>
-            <CardDescription>市场状态</CardDescription><CardTitle class="text-2xl">
+            <CardDescription>
+              <IndicatorHelpLabel
+                scope="quant"
+                label="市场状态"
+                compact
+              />
+            </CardDescription><CardTitle class="text-2xl">
               {{ regime ? regimeLabels[regime.regime] : '数据不可用' }}
             </CardTitle>
           </CardHeader>
         </Card>
         <Card>
           <CardHeader>
-            <CardDescription>市场得分</CardDescription><CardTitle class="text-2xl">
+            <CardDescription>
+              <IndicatorHelpLabel
+                scope="quant"
+                label="市场得分"
+                compact
+              />
+            </CardDescription><CardTitle class="text-2xl">
               {{ formatScore(regime?.marketScore) }}
             </CardTitle>
           </CardHeader>
         </Card>
         <Card>
           <CardHeader>
-            <CardDescription>建议最大仓位</CardDescription><CardTitle class="text-2xl">
+            <CardDescription>
+              <IndicatorHelpLabel
+                scope="quant"
+                label="建议最大仓位"
+                compact
+              />
+            </CardDescription><CardTitle class="text-2xl">
               {{ formatPercent(regime?.maxEquityExposure) }}
             </CardTitle>
           </CardHeader>
         </Card>
         <Card>
           <CardHeader>
-            <CardDescription>模型 / 行情日期</CardDescription><CardTitle class="text-base">
+            <CardDescription>
+              <IndicatorHelpLabel
+                scope="quant"
+                label="模型 / 行情日期"
+                compact
+              />
+            </CardDescription><CardTitle class="text-base">
               {{ ranking?.modelVersion ?? '—' }}
             </CardTitle><p class="text-xs text-muted-foreground">
               {{ ranking?.tradeDate ?? '—' }}
@@ -121,7 +146,11 @@ watch(
         <CardHeader>
           <CardTitle>市场得分拆解</CardTitle>
           <CardDescription>
-            原始指标先标准化到 0–1，再按权重汇总；贡献之和等于市场得分。
+            <IndicatorHelpLabel
+              scope="quant"
+              label="原始指标先标准化到 0–1，再按权重汇总；贡献之和等于市场得分。"
+              compact
+            />
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -141,7 +170,15 @@ watch(
         </CardContent>
       </Card>
       <Card>
-        <CardHeader><CardTitle>市场得分历史</CardTitle><CardDescription>观察市场状态的时间序列变化。</CardDescription></CardHeader>
+        <CardHeader>
+          <CardTitle>市场得分历史</CardTitle><CardDescription>
+            <IndicatorHelpLabel
+              scope="quant"
+              label="观察市场状态的时间序列变化。"
+              compact
+            />
+          </CardDescription>
+        </CardHeader>
         <CardContent>
           <MarketScoreChart
             v-if="history.length"
@@ -171,19 +208,75 @@ watch(
               <TableHeader class="text-left text-xs text-muted-foreground">
                 <TableRow>
                   <TableHead class="p-2">
-                    排名
+                    <IndicatorHelpLabel
+                      scope="quant"
+                      label="排名"
+                      compact
+                    />
                   </TableHead>
                   <TableHead class="min-w-[220px]">
-                    股票
+                    <IndicatorHelpLabel
+                      scope="quant"
+                      label="股票"
+                      compact
+                    />
                   </TableHead>
-                  <TableHead>最终得分</TableHead>
-                  <TableHead>横截面</TableHead>
-                  <TableHead>时间序列</TableHead>
-                  <TableHead>预测收益</TableHead>
-                  <TableHead>3D收益</TableHead>
-                  <TableHead>5D收益</TableHead>
-                  <TableHead>至今收益</TableHead>
-                  <TableHead>信号</TableHead>
+                  <TableHead>
+                    <IndicatorHelpLabel
+                      scope="quant"
+                      label="最终得分"
+                      compact
+                    />
+                  </TableHead>
+                  <TableHead>
+                    <IndicatorHelpLabel
+                      scope="quant"
+                      label="横截面"
+                      compact
+                    />
+                  </TableHead>
+                  <TableHead>
+                    <IndicatorHelpLabel
+                      scope="quant"
+                      label="时间序列"
+                      compact
+                    />
+                  </TableHead>
+                  <TableHead>
+                    <IndicatorHelpLabel
+                      scope="quant"
+                      label="预测收益"
+                      compact
+                    />
+                  </TableHead>
+                  <TableHead>
+                    <IndicatorHelpLabel
+                      scope="quant"
+                      label="3D收益"
+                      compact
+                    />
+                  </TableHead>
+                  <TableHead>
+                    <IndicatorHelpLabel
+                      scope="quant"
+                      label="5D收益"
+                      compact
+                    />
+                  </TableHead>
+                  <TableHead>
+                    <IndicatorHelpLabel
+                      scope="quant"
+                      label="至今收益"
+                      compact
+                    />
+                  </TableHead>
+                  <TableHead>
+                    <IndicatorHelpLabel
+                      scope="quant"
+                      label="信号"
+                      compact
+                    />
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>

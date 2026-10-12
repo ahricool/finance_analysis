@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import IndicatorHelpLabel from '@/components/app/IndicatorHelpLabel.vue';
 import PageHeader from '@/components/layout/PageHeader.vue';
 import { quantApi } from '@/api/quant';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
@@ -61,9 +62,39 @@ watch(
     </div>
     <template v-else-if="item">
       <section class="grid gap-3 sm:grid-cols-3">
-        <Card><CardHeader><CardDescription>交易日</CardDescription><CardTitle>{{ item.tradeDate }}</CardTitle></CardHeader></Card>
-        <Card><CardHeader><CardDescription>目标总仓位</CardDescription><CardTitle>{{ formatPercent(item.targetEquityExposure) }}</CardTitle></CardHeader></Card>
-        <Card><CardHeader><CardDescription>最大总仓位</CardDescription><CardTitle>{{ formatPercent(item.maxEquityExposure) }}</CardTitle></CardHeader></Card>
+        <Card>
+          <CardHeader>
+            <CardDescription>
+              <IndicatorHelpLabel
+                scope="quant"
+                label="交易日"
+                compact
+              />
+            </CardDescription><CardTitle>{{ item.tradeDate }}</CardTitle>
+          </CardHeader>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardDescription>
+              <IndicatorHelpLabel
+                scope="quant"
+                label="目标总仓位"
+                compact
+              />
+            </CardDescription><CardTitle>{{ formatPercent(item.targetEquityExposure) }}</CardTitle>
+          </CardHeader>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardDescription>
+              <IndicatorHelpLabel
+                scope="quant"
+                label="最大总仓位"
+                compact
+              />
+            </CardDescription><CardTitle>{{ formatPercent(item.maxEquityExposure) }}</CardTitle>
+          </CardHeader>
+        </Card>
       </section>
       <Alert
         v-if="item.warnings.length"
@@ -74,19 +105,61 @@ watch(
         </AlertDescription>
       </Alert>
       <Card>
-        <CardHeader><CardTitle>目标持仓</CardTitle><CardDescription>展示模型建议的目标权重和信号得分。</CardDescription></CardHeader>
+        <CardHeader>
+          <CardTitle>目标持仓</CardTitle><CardDescription>
+            <IndicatorHelpLabel
+              scope="quant"
+              label="展示模型建议的目标权重和信号得分。"
+              compact
+            />
+          </CardDescription>
+        </CardHeader>
         <CardContent class="block">
           <Table class="w-full min-w-[900px] text-sm">
             <TableHeader class="text-left text-xs text-muted-foreground">
               <TableRow>
                 <TableHead class="min-w-[220px] p-3">
-                  股票
+                  <IndicatorHelpLabel
+                    scope="quant"
+                    label="股票"
+                    compact
+                  />
                 </TableHead>
-                <TableHead>排名</TableHead>
-                <TableHead>目标权重</TableHead>
-                <TableHead>信号</TableHead>
-                <TableHead>得分</TableHead>
-                <TableHead>预测收益</TableHead>
+                <TableHead>
+                  <IndicatorHelpLabel
+                    scope="quant"
+                    label="排名"
+                    compact
+                  />
+                </TableHead>
+                <TableHead>
+                  <IndicatorHelpLabel
+                    scope="quant"
+                    label="目标权重"
+                    compact
+                  />
+                </TableHead>
+                <TableHead>
+                  <IndicatorHelpLabel
+                    scope="quant"
+                    label="信号"
+                    compact
+                  />
+                </TableHead>
+                <TableHead>
+                  <IndicatorHelpLabel
+                    scope="quant"
+                    label="得分"
+                    compact
+                  />
+                </TableHead>
+                <TableHead>
+                  <IndicatorHelpLabel
+                    scope="quant"
+                    label="预测收益"
+                    compact
+                  />
+                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>

@@ -11,7 +11,7 @@ import AppDatePicker from '@/components/app/AppDatePicker.vue';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Table, TableHeader, TableHead, TableBody, TableRow, TableCell } from '@/components/ui/table';
 import BilingualEnum from '@/components/app/BilingualEnum.vue';
-import BilingualLabel from '@/components/app/BilingualLabel.vue';
+import IndicatorHelpLabel from '@/components/app/IndicatorHelpLabel.vue';
 
 const markets: SignalMarket[] = ['CN', 'US'];
 const names = { CN: 'A股', US: '美股' };
@@ -128,14 +128,54 @@ onBeforeUnmount(() => { ++generation; ++detailGeneration; });
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead>日期</TableHead><TableHead>市场</TableHead><TableHead>股票</TableHead>
-            <TableHead><BilingualLabel label="decision" compact /></TableHead>
-            <TableHead><BilingualLabel label="confidence" compact /></TableHead><TableHead
+            <TableHead>
+              <IndicatorHelpLabel
+                scope="signal"
+                label="日期"
+                compact
+              />
+            </TableHead><TableHead>
+              <IndicatorHelpLabel
+                scope="signal"
+                label="市场"
+                compact
+              />
+            </TableHead><TableHead>
+              <IndicatorHelpLabel
+                scope="signal"
+                label="股票"
+                compact
+              />
+            </TableHead>
+            <TableHead>
+              <IndicatorHelpLabel
+                scope="signal"
+                label="decision"
+                compact
+              />
+            </TableHead>
+            <TableHead>
+              <IndicatorHelpLabel
+                scope="signal"
+                label="confidence"
+                compact
+              />
+            </TableHead><TableHead
               v-for="days in [1, 3, 5, 10]"
               :key="days"
             >
-              {{ days }}D 收益
-            </TableHead><TableHead>详情</TableHead>
+              <IndicatorHelpLabel
+                scope="signal"
+                :label="`${days}D 收益`"
+                compact
+              />
+            </TableHead><TableHead>
+              <IndicatorHelpLabel
+                scope="signal"
+                label="详情"
+                compact
+              />
+            </TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>

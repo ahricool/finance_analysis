@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import IndicatorHelpLabel from '@/components/app/IndicatorHelpLabel.vue';
 import PageHeader from '@/components/layout/PageHeader.vue';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import {
@@ -316,20 +317,52 @@ function closeDetail() {
     <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
       <Card>
         <CardHeader>
-          <CardDescription>总资产</CardDescription><CardTitle data-testid="total-asset">
+          <CardDescription>
+            <IndicatorHelpLabel
+              scope="holdings"
+              label="总资产"
+              compact
+            />
+          </CardDescription><CardTitle data-testid="total-asset">
             {{ fmt(totalAsset) }}
           </CardTitle>
         </CardHeader>
       </Card>
       <Card>
         <CardHeader>
-          <CardDescription>现金</CardDescription><CardTitle data-testid="cash">
+          <CardDescription>
+            <IndicatorHelpLabel
+              scope="holdings"
+              label="现金"
+              compact
+            />
+          </CardDescription><CardTitle data-testid="cash">
             {{ fmt(cash) }}
           </CardTitle>
         </CardHeader>
       </Card>
-      <Card><CardHeader><CardDescription>持仓市值</CardDescription><CardTitle>{{ fmt(marketValue) }}</CardTitle></CardHeader></Card>
-      <Card><CardHeader><CardDescription>总仓位</CardDescription><CardTitle>{{ exposure ? `${(Number(exposure) * 100).toFixed(1)}%` : '-' }}</CardTitle></CardHeader></Card>
+      <Card>
+        <CardHeader>
+          <CardDescription>
+            <IndicatorHelpLabel
+              scope="holdings"
+              label="持仓市值"
+              compact
+            />
+          </CardDescription><CardTitle>{{ fmt(marketValue) }}</CardTitle>
+        </CardHeader>
+      </Card>
+      <Card>
+        <CardHeader>
+          <CardDescription>
+            <IndicatorHelpLabel
+              scope="holdings"
+              label="总仓位"
+              compact
+            />
+          </CardDescription><CardTitle>{{ exposure ? `${(Number(exposure) * 100).toFixed(1)}%` : '-' }}</CardTitle>
+        </CardHeader>
+      </Card>
     </div>
 
     <div class="flex flex-wrap gap-2">
@@ -365,15 +398,69 @@ function closeDetail() {
         <Table v-else>
           <TableHeader>
             <TableRow>
-              <TableHead>股票</TableHead>
-              <TableHead>现价</TableHead>
-              <TableHead>数量（股）</TableHead>
-              <TableHead>平均成本</TableHead>
-              <TableHead>市值</TableHead>
-              <TableHead>仓位</TableHead>
-              <TableHead>盈亏</TableHead>
-              <TableHead>交易引擎</TableHead>
-              <TableHead>操作</TableHead>
+              <TableHead>
+                <IndicatorHelpLabel
+                  scope="holdings"
+                  label="股票"
+                  compact
+                />
+              </TableHead>
+              <TableHead>
+                <IndicatorHelpLabel
+                  scope="holdings"
+                  label="现价"
+                  compact
+                />
+              </TableHead>
+              <TableHead>
+                <IndicatorHelpLabel
+                  scope="holdings"
+                  label="数量（股）"
+                  compact
+                />
+              </TableHead>
+              <TableHead>
+                <IndicatorHelpLabel
+                  scope="holdings"
+                  label="平均成本"
+                  compact
+                />
+              </TableHead>
+              <TableHead>
+                <IndicatorHelpLabel
+                  scope="holdings"
+                  label="市值"
+                  compact
+                />
+              </TableHead>
+              <TableHead>
+                <IndicatorHelpLabel
+                  scope="holdings"
+                  label="仓位"
+                  compact
+                />
+              </TableHead>
+              <TableHead>
+                <IndicatorHelpLabel
+                  scope="holdings"
+                  label="盈亏"
+                  compact
+                />
+              </TableHead>
+              <TableHead>
+                <IndicatorHelpLabel
+                  scope="holdings"
+                  label="交易引擎"
+                  compact
+                />
+              </TableHead>
+              <TableHead>
+                <IndicatorHelpLabel
+                  scope="holdings"
+                  label="操作"
+                  compact
+                />
+              </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>

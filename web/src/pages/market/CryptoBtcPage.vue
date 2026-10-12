@@ -8,7 +8,7 @@ import BtcPerformance from '@/components/crypto/BtcPerformance.vue';
 import BtcKlineChart from '@/components/crypto/BtcKlineChart.vue';
 import AppApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
 import BilingualEnum from '@/components/app/BilingualEnum.vue';
-import BilingualLabel from '@/components/app/BilingualLabel.vue';
+import IndicatorHelpLabel from '@/components/app/IndicatorHelpLabel.vue';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -188,13 +188,15 @@ function time(value: string | null | undefined) {
       >
         <CardHeader class="px-3 pb-1 pt-0">
           <CardDescription>
-            <BilingualLabel
+            <IndicatorHelpLabel
               v-if="metric.labelKey"
+              scope="crypto"
               :label="metric.labelKey"
             />
-            <BilingualLabel
+            <IndicatorHelpLabel
               v-else
-              :zh="metric.label"
+              scope="crypto"
+              :label="metric.label!"
               :en="metric.en"
             />
           </CardDescription>
@@ -232,12 +234,48 @@ function time(value: string | null | undefined) {
         <Table v-else>
           <TableHeader>
             <TableRow>
-              <TableHead>时间 UTC</TableHead>
-              <TableHead><BilingualLabel label="action" compact /></TableHead>
-              <TableHead><BilingualLabel label="marketRegime" compact /></TableHead>
-              <TableHead>价格</TableHead>
-              <TableHead>状态</TableHead>
-              <TableHead>原因</TableHead>
+              <TableHead>
+                <IndicatorHelpLabel
+                  scope="crypto"
+                  label="时间 UTC"
+                  compact
+                />
+              </TableHead>
+              <TableHead>
+                <IndicatorHelpLabel
+                  scope="crypto"
+                  label="action"
+                  compact
+                />
+              </TableHead>
+              <TableHead>
+                <IndicatorHelpLabel
+                  scope="crypto"
+                  label="marketRegime"
+                  compact
+                />
+              </TableHead>
+              <TableHead>
+                <IndicatorHelpLabel
+                  scope="crypto"
+                  label="价格"
+                  compact
+                />
+              </TableHead>
+              <TableHead>
+                <IndicatorHelpLabel
+                  scope="crypto"
+                  label="状态"
+                  compact
+                />
+              </TableHead>
+              <TableHead>
+                <IndicatorHelpLabel
+                  scope="crypto"
+                  label="原因"
+                  compact
+                />
+              </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -282,18 +320,69 @@ function time(value: string | null | undefined) {
       v-if="summaries.length >= 2"
       data-testid="btc-strategy-comparison"
     >
-      <CardHeader><CardTitle><BilingualLabel label="strategyComparison" /></CardTitle></CardHeader>
+      <CardHeader>
+        <CardTitle>
+          <IndicatorHelpLabel
+            scope="crypto"
+            label="strategyComparison"
+          />
+        </CardTitle>
+      </CardHeader>
       <CardContent class="overflow-x-auto">
         <Table>
-          <TableHeader><TableRow>
-            <TableHead><BilingualLabel label="strategy" compact /></TableHead>
-            <TableHead><BilingualLabel label="position" compact /></TableHead>
-            <TableHead><BilingualLabel label="totalReturn" compact /></TableHead>
-            <TableHead><BilingualLabel label="annualized" compact /></TableHead>
-            <TableHead><BilingualLabel label="maxDrawdown" compact /></TableHead>
-            <TableHead><BilingualLabel label="winRate" compact /></TableHead>
-            <TableHead><BilingualLabel label="runningDays" compact /></TableHead>
-          </TableRow></TableHeader>
+          <TableHeader>
+            <TableRow>
+              <TableHead>
+                <IndicatorHelpLabel
+                  scope="crypto"
+                  label="strategy"
+                  compact
+                />
+              </TableHead>
+              <TableHead>
+                <IndicatorHelpLabel
+                  scope="crypto"
+                  label="position"
+                  compact
+                />
+              </TableHead>
+              <TableHead>
+                <IndicatorHelpLabel
+                  scope="crypto"
+                  label="totalReturn"
+                  compact
+                />
+              </TableHead>
+              <TableHead>
+                <IndicatorHelpLabel
+                  scope="crypto"
+                  label="annualized"
+                  compact
+                />
+              </TableHead>
+              <TableHead>
+                <IndicatorHelpLabel
+                  scope="crypto"
+                  label="maxDrawdown"
+                  compact
+                />
+              </TableHead>
+              <TableHead>
+                <IndicatorHelpLabel
+                  scope="crypto"
+                  label="winRate"
+                  compact
+                />
+              </TableHead>
+              <TableHead>
+                <IndicatorHelpLabel
+                  scope="crypto"
+                  label="runningDays"
+                  compact
+                />
+              </TableHead>
+            </TableRow>
+          </TableHeader>
           <TableBody>
             <TableRow
               v-for="item in summaries"

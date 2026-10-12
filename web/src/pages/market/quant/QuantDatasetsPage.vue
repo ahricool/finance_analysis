@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import IndicatorHelpLabel from '@/components/app/IndicatorHelpLabel.vue';
 import PageHeader from '@/components/layout/PageHeader.vue';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import { quantApi } from '@/api/quant';
@@ -231,7 +232,15 @@ watch(
     </div>
     <template v-else-if="rows.length">
       <Card class="block">
-        <CardHeader><CardTitle>数据集快照</CardTitle><CardDescription>构建状态、覆盖率、数据口径与训练可用性。</CardDescription></CardHeader><CardContent>
+        <CardHeader>
+          <CardTitle>数据集快照</CardTitle><CardDescription>
+            <IndicatorHelpLabel
+              scope="quantDataset"
+              label="构建状态、覆盖率、数据口径与训练可用性。"
+              compact
+            />
+          </CardDescription>
+        </CardHeader><CardContent>
           <Table
             class="min-w-[1680px] w-full text-left text-sm"
             data-testid="quant-dataset-table"
@@ -239,46 +248,102 @@ watch(
             <TableHeader class="border-b border-border text-xs text-muted-foreground">
               <TableRow>
                 <TableHead class="px-3 py-3 font-medium">
-                  数据集 ID
+                  <IndicatorHelpLabel
+                    scope="quantDataset"
+                    label="数据集 ID"
+                    compact
+                  />
                 </TableHead>
                 <TableHead class="px-3 py-3 font-medium">
-                  市场
+                  <IndicatorHelpLabel
+                    scope="quantDataset"
+                    label="市场"
+                    compact
+                  />
                 </TableHead>
                 <TableHead class="px-3 py-3 font-medium">
-                  Universe
+                  <IndicatorHelpLabel
+                    scope="quantDataset"
+                    label="Universe"
+                    compact
+                  />
                 </TableHead>
                 <TableHead class="px-3 py-3 font-medium">
-                  开始日期
+                  <IndicatorHelpLabel
+                    scope="quantDataset"
+                    label="开始日期"
+                    compact
+                  />
                 </TableHead>
                 <TableHead class="px-3 py-3 font-medium">
-                  结束日期
+                  <IndicatorHelpLabel
+                    scope="quantDataset"
+                    label="结束日期"
+                    compact
+                  />
                 </TableHead>
                 <TableHead class="px-3 py-3 font-medium">
-                  状态
+                  <IndicatorHelpLabel
+                    scope="quantDataset"
+                    label="状态"
+                    compact
+                  />
                 </TableHead>
                 <TableHead class="px-3 py-3 font-medium">
-                  股票数量
+                  <IndicatorHelpLabel
+                    scope="quantDataset"
+                    label="股票数量"
+                    compact
+                  />
                 </TableHead>
                 <TableHead class="px-3 py-3 font-medium">
-                  数据行数
+                  <IndicatorHelpLabel
+                    scope="quantDataset"
+                    label="数据行数"
+                    compact
+                  />
                 </TableHead>
                 <TableHead class="px-3 py-3 font-medium">
-                  价格模式
+                  <IndicatorHelpLabel
+                    scope="quantDataset"
+                    label="价格模式"
+                    compact
+                  />
                 </TableHead>
                 <TableHead class="px-3 py-3 font-medium">
-                  特征版本
+                  <IndicatorHelpLabel
+                    scope="quantDataset"
+                    label="特征版本"
+                    compact
+                  />
                 </TableHead>
                 <TableHead class="px-3 py-3 font-medium">
-                  创建时间
+                  <IndicatorHelpLabel
+                    scope="quantDataset"
+                    label="创建时间"
+                    compact
+                  />
                 </TableHead>
                 <TableHead class="px-3 py-3 font-medium">
-                  完成时间
+                  <IndicatorHelpLabel
+                    scope="quantDataset"
+                    label="完成时间"
+                    compact
+                  />
                 </TableHead>
                 <TableHead class="min-w-[240px] px-3 py-3 font-medium">
-                  验证结果 / 失败原因
+                  <IndicatorHelpLabel
+                    scope="quantDataset"
+                    label="验证结果 / 失败原因"
+                    compact
+                  />
                 </TableHead>
                 <TableHead class="px-3 py-3 font-medium">
-                  操作
+                  <IndicatorHelpLabel
+                    scope="quantDataset"
+                    label="操作"
+                    compact
+                  />
                 </TableHead>
               </TableRow>
             </TableHeader>
