@@ -1,5 +1,8 @@
 <script setup lang="ts">
 import IndicatorHelpLabel from '@/components/app/IndicatorHelpLabel.vue';
+import StockDetailDialog from '@/components/stocks/StockDetailDialog.vue';
+import type { QuantSignal } from '@/types/quant';
+import { Button } from '@/components/ui/button';
 import PageHeader from '@/components/layout/PageHeader.vue';
 import { quantApi } from '@/api/quant';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
@@ -15,12 +18,15 @@ import { useQuantMarket } from '@/composables/useQuantMarket';
 import type { MarketRegime, QuantCapabilities, SignalRanking } from '@/types/quant';
 import { formatPercent, formatPredictedReturn, formatRealizedReturn, formatScore, regimeLabels } from '@/utils/quant';
 import { formatSecurityLabel } from '@/utils/security';
-import { ref, watch } from 'vue';
+import { onBeforeUnmount, ref, watch } from 'vue';
 
 const { market, marketQuery, tradeDate } = useQuantMarket();
 const capability = ref<QuantCapabilities | null>(null);
 const regime = ref<MarketRegime | null>(null);
 const history = ref<MarketRegime[]>([]);
+const selected = ref<QuantSignal | null>(null);
+const dialogOpen = ref(false);
+function show(item: QuantSignal) { selected.value = item; dialogOpen.value = true; }
 const ranking = ref<SignalRanking | null>(null);
 const loading = ref(true);
 const error = ref<ParsedApiError | null>(null);
@@ -30,6 +36,7 @@ watch(
   [market, tradeDate],
   async ([current, date]) => {
     const version = ++requestVersion;
+    selected.value = null; dialogOpen.value = false;
     capability.value = null;
     regime.value = null;
     history.value = [];
@@ -52,6 +59,7 @@ watch(
   },
   { immediate: true },
 );
+onBeforeUnmount(() => { ++requestVersion; });
 </script>
 
 <template>
@@ -289,12 +297,13 @@ watch(
                     {{ item.universeRank ?? '—' }}
                   </TableCell>
                   <TableCell>
-                    <RouterLink
-                      :to="{ path: `/research/quant/signals/${item.code}`, query: marketQuery() }"
+                    <Button
+                      variant="link"
                       class="font-medium underline-offset-4 hover:underline"
+                      @click="show(item)"
                     >
                       {{ formatSecurityLabel(item.code, item.name) }}
-                    </RouterLink>
+                    </Button>
                   </TableCell>
                   <TableCell>{{ formatScore(item.finalScore) }}</TableCell>
                   <TableCell>{{ formatScore(item.crossSectionScore) }}</TableCell>
@@ -317,5 +326,12 @@ watch(
         </CardContent>
       </Card>
     </template>
+    <StockDetailDialog
+      v-model:open="dialogOpen"
+      :stock="selected ? { code: selected.code, name: selected.name || '', market_type: market } : null"
+      kind="research"
+      initial-tab="quant"
+      :context="{ tradeDate: selected?.tradeDate || ranking?.tradeDate || tradeDate || undefined, view: 'official' }"
+    />
   </div>
 </template>

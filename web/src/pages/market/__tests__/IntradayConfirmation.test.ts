@@ -1,6 +1,7 @@
 import { mount, flushPromises } from '@vue/test-utils';
 import { describe, expect, it, vi } from 'vitest';
 import Page from '../IntradayConfirmationPage.vue';
+import StockDetailDialog from '@/components/stocks/StockDetailDialog.vue';
 import { intradayConfirmationApi as api } from '@/api/intradayConfirmation';
 vi.mock('@/api/intradayConfirmation', () => ({ intradayConfirmationApi: { read: vi.fn(), run: vi.fn() } }));
 vi.mock('@/composables/useAuth', () => ({ useAuth: () => ({ currentUser: { role: 'user' } }) }));
@@ -61,4 +62,20 @@ describe('intraday confirmation page', () => {
     expect(wrapper.text()).toContain('开盘后不会根据涨幅补建候选');
     wrapper.unmount();
   });
+});
+
+it('opens the shared intraday tab and preserves the observation date', async () => {
+  vi.mocked(api.read).mockResolvedValue(snapshot as never);
+  const wrapper = mount(Page, { global: { stubs: { StockDetailDialog: true } } });
+  await flushPromises();
+  await wrapper.get('tbody button').trigger('click');
+  const dialog = wrapper.getComponent(StockDetailDialog);
+  expect(dialog.props('open')).toBe(true);
+  expect(dialog.props('initialTab')).toBe('intraday');
+  expect(dialog.props('context')).toEqual({ tradeDate: '2026-09-21' });
+  expect(dialog.props('stock')).toMatchObject({ code: 'ABC.US' });
+  dialog.vm.$emit('update:open', false);
+  await flushPromises();
+  expect(dialog.props('open')).toBe(false);
+  wrapper.unmount();
 });

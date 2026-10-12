@@ -264,7 +264,7 @@ onBeforeUnmount(() => { generation++; });
       kind="research"
       initial-tab="options"
       :options-view="mode"
-      :options-date="mode === 'official' ? selectedDate || undefined : undefined"
+      :options-date="selectedDate || undefined"
       @update:open="selected = null"
     />
   </div>

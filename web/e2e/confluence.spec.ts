@@ -20,6 +20,7 @@ for (const width of [1280, 1440, 1920]) {
         } });
         if (url.pathname.endsWith('/dates')) return route.fulfill({ json: ['2026-09-22'] });
         if (url.pathname.endsWith('/ranking')) return route.fulfill({ json: raw });
+        if (url.pathname.startsWith('/api/v1/confluence/')) return route.fulfill({ json: { market: raw.market, trade_date: raw.trade_date, algorithm_version: raw.algorithm_version, item: raw.items[0] } });
         return route.fulfill({ json: {} });
       });
       await page.goto('/research/confluence');

@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPinia } from 'pinia';
 import Page from '../ConfluencePage.vue';
 import AppDatePicker from '@/components/app/AppDatePicker.vue';
-import DailyKLineCard from '@/components/market-data/DailyKLineCard.vue';
+import StockDetailDialog from '@/components/stocks/StockDetailDialog.vue';
 import { confluenceApi as api, type ConfluenceRanking } from '@/api/confluence';
 import { toCamelCase } from '@/api/utils';
 import raw from '../../../../e2e/fixtures/confluence';
@@ -11,7 +11,7 @@ import raw from '../../../../e2e/fixtures/confluence';
 vi.mock('@/api/confluence', () => ({ confluenceApi: { ranking: vi.fn(), dates: vi.fn(), run: vi.fn() } }));
 vi.mock('@/composables/useAuth', () => ({ useAuth: () => ({ currentUser: { role: 'user' } }) }));
 const ranking = toCamelCase<ConfluenceRanking>(raw);
-const mountPage = () => mount(Page, { global: { plugins: [createPinia()], stubs: { DailyKLineCard: true } } });
+const mountPage = () => mount(Page, { global: { plugins: [createPinia()], stubs: { StockDetailDialog: true } } });
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(api.ranking).mockResolvedValue(ranking);
@@ -35,16 +35,20 @@ describe('confluence controls and detail', () => {
     expect(wrapper.find('select[aria-label="市场"]').exists()).toBe(false);
     wrapper.unmount();
   });
-  it('opens the selected stock daily chart and highlights the snapshot date without truncating history', async () => {
+  it('opens the shared confluence tab with the source identity and historical context', async () => {
     const wrapper = mountPage();
     await flushPromises();
-    expect(wrapper.findComponent(DailyKLineCard).exists()).toBe(false);
+    expect(wrapper.getComponent(StockDetailDialog).props('open')).toBe(false);
     await wrapper.get('tbody button').trigger('click');
     await flushPromises();
-    const chart = wrapper.getComponent(DailyKLineCard);
-    expect(chart.props('symbol')).toBe('600001.SH');
-    expect(chart.props('highlightDate')).toBe('2026-09-22');
-    expect(chart.props('endDate')).toBeUndefined();
+    const dialog = wrapper.getComponent(StockDetailDialog);
+    expect(dialog.props('open')).toBe(true);
+    expect(dialog.props('stock')).toMatchObject({ code: '600001.SH', market_type: 'CN' });
+    expect(dialog.props('initialTab')).toBe('confluence');
+    expect(dialog.props('context')).toEqual({ tradeDate: '2026-09-22', view: 'official' });
+    dialog.vm.$emit('update:open', false);
+    await flushPromises();
+    expect(dialog.props('open')).toBe(false);
     wrapper.unmount();
   });
 });
