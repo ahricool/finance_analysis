@@ -287,6 +287,25 @@ def test_us_trade_engine_schedule_follows_new_york_dst():
     assert definition.next_run_time(now=winter) == datetime(2026, 1, 5, 15, 0, tzinfo=timezone.utc)
 
 
+def test_intraday_confirmation_beat_preserves_freeze_and_uses_fifteen_minute_evaluations():
+    beat = build_beat_schedule()
+    for market, zone_name in (("cn", "Asia/Shanghai"), ("us", "America/New_York")):
+        job_id = f"intraday_confirmation_{market}"
+        definition = get_scheduled_task_definition(job_id)
+        schedules = [
+            entry["schedule"] for entry in beat.values() if entry["kwargs"]["scheduler_job_id"] == job_id
+        ]
+        assert len(schedules) == 2
+        assert "每15分钟" in definition.schedule_text
+        zone = ZoneInfo(zone_name)
+        for month, day in ((7, 1), (1, 5)):
+            now = datetime(2026, month, day, 9, 19, tzinfo=zone)
+            for hour, minute in ((9, 20), (9, 25), (9, 30), (9, 45), (10, 0), (10, 15), (10, 30)):
+                expected = datetime(2026, month, day, hour, minute, tzinfo=zone).astimezone(timezone.utc)
+                now = compute_next_run(schedules, zone_name, now=now)
+                assert now == expected
+
+
 def test_trend_following_preview_schedules_use_market_timezones_and_dst():
     cn = get_scheduled_task_definition("trend_following_preview_cn")
     us = get_scheduled_task_definition("trend_following_preview_us")

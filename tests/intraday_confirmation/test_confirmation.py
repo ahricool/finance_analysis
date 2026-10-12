@@ -124,14 +124,15 @@ def test_opening_breakdown_gap_fade_needs_structure():
     assert decision(m, {"impact": "intact"})["proposed_state"] == "WAIT"
 
 
-def test_failed_latch_distinct_observations_and_confirmed_to_failed():
+@pytest.mark.parametrize("evaluation_minutes", [5, 15])
+def test_failed_latch_distinct_observations_and_confirmed_to_failed(evaluation_minutes):
     now = OPEN + timedelta(minutes=15)
     initial = decision(inputs(), {"impact": "intact"})
     first = stabilize(initial.copy(), None, now, now)
     assert first["state"] == "WAIT"
     repeat = stabilize(initial.copy(), first, now, now + timedelta(seconds=30))
     assert repeat["state"] == "WAIT" and repeat["pending_count"] == 1
-    later = now + timedelta(minutes=5)
+    later = now + timedelta(minutes=evaluation_minutes)
     confirmed = stabilize(initial.copy(), repeat, later, later)
     assert confirmed["state"] == "CONFIRMED"
     failure = {**initial, "proposed_state": "FAILED"}
