@@ -214,8 +214,8 @@ const mrColumns = [
   { key: 'state', label: 'state', format: 'text' },
 ] as const;
 const mrFilters = [{ value: 'all', label: '全部超跌机会' }, { value: 'MR_REBOUND', label: '反弹确认' }, { value: 'MR_OVERSOLD', label: '超跌观察' }];
-const mrText = (value: unknown) => value === 'MR_REBOUND' ? '反弹确认' : value === 'MR_OVERSOLD' ? '超跌观察' : '—';
-const mrPriority = (row: TrendRankingSnapshot) => row.features.mrState === 'MR_REBOUND' ? 0 : 1;
+const mrText = (value: unknown) => value === 'MR_REBOUND' ? '反弹确认' : value === 'MR_OVERSOLD' ? '超跌观察' : value === 'MR_NONE' ? '无超跌机会' : '—';
+const mrPriority = (row: TrendRankingSnapshot) => row.features.mrState === 'MR_REBOUND' ? 0 : row.features.mrState === 'MR_OVERSOLD' ? 1 : 2;
 type ColumnSource = typeof trendColumns[number] | typeof boxColumns[number] | typeof mrColumns[number];
 type RankingColumn = { key: ColumnSource['key']; label: string; format: ColumnSource['format']; group: string; description?: string };
 type SortKey = RankingColumn['key'];
@@ -224,7 +224,7 @@ const boxFilters = [
   { value: 'BOX_READY', label: '待突破' }, { value: 'BOX_FORMING', label: '形成中' },
 ];
 function boxStateText(state: unknown) {
-  return state === 'BOX_BREAKOUT' ? '刚突破' : state === 'BOX_READY' ? '待突破' : state === 'BOX_FORMING' ? '整理中' : '—';
+  return state === 'BOX_BREAKOUT' ? '刚突破' : state === 'BOX_READY' ? '待突破' : state === 'BOX_FORMING' ? '整理中' : state === 'NONE' ? '无结构机会' : '—';
 }
 const boxPriority = (item: TrendRankingSnapshot) => item.features.boxState === 'BOX_BREAKOUT' ? 0
   : item.features.boxState === 'BOX_READY' ? 1 : item.features.boxState === 'BOX_FORMING' ? 2 : 3;
@@ -359,15 +359,17 @@ function createTable(kind: 'trend' | 'box' | 'mr', title: string, description: s
   const sortDirection = ref<'asc' | 'desc'>('asc');
   const viewport = shallowRef<HTMLElement | null>(null);
   const scrollTop = ref(0);
+  const searchAll = computed(() => !!search.value.trim()
+    && (kind === 'box' && filter.value === 'opportunities' || kind === 'mr' && filter.value === 'all'));
   const filteredItems = computed(() => {
     const query = search.value.trim().toLocaleLowerCase();
     return items.value.filter(item => {
       if (kind === 'box') {
         const state = item.features.boxState;
-        if (filter.value === 'opportunities' ? state !== 'BOX_BREAKOUT' && state !== 'BOX_READY' : state !== filter.value) return false;
+        if (!searchAll.value && (filter.value === 'opportunities' ? state !== 'BOX_BREAKOUT' && state !== 'BOX_READY' : state !== filter.value)) return false;
       } else if (kind === 'mr') {
         const state = item.features.mrState;
-        if (filter.value === 'all' ? state !== 'MR_REBOUND' && state !== 'MR_OVERSOLD' : state !== filter.value) return false;
+        if (!searchAll.value && (filter.value === 'all' ? state !== 'MR_REBOUND' && state !== 'MR_OVERSOLD' : state !== filter.value)) return false;
       } else if (filter.value !== 'all' && item.state !== filter.value) return false;
       return !query || item.code.toLocaleLowerCase().includes(query) || item.name.toLocaleLowerCase().includes(query);
     });
@@ -395,7 +397,7 @@ function createTable(kind: 'trend' | 'box' | 'mr', title: string, description: s
     sortKey.value = key;
   }
   return reactive({ kind, title, description, columns, exporting: false, search, filter, sortKey, sortDirection, viewport, scrollTop,
-    sortedItems, virtual, virtualStart, renderedRows, bottomSpace, toggleSort,
+    searchAll, sortedItems, virtual, virtualStart, renderedRows, bottomSpace, toggleSort,
     groups: [...new Set(columns.map(c => c.group))].map(label => ({ label, count: columns.filter(c => c.group === label).length })),
   });
 }
@@ -955,7 +957,7 @@ onMounted(async () => {
                 :aria-pressed="table.filter === item.value"
                 @click="table.filter = item.value"
               >
-                {{ item.label }}
+                {{ table.searchAll && item.value === 'opportunities' ? '全部股票' : item.label }}
               </Button>
             </div>
             <p
@@ -973,11 +975,19 @@ onMounted(async () => {
                 v-for="item in mrFilters"
                 :key="item.value"
                 :variant="table.filter === item.value ? 'secondary' : 'ghost'"
+                :aria-pressed="table.filter === item.value"
                 @click="table.filter = item.value"
               >
-                {{ item.label }}
+                {{ table.searchAll && item.value === 'all' ? '全部股票' : item.label }}
               </Button>
             </div>
+            <p
+              v-if="table.kind !== 'trend'"
+              class="w-full text-xs text-muted-foreground"
+              :data-testid="`${table.kind}-search-scope`"
+            >
+              {{ table.searchAll ? '正在搜索当前快照全部股票，含未出现机会或缺少指标的股票。' : '默认仅展示机会股票；搜索可查看当前快照全部股票，具体状态筛选仍生效。' }}
+            </p>
             <label class="flex items-center gap-2 text-sm text-muted-foreground">搜索
               <input
                 v-model="table.search"
@@ -1098,7 +1108,7 @@ onMounted(async () => {
                       </template>
                       <Badge
                         v-else-if="column.key === 'mrState'"
-                        :variant="item.features.mrState === 'MR_REBOUND' ? 'success' : 'warning'"
+                        :variant="item.features.mrState === 'MR_REBOUND' ? 'success' : item.features.mrState === 'MR_OVERSOLD' ? 'warning' : 'outline'"
                       >
                         {{ mrText(item.features.mrState) }}
                       </Badge>
