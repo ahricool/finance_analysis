@@ -14,6 +14,7 @@ import StockDetailDialog, { type StockDetailRecord } from '@/components/stocks/S
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import { formatDateTimeInDisplayTimezone } from '@/utils/format';
+import { formatSecurityLabel } from '@/utils/security';
 import { eventLabels, formatOptionNumber as num, formatOptionPct as pct } from '@/components/options-intelligence/labels';
 const auth = useAuthStore();
 const items = ref<OptionMetrics[]>([]), query = ref(''), eventType = ref(''), sort = ref('unusualActivity');
@@ -24,7 +25,8 @@ const dates = ref<string[]>([]), reason = ref<string | null>(null);
 const failedCount = ref(0), failureSource = ref<string | null>(null);
 const taskSummary = ref<{ failedCount: number; totalCount: number } | null>(null);
 let generation = 0;
-const filtered = computed(() => items.value.filter(r => r.symbol.toLowerCase().includes(query.value.toLowerCase()) &&
+const filtered = computed(() => items.value.filter(r =>
+  formatSecurityLabel(r.symbol, r.name).toLowerCase().includes(query.value.trim().toLowerCase()) &&
   (!eventType.value || r.eventTypes?.includes(eventType.value))).sort((a, b) => {
     const key = sort.value as 'bearishDemand' | 'unusualActivity' | 'liquidityRisk';
     const x = a.scores?.[key].value, y = b.scores?.[key].value;
@@ -51,7 +53,7 @@ async function run() {
   catch (e) { error.value = getParsedApiError(e); }
 }
 function open(row: OptionMetrics) {
-  selected.value = { id: 0, code: row.symbol, name: null, market_type: 'US', created_at: '', updated_at: row.observedAt ?? '' };
+  selected.value = { id: 0, code: row.symbol, name: row.name ?? null, market_type: 'US', created_at: '', updated_at: row.observedAt ?? '' };
 }
 watch([mode, requestedDate], () => { selected.value = null; void load(); }, { immediate: true });
 onBeforeUnmount(() => { generation++; });
@@ -126,7 +128,7 @@ onBeforeUnmount(() => { generation++; });
         >股票搜索</label><Input
           id="options-search"
           v-model="query"
-          placeholder="SPY / NVDA…"
+          placeholder="股票代码 / 名称…"
         />
       </div><FieldSelect
         v-model="sort"
@@ -202,10 +204,10 @@ onBeforeUnmount(() => { generation++; });
             <TableCell>
               <Button
                 variant="link"
-                class="h-auto p-0 font-semibold"
+                class="h-auto whitespace-normal p-0 text-left font-semibold"
                 @click="open(r)"
               >
-                {{ r.symbol }}
+                {{ formatSecurityLabel(r.symbol, r.name) }}
               </Button>
             </TableCell><TableCell>{{ num(r.underlyingPrice) }}</TableCell><TableCell
               class="text-red-600 dark:text-red-400"

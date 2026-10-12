@@ -33,7 +33,7 @@ export interface OptionExplanation {
   alternativeExplanations: string[]; dataLimits: string[]; tradingRisks: string[];
 }
 export interface OptionMetrics {
-  symbol: string; status: string; tradeDate?: string; observedAt?: string; computedAt?: string;
+  symbol: string; name?: string | null; status: string; tradeDate?: string; observedAt?: string; computedAt?: string;
   refreshStatus?: string; refreshReason?: string; failureSource?: string;
   underlyingPrice?: number | null; scores: OptionScores | null; evidenceGrade?: string; confidence?: string;
   historyDays?: number; iv30D?: number | null; iv30DMethod?: string; ivPercentile?: number | null; ivSampleCount?: number;

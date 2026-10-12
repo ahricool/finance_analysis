@@ -33,3 +33,50 @@ describe('Options scanner execution states', () => {
     wrapper.unmount();
   });
 });
+
+describe('Options scanner stock names', () => {
+  it.each(['official', 'preview'] as const)('shows names and codes in %s rows and the detail entry', async (view) => {
+    mock.mockResolvedValue({ items: [
+      { symbol: 'NVDA.US', name: 'NVIDIA Corporation', status: 'ready', scores: null, limitations: [] },
+      { symbol: 'AAPL.US', name: '苹果', status: 'failed', scores: null, limitations: ['timeout'] },
+      { symbol: 'MSFT.US', name: null, status: 'not_scanned', scores: null, limitations: [] },
+      { symbol: 'OLD.US', status: 'not_scanned', scores: null, limitations: [] },
+    ], view });
+    const wrapper = mount(OptionsIntelligencePage, { global: { stubs: {
+      ...stubs, PageHeader: { template: '<header><slot name="actions" /></header>' },
+    } } });
+    await flushPromises();
+    if (view === 'preview') {
+      wrapper.findComponent({ name: 'OptionsDataControls' }).vm.$emit('update:mode', 'preview');
+      await flushPromises();
+    }
+    expect(mock).toHaveBeenLastCalledWith({ view, tradeDate: undefined });
+    expect(wrapper.text()).toContain('NVDA.US - NVIDIA Corporation');
+    expect(wrapper.text()).toContain('AAPL.US - 苹果');
+    expect(wrapper.text()).toContain('MSFT.US');
+    expect(wrapper.text()).toContain('OLD.US');
+    expect(wrapper.text()).not.toContain('undefined');
+    expect(wrapper.text()).not.toContain('null');
+
+    await wrapper.get('#options-search').setValue('  nViDiA  ');
+    expect(wrapper.text()).toContain('NVDA.US - NVIDIA Corporation');
+    expect(wrapper.text()).not.toContain('AAPL.US');
+    const stockButton = wrapper.findAll('button').find(button => button.text().includes('NVDA.US'))!;
+    await stockButton.trigger('click');
+    expect(wrapper.findComponent({ name: 'StockDetailDialog' }).props('stock')).toMatchObject({
+      code: 'NVDA.US', name: 'NVIDIA Corporation', market_type: 'US',
+    });
+
+    await wrapper.get('#options-search').setValue('苹果');
+    expect(wrapper.text()).toContain('AAPL.US - 苹果');
+    expect(wrapper.text()).not.toContain('NVDA.US');
+    await wrapper.get('#options-search').setValue('msft');
+    expect(wrapper.text()).toContain('MSFT.US');
+    expect(wrapper.text()).not.toContain('AAPL.US');
+    await wrapper.findAll('button').find(button => button.text() === 'MSFT.US')!.trigger('click');
+    expect(wrapper.findComponent({ name: 'StockDetailDialog' }).props('stock')).toMatchObject({
+      code: 'MSFT.US', name: null,
+    });
+    wrapper.unmount();
+  });
+});

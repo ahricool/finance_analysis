@@ -9,6 +9,10 @@ from finance_analysis.interfaces.api.deps import require_current_user, require_a
 
 @pytest.fixture
 def client(repository, monkeypatch):
+    from finance_analysis.database.models import Instrument
+
+    with repository.db.get_session() as session:
+        Instrument.__table__.create(session.get_bind())
     app = FastAPI()
     app.include_router(api.router, prefix="/api/v1/options-intelligence")
     user = SimpleNamespace(id=7, role="user")
@@ -116,3 +120,60 @@ def test_refresh_passes_requested_storage_view(client, monkeypatch):
     monkeypatch.setattr(options_request, "apply_async", send)
     assert client.post("/api/v1/options-intelligence/AAPL.US/refresh", json={"view": "preview"}).status_code == 202
     assert send.call_args.kwargs["kwargs"]["view"] == "preview"
+
+
+@pytest.mark.parametrize("view", ["official", "preview"])
+def test_scan_names_use_one_master_data_lookup_without_mutating_evidence(client, repository, monkeypatch, view):
+    from copy import deepcopy
+    from finance_analysis.database.repositories.stock import InstrumentRepository
+
+    instruments = InstrumentRepository(repository.db)
+    instruments.upsert_symbols([
+        {"code": "NVDA.US", "market": "US", "name": "NVIDIA Corporation"},
+        {"code": "AAPL.US", "market": "US", "name": "苹果"},
+        {"code": "MSFT.US", "market": "US", "name": "Microsoft Corporation"},
+        {"code": "PRIVATE.US", "market": "US", "name": "Other user's stock"},
+    ])
+    visible = ["NVDA.US", "AAPL.US", "MSFT.US", "UNKNOWN.US"]
+    repository.monitored_symbols = lambda uid: visible
+    rows = [
+        {"symbol": "NVDA.US", "name": "stale snapshot label", "status": "ready", "scores": None},
+        {"symbol": "AAPL.US", "status": "failed", "scores": None, "limitations": ["provider timeout"]},
+        {"symbol": "MSFT.US", "status": "not_scanned", "scores": None},
+        {"symbol": "UNKNOWN.US", "status": "not_scanned", "scores": None},
+    ]
+    repository.scan = lambda *args, **kwargs: rows
+    payload = {
+        "trade_date": "2026-10-07",
+        "items": [rows[0], {"symbol": "PRIVATE.US", "status": "ready"}],
+        "failures": [{"symbol": "AAPL.US", "reason": "provider timeout"}],
+    }
+    original_rows, original_payload = deepcopy(rows), deepcopy(payload)
+    monkeypatch.setattr(api, "load_preview", lambda: payload)
+    lookups = []
+    original_lookup = InstrumentRepository.names_by_codes
+
+    def names_by_codes(self, codes):
+        lookups.append(list(codes))
+        return original_lookup(self, lookups[-1])
+
+    monkeypatch.setattr(InstrumentRepository, "names_by_codes", names_by_codes)
+    response = client.get(f"/api/v1/options-intelligence?view={view}&trade_date=2026-10-07")
+    assert response.status_code == 200
+    items = response.json()["items"]
+    assert [(row["symbol"], row["name"]) for row in items] == [
+        ("NVDA.US", "NVIDIA Corporation"), ("AAPL.US", "苹果"),
+        ("MSFT.US", "Microsoft Corporation"), ("UNKNOWN.US", None),
+    ]
+    assert [row["status"] for row in items] == ["ready", "failed", "not_scanned", "not_scanned"]
+    assert lookups == [visible]
+    assert rows == original_rows and payload == original_payload
+
+
+def test_empty_preview_skips_name_lookup(client, repository, monkeypatch):
+    repository.monitored_symbols = lambda uid: ["AAPL.US"]
+    lookup = Mock(side_effect=AssertionError("empty preview must not query instrument names"))
+    monkeypatch.setattr(api.InstrumentRepository, "names_by_codes", lookup)
+    response = client.get("/api/v1/options-intelligence?view=preview")
+    assert response.status_code == 200 and response.json()["items"] == []
+    lookup.assert_not_called()
