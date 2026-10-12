@@ -144,6 +144,69 @@ describe('TrendFollowingPage', () => {
     wrapper.unmount();
   });
 
+  it.each(['official', 'preview'] as const)('searches all snapshot stocks in Box/MR defaults in %s mode', async mode => {
+    const rows: TrendRankingSnapshot[] = [
+      { ...rankingSnapshot(), code: 'READY.US', name: '机会股票', features: { boxState: 'BOX_READY', mrState: 'MR_OVERSOLD' } },
+      { ...rankingSnapshot(), code: 'FORMING.US', name: '形成股票', features: { boxState: 'BOX_FORMING', mrState: 'MR_NONE' } },
+      { ...rankingSnapshot(), code: 'NONE.US', name: '普通股票', features: { boxState: 'NONE', mrState: 'MR_NONE' } },
+      { ...rankingSnapshot(), code: 'OLD.US', name: '历史股票', features: {} },
+    ];
+    apiMocks.ranking.mockResolvedValue({ ...ranking('CN'), items: rows });
+    if (mode === 'preview') mockPreview({ ...ranking('CN'), status: 'completed',
+      previewTime: '2026-08-28T10:00:00Z', snapshots: rows.map(row => ({ ...snapshot(), ...row })) });
+    const wrapper = mount(TrendFollowingPage);
+    await flushPromises();
+    if (mode === 'preview') {
+      await wrapper.get('[data-testid="research-mode-preview"]').trigger('click');
+      await flushPromises();
+    }
+    const codes = (kind: string) => wrapper.findAll(`[data-testid="${kind}-row"]`).map(row => row.attributes('data-code'));
+    for (const kind of ['box', 'mr']) {
+      const search = wrapper.get(`[data-testid="${kind}-ranking-search"]`);
+      expect(codes(kind)).toEqual(['READY.US']);
+      for (const [query, code] of [[' forming ', 'FORMING.US'], ['普通', 'NONE.US'], ['old.us', 'OLD.US']]) {
+        await search.setValue(query);
+        expect(codes(kind)).toEqual([code]);
+        expect(wrapper.get(`[data-testid="${kind}-search-scope"]`).text()).toContain('正在搜索当前快照全部股票');
+        expect(wrapper.get(`[data-testid="${kind}-state-filter"]`).text()).toContain('全部股票');
+        if (code === 'NONE.US') expect(wrapper.get(`[data-testid="${kind}-row"]`).text()).toContain(kind === 'box' ? '无结构机会' : '无超跌机会');
+        if (code === 'OLD.US') expect(wrapper.get(`[data-testid="${kind}-row"]`).get(`[data-column="${kind === 'box' ? 'boxState' : 'mrState'}"]`).text()).toBe('—');
+        expect(codes('trend')).toHaveLength(4);
+        expect(codes(kind === 'box' ? 'mr' : 'box')).toEqual(['READY.US']);
+      }
+      await search.setValue('missing');
+      expect(codes(kind)).toEqual([]);
+      expect(wrapper.get(`[data-testid="${kind}-section"]`).text()).toContain('没有匹配的股票');
+      await search.setValue('   ');
+      expect(codes(kind)).toEqual(['READY.US']);
+      expect(wrapper.get(`[data-testid="${kind}-search-scope"]`).text()).not.toContain('正在搜索');
+      await search.setValue('');
+    }
+    wrapper.unmount();
+  });
+
+  it('keeps explicit Box/MR state filters effective during search', async () => {
+    apiMocks.ranking.mockResolvedValue({ ...ranking('CN'), items: [
+      { ...rankingSnapshot(), code: 'READY.US', features: { boxState: 'BOX_READY', mrState: 'MR_OVERSOLD' } },
+      { ...rankingSnapshot(), code: 'NONE.US', features: { boxState: 'NONE', mrState: 'MR_NONE' } },
+    ] });
+    const wrapper = mount(TrendFollowingPage);
+    await flushPromises();
+    for (const [kind, label, defaultLabel] of [['box', '待突破', '全部机会'], ['mr', '超跌观察', '全部超跌机会']]) {
+      const filters = wrapper.get(`[data-testid="${kind}-state-filter"]`);
+      await filters.findAll('button').find(button => button.text() === label)!.trigger('click');
+      const search = wrapper.get(`[data-testid="${kind}-ranking-search"]`);
+      await search.setValue('none');
+      expect(wrapper.findAll(`[data-testid="${kind}-row"]`)).toHaveLength(0);
+      await search.setValue('ready');
+      expect(wrapper.get(`[data-testid="${kind}-row"]`).attributes('data-code')).toBe('READY.US');
+      await search.setValue('none');
+      await filters.findAll('button').find(button => button.text() === defaultLabel)!.trigger('click');
+      expect(wrapper.get(`[data-testid="${kind}-row"]`).attributes('data-code')).toBe('NONE.US');
+    }
+    wrapper.unmount();
+  });
+
   it('shows independent MR rows and keeps Preview out of Event Study', async () => {
     const latest = snapshot();
     latest.features = { ...latest.features, mrState: 'MR_REBOUND', mrQuality: 80, rsi14: 25, distanceFromMa20Atr: -2 };
