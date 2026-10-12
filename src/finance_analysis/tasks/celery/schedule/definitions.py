@@ -132,20 +132,26 @@ SCHEDULED_TASK_DEFINITIONS = (
     ),
     ScheduledTaskDefinition(
         job_id=JOB_INTRADAY_CONFIRMATION_CN, name="盘中确认 CN",
-        description="开盘前冻结昨日正式候选，交易时段每5分钟确认；休市和午休跳过",
+        description="开盘前冻结昨日正式候选，交易时段每15分钟确认；休市和午休跳过",
         task_type="scheduled_intraday_confirmation_cn",
         celery_task_name=celery_task_name(JOB_INTRADAY_CONFIRMATION_CN),
-        schedules=(CronSchedule(minute="*/5", hour="9-15", day_of_week="mon-fri", timezone=SCHEDULE_TIMEZONE),),
-        schedule_text="交易日当地09:20/09:25冻结，交易时段每5分钟确认",
+        schedules=(
+            CronSchedule(minute="20,25", hour="9", day_of_week="mon-fri", timezone=SCHEDULE_TIMEZONE),
+            CronSchedule(minute="*/15", hour="9-15", day_of_week="mon-fri", timezone=SCHEDULE_TIMEZONE),
+        ),
+        schedule_text="交易日当地09:20/09:25冻结，交易时段每15分钟确认",
         timezone=SCHEDULE_TIMEZONE, queue=QUEUE_ALERTS, expires=240,
     ),
     ScheduledTaskDefinition(
         job_id=JOB_INTRADAY_CONFIRMATION_US, name="盘中确认 US",
-        description="开盘前冻结昨日正式候选，交易时段每5分钟确认；休市和午休跳过",
+        description="开盘前冻结昨日正式候选，交易时段每15分钟确认；休市和午休跳过",
         task_type="scheduled_intraday_confirmation_us",
         celery_task_name=celery_task_name(JOB_INTRADAY_CONFIRMATION_US),
-        schedules=(CronSchedule(minute="*/5", hour="9-16", day_of_week="mon-fri", timezone=US_TIMEZONE),),
-        schedule_text="交易日当地09:20/09:25冻结，交易时段每5分钟确认",
+        schedules=(
+            CronSchedule(minute="20,25", hour="9", day_of_week="mon-fri", timezone=US_TIMEZONE),
+            CronSchedule(minute="*/15", hour="9-16", day_of_week="mon-fri", timezone=US_TIMEZONE),
+        ),
+        schedule_text="交易日当地09:20/09:25冻结，交易时段每15分钟确认",
         timezone=US_TIMEZONE, queue=QUEUE_ALERTS, expires=240,
     ),
     ScheduledTaskDefinition(
