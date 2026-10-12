@@ -121,8 +121,9 @@ Celery Beat 任务 `scheduled.etf_rotation_cn` / `scheduled.etf_rotation_us` 默
 任务自身总会执行 readiness 检查。正式收盘任务不读取盘中 Preview。
 
 盘中预演 `etf_rotation_preview_cn` / `etf_rotation_preview_us` 在交易日
-11:05、14:05、14:35 Asia/Shanghai 与 11:05、15:05、15:35 America/New_York 运行，
-相对 Trend Following Preview 错开 5 分钟。CN 用 Tencent `real(ETF codes)`，US 用 Yahoo 5 分钟 batch。
+10:00、11:00、13:00、14:00、14:30 Asia/Shanghai 与 10:00–15:00 America/New_York 每小时整点运行，
+与对应市场 Trend Following Preview 同时触发，A 股午休不运行，美股自动适配夏令时。
+CN 用 Tencent `real(ETF codes)`，US 用 Yahoo 5 分钟 batch。
 结果只写 Redis `etf_rotation:preview:{CN|US}`（TTL 24h），不写正式 snapshot。
 `BUY/HOLD/EXIT` 仍基于上一交易日正式候选。非交易日 `TaskSkipped`。Redis 写入失败则任务失败。
 

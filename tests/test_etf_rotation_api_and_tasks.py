@@ -321,8 +321,8 @@ def test_scheduler_definition_and_task_registration() -> None:
     preview_us = require_scheduled_task_definition("etf_rotation_preview_us")
     assert preview_cn.celery_task_name == "scheduled.etf_rotation_preview_cn"
     assert preview_us.celery_task_name == "scheduled.etf_rotation_preview_us"
-    assert preview_cn.schedule_text == "周一至周五 11:05、14:05、14:35 Asia/Shanghai"
-    assert preview_us.schedule_text == "周一至周五 11:05、15:05、15:35 America/New_York"
+    assert preview_cn.schedule_text == "周一至周五 10:00、11:00、13:00、14:00、14:30 Asia/Shanghai（午休不运行）"
+    assert preview_us.schedule_text == "周一至周五 10:00-15:00 America/New_York，每小时（自动适配夏令时）"
     assert "finance_analysis.tasks.celery.jobs.etf_rotation.tasks" in TASK_MODULES
 
 

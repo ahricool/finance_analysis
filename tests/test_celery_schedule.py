@@ -311,16 +311,20 @@ def test_etf_rotation_preview_schedules_use_market_timezones_and_dst():
     assert cn.timezone == "Asia/Shanghai"
     assert us.timezone == "America/New_York"
     assert cn.queue == us.queue == "analysis"
-    assert cn.schedule_text == "周一至周五 11:05、14:05、14:35 Asia/Shanghai"
-    assert us.schedule_text == "周一至周五 11:05、15:05、15:35 America/New_York"
+    cn_trend = get_scheduled_task_definition("trend_following_preview_cn")
+    us_trend = get_scheduled_task_definition("trend_following_preview_us")
+    assert cn.schedules == cn_trend.schedules
+    assert us.schedules == us_trend.schedules
+    assert cn.schedule_text == cn_trend.schedule_text
+    assert us.schedule_text == us_trend.schedule_text
     beat = build_beat_schedule()
     assert len([key for key in beat if key.startswith("etf_rotation_preview_cn")]) == 3
-    assert len([key for key in beat if key.startswith("etf_rotation_preview_us")]) == 3
+    assert len([key for key in beat if key.startswith("etf_rotation_preview_us")]) == 1
 
     summer = datetime(2026, 7, 1, 0, 0, tzinfo=timezone.utc)
-    assert us.next_run_time(now=summer) == datetime(2026, 7, 1, 15, 5, tzinfo=timezone.utc)
+    assert us.next_run_time(now=summer) == datetime(2026, 7, 1, 14, 0, tzinfo=timezone.utc)
     winter = datetime(2026, 1, 5, 0, 0, tzinfo=timezone.utc)
-    assert us.next_run_time(now=winter) == datetime(2026, 1, 5, 16, 5, tzinfo=timezone.utc)
+    assert us.next_run_time(now=winter) == datetime(2026, 1, 5, 15, 0, tzinfo=timezone.utc)
 
 
 def test_compute_next_run_handles_localized_per_schedule_timezone():
@@ -443,14 +447,11 @@ def test_before_publish_uses_importance_task_metadata():
     assert metadata.source == "celery"
 
 
-def test_industry_preview_schedule_includes_1005():
+def test_industry_preview_schedule_matches_cn_trend_following():
     industry = get_scheduled_task_definition("industry_strength_preview_cn")
-    assert {(item.hour, item.minute, item.day_of_week, item.timezone) for item in industry.schedules} == {
-        ("10", "5", "mon-fri", "Asia/Shanghai"),
-        ("11", "5", "mon-fri", "Asia/Shanghai"),
-        ("14", "5", "mon-fri", "Asia/Shanghai"),
-        ("14", "35", "mon-fri", "Asia/Shanghai"),
-    }
+    trend = get_scheduled_task_definition("trend_following_preview_cn")
+    assert industry.schedules == trend.schedules
+    assert industry.schedule_text == trend.schedule_text
     assert industry.queue == "analysis"
     assert industry.allow_manual_run is False
 
