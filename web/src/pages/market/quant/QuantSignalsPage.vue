@@ -1,5 +1,8 @@
 <script setup lang="ts">
 import IndicatorHelpLabel from '@/components/app/IndicatorHelpLabel.vue';
+import StockDetailDialog from '@/components/stocks/StockDetailDialog.vue';
+import type { QuantSignal } from '@/types/quant';
+import { Button } from '@/components/ui/button';
 import PageHeader from '@/components/layout/PageHeader.vue';
 import { quantApi } from '@/api/quant';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
@@ -14,9 +17,12 @@ import { useQuantMarket } from '@/composables/useQuantMarket';
 import type { SignalRanking } from '@/types/quant';
 import { formatPredictedReturn, formatRealizedReturn, formatScore } from '@/utils/quant';
 import { formatSecurityLabel } from '@/utils/security';
-import { computed, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
 
-const { market, marketQuery, tradeDate } = useQuantMarket();
+const { market, tradeDate } = useQuantMarket();
+const selected = ref<QuantSignal | null>(null);
+const dialogOpen = ref(false);
+function show(item: QuantSignal) { selected.value = item; dialogOpen.value = true; }
 const ranking = ref<SignalRanking | null>(null);
 const error = ref<ParsedApiError | null>(null);
 const loading = ref(false);
@@ -36,6 +42,7 @@ watch(
   [market, tradeDate],
   async ([current, date]) => {
     const version = ++requestVersion;
+    selected.value = null; dialogOpen.value = false;
     ranking.value = null;
     error.value = null;
     loading.value = true;
@@ -50,6 +57,7 @@ watch(
   },
   { immediate: true },
 );
+onBeforeUnmount(() => { ++requestVersion; });
 </script>
 
 <template>
@@ -174,12 +182,13 @@ watch(
               >
                 <TableCell>{{ item.universeRank ?? '—' }}</TableCell>
                 <TableCell>
-                  <RouterLink
-                    :to="{ path: `/research/quant/signals/${item.code}`, query: marketQuery() }"
+                  <Button
+                    variant="link"
                     class="font-medium rounded-sm underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                    @click="show(item)"
                   >
                     {{ formatSecurityLabel(item.code, item.name) }}
-                  </RouterLink>
+                  </Button>
                 </TableCell><TableCell>{{ formatScore(item.finalScore) }}</TableCell><TableCell>{{ formatScore(item.crossSectionScore) }}</TableCell><TableCell>{{ formatScore(item.timeSeriesScore) }}</TableCell><TableCell>{{ formatScore(item.riskPenalty) }}</TableCell><TableCell>{{ formatPredictedReturn(item.predictedReturn) }}</TableCell>
                 <TableCell>{{ formatRealizedReturn(item.return3D) }}</TableCell>
                 <TableCell>{{ formatRealizedReturn(item.return5D) }}</TableCell>
@@ -198,5 +207,12 @@ watch(
         <EmptyHeader><EmptyTitle>{{ tradeDate ? '所选日期暂无模型排名' : market === 'CN' ? 'A股模型尚未就绪' : '暂无模型排名' }}</EmptyTitle><EmptyDescription>{{ tradeDate ? '请选择其他交易日，或清空日期查看最新数据。' : '当前市场没有可展示的生产模型信号。' }}</EmptyDescription></EmptyHeader>
       </Empty>
     </template>
+    <StockDetailDialog
+      v-model:open="dialogOpen"
+      :stock="selected ? { code: selected.code, name: selected.name || '', market_type: market } : null"
+      kind="research"
+      initial-tab="quant"
+      :context="{ tradeDate: selected?.tradeDate || ranking?.tradeDate || tradeDate || undefined, view: 'official' }"
+    />
   </div>
 </template>

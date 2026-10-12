@@ -5,17 +5,15 @@ import { confluenceApi as api, type ConfluenceRanking, type ConfluenceItem, type
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import { useAuth } from '@/composables/useAuth';
 import AppApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
-import DailyKLineCard from '@/components/market-data/DailyKLineCard.vue';
+import StockDetailDialog from '@/components/stocks/StockDetailDialog.vue';
 import AppDatePicker from '@/components/app/AppDatePicker.vue';
 import ResearchMarketToggle from '@/components/research/ResearchMarketToggle.vue';
 import { RefreshCcw } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Table, TableHeader, TableHead, TableBody, TableRow, TableCell } from '@/components/ui/table';
 import IndicatorHelpLabel from '@/components/app/IndicatorHelpLabel.vue';
-import { metricHint } from '@/utils/metricHints';
 import { formatDateTime } from '@/utils/format';
 
 const { currentUser } = useAuth();
@@ -28,13 +26,6 @@ const taskId = ref(''); const dialogOpen = ref(false);
 const keys: SignalKey[] = ['industry', 'trend', 'quant', 'etf', 'dragonTiger'];
 const labels: Record<SignalKey, string> = { industry: '行业', trend: '趋势', quant: 'Quant', etf: 'ETF', dragonTiger: '龙虎榜资金' };
 const states = { positive: '正向', neutral: '中性', negative: '负向', unavailable: '无数据' };
-const fields: Record<SignalKey, [string, string][]> = {
-  industry: [['industryName', '行业'], ['strengthRank', '排名'], ['strengthScore', '强度'], ['state', '状态'], ['rankChange1D', '1D 排名变化'], ['rankChange3D', '3D 排名变化'], ['rankChange5D', '5D 排名变化'], ['momentumAcceleration5D', '5D 增强'], ['membersObservedAt', '成分观测时间']],
-  trend: [['trendLifecycle', 'Lifecycle'], ['state', 'State'], ['trendScore', 'Trend Score'], ['rank', '排名'], ['previousRank', '前次排名'], ['previousTradeDate', '前次日期'], ['trendDurationDays', '持续天数'], ['fragilityScore', 'Fragility'], ['trendAcceleration', 'Acceleration'], ['trendQuality', 'Quality'], ['rsScore', 'RS Score']],
-  quant: [['universeRank', '排名'], ['finalScore', 'Final Score'], ['signal', 'Signal'], ['predictedReturn', 'Prediction'], ['crossSectionScore', '横截面分数'], ['modelVersion', '模型版本']],
-  etf: [['code', '关联 ETF'], ['rank', '排名'], ['state', 'State'], ['compositeScore', 'Composite'], ['entryScore', 'Entry Score'], ['rankChange1D', '1D 排名变化'], ['rankChange3D', '3D 排名变化'], ['rankChange5D', '5D 排名变化']],
-  dragonTiger: [['rangeDays', '榜单窗口（天）'], ['netInflow', '净流入'], ['institutionNetInflow', '机构资金'], ['hotMoneyNetInflow', '游资资金']],
-};
 let generation = 0;
 async function load(reset = false) {
   const token = ++generation; loading.value = true; error.value = null; result.value = null;
@@ -70,8 +61,6 @@ async function run() {
   catch (cause) { error.value = getParsedApiError(cause); }
   finally { submitting.value = false; }
 }
-function flowRecords(row: ConfluenceItem) { return (row.signals.dragonTiger.evidence.records ?? []) as Array<Record<string, unknown>>; }
-function flowConcepts(row: ConfluenceItem) { return (row.signals.dragonTiger.evidence.conceptFlows ?? []) as Array<Record<string, unknown>>; }
 function evidence(row: ConfluenceItem, key: SignalKey, field: string) { return row.signals[key].evidence[field] ?? '—'; }
 onMounted(() => { void load(); });
 onBeforeUnmount(() => { ++generation; });
@@ -401,85 +390,12 @@ onBeforeUnmount(() => { ++generation; });
         </Table>
       </div>
     </template>
-    <Dialog v-model:open="dialogOpen">
-      <DialogContent class="max-h-[calc(100dvh-2rem)] min-w-0 overflow-y-auto p-4 sm:max-w-4xl sm:p-6">
-        <DialogHeader><DialogTitle>{{ selected?.name }} · {{ selected?.code }}</DialogTitle><DialogDescription>目标 {{ result?.tradeDate }} · {{ result?.algorithmVersion }} · 各来源以独立日期为准。</DialogDescription></DialogHeader>
-        <template v-if="selected">
-          <DailyKLineCard
-            :symbol="selected.code"
-            :highlight-date="result?.tradeDate || undefined"
-          />
-          <p>共振 {{ selected.confluenceScore }} = 各维度贡献合计 / {{ selected.availableWeight }} × 100。正向 {{ selected.positiveSignalCount }} / 有效 {{ selected.availableSignalCount }}。</p>
-          <section
-            v-for="key in keys"
-            :key="key"
-            class="border-t pt-4 space-y-2"
-          >
-            <h3 class="font-semibold">
-              {{ labels[key] }} · {{ states[selected.signals[key].status] }} · {{ selected.signals[key].score ?? '—' }}/{{ selected.signals[key].weight }}
-            </h3>
-            <p class="text-xs text-muted-foreground">
-              来源 {{ selected.signals[key].sourceModule }} · 数据日期 {{ selected.signals[key].tradeDate ?? '缺失' }} · 源生成时间 {{ selected.signals[key].sourceGeneratedAt ? formatDateTime(selected.signals[key].sourceGeneratedAt!) : '缺失' }}
-            </p>
-            <dl
-              v-if="selected.signals[key].status !== 'unavailable'"
-              class="grid grid-cols-1 gap-3 text-sm sm:grid-cols-3"
-            >
-              <div
-                v-for="[field, label] in fields[key]"
-                :key="field"
-              >
-                <dt class="text-muted-foreground">
-                  <IndicatorHelpLabel
-                    :scope="`confluence-${key}`"
-                    :label="label"
-                    :description="metricHint(`confluence-${key}`, field)"
-                    compact
-                  />
-                </dt><dd>{{ evidence(selected, key, field) }}</dd>
-              </div>
-            </dl>
-            <div
-              v-if="key === 'dragonTiger' && selected.signals[key].status !== 'unavailable'"
-              class="text-sm space-y-1"
-            >
-              <p>最近记录（1D 与原生 3D 榜单分别展示，不累计）：</p>
-              <p
-                v-for="(record, index) in flowRecords(selected)"
-                :key="index"
-              >
-                {{ record.tradeDate }} · {{ record.rangeDays }}D · 净额 {{ record.netInflow ?? '缺失' }} CNY · 机构 {{ record.institutionNetInflow ?? '缺失' }} · 游资 {{ record.hotMoneyNetInflow ?? '缺失' }}
-              </p>
-              <p
-                v-for="(concept, index) in flowConcepts(selected)"
-                :key="index"
-              >
-                概念 {{ concept.name }}：榜单分摊净额 {{ concept.netInflow ?? '缺失' }} CNY（仅解释）
-              </p>
-            </div>
-            <ul class="list-disc pl-5 text-sm space-y-1">
-              <li
-                v-for="reason in selected.signals[key].reasons"
-                :key="reason"
-              >
-                {{ reason }}
-              </li>
-            </ul>
-          </section>
-          <section class="border-t pt-4">
-            <h3 class="font-semibold mb-2">
-              Why Confluence
-            </h3><ul class="list-disc pl-5 text-sm space-y-1">
-              <li
-                v-for="reason in selected.reasons"
-                :key="reason"
-              >
-                {{ reason }}
-              </li>
-            </ul>
-          </section>
-        </template>
-      </DialogContent>
-    </Dialog>
+    <StockDetailDialog
+      v-model:open="dialogOpen"
+      :stock="selected ? { code: selected.code, name: selected.name, market_type: market } : null"
+      kind="research"
+      initial-tab="confluence"
+      :context="{ tradeDate: result?.tradeDate || undefined, view: 'official' }"
+    />
   </div>
 </template>

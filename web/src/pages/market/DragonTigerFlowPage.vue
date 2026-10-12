@@ -16,7 +16,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import StockDetailDialog from '@/components/stocks/StockDetailDialog.vue';
 import { formatDateTime } from '@/utils/format';
 import { signedTextClass } from '@/utils/marketTone';
 const { filters, data, dates, error, datesError, loading, selected, stock, concept, stocks, stockRows, load, loadDates, change } = useDragonTigerFlow();
@@ -29,7 +29,6 @@ async function submit(backfill = false) {
   catch (e) { runError.value = getParsedApiError(e); }
   finally { submitting.value = false; }
 }
-const contributions = computed(() => data.value?.evidence.filter(r => r.symbol === stock.value && r.conceptId === selected.value) ?? []);
 const search = ref(''), direction = ref('all'), descending = ref(true);
 const stockSort = ref<'name' | 'netValue' | 'days'>('netValue');
 const stockDescending = ref(true);
@@ -76,7 +75,6 @@ const metrics = computed(() => data.value ? [
   ['Top5正流入占比', data.value.summary.top5Concentration == null ? '—' : `${(data.value.summary.top5Concentration * 100).toFixed(1)}%`],
 ] : []);
 const generatedAt = computed(() => data.value?.sourceQuality.map(q => q.generatedAt).sort().at(-1));
-const hotDetails = computed(() => data.value?.hotMoneyDetails.filter(r => r.symbol === stock.value) ?? []);
 const stockName = computed(() => stockRows.value[0]?.name ?? stock.value);
 const moneyClass = (v: number | null) => signedTextClass(v);
 onMounted(() => { void load(); void loadDates(); });
@@ -627,94 +625,13 @@ onMounted(() => { void load(); void loadDates(); });
         </Card>
       </template>
     </template>
-    <Dialog
+    <StockDetailDialog
       :open="Boolean(stock)"
+      :stock="stock ? { code: stock, name: stockName, market_type: 'CN' } : null"
+      kind="research"
+      initial-tab="dragon-tiger"
+      :context="{ tradeDate: data?.tradeDate || undefined, view: 'official', dragonTiger: { ...filters, endDate: data?.tradeDate || filters.endDate }, dragonTigerConceptId: selected }"
       @update:open="!$event && (stock = '')"
-    >
-      <DialogContent
-        class="max-h-[85vh] overflow-y-auto sm:max-w-4xl"
-        data-testid="flow-stock-dialog"
-      >
-        <DialogHeader><DialogTitle>{{ stockName }} · {{ stock }}</DialogTitle><DialogDescription>{{ data?.dates[0] }} — {{ data?.tradeDate }} · {{ flowBoardLabels[filters.board] }} · 金额单位亿元</DialogDescription></DialogHeader>
-        <p class="text-xs text-muted-foreground">
-          股票原始净额与概念贡献分别列示；概念归属按各交易日观测保存。
-        </p>
-        <table class="w-full text-sm">
-          <thead>
-            <tr>
-              <th class="p-2 text-left">
-                <IndicatorHelpLabel
-                  scope="flow"
-                  label="日期 / 周期"
-                  compact
-                />
-              </th><th class="p-2 text-right">
-                <IndicatorHelpLabel
-                  scope="flow"
-                  label="股票整体净额"
-                  compact
-                />
-              </th><th class="p-2 text-right">
-                <IndicatorHelpLabel
-                  scope="flow"
-                  label="所选口径原始净额"
-                  compact
-                />
-              </th><th class="p-2 text-left">
-                <IndicatorHelpLabel
-                  scope="flow"
-                  label="当日概念 / 每概念权重"
-                  compact
-                />
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr
-              v-for="row in stockRows"
-              :key="row.tradeDate"
-              class="border-t"
-            >
-              <td class="p-2 whitespace-nowrap">
-                {{ row.tradeDate }} / {{ row.rangeDays }}日
-              </td><td class="p-2 text-right">
-                {{ money(row.stockNetValue) }}
-              </td><td class="p-2 text-right">
-                {{ money(row.originalNetValue) }}
-              </td><td class="p-2">
-                {{ row.concepts.join('、') || '未分类' }} · 1/{{ row.allocationCount }}
-              </td>
-            </tr>
-          </tbody>
-        </table>
-        <h3 class="font-semibold">
-          {{ concept?.name }} · 逐日分摊贡献
-        </h3>
-        <div
-          v-for="row in contributions"
-          :key="row.tradeDate"
-          class="flex justify-between border-b py-2 text-sm"
-        >
-          <span>{{ row.tradeDate }} · 权重 1/{{ row.allocationCount }}</span>
-          <span :class="moneyClass(row.netValue)">{{ money(row.netValue) }}</span>
-        </div>
-        <h3 class="font-semibold">
-          游资明细 · 有限已命名样本
-        </h3>
-        <p
-          v-if="!hotDetails.length"
-          class="text-sm text-muted-foreground"
-        >
-          暂无可用游资明细，不代表游资净额为零。
-        </p>
-        <div
-          v-for="(row, index) in hotDetails"
-          :key="index"
-          class="flex justify-between border-b py-2 text-sm"
-        >
-          <span>{{ row.tradeDate }} · {{ row.hotMoneyName }}</span><span :class="moneyClass(row.hotMoneyItemNetValue)">{{ money(row.hotMoneyItemNetValue) }}</span>
-        </div>
-      </DialogContent>
-    </Dialog>
+    />
   </div>
 </template>

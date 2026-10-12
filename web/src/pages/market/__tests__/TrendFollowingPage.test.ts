@@ -275,7 +275,7 @@ describe('TrendFollowingPage', () => {
     expect(wrapper.get('[data-testid="box-row"]').text()).toContain('盘中估算 —');
     await wrapper.get('[data-testid="box-row"]').trigger('click');
     await flushPromises();
-    expect(document.body.querySelector('[data-testid="trend-box-structure"]')?.textContent).toContain('88.0');
+    await vi.waitFor(() => expect(document.body.querySelector('[data-testid="trend-box-structure"]')?.textContent).toContain('88.0'));
     expect(apiMocks.detail).not.toHaveBeenCalled();
     wrapper.unmount();
   });
@@ -756,8 +756,9 @@ describe('TrendFollowingPage', () => {
     expect(apiMocks.detail).toHaveBeenCalledWith('000001.SZ', 'CN', 60, '2026-08-28');
     expect(marketDataApi.dailyBars).toHaveBeenLastCalledWith('000001.SZ', undefined, '2025-08-28', expect.any(AbortSignal));
     const dialog = document.body.querySelector('[data-testid="trend-detail"]')!;
-    expect(dialog.getAttribute('role')).toBe('dialog');
-    expect(dialog.classList.contains('top-1/2')).toBe(true);
+    const shell = dialog.closest('[role="dialog"]')!;
+    expect(shell.classList.contains('top-1/2')).toBe(true);
+    expect(shell.querySelector('[role="tablist"]')?.textContent).toContain('持仓');
     expect(dialog.querySelector('[data-testid="trend-rank-history"]')).not.toBeNull();
     expect(dialog.querySelector('[data-testid="rank-chart"]')).not.toBeNull();
     expect(dialog.textContent).not.toContain('持续天数');
@@ -917,7 +918,7 @@ describe('TrendFollowingPage', () => {
     await header!.trigger('click');
     expect(order()).toEqual(['C.US', 'A.US', 'B.US', 'D.US']);
   });
-  it('waits for an in-flight Preview when a transition opens detail without another download', async () => {
+  it('loads transition Preview independently while the page Preview is in flight', async () => {
     const payload = { ...ranking('CN'), status: 'completed', previewTime: '2026-08-28T10:00:00Z',
       dataAsOf: null, provider: 'yfinance', snapshots: [snapshot()] };
     mockPreview(payload);
@@ -931,8 +932,8 @@ describe('TrendFollowingPage', () => {
     void wrapper.get('[data-testid="research-mode-preview"]').trigger('click');
     overview.vm.$emit('select', { code: '000001.SZ', tradeDate: '2026-08-28', preview: true });
     await flushPromises();
-    expect(apiMocks.preview).toHaveBeenCalledTimes(1);
-    expect(apiMocks.detailHistory).not.toHaveBeenCalled();
+    expect(apiMocks.preview).toHaveBeenCalledTimes(2);
+    expect(apiMocks.detailHistory).toHaveBeenCalledWith('000001.SZ', 'CN', '2026-08-28');
     expect(document.body.querySelector('[data-testid="trend-detail"]')).not.toBeNull();
     resolvePreview(payload);
     await flushPromises();
@@ -942,11 +943,11 @@ describe('TrendFollowingPage', () => {
     expect(apiMocks.detail).not.toHaveBeenCalled();
     wrapper.getComponent({ name: 'TrendMarketOverview' }).vm.$emit('select', { code: '000001.SZ', tradeDate: '2026-08-28', preview: true });
     await flushPromises();
-    expect(apiMocks.preview).toHaveBeenCalledTimes(1);
+    expect(apiMocks.preview).toHaveBeenCalledTimes(2);
     wrapper.unmount();
   });
 
-  it('reports an explicit error when the loaded Preview has no matching transition stock', async () => {
+  it('reports neutral unavailability when Preview has no matching transition stock', async () => {
     mockPreview({ ...ranking('CN'), status: 'completed', previewTime: '2026-08-28T10:00:00Z',
       dataAsOf: null, provider: 'yfinance', snapshots: [snapshot()] });
     const wrapper = mount(TrendFollowingPage);
@@ -956,8 +957,8 @@ describe('TrendFollowingPage', () => {
     });
     await flushPromises();
     const dialog = document.body.querySelector('[data-testid="trend-detail"]')!;
-    expect(dialog.textContent).toContain('Preview 详情不可用');
-    expect(dialog.textContent).toContain('当前 Preview 中未找到 MISSING.US');
+    expect(dialog.textContent).toContain('此证券在所选日期暂无趋势研究预演数据');
+    expect(dialog.querySelector('[role="alert"]')).toBeNull();
     expect(apiMocks.preview).toHaveBeenCalledTimes(1);
     expect(apiMocks.detail).not.toHaveBeenCalled();
     wrapper.unmount();
@@ -1045,3 +1046,4 @@ describe('TrendFollowingPage', () => {
   });
 
 });
+

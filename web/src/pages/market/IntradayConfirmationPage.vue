@@ -8,7 +8,7 @@ import ResearchMarketToggle from '@/components/research/ResearchMarketToggle.vue
 import PageHeader from '@/components/layout/PageHeader.vue';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import StockDetailDialog from '@/components/stocks/StockDetailDialog.vue';
 import { Table, TableHeader, TableHead, TableBody, TableRow, TableCell } from '@/components/ui/table';
 import IndicatorHelpLabel from '@/components/app/IndicatorHelpLabel.vue';
 import { formatDateTime } from '@/utils/format';
@@ -268,71 +268,12 @@ onBeforeUnmount(() => { ++generation; });
         </Table>
       </div>
     </template>
-    <Dialog v-model:open="dialogOpen">
-      <DialogContent class="max-h-[85vh] overflow-y-auto sm:max-w-3xl">
-        <DialogHeader><DialogTitle>{{ selected?.name }} {{ selected?.code }}</DialogTitle><DialogDescription>昨日逻辑 → 今日价格行为 → 确认结论</DialogDescription></DialogHeader>
-        <template v-if="selected">
-          <section class="space-y-2">
-            <h3 class="font-semibold">
-              昨日逻辑 · {{ selected.candidateTradeDate }}
-            </h3><p>{{ selected.candidateReason.join('；') }}</p><p class="text-sm text-muted-foreground">
-              正式结果生成于 {{ stamp(selected.sourceGeneratedAt) }}
-            </p>
-          </section>
-          <section class="space-y-2">
-            <h3 class="font-semibold">
-              今日 Price Action
-            </h3>
-            <p>行情时间 {{ stamp(selected.metrics.quoteTime) }} · 闭合线时间 {{ stamp(selected.metrics.barTime) }} · 确认生成 {{ stamp(selected.generatedAt) }}</p>
-            <p>Gap {{ pct(selected.metrics.gapPct) }} · {{ selected.metrics.gapStatus }}</p>
-            <p>5m {{ pct(selected.metrics.return5M) }} / 15m {{ pct(selected.metrics.return15M) }} / 30m {{ pct(selected.metrics.return30M) }}</p>
-            <p>Opening Range {{ num(selected.metrics.openingRangeLow) }} – {{ num(selected.metrics.openingRangeHigh) }}</p>
-            <p>provisional VWAP {{ num(selected.metrics.vwap) }} · 距离 {{ pct(selected.metrics.vwapDistancePct) }}</p>
-            <p>Volume {{ num(selected.metrics.volumeRatio) }}x · {{ selected.metrics.volumeStatus }}（日均量 × 交易时间比例近似）</p>
-          </section>
-          <section class="space-y-2">
-            <h3 class="font-semibold">
-              Relative Strength（统一以开盘为基准）
-            </h3><p>{{ selected.metrics.benchmarkCode }}：{{ pct(selected.metrics.relativeToMarket) }} · 数据时间 {{ stamp(selected.metrics.benchmarkQuoteTime) }}</p><p>Industry：unavailable · {{ selected.metrics.industryUnavailableReason }}</p><p>ETF：unavailable · {{ selected.metrics.etfUnavailableReason }}</p>
-          </section>
-          <section class="space-y-2">
-            <h3 class="font-semibold">
-              Trend Impact · Official → Temporary
-            </h3>
-            <p>{{ selected.trend.officialTrendState ?? 'unavailable' }} → {{ selected.trend.temporaryTrendState ?? 'unavailable' }}</p>
-            <p>Lifecycle {{ selected.trend.officialLifecycle ?? 'unavailable' }} → {{ selected.trend.temporaryLifecycle ?? 'unavailable' }}</p>
-            <p>Trend Score Δ {{ num(selected.trend.trendScoreDelta) }} · Fragility {{ num(selected.trend.officialFragility) }} → unavailable</p>
-            <p class="text-sm text-muted-foreground">
-              {{ selected.trend.calculationBasis }}。{{ selected.trend.fragilityUnavailableReason }}
-            </p>
-          </section>
-          <section class="space-y-2">
-            <h3 class="font-semibold">
-              Decision · {{ selected.state }} · Chase Risk {{ selected.chaseRisk }}
-            </h3><ul class="list-disc pl-5">
-              <li
-                v-for="reason in selected.reasons"
-                :key="reason.code"
-              >
-                {{ reason.text }}
-              </li>
-            </ul>
-            <p v-if="selected.currentPriceRecovered">
-              当前价格行为已恢复，但本次候选当日 FAILED 不自动恢复。
-            </p>
-            <template v-if="selected.stateReasons.length">
-              <p>状态变更时依据：</p><ul class="list-disc pl-5">
-                <li
-                  v-for="reason in selected.stateReasons"
-                  :key="reason.code"
-                >
-                  {{ reason.text }}
-                </li>
-              </ul>
-            </template>
-          </section>
-        </template>
-      </DialogContent>
-    </Dialog>
+    <StockDetailDialog
+      v-model:open="dialogOpen"
+      :stock="selected ? { code: selected.code, name: selected.name, market_type: market } : null"
+      kind="research"
+      initial-tab="intraday"
+      :context="{ tradeDate: result?.tradeDate }"
+    />
   </div>
 </template>

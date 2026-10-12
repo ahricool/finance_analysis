@@ -9,11 +9,10 @@ import {
   type PortfolioPosition,
   type TradeEnginePosition,
 } from '@/api/holdings';
-import ResearchEvidence from '@/components/stocks/ResearchEvidence.vue';
+import StockDetailDialog from '@/components/stocks/StockDetailDialog.vue';
 import StockAutocomplete from '@/components/StockAutocomplete/StockAutocomplete.vue';
 import type { AssetType, Market } from '@/types/stockIndex';
 import ApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
-import DailyKLineCard from '@/components/market-data/DailyKLineCard.vue';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -22,7 +21,6 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { createOperationId } from '@/utils/operationId';
-import type { TradeMarker } from '@/lib/tradeMarkers';
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 
 const market = ref<'CN' | 'US'>('CN');
@@ -47,24 +45,17 @@ const formAmount = ref('');
 const formPositionId = ref<number | null>(null);
 const saving = ref(false);
 const detail = ref<PortfolioPosition | null>(null);
-const operations = ref<Array<{ executedAt: string; side: string; quantity: string; price: string }>>([]);
-const markers = ref<TradeMarker[]>([]);
 const engineLoading = ref(false);
 const engineError = ref<ParsedApiError | null>(null);
-const detailLoading = ref(false);
-const detailError = ref<ParsedApiError | null>(null);
-const toggleSaving = ref(false);
 const formError = ref<ParsedApiError | null>(null);
 const operationId = ref('');
 let listRequest = 0;
 let engineRequest = 0;
-let detailRequest = 0;
 let formRequest = 0;
-let toggleRequest = 0;
 let stopped = false;
 onBeforeUnmount(() => {
   stopped = true;
-  listRequest++; engineRequest++; detailRequest++; formRequest++; toggleRequest++;
+  listRequest++; engineRequest++; formRequest++;
 });
 const account = computed(() => accounts.value[0] || null);
 
@@ -72,7 +63,6 @@ onMounted(() => {
   void load();
 });
 const engineByPosition = computed(() => Object.fromEntries(engine.value.map(item => [item.positionId, item])));
-const engineView = computed(() => detail.value ? engineByPosition.value[String(detail.value.id)] ?? null : null);
 
 function fmt(value?: string | null) {
   if (value == null || value === '') return '-';
@@ -198,62 +188,10 @@ async function submitForm() {
   }
 }
 
-async function openDetail(row: PortfolioPosition) {
-  const request = ++detailRequest;
-  toggleRequest++;
-  toggleSaving.value = false;
+function openDetail(row: PortfolioPosition) {
   detail.value = row;
-  operations.value = [];
-  markers.value = [];
-  detailError.value = null;
-  detailLoading.value = true;
-  try {
-    const [ops, marks] = await Promise.all([holdingsApi.operations(row.id), holdingsApi.markers(row.id)]);
-    if (stopped || request !== detailRequest || detail.value?.id !== row.id) return;
-    operations.value = ops;
-    markers.value = marks.map(item => ({
-      timestamp: Date.parse(item.timestamp), type: item.type, operations: item.operations,
-    }));
-  } catch (err) {
-    if (!stopped && request === detailRequest) detailError.value = getParsedApiError(err);
-  } finally {
-    if (!stopped && request === detailRequest) detailLoading.value = false;
-  }
 }
-
-async function toggleTradeEngine(enabled: boolean) {
-  if (!detail.value || toggleSaving.value) return;
-  const positionId = detail.value.id;
-  const request = ++toggleRequest;
-  toggleSaving.value = true;
-  detailError.value = null;
-  try {
-    const updated = await holdingsApi.updatePosition(positionId, { tradeEngineEnabled: enabled });
-    if (stopped || request !== toggleRequest || detail.value?.id !== positionId) return;
-    detail.value = { ...detail.value, tradeEngineEnabled: updated.tradeEngineEnabled };
-    positions.value = positions.value.map(row => row.id === positionId ? { ...row, tradeEngineEnabled: updated.tradeEngineEnabled } : row);
-    await loadEngine();
-  } catch (err) {
-    if (!stopped && request === toggleRequest) detailError.value = getParsedApiError(err);
-  } finally {
-    if (!stopped && request === toggleRequest) toggleSaving.value = false;
-  }
-}
-
-function onTradeEngineChange(event: Event) {
-  const target = event.target as HTMLInputElement;
-  const enabled = target.checked;
-  target.checked = detail.value?.tradeEngineEnabled !== false;
-  void toggleTradeEngine(enabled);
-}
-
 function closeDetail() {
-  detailRequest++; toggleRequest++;
-  detailLoading.value = false;
-  toggleSaving.value = false;
-  detailError.value = null;
-  operations.value = [];
-  markers.value = [];
   detail.value = null;
 }
 </script>
@@ -589,110 +527,13 @@ function closeDetail() {
       </DialogContent>
     </Dialog>
 
-    <Dialog
-      :open="!!detail"
+    <StockDetailDialog
+      :stock="detail ? { code: detail.symbol, name: null, market_type: market } : null"
+      kind="research"
+      initial-tab="holdings"
+      :context="detail ? { accountId: detail.accountId, positionId: detail.id } : undefined"
       @update:open="value => { if (!value) closeDetail(); }"
-    >
-      <DialogContent class="max-h-[calc(100dvh-2rem)] sm:max-w-4xl overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>{{ detail?.symbol }}</DialogTitle>
-          <DialogDescription>当前持仓、Trade Engine 状态与操作记录</DialogDescription>
-        </DialogHeader>
-        <div
-          v-if="detail"
-          class="space-y-4"
-        >
-          <p>数量 {{ fmt(detail.quantity) }} · 成本 {{ fmt(detail.averageCost) }} · 市值 {{ fmt(detail.marketValue) }}</p>
-          <label class="flex items-start gap-2 text-sm">
-            <input
-              type="checkbox"
-              class="mt-1"
-              data-testid="trade-engine-enabled"
-              :checked="detail.tradeEngineEnabled !== false"
-              :disabled="toggleSaving"
-              @change="onTradeEngineChange($event)"
-            />
-            <span>
-              <span class="font-medium">交易提醒</span>
-              <span class="mt-1 block text-xs text-muted-foreground">关闭后，该持仓不运行 Strategy，系统也不会主动给出调仓指令，但仍计入账户 NAV 与组合风险。</span>
-            </span>
-          </label>
-          <ApiErrorAlert
-            v-if="detailError"
-            :error="detailError"
-          />
-          <Button
-            v-if="detailError"
-            variant="outline"
-            @click="openDetail(detail)"
-          >
-            重试详情
-          </Button>
-          <p
-            v-if="engineError"
-            class="text-sm text-destructive"
-          >
-            Trade Engine 建议读取失败，请重试。
-          </p>
-          <Button
-            v-if="engineError"
-            variant="outline"
-            @click="loadEngine"
-          >
-            重试建议
-          </Button>
-          <p
-            v-if="engineLoading"
-            class="text-sm text-muted-foreground"
-          >
-            正在加载建议…
-          </p>
-          <p v-if="!engineError && !engineLoading">
-            适用策略 {{ (engineView?.strategies || ['exit_v1', 'add_v1']).join(' / ') }} · 允许 Trade Engine {{ detail.tradeEngineEnabled === false ? '关闭' : '开启' }}
-          </p>
-          <p v-if="!engineError && !engineLoading">
-            最新正式信号 {{ engineView?.action || '-' }} · 保护价 {{ engineView?.activeStop || '-' }} · 阶段 {{ engineView?.profitStage || '-' }}
-          </p>
-          <p v-if="engineView?.llmReason">
-            LLM最终判断 {{ engineView.llmReason }}
-          </p>
-          <ResearchEvidence
-            :key="detail.id"
-            :symbol="detail.symbol"
-            :market="detail.market"
-            :position-id="detail.id"
-          />
-          <DailyKLineCard
-            :key="detail.id"
-            :symbol="detail.symbol"
-            :markers="markers"
-            marker-caption="操作 BST"
-          />
-          <div>
-            <h3 class="mb-2 text-sm font-semibold">
-              操作记录
-            </h3>
-            <p
-              v-if="detailLoading"
-              class="text-sm text-muted-foreground"
-            >
-              正在加载操作记录…
-            </p>
-            <p
-              v-else-if="!detailError && !operations.length"
-              class="text-sm text-muted-foreground"
-            >
-              暂无操作记录
-            </p>
-            <p
-              v-for="item in operations"
-              :key="item.executedAt + item.side"
-            >
-              {{ item.executedAt }} {{ item.side }} {{ item.quantity }} @{{ item.price }}
-            </p>
-          </div>
-        </div>
-      </DialogContent>
-    </Dialog>
+      @holdings-updated="load"
+    />
   </div>
 </template>

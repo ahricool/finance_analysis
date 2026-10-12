@@ -65,6 +65,11 @@ const summary = {
 
 let wrapper: VueWrapper;
 
+async function settleDetail() {
+  await vi.dynamicImportSettled();
+  await flushPromises();
+}
+
 async function mountPage() {
   const router = createRouter({
     history: createMemoryHistory(),
@@ -161,6 +166,7 @@ describe('HoldingsPage', () => {
   it('toggles trade engine from the position detail', async () => {
     await mountPage();
     await wrapper.get('button.text-left').trigger('click');
+    await settleDetail();
     await flushPromises();
     expect(wrapper.text()).toContain('交易提醒');
     await wrapper.get('[data-testid="trade-engine-enabled"]').setValue(false);
@@ -228,6 +234,7 @@ describe('holdings request ownership', () => {
     mocks.setCash.mockReturnValueOnce(save.promise);
     await mountPage();
     await wrapper.get('button.text-left').trigger('click');
+    await settleDetail();
     await wrapper.get('[data-testid="action-cash"]').trigger('click');
     await wrapper.get('[data-testid="form-submit"]').trigger('click');
     const us = { ...summary, market: 'US', positions: [], accounts: [{ ...summary.accounts[0]!, id: 2, market: 'US' }] };
@@ -239,7 +246,7 @@ describe('holdings request ownership', () => {
     await flushPromises();
     expect(wrapper.find('[data-testid="trade-engine-enabled"]').exists()).toBe(false);
     expect(wrapper.find('[data-testid="form-submit"]').exists()).toBe(true);
-    expect(mocks.summary).toHaveBeenCalledTimes(2);
+    expect(mocks.summary).toHaveBeenCalledTimes(3); // List, lazy holding panel, then new market.
     expect(wrapper.text()).not.toContain('old');
   });
 
@@ -262,7 +269,9 @@ describe('holdings request ownership', () => {
     mocks.operations.mockReturnValueOnce(old.promise).mockRejectedValueOnce(new Error('details unavailable'));
     await mountPage();
     await wrapper.findAll('button.text-left')[0]!.trigger('click');
+    await settleDetail();
     await wrapper.findAll('button.text-left')[1]!.trigger('click');
+    await settleDetail();
     old.resolve([{ executedAt: 'old-operation', side: 'BUY', quantity: '999', price: '1' }]);
     await flushPromises();
     expect(wrapper.text()).toContain('重试详情');
@@ -275,8 +284,10 @@ describe('holdings request ownership', () => {
     mocks.updatePosition.mockReturnValueOnce(toggle.promise);
     await mountPage();
     await wrapper.findAll('button.text-left')[0]!.trigger('click');
+    await settleDetail();
     await wrapper.get('[data-testid="trade-engine-enabled"]').setValue(false);
     await wrapper.findAll('button.text-left')[1]!.trigger('click');
+    await settleDetail();
     toggle.resolve({ ...summary.positions[0], tradeEngineEnabled: false });
     await flushPromises();
     expect((wrapper.get('[data-testid="trade-engine-enabled"]').element as HTMLInputElement).checked).toBe(true);

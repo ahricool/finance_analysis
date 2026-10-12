@@ -1,122 +1,33 @@
 <script setup lang="ts">
-import IndicatorHelpLabel from '@/components/app/IndicatorHelpLabel.vue';
-import PageHeader from '@/components/layout/PageHeader.vue';
-import DailyKLineCard from '@/components/market-data/DailyKLineCard.vue';
-import { quantApi } from '@/api/quant';
-import { getParsedApiError, type ParsedApiError } from '@/api/error';
-import ApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
-import type { QuantSignal } from '@/types/quant';
-import { formatPredictedReturn, formatScore } from '@/utils/quant';
-import { formatSecurityLabel } from '@/utils/security';
-import { ref, watch } from 'vue';
-import { useRoute } from 'vue-router';
+import { computed } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import { useQuantMarket } from '@/composables/useQuantMarket';
+import StockDetailDialog from '@/components/stocks/StockDetailDialog.vue';
 const route = useRoute();
+const router = useRouter();
 const { market, marketQuery, tradeDate } = useQuantMarket();
-const item = ref<QuantSignal | null>(null);
-const history = ref<QuantSignal[]>([]);
-const error = ref<ParsedApiError | null>(null);
-let requestVersion = 0;
-watch(
-  [market, () => route.params.code, tradeDate],
-  async ([current, code, date]) => {
-    const version = ++requestVersion;
-    item.value = null;
-    history.value = [];
-    error.value = null;
-    try {
-      const values = await Promise.all([
-        (date ? quantApi.signal(String(code), current, date) : quantApi.signal(String(code), current)),
-        (date ? quantApi.signalHistory(String(code), current, date) : quantApi.signalHistory(String(code), current)),
-      ]);
-      if (version === requestVersion) [item.value, history.value] = values;
-    } catch (e) {
-      if (version === requestVersion) error.value = getParsedApiError(e);
-    }
-  },
-  { immediate: true },
-);
+const stock = computed(() => ({ code: String(route.params.code || ''), name: '', market_type: market.value }));
+function close(open: boolean) {
+  if (open) return;
+  // Direct and external entry must never send the user out of the app.
+  void router.replace({ path: '/research/quant/signals', query: marketQuery() });
+}
 </script>
 <template>
   <div class="space-y-4">
     <RouterLink
       :to="{ path: '/research/quant/signals', query: marketQuery() }"
-      class="text-sm font-medium rounded-sm underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+      class="text-sm underline underline-offset-4"
     >
       ← 返回排名
-    </RouterLink><ApiErrorAlert
-      v-if="error"
-      :error="error"
-    /><template v-if="item">
-      <PageHeader
-        variant="section"
-        :title="formatSecurityLabel(item.code, item.name)"
-        en="Signal Detail"
-        :description="`${item.tradeDate} · 排名 ${item.universeRank ?? '—'} · ${item.signal} · 预测 ${formatPredictedReturn(item.predictedReturn)}`"
-      />
-      <section class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <div
-          v-for="row in [
-            ['最终得分', item.finalScore],
-            ['风险惩罚', item.riskPenalty],
-            ['市场', item.marketScore],
-            ['横截面', item.crossSectionScore],
-            ['时间序列', item.timeSeriesScore],
-          ]"
-          :key="String(row[0])"
-          class="rounded-xl border border-border bg-card p-3"
-        >
-          <p class="text-xs text-muted-foreground">
-            <IndicatorHelpLabel
-              scope="quant"
-              :label="String(row[0])"
-              compact
-            />
-          </p>
-          <p class="mt-1 font-semibold">
-            {{ formatScore(row[1] as number | null) }}
-          </p>
-        </div>
-      </section>
-      <DailyKLineCard
-        :symbol="item.code"
-        :highlight-date="item.tradeDate"
-      />
-      <section class="rounded-xl border bg-card p-4">
-        <h3 class="text-sm font-semibold">
-          原因说明
-        </h3>
-        <ul class="mt-2 list-disc space-y-1 pl-5 text-sm">
-          <li
-            v-for="reason in item.reasons"
-            :key="reason"
-          >
-            {{ reason }}
-          </li>
-        </ul>
-        <details class="mt-4 text-xs">
-          <summary class="cursor-pointer text-muted-foreground">
-            查看原始数据
-          </summary>
-          <pre class="mt-2 overflow-auto rounded bg-background p-3">{{
-            JSON.stringify(item.scoreComponents, null, 2)
-          }}</pre>
-        </details>
-      </section>
-      <section class="rounded-xl border bg-card p-4">
-        <h3 class="mb-2 text-sm font-semibold">
-          历史
-        </h3>
-        <div class="space-y-2 text-sm">
-          <div
-            v-for="row in history"
-            :key="row.id"
-            class="flex justify-between border-b border-border pb-2"
-          >
-            <span>{{ row.tradeDate }}</span><span>排名 {{ row.universeRank ?? '—' }} · 得分 {{ formatScore(row.finalScore) }}</span>
-          </div>
-        </div>
-      </section>
-    </template>
+    </RouterLink>
+    <StockDetailDialog
+      :open="true"
+      :stock="stock"
+      kind="research"
+      initial-tab="quant"
+      :context="{ tradeDate: tradeDate || undefined, view: 'official' }"
+      @update:open="close"
+    />
   </div>
 </template>

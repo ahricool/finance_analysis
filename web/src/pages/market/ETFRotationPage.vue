@@ -1,10 +1,10 @@
 <script setup lang="ts">
+import StockDetailDialog from '@/components/stocks/StockDetailDialog.vue';
+import type { StockDetailContext } from '@/components/stocks/detail/types';
 import PageHeader from '@/components/layout/PageHeader.vue';
 import { exportExcel, type ExcelColumn } from '@/utils/excelExport';
 import { forwardReturnColumns, useForwardReturns } from '@/composables/useForwardReturns';
 import { parseDate } from '@internationalized/date';
-import DailyKLineCard from '@/components/market-data/DailyKLineCard.vue';
-import { detailChartHistory as buildDetailChartHistory } from '@/utils/detailChartHistory';
 import ResearchMarketToggle from '@/components/research/ResearchMarketToggle.vue';
 import { useRoute } from 'vue-router';
 import { useLazyResearchPreview } from '@/composables/useLazyResearchPreview';
@@ -20,19 +20,16 @@ import ResearchDataModeToggle from '@/components/research/ResearchDataModeToggle
 import ResearchDataStatusBar from '@/components/research/ResearchDataStatusBar.vue';
 import SortableTableHeader from '@/components/stocks/SortableTableHeader.vue';
 import ETFRankHistoryChart from '@/components/etf-rotation/ETFRankHistoryChart.vue';
-import ETFRotationHistoryCharts from '@/components/etf-rotation/ETFRotationHistoryCharts.vue';
 import { indicatorDescriptions as descriptions } from '@/components/etf-rotation/indicatorDescriptions';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHeader, TableRow } from '@/components/ui/table';
 import type {
   ETFAction,
   ETFChange,
-  ETFDetailResponse,
   ETFMarket,
   ETFMarketRotationSnapshot,
   ETFMomentumSnapshot,
@@ -67,17 +64,8 @@ const loading = ref(true);
 const refreshing = ref(false);
 const runLoading = ref(false);
 const error = ref<ParsedApiError | null>(null);
-const selected = ref<ETFDetailResponse | null>(null);
-const detailLoading = ref(false);
-const detailError = ref<ParsedApiError | null>(null);
-
-const historyLoading = ref(false);
-const historyError = ref<ParsedApiError | null>(null);
-let detailRequestId = 0;
-const detailChartHistory = computed(() => selected.value
-  ? buildDetailChartHistory(selected.value.history, selected.value.latest, detailMode.value === 'preview')
-  : []);
-const detailMode = ref<ResearchDataMode>('official');
+const selected = ref<{ code: string; name: string; market_type: ETFMarket } | null>(null);
+const detailContext = ref<StockDetailContext>({});
 const route = useRoute();
 const market = ref<ETFMarket>(route?.query.market === 'US' ? 'US' : 'CN');
 const rankingColumns = [
@@ -177,7 +165,6 @@ const previewHasChanges = computed(() => previewChangeGroups.value.some(group =>
 function pct(value: number | null | undefined, sign = true) { return value == null ? '—' : `${sign && value >= 0 ? '+' : ''}${(value * 100).toFixed(2)}%`; }
 function stopPct(value: number | null | undefined) { return value == null ? '—' : `-${(value * 100).toFixed(1)}%`; }
 function score(value: number | null | undefined) { return value == null ? '—' : value.toFixed(1); }
-function decimal(value: number | null | undefined, digits = 3) { return value == null ? '—' : value.toFixed(digits); }
 function price(value: number | null) { return formatMarketCurrencyAmount(value, market.value); }
 function rankChange(value: number | null) { return value == null ? '—' : `${value > 0 ? '+' : ''}${value}`; }
 function scoreChange(value: number | null) { return value == null ? '—' : `${value > 0 ? '+' : ''}${value.toFixed(1)}`; }
@@ -336,48 +323,17 @@ function selectDataMode(mode: ResearchDataMode) {
   if (officialSelected.value) applyOfficialRanking(officialSelected.value);
   else void load(false, { autoSelectMode: false });
 }
-async function loadDetailHistory() {
-  const current = selected.value;
-  if (!current || detailMode.value !== 'preview') return;
-  const requestId = ++detailRequestId;
-  historyLoading.value = true;
-  historyError.value = null;
-  try {
-    const response = await etfRotationApi.detailHistory(current.latest.code, current.market, current.latest.tradeDate);
-    if (requestId === detailRequestId && selected.value === current) {
-      current.history = response.history.filter(row => row.tradeDate < current.latest.tradeDate);
-    }
-  } catch (reason) {
-    if (requestId === detailRequestId && selected.value === current) historyError.value = getParsedApiError(reason);
-  } finally {
-    if (requestId === detailRequestId) historyLoading.value = false;
-  }
-}
-async function openDetail(target: Pick<ETFMomentumSnapshot, 'code'>) {
-  const requestId = ++detailRequestId;
-  historyLoading.value = false;
-  historyError.value = null;
-  detailMode.value = dataMode.value;
+function openDetail(target: Pick<ETFMomentumSnapshot, 'code'>) {
   const item = items.value.find(row => row.code === target.code);
-  if (!item) return;
-  selected.value = { market: market.value, metadata: item, latest: item, history: [], marketSnapshot: marketSnapshot.value };
-  detailError.value = null;
-  if (detailMode.value === 'preview') {
-    detailLoading.value = false;
-    void loadDetailHistory();
-    return;
-  }
-  detailLoading.value = true;
-  try {
-    const response = await etfRotationApi.detail(item.code, market.value, 60, selectedDate.value || undefined);
-    if (requestId === detailRequestId) selected.value = response;
-  }
-  catch (err) { if (requestId === detailRequestId) detailError.value = getParsedApiError(err); } finally { if (requestId === detailRequestId) detailLoading.value = false; }
+  selected.value = { code: target.code, name: item?.name ?? target.code, market_type: market.value };
+  detailContext.value = {
+    view: dataMode.value,
+    tradeDate: dataMode.value === 'preview' ? item?.tradeDate ?? previewPayload.value?.tradeDate : selectedDate.value || undefined,
+  };
 }
 async function runRotation() { runLoading.value = true; try { const result = await etfRotationApi.run(market.value); toast.success(`任务已提交：${result.taskId}`); }
   catch (err) { error.value = getParsedApiError(err); } finally { runLoading.value = false; } }
 watch(market, () => {
-  ++detailRequestId;
   selectedDate.value = '';
   officialSelected.value = null;
   officialLatest.value = null;
@@ -953,133 +909,12 @@ onMounted(async () => {
       </Card>
     </div>
 
-    <Dialog
-      :open="selected !== null"
-      @update:open="open => { if (!open) { selected = null; ++detailRequestId; } }"
-    >
-      <DialogContent
-        data-testid="etf-detail-modal"
-        class="flex max-h-[calc(100dvh-2rem)] w-[calc(100%-1rem)] max-w-[calc(100%-1rem)] flex-col overflow-hidden p-0 sm:max-w-[calc(100%-2rem)] lg:max-w-6xl"
-      >
-        <DialogHeader class="border-b p-5 pr-12 text-left">
-          <DialogTitle class="break-words">
-            {{ selected?.metadata.name }} · {{ selected?.metadata.code }}
-          </DialogTitle><DialogDescription>{{ selected?.metadata.category }} / {{ selected?.metadata.theme }} · {{ selected?.metadata.riskGroup }}</DialogDescription>
-        </DialogHeader>
-        <div class="min-h-0 flex-1 space-y-5 overflow-y-auto overflow-x-hidden p-5">
-          <AppApiErrorAlert
-            v-if="detailError"
-            :error="detailError"
-          /><Skeleton
-            v-if="detailLoading"
-            class="h-48"
-          />
-          <template v-else-if="selected">
-            <p
-              v-if="detailMode === 'preview'"
-              class="text-xs text-muted-foreground"
-            >
-              当前详情为 Preview；图表最后一个空心点为 Preview，不属于正式历史。
-            </p>
-            <p
-              v-if="historyLoading"
-              class="text-sm text-muted-foreground"
-            >
-              正在加载正式历史…
-            </p>
-            <AppApiErrorAlert
-              v-if="historyError"
-              :error="historyError"
-              action-label="重试历史加载"
-              @action="loadDetailHistory"
-              @dismiss="historyError = null"
-            />
-            <div
-              data-testid="etf-factor-grid"
-              class="grid grid-cols-[repeat(auto-fit,minmax(9rem,1fr))] gap-3"
-            >
-              <div
-                v-for="factor in ([['entry',selected.latest.entryScore,descriptions.entry],['composite',selected.latest.compositeScore,descriptions.composite],['momentum',selected.latest.momentumStrengthScore,descriptions.momentum],['relativeStrength',selected.latest.relativeStrengthScore,descriptions.relativeStrength],['acceleration',selected.latest.accelerationScore,descriptions.acceleration],['trendQuality',selected.latest.trendQualityScore,descriptions.trendQuality],['efficiency',selected.latest.efficiencyScore,descriptions.efficiency]] as const)"
-                :key="factor[0]"
-                class="min-w-0 rounded border p-3"
-              >
-                <IndicatorLabel
-                  :label="factor[0]"
-                  :description="factor[2]"
-                  wrap
-                /><strong class="mt-1 block text-xl">{{ score(factor[1]) }}</strong>
-              </div>
-            </div>
-            <DailyKLineCard
-              :symbol="selected.latest.code"
-              :highlight-date="selected.latest.tradeDate"
-            />
-            <Card>
-              <CardHeader><CardTitle><BilingualLabel label="rawMetrics" /></CardTitle></CardHeader><CardContent
-                data-testid="etf-raw-metrics-grid"
-                class="grid grid-cols-[repeat(auto-fit,minmax(11rem,1fr))] gap-2"
-              >
-                <div
-                  v-for="metric in ([['1D',pct(selected.latest.ret1D),descriptions.return],['3D',pct(selected.latest.ret3D),descriptions.return],['5D',pct(selected.latest.ret5D),descriptions.return],['10D',pct(selected.latest.ret10D),descriptions.return],['20D',pct(selected.latest.ret20D),descriptions.return],['RS5',pct(selected.latest.rs5D),descriptions.relativeStrength],['RS10',pct(selected.latest.rs10D),descriptions.relativeStrength],['RS20',pct(selected.latest.rs20D),descriptions.relativeStrength],['Weighted Slope 5D',decimal(selected.latest.weightedSlope5D,5),descriptions.weightedSlope],['Weighted Slope 10D',decimal(selected.latest.weightedSlope10D,5),descriptions.weightedSlope],['Weighted Slope 15D',decimal(selected.latest.weightedSlope15D,5),descriptions.weightedSlope],['Annualized Slope 5D',pct(selected.latest.annualizedSlope5D),descriptions.weightedSlope],['Annualized Slope 10D',pct(selected.latest.annualizedSlope10D),descriptions.weightedSlope],['Annualized Slope 15D',pct(selected.latest.annualizedSlope15D),descriptions.weightedSlope],['R² 15D',decimal(selected.latest.trendR215D),descriptions.r2],['Trend Quality 15D',decimal(selected.latest.trendQuality15D),descriptions.trendQuality],['Momentum Acceleration 3D',pct(selected.latest.momentumAcceleration3D),descriptions.acceleration],['Momentum Acceleration 5D',pct(selected.latest.momentumAcceleration5D),descriptions.acceleration],['Trend Acceleration',pct(selected.latest.trendAcceleration),descriptions.acceleration],['Signed ER10',decimal(selected.latest.signedEfficiencyRatio10D),descriptions.efficiency],['Volatility 20D',pct(selected.latest.realizedVol20D,false),descriptions.volatility],['Max Drawdown 20D',pct(selected.latest.maxDrawdown20D),descriptions.drawdown],['MA10 Deviation',pct(selected.latest.ma10Ratio),descriptions.maDeviation],['MA20 Deviation',pct(selected.latest.ma20Ratio),descriptions.maDeviation],['Distance from High',pct(selected.latest.distanceFrom20dHigh),descriptions.distanceHigh],['Volume Ratio',decimal(selected.latest.volumeRatio5D),descriptions.volumeRatio],['Average Amount',price(selected.latest.avgAmount20D),descriptions.liquidity],['Rank Change 1/3/5D',`${rankChange(selected.latest.rankChange1D)} / ${rankChange(selected.latest.rankChange3D)} / ${rankChange(selected.latest.rankChange5D)}`,descriptions.rankChange],['Suggested Stop',price(selected.latest.suggestedStopPrice),descriptions.stop]] as const)"
-                  :key="metric[0]"
-                  class="min-w-0 rounded border px-3 py-2"
-                >
-                  <IndicatorLabel
-                    :label="metric[0]"
-                    :description="metric[2] || metric[0]"
-                    wrap
-                  /><strong class="mt-1 block tabular-nums [overflow-wrap:anywhere]">{{ metric[1] }}</strong>
-                </div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader><CardTitle><BilingualLabel label="eligibilitySignal" /></CardTitle></CardHeader><CardContent class="grid grid-cols-[repeat(auto-fit,minmax(10rem,1fr))] gap-3">
-                <div>
-                  <IndicatorLabel
-                    label="绝对趋势"
-                    en="Absolute Trend"
-                    :description="descriptions.absoluteTrend"
-                    wrap
-                  /><strong class="block">{{ boolText(selected.latest.absoluteTrendEligible) }}</strong>
-                </div>
-                <div>
-                  <IndicatorLabel
-                    label="流动性"
-                    en="Liquidity"
-                    :description="descriptions.liquidity"
-                    wrap
-                  /><strong class="block">{{ boolText(selected.latest.liquidityEligible) }}</strong>
-                </div>
-                <div>
-                  <IndicatorLabel
-                    label="state"
-                    :description="descriptions.state"
-                    wrap
-                  /><strong class="block"><BilingualEnum
-                    :value="selected.latest.state"
-                    size="badge"
-                  /></strong>
-                </div>
-                <div>
-                  <IndicatorLabel
-                    label="action"
-                    :description="descriptions.action"
-                    wrap
-                  /><strong class="block"><BilingualEnum
-                    :value="selected.latest.action"
-                    size="badge"
-                  /></strong>
-                </div>
-              </CardContent>
-            </Card>
-            <Card
-              data-testid="etf-detail-history"
-            >
-              <CardHeader><CardTitle><BilingualLabel label="history" /></CardTitle><CardDescription>价格/MA、综合分、排名与相对强弱；旧快照缺失字段时保留空点。</CardDescription></CardHeader><CardContent><ETFRotationHistoryCharts :history="detailChartHistory" /></CardContent>
-            </Card>
-          </template>
-        </div>
-      </DialogContent>
-    </Dialog>
+    <StockDetailDialog
+      :stock="selected"
+      kind="research"
+      initial-tab="etf"
+      :context="detailContext"
+      @update:open="open => { if (!open) selected = null; }"
+    />
   </div>
 </template>
