@@ -18,6 +18,7 @@ from finance_analysis.options_intelligence.service import (
     PREVIEW_HARD_LIMIT_SECONDS,
 )
 from finance_analysis.database.repositories.options_intelligence import OptionsRepository
+from finance_analysis.database.repositories.stock import InstrumentRepository
 
 from finance_analysis.options_intelligence.views import scan_view
 from finance_analysis.options_intelligence.preview_cache import load_preview
@@ -67,6 +68,14 @@ def submit(user, symbol=None, explain=False, view=None, trade_date=None):
     return {"task_id": task.id, "status": "pending"}
 
 
+def named_scan_items(items, repo):
+    """Attach current master-data names without changing stored research evidence."""
+    if not items:
+        return items
+    names = InstrumentRepository(repo.db).names_by_codes(row["symbol"] for row in items)
+    return [{**row, "name": names.get(row["symbol"])} for row in items]
+
+
 @router.get("", response_model=OptionsScanResponse)
 def scan(
     view: Literal["preview", "official"] = "official",
@@ -98,7 +107,7 @@ def scan(
             else []
         )
         return {
-            "items": items,
+            "items": named_scan_items(items, repo),
             "view": view,
             "trade_date": (payload or {}).get("trade_date"),
             "available_dates": dates,
@@ -109,7 +118,7 @@ def scan(
     selected = trade_date or (dates[0] if dates else None)
     items = [scan_view(row) for row in repo.scan(symbols, selected, uid=user.id)]
     return {
-        "items": items,
+        "items": named_scan_items(items, repo),
         "view": view,
         "trade_date": selected,
         "available_dates": dates,
