@@ -91,6 +91,3 @@ Beat 的调度状态仍使用容器内默认文件，不挂载到宿主机持久
 旧 deploy.sh 在拉取代码后会继续执行旧的全栈更新逻辑。合并本次 PR 后首次安装应先手动
 `git pull --ff-only origin main`，确认新脚本已在生产目录，再运行 `bash deploy.sh`。
 宿主机需要能写入仓库的 Git 内部目录，用于锁和部署记录。
-
-验证覆盖采用隔离的 Git/Docker CLI fake，包含失败、恢复、互斥锁和启动顺序；
-运行 `uv run pytest tests/test_deploy.py -q`。
