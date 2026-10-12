@@ -102,7 +102,7 @@ onMounted(async () => {
         定时预览失败：{{ preview.error }}。保留上次结果及原始时间。
       </p>
       <p v-if="!preview?.result">
-        当前交易日暂无预览，等待交易日 11:05 / 14:05 / 14:35 定时生成。
+        当前交易日暂无预览，等待交易日 10:00 / 11:00 / 13:00 / 14:00 / 14:30（北京时间）定时生成。
       </p>
     </div>
     <section
@@ -266,7 +266,7 @@ onMounted(async () => {
       class="rounded-xl border py-16 text-center text-muted-foreground"
       data-testid="industry-empty"
     >
-      {{ previewMode ? '当前交易日暂无盘中预览。仅在交易日 11:05 / 14:05 / 14:35 定时生成，覆盖不足时保留原结果。' : '所选日期暂无行业强度快照。正式结果由收盘任务生成，覆盖不足时不会发布。' }}
+      {{ previewMode ? '当前交易日暂无盘中预览。仅在交易日 10:00 / 11:00 / 13:00 / 14:00 / 14:30（北京时间）定时生成，覆盖不足时保留原结果。' : '所选日期暂无行业强度快照。正式结果由收盘任务生成，覆盖不足时不会发布。' }}
     </p>
 
     <template v-if="rows.length">

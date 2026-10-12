@@ -229,13 +229,13 @@ Qlib worker 不可访问 PostgreSQL。主 Worker 不同步等待 Qlib，训练�
 ### ETF Rotation
 
 
-盘中预演 `run_preview()` 复用同一套计算：T-1 及以前仍走 `db_fresh`，Today 用 realtime overlay，结果只写入 Redis `etf_rotation:preview:{market}`，不写 `ETFMarketRotationSnapshot` / `ETFMomentumSnapshot`。CN 对 Universe+benchmark 一次 Tencent `real()`，US 固定 Yahoo 5 分钟 batch 聚合；失败不 fallback。周期任务为 `etf_rotation_preview_cn`（11:05/14:05/14:35 Asia/Shanghai）与 `etf_rotation_preview_us`（11:05/15:05/15:35 America/New_York），相对 Trend Following Preview 错开 5 分钟。API：`GET /api/v1/etf-rotation/preview`。Redis 写入失败必须让 Celery Preview task 失败。
+盘中预演 `run_preview()` 复用同一套计算：T-1 及以前仍走 `db_fresh`，Today 用 realtime overlay，结果只写入 Redis `etf_rotation:preview:{market}`，不写 `ETFMarketRotationSnapshot` / `ETFMomentumSnapshot`。CN 对 Universe+benchmark 一次 Tencent `real()`，US 固定 Yahoo 5 分钟 batch 聚合；失败不 fallback。周期任务为 `etf_rotation_preview_cn`（10:00/11:00/13:00/14:00/14:30 Asia/Shanghai）与 `etf_rotation_preview_us`（10:00–15:00 America/New_York，每小时整点），与对应市场 Trend Following Preview 同时触发。API：`GET /api/v1/etf-rotation/preview`。Redis 写入失败必须让 Celery Preview task 失败。
 
 ### Trend Following
 
 `trend_following/service.py` 对固定 CN/US Universe 计算特征、排名和纯趋势状态（IDLE / WATCHING / CANDIDATE / TRENDING / WEAKENING / BROKEN），不维护理论持仓或交易动作。所有股票（包括 CN CSI2000）统一 DB-only；仅 benchmark 可用 `db_fresh` 只读补尾部，远程结果不落库。支持从历史快照向后重建，因此变更规则时要考虑旧日期重算和 invalidate 行为。
 
-盘中预演 `run_preview()` 用当日临时日线复用同一套计算，结果只写入 Redis `trend_following:preview:v2:{market}`，不写正式 snapshot。CN 固定 `easyquotation` 腾讯全市场快照，US 固定 Yahoo 5 分钟 batch 聚合；失败不 fallback 到其他 realtime provider。周期任务为 `trend_following_preview_cn`（11:00/14:00/14:30 Asia/Shanghai）与 `trend_following_preview_us`（11:00/15:00/15:30 America/New_York）。API：`GET /api/v1/trend-following/preview`。
+盘中预演 `run_preview()` 用当日临时日线复用同一套计算，结果只写入 Redis `trend_following:preview:v2:{market}`，不写正式 snapshot。CN 固定 `easyquotation` 腾讯全市场快照，US 固定 Yahoo 5 分钟 batch 聚合；失败不 fallback 到其他 realtime provider。周期任务为 `trend_following_preview_cn`（10:00/11:00/13:00/14:00/14:30 Asia/Shanghai）与 `trend_following_preview_us`（10:00–15:00 America/New_York，每小时整点）。API：`GET /api/v1/trend-following/preview`。
 
 ## 报告和通知
 
@@ -291,6 +291,7 @@ Beat `crypto_btc_strategy` 每15m收盘后一分钟执行，只读闭合K线，�
 三个扶摇能力仅支持 CN；指数无股票复权语义，使用 `IndexDailyBar`。
 正式任务和 Preview 共用计算流程：行业指数历史请求 API，个股历史 DB 优先，完整窗口不足时 API 只读补取；不缓存计算输入，
 不写 `stock_daily`，不修改 ETF Universe。
+盘中任务 `industry_strength_preview_cn` 在 10:00/11:00/13:00/14:00/14:30 Asia/Shanghai 触发，与 A 股 ETF/Trend Preview 一致，午休不运行。
 正式 Breadth 仅当日收盘计算，不做当前成分历史回填。配置、状态和覆盖规则见 `docs/industry-strength.md`。
 
 ## 龙虎榜资金流向
