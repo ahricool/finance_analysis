@@ -1,4 +1,6 @@
-"""GET only reads cached evidence; administrators enqueue evaluation."""
+"""GET reads persisted evidence and realized returns; administrators enqueue evaluation."""
+
+from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException
 from finance_analysis.interfaces.api.deps import require_admin, require_current_user
@@ -9,6 +11,7 @@ from finance_analysis.interfaces.api.v1.schemas.intraday_confirmation import (
     Snapshot,
     Confirmation,
     RunRequest,
+    AvailableDates,
 )
 from finance_analysis.intraday_confirmation.service import ConfirmationService
 
@@ -24,10 +27,16 @@ def snapshot(
     market: Market = "CN",
     state: State | None = None,
     candidate_source: Source | None = None,
+    trade_date: date | None = None,
     user=Depends(require_current_user),
     service=Depends(get_service),
 ):
-    return service.read(market, state, candidate_source)
+    return service.read(market, state, candidate_source, trade_date=trade_date)
+
+
+@router.get("/dates", response_model=AvailableDates)
+def dates(market: Market = "CN", user=Depends(require_current_user), service=Depends(get_service)):
+    return service.dates(market)
 
 
 @router.post("/run", status_code=202)
@@ -52,8 +61,11 @@ def run(body: RunRequest, user=Depends(require_admin)):
 
 
 @router.get("/{code}", response_model=Confirmation)
-def detail(code: str, market: Market = "CN", user=Depends(require_current_user), service=Depends(get_service)):
-    row = next((r for r in service.read(market)["items"] if r["code"] == code.upper()), None)
+def detail(
+    code: str, market: Market = "CN", trade_date: date | None = None,
+    user=Depends(require_current_user), service=Depends(get_service),
+):
+    row = next((r for r in service.read(market, trade_date=trade_date)["items"] if r["code"] == code.upper()), None)
     if row is None:
-        raise HTTPException(404, "不在当天冻结候选池")
+        raise HTTPException(404, "不在所选日期冻结候选池")
     return row

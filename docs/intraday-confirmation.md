@@ -6,7 +6,7 @@
 ## 候选与时间边界
 
 CN/US 各一个 Celery Beat 任务，复用 alerts 队列。当地 09:20 首次冻结、09:25 可重试，交易时段每 15 分钟评估（每小时 00/15/30/45 分）。
-任务内部使用交易所日历，处理节假日、US DST/半日市和 CN 午休。GET 永不计算。
+任务内部使用交易所日历，处理节假日、US DST/半日市和 CN 午休。GET 不重跑盘中评估，只用持久化日线计算已实现收益。
 评估仍读取已闭合的 5m 行情；状态变化需要连续两次有效评估，通常至少间隔 15 分钟。
 
 冻结时只读取**严格前一个交易日**、冻结时间之前生成的正式结果：
@@ -18,9 +18,9 @@ CN/US 各一个 Celery Beat 任务，复用 alerts 队列。当地 09:20 首次�
 按上述顺序去重、最多 40 只，限 Instrument 中 ACTIVE STOCK；ETF/指数不作为股票候选。
 保存来源、候选日期、理由、源生成时间和当日计算所需的昨日 Trend 基线。
 不读任何 Preview，不使用当日价格增补候选，不用更早日期填补昨日缺失结果。
-候选为空也冻结空池。池一旦冻结不再刷新，缓存丢失或错过冻结时段则当日停止确认，不能盘中补建。
+候选为空也冻结空池。池一旦冻结不再刷新；重启或 Redis 丢失后从 PostgreSQL 恢复。错过冻结时段且数据库无当日池则不能盘中补建。
 
-本功能基于包含 Confluence 的分支；部署前需正常应用已有 Confluence migration，本功能没有新增 migration。
+部署需要应用 `0072_intraday_confirmation`，接在 `0071_user_avatar` 后；不改已有 migration。
 
 ## 行情与指标
 
@@ -100,18 +100,53 @@ Gap≥5%、距昨收≥8%、距 VWAP≥3.5% 或开盘30m≥5% 任一触发 HIGH 
 
 ## 存储、API 与页面
 
-Redis `intraday_confirmation:{market}:{trade_date}` 保存当天完整原子快照：冻结候选、当前指标、稳定计数、
-first_confirmed_at、failed_at、max score、状态变更理由。当地午夜过期，不保存分钟线。
-同市场任务用 Redis lock 串行；cache 写失败使任务失败，任务硬时限小于锁时限。
+PostgreSQL `intraday_confirmation_snapshot` 以 `(market, trade_date)` 为主键，保存每日完整原子快照：
+冻结候选、当前指标、稳定计数、first_confirmed_at、first_confirmed_price、first_confirmed_quote_time、
+首次确认报价中的原始当日 open、failed_at、max score 与状态变更理由。不保存分钟线或每次评估事件。
+每个交易日保留一份最新状态；冻结候选/来源证据及首次确认基准一经写入不再改变。
+后续 CONFIRMED、转为 FAILED、重复执行或任务重试均不重置首次确认价格/时间；首次确认缺失的价格基准也不能用后续报价补填。
 
-V1 不新增 DB 业务表，也不保存跨日确认历史。优点是小而独立；代价是 Redis 丢失则当天停止，隔日无法复盘。
-现有 TaskRecord 仍保存任务执行结果摘要，不保存分钟输入。若以后需要回测/审计再设计状态事件持久化。
+同市场/交易日用 PostgreSQL session advisory lock 串行评估，没有 Redis TTL 锁过期竞态；
+冻结插入使用主键冲突保护，更新使用行锁与 revision CAS 拒绝旧写入。行情请求在业务事务外进行；
+整份快照更新在同一事务提交，数据库写失败使任务失败。GET 和任务均以数据库为事实源，不依赖 Redis 缓存。
+TaskRecord 仍只保存任务执行摘要，不替代业务快照。
 
-- `GET /api/v1/intraday-confirmation?market=CN&state=WAIT&candidate_source=trend`
-- `GET /api/v1/intraday-confirmation/{code}?market=CN`
+### 首次确认收益率
+
+- 仅在规则稳定状态第一次进入 CONFIRMED 时，冻结这一轮实际有效报价价格与原始开盘价；确认处理时间和报价时间分别保存。
+- 3/5/10D 分别指**不含确认当日**的第 3/5/10 个交易所交易日收盘，按 CN/US 真实交易日历定位，处理假期、DST 与半日市；缺日不顺延。
+- 收益率在 GET 时读取已持久化结果；尚未保存的期限可批量只读 `stock_daily` 计算，GET 不调用 Provider、不写任何数据。
+- 首次确认价是原始盘中价格，而 DB 日线是前复权；用同日开盘价对齐：
+  `当前前复权基准 = 冻结首次确认价 × 当前DB确认日open ÷ 冻结原始确认日open`，
+  `收益率 = 目标日前复权close ÷ 当前前复权基准 − 1`。
+  冻结价格保持不变。首次计算时确认日及窗口内日线必须来自相同 `data_source` 和完全一致的 `updated_at` 写入代次，
+  才能证明共享复权尺度；单次查询并不能保证历史价格处在同一尺度。已有增量同步会忽略小幅复权变化，
+  因此不能只依赖它的整段刷新判断。代次/来源不同或缺失时宁可留空，不推测因子。
+- 既有确认任务每次先处理最多 10 个存在待到期收益的历史日，按最早检查时间轮转；即使当前不在交易时段也会检查。
+  不新增 Beat 任务；正常工作日盘前/盘中调度自动补算，手动任务也可补算。第一次得到已成熟且同源同代次的完整窗口时，
+  原子保存该期限的收益、完整 OHLCV 输入、来源、写入代次、目标日与计算时间。后续不覆盖已保存结果，
+  避免历史滚出增量同步窗口或行情被清理后，原本有效的收益消失。历史查询不触发保存。
+  未成熟/缺行情继续等待，超过 10D 不过期；始终缺失的旧记录通过轮转不会饿死较新记录。
+  冻结时缺少不可补救的首次价格/开盘价/报价时间不会进入补算队列。若服务长期停止且历史已变为混合尺度，
+  无法验证的未保存期限仍为空，必须等待一致的历史日线恢复，不进行猜测性回填。
+- 确认日期/报价时间、正数价格或开盘对齐基准缺失、日历不可用、目标尚未收盘、
+  确认日或期间任一交易日 OHLCV 缺失/无效（含停牌零量）时，对应期限为 null；表格留空，不显示 0%。
+  较晚期限缺行情不影响已完整的较短期限。确认后转为 FAILED 仍保留首次确认收益。已保存的成熟收益不会因后续数据修订或更换来源自动重算。
+- 这是事后价格收益观察，不代表真实成交、组合收益或含成本回测。
+
+### 部署切换与历史边界
+
+旧版只存 Redis 的历史没有可靠首次确认价，午夜过期后无法重建。因此本 migration 不伪造或追溯回填旧确认历史，
+也不从旧缓存导入可能已经确认但没有首次价格的记录。升级后下一个开盘前冻结开始持续保存；
+若盘中升级且数据库没有当日池，当日保持未冻结，等待下一次正常盘前冻结。后续 Redis 丢失不再影响已持久化池。
+数据库升级由既有部署流程执行，本变更本身不运行生产迁移。
+
+- `GET /api/v1/intraday-confirmation?market=CN&state=WAIT&candidate_source=trend&trade_date=2026-09-21`
+- `GET /api/v1/intraday-confirmation/{code}?market=CN&trade_date=2026-09-21`
+- `GET /api/v1/intraday-confirmation/dates?market=CN`，返回持久化日期降序列表；省略 trade_date 默认市场当日，不回退历史。
 - 管理员 `POST /api/v1/intraday-confirmation/run`，body `{ "market": "CN" }`，只排队。
 - 任务：`intraday_confirmation_cn/us`，既有任务中心可跟踪。
-- 页面：研究 → `/research/intraday-confirmation`，只读取快照，手动刷新。
+- 页面：研究 → `/research/intraday-confirmation`，只读取快照，手动刷新；日期选择可复盘，历史视图不能提交当日确认任务。
 - 排序：CONFIRMED → WAIT → FAILED；组内 score 降序、chase risk 升序、code 稳定排序。
 - Dialog 展示昨日逻辑、完整 Price Action/RS/Trend、当前理由及状态变更理由、数据/生成时间。
 
@@ -131,3 +166,5 @@ V1 不新增 DB 业务表，也不保存跨日确认历史。优点是小而独�
 `available_score_weight` 显示参与评分的原始权重（满额 100），缺失子项不加分也不扣分；完全无可用维度时返回 null。
 追高风险需要 fresh 行情及 Gap、相对昨收收益、VWAP 距离；30m 完整窗口可用后补充判断。必要数据缺失时返回 UNKNOWN，使用中性样式。
 盘前冻结结果同样为 null / UNKNOWN，排序时同状态的 null 分数放在有分数的结果之后。
+
+持久化/收益测试另外覆盖重复冻结、竞争 revision、失败回滚、重启恢复、不可变首次价格、复权缩放、未收盘、缺日/停牌、假期/半日市和迁移单 head。

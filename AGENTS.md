@@ -373,8 +373,8 @@ GET `/api/v1/confluence/*` 只读快照，管理员 `/run` 异步生成；页面
 ## Intraday Confirmation
 
 `intraday_confirmation/` 只确认前一交易日正式 Confluence/Trend/Quant 候选。当地09:20/09:25开盘前冻结、交易时段每15分钟评估，
-复用 alerts 队列；CN Tencent 定向报价 + 既有 Sina 5m，US yfinance。候选/当天状态仅存 Redis，午夜过期，
-缺少冻结池则盘中不补建；GET只读，页面 `/research/intraday-confirmation`。Temporary Trend 复用纯计算，
+复用 alerts 队列；CN Tencent 定向报价 + 既有 Sina 5m，US yfinance。候选/每日状态持久化 PostgreSQL，首次确认价格与时间不可变，
+缺少冻结池则盘中不补建；GET 支持历史日期与 DB 日线计算 3/5/10D 收益，不调用实时 Provider。页面 `/research/intraday-confirmation`。Temporary Trend 复用纯计算，
 固定昨日横截面百分位，不写正式 snapshot/rank/lifecycle。规则、不可用指标及取舍见 `docs/intraday-confirmation.md`。
 
 

@@ -15,38 +15,58 @@ import { formatDateTime } from '@/utils/format';
 
 const { currentUser } = useAuth();
 const market = ref<Market>('CN');
+const tradeDate = ref(''); const dates = ref<string[]>([]);
+const datesLoading = ref(false); const datesError = shallowRef<ParsedApiError | null>(null);
 const state = ref<State | ''>(''); const source = ref<Source | ''>('');
 const result = shallowRef<Snapshot | null>(null); const selected = shallowRef<Confirmation | null>(null);
 const error = shallowRef<ParsedApiError | null>(null);
 const loading = ref(false); const submitting = ref(false); const dialogOpen = ref(false); const taskId = ref('');
 const sourceLabels = { confluence: '强共振', trend: 'Trend', quant: 'Quant' };
-let generation = 0;
+let generation = 0; let datesGeneration = 0; let runGeneration = 0;
+let controller: AbortController | undefined; let datesController: AbortController | undefined;
+async function loadDates() {
+  const token = ++datesGeneration;
+  datesController?.abort(); datesController = new AbortController();
+  datesLoading.value = true; datesError.value = null;
+  try {
+    const data = await api.dates(market.value, datesController.signal);
+    if (token === datesGeneration) dates.value = data.dates;
+  } catch (cause) { if (token === datesGeneration) datesError.value = getParsedApiError(cause); }
+  finally { if (token === datesGeneration) datesLoading.value = false; }
+}
+function refresh() { void load(); void loadDates(); }
 async function load() {
   const token = ++generation;
+  controller?.abort(); controller = new AbortController();
   loading.value = true; error.value = null; result.value = null; selected.value = null; dialogOpen.value = false;
   try {
-    const data = await api.read(market.value, state.value || undefined, source.value || undefined);
+    const data = await api.read(market.value, state.value || undefined, source.value || undefined, tradeDate.value || undefined, controller.signal);
     if (token === generation) result.value = data;
   } catch (cause) { if (token === generation) error.value = getParsedApiError(cause); }
   finally { if (token === generation) loading.value = false; }
 }
 function setMarket(target: Market) {
   if (target === market.value) return;
-  market.value = target;
-  void load();
+  market.value = target; tradeDate.value = ''; dates.value = [];
+  ++runGeneration; taskId.value = ''; submitting.value = false;
+  refresh();
 }
 async function run() {
+  if (tradeDate.value || submitting.value) return;
+  const token = ++runGeneration;
   submitting.value = true; error.value = null; taskId.value = '';
-  try { taskId.value = (await api.run(market.value)).taskId; }
-  catch (cause) { error.value = getParsedApiError(cause); }
-  finally { submitting.value = false; }
+  try { const task = await api.run(market.value); if (token === runGeneration) taskId.value = task.taskId; }
+  catch (cause) { if (token === runGeneration) error.value = getParsedApiError(cause); }
+  finally { if (token === runGeneration) submitting.value = false; }
 }
 function pct(value: unknown) { return typeof value === 'number' ? `${(value * 100).toFixed(2)}%` : 'unavailable'; }
 function num(value: unknown) { return typeof value === 'number' ? value.toFixed(2) : 'unavailable'; }
 function stamp(value: unknown) { return typeof value === 'string' ? formatDateTime(value) : 'unavailable'; }
 function show(row: Confirmation) { selected.value = row; dialogOpen.value = true; }
-onMounted(load);
-onBeforeUnmount(() => { ++generation; });
+onMounted(refresh);
+onBeforeUnmount(() => { ++generation; ++datesGeneration; ++runGeneration; controller?.abort(); datesController?.abort(); });
+function forwardReturn(value: unknown) { return typeof value === 'number' && Number.isFinite(value) ? `${(value * 100).toFixed(2)}%` : ''; }
+function returnClass(value: unknown) { return typeof value === 'number' && value > 0 ? 'text-market-up' : typeof value === 'number' && value < 0 ? 'text-market-down' : ''; }
 </script>
 
 <template>
@@ -58,7 +78,7 @@ onBeforeUnmount(() => { ++generation; });
       variant="section"
       title="盘中确认"
       en="Intraday Confirmation"
-      description="昨日选谁，今日确认。只观察开盘前冻结候选，不自动交易。"
+      description="昨日选谁，今日确认。查看开盘前冻结候选、历史确认与确认后收益，不自动交易。"
     >
       <template #actions>
         <div class="flex min-w-0 flex-wrap items-end gap-2">
@@ -67,6 +87,21 @@ onBeforeUnmount(() => { ++generation; });
             data-testid="intraday-market-switcher"
             @update:model-value="setMarket"
           />
+          <label>交易日 <select
+            v-model="tradeDate"
+            aria-label="交易日"
+            data-testid="intraday-date-selector"
+            class="h-10 rounded-md border border-input bg-background px-3 text-sm"
+            @change="load"
+          ><option value="">当日</option><option
+            v-for="date in dates"
+            :key="date"
+            :value="date"
+          >{{ date }}</option></select></label>
+          <span
+            v-if="datesLoading"
+            class="text-xs text-muted-foreground"
+          >读取历史日期…</span>
           <label>状态 <select
             v-model="state"
             aria-label="状态"
@@ -83,16 +118,16 @@ onBeforeUnmount(() => { ++generation; });
         <Button
           variant="outline"
           :disabled="loading"
-          @click="load"
+          @click="refresh"
         >
           刷新快照
         </Button>
         <Button
           v-if="currentUser?.role === 'admin'"
-          :disabled="submitting"
+          :disabled="submitting || !!tradeDate"
           @click="run"
         >
-          运行确认任务
+          运行当日确认任务
         </Button>
       </template>
     </PageHeader>
@@ -100,6 +135,24 @@ onBeforeUnmount(() => { ++generation; });
       v-if="error"
       :error="error"
     />
+    <div
+      v-if="datesError"
+      class="space-y-2"
+    >
+      <AppApiErrorAlert :error="datesError" />
+      <Button
+        variant="outline"
+        @click="loadDates"
+      >
+        重试历史日期
+      </Button>
+    </div>
+    <p
+      v-if="tradeDate"
+      class="text-sm text-muted-foreground"
+    >
+      历史快照 {{ tradeDate }}，只读查看；确认任务仅计算当日。
+    </p>
     <p
       v-if="taskId"
       class="text-sm"
@@ -131,8 +184,9 @@ onBeforeUnmount(() => { ++generation; });
         </div>
       </div>
       <div class="space-y-1 text-sm text-muted-foreground">
-        <p>候选交易日 {{ result.candidateTradeDate ?? 'unavailable' }} · 当前交易日 {{ result.tradeDate }} · 冻结于 {{ stamp(result.frozenAt) }}</p>
+        <p>候选交易日 {{ result.candidateTradeDate ?? 'unavailable' }} · 确认交易日 {{ result.tradeDate }} · 冻结于 {{ stamp(result.frozenAt) }}</p>
         <p>确认生成时间 {{ stamp(result.generatedAt) }} · 行情以各股票数据时间为准，Yahoo 可能延迟。</p>
+        <p>+3/5/10D 从首次确认价格起算，确认日不计入，按后续交易日收盘计算；未到期或价格、复权基准不足时留空。</p>
         <p>{{ result.rulesNote }}</p><p>unavailable 表示数据不足，不代表负向；量能为日均量按已过交易时间的近似值。</p>
         <p
           v-for="warning in result.warnings"
@@ -212,6 +266,16 @@ onBeforeUnmount(() => { ++generation; });
                   compact
                 />
               </TableHead>
+              <TableHead
+                v-for="label in ['+3D', '+5D', '+10D']"
+                :key="label"
+              >
+                <IndicatorHelpLabel
+                  scope="intraday"
+                  :label="label"
+                  compact
+                />
+              </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -255,13 +319,21 @@ onBeforeUnmount(() => { ++generation; });
               <TableCell class="max-w-64 whitespace-normal text-xs">
                 {{ row.reasons.slice(0, 3).map(r => r.text).join('；') }}
               </TableCell>
+              <TableCell
+                v-for="[label, value] in [['3d', row.return3D], ['5d', row.return5D], ['10d', row.return10D]]"
+                :key="String(label)"
+                :data-testid="`intraday-return-${label}`"
+                :class="returnClass(value)"
+              >
+                {{ forwardReturn(value) }}
+              </TableCell>
             </TableRow>
             <TableRow v-if="!result.items.length">
               <TableCell
-                :colspan="11"
+                :colspan="14"
                 class="py-10 text-center text-muted-foreground"
               >
-                {{ result.status === 'not_frozen' ? '尚无当天冻结池。开盘后不会根据涨幅补建候选。' : '没有符合筛选条件的候选' }}
+                {{ result.status === 'not_frozen' ? '该交易日尚无冻结池。开盘后不会根据涨幅补建候选。' : '没有符合筛选条件的候选' }}
               </TableCell>
             </TableRow>
           </TableBody>

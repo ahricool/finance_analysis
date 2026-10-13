@@ -123,7 +123,7 @@ layout（Shell / PageHeader / ModuleLayout）+ ui/app 组件
 
 `components/stocks/StockDetailDialog.vue` 是股票/ETF 唯一详情弹窗壳，顶部页签在行情、持仓、期权、趋势、ETF 轮动、共振、盘中确认、量化与龙虎榜之间切换。各研究页仍保留列表与筛选；证券入口以 `initialTab` 和 `StockDetailContext` 传来源日期、official/preview、账户/持仓及龙虎榜筛选。量化旧详情 URL 只作同一弹窗的兼容入口。
 
-`components/stocks/detail/` 的面板独立读取既有 API，只有当前页签挂载；切证券、日期、页签或关闭后必须作废旧请求。404/不适用显示空态，接口失败保留独立重试。持仓为当前真实账户，盘中确认为当日状态，不能伪装成历史结果。行情优先使用匹配证券的自选行情，否则激活行情页签时请求既有 `/stocks/{code}/quote`；保留时间戳与缺失值，不承诺额外轮询。
+`components/stocks/detail/` 的面板独立读取既有 API，只有当前页签挂载；切证券、日期、页签或关闭后必须作废旧请求。404/不适用显示空态，接口失败保留独立重试。持仓为当前真实账户；盘中确认按 `context.tradeDate` 读取持久化历史，未提供日期时读取当日；缺少历史不回退当日。行情优先使用匹配证券的自选行情，否则激活行情页签时请求既有 `/stocks/{code}/quote`；保留时间戳与缺失值，不承诺额外轮询。
 
 ## 鉴权
 

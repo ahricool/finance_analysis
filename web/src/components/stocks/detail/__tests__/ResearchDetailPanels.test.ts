@@ -64,11 +64,11 @@ describe('independent research detail panels', () => {
     expect(wrapper.text()).toContain('正式共振快照');
     wrapper.unmount();
   });
-  it('presents latest intraday semantics, frozen logic and sticky failure evidence', async () => {
+  it('presents historical intraday semantics, frozen logic and sticky failure evidence', async () => {
     const wrapper = mount(IntradayDetailPanel, { props: { symbol: 'AAPL.US', market: 'US', context: { tradeDate: '2025-01-01' } } });
     await flushPromises();
-    expect(intradayConfirmationApi.detail).toHaveBeenCalledWith('AAPL.US', 'US');
-    for (const text of ['不支持历史回放', '2025-01-01', '昨日候选', 'FAILED', 'HIGH', '状态依据', '不自动恢复', 'unavailable']) expect(wrapper.text()).toContain(text);
+    expect(intradayConfirmationApi.detail).toHaveBeenCalledWith('AAPL.US', 'US', '2025-01-01', expect.any(AbortSignal));
+    for (const text of ['指定交易日盘中确认', '2025-01-01', '昨日候选', 'FAILED', 'HIGH', '状态依据', '不自动恢复', 'unavailable']) expect(wrapper.text()).toContain(text);
     wrapper.unmount();
   });
   it('passes all dragon tiger observation filters and preserves the source concept', async () => {
@@ -137,7 +137,7 @@ describe('independent research detail panels', () => {
     const old = deferred<Confirmation>(); vi.mocked(intradayConfirmationApi.detail).mockReturnValueOnce(old.promise);
     const wrapper = mount(IntradayDetailPanel, { props: { symbol: 'AAPL.US', market: 'US' } });
     await wrapper.setProps({ symbol: '600001.SH', market: 'CN' }); await flushPromises();
-    expect(intradayConfirmationApi.detail).toHaveBeenLastCalledWith('600001.SH', 'CN');
+    expect(intradayConfirmationApi.detail).toHaveBeenLastCalledWith('600001.SH', 'CN', undefined, expect.any(AbortSignal));
     old.resolve({ ...confirmation, candidateReason: ['stale intraday'] }); await flushPromises();
     expect(wrapper.text()).not.toContain('stale intraday'); expect(wrapper.text()).toContain('昨日候选');
     wrapper.unmount();
@@ -192,5 +192,33 @@ describe('preserved metric hints after detail extraction', () => {
       expect(descriptions).toContain(metricHint('flow', label));
     }
     wrapper.unmount();
+  });
+});
+
+
+describe('intraday frozen baseline and history changes', () => {
+  it('shows first confirmation price and quote time and leaves immature return cells blank', async () => {
+    vi.mocked(intradayConfirmationApi.detail).mockResolvedValue({ ...confirmation, firstConfirmedPrice: 101.25, firstConfirmedQuoteTime: '2026-09-21T13:35:00Z', firstConfirmedAt: '2026-09-21T13:36:00Z', return3D: -.05, return5D: 0, return10D: null });
+    const wrapper = mount(IntradayDetailPanel, { props: { symbol: 'AAPL.US', market: 'US' } }); await flushPromises();
+    expect(wrapper.text()).toContain('当日盘中确认');
+    expect(wrapper.get('[data-testid="intraday-first-confirmation"]').text()).toContain('101.25');
+    expect(wrapper.text()).toContain('报价时间');
+    expect(wrapper.get('[data-testid="intraday-detail-return-+3D"]').text()).toBe('-5.00%');
+    expect(wrapper.get('[data-testid="intraday-detail-return-+5D"]').text()).toBe('0.00%');
+    expect(wrapper.get('[data-testid="intraday-detail-return-+10D"]').text()).toBe('');
+    for (const label of ['+3D', '+5D', '+10D', '首次确认价格']) expect(metricHint('intraday', label)).toBeTruthy();
+    wrapper.unmount();
+  });
+  it('cancels stale dates and close, retaining only the latest selected date evidence', async () => {
+    const old = deferred<Confirmation>(); vi.mocked(intradayConfirmationApi.detail).mockReturnValueOnce(old.promise);
+    const wrapper = mount(IntradayDetailPanel, { props: { symbol: 'AAPL.US', market: 'US', context: { tradeDate: '2026-09-18' } } });
+    const oldSignal = vi.mocked(intradayConfirmationApi.detail).mock.calls.at(-1)![3]!;
+    await wrapper.setProps({ context: { tradeDate: '2026-09-21' } }); await flushPromises();
+    expect(oldSignal.aborted).toBe(true);
+    expect(intradayConfirmationApi.detail).toHaveBeenLastCalledWith('AAPL.US', 'US', '2026-09-21', expect.any(AbortSignal));
+    old.resolve({ ...confirmation, candidateReason: ['stale historical detail'] }); await flushPromises();
+    expect(wrapper.text()).not.toContain('stale historical detail');
+    const lastSignal = vi.mocked(intradayConfirmationApi.detail).mock.calls.at(-1)![3]!;
+    wrapper.unmount(); expect(lastSignal.aborted).toBe(true);
   });
 });

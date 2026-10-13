@@ -11,7 +11,7 @@ def test_alembic_head_is_0064():
     config = Config(str(PROJECT_ROOT / "alembic.ini"))
     config.set_main_option("script_location", str(PROJECT_ROOT / "alembic"))
     script = ScriptDirectory.from_config(config)
-    assert script.get_current_head() == "0071_user_avatar"
+    assert script.get_current_head() == "0072_intraday_confirmation"
 
 
 def test_0062_creates_llm_state_not_google_or_strategy_state():
