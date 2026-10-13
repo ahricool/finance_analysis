@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, ref, shallowRef, watch } from 'vue';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import AppApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
+import IndicatorHelpLabel from '@/components/app/IndicatorHelpLabel.vue';
 import { Button } from '@/components/ui/button';
 import type { StockDetailPanelProps } from './types';
 import { intradayConfirmationApi as api, type Confirmation } from '@/api/intradayConfirmation';
@@ -12,17 +13,20 @@ const loading = ref(false);
 const error = shallowRef<ParsedApiError | null>(null);
 const supported = computed(() => props.market === 'CN' || props.market === 'US');
 let generation = 0;
+let controller: AbortController | undefined;
 async function load() {
   const token = ++generation;
+  controller?.abort(); controller = new AbortController();
   selected.value = null; error.value = null; loading.value = false;
   if (props.market !== 'CN' && props.market !== 'US') return;
   loading.value = true;
-  try { const response = await api.detail(props.symbol, props.market); if (token === generation) selected.value = response; }
+  try { const response = await api.detail(props.symbol, props.market, props.context?.tradeDate, controller.signal); if (token === generation) selected.value = response; }
   catch (cause) { if (token === generation) { const parsed = getParsedApiError(cause); if (parsed.status !== 404) error.value = parsed; } }
   finally { if (token === generation) loading.value = false; }
 }
-watch([() => props.symbol, () => props.market], load, { immediate: true });
-onBeforeUnmount(() => { ++generation; });
+watch([() => props.symbol, () => props.market, () => props.context?.tradeDate], load, { immediate: true });
+onBeforeUnmount(() => { ++generation; controller?.abort(); });
+function forwardReturn(value: unknown) { return typeof value === 'number' && Number.isFinite(value) ? `${(value * 100).toFixed(2)}%` : ''; }
 function pct(value: unknown) { return typeof value === 'number' ? `${(value * 100).toFixed(2)}%` : 'unavailable'; }
 function num(value: unknown) { return typeof value === 'number' ? value.toFixed(2) : 'unavailable'; }
 function stamp(value: unknown) { return typeof value === 'string' ? formatDateTime(value) : 'unavailable'; }
@@ -33,13 +37,13 @@ function stamp(value: unknown) { return typeof value === 'string' ? formatDateTi
     data-testid="intraday-detail-panel"
   >
     <p class="text-sm text-muted-foreground">
-      最新盘中确认 · 昨日逻辑 → 今日价格行为 → 确认结论。仅提供最新已计算快照，不支持历史回放。
+      {{ context?.tradeDate ? '指定交易日盘中确认' : '当日盘中确认' }} · 冻结候选逻辑 → 盘中价格行为 → 确认结论。
     </p>
     <p
       v-if="context?.tradeDate"
       class="text-xs text-muted-foreground"
     >
-      来源观察日期 {{ context.tradeDate }}；下方盘中数据以实际行情和确认生成时间为准。
+      确认交易日 {{ context.tradeDate }}；展示该日保存的快照，行情时间与确认生成时间分别列示。
     </p>
     <p
       v-if="loading"
@@ -55,7 +59,7 @@ function stamp(value: unknown) { return typeof value === 'string' ? formatDateTi
       v-else-if="!selected"
       class="text-sm text-muted-foreground"
     >
-      {{ supported ? '该股票暂无最新盘中确认数据，不代表确认失败。' : '此市场暂不支持盘中确认。' }}
+      {{ supported ? '该股票在所选交易日暂无盘中确认数据，不代表确认失败。' : '此市场暂不支持盘中确认。' }}
     </p>
     <Button
       v-if="error"
@@ -71,6 +75,44 @@ function stamp(value: unknown) { return typeof value === 'string' ? formatDateTi
       <p class="text-xs text-muted-foreground">
         首次确认 {{ stamp(selected.firstConfirmedAt) }} · 失效时间 {{ stamp(selected.failedAt) }}。unavailable 表示数据不足，不代表负向。
       </p>
+      <section
+        class="space-y-2"
+        data-testid="intraday-first-confirmation"
+      >
+        <h3 class="font-semibold">
+          <IndicatorHelpLabel
+            scope="intraday"
+            label="首次确认价格"
+          />
+        </h3>
+        <p>首次确认价格 {{ num(selected.firstConfirmedPrice) }} · 报价时间 {{ stamp(selected.firstConfirmedQuoteTime) }}</p>
+        <p class="text-xs text-muted-foreground">
+          首次确认时间与价格固定保存，后续状态变化不会重设。收益按同口径前复权价格计算。
+        </p>
+        <dl class="grid grid-cols-3 gap-3">
+          <div
+            v-for="[label, value] in [['+3D', selected.return3D], ['+5D', selected.return5D], ['+10D', selected.return10D]]"
+            :key="String(label)"
+          >
+            <dt>
+              <IndicatorHelpLabel
+                scope="intraday"
+                :label="String(label)"
+                compact
+              />
+            </dt>
+            <dd
+              :data-testid="`intraday-detail-return-${label}`"
+              class="min-h-5 tabular-nums"
+            >
+              {{ forwardReturn(value) }}
+            </dd>
+          </div>
+        </dl>
+        <p class="text-xs text-muted-foreground">
+          确认日不计入，按后续第3/5/10个交易日收盘计算；未到期或缺少价格、复权基准时留空。
+        </p>
+      </section>
       <section class="space-y-2">
         <h3 class="font-semibold">
           昨日逻辑 · {{ selected.candidateTradeDate }}
@@ -80,7 +122,7 @@ function stamp(value: unknown) { return typeof value === 'string' ? formatDateTi
       </section>
       <section class="space-y-2">
         <h3 class="font-semibold">
-          今日 Price Action
+          确认日 Price Action
         </h3>
         <p>行情时间 {{ stamp(selected.metrics.quoteTime) }} · 闭合线时间 {{ stamp(selected.metrics.barTime) }} · 确认生成 {{ stamp(selected.generatedAt) }}</p>
         <p>Gap {{ pct(selected.metrics.gapPct) }} · {{ selected.metrics.gapStatus }}</p>

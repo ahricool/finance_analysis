@@ -11,6 +11,8 @@ export interface Confirmation {
   metrics: Record<string, number | string | boolean | null>;
   trend: Record<string, number | string | null>;
   firstConfirmedAt: string | null; failedAt: string | null; generatedAt: string | null;
+  firstConfirmedPrice?: number | null; firstConfirmedQuoteTime?: string | null;
+  return3D?: number | null; return5D?: number | null; return10D?: number | null;
   currentPriceRecovered: boolean;
 }
 export interface Snapshot {
@@ -20,11 +22,14 @@ export interface Snapshot {
 }
 const base = '/api/v1/intraday-confirmation';
 export const intradayConfirmationApi = {
-  async read(market: Market, state?: State, source?: Source): Promise<Snapshot> {
-    return toCamelCase((await apiClient.get(base, { params: { market, state, candidate_source: source } })).data);
+  async read(market: Market, state?: State, source?: Source, tradeDate?: string, signal?: AbortSignal): Promise<Snapshot> {
+    return toCamelCase((await apiClient.get(base, { params: { market, state, candidate_source: source, ...(tradeDate ? { trade_date: tradeDate } : {}) }, ...(signal ? { signal } : {}) })).data);
   },
-  async detail(code: string, market: Market): Promise<Confirmation> {
-    return toCamelCase((await apiClient.get(`${base}/${encodeURIComponent(code)}`, { params: { market } })).data);
+  async detail(code: string, market: Market, tradeDate?: string, signal?: AbortSignal): Promise<Confirmation> {
+    return toCamelCase((await apiClient.get(`${base}/${encodeURIComponent(code)}`, { params: { market, ...(tradeDate ? { trade_date: tradeDate } : {}) }, ...(signal ? { signal } : {}) })).data);
+  },
+  async dates(market: Market, signal?: AbortSignal): Promise<{ dates: string[] }> {
+    return (await apiClient.get(`${base}/dates`, { params: { market }, ...(signal ? { signal } : {}) })).data;
   },
   async run(market: Market): Promise<{ taskId: string }> {
     return toCamelCase((await apiClient.post(`${base}/run`, { market })).data);

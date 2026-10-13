@@ -1,6 +1,5 @@
 """Two bounded, lifecycle-tracked tasks on the existing alerts queue."""
 
-from redis.exceptions import LockError
 from finance_analysis.intraday_confirmation.service import ConfirmationService
 from finance_analysis.tasks.celery.app import celery_app
 from finance_analysis.tasks.celery.schedule import require_scheduled_task_definition
@@ -8,10 +7,7 @@ from finance_analysis.tasks.lifecycle import TaskSkipped, track_task
 
 
 def _run(market):
-    try:
-        result = ConfirmationService().run(market)
-    except LockError as exc:
-        raise TaskSkipped("本市场已有确认任务运行") from exc
+    result = ConfirmationService().run(market)
     if result["status"] == "skipped":
         raise TaskSkipped(result["reason"])
     return result

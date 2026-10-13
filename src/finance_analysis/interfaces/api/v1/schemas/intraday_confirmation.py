@@ -31,6 +31,11 @@ class Confirmation(BaseModel):
     trend: dict[str, Any]
     score_breakdown: dict[str, float | None] = Field(default_factory=dict)
     first_confirmed_at: datetime | None = None
+    first_confirmed_price: float | None = None
+    first_confirmed_quote_time: datetime | None = None
+    return_3d: float | None = None
+    return_5d: float | None = None
+    return_10d: float | None = None
     failed_at: datetime | None = None
     max_confirmation_score: float = 0
     current_price_recovered: bool = False
@@ -52,3 +57,7 @@ class Snapshot(BaseModel):
 
 class RunRequest(BaseModel):
     market: Market = "CN"
+
+
+class AvailableDates(BaseModel):
+    dates: list[date]

@@ -23,6 +23,7 @@ for (const width of [1280, 1440, 1920]) {
       await page.route('**/api/v1/**', route => {
         const url = new URL(route.request().url());
         if (url.pathname.endsWith('/auth/status')) return route.fulfill({ json: { loggedIn: true, user: { uid: 1, username: 'Tester', role: 'user', extra: {} } } });
+        if (url.pathname.endsWith('/intraday-confirmation/dates')) return route.fulfill({ json: { dates: ['2026-09-22'] } });
         if (url.pathname.endsWith('/intraday-confirmation')) return route.fulfill({ json: raw });
         if (url.pathname.startsWith('/api/v1/intraday-confirmation/')) return route.fulfill({ json: raw.items[0] });
         return route.fulfill({ json: {} });

@@ -36,6 +36,8 @@ def test_candidates_only_exact_prior_session_before_freeze(monkeypatch):
                 (day, cutoff + timedelta(hours=1), "CANDIDATE", "STOCK"),
                 (day, cutoff - timedelta(hours=12), "BROKEN", "STOCK"),
                 (day, cutoff - timedelta(hours=12), "CANDIDATE", "ETF"),
+                (day, cutoff - timedelta(hours=12), "CANDIDATE", "STOCK"),  # 40D is not a 20D candidate.
+                (day, cutoff - timedelta(hours=12), "CANDIDATE", "STOCK"),  # 60D is not a 20D candidate.
             ],
             1,
         ):
@@ -56,6 +58,7 @@ def test_candidates_only_exact_prior_session_before_freeze(monkeypatch):
                 TrendFollowingSnapshot(
                     id=i,
                     market="US",
+                    trend_period=40 if i == 7 else 60 if i == 8 else 20,
                     code=code,
                     instrument_id=i,
                     universe_key="us_trend",
@@ -76,6 +79,12 @@ def test_candidates_only_exact_prior_session_before_freeze(monkeypatch):
                     reasons=["昨日趋势"],
                 )
             )
+    # Other periods for the same stock must not overwrite the frozen 20D baseline.
+    with Session(engine) as session, session.begin():
+        original = session.get(TrendFollowingSnapshot, 1)
+        fields = {c.name: getattr(original, c.name) for c in original.__table__.columns if c.name != "id"}
+        for period in (40, 60):
+            session.add(TrendFollowingSnapshot(**{**fields, "id": period, "trend_period": period, "state": "BROKEN"}))
     result = repo.candidates("US", day, cutoff)
     assert [row["code"] for row in result] == ["T1.US"]
     assert result[0]["candidate_trade_date"] == day

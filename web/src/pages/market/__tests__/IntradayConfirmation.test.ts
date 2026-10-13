@@ -1,10 +1,13 @@
 import { mount, flushPromises } from '@vue/test-utils';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import Page from '../IntradayConfirmationPage.vue';
 import StockDetailDialog from '@/components/stocks/StockDetailDialog.vue';
-import { intradayConfirmationApi as api } from '@/api/intradayConfirmation';
-vi.mock('@/api/intradayConfirmation', () => ({ intradayConfirmationApi: { read: vi.fn(), run: vi.fn() } }));
-vi.mock('@/composables/useAuth', () => ({ useAuth: () => ({ currentUser: { role: 'user' } }) }));
+import { intradayConfirmationApi as api, type Snapshot } from '@/api/intradayConfirmation';
+vi.mock('@/api/intradayConfirmation', () => ({ intradayConfirmationApi: { read: vi.fn(), dates: vi.fn(), run: vi.fn() } }));
+const auth = vi.hoisted(() => ({ currentUser: { role: 'user' } }));
+vi.mock('@/composables/useAuth', () => ({ useAuth: () => auth }));
+beforeEach(() => { vi.resetAllMocks(); auth.currentUser.role = 'user'; vi.mocked(api.dates).mockResolvedValue({ dates: ['2026-09-21', '2026-09-18'] }); });
+function deferred<T>() { let resolve!: (value: T) => void; const promise = new Promise<T>(done => { resolve = done; }); return { promise, resolve }; }
 const snapshot = { market: 'US', tradeDate: '2026-09-21', candidateTradeDate: '2026-09-18', status: 'evaluated',
   generatedAt: '2026-09-21T14:00:00Z', frozenAt: '2026-09-21T13:25:00Z', warnings: [],
   summary: { total: 1, confirmed: 1, wait: 0, failed: 0 }, rulesNote: 'V1 启发式规则，未经回测验证',
@@ -23,20 +26,20 @@ describe('intraday confirmation page', () => {
     expect(wrapper.text()).toContain('HIGH');
     expect(wrapper.text()).toContain('unavailable');
     expect(wrapper.text()).toContain('Yahoo 可能延迟');
-    expect(wrapper.text()).not.toContain('运行确认任务');
+    expect(wrapper.text()).not.toContain('运行当日确认任务');
     expect(api.run).not.toHaveBeenCalled();
     await wrapper.get('select[aria-label="状态"]').setValue('FAILED');
     await flushPromises();
-    expect(api.read).toHaveBeenLastCalledWith('CN', 'FAILED', undefined);
+    expect(api.read).toHaveBeenLastCalledWith('CN', 'FAILED', undefined, undefined, expect.any(AbortSignal));
     expect(wrapper.find('select[aria-label="市场"]').exists()).toBe(false);
     const buttons = wrapper.findAll('[data-testid="intraday-market-switcher"] [role="radio"]');
     await buttons[0]!.trigger('click');
     await flushPromises();
-    expect(api.read).toHaveBeenLastCalledWith('US', 'FAILED', undefined);
+    expect(api.read).toHaveBeenLastCalledWith('US', 'FAILED', undefined, undefined, expect.any(AbortSignal));
     expect(buttons[0]!.attributes('aria-checked')).toBe('true');
     await buttons[1]!.trigger('click');
     await flushPromises();
-    expect(api.read).toHaveBeenLastCalledWith('CN', 'FAILED', undefined);
+    expect(api.read).toHaveBeenLastCalledWith('CN', 'FAILED', undefined, undefined, expect.any(AbortSignal));
     wrapper.unmount();
   });
   it('renders an unavailable current observation without implying low risk or losing confirmation', async () => {
@@ -78,4 +81,74 @@ it('opens the shared intraday tab and preserves the observation date', async () 
   await flushPromises();
   expect(dialog.props('open')).toBe(false);
   wrapper.unmount();
+});
+
+
+describe('intraday history and confirmed-price returns', () => {
+  it('renders real zero separately from missing returns and passes the selected history date', async () => {
+    vi.mocked(api.read).mockResolvedValue({ ...snapshot, items: [{ ...snapshot.items[0], return3D: .1234, return5D: 0, return10D: null }] } as never);
+    const wrapper = mount(Page, { global: { stubs: { StockDetailDialog: true } } });
+    await flushPromises();
+    expect(wrapper.get('[data-testid="intraday-return-3d"]').text()).toBe('12.34%');
+    expect(wrapper.get('[data-testid="intraday-return-5d"]').text()).toBe('0.00%');
+    expect(wrapper.get('[data-testid="intraday-return-10d"]').text()).toBe('');
+    await wrapper.get('[data-testid="intraday-date-selector"]').setValue('2026-09-18'); await flushPromises();
+    expect(api.read).toHaveBeenLastCalledWith('CN', undefined, undefined, '2026-09-18', expect.any(AbortSignal));
+    expect(wrapper.text()).toContain('历史快照 2026-09-18');
+    expect(wrapper.text()).toContain('首次确认价格起算');
+    wrapper.unmount();
+  });
+  it('cancels and ignores stale date/market requests, resets history on market changes and closes detail', async () => {
+    vi.mocked(api.read).mockResolvedValue(snapshot as never);
+    const wrapper = mount(Page, { global: { stubs: { StockDetailDialog: true } } });
+    await flushPromises();
+    await wrapper.get('tbody button').trigger('click');
+    expect(wrapper.getComponent(StockDetailDialog).props('open')).toBe(true);
+    const old = deferred<Snapshot>();
+    vi.mocked(api.read).mockReturnValueOnce(old.promise);
+    await wrapper.get('[data-testid="intraday-date-selector"]').setValue('2026-09-18');
+    expect(wrapper.getComponent(StockDetailDialog).props('open')).toBe(false);
+    const signal = vi.mocked(api.read).mock.calls.at(-1)![4]!;
+    const oldDates = deferred<{ dates: string[] }>();
+    vi.mocked(api.dates).mockReturnValueOnce(oldDates.promise);
+    await wrapper.findAll('[data-testid="intraday-market-switcher"] [role="radio"]')[0]!.trigger('click');
+    await flushPromises();
+    expect(signal.aborted).toBe(true);
+    expect(api.read).toHaveBeenLastCalledWith('US', undefined, undefined, undefined, expect.any(AbortSignal));
+    expect((wrapper.get('select[aria-label="交易日"]').element as HTMLSelectElement).value).toBe('');
+    const datesSignal = vi.mocked(api.dates).mock.calls.at(-1)![1]!;
+    await wrapper.findAll('[data-testid="intraday-market-switcher"] [role="radio"]')[1]!.trigger('click'); await flushPromises();
+    expect(datesSignal.aborted).toBe(true);
+    old.resolve({ ...snapshot, tradeDate: '1999-01-01' } as unknown as Snapshot);
+    oldDates.resolve({ dates: ['1999-01-01'] }); await flushPromises();
+    expect(wrapper.text()).not.toContain('1999-01-01');
+    const lastSignal = vi.mocked(api.read).mock.calls.at(-1)![4]!;
+    wrapper.unmount(); expect(lastSignal.aborted).toBe(true);
+  });
+  it('shows date-list failure independently and supports retry while keeping the snapshot', async () => {
+    vi.mocked(api.read).mockResolvedValue(snapshot as never);
+    vi.mocked(api.dates).mockRejectedValueOnce(new Error('offline'));
+    const wrapper = mount(Page); await flushPromises();
+    expect(wrapper.text()).toContain('昨日 CANDIDATE');
+    await wrapper.findAll('button').find(button => button.text() === '重试历史日期')!.trigger('click'); await flushPromises();
+    expect(wrapper.text()).not.toContain('重试历史日期');
+    expect(wrapper.get('select[aria-label="交易日"]').findAll('option')).toHaveLength(3);
+    wrapper.unmount();
+  });
+  it('only runs today and ignores an old market task response', async () => {
+    auth.currentUser.role = 'admin';
+    vi.mocked(api.read).mockResolvedValue(snapshot as never);
+    const old = deferred<{ taskId: string }>(); vi.mocked(api.run).mockReturnValueOnce(old.promise);
+    const wrapper = mount(Page); await flushPromises();
+    const run = wrapper.findAll('button').find(button => button.text() === '运行当日确认任务')!;
+    await wrapper.get('select[aria-label="交易日"]').setValue('2026-09-18'); await flushPromises();
+    expect(run.attributes('disabled')).toBeDefined();
+    await run.trigger('click'); expect(api.run).not.toHaveBeenCalled();
+    await wrapper.get('select[aria-label="交易日"]').setValue(''); await flushPromises();
+    await run.trigger('click'); expect(api.run).toHaveBeenCalledWith('CN');
+    await wrapper.findAll('[data-testid="intraday-market-switcher"] [role="radio"]')[0]!.trigger('click'); await flushPromises();
+    old.resolve({ taskId: 'stale-cn-task' }); await flushPromises();
+    expect(wrapper.text()).not.toContain('stale-cn-task');
+    wrapper.unmount();
+  });
 });

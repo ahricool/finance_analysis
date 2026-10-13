@@ -169,7 +169,7 @@ def test_high_chase_can_still_confirm():
     assert result["proposed_state"] == "CONFIRMED" and result["chase_risk"] == "HIGH"
 
 
-class Cache:
+class Store:
     def __init__(self):
         self.value = None
 
@@ -179,12 +179,21 @@ class Cache:
     def save(self, session, payload):
         self.value = json_ready(payload)
 
-    def lock(self, session):
-        return nullcontext()
+    def dates(self, market):
+        return [date(2026, 9, 21)]
+
+    def load_evaluation_bars(self, pairs):
+        return []
+
+    def pending_returns(self, market, before):
+        return []
+
+    def lock(self, market, day):
+        return nullcontext(SimpleNamespace(acquired=True))
 
 
 def test_freeze_only_before_open_candidate_not_expanded(monkeypatch):
-    cache = Cache()
+    cache = Store()
     calls = []
     row = dict(
         code="ABC.US",
@@ -221,7 +230,7 @@ def test_freeze_only_before_open_candidate_not_expanded(monkeypatch):
     assert requested == [["ABC.US", "SPY.US"]]
     assert [r["code"] for r in cache.value["items"]] == ["ABC.US"]
     assert "minute_bars" not in str(cache.value)
-    # GET uses the cache only: no repository/provider calls.
+    # GET only reads persistence and stored bars, never live providers.
     service.repository = object()
     service.market_data = object()
     result = service.read("US", now=OPEN)
@@ -291,7 +300,7 @@ def test_get_api_read_only_filters_and_post_admin(monkeypatch):
     from finance_analysis.interfaces.api.v1.endpoints import intraday_confirmation as api
     from finance_analysis.tasks.celery.jobs.intraday_confirmation.tasks import run_intraday_confirmation_us
 
-    cache = Cache()
+    cache = Store()
     cache.value = dict(
         market="US",
         trade_date="2026-09-21",
@@ -317,7 +326,7 @@ def test_get_api_read_only_filters_and_post_admin(monkeypatch):
             )
         ],
     )
-    service = ConfirmationService(cache=cache, repository=object(), market_data=object())
+    service = ConfirmationService(store=cache, repository=object(), market_data=object())
     app = FastAPI()
     app.include_router(api.router, prefix="/intraday-confirmation")
     app.dependency_overrides[api.get_service] = lambda: service
@@ -397,7 +406,7 @@ def test_network_elapsed_time_is_used_for_quotes(monkeypatch):
     monkeypatch.setattr("finance_analysis.intraday_confirmation.service.monotonic", lambda: next(times))
     now = OPEN + timedelta(minutes=15)
     q = quote(now + timedelta(seconds=5))
-    cache = Cache()
+    cache = Store()
     md = SimpleNamespace(
         get_realtime_quotes=lambda *a, **kw: SimpleNamespace(data={"ABC.US": q, "SPY.US": q}),
         get_minute_bars=lambda *a, **kw: SimpleNamespace(
@@ -405,7 +414,7 @@ def test_network_elapsed_time_is_used_for_quotes(monkeypatch):
         ),
         get_daily_bars=lambda *a, **kw: SimpleNamespace(data={}),
     )
-    service = ConfirmationService(cache=cache, market_data=md)
+    service = ConfirmationService(store=cache, market_data=md)
     service._evaluate(SESSION, dict(items=[dict(code="ABC.US", state="WAIT")]), now)
     row = cache.value["items"][0]
     assert row["metrics"]["quote_usable"] and row["metrics"]["data_fresh"]
@@ -465,7 +474,7 @@ def test_outage_preserves_latched_state_and_recovery_recomputes_score(state):
 
 
 def test_null_score_sorts_after_observed_zero_within_state():
-    cache = Cache()
+    cache = Store()
     cache.value = {
         "items": [
             {"code": "A.US", "state": "CONFIRMED", "confirmation_score": None, "chase_risk": "UNKNOWN"},
@@ -473,5 +482,5 @@ def test_null_score_sorts_after_observed_zero_within_state():
             {"code": "C.US", "state": "WAIT", "confirmation_score": 100, "chase_risk": "LOW"},
         ]
     }
-    result = ConfirmationService(cache=cache, repository=object(), market_data=object()).read("US", now=OPEN)
+    result = ConfirmationService(store=cache, repository=object(), market_data=object()).read("US", now=OPEN)
     assert [r["code"] for r in result["items"]] == ["B.US", "A.US", "C.US"]

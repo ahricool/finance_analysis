@@ -34,10 +34,9 @@ CHASE_30M = 0.05
 TREND_SCORE_DECAY = 5
 SCORE_WEIGHTS = {"price": 45, "relative_strength": 25, "volume": 20, "trend": 10}
 RISK_PENALTY = {"LOW": 0, "MEDIUM": 5, "HIGH": 10}
-LOCK_SECONDS = 600
 HISTORY_CALENDAR_DAYS = 120
 FREEZE_LEAD_MINUTES = 10
 
-# Entire quote/minute/history phase, leaving time for calculation and Redis publication.
+# Entire quote/minute/history phase, leaving time for calculation and PostgreSQL publication.
 MARKET_DATA_BUDGET_SECONDS = 210
 MARKET_DATA_RETURN_RESERVE_SECONDS = 2

@@ -1,11 +1,11 @@
-"""Frozen candidates in Redis; providers are only called by the task evaluation path."""
+"""Durable daily confirmation evidence; live providers are used only by evaluation tasks."""
 
-from datetime import timedelta
+from datetime import date, timedelta
 from time import monotonic
 from zoneinfo import ZoneInfo
 from finance_analysis.core.time import utc_now
 from . import config as c
-from .cache import ConfirmationCache
+from .returns import positive, with_returns
 from .session import resolve_session
 from .engine import metrics, decision, stabilize
 from .trend import temporary_trend
@@ -13,16 +13,26 @@ from .market_data import collect_data
 
 
 class ConfirmationService:
-    def __init__(self, cache=None, repository=None, market_data=None):
-        self.cache = cache if cache is not None else ConfirmationCache()
+    def __init__(self, store=None, repository=None, market_data=None):
+        self._store = store
         self.repository = repository
         self.market_data = market_data
 
-    def read(self, market, state=None, candidate_source=None, now=None):
+    @property
+    def store(self):
+        if self._store is None:
+            from finance_analysis.database.repositories.intraday_confirmation_store import ConfirmationStore
+            self._store = ConfirmationStore()
+        return self._store
+
+    def dates(self, market):
+        return {"dates": self.store.dates(market)}
+
+    def read(self, market, state=None, candidate_source=None, now=None, trade_date=None):
         now = now or utc_now()
         tz = ZoneInfo("Asia/Shanghai" if market == "CN" else "America/New_York")
-        day = now.astimezone(tz).date()
-        payload = self.cache.load(market, day) or dict(
+        day = trade_date or now.astimezone(tz).date()
+        payload = self.store.load(market, day) or dict(
             market=market,
             trade_date=day.isoformat(),
             candidate_trade_date=None,
@@ -30,12 +40,15 @@ class ConfirmationService:
             generated_at=None,
             status="not_frozen",
             items=[],
-            warnings=["当天尚无开盘前冻结候选；盘中不会补建"],
+            warnings=["所选日期尚无持久化冻结候选；盘中不会补建"],
         )
         # Candidate baselines remain private to the task; API returns compact evidence.
+        evaluated = with_returns(self.store, market, day, payload["items"], now)
         rows = [
-            {k: v for k, v in r.items() if k not in {"official_trend", "pending_since", "last_observation"}}
-            for r in payload["items"]
+            {k: v for k, v in r.items() if k not in {
+                "official_trend", "pending_since", "last_observation", "first_confirmation_open", "return_evidence",
+            }}
+            for r in evaluated
         ]
         summary = {s: sum(r["state"] == s for r in rows) for s in ("WAIT", "CONFIRMED", "FAILED")}
         summary["total"] = len(rows)
@@ -55,21 +68,34 @@ class ConfirmationService:
             )
         )
         return {
-            **payload,
+            **{k: v for k, v in payload.items() if k != "_revision"},
             "items": rows,
             "summary": summary,
             "rules_note": "V1 启发式规则，未经回测验证；确认不代表适合追入，不自动交易。",
         }
 
+    def refresh_returns(self, market, day, now):
+        # Task-only bounded catch-up, also on manual calls outside trading hours.
+        for payload in self.store.pending_returns(market, day):
+            trade_date = date.fromisoformat(payload["trade_date"])
+            evaluated = with_returns(self.store, market, trade_date, payload["items"], now)
+            self.store.save_returns(market, trade_date, evaluated, now)
+
     def run(self, market, now=None):
         now = now or utc_now()
-        session = resolve_session(market, now)
-        if session is None:
-            return dict(status="skipped", reason="非交易日")
-        if not (session.opened - timedelta(minutes=c.FREEZE_LEAD_MINUTES) <= now <= session.closed):
-            return dict(status="skipped", reason="不在冻结或交易窗口")
-        with self.cache.lock(session):
-            payload = self.cache.load(market, session.day)
+        started = monotonic()
+        tz = ZoneInfo("Asia/Shanghai" if market == "CN" else "America/New_York")
+        day = now.astimezone(tz).date()
+        with self.store.lock(market, day) as lock:
+            if not lock.acquired:
+                return dict(status="skipped", reason="本市场已有确认任务运行")
+            self.refresh_returns(market, day, now)
+            session = resolve_session(market, now)
+            if session is None:
+                return dict(status="skipped", reason="非交易日；已检查历史待到期收益")
+            if not (session.opened - timedelta(minutes=c.FREEZE_LEAD_MINUTES) <= now <= session.closed):
+                return dict(status="skipped", reason="不在冻结或交易窗口；已检查历史待到期收益")
+            payload = self.store.load(market, session.day)
             if now < session.opened:
                 if payload is not None:
                     return dict(status="already_frozen", count=len(payload["items"]))
@@ -88,7 +114,7 @@ class ConfirmationService:
                         trend={},
                         reasons=[dict(code="preopen", text="昨日正式候选已冻结，等待开盘确认")],
                     )
-                self.cache.save(
+                self.store.save(
                     session,
                     dict(
                         market=market,
@@ -108,7 +134,7 @@ class ConfirmationService:
                 return dict(status="skipped", reason="午休")
             if not payload["items"]:
                 return dict(status="empty", count=0)
-            return self._evaluate(session, payload, now)
+            return self._evaluate(session, payload, now + timedelta(seconds=monotonic() - started))
 
     def _evaluate(self, session, payload, now):
         started = monotonic()
@@ -139,7 +165,16 @@ class ConfirmationService:
             )
             result = decision(m, trend)
             result = stabilize(result, candidate, m["bar_time"] if m["data_fresh"] else None, now)
-            rows.append({**candidate, **result, "metrics": m, "trend": trend, "generated_at": now})
+            row = {**candidate, **result, "metrics": m, "trend": trend, "generated_at": now}
+            if not candidate.get("first_confirmed_at") and result.get("first_confirmed_at"):
+                # Freeze exactly the quote used in the first stabilized confirmation. An
+                # unavailable anchor stays null; a later quote must never fill or reset it.
+                row.update(
+                    first_confirmed_price=m["price"] if m["data_fresh"] and positive(m["price"]) else None,
+                    first_confirmed_quote_time=m["quote_time"] if m["data_fresh"] else None,
+                    first_confirmation_open=m["open"] if m["data_fresh"] and positive(m["open"]) else None,
+                )
+            rows.append(row)
         payload.update(items=rows, generated_at=now, status="evaluated")
-        self.cache.save(session, payload)
+        self.store.save(session, payload)
         return dict(status="evaluated", count=len(rows), market=market, trade_date=session.day.isoformat())

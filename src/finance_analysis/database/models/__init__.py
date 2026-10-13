@@ -134,3 +134,7 @@ __all__.extend(["EarningsResearch", "EarningsPrediction", "EarningsOutlookState"
 from .options_intelligence import OptionContract, OptionQuoteSnapshot, OptionDailyMetrics, OptionAnomalyEvent, OptionAnalysis
 
 __all__.extend(["OptionContract", "OptionQuoteSnapshot", "OptionDailyMetrics", "OptionAnomalyEvent", "OptionAnalysis"])
+
+from .intraday_confirmation import IntradayConfirmationSnapshot
+
+__all__.append("IntradayConfirmationSnapshot")

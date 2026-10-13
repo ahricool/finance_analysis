@@ -207,7 +207,7 @@ def test_budget_keeps_provider_partial_data_and_publishes_missing_candidate_wait
     cache = Cache()
     payload = dict(items=[dict(code=code, state="WAIT") for code in ("600001.SH", "600002.SH")])
     try:
-        service = ConfirmationService(cache=cache, market_data=md)
+        service = ConfirmationService(store=cache, market_data=md)
         service._evaluate(CN_SESSION, payload, NOW)
         assert entered.is_set() and not release.is_set()
         slow, fast = cache.payload["items"]

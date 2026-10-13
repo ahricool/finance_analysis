@@ -1,6 +1,11 @@
-// Sources: intraday_confirmation/{config,engine,trend}.py.
+// Sources: intraday_confirmation/{config,engine,trend,service}.py.
 const state = '状态有WAIT（等待）、CONFIRMED（已确认）、FAILED（已失败）。确认或失败需连续两次新的闭合线评估、间隔至少240秒；重复读取不会增加确认次数。CONFIRMED保持到稳定的结构性失败，FAILED在当日锁定，即使价格恢复也不自动回退。数据缺失或过期不作为负向证据。';
+const forwardReturn = '以首次进入CONFIRMED时保存的价格为起点；之后评估、失败或刷新不会重设。确认日不计入，按交易所日历的后续第N个交易日已收盘日线计算，不按股票现有数据行数跳过缺失日。首次确认原始价格用确认日日线前复权开盘价÷冻结的原始开盘价对齐至同一复权口径，再用目标收盘价÷对齐后的首次确认价格−1。日线需同来源、同写入代次；已落库的到期收益保留首次完整验证结果，不随后续行情修订重算。未到期、所需日线缺失、首次价格或可靠复权基准缺失、无法验证复权口径一致时留空，不填0。';
 export const intradayHints: Record<string, string> = {
+  '+3D': `首次确认后第3个交易日收盘收益。${forwardReturn}`,
+  '+5D': `首次确认后第5个交易日收盘收益。${forwardReturn}`,
+  '+10D': `首次确认后第10个交易日收盘收益。${forwardReturn}`,
+  '首次确认价格': '首次进入CONFIRMED时保存的原始报价与报价时间，不使用最新报价、昨收或候选日收盘价替代。首次确认时间是状态确认时间，报价时间是所用行情的时间，两者可能不同。后续状态变化不重设；缺少可靠价格时保留为空。',
   '候选总数': '当天开盘前冻结的候选股票总数，来源包括强共振、趋势候选/健康状态和量化前20。开盘后不按涨幅追补候选；列表筛选只改变显示范围。',
   CONFIRMED: `冻结池中状态为CONFIRMED的股票数。${state}`,
   WAIT: `冻结池中仍为WAIT的股票数，包括等待证据和数据不足的情况。${state}`,
