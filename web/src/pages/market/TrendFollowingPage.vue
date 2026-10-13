@@ -606,23 +606,6 @@ onMounted(async () => {
       :description="`${scope} · ${trendPeriod}日策略 · 跟踪股票趋势强弱、排名变化与风险指标，观察趋势延续和转弱。`"
     >
       <template #actions>
-        <div
-          class="flex items-center gap-1"
-          role="group"
-          aria-label="趋势周期"
-          data-testid="trend-period"
-        >
-          <Button
-            v-for="period in ([20, 40, 60] as const)"
-            :key="period"
-            :variant="trendPeriod === period ? 'default' : 'outline'"
-            size="sm"
-            :aria-pressed="trendPeriod === period"
-            @click="trendPeriod = period"
-          >
-            {{ period }}日
-          </Button>
-        </div>
         <ResearchMarketToggle
           :model-value="market"
           data-testid="trend-market"
@@ -671,6 +654,23 @@ onMounted(async () => {
         >
           运行最新数据
         </LoadingButton>
+        <div
+          class="ml-auto flex shrink-0 flex-nowrap! items-center gap-1"
+          role="group"
+          aria-label="趋势周期"
+          data-testid="trend-period"
+        >
+          <Button
+            v-for="period in ([20, 40, 60] as const)"
+            :key="period"
+            :variant="trendPeriod === period ? 'default' : 'outline'"
+            size="sm"
+            :aria-pressed="trendPeriod === period"
+            @click="trendPeriod = period"
+          >
+            {{ period }}日
+          </Button>
+        </div>
       </template>
     </PageHeader>
     <ResearchDataStatusBar
