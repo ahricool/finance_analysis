@@ -444,15 +444,15 @@ onMounted(loadList);
 
       <Card class="block">
         <CardHeader><CardTitle>自选股列表</CardTitle><CardDescription>点击任一行打开行情详情；次要操作收纳在行菜单中。</CardDescription></CardHeader><CardContent>
-          <Table class="w-full min-w-[1360px] table-fixed text-left text-sm">
+          <Table class="w-full min-w-[1500px] table-auto text-left text-sm">
             <colgroup>
-              <col class="w-[78px]" />
+              <col class="w-[110px]" />
               <col class="w-[260px]" />
-              <col class="w-[90px]" />
-              <col class="w-[120px]" />
-              <col class="w-[120px]" />
               <col class="w-[110px]" />
               <col class="w-[120px]" />
+              <col class="w-[150px]" />
+              <col class="w-[150px]" />
+              <col class="w-[140px]" />
               <col class="w-[210px]" />
               <col class="w-[140px]" />
               <col class="w-[152px]" />

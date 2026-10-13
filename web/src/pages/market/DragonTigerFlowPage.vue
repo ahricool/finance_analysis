@@ -313,7 +313,7 @@ onMounted(() => { void load(); void loadDates(); });
           </p>
           <div class="max-h-[28rem] overflow-auto rounded-md border">
             <table
-              class="w-full text-sm"
+              class="w-full min-w-max text-sm"
               data-testid="flow-all-stocks"
             >
               <thead class="sticky top-0 bg-muted">
@@ -404,7 +404,7 @@ onMounted(() => { void load(); void loadDates(); });
           有限已命名席位样本，与股票级游资净额口径独立，不能相加或反推全部游资。
         </p>
         <div class="max-h-96 overflow-auto">
-          <table class="w-full text-sm">
+          <table class="w-full min-w-max text-sm">
             <thead class="sticky top-0 bg-muted">
               <tr>
                 <th class="p-2 text-left">
@@ -567,7 +567,7 @@ onMounted(() => { void load(); void loadDates(); });
             />
             <div class="max-h-96 overflow-auto rounded-md border">
               <table
-                class="w-full text-sm"
+                class="w-full min-w-max text-sm"
                 data-testid="flow-stocks"
               >
                 <thead class="sticky top-0 bg-muted">

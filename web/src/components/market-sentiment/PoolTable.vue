@@ -15,7 +15,7 @@ defineProps<{ pool: Pool | null }>();
     v-else
     class="overflow-x-auto rounded-lg border"
   >
-    <table class="w-full text-left text-xs">
+    <table class="w-full min-w-max text-left text-xs">
       <thead class="bg-muted">
         <tr>
           <th>
