@@ -28,13 +28,19 @@ def upgrade():
     # The owner will regenerate results; old 15-session scores cannot become 20-session scores.
     for table, (unique, columns, indexes) in TABLES.items():
         op.execute(sa.text(f"DELETE FROM {table}"))
+        # 0039 renamed symbol_id without renaming its index. Metadata-created
+        # databases instead have the instrument index name. Normalize both paths
+        # before batch reflection so SQLite also cannot retain the legacy index.
+        if table == "trend_following_snapshot":
+            op.drop_index("ix_trend_following_symbol_date", table_name=table, if_exists=True)
+        for name in indexes:
+            op.drop_index(name, table_name=table, if_exists=True)
         with op.batch_alter_table(table) as batch:
             batch.add_column(sa.Column("trend_period", sa.Integer(), nullable=False, server_default="20"))
             batch.drop_constraint(unique, type_="unique")
             batch.create_unique_constraint(unique, [columns[0], "trend_period", *columns[1:]])
             batch.create_check_constraint(f"ck_{table}_period", "trend_period IN (20, 40, 60)")
             for name, fields in indexes.items():
-                batch.drop_index(name)
                 batch.create_index(name, [fields[0], "trend_period", *fields[1:]])
 
 

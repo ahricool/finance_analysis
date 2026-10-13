@@ -107,7 +107,8 @@ def test_snapshots_history_replacement_and_invalidation_never_cross_periods(monk
     assert repositories[20].historical_composite_ranks(day + timedelta(days=1), ['AAA.US']) == {'AAA.US': {1: 1}}
 
 
-def test_migration_clears_old_results_and_keys_new_results_by_period():
+@pytest.mark.parametrize('instrument_indexes', ['legacy', 'current', 'both', 'missing'])
+def test_migration_clears_old_results_and_keys_new_results_by_period(instrument_indexes):
     path = Path(__file__).parents[1] / 'alembic/versions/0072_trend_periods.py'
     spec = importlib.util.spec_from_file_location('trend_period_migration', path)
     migration = importlib.util.module_from_spec(spec)
@@ -119,7 +120,20 @@ def test_migration_clears_old_results_and_keys_new_results_by_period():
                       'alpha_score': 'FLOAT', 'state': 'TEXT'}
             connection.execute(text(f"CREATE TABLE {table} (id INTEGER PRIMARY KEY, " + ', '.join(f'{k} {v}' for k, v in fields.items())
                                     + f", CONSTRAINT {unique} UNIQUE ({', '.join(columns)}))"))
-            for index, names in indexes.items():
+            # Historical 0031 + 0039 retains the symbol index name even though
+            # its column is now instrument_id; do not derive that fixture from 0072.
+            existing_indexes = {
+                'ix_trend_following_market_date_alpha': ['market', 'trade_date', 'alpha_score'],
+                'ix_trend_following_market_date_state': ['market', 'trade_date', 'state'],
+            } if table == 'trend_following_snapshot' else {
+                'ix_trend_following_summary_market_date': ['market', 'trade_date'],
+            }
+            if table == 'trend_following_snapshot':
+                if instrument_indexes in ('legacy', 'both'):
+                    existing_indexes['ix_trend_following_symbol_date'] = ['instrument_id', 'trade_date']
+                if instrument_indexes in ('current', 'both'):
+                    existing_indexes['ix_trend_following_instrument_date'] = ['instrument_id', 'trade_date']
+            for index, names in existing_indexes.items():
                 connection.execute(text(f"CREATE INDEX {index} ON {table} ({', '.join(names)})"))
             connection.execute(text(f"INSERT INTO {table} (id, market, trade_date, code) VALUES (1, 'US', '2026-08-28', 'AAA.US')"))
         migration.op = Operations(MigrationContext.configure(connection))
@@ -130,8 +144,16 @@ def test_migration_clears_old_results_and_keys_new_results_by_period():
             for period in (20, 40, 60):
                 connection.execute(text(f"INSERT INTO {table} (market, trade_date, code, trend_period) VALUES ('US', '2026-08-28', 'AAA.US', :period)"), {'period': period})
             assert connection.scalar(text(f'SELECT count(*) FROM {table}')) == 3
+            actual_indexes = {i['name']: i['column_names'] for i in inspect(connection).get_indexes(table)}
+            assert actual_indexes == {
+                name: [fields[0], 'trend_period', *fields[1:]]
+                for name, fields in migration.TABLES[table][2].items()
+            }
         migration.downgrade()
         assert 'trend_period' not in {c['name'] for c in inspect(connection).get_columns('trend_following_snapshot')}
+        for table, (_, _, indexes) in migration.TABLES.items():
+            assert {i['name']: i['column_names'] for i in inspect(connection).get_indexes(table)} == indexes
+        migration.upgrade()
 
 
 def test_api_validates_period_and_scopes_repository(monkeypatch):

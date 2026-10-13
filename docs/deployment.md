@@ -78,6 +78,41 @@ worker 非零退出、OOM 或被强杀时，不会被当成正常排空；需要
 直接 Compose 停 worker 的后备宽限为普通 worker 1h、Qlib 4h，期限结束后仍会强杀。
 日常发布使用无参数入口。
 
+### 0072 趋势索引旧名导致迁移失败
+
+若报错 `index "ix_trend_following_instrument_date" does not exist`，历史迁移
+`0031` 创建的是 `ix_trend_following_symbol_date`，`0039` 只将列改名为
+`instrument_id`，未改索引名。修复后的 `0072` 兼容旧名、新名、两者并存及缺失的情况，
+统一重建带周期的索引。原有删除旧趋势快照/汇总并重算的行为不变。
+
+已经中断的部署仍固定原 SHA/digest；仅拉取新代码不能修复 `--resume` 使用的旧镜像。
+对于上述报错，可在生产目录核查数据库：
+
+```bash
+cd ~/svr/finance_analysis
+bash deploy.sh --status
+docker compose -f docker-compose.prod.yml exec -T postgres sh -c \
+  'psql -X -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' <<'SQL'
+SELECT version_num FROM alembic_version;
+SELECT indexname, indexdef FROM pg_indexes
+WHERE schemaname = 'public' AND tablename = 'trend_following_snapshot';
+SQL
+```
+
+确认迁移尚未到 `0072`、旧名索引存在且列为 `(instrument_id, trade_date)`、新名索引不存在后，
+只修正索引名称，再继续同一发布（保持生产工作区干净、HEAD 不变）：
+
+```bash
+docker compose -f docker-compose.prod.yml exec -T postgres sh -c \
+  'psql -X -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' <<'SQL'
+ALTER INDEX public.ix_trend_following_symbol_date RENAME TO ix_trend_following_instrument_date;
+SQL
+bash deploy.sh --resume
+```
+
+索引改名不改业务数据；随后 `0072` 仍按原设计清空旧趋势结果。不要手动 stamp 跳过迁移、
+删除 pending 记录或启动旧 Beat。完成本次发布后，再正常部署包含迁移修复的新版本。
+
 ## 调度暂停的边界
 
 本次改动只保证部署操作等待正在执行的 Celery 任务正常完成。
