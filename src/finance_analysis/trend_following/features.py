@@ -23,7 +23,7 @@ def _maximum_drawdown(closes: np.ndarray, window: int) -> float:
     return float(np.min(values / peaks - 1.0))
 
 
-def weighted_log_regression(closes: Sequence[float], window: int = 15) -> tuple[float, float]:
+def weighted_log_regression(closes: Sequence[float], window: int = 20) -> tuple[float, float]:
     """Return recent-weighted log-price slope and weighted R²."""
     values = np.asarray(closes[-window:], dtype=float)
     if len(values) < window or np.any(values <= 0):
@@ -91,8 +91,11 @@ def calculate_features(
     preview: bool = False,
     previous_features: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
+    long = config.trend_period
+    short = config.short_window
+    recent = config.recent_window
     ordered = sorted(bars, key=lambda item: item.trade_date)
-    if len(ordered) < minimum_bars:
+    if len(ordered) < max(minimum_bars, long + 1):
         return None
     closes = np.asarray([bar.close for bar in ordered], dtype=float)
     highs = np.asarray([bar.high for bar in ordered], dtype=float)
@@ -100,55 +103,55 @@ def calculate_features(
     volumes = np.asarray([bar.volume for bar in ordered], dtype=float)
     if np.any(closes <= 0):
         return None
-    ma10 = float(np.mean(closes[-10:]))
-    ma20 = float(np.mean(closes[-20:]))
-    previous_ma10 = float(np.mean(closes[-11:-1]))
-    previous_ma20 = float(np.mean(closes[-21:-1]))
-    slope, r_squared = weighted_log_regression(closes, 15)
-    atr20 = calculate_atr(ordered, 20)
-    previous_high_10 = float(np.max(highs[-11:-1]))
-    previous_high_20 = float(np.max(highs[-21:-1]))
-    previous_low_10 = float(np.min(lows[-11:-1]))
-    recent_structure_low = float(np.min(lows[-21:-1]))
+    ma10 = float(np.mean(closes[-short:]))
+    ma20 = float(np.mean(closes[-long:]))
+    previous_ma10 = float(np.mean(closes[-short - 1:-1]))
+    previous_ma20 = float(np.mean(closes[-long - 1:-1]))
+    slope, r_squared = weighted_log_regression(closes, config.trend_period)
+    atr20 = calculate_atr(ordered, long)
+    previous_high_10 = float(np.max(highs[-short - 1:-1]))
+    previous_high_20 = float(np.max(highs[-long - 1:-1]))
+    previous_low_10 = float(np.min(lows[-short - 1:-1]))
+    recent_structure_low = float(np.min(lows[-long - 1:-1]))
     breakout_10 = bool(closes[-1] > previous_high_10)
     breakout_20 = bool(closes[-1] > previous_high_20)
-    previous_range_10 = float(np.max(highs[-11:-1]) - np.min(lows[-11:-1]))
-    previous_range_20 = float(np.max(highs[-21:-1]) - np.min(lows[-21:-1]))
+    previous_range_10 = float(np.max(highs[-short - 1:-1]) - np.min(lows[-short - 1:-1]))
+    previous_range_20 = float(np.max(highs[-long - 1:-1]) - np.min(lows[-long - 1:-1]))
     prior_tr = true_ranges(ordered[:-1])
-    atr_contraction = float(np.mean(prior_tr[-10:])) <= float(np.mean(prior_tr[-20:])) * 0.8
+    atr_contraction = float(np.mean(prior_tr[-short:])) <= float(np.mean(prior_tr[-long:])) * 0.8
     range_contraction = previous_range_20 > 0 and previous_range_10 / previous_range_20 <= 0.6
     prior_compression = bool(atr_contraction and range_contraction)
     compression_breakout = bool(prior_compression and breakout_10)
-    previous_volume = volumes[-21:-1]
+    previous_volume = volumes[-long - 1:-1]
     average_volume = float(np.mean(previous_volume))
     volume_ratio = float(volumes[-1] / average_volume) if average_volume > 0 else 0.0
     base_high = previous_high_20 if breakout_20 else previous_high_10
     breakout_distance = max(0.0, float(closes[-1] / base_high - 1.0)) if breakout_10 else 0.0
-    return_3d = _return(closes, 3)
-    return_5d = _return(closes, 5)
-    return_10d = _return(closes, 10)
-    return_20d = _return(closes, 20)
+    return_3d = _return(closes, config.shock_window)
+    return_5d = _return(closes, recent)
+    return_10d = _return(closes, short)
+    return_20d = _return(closes, long)
     absolute_trend_checks = {
         "close_above_ma10": bool(closes[-1] > ma10),
         "ma10_above_ma20": bool(ma10 > ma20),
         "return_10d_positive": bool(return_10d > 0),
-        "weighted_slope_15d_positive": bool(slope > 0),
+        "weighted_slope_positive": bool(slope > 0),
     }
     absolute_trend_count = sum(absolute_trend_checks.values())
     # Historical windows exclude today and use each day's own MA/ATR/structure.
     pullback_depths = []
-    pullback_structure_intact = len(ordered) >= 21 + config.resume_lookback_days
-    for index in range(max(20, len(ordered) - 1 - config.resume_lookback_days), len(ordered) - 1):
-        historical_ma10 = float(np.mean(closes[index - 9:index + 1]))
-        historical_ma20 = float(np.mean(closes[index - 19:index + 1]))
-        prior_ma20 = float(np.mean(closes[index - 20:index]))
-        historical_atr = calculate_atr(ordered[:index + 1])
+    pullback_structure_intact = len(ordered) >= long + 1 + config.resume_lookback_days
+    for index in range(max(long, len(ordered) - 1 - config.resume_lookback_days), len(ordered) - 1):
+        historical_ma10 = float(np.mean(closes[index - short + 1:index + 1]))
+        historical_ma20 = float(np.mean(closes[index - long + 1:index + 1]))
+        prior_ma20 = float(np.mean(closes[index - long:index]))
+        historical_atr = calculate_atr(ordered[:index + 1], long)
         depth = (historical_ma10 - closes[index]) / historical_atr if historical_atr > 0 else None
         if depth is not None and (closes[index] <= historical_ma10 or abs(depth) <= config.resume_touch_atr):
             pullback_depths.append(float(depth))
         historical_slope = historical_ma20 / prior_ma20 - 1
         if historical_slope <= 0 or closes[index] < historical_ma20 or structure_broken(
-            float(closes[index]), float(np.min(lows[index - 10:index])), historical_ma20, historical_slope
+            float(closes[index]), float(np.min(lows[index - short:index])), historical_ma20, historical_slope
         ):
             pullback_structure_intact = False
     pullback_detected = bool(pullback_depths)
@@ -162,16 +165,16 @@ def calculate_features(
     if compression_breakout:
         setup = "COMPRESSION_BREAKOUT"
     elif breakout_20:
-        setup = "BREAKOUT_20D"
+        setup = "BREAKOUT_LONG"
     elif breakout_10:
-        setup = "BREAKOUT_10D"
+        setup = "BREAKOUT_SHORT"
     # Explanatory features share the existing price array and weighted regression.
-    short_slope, _ = weighted_log_regression(closes, 5)
-    travel = float(np.sum(np.abs(np.diff(closes[-11:]))))
-    efficiency = float((closes[-1] - closes[-11]) / travel) if travel > 0 else 0.0
+    short_slope, _ = weighted_log_regression(closes, recent)
+    travel = float(np.sum(np.abs(np.diff(closes[-short - 1:]))))
+    efficiency = float((closes[-1] - closes[-short - 1]) / travel) if travel > 0 else 0.0
     # Compression excludes today; expansion includes today.
-    prior_atr20 = float(np.mean(prior_tr[-20:]))
-    atr_contraction_ratio = float(np.mean(prior_tr[-10:])) / prior_atr20 if prior_atr20 > 0 else None
+    prior_atr20 = float(np.mean(prior_tr[-long:]))
+    atr_contraction_ratio = float(np.mean(prior_tr[-short:])) / prior_atr20 if prior_atr20 > 0 else None
     range_contraction_ratio = previous_range_10 / previous_range_20 if previous_range_20 > 0 else None
     atr5 = float(np.mean(true_ranges(ordered)[-config.volatility_atr_window :]))
     daily_returns = np.diff(closes[-config.path_return_window - 1 :]) / closes[-config.path_return_window - 1 : -1]
@@ -192,10 +195,11 @@ def calculate_features(
         "avg_positive_return": avg_positive,
         "avg_negative_return_abs": avg_negative,
         "downside_upside_ratio": float(np.sum(negative)) / positive_sum if positive_sum > 0 else None,
-        "health_version": 1,
+        "health_version": 2,
+        "trend_period": config.trend_period,
         "trend_acceleration": (short_slope - slope) * 252.0,
         "signed_efficiency_ratio_10d": efficiency,
-        "distance_from_recent_high": float(closes[-1] / np.max(closes[-20:]) - 1.0),
+        "distance_from_recent_high": float(closes[-1] / np.max(closes[-long:]) - 1.0),
         "open": float(ordered[-1].open),
         "reference_price": float(closes[-1]),
         "ma10": ma10,
@@ -211,7 +215,7 @@ def calculate_features(
         "return_5d": return_5d,
         "return_10d": return_10d,
         "return_20d": return_20d,
-        "drawdown_20d": _maximum_drawdown(closes, 20),
+        "drawdown_20d": _maximum_drawdown(closes, long),
         "atr20": atr20,
         "atr_percent": atr20 / float(closes[-1]),
         "close_location_value": (

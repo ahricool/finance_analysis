@@ -17,7 +17,7 @@ BOOLEAN_FEATURE_FIELDS = (
     "trend_candidate", "prior_compression", "compression_breakout", "trend_resume",
 )
 NUMERIC_FEATURE_FIELDS = (
-    *BOX_NUMERIC_FIELDS, *MR_NUMERIC_FIELDS, "return_3d",
+    "trend_period", *BOX_NUMERIC_FIELDS, *MR_NUMERIC_FIELDS, "return_3d",
     "alpha_version", "path_score", "setup_score", "weighted_r2",
     "positive_return_concentration", "atr_expansion_ratio",
     "downside_control_quality", "downside_upside_ratio",

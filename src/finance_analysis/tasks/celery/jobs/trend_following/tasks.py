@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from datetime import date
 from typing import Any, Optional
 
@@ -16,6 +17,7 @@ from finance_analysis.tasks.celery.schedule import (  # pragma: allowlist secret
     require_scheduled_task_definition,
 )
 from finance_analysis.tasks.lifecycle import TaskSkipped, track_task  # pragma: allowlist secret
+from finance_analysis.trend_following.config import DEFAULT_CONFIG, TREND_PERIODS
 from finance_analysis.trend_following.service import TrendFollowingService  # pragma: allowlist secret
 
 CN_DEFINITION = require_scheduled_task_definition(JOB_TREND_FOLLOWING_CN)
@@ -44,31 +46,30 @@ def _preview_task_result(result: dict[str, Any]) -> dict[str, Any]:
     return {key: result[key] for key in PREVIEW_TASK_RESULT_KEYS if key in result}
 
 
-def _run(market: str, trade_date: str | None) -> dict[str, Any]:
-    result = TrendFollowingService(market).run(date.fromisoformat(trade_date) if trade_date else None)
-    if result.get("status") != "completed":
-        details = {key: result[key] for key in ("trade_date", "status", "warnings", "data_coverage") if key in result}
-        details["market"] = market
-        raise RuntimeError("Trend Following did not complete: " + json.dumps(details, ensure_ascii=False, default=str))
-    return result
+def _run_periods(market, requested, *, preview=False, trend_period=None):
+    periods = TREND_PERIODS if trend_period is None else (trend_period,)
+    inputs, results = {}, {}
+    for period in periods:
+        service = TrendFollowingService(market, config=replace(DEFAULT_CONFIG, trend_period=period), input_cache=inputs)
+        try:
+            result = service.run_preview(requested) if preview else service.run(requested)
+        except Exception as exc:
+            result = {"status": "failed", "market": market, "trend_period": period, "warnings": [str(exc)]}
+        results[str(period)] = _preview_task_result(result) if preview else result
+    if any(result.get("status") != "completed" for result in results.values()):
+        raise RuntimeError("Trend Following did not complete: " + json.dumps(results, ensure_ascii=False, default=str))
+    return {**results[str(periods[0])], "periods": results}
+
+
+def _run(market: str, trade_date: str | None, trend_period=None) -> dict[str, Any]:
+    return _run_periods(market, date.fromisoformat(trade_date) if trade_date else None, trend_period=trend_period)
 
 
 def _run_preview(market: str, trade_date: str | None) -> dict[str, Any]:
     requested = date.fromisoformat(trade_date) if trade_date else get_market_now(market.lower()).date()
     if not is_market_open(market.lower(), requested):
         raise TaskSkipped(f"{market} 当天不是交易日，跳过趋势预演")
-    result = TrendFollowingService(market).run_preview(requested)
-    if result.get("status") != "completed":
-        details = {
-            key: result[key]
-            for key in ("trade_date", "status", "warnings", "data_coverage", "provider", "quote_count")
-            if key in result
-        }
-        details["market"] = market
-        raise RuntimeError(
-            "Trend Following preview did not complete: " + json.dumps(details, ensure_ascii=False, default=str)
-        )
-    return _preview_task_result(result)
+    return _run_periods(market, requested, preview=True)
 
 
 @celery_app.task(name=CN_DEFINITION.celery_task_name)
@@ -78,10 +79,10 @@ def _run_preview(market: str, trade_date: str | None) -> dict[str, Any]:
     success_message="A股趋势跟踪计算完成", strip_lifecycle_kwargs=True,
 )
 def run_trend_following_cn(
-    scheduler_job_id: Optional[str] = None, trade_date: str | None = None, **_: Any,
+    scheduler_job_id: Optional[str] = None, trade_date: str | None = None, trend_period: int | None = None, **_: Any,
 ) -> dict[str, Any]:
     del scheduler_job_id
-    return _run("CN", trade_date)
+    return _run("CN", trade_date, trend_period)
 
 
 @celery_app.task(name=US_DEFINITION.celery_task_name)
@@ -91,10 +92,10 @@ def run_trend_following_cn(
     success_message="美股趋势跟踪计算完成", strip_lifecycle_kwargs=True,
 )
 def run_trend_following_us(
-    scheduler_job_id: Optional[str] = None, trade_date: str | None = None, **_: Any,
+    scheduler_job_id: Optional[str] = None, trade_date: str | None = None, trend_period: int | None = None, **_: Any,
 ) -> dict[str, Any]:
     del scheduler_job_id
-    return _run("US", trade_date)
+    return _run("US", trade_date, trend_period)
 
 
 @celery_app.task(name=CN_PREVIEW_DEFINITION.celery_task_name)

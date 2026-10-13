@@ -55,12 +55,12 @@ for (const kind of ['trend', 'etf'] as const) {
     it('loads latest official data from any entry and preserves historical chart context', async () => {
       const wrapper = mountPanel();
       await flushPromises();
-      expect(api.detail).toHaveBeenCalledWith('AAPL.US', 'US', 60, undefined);
+      expect(api.detail).toHaveBeenCalledWith('AAPL.US', 'US', 60, undefined, ...(kind === 'trend' ? [20] : []));
       expect(api.preview).not.toHaveBeenCalled();
       expect(wrapper.getComponent(DailyKLineCard).props('highlightDate')).toBe('2026-09-10');
       await wrapper.setProps({ context: { tradeDate: '2026-08-20', view: 'official' } });
       await flushPromises();
-      expect(api.detail).toHaveBeenLastCalledWith('AAPL.US', 'US', 60, '2026-08-20');
+      expect(api.detail).toHaveBeenLastCalledWith('AAPL.US', 'US', 60, '2026-08-20', ...(kind === 'trend' ? [20] : []));
       await wrapper.setProps({ context: { tradeDate: '2026-08-20', view: 'official' } });
       await flushPromises();
       expect(api.detail).toHaveBeenCalledTimes(2);
@@ -88,8 +88,8 @@ for (const kind of ['trend', 'etf'] as const) {
       const wrapper = mountPanel({ view: 'preview', tradeDate: '2026-09-10' });
       await flushPromises();
       expect(api.detail).not.toHaveBeenCalled();
-      expect(api.preview).toHaveBeenCalledWith('US');
-      expect(api.detailHistory).toHaveBeenCalledWith('AAPL.US', 'US', '2026-09-10');
+      expect(api.preview).toHaveBeenCalledWith('US', ...(kind === 'trend' ? [20] : []));
+      expect(api.detailHistory).toHaveBeenCalledWith('AAPL.US', 'US', '2026-09-10', ...(kind === 'trend' ? [60, 20] : []));
       expect(wrapper.text()).toContain('当前详情为 Preview');
       expect(wrapper.findComponent(DailyKLineCard).exists()).toBe(true);
       api.detailHistory.mockResolvedValueOnce({ history: [snapshot('AAPL.US', '2026-09-09'), snapshot()] });
@@ -170,5 +170,25 @@ it('preserves trend duration, lifecycle, risk, box and mean-reversion hint descr
     expect(descriptions[key], key).toBeTruthy();
     expect(actual, key).toContain(descriptions[key]);
   }
+  wrapper.unmount();
+});
+
+it.each([40, 60] as const)('labels Entry evidence with the %s-session strategy windows', async period => {
+  vi.resetAllMocks();
+  const branch = { score: 80, qualityScore: 80, components: { distance: 80 },
+    normalizedWeights: { distance: 1 }, contributions: { distance: 80 },
+    checks: { ma20Rising: true, rs10Positive: true } };
+  mocks.trend.detail.mockResolvedValue({ ...detail(), latest: { ...snapshot(),
+    features: { entryBreakdown: { breakout: branch, resume: branch } },
+  } });
+  const wrapper = shallowMount(TrendDetailPanel, {
+    props: { symbol: 'AAPL.US', market: 'US', context: { trendPeriod: period } },
+    global: { renderStubDefaultSlot: true },
+  });
+  await flushPromises();
+  expect(wrapper.text()).toContain(`MA${period} Distance Quality`);
+  expect(wrapper.text()).toContain(`MA${period}上升: 通过`);
+  expect(wrapper.text()).toContain(`RS${period / 2}为正: 通过`);
+  expect(mocks.trend.detail).toHaveBeenCalledWith('AAPL.US', 'US', 60, undefined, period);
   wrapper.unmount();
 });

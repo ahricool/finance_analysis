@@ -18,7 +18,7 @@ class CandidateRepository:
         with self.db.get_session() as session:
             for model, source, condition in (
                 (ConfluenceSnapshot, "confluence", ConfluenceSnapshot.strong_confluence.is_(True)),
-                (TrendFollowingSnapshot, "trend", TrendFollowingSnapshot.state.in_(c.TREND_STATES)),
+                (TrendFollowingSnapshot, "trend", (TrendFollowingSnapshot.state.in_(c.TREND_STATES) & (TrendFollowingSnapshot.trend_period == 20))),
             ):
                 rows = session.execute(
                     select(model, Instrument.code, Instrument.name)
@@ -102,7 +102,7 @@ class CandidateRepository:
                     )
                     for r in session.scalars(
                         select(TrendFollowingSnapshot).where(
-                            TrendFollowingSnapshot.market == market,
+                            TrendFollowingSnapshot.trend_period == 20, TrendFollowingSnapshot.market == market,
                             TrendFollowingSnapshot.trade_date == day,
                             TrendFollowingSnapshot.code.in_(codes),
                             TrendFollowingSnapshot.generated_at < cutoff,

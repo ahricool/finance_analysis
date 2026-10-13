@@ -41,7 +41,7 @@ def cache_client(monkeypatch):
 
 def test_cache_miss_hit_and_market_date_isolation(cache_client):
     cn = ranking_cache.RankingCache("CN", date(2026, 9, 10))
-    assert cn.key == "trend_following:ranking:CN:2026-09-10"
+    assert cn.key == "trend_following:ranking:CN:2026-09-10:20"
     assert cn.load() is None
     cn.save(b'{"items":[]}')
     assert cn.load() == b'{"items":[]}'
@@ -89,7 +89,7 @@ def test_study_cache_keys_ttl_and_snapshot_generation_invalidation(cache_client)
     from finance_analysis.trend_following.event_study_cache import EventStudyCache
     start, end = date(2026, 8, 1), date(2026, 9, 30)
     cache = EventStudyCache("CN", start, end, "ALL")
-    assert cache.key == "trend:event-study:summary:v2:CN:2026-08-01:2026-09-30:ALL"
+    assert cache.key == "trend:event-study:summary:v3:CN:2026-08-01:2026-09-30:ALL:20"
     assert cache.load() is None
     cache.save(b'{"groups":[]}')
     assert cache_client.last_ttl == 1800

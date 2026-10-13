@@ -1,5 +1,8 @@
 # Trend Following Alpha V3
 
+当前已支持整套20/40/60日策略，周期映射、预热和部署重建见[多周期说明](trend-periods.md)。
+下文数字周期以默认20日为基准，40/60日按多周期映射展开。
+
 适用于 `trend_following` 的 official / preview 共用计算链。参数事实源为
 [`TrendFollowingConfig`](../src/finance_analysis/trend_following/config.py)，实现为
 [`scoring.py`](../src/finance_analysis/trend_following/scoring.py)。只改变评分，
@@ -28,8 +31,8 @@ Setup = .50 BreakoutQuality + .25 ExtensionQuality + .15 VolumeQuality + .10 Com
 Path = .45 ConcentrationQuality + .35 VolatilityQuality + .20 DownsideControlQuality
 ```
 
-SlopePercentile 沿用当日全市场横截面 average-tie percentile；Weighted R² 仍基于最近15根
-log(close)、权重1…15的加权回归，`R2Quality=100 R² × sigmoid(raw_weighted_slope / .002)`；方向因子连续，原始R²保留。
+SlopePercentile 沿用当日全市场横截面 average-tie percentile；Weighted R² 仍基于最近N根
+log(close)、权重1…N的加权回归，`R2Quality=100 R² × sigmoid(raw_weighted_slope / .002)`；方向因子连续，原始R²保留。
 Momentum 汇总相关收益周期；RS 只保留 `stock return − benchmark return`。
 
 定义 `Q(x,s)=50+50 tanh(x/s)`、`σ(x)=1/(1+exp(−x))`、

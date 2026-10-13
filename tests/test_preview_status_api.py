@@ -20,7 +20,7 @@ def test_status_reads_cache_once_and_only_returns_metadata(monkeypatch, endpoint
     }
     original = deepcopy(payload)
     calls = []
-    monkeypatch.setattr(endpoint, "load_preview", lambda market: calls.append(market) or payload)
+    monkeypatch.setattr(endpoint, "load_preview", lambda market, **kwargs: calls.append(market) or payload)
     app = FastAPI()
     app.include_router(endpoint.router)
     app.dependency_overrides[endpoint.require_current_user] = lambda: None
@@ -39,7 +39,7 @@ def test_status_reads_cache_once_and_only_returns_metadata(monkeypatch, endpoint
 
 @pytest.mark.parametrize("endpoint", [trend_following, etf_rotation])
 def test_status_missing_preview_preserves_404(monkeypatch, endpoint):
-    monkeypatch.setattr(endpoint, "load_preview", lambda market: None)
+    monkeypatch.setattr(endpoint, "load_preview", lambda market, **kwargs: None)
     app = FastAPI()
     app.include_router(endpoint.router)
     app.dependency_overrides[endpoint.require_current_user] = lambda: None

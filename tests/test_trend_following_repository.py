@@ -319,7 +319,7 @@ import pytest
 @pytest.fixture(autouse=True)
 def offline_cache(monkeypatch):
     from finance_analysis.trend_following import ranking_cache
-    monkeypatch.setattr(ranking_cache, "invalidate_market", lambda market: None)
+    monkeypatch.setattr(ranking_cache, "invalidate_market", lambda market, **kwargs: None)
 
 
 def test_read_projections_do_not_load_full_snapshot_or_instrument_json():

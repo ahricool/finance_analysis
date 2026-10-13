@@ -14,12 +14,15 @@ import type { StockDetailPanelProps } from './types';
 import { trendFollowingApi } from '@/api/trendFollowing';
 import type { TrendAlphaBreakdown, TrendDetailResponse, TrendState } from '@/types/trendFollowing';
 import { alphaVersionLabel } from '@/utils/trendFollowing';
-import { trendIndicatorDescriptions as descriptions } from '@/components/trend-following/indicatorDescriptions';
+import { trendIndicatorDescriptions, trendPeriodText } from '@/components/trend-following/indicatorDescriptions';
 import { Badge } from '@/components/ui/badge';
 import TrendFragilityHistoryChart from '@/components/trend-following/TrendFragilityHistoryChart.vue';
 import TrendRankHistoryChart from '@/components/trend-following/TrendRankHistoryChart.vue';
 
 const props = defineProps<StockDetailPanelProps>();
+const trendPeriod = computed(() => props.context?.trendPeriod ?? 20);
+const periodText = (text: string) => trendPeriodText(text, trendPeriod.value);
+const descriptions = computed(() => Object.fromEntries(Object.entries(trendIndicatorDescriptions).map(([key, value]) => [key, periodText(value)])));
 const detail = ref<TrendDetailResponse | null>(null);
 const detailLoading = ref(false);
 const detailError = ref<ParsedApiError | null>(null);
@@ -40,7 +43,7 @@ async function loadDetailHistory() {
   historyLoading.value = true;
   historyError.value = null;
   try {
-    const response = await trendFollowingApi.detailHistory(current.latest.code, current.market, current.latest.tradeDate);
+    const response = await trendFollowingApi.detailHistory(current.latest.code, current.market, current.latest.tradeDate, 60, trendPeriod.value);
     if (request === historyGeneration && detailRequest === generation && detail.value === current) {
       current.history = response.history.filter(row => row.tradeDate < current.latest.tradeDate);
     }
@@ -70,7 +73,7 @@ async function loadDetail() {
   detailLoading.value = true;
   try {
     if (preview) {
-      const payload = await trendFollowingApi.preview(market);
+      const payload = await trendFollowingApi.preview(market, trendPeriod.value);
       if (request !== generation) return;
       const snapshot = payload && isPreviewCompleted(payload.status)
         && (!tradeDate || payload.tradeDate === tradeDate)
@@ -79,7 +82,7 @@ async function loadDetail() {
       detail.value = { market, metadata: { market, code: snapshot.code, name: snapshot.name }, latest: snapshot, history: [], marketContext: { ...payload, generatedAt: payload.previewTime ?? '' } };
       void loadDetailHistory();
     } else {
-      const response = await trendFollowingApi.detail(symbol, market, 60, tradeDate);
+      const response = await trendFollowingApi.detail(symbol, market, 60, tradeDate, trendPeriod.value);
       if (request === generation) detail.value = response;
     }
   } catch (reason) {
@@ -91,7 +94,7 @@ async function loadDetail() {
     if (request === generation) detailLoading.value = false;
   }
 }
-watch([() => props.symbol, () => props.market, () => props.context?.tradeDate, () => props.context?.view], loadDetail, { immediate: true });
+watch([() => props.symbol, () => props.market, () => props.context?.tradeDate, () => props.context?.view, trendPeriod], loadDetail, { immediate: true });
 onBeforeUnmount(() => { ++generation; ++historyGeneration; });
 const alphaContributions = computed(() => {
   const alpha = detail.value?.latest.scoreBreakdown.alpha as TrendAlphaBreakdown | undefined;
@@ -352,7 +355,7 @@ function badgeVariant(value: string | null): 'default' | 'success' | 'warning' |
           >
             <dt>
               <IndicatorLabel
-                :label="label"
+                :label="periodText(label)"
                 :description="descriptions[key]"
                 compact
               />
@@ -385,11 +388,11 @@ function badgeVariant(value: string | null): 'default' | 'success' | 'warning' |
         </p>
         <p>
           <IndicatorLabel
-            label="RSI14"
+            :label="periodText('RSI20')"
             :description="descriptions.rsi14"
             compact
           /> {{ score(detail.latest.features.rsi14) }} · <IndicatorLabel
-            label="距 MA20 / ATR"
+            :label="periodText('距 MA20 / ATR')"
             :description="descriptions.distanceFromMa20Atr"
             compact
           /> {{ score(detail.latest.features.distanceFromMa20Atr) }}
@@ -519,14 +522,14 @@ function badgeVariant(value: string | null): 'default' | 'success' | 'warning' |
         </h3><div class="grid grid-cols-2 gap-2 text-sm">
           <div>
             <IndicatorLabel
-              label="Weighted slope 15D"
+              :label="periodText('Weighted slope 20D')"
               :description="descriptions.weightedSlope"
               wrap
             /><strong class="block">{{ score(detail.latest.features.rawWeightedSlope) }}</strong>
           </div>
           <div>
             <IndicatorLabel
-              label="Slope percentile 15D"
+              :label="periodText('Slope percentile 20D')"
               :description="descriptions.slopePercentile"
               wrap
             /><strong class="block">{{ score(detail.latest.features.weightedSlopePercentile) }}</strong>
@@ -540,42 +543,42 @@ function badgeVariant(value: string | null): 'default' | 'success' | 'warning' |
           </div>
           <div>
             <IndicatorLabel
-              label="Return 5D / 10D / 20D"
+              :label="periodText('Return 5D / 10D / 20D')"
               :description="descriptions.return"
               wrap
             /><strong class="block">{{ pct(detail.latest.features.return5D) }} / {{ pct(detail.latest.features.return10D) }} / {{ pct(detail.latest.features.return20D) }}</strong>
           </div>
           <div>
             <IndicatorLabel
-              label="Drawdown 20D"
+              :label="periodText('Drawdown 20D')"
               :description="descriptions.drawdown"
               wrap
             /><strong class="block">{{ pct(detail.latest.features.drawdown20D) }}</strong>
           </div>
           <div>
             <IndicatorLabel
-              label="MA10 / MA20"
+              :label="periodText('MA10 / MA20')"
               :description="descriptions.movingAverage"
               wrap
             /><strong class="block">{{ score(detail.latest.features.ma10) }} / {{ score(detail.latest.features.ma20) }}</strong>
           </div>
           <div>
             <IndicatorLabel
-              label="RS 5D / 10D / 20D"
+              :label="periodText('RS 5D / 10D / 20D')"
               :description="descriptions.rawRelativeStrength"
               wrap
             /><strong class="block">{{ pct(detail.latest.features.rs5D) }} / {{ pct(detail.latest.features.rs10D) }} / {{ pct(detail.latest.features.rs20D) }}</strong>
           </div>
           <div>
             <IndicatorLabel
-              label="Return Percentile 10D / 20D"
+              :label="periodText('Return Percentile 10D / 20D')"
               :description="descriptions.returnPercentile"
               wrap
             /><strong class="block">{{ score(detail.latest.features.return10DPercentile) }} / {{ score(detail.latest.features.return20DPercentile) }}</strong>
           </div>
           <div>
             <IndicatorLabel
-              label="10D / 20D Breakout"
+              :label="periodText('10D / 20D Breakout')"
               :description="descriptions.breakoutFlags"
               wrap
             /><strong class="block">{{ detail.latest.features.breakout10D ? '是' : '否' }} / {{ detail.latest.features.breakout20D ? '是' : '否' }}</strong>
@@ -619,11 +622,11 @@ function badgeVariant(value: string | null): 'default' | 'success' | 'warning' |
             :key="key"
             class="flex justify-between gap-3"
           >
-            <span>{{ entryComponentLabels[key] ?? key }}</span>
+            <span>{{ periodText(entryComponentLabels[key] ?? key) }}</span>
             <span>{{ score(value) }} × {{ pct(branch.data.normalizedWeights[key]) }} = {{ score(branch.data.contributions[key]) }}</span>
           </div>
           <p class="mt-2 text-muted-foreground">
-            {{ Object.entries(branch.data.checks).map(([key, pass]) => `${entryCheckLabels[key] ?? key}: ${pass ? '通过' : '未通过'}`).join(' · ') }}
+            {{ Object.entries(branch.data.checks).map(([key, pass]) => `${periodText(entryCheckLabels[key] ?? key)}: ${pass ? '通过' : '未通过'}`).join(' · ') }}
           </p>
         </div>
       </section>

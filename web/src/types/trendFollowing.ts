@@ -1,3 +1,4 @@
+export type TrendPeriod = 20 | 40 | 60;
 export type TrendMarket = 'CN' | 'US';
 export type TrendRegime = 'RISK_ON' | 'NEUTRAL' | 'RISK_OFF';
 export type TrendState = 'IDLE' | 'WATCHING' | 'CANDIDATE' | 'TRENDING' | 'WEAKENING' | 'BROKEN';
@@ -175,6 +176,7 @@ export interface TrendSnapshot {
 export type TrendCandidate = Pick<TrendSnapshot, 'code' | 'name' | 'rank' | 'state' | 'alphaScore'>;
 
 export const RANKING_FEATURE_KEYS = [
+  'trendPeriod',
   'boxBreakoutFresh', 'boxPriorBreakoutConfirmed', 'boxEpisodeConsumed', 'mrEpisodeConsumed', 'rsi14', 'distanceFromMa20Atr', 'return3D',
   'mrQuality', 'mrOversoldQuality', 'mrDistanceQuality', 'mrShockQuality', 'mrReversalQuality', 'mrPreviousRsi14',
   'boxQuality', 'boxWindowDays', 'boxHigh', 'boxLow', 'boxMid', 'boxWidthPct', 'boxSlope', 'boxSlopeAtr', 'boxRSquared', 'boxOccupancy', 'boxUpperTouches', 'boxLowerTouches', 'distanceToBoxHighPct', 'distanceToBoxHighAtr', 'boxBreakoutDistanceAtr', 'boxAtr20', 'boxWidthQuality', 'boxFlatnessQuality', 'boxOccupancyQuality', 'boxCompressionQuality', 'boxTouchQuality',

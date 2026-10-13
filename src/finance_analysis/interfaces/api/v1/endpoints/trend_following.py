@@ -6,7 +6,7 @@ import json
 import logging
 import time
 from datetime import date
-from typing import Literal
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.encoders import jsonable_encoder
@@ -46,6 +46,7 @@ from finance_analysis.trend_following.universe import universe_by_code  # pragma
 router = APIRouter()
 logger = logging.getLogger(__name__)
 Market = Literal["CN", "US"]
+TrendPeriod = Annotated[int, Query(ge=20, le=60, multiple_of=20)]
 SortField = Literal[
     "box_quality", "box_window_days", "box_width_pct", "distance_to_box_high_pct",
     "distance_to_box_high_atr", "box_breakout_distance_atr",
@@ -171,10 +172,11 @@ def dashboard(
     trade_date: date | None = None,
     _: User = Depends(require_current_user),
     market: Market = "CN",
+    trend_period: TrendPeriod = 20,
 ):
     from finance_analysis.trend_following.dashboard import dashboard_summary
 
-    repository = TrendFollowingRepository(market)
+    repository = TrendFollowingRepository(market, trend_period=trend_period)
     resolved = _resolve_date(repository, trade_date)
     payload = dashboard_summary(repository, resolved)
     if payload is None:
@@ -185,6 +187,7 @@ def dashboard(
 @router.get("/event-study/summary", response_model=EventStudySummaryResponse)
 def event_study_summary(
     market: Market = "CN",
+    trend_period: TrendPeriod = 20,
     start_date: date | None = None,
     end_date: date | None = None,
     regime: Literal["ALL", "RISK_ON", "NEUTRAL", "RISK_OFF"] = "ALL",
@@ -200,14 +203,14 @@ def event_study_summary(
     start = start_date or end - timedelta(days=DEFAULT_CONFIG.event_study_default_days)
     try:
         validate_range(start, end)
-        cache = EventStudyCache(market, start, end, regime)
+        cache = EventStudyCache(market, start, end, regime, trend_period=trend_period)
         body = cache.load()
         if body:
             logger.info("event_study_summary market=%s start=%s end=%s regime=%s cache_hit=true total_seconds=%.4f",
                         market, start, end, regime, time.perf_counter() - started)
             return EventStudySummaryResponse.model_validate_json(body)
         result = EventStudySummaryResponse.model_validate(
-            run_event_study_summary(TrendFollowingRepository(market), market, start, end, regime=regime),
+            run_event_study_summary(TrendFollowingRepository(market, trend_period=trend_period), market, start, end, regime=regime),
         )
         cache.save(result.model_dump_json().encode())
         return result
@@ -219,6 +222,7 @@ def event_study_summary(
 def event_study_events(
     strategy: Literal["TREND_FOLLOWING", "BOX_BREAKOUT", "PULLBACK_RESUME", "MEAN_REVERSION"],
     market: Market = "CN",
+    trend_period: TrendPeriod = 20,
     start_date: date | None = None,
     end_date: date | None = None,
     regime: Literal["ALL", "RISK_ON", "NEUTRAL", "RISK_OFF"] = "ALL",
@@ -233,7 +237,7 @@ def event_study_events(
     end = end_date or utc_now().date()
     start = start_date or end - timedelta(days=DEFAULT_CONFIG.event_study_default_days)
     try:
-        return run_event_study_events(TrendFollowingRepository(market), market, start, end,
+        return run_event_study_events(TrendFollowingRepository(market, trend_period=trend_period), market, start, end,
                                       strategy=strategy, regime=regime, offset=offset, limit=limit)
     except ValueError as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
@@ -242,6 +246,7 @@ def event_study_events(
 @router.get("/event-study", response_model=EventStudyResponse)
 def event_study(
     market: Market = "CN",
+    trend_period: TrendPeriod = 20,
     start_date: date | None = None,
     end_date: date | None = None,
     strategy: Literal["ALL", "TREND_FOLLOWING", "BOX_BREAKOUT", "PULLBACK_RESUME", "MEAN_REVERSION"] = "ALL",
@@ -257,7 +262,7 @@ def event_study(
     end = end_date or utc_now().date()
     start = start_date or end - timedelta(days=DEFAULT_CONFIG.event_study_default_days)
     try:
-        return run_event_study(TrendFollowingRepository(market), market, start, end,
+        return run_event_study(TrendFollowingRepository(market, trend_period=trend_period), market, start, end,
                                strategy=strategy, regime=regime, offset=offset, limit=limit)
     except ValueError as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
@@ -271,11 +276,12 @@ def ranking(
     _: User = Depends(require_current_user),
     market: Market = "CN",
     box_state: BoxState | None = None,
+    trend_period: TrendPeriod = 20,
 ):
     started = time.perf_counter()
-    repository = TrendFollowingRepository(market)
+    repository = TrendFollowingRepository(market, trend_period=trend_period)
     resolved = _resolve_date(repository, trade_date)
-    cache = RankingCache(market, resolved)
+    cache = RankingCache(market, resolved, trend_period=trend_period)
     body = cache.load() if sort_by == "alpha_score" and limit is None and box_state is None else None
     if body is not None:
         logger.info("trend_ranking market=%s date=%s cache=hit seconds=%.3f bytes=%s",
@@ -320,11 +326,12 @@ def breadth_history(
     include_preview: bool = False,
     _: User = Depends(require_current_user),
     market: Market = "CN",
+    trend_period: TrendPeriod = 20,
 ):
     from finance_analysis.trend_following.breadth import get_breadth_history
 
     try:
-        return get_breadth_history(market, days=days, as_of=as_of, include_preview=include_preview)
+        return get_breadth_history(market, days=days, as_of=as_of, include_preview=include_preview, trend_period=trend_period)
     except ValueError as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
 
@@ -338,6 +345,7 @@ def transitions(
     include_preview: bool = False,
     _: User = Depends(require_current_user),
     market: Market = "CN",
+    trend_period: TrendPeriod = 20,
 ):
     from finance_analysis.trend_following.breadth import get_transitions
 
@@ -345,7 +353,7 @@ def transitions(
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "days must be 1, 3 or 5")
     try:
         return get_transitions(market, days=days, direction=direction, limit=limit,
-                               as_of=as_of, include_preview=include_preview)
+                               as_of=as_of, include_preview=include_preview, trend_period=trend_period)
     except ValueError as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
 
@@ -356,8 +364,9 @@ def candidates(
     limit: int = Query(default=100, ge=1, le=1000),
     _: User = Depends(require_current_user),
     market: Market = "CN",
+    trend_period: TrendPeriod = 20,
 ):
-    repository = TrendFollowingRepository(market)
+    repository = TrendFollowingRepository(market, trend_period=trend_period)
     resolved = _resolve_date(repository, trade_date)
     return jsonable_encoder({
         "market": market,
@@ -368,22 +377,22 @@ def candidates(
 
 
 @router.get("/dates")
-def dates(_: User = Depends(require_current_user), market: Market = "CN"):
-    items = TrendFollowingRepository(market).available_trade_dates()
+def dates(_: User = Depends(require_current_user), market: Market = "CN", trend_period: TrendPeriod = 20):
+    items = TrendFollowingRepository(market, trend_period=trend_period).available_trade_dates()
     return jsonable_encoder({"market": market, "latest": items[0] if items else None, "items": items})
 
 
 @router.get("/preview/status")
-def preview_status(_: User = Depends(require_current_user), market: Market = "CN"):
-    payload = load_preview(market)
+def preview_status(_: User = Depends(require_current_user), market: Market = "CN", trend_period: TrendPeriod = 20):
+    payload = load_preview(market, trend_period=trend_period)
     if payload is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Trend Following preview is not available")
     return jsonable_encoder(preview_metadata(payload, rows_key="snapshots"))
 
 
 @router.get("/preview")
-def preview(_: User = Depends(require_current_user), market: Market = "CN"):
-    payload = load_preview(market)
+def preview(_: User = Depends(require_current_user), market: Market = "CN", trend_period: TrendPeriod = 20):
+    payload = load_preview(market, trend_period=trend_period)
     if payload is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Trend Following preview is not available")
     return jsonable_encoder(payload)
@@ -402,6 +411,7 @@ def run_trend_following(body: TrendFollowingRunRequest, user: User = Depends(req
     try:
         result = task.apply_async(
             kwargs={
+                "trend_period": body.trend_period,
                 "trade_date": body.trade_date.isoformat() if body.trade_date else None,
                 "scheduler_job_id": definition.job_id,
                 "_trigger_source": "manual",
@@ -423,6 +433,7 @@ def detail(
     trade_date: date | None = None,
     _: User = Depends(require_current_user),
     market: Market = "CN",
+    trend_period: TrendPeriod = 20,
     before_trade_date: date | None = None,
 ):
     """Return exact-date detail, or official history only strictly before before_trade_date."""
@@ -432,7 +443,7 @@ def detail(
     member = universe_by_code(market).get(canonical)
     if member is None and trade_date is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Stock is not in the Trend Following universe")
-    repository = TrendFollowingRepository(market)
+    repository = TrendFollowingRepository(market, trend_period=trend_period)
     if before_trade_date is not None:
         history = repository.snapshot_history(canonical, limit=limit, before_trade_date=before_trade_date)
         return jsonable_encoder({"history": history})

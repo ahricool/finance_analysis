@@ -7,8 +7,10 @@ from datetime import date, timedelta
 from typing import Any
 
 from sqlalchemy import delete, desc, func, select
+
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
+from finance_analysis.trend_following.config import DEFAULT_TREND_PERIOD, TREND_PERIODS
 from finance_analysis.core.time import utc_now
 from finance_analysis.database.models.stock import Instrument, StockDaily
 from finance_analysis.database.models.trend_following import TrendFollowingSnapshot, TrendFollowingSummary
@@ -39,7 +41,10 @@ MEANINGFUL_STATES = {"CANDIDATE", "TRENDING", "WEAKENING", "BROKEN"}
 
 
 class TrendFollowingRepository:
-    def __init__(self, market: str, db_manager: Any = None) -> None:
+    def __init__(self, market: str, db_manager: Any = None, *, trend_period: int = DEFAULT_TREND_PERIOD) -> None:
+        if trend_period not in TREND_PERIODS:
+            raise ValueError("trend_period must be 20, 40 or 60")
+        self.trend_period = trend_period
         self.market = str(market).upper()
         if self.market not in {"CN", "US"}:
             raise ValueError("Trend Following market must be CN or US")
@@ -127,7 +132,7 @@ class TrendFollowingRepository:
                 .label("row_rank"),
             )
             .where(
-                TrendFollowingSnapshot.market == self.market,
+                TrendFollowingSnapshot.trend_period == self.trend_period, TrendFollowingSnapshot.market == self.market,
                 TrendFollowingSnapshot.trade_date < trade_date,
                 TrendFollowingSnapshot.code.in_(selected),
             )
@@ -147,13 +152,13 @@ class TrendFollowingRepository:
         selected = set(codes)
         dates = (
             select(model.trade_date)
-            .where(model.market == self.market, model.trade_date < trade_date)
-            .distinct().order_by(model.trade_date.desc()).limit(5).scalar_subquery()
+            .where(model.trend_period == self.trend_period, model.market == self.market, model.trade_date < trade_date)
+            .distinct().order_by(model.trade_date.desc()).limit(self.trend_period // 4).scalar_subquery()
         )
         with self.db.get_session() as session:
             rows = list(session.execute(
                 select(model.code, model.trade_date, model.features, model.trend_lifecycle)
-                .where(model.market == self.market, model.trade_date.in_(dates))
+                .where(model.trend_period == self.trend_period, model.market == self.market, model.trade_date.in_(dates))
             ).mappings())
         offsets = {day: i + 1 for i, day in enumerate(sorted({r["trade_date"] for r in rows}, reverse=True))}
         result = {}
@@ -170,7 +175,7 @@ class TrendFollowingRepository:
         model = TrendFollowingSnapshot
         with self.db.get_session() as session:
             return list(session.execute(
-                select(model.trade_date).where(model.market == self.market, model.trade_date <= as_of)
+                select(model.trade_date).where(model.trend_period == self.trend_period, model.market == self.market, model.trade_date <= as_of)
                 .distinct().order_by(model.trade_date.desc()).limit(days)
             ).scalars())[::-1]
 
@@ -180,7 +185,7 @@ class TrendFollowingRepository:
         with self.db.get_session() as session:
             return [dict(row) for row in session.execute(
                 select(model.trade_date, model.state, func.count().label("count"))
-                .where(model.market == self.market, model.trade_date.in_(dates), model.rank > 0)
+                .where(model.trend_period == self.trend_period, model.market == self.market, model.trade_date.in_(dates), model.rank > 0)
                 .group_by(model.trade_date, model.state)
             ).mappings()]
 
@@ -189,7 +194,7 @@ class TrendFollowingRepository:
         with self.db.get_session() as session:
             return [dict(row) for row in session.execute(
                 select(model.trade_date, model.rankable_count, model.generated_at)
-                .where(model.market == self.market, model.trade_date.in_(dates))
+                .where(model.trend_period == self.trend_period, model.market == self.market, model.trade_date.in_(dates))
             ).mappings()]
 
     def transition_rows(self, dates: list[date]) -> list[dict]:
@@ -200,7 +205,7 @@ class TrendFollowingRepository:
                 select(model.code, model.trade_date, Instrument.name, model.rank, model.state,
                        model.alpha_score, model.fragility_score)
                 .join(Instrument, Instrument.id == model.instrument_id)
-                .where(model.market == self.market, Instrument.market == self.market,
+                .where(model.trend_period == self.trend_period, model.market == self.market, Instrument.market == self.market,
                        model.trade_date.in_(dates), model.rank > 0)
                 .order_by(model.trade_date, model.code)
             ).mappings()]
@@ -208,7 +213,7 @@ class TrendFollowingRepository:
     def latest_snapshot_date(self) -> date | None:
         with self.db.get_session() as session:
             return session.execute(
-                select(func.max(TrendFollowingSnapshot.trade_date)).where(TrendFollowingSnapshot.market == self.market)
+                select(func.max(TrendFollowingSnapshot.trade_date)).where(TrendFollowingSnapshot.trend_period == self.trend_period, TrendFollowingSnapshot.market == self.market)
             ).scalar_one()
 
     def snapshot_dates_between(self, start: date, end: date) -> list[date]:
@@ -217,7 +222,7 @@ class TrendFollowingRepository:
                 session.execute(
                     select(TrendFollowingSnapshot.trade_date)
                     .where(
-                        TrendFollowingSnapshot.market == self.market,
+                        TrendFollowingSnapshot.trend_period == self.trend_period, TrendFollowingSnapshot.market == self.market,
                         TrendFollowingSnapshot.trade_date.between(start, end),
                     )
                     .distinct()
@@ -262,7 +267,7 @@ class TrendFollowingRepository:
     def upsert_snapshots(self, snapshots: list[dict[str, Any]]) -> int:
         if not snapshots:
             return 0
-        snapshots = [self._normalize_snapshot(item) for item in snapshots]
+        snapshots = [self._normalize_snapshot({**item, "trend_period": self.trend_period}) for item in snapshots]
         codes = sorted({str(item["code"]) for item in snapshots})
         with self.db.session_scope() as session:
             symbol_ids = dict(
@@ -283,7 +288,7 @@ class TrendFollowingRepository:
                 records.append(record)
             stmt = pg_insert(TrendFollowingSnapshot).values(records)
             excluded = stmt.excluded
-            immutable = {"id", "market", "trade_date", "code"}
+            immutable = {"id", "market", "trend_period", "trade_date", "code"}
             session.execute(
                 stmt.on_conflict_do_update(
                     constraint="uix_trend_following_market_date_code",
@@ -304,7 +309,7 @@ class TrendFollowingRepository:
         summary: dict[str, Any],
     ) -> int:
         """Atomically replace one complete market/date snapshot set and its summary."""
-        snapshots = [self._normalize_snapshot(item) for item in snapshots]
+        snapshots = [self._normalize_snapshot({**item, "trend_period": self.trend_period}) for item in snapshots]
         codes = sorted({str(item["code"]) for item in snapshots})
         with self.db.session_scope() as session:
             symbol_ids = (
@@ -325,7 +330,7 @@ class TrendFollowingRepository:
 
             session.execute(
                 delete(TrendFollowingSnapshot).where(
-                    TrendFollowingSnapshot.market == self.market,
+                    TrendFollowingSnapshot.trend_period == self.trend_period, TrendFollowingSnapshot.market == self.market,
                     TrendFollowingSnapshot.trade_date == trade_date,
                 )
             )
@@ -348,13 +353,14 @@ class TrendFollowingRepository:
 
             session.execute(
                 delete(TrendFollowingSummary).where(
-                    TrendFollowingSummary.market == self.market,
+                    TrendFollowingSummary.trend_period == self.trend_period, TrendFollowingSummary.market == self.market,
                     TrendFollowingSummary.trade_date == trade_date,
                 )
             )
             summary_columns = {column.name for column in TrendFollowingSummary.__table__.columns}
             summary_record = {key: value for key, value in summary.items() if key in summary_columns and key != "id"}
             summary_record["generated_at"] = generated_at
+            summary_record["trend_period"] = self.trend_period
             if session.bind is not None and session.bind.dialect.name == "sqlite":
                 summary_record["id"] = (
                     int(session.execute(select(func.coalesce(func.max(TrendFollowingSummary.id), 0))).scalar_one()) + 1
@@ -368,13 +374,13 @@ class TrendFollowingRepository:
         with self.db.session_scope() as session:
             session.execute(
                 delete(TrendFollowingSnapshot).where(
-                    TrendFollowingSnapshot.market == self.market,
+                    TrendFollowingSnapshot.trend_period == self.trend_period, TrendFollowingSnapshot.market == self.market,
                     TrendFollowingSnapshot.trade_date >= trade_date,
                 )
             )
             session.execute(
                 delete(TrendFollowingSummary).where(
-                    TrendFollowingSummary.market == self.market,
+                    TrendFollowingSummary.trend_period == self.trend_period, TrendFollowingSummary.market == self.market,
                     TrendFollowingSummary.trade_date >= trade_date,
                 )
             )
@@ -385,6 +391,7 @@ class TrendFollowingRepository:
         columns = {column.name for column in TrendFollowingSummary.__table__.columns}
         record = {key: value for key, value in summary.items() if key in columns and key != "id"}
         record["generated_at"] = utc_now()
+        record["trend_period"] = self.trend_period
         with self.db.session_scope() as session:
             stmt = pg_insert(TrendFollowingSummary).values(record)
             excluded = stmt.excluded
@@ -394,7 +401,7 @@ class TrendFollowingRepository:
                     set_={
                         column.name: getattr(excluded, column.name)
                         for column in TrendFollowingSummary.__table__.columns
-                        if column.name not in {"id", "market", "trade_date"}
+                        if column.name not in {"id", "market", "trend_period", "trade_date"}
                     },
                 )
             )
@@ -410,7 +417,7 @@ class TrendFollowingRepository:
     def latest_trade_date(self) -> date | None:
         with self.db.get_session() as session:
             return session.execute(
-                select(func.max(TrendFollowingSummary.trade_date)).where(TrendFollowingSummary.market == self.market)
+                select(func.max(TrendFollowingSummary.trade_date)).where(TrendFollowingSummary.trend_period == self.trend_period, TrendFollowingSummary.market == self.market)
             ).scalar_one()
 
     def available_trade_dates(self) -> list[date]:
@@ -418,7 +425,7 @@ class TrendFollowingRepository:
             return list(
                 session.execute(
                     select(TrendFollowingSummary.trade_date)
-                    .where(TrendFollowingSummary.market == self.market)
+                    .where(TrendFollowingSummary.trend_period == self.trend_period, TrendFollowingSummary.market == self.market)
                     .order_by(desc(TrendFollowingSummary.trade_date))
                 ).scalars()
             )
@@ -432,7 +439,7 @@ class TrendFollowingRepository:
                 session.execute(
                     select(TrendFollowingSnapshot.trade_date)
                     .where(
-                        TrendFollowingSnapshot.market == self.market,
+                        TrendFollowingSnapshot.trend_period == self.trend_period, TrendFollowingSnapshot.market == self.market,
                         TrendFollowingSnapshot.trade_date < trade_date,
                     )
                     .distinct()
@@ -446,7 +453,7 @@ class TrendFollowingRepository:
                 select(Instrument.code, TrendFollowingSnapshot.trade_date, TrendFollowingSnapshot.rank)
                 .join(Instrument, Instrument.id == TrendFollowingSnapshot.instrument_id)
                 .where(
-                    TrendFollowingSnapshot.market == self.market,
+                    TrendFollowingSnapshot.trend_period == self.trend_period, TrendFollowingSnapshot.market == self.market,
                     Instrument.market == self.market,
                     Instrument.code.in_(selected),
                     TrendFollowingSnapshot.trade_date.in_(dates),
@@ -465,7 +472,7 @@ class TrendFollowingRepository:
         with self.db.get_session() as session:
             return session.execute(
                 select(func.max(TrendFollowingSummary.trade_date)).where(
-                    TrendFollowingSummary.market == self.market,
+                    TrendFollowingSummary.trend_period == self.trend_period, TrendFollowingSummary.market == self.market,
                     TrendFollowingSummary.trade_date < trade_date,
                 )
             ).scalar_one()
@@ -474,7 +481,7 @@ class TrendFollowingRepository:
         with self.db.get_session() as session:
             row = session.execute(
                 select(TrendFollowingSummary).where(
-                    TrendFollowingSummary.market == self.market,
+                    TrendFollowingSummary.trend_period == self.trend_period, TrendFollowingSummary.market == self.market,
                     TrendFollowingSummary.trade_date == trade_date,
                 )
             ).scalar_one_or_none()
@@ -499,6 +506,7 @@ class TrendFollowingRepository:
         return select(prior.c.state).where(
             prior.c.instrument_id == snapshot.instrument_id,
             prior.c.market == snapshot.market,
+            prior.c.trend_period == snapshot.trend_period,
             prior.c.trade_date < snapshot.trade_date,
         ).order_by(prior.c.trade_date.desc()).limit(1).correlate(snapshot).scalar_subquery()
 
@@ -525,7 +533,7 @@ class TrendFollowingRepository:
                 s.features["entry_type"].as_string().label("entry_type"),
                 *(s.features[k].as_float().label(k) for k in NUMERIC_CONTEXT),
             ).join(Instrument, Instrument.id == s.instrument_id).where(
-                s.market == self.market, s.trade_date.between(start_date, end_date), predicates[key],
+                s.trend_period == self.trend_period, s.market == self.market, s.trade_date.between(start_date, end_date), predicates[key],
             )
             if regime != "ALL":
                 query = query.where(s.market_regime == regime)
@@ -556,12 +564,12 @@ class TrendFollowingRepository:
         # Window over the bounded date range plus one indexed prior row per
         # instrument avoids a correlated lookup for every universe/day row.
         in_range = select(s.instrument_id, s.trade_date, s.state).where(
-            s.market == self.market, s.trade_date.between(start_date, end_date),
+            s.trend_period == self.trend_period, s.market == self.market, s.trade_date.between(start_date, end_date),
         ).cte("coverage_range")
         instruments = select(in_range.c.instrument_id).distinct().subquery("coverage_instruments")
         prior = s.__table__.alias("coverage_prior")
         predecessor_id = select(prior.c.id).where(
-            prior.c.instrument_id == instruments.c.instrument_id, prior.c.market == self.market,
+            prior.c.instrument_id == instruments.c.instrument_id, prior.c.market == self.market, prior.c.trend_period == self.trend_period,
             prior.c.trade_date < start_date,
         ).order_by(prior.c.trade_date.desc()).limit(1).correlate(instruments).scalar_subquery()
         predecessors = select(s.instrument_id, s.trade_date, s.state).join(instruments, s.id == predecessor_id)
@@ -583,7 +591,7 @@ class TrendFollowingRepository:
             s.trade_date, s.market_regime, func.count().label("snapshot_count"),
             *(func.count().filter(flag).label(key) for key, flag in flags.items()),
         ).join(states, (states.c.instrument_id == s.instrument_id) & (states.c.trade_date == s.trade_date)).where(
-            s.market == self.market, s.trade_date.between(start_date, end_date),
+            s.trend_period == self.trend_period, s.market == self.market, s.trade_date.between(start_date, end_date),
         ).group_by(
             s.trade_date, s.market_regime,
         )
@@ -638,7 +646,7 @@ class TrendFollowingRepository:
                 ),
             )
             .join(Instrument, Instrument.id == snapshot.instrument_id)
-            .where(snapshot.market == self.market, snapshot.trade_date == trade_date)
+            .where(snapshot.trend_period == self.trend_period, snapshot.market == self.market, snapshot.trade_date == trade_date)
             .order_by(snapshot.rank, snapshot.code)
         )
         with self.db.get_session() as session:
@@ -651,7 +659,7 @@ class TrendFollowingRepository:
             return [dict(row) for row in session.execute(
                 select(snapshot.code, snapshot.state, snapshot.rank, Instrument.name)
                 .join(Instrument, Instrument.id == snapshot.instrument_id)
-                .where(snapshot.market == self.market, snapshot.trade_date == trade_date)
+                .where(snapshot.trend_period == self.trend_period, snapshot.market == self.market, snapshot.trade_date == trade_date)
                 .order_by(snapshot.rank, snapshot.code)
             ).mappings()]
 
@@ -661,7 +669,7 @@ class TrendFollowingRepository:
         with self.db.get_session() as session:
             return [dict(row) for row in session.execute(
                 select(*(getattr(snapshot, key) for key in fields))
-                .where(snapshot.market == self.market, snapshot.trade_date == trade_date)
+                .where(snapshot.trend_period == self.trend_period, snapshot.market == self.market, snapshot.trade_date == trade_date)
             ).mappings()]
 
     def snapshots_by_date(
@@ -674,7 +682,7 @@ class TrendFollowingRepository:
         query = (
             select(TrendFollowingSnapshot, Instrument.name)
             .join(Instrument, Instrument.id == TrendFollowingSnapshot.instrument_id)
-            .where(TrendFollowingSnapshot.market == self.market, TrendFollowingSnapshot.trade_date == trade_date)
+            .where(TrendFollowingSnapshot.trend_period == self.trend_period, TrendFollowingSnapshot.market == self.market, TrendFollowingSnapshot.trade_date == trade_date)
             .order_by(order, TrendFollowingSnapshot.code)
         )
         if limit is not None:
@@ -688,7 +696,7 @@ class TrendFollowingRepository:
                 select(TrendFollowingSnapshot, Instrument.name)
                 .join(Instrument, Instrument.id == TrendFollowingSnapshot.instrument_id)
                 .where(
-                    TrendFollowingSnapshot.market == self.market,
+                    TrendFollowingSnapshot.trend_period == self.trend_period, TrendFollowingSnapshot.market == self.market,
                     TrendFollowingSnapshot.trade_date == trade_date,
                     TrendFollowingSnapshot.state.in_(MEANINGFUL_STATES),
                 )
@@ -703,7 +711,7 @@ class TrendFollowingRepository:
     ) -> list[dict]:
         canonical = str(code).strip().upper()
         filters = [
-            TrendFollowingSnapshot.market == self.market,
+            TrendFollowingSnapshot.trend_period == self.trend_period, TrendFollowingSnapshot.market == self.market,
             TrendFollowingSnapshot.code == canonical,
         ]
         if as_of is not None:

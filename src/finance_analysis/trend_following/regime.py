@@ -13,14 +13,14 @@ from .models import DailyBar
 from .scoring import clamp
 
 
-def realized_volatility_20d(closes: np.ndarray) -> float:
-    """Annualize sample volatility from exactly 20 daily returns (21 closes)."""
-    recent = np.asarray(closes[-21:], dtype=float)
-    if len(recent) < 21:
-        raise ValueError("realized volatility requires 21 closes")
+def realized_volatility_20d(closes: np.ndarray, window: int = 20) -> float:
+    """Annualize sample volatility from exactly window daily returns (window + 1 closes)."""
+    recent = np.asarray(closes[-window - 1:], dtype=float)
+    if len(recent) < window + 1:
+        raise ValueError(f"realized volatility requires {window + 1} closes")
     daily_returns = recent[1:] / recent[:-1] - 1.0
-    if len(daily_returns) != 20:
-        raise ValueError("realized volatility must use exactly 20 daily returns")
+    if len(daily_returns) != window:
+        raise ValueError(f"realized volatility must use exactly {window} daily returns")
     return float(np.std(daily_returns, ddof=1) * math.sqrt(252.0))
 
 
@@ -33,18 +33,19 @@ def calculate_market_regime(
     benchmark_code: str,
     config: TrendFollowingConfig = DEFAULT_CONFIG,
 ) -> dict:
+    long, short, recent = config.trend_period, config.short_window, config.recent_window
     ordered = sorted(benchmark_bars, key=lambda item: item.trade_date)
     if len(ordered) < config.minimum_history_bars or ordered[-1].trade_date != trade_date:
         raise ValueError(f"benchmark {benchmark_code} has insufficient point-in-time history")
     closes = np.asarray([bar.close for bar in ordered], dtype=float)
     benchmark_close = float(closes[-1])
-    ma10 = float(np.mean(closes[-10:]))
-    ma20 = float(np.mean(closes[-20:]))
-    return_5d = float(closes[-1] / closes[-6] - 1.0)
-    return_20d = float(closes[-1] / closes[-21] - 1.0)
-    realized_vol = realized_volatility_20d(closes)
-    peaks = np.maximum.accumulate(closes[-20:])
-    max_drawdown_20d = float(np.min(closes[-20:] / peaks - 1.0))
+    ma10 = float(np.mean(closes[-short:]))
+    ma20 = float(np.mean(closes[-long:]))
+    return_5d = float(closes[-1] / closes[-recent - 1] - 1.0)
+    return_20d = float(closes[-1] / closes[-long - 1] - 1.0)
+    realized_vol = realized_volatility_20d(closes, long)
+    peaks = np.maximum.accumulate(closes[-long:])
+    max_drawdown_20d = float(np.min(closes[-long:] / peaks - 1.0))
 
     ready = 0
     up = above10 = above20 = high10 = low10 = 0
@@ -55,10 +56,10 @@ def calculate_market_regime(
         stock_closes = np.asarray([bar.close for bar in values], dtype=float)
         ready += 1
         up += int(stock_closes[-1] > stock_closes[-2])
-        above10 += int(stock_closes[-1] > np.mean(stock_closes[-10:]))
-        above20 += int(stock_closes[-1] > np.mean(stock_closes[-20:]))
-        high10 += int(stock_closes[-1] > np.max(stock_closes[-11:-1]))
-        low10 += int(stock_closes[-1] < np.min(stock_closes[-11:-1]))
+        above10 += int(stock_closes[-1] > np.mean(stock_closes[-short:]))
+        above20 += int(stock_closes[-1] > np.mean(stock_closes[-long:]))
+        high10 += int(stock_closes[-1] > np.max(stock_closes[-short - 1:-1]))
+        low10 += int(stock_closes[-1] < np.min(stock_closes[-short - 1:-1]))
     divisor = max(ready, 1)
     breadth = {
         "up_ratio": up / divisor,

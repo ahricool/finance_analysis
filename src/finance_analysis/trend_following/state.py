@@ -23,7 +23,7 @@ def transition_state(
     established = (previous or {}).get("state") in ESTABLISHED_STATES
     broken = structure_broken(close, row["previous_low_10"], row["ma20"], row["ma20_slope"])
     if broken and (established or (previous or {}).get("state") == "BROKEN"):
-        return StrategyDecision("BROKEN", ["price broke the prior 10-session low or declining MA20"])
+        return StrategyDecision("BROKEN", [f"price broke the prior {config.short_window}-session low or declining MA{config.trend_period}"])
     weak = (
         not row["trend_candidate"]
         or row["trend_score"] < config.healthy_trend_score
@@ -31,7 +31,7 @@ def transition_state(
         or close < row["ma10"]
     )
     if established and weak:
-        return StrategyDecision("WEAKENING", ["trend structure, score, relative strength or MA10 weakened"])
+        return StrategyDecision("WEAKENING", [f"trend structure, score, relative strength or MA{config.short_window} weakened"])
     if established:
         return StrategyDecision("TRENDING", ["established trend remains healthy"])
     if row["is_candidate"]:

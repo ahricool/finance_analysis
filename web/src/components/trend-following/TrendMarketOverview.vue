@@ -16,7 +16,7 @@ import TrendRecentTransitions from './TrendRecentTransitions.vue';
 import { signedTextClass } from '@/utils/marketTone';
 
 use([CanvasRenderer, LineChart, GridComponent, LegendComponent, TooltipComponent]);
-const props = defineProps<{ market: TrendMarket; asOf?: string; includePreview: boolean; refreshKey: number }>();
+const props = defineProps<{ market: TrendMarket; trendPeriod?: 20 | 40 | 60; asOf?: string; includePreview: boolean; refreshKey: number }>();
 const emit = defineEmits<{ select: [value: { code: string; tradeDate: string; preview: boolean }] }>();
 const { resolvedTheme } = useTheme();
 const history = shallowRef<TrendBreadthResponse | null>(null);
@@ -29,7 +29,7 @@ async function load() {
   error.value = null;
   loading.value = true;
   try {
-    const result = await trendFollowingApi.breadthHistory(props.market, props.asOf, props.includePreview);
+    const result = await trendFollowingApi.breadthHistory(props.market, props.asOf, props.includePreview, props.trendPeriod ?? 20);
     if (current === requestId) history.value = result;
   } catch (reason) {
     if (current === requestId) error.value = getParsedApiError(reason);
@@ -37,7 +37,7 @@ async function load() {
     if (current === requestId) loading.value = false;
   }
 }
-watch(() => [props.market, props.asOf, props.includePreview, props.refreshKey], () => void load(), { immediate: true });
+watch(() => [props.market, props.trendPeriod, props.asOf, props.includePreview, props.refreshKey], () => void load(), { immediate: true });
 onBeforeUnmount(() => { requestId++; });
 const points = computed(() => history.value?.points ?? []);
 const latest = computed(() => points.value.at(-1));

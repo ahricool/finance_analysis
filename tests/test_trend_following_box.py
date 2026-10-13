@@ -31,8 +31,8 @@ def calculate(bars, **kwargs):
     return result
 
 
-def test_sideways_and_longest_near_tie():
-    result = calculate(box_bars())
+def test_sideways_uses_selected_sixty_day_window():
+    result = calculate(box_bars(), config=replace(DEFAULT_CONFIG, trend_period=60))
     assert result["box_quality"] >= 70
     assert result["box_state"] == "BOX_READY"
     assert result["box_window_days"] == 60
@@ -58,12 +58,12 @@ def test_wide_and_dead_ranges_rejected():
         assert calculate(bars)["box_state"] == "NONE"
 
 
-@pytest.mark.parametrize("days", [20, 30, 40])
+@pytest.mark.parametrize("days", [20, 40, 60])
 def test_selects_established_box_after_wider_history(days):
     bars = box_bars()
     for i in range(len(bars) - days - 1):
         bars[i] = replace(bars[i], high=120, low=80)
-    assert calculate(bars)["box_window_days"] == days
+    assert calculate(bars, config=replace(DEFAULT_CONFIG, trend_period=days))["box_window_days"] == days
 
 
 def test_tie_band_is_global_not_transitive():
@@ -132,7 +132,7 @@ def test_history_is_sufficient_and_future_append_does_not_change_replay():
 def test_configuration_can_disable_windows_without_changing_existing_features():
     bars = box_bars()
     enabled = calculate(bars)
-    disabled = calculate(bars, config=replace(DEFAULT_CONFIG, box_windows=(100,)))
+    disabled = calculate(bars, config=replace(DEFAULT_CONFIG, box_forming_quality_min=101))
     assert {k: v for k, v in enabled.items() if not k.startswith(("box_", "distance_to_box"))} == {
         k: v for k, v in disabled.items() if not k.startswith(("box_", "distance_to_box"))
     }
@@ -181,7 +181,7 @@ def test_service_preview_uses_official_history_and_replaces_today_without_lookah
     )
     service = TrendFollowingService("US", repository, market_data=market_data)
     official = service._run_single_date(today, persist=False)["snapshots"][0]["features"]
-    assert official["box_window_days"] == 60
+    assert official["box_window_days"] == 20
     assert official["box_state"] == "BOX_READY"
     close = official["box_high"] + 0.25 * official["box_atr20"]
     current = replace(bars[-1], close=close, high=close + 0.1, low=close - 2)
@@ -294,7 +294,7 @@ def test_episode_survives_retest_and_rearms_only_for_new_structure():
 def test_no_candidate_does_not_reset_episode_and_preview_cannot_rearm():
     bars = episode_bars()
     prior = calculate(bars[:61])
-    no_box = calculate(bars[:62], previous_features=prior, config=replace(DEFAULT_CONFIG, box_windows=(100,)))
+    no_box = calculate(bars[:62], previous_features=prior, config=replace(DEFAULT_CONFIG, box_forming_quality_min=101))
     assert no_box['box_state'] == 'NONE'
     assert no_box['box_episode_consumed'] is True
     assert no_box['box_episode_breakout_date'] == prior['box_episode_breakout_date']

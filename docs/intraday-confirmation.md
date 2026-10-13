@@ -20,7 +20,7 @@ CN/US 各一个 Celery Beat 任务，复用 alerts 队列。当地 09:20 首次�
 不读任何 Preview，不使用当日价格增补候选，不用更早日期填补昨日缺失结果。
 候选为空也冻结空池。池一旦冻结不再刷新；重启或 Redis 丢失后从 PostgreSQL 恢复。错过冻结时段且数据库无当日池则不能盘中补建。
 
-部署需要应用 `0072_intraday_confirmation`，接在 `0071_user_avatar` 后；不改已有 migration。
+部署需要应用 `0073_intraday_confirmation`，接在已合并的 `0072_trend_periods` 后；不改已有 migration。
 
 ## 行情与指标
 

@@ -7,6 +7,6 @@ class EventStudyCache(SnapshotRankingCache):
     schema_version = "v2"
     ttl_seconds = 1800
 
-    def __init__(self, market, start_date, end_date, regime):
+    def __init__(self, market, start_date, end_date, regime, trend_period=20):
         super().__init__(market, end_date)
-        self.key = f"trend:event-study:summary:v2:{market}:{start_date}:{end_date}:{regime}"
+        self.key = f"trend:event-study:summary:v3:{market}:{start_date}:{end_date}:{regime}:{trend_period}"

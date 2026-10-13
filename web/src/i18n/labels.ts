@@ -136,6 +136,8 @@ export type MetricLabelKey = keyof typeof metricLabels;
 
 /** Business enum display labels (API values unchanged). */
 export const enumLabels = {
+  BREAKOUT_LONG: { zh: '长周期突破', en: 'Long-window Breakout' },
+  BREAKOUT_SHORT: { zh: '短周期突破', en: 'Short-window Breakout' },
   RISK_ON: { zh: '风险偏好', en: 'RISK_ON' },
   NEUTRAL: { zh: '中性', en: 'NEUTRAL' },
   RISK_OFF: { zh: '风险规避', en: 'RISK_OFF' },
