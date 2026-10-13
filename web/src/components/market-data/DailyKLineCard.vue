@@ -6,7 +6,7 @@ import AppApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
 import { Button } from '@/components/ui/button';
 import StockMembershipTags from '@/components/stocks/StockMembershipTags.vue';
 import MarketKLineChart from './MarketKLineChart.vue';
-import { tradeMarkerOverlays } from './tradeMarkerOverlay';
+import { ensureTradeMarkerOverlay, tradeMarkerOverlays } from './tradeMarkerOverlay';
 import type { TradeMarker } from '@/lib/tradeMarkers';
 import { detectDailyPatterns, dailyPatternMarketDate, type DailyPatternEvent } from '@/utils/dailyPatterns';
 import { dailyPatternOverlays } from './dailyPatternOverlay';
@@ -66,6 +66,8 @@ const highlightedBar = computed(() => {
 });
 const overlays = computed(() => {
   const bar = highlightedBar.value;
+  // Weekly/monthly views skip the daily BST computed, so register the date overlay independently.
+  if (bar) ensureTradeMarkerOverlay();
   return [...(period.value === '1d' ? [...tradeOverlays.value, ...patternOverlays.value] : []), ...(bar ? [{
     name: 'tradeBst', id: 'research-date', groupId: 'research-date', lock: true,
     points: [{ timestamp: bar.timestamp, value: bar.high }],

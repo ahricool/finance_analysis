@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { stocksApi } from '@/api/stocks';
 import DailyKLineCard from '../DailyKLineCard.vue';
 import MarketKLineChart from '../MarketKLineChart.vue';
+import * as tradeOverlay from '../tradeMarkerOverlay';
 import { marketDataApi, type DailyBarsResponse } from '@/api/marketData';
 import { candle, dated, engulfing, hammer } from '@/utils/__tests__/fixtures/dailyPatterns';
 vi.mock('@/api/stocks', () => ({ stocksApi: { classification: vi.fn().mockRejectedValue(new Error('offline')) } }));
@@ -80,6 +81,23 @@ describe('DailyKLineCard', () => {
     expect(wrapper.text()).toContain('最近 5 年');
     expect(wrapper.find('[aria-label="加载范围"]').exists()).toBe(false);
     wrapper.unmount();
+  });
+  it.each(['1w', '1M'])('registers the research-date overlay when switching to %s before history arrives', async (period) => {
+    const register = vi.spyOn(tradeOverlay, 'ensureTradeMarkerOverlay');
+    let resolve!: (value: DailyBarsResponse) => void;
+    vi.mocked(marketDataApi.dailyBars).mockReturnValue(new Promise(r => { resolve = r; }));
+    const wrapper = mount(DailyKLineCard, { ...options,
+      props: { symbol: 'AAPL.US', highlightDate: '2026-09-18' } });
+    await wrapper.get(`[data-testid="kline-period-${period}"]`).trigger('click');
+    expect(wrapper.findComponent(MarketKLineChart).exists()).toBe(false);
+    resolve(result); await flushPromises();
+    expect(register).toHaveBeenCalled();
+    const chart = wrapper.getComponent(MarketKLineChart);
+    expect(chart.props('period')).toBe(period);
+    expect(chart.props('overlays')).toEqual([expect.objectContaining({ id: 'research-date' })]);
+    expect(marketDataApi.dailyBars).toHaveBeenCalledTimes(1);
+    wrapper.unmount();
+    register.mockRestore();
   });
   it('keeps fallback history visible and states its actual data date', async () => {
     vi.mocked(marketDataApi.dailyBars).mockResolvedValue({ ...result, historyFallback: true });
