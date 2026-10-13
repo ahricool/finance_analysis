@@ -17,7 +17,6 @@ from pathlib import Path
 
 APP_SERVICES = ("server", "worker", "qlib-worker", "streamer", "web", "beat")
 WORKERS = ("worker", "qlib-worker")
-PRE_REPLACE_PHASES = ("pausing", "draining", "drained")
 READ_COMMANDS = ("logs", "ps", "images", "top", "version", "ls")
 INSPECT_FORMAT = (
     '{"id":"{{.Id}}","image":"{{.Image}}","state":{{json .State}},'
@@ -188,14 +187,12 @@ class Deployment:
                     raise DeployError(f"{service} 将 SIGTERM 映射到了强制停止，拒绝部署")
         self.pending = {
             "revision": revision, "tag": self.env["IMAGE_TAG"], "images": images, "image_ids": image_ids,
-            "old": old, "started_at": utc_now(),
+            "started_at": utc_now(),
         }
 
     def stop(self, ids: list[str]) -> None:
         if not ids:
             return
-        self.pending["stop_requested_ids"] = sorted(set(self.pending.get("stop_requested_ids", []) + ids))
-        write_json(self.pending_path, self.pending)
         # Docker marks this as a manual stop, suppressing automatic restarts.
         # -1 disables Docker's SIGKILL deadline, including on legacy containers.
         process = subprocess.Popen(
@@ -225,14 +222,13 @@ class Deployment:
 
     def drain(self) -> None:
         current = self.containers(APP_SERVICES)
-        self.pending.pop("recover_requested_ids", None)
         self.pending.setdefault("paused_at", utc_now())
         self.phase("pausing")
         beat = current.get("beat")
-        self.stop([beat["id"]] if beat and beat["state"].get("Running") else [])
+        self.stop([beat["id"]] if beat else [])
         self.phase("draining")
         worker_ids = [
-            current[name]["id"] for name in WORKERS if name in current and current[name]["state"].get("Running")
+            current[name]["id"] for name in WORKERS if name in current
         ]
         self.stop(worker_ids)
         self.phase("drained")
@@ -255,9 +251,6 @@ class Deployment:
                 raise DeployError(f"{service} 未通过健康检查")
 
     def replace(self) -> None:
-        # This boundary is persisted BEFORE old API/streamer shutdown or migrations.
-        # After it, never automatically restart an old scheduler or roll back schema.
-        self.pending.setdefault("replacement_started_at", utc_now())
         self.phase("replacing")
         self.compose("stop", "server", "streamer")
         self.compose(
@@ -299,33 +292,6 @@ class Deployment:
             time.sleep(2)
         raise DeployError("Beat 未写入新的心跳，拒绝宣布部署成功")
 
-    def recover(self) -> None:
-        if self.pending.get("replacement_started_at") or self.pending["phase"] not in PRE_REPLACE_PHASES:
-            raise DeployError("已开始替换/迁移，禁止自动回滚；检查迁移后使用 --resume 继续同一版本")
-        old = self.pending["old"]
-        # Check every original instance before starting any of them. In-flight
-        # Docker stop requests must complete; starting early races the daemon.
-        for service in ("beat", *WORKERS):
-            if service not in old or not old[service]["state"].get("Running"):
-                continue
-            current = self.inspect(old[service]["id"])
-            if old[service]["id"] not in self.pending.get("stop_requested_ids", []):
-                continue
-            if current["state"].get("Running") and old[service]["id"] in self.pending.get("recover_requested_ids", []):
-                continue
-            if current["state"].get("Running") or current["state"].get("ExitCode") != 0:
-                raise DeployError(f"{service} 尚未正常停止；等待退出并核查日志后再恢复")
-        for service in (*WORKERS, "beat"):
-            if service in old and old[service]["state"].get("Running"):
-                if not self.inspect(old[service]["id"])["state"].get("Running"):
-                    self.pending.setdefault("recover_requested_ids", []).append(old[service]["id"])
-                    write_json(self.pending_path, self.pending)
-                    self.run("docker", "start", old[service]["id"])
-        self.pending["recovered_at"] = utc_now()
-        write_json(self.directory / "recovered.json", self.pending)
-        self.pending_path.unlink()
-        self.log("已启动原容器（原镜像/配置）；未执行迁移或替换，可重新部署")
-
     def execute(self, args: list[str]) -> None:
         if args == ["--status"]:
             path = self.pending_path if self.pending_path.exists() else self.release_path
@@ -337,43 +303,36 @@ class Deployment:
             self.compose(*args)
             return
         with self.lock():
-            if self.pending_path.exists():
-                self.pending = json.loads(self.pending_path.read_text())
-                if args == ["--recover"]:
-                    self.recover()
-                    return
-                if args != ["--resume"]:
-                    raise DeployError("存在未完成部署；先 --status 检查，再 --recover 或 --resume")
-                revision = self.run("git", "rev-parse", "HEAD", capture=True).strip()
-                dirty = self.run("git", "status", "--porcelain", capture=True).strip()
-                if revision != self.pending["revision"] or dirty:
-                    raise DeployError("继续部署要求干净工作区且 HEAD 与原发布提交一致")
-                self.env["IMAGE_TAG"] = self.pending["tag"]
-                write_json(self.override_path, {"services": self.pending["images"]})
-                self.check_infrastructure()
-            elif args:
+            if args == ["--recover"]:
+                raise DeployError("不再恢复旧版本；修复后运行 bash deploy.sh 部署最新 main")
+            if args and args != ["--resume"]:
                 if args[0].startswith("--"):
-                    raise DeployError("Usage: bash deploy.sh [--status|--recover|--resume|COMPOSE_ARGS]")
-                if self.release_path.exists():
-                    release = json.loads(self.release_path.read_text())
+                    raise DeployError("Usage: bash deploy.sh [--status|--resume|COMPOSE_ARGS]")
+                # Explicit maintenance uses the most recently attempted release,
+                # not an older successful release after a partial replacement.
+                path = self.pending_path if self.pending_path.exists() else self.release_path
+                if path.exists():
+                    release = json.loads(path.read_text())
                     self.env["IMAGE_TAG"] = release["tag"]
                     write_json(self.override_path, {"services": release["images"]})
                     self.compose(*args, target=True)
                 else:
                     self.compose(*args)
                 return
-            else:
-                self.prepare()
+            # A journal is diagnostic only. Every retry prepares the latest main
+            # and drains the current containers, including partially deployed ones.
+            # Keep --resume as an alias for existing operators/runbooks.
+            self.prepare()
             try:
                 self.drain()
                 self.replace()
             except BaseException:
                 # On interruption/partial replacement, keep the journal and avoid
                 # unconditionally restarting Beat against a mixed deployment.
-                self.log("部署未完成；不会自动强杀/回滚/启动 Beat。使用 --status 检查阶段，再 --recover 或 --resume")
+                self.log("部署未完成；使用 --status 查看阶段，修复后重新运行 bash deploy.sh 部署最新 main")
                 if self.pending.get("beat_starting_at"):
                     # Startup can fail AFTER Beat began publishing. Leave it paused
-                    # until a deliberate resume verifies the complete release.
+                    # until the next deployment verifies the complete release.
                     self.compose("stop", "beat")
                 raise
 
