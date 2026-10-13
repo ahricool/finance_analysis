@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import IndicatorHelpLabel from '@/components/app/IndicatorHelpLabel.vue';
+import { trendPeriodText } from './indicatorDescriptions';
 import { computed, onBeforeUnmount, ref, shallowRef, watch } from 'vue';
 import { trendFollowingApi } from '@/api/trendFollowing';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
@@ -13,7 +14,7 @@ import { exportExcel } from '@/utils/excelExport';
 import { toast } from 'vue-sonner';
 import type { EventStudySummaryResponse, EventStudyEventsResponse, StrategyKey, StudyGroup, StudyEvent, StudyRegime, TrendMarket, EvaluationStatus } from '@/types/trendFollowing';
 
-const props = defineProps<{ market: TrendMarket; endDate: string }>();
+const props = defineProps<{ market: TrendMarket; trendPeriod?: 20 | 40 | 60; endDate: string }>();
 const end = ref(props.endDate);
 const start = ref('');
 const range = ref<number | 'custom'>(60);
@@ -57,7 +58,7 @@ async function query() {
   result.value = null;
   loading.value = true;
   try {
-    const response = await trendFollowingApi.eventStudySummary(props.market, applied.value.start, applied.value.end, applied.value.regime, request.signal);
+    const response = await trendFollowingApi.eventStudySummary(props.market, applied.value.start, applied.value.end, applied.value.regime, request.signal, props.trendPeriod ?? 20);
     if (!request.signal.aborted) result.value = response;
   } catch (e) {
     if (!request.signal.aborted) error.value = getParsedApiError(e);
@@ -75,7 +76,7 @@ async function loadEvents() {
   page.value = null;
   try {
     const response = await trendFollowingApi.eventStudyEvents(props.market, applied.value.start, applied.value.end,
-      applied.value.regime, selected.value, offset.value, request.signal);
+      applied.value.regime, selected.value, offset.value, request.signal, props.trendPeriod ?? 20);
     if (!request.signal.aborted) page.value = response;
   } catch (e) {
     if (!request.signal.aborted) eventsError.value = getParsedApiError(e);
@@ -84,7 +85,7 @@ async function loadEvents() {
   }
 }
 // Date/regime controls only edit drafts. A market switch starts a fresh default study.
-watch(() => props.market, () => { regime.value = 'ALL'; preset(60); void query(); }, { immediate: true });
+watch(() => [props.market, props.trendPeriod], () => { regime.value = 'ALL'; preset(60); void query(); }, { immediate: true });
 watch(() => props.endDate, () => { if (range.value !== 'custom') preset(range.value); });
 onBeforeUnmount(() => { controller?.abort(); eventsController?.abort(); });
 
@@ -136,12 +137,12 @@ function context(event: StudyEvent) {
   return contextKeys[event.strategy].map(([key, label]) => {
     const raw = event.context[key];
     const formatted = raw == null ? '—' : typeof raw === 'string' ? raw : ['boxWidthPct', 'return3D', 'return5D', 'ma20Slope'].includes(key) ? pct(raw) : raw.toFixed(2);
-    return `${label}: ${formatted}`;
+    return `${trendPeriodText(label, props.trendPeriod ?? 20)}: ${formatted}`;
   }).join(' · ');
 }
 async function exportSummary() {
   try {
-    await exportExcel(`策略对比_${props.market}_${applied.value.start}_${applied.value.end}.xlsx`, '策略汇总',
+    await exportExcel(`策略对比_${props.market}_${props.trendPeriod ?? 20}日_${applied.value.start}_${applied.value.end}.xlsx`, '策略汇总',
       columns.map(column => ({ label: column.label, format: column.key === 'eventCount' ? '0' : column.key === 'strategy' ? undefined : '0.0%' })),
       sorted.value.map(group => columns.map(column => value(group, column.key))));
   } catch { toast.error('Excel 导出失败，请重试'); }

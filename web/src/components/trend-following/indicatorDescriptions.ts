@@ -7,7 +7,7 @@ export const trendIndicatorDescriptions: Record<string, string> = {
   universeSize: '当日策略应覆盖的股票总数；A 股为沪深300+中证500，美股为 S&P 500。',
   dataCoverage: '目标交易日日线行情覆盖率，只检查成分股在该日是否存在日线记录，不包含历史长度检查。Data Coverage = DataReadyCount / UniverseSize，当前默认门槛 >= 90%；至少 21 根日线的历史覆盖率在后续 feature/history coverage 阶段单独检查。',
   rankable: '可排名股票数，即通过历史覆盖检查、用至少 21 根日线完成短周期特征计算并进入横截面排名的标的数量。',
-  candidate: '当日 CANDIDATE 状态数，不包含其他趋势状态。Candidate = Count(State == "CANDIDATE")；新候选要求 TrendCandidate、Trend >= 62、RS >= 60、ValidSetup、Alpha >= 67。TrendCandidate 为 Close>MA10、MA10>MA20、Return10>0、Slope15>0 四项至少满足三项。',
+  candidate: '当日 CANDIDATE 状态数，不包含其他趋势状态。Candidate = Count(State == "CANDIDATE")；新候选要求 TrendCandidate、Trend >= 62、RS >= 60、ValidSetup、Alpha >= 67。TrendCandidate 为 Close>MA10、MA10>MA20、Return10>0、Slope20>0 四项至少满足三项。',
   rankChange: '历史 Alpha Rank − 当前 Alpha Rank，按实际快照交易日偏移 1/3/5 日；正数为上升，缺失显示 —。排序优先 5D，缺失依次使用 3D、1D。',
   rank: 'Alpha Rank 为当前股票池按 Alpha Score 从高到低得到的横截面排名，1 为最高；同分时按股票代码稳定排序。',
   state: '全部趋势状态：IDLE（无明显趋势）、WATCHING（趋势形成但未满足候选门槛）、CANDIDATE（首次满足候选条件）、TRENDING（已有趋势保持健康）、WEAKENING（已有趋势出现弱化）、BROKEN（已有趋势的价格结构被破坏）。判断结合当前指标和前次正式状态，状态与Entry买点、实际持仓互相独立。',
@@ -15,7 +15,7 @@ export const trendIndicatorDescriptions: Record<string, string> = {
   trend: '0–100分，综合趋势方向、拟合稳定性、近10/20日收益和回撤表现；越高代表当前趋势特征更强。Trend = 0.30×SlopePercentile + 0.30×R²Quality + 0.25×Momentum + 0.15×DrawdownQuality。Momentum = 0.6×Q(R10,0.12)+0.4×Q(R20,0.18)，Q(x,s)=50+50tanh(x/s)；DrawdownQuality=100exp(−|DD20|/0.15)。',
   relativeStrength: 'RS = 0.25×Q(RS5,0.08) + 0.45×Q(RS10,0.12) + 0.30×Q(RS20,0.18)。Q(x,s)=50+50tanh(x/s)；只衡量相对 benchmark 超额收益，不计收益百分位。',
   breakout: 'Setup = 0.50×BreakoutQuality + 0.25×ExtensionQuality + 0.15×VolumeQuality + 0.10×CompressionQuality。BreakoutQuality=max(0.85×B(z10),B(z20))，z=(Close−前高)/ATR20；B(z)=100×sigmoid(z/0.15)×exp(−0.5×((z−0.75)/1)²)。Breakout Score 为 Setup 兼容别名。',
-  setup: '当日短周期形态：压缩后突破前 10 日高点为 COMPRESSION_BREAKOUT；否则突破前 20 日高点为 BREAKOUT_20D；否则突破前 10 日高点为 BREAKOUT_10D；满足趋势恢复条件时可标记 PULLBACK_RESUME（回踩恢复）；均未满足为 NONE（无形态）。这些标签只描述规则命中，不保证随后上涨。',
+  setup: '当日短周期形态：压缩后突破前 10 日高点为 COMPRESSION_BREAKOUT；否则突破前 20 日高点为 BREAKOUT_LONG；否则突破前 10 日高点为 BREAKOUT_SHORT；满足趋势恢复条件时可标记 PULLBACK_RESUME（回踩恢复）；均未满足为 NONE（无形态）。这些标签只描述规则命中，不保证随后上涨。',
   entry: '0–100分，研究当前入场形态质量，不影响Alpha排名、候选或趋势状态。全部类型：BREAKOUT（突破）、PULLBACK_RESUME（回踩恢复）、NONE（没有通过门槛的入场类型，Entry为0）。各分支先计算质量再检查门槛；缺失Fragility与盘中投影量不单独否决，而是剔除对应分量并重新归一化。高分不是成功概率。',
   riskPosition: '建议仓位按单笔账户风险预算反推：Position = RiskBudget / StopDistance，默认预算为账户净值的1%，单票最高25%。建议仓位不是股票最多可能亏损；预算是计划止损风险，跳空等情况可能使实际亏损超出预算。',
   riskStop: '建议止损取2.5 ATR与前10日结构低点所要求距离中的较大值。结构低点不含今天，仅在有效且低于参考价时参与。ATR20为最近20个TR的简单平均。',
@@ -26,9 +26,9 @@ export const trendIndicatorDescriptions: Record<string, string> = {
   atr: '最近 20 日平均真实波幅。TR = max(High−Low, |High−PrevClose|, |Low−PrevClose|)；ATR20 = Mean(TR, 20)。',
   reference: '当日策略快照的收盘参考价。',
   reasons: '趋势状态的机器可读原因，直接来自策略规则判断。',
-  weightedSlope: '对最近 15 个交易日的 log(close) 做加权线性回归，越近的数据权重越高；Slope > 0 表示价格趋势向上。方法：以交易日序号为 x、log(Close) 为 y 做加权最小二乘回归，权重为 1,2,…,15，展示回归直线的日斜率。',
+  weightedSlope: '对最近 20 个交易日的 log(close) 做加权线性回归，越近的数据权重越高；Slope > 0 表示价格趋势向上。方法：以交易日序号为 x、log(Close) 为 y 做加权最小二乘回归，权重为 1,2,…,20，展示回归直线的日斜率。',
   slopePercentile: 'Weighted Slope 在当日整个股票 Universe 中的横截面百分位排名，100 表示趋势斜率处于当日最强位置；它不是 raw slope 本身。PctRank = AverageZeroBasedPosition / (Count−1) × 100，并列值使用平均位置，Universe 只有一个标的时为 100。',
-  r2: '15D 加权趋势拟合度原值，越接近 1 表示价格越贴合趋势线，本身不区分涨跌方向。R² = 1 − WeightedResidualSS / WeightedTotalSS，并限制在 0–1。Alpha 使用 R² Quality = 100×R²×sigmoid(slope/0.002)。',
+  r2: '20D 加权趋势拟合度原值，越接近 1 表示价格越贴合趋势线，本身不区分涨跌方向。R² = 1 − WeightedResidualSS / WeightedTotalSS，并限制在 0–1。Alpha 使用 R² Quality = 100×R²×sigmoid(slope/0.002)。',
   r2Quality: 'Trend 分量：R² Quality = 100×Weighted R²×sigmoid(raw slope/0.002)，范围 0–100。',
   momentumQuality: 'Trend 分量：Momentum = 0.6×Return10Quality + 0.4×Return20Quality。',
   returnQuality: 'Trend 收益质量分 Q(R,s)=50+50tanh(R/s)；10D 使用 s=0.12，20D 使用 s=0.18。',
@@ -40,20 +40,20 @@ export const trendIndicatorDescriptions: Record<string, string> = {
   returnPercentile: '10/20 日收益的横截面百分位，保留用于解释，不再进入 RS 或直接奖励 Alpha。',
   breakoutFlags: '是否向上突破当日之前 10/20 个交易日的最高价。Breakout_N = Close[t] > Max(High[t−N…t−1])。',
   volumeCompression: '正式 VolumeRatio 使用全天量/前20日均量；Preview 保留盘中 raw ratio，暂无可靠投影量，VolumeQuality=50（暂定），Entry 排除此项并重归一化；压缩要求前 10 日 ATR 不高于前 20 日 ATR 的 80%，且前 10 日价格区间/前 20 日价格区间 <= 60%。',
-  trendDuration: '当前上升趋势连续成立的交易日数。趋势成立条件：价格高于MA10、MA10高于MA20、10日收益为正、15日加权趋势斜率为正，四个条件至少满足三个。任何一个交易日不再满足趋势条件，持续天数立即归零。',
+  trendDuration: '当前上升趋势连续成立的交易日数。趋势成立条件：价格高于MA10、MA10高于MA20、10日收益为正、20日加权趋势斜率为正，四个条件至少满足三个。任何一个交易日不再满足趋势条件，持续天数立即归零。',
   path: '0–100分，衡量上涨路径是否分散、波动是否过度扩张，以及回调相对推动的大小；高分不保证未来更平稳。Path = 0.45×ConcentrationQuality + 0.35×VolatilityQuality + 0.20×DownsideControl。Signed Efficiency 仅解释，不计 Alpha。',
   concentration: '最近10日最大的两笔正收益 / 所有正收益之和；≤45%高分，45%–80%用 smoothstep 平滑下降，≥80%低分。无正收益时比值为空、质量分为0。',
   expansion: 'ATR5 / ATR20，包含当日波动。Quality=100exp(−0.5×(max(0,ratio−1.1)/0.8)²)，扩张越强分数越低。',
   downside: '最近10日负收益绝对值之和 / 正收益之和。Quality=100exp(−ratio)，回调相对推动越小越好。没有负收益时100分；没有正收益时比值为空、0分。',
-  trendAcceleration: '趋势加速度 =（最近5日加权对数日斜率−最近15日加权对数日斜率）×252。正值表示短期斜率快于较长窗口，负值表示减速；是年化斜率差，无0–100范围，也不是实际年化收益。',
+  trendAcceleration: '趋势加速度 =（最近5日加权对数日斜率−最近20日加权对数日斜率）×252。正值表示短期斜率快于较长窗口，负值表示减速；是年化斜率差，无0–100范围，也不是实际年化收益。',
   signedEfficiency: '10日有符号效率 =（当前收盘−10个交易日前收盘）÷期间逐日价格绝对变动之和，范围−1至1。接近1为近似单边上涨，接近−1为近似单边下跌；无移动时为0。只供解释，不参与Alpha。',
   distanceFromMa20: '当前参考收盘价÷最近20日收盘均价−1，以百分比展示。正值表示价格在MA20上方，负值表示在下方；它是距离，不是MA20价格或未来收益。',
   maSlope: '该均线今天的值÷前一交易日该均线值−1，以百分比表示；正为均线上升，负为下降。不是价格相对均线的距离。',
   fragility: '0–100分，越高表示相对3/5个交易日前正式快照的内部恶化越明显，不等于100减趋势分。加速度/拟合质量/效率/相对强弱/排名/价格结构风险权重为25%/20%/15%/15%/15%/10%；只按可用项归一化，可用权重不足50%时缺失，缺失不能解释为稳定。',
   lifecycle: '阶段共有IGNITION（点火）、EMERGING（萌芽）、EXPANSION（扩张）、MATURE（成熟）、EXHAUSTION（衰竭）、BROKEN（破坏）。不满足趋势候选为BROKEN；多项恶化优先标EXHAUSTION；点火要求持续≤3日且加速度为正、拟合质量≥50；≤7日通常为萌芽。之后满足强拟合、效率和相对强弱等条件才为扩张，否则为成熟；≥20日也为成熟。天数是连续满足趋势条件的交易日数，不是当前阶段持续天数。',
   boxState: '全部箱体状态：NONE（无结构机会）、BOX_FORMING（箱内整理）、BOX_READY（接近箱顶、待突破）、BOX_BREAKOUT（本次新突破）。箱体只用截至昨日的数据，今日只判断位置和突破。同一结构已触发后不会每天重复记为新突破；必须形成完全晚于旧突破的新结构才重置。',
-  boxQuality: '0–100分，箱体质量=25%宽度质量+30%平坦度+15%内部占用+20%压缩质量+10%上沿测试质量。越高表示更符合当前整理结构规则，不是突破成功率；候选窗口截至昨日，分差不超过3分时优先更长窗口。',
-  boxWindowDays: '选中的历史箱体窗口长度，单位交易日，候选值15、20、30、40、60。窗口截止昨日，不含今日；不是连续保持BOX_READY的天数。',
+  boxQuality: '0–100分，箱体质量=25%宽度质量+30%平坦度+15%内部占用+20%压缩质量+10%上沿测试质量。越高表示更符合当前整理结构规则，不是突破成功率；候选窗口截至昨日，窗口固定为所选周期 N。',
+  boxWindowDays: '选中的历史箱体窗口长度，单位交易日，固定为所选周期 N。窗口截止昨日，不含今日；不是连续保持BOX_READY的天数。',
   boxWidthPct: '（箱顶−箱底）÷箱体中点，以百分比展示，中点=(箱顶+箱底)/2。越大表示整理区间更宽；宽度超过15%的窗口不入选。',
   distanceToBoxHighPct: '页面展示（当前收盘−箱顶）÷箱顶，以百分比表示；负数为仍在箱顶下方，0为到达箱顶，正数为超过箱顶。后端原始distance_to_box_high_pct符号相反，页面已翻转，不应把正负方向读反。',
   boxBreakoutDistanceAtr: '（当前收盘−箱顶）÷昨日ATR20，单位ATR倍数，正为箱顶上方、负为下方。它把距离按近期波动缩放，不能直接当作百分比；当前新突破要求0.10–2.0 ATR并满足质量、收盘位置和新事件门槛。',
@@ -70,9 +70,9 @@ export const trendIndicatorDescriptions: Record<string, string> = {
   boxOccupancyQuality: '内部占用比例×100，0–100分；多数收盘留在箱体内部时更高。',
   boxCompressionQuality: '0–100分，结合截至昨日的ATR收缩和价格区间收缩质量，用两者乘积的平方根计算；缺失分量按0处理。',
   boxTouchQuality: '0–100分，根据上沿独立测试次数平滑增加，3次及以上达到满分；连续测试日只算一次。',
-  mrState: '全部状态：MR_NONE（无超跌机会）、MR_OVERSOLD（超跌观察）、MR_REBOUND（反弹确认）。超跌要求RSI14≤35、价格低于MA20至少1 ATR且5日收益为负；上次为超跌后，今日上涨、收盘位置≥0.6且RSI抬升可确认反弹。同一次超跌过程只触发一次，不保证继续上涨。',
+  mrState: '全部状态：MR_NONE（无超跌机会）、MR_OVERSOLD（超跌观察）、MR_REBOUND（反弹确认）。超跌要求RSI20≤35、价格低于MA20至少1 ATR且5日收益为负；上次为超跌后，今日上涨、收盘位置≥0.6且RSI抬升可确认反弹。同一次超跌过程只触发一次，不保证继续上涨。',
   mrQuality: '0–100分的均值回归研究质量=35%超跌质量+35%均线距离质量+20%短期下跌冲击+10%反转质量。不是上涨概率，不改变Alpha、Entry或实际持仓。',
-  rsi14: '14周期Wilder RSI，范围0–100，用近期上涨与下跌强度比较得到；较低说明近期下跌占优。此模块以≤35作为超跌条件之一，不能单独据此认定价格会反弹。',
+  rsi14: '20周期Wilder RSI，范围0–100，用近期上涨与下跌强度比较得到；较低说明近期下跌占优。此模块以≤35作为超跌条件之一，不能单独据此认定价格会反弹。',
   distanceFromMa20Atr: '（当前参考收盘价−MA20）÷ATR20，单位ATR倍数。负数表示在均线下方，例如−2表示低于均线两个平均真实波幅；不是−2%。',
   accelerationDecay: '加速度相对3/5个交易日前正式快照的下降量，按0.50的下降幅度映射为100分，各历史窗口得分再平均；改善记0，最大100。缺乏可比历史则缺失。',
   qualityDecay: '加权R²×100相对3/5个交易日前的下降量，下降30分映射为100风险分；改善记0，各窗口平均，最大100。不是当前拟合质量本身。',
@@ -81,3 +81,15 @@ export const trendIndicatorDescriptions: Record<string, string> = {
   rankDecay: '排名百分位变差的幅度相对3/5个交易日前比较，变差0.25映射为100风险分；排名改善记0，各窗口平均，最大100。',
   priceStructureRisk: '取“距最近20日最高收盘的回落÷10%”与“跌破MA20距离÷5%”中的较大值×100，并截断到0–100。是当前价格结构风险，不需要历史分项对比。',
 };
+
+
+/** Human-facing periods follow the selected strategy; scoring constants are unchanged. */
+export function trendPeriodText(text: string, period: 20 | 40 | 60): string {
+  const windows: Record<number, number> = { 3: period * 3 / 20, 5: period / 4, 7: period * 7 / 20,
+    10: period / 2, 14: period, 15: period, 20: period, 21: period + 1 };
+  return text.replace(
+    /(MA|ATR|RSI|Return|RS|DD|Vol|Slope|High|Low|R|z)(21|20|15|14|10|7|5|3)(?!\d)|(?<!\d)(21|20|15|14|10|7|5|3)(?=\s*(?:个交易日|交易日|个真实波幅|个TR|日|根日线|周期|D|d\b|\/\s*\d))/g,
+    (_, prefix: string | undefined, value: string | undefined, bare: string | undefined) =>
+      `${prefix ?? ''}${windows[Number(value ?? bare)]}`,
+  ).replace('Mean(TR, 20)', `Mean(TR, ${period})`).replace('最大的两笔正收益', `最大的${period / 10}笔正收益`).replace('1,2,…,20', `1,2,…,${period}`);
+}

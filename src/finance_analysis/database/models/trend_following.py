@@ -18,6 +18,7 @@ class TrendFollowingSnapshot(Base):
 
     id = Column(BigInteger, primary_key=True, autoincrement=True)
     market = Column(String(8), nullable=False)
+    trend_period = Column(Integer, nullable=False, default=20, server_default="20")
     trade_date = Column(Date, nullable=False)
     code = Column(String(32), nullable=False)
     instrument_id = Column(Integer, ForeignKey("instrument.id", ondelete="CASCADE"), nullable=False)
@@ -45,7 +46,8 @@ class TrendFollowingSnapshot(Base):
     instrument = relationship("Instrument", lazy="joined")
 
     __table_args__ = (
-        UniqueConstraint("market", "trade_date", "code", name="uix_trend_following_market_date_code"),
+        CheckConstraint("trend_period IN (20, 40, 60)", name="ck_trend_following_snapshot_period"),
+        UniqueConstraint("market", "trend_period", "trade_date", "code", name="uix_trend_following_market_date_code"),
         CheckConstraint("market IN ('CN', 'US')", name="ck_trend_following_market"),
         CheckConstraint("market_regime IN ('RISK_ON', 'NEUTRAL', 'RISK_OFF')", name="ck_trend_following_regime"),
         CheckConstraint("market_score BETWEEN 0 AND 100", name="ck_trend_following_market_score"),
@@ -59,9 +61,9 @@ class TrendFollowingSnapshot(Base):
             "trend_duration_days IS NULL OR trend_duration_days >= 0",
             name="ck_trend_following_trend_duration_days_non_negative",
         ),
-        Index("ix_trend_following_market_date_alpha", "market", "trade_date", "alpha_score"),
-        Index("ix_trend_following_instrument_date", "instrument_id", "trade_date"),
-        Index("ix_trend_following_market_date_state", "market", "trade_date", "state"),
+        Index("ix_trend_following_market_date_alpha", "market", "trend_period", "trade_date", "alpha_score"),
+        Index("ix_trend_following_instrument_date", "instrument_id", "trend_period", "trade_date"),
+        Index("ix_trend_following_market_date_state", "market", "trend_period", "trade_date", "state"),
     )
 
 
@@ -70,6 +72,7 @@ class TrendFollowingSummary(Base):
 
     id = Column(BigInteger, primary_key=True, autoincrement=True)
     market = Column(String(8), nullable=False)
+    trend_period = Column(Integer, nullable=False, default=20, server_default="20")
     trade_date = Column(Date, nullable=False)
     universe_key = Column(String(64), nullable=False)
     benchmark_code = Column(String(32), nullable=False)
@@ -86,10 +89,11 @@ class TrendFollowingSummary(Base):
     generated_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
 
     __table_args__ = (
-        UniqueConstraint("market", "trade_date", name="uix_trend_following_summary_market_date"),
+        CheckConstraint("trend_period IN (20, 40, 60)", name="ck_trend_following_summary_period"),
+        UniqueConstraint("market", "trend_period", "trade_date", name="uix_trend_following_summary_market_date"),
         CheckConstraint("market IN ('CN', 'US')", name="ck_trend_following_summary_market"),
         CheckConstraint("market_regime IN ('RISK_ON', 'NEUTRAL', 'RISK_OFF')", name="ck_trend_summary_regime"),
-        Index("ix_trend_following_summary_market_date", "market", "trade_date"),
+        Index("ix_trend_following_summary_market_date", "market", "trend_period", "trade_date"),
     )
 
 

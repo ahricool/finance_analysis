@@ -529,7 +529,7 @@ def test_box_does_not_change_alpha_entry_candidate_state_or_health(monkeypatch):
     monkeypatch.setattr('finance_analysis.trend_following.box.calculate_box_structure', lambda *args, **kwargs: {})
     baseline = FakeRepository()
     # Reproduce original 60-bar calculation and no Box payload.
-    TrendFollowingService('US', baseline, config=replace(DEFAULT_CONFIG, box_windows=(15, 20, 30, 40))).run(TRADE_DATE)
+    TrendFollowingService('US', baseline, config=replace(DEFAULT_CONFIG, box_forming_quality_min=101)).run(TRADE_DATE)
     cleaned = deepcopy(enabled.snapshots)
     for row in cleaned:
         row['features'] = {k: v for k, v in row['features'].items() if not k.startswith(('box_', 'distance_to_box'))}

@@ -13,12 +13,12 @@ from finance_analysis.trend_following.universe import normalize_market  # pragma
 
 logger = logging.getLogger(__name__)
 
-PREVIEW_KEY_TEMPLATE = "trend_following:preview:v2:{market}"
+PREVIEW_KEY_TEMPLATE = "trend_following:preview:v3:{market}:{trend_period}"
 PREVIEW_TTL_SECONDS = 24 * 60 * 60
 
 
-def preview_cache_key(market: str) -> str:
-    return PREVIEW_KEY_TEMPLATE.format(market=normalize_market(market))
+def preview_cache_key(market: str, trend_period: int = 20) -> str:
+    return PREVIEW_KEY_TEMPLATE.format(market=normalize_market(market), trend_period=trend_period)
 
 
 def json_ready(value: Any) -> Any:
@@ -44,18 +44,18 @@ def save_preview(market: str, payload: dict[str, Any], *, client: Any | None = N
         logger.error("market=%s job=trend_following_preview cache_write_failed redis_unavailable", market)
         raise RuntimeError(f"Trend Following preview Redis unavailable for {market}")
     try:
-        redis_client.set(preview_cache_key(market), body, ex=PREVIEW_TTL_SECONDS)
+        redis_client.set(preview_cache_key(market, payload.get("trend_period", 20)), body, ex=PREVIEW_TTL_SECONDS)
     except Exception as exc:
         logger.exception("market=%s job=trend_following_preview cache_write_failed", market)
         raise RuntimeError(f"Failed to save Trend Following preview for {market}") from exc
 
 
-def load_preview(market: str, *, client: Any | None = None) -> dict[str, Any] | None:
+def load_preview(market: str, *, trend_period: int = 20, client: Any | None = None) -> dict[str, Any] | None:
     redis_client = client if client is not None else _redis_client()
     if redis_client is None:
         return None
     try:
-        raw = redis_client.get(preview_cache_key(market))
+        raw = redis_client.get(preview_cache_key(market, trend_period))
     except Exception:
         logger.exception("market=%s job=trend_following_preview cache_read_failed", market)
         return None

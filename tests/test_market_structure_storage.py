@@ -73,7 +73,7 @@ def test_real_queries_are_constant_count_and_point_in_time():
         connection.execute(
             text(
                 "CREATE TABLE trend_following_snapshot "
-                "(market TEXT, trade_date DATE, code TEXT, features JSON, trend_lifecycle TEXT)"
+                "(market TEXT, trade_date DATE, code TEXT, features JSON, trend_lifecycle TEXT, trend_period INTEGER DEFAULT 20)"
             )
         )
         for offset in range(-1, 8):
@@ -82,7 +82,7 @@ def test_real_queries_are_constant_count_and_point_in_time():
                 text("INSERT INTO etf_momentum_snapshot VALUES (:m, :d, 1, 1), (:m, :d, 2, 2)"), {"m": "US", "d": day}
             )
             connection.execute(
-                text("INSERT INTO trend_following_snapshot VALUES ('US', :d, 'A.US', '{}', 'EMERGING')"), {"d": day}
+                text("INSERT INTO trend_following_snapshot VALUES ('US', :d, 'A.US', '{}', 'EMERGING', 20)"), {"d": day}
             )
     statements = []
     event.listen(

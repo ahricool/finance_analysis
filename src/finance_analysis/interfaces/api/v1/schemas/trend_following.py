@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 
 
 class TrendFollowingRunRequest(BaseModel):
+    trend_period: Literal[20, 40, 60] | None = None
     market: Literal["CN", "US"] = "CN"
     trade_date: date | None = None
 
@@ -99,6 +100,7 @@ BoxState = Literal["NONE", "BOX_FORMING", "BOX_READY", "BOX_BREAKOUT"]
 
 
 class TrendRankingFeatures(BaseModel):
+    trend_period: Literal[20, 40, 60] | None = None
     box_breakout_fresh: bool | None = None
     box_prior_breakout_confirmed: bool | None = None
     box_episode_consumed: bool | None = None

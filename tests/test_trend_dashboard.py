@@ -13,7 +13,7 @@ PREVIOUS = date(2026, 9, 24)
 
 
 class Repository:
-    def __init__(self, market):
+    def __init__(self, market, **kwargs):
         self.market = market
 
     def latest_trade_date(self):

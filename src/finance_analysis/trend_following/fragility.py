@@ -21,7 +21,7 @@ def raw_fit_quality(features):
 def calculate_fragility(current, history, *, as_of, config=DEFAULT_CONFIG):
     """History is a market-date offset map, batch-loaded once for all symbols.
 
-    Only 3D/5D official baselines are used. Old snapshots without the versioned
+    Official baselines use 3N/20 and N/4 session offsets. Old snapshots without the versioned
     health features are not interpreted as observations of the new definition.
     """
     features = current.get("features") or {}
@@ -36,12 +36,12 @@ def calculate_fragility(current, history, *, as_of, config=DEFAULT_CONFIG):
     for component, field in fields.items():
         now = raw_fit_quality(features) if component == "quality_decay" else number(features.get(field))
         values = []
-        for offset in (3, 5):
+        for offset in (features.get("trend_period", 20) * 3 // 20, features.get("trend_period", 20) // 4):
             old = history.get(offset)
             if old is None or old["trade_date"] >= as_of:
                 continue
             previous_features = old.get("features") or {}
-            if previous_features.get("health_version") != 1:
+            if previous_features.get("health_version") != features.get("health_version") or previous_features.get("health_version") is None:
                 continue
             before = (raw_fit_quality(previous_features) if component == "quality_decay"
                       else number(previous_features.get(field)))

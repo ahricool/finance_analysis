@@ -59,17 +59,17 @@ it('shows current KPIs and absolute percentage-point deltas over five sessions',
 it('defaults to 3D, sends direction and range filters, and opens point-in-time detail', async () => {
   const wrapper = mount(TrendMarketOverview, { props });
   await flushPromises();
-  expect(trendFollowingApi.transitions).toHaveBeenLastCalledWith('US', 3, 'all', undefined, false);
+  expect(trendFollowingApi.transitions).toHaveBeenLastCalledWith('US', 3, 'all', undefined, false, 20);
   const click = async (label: string) => {
     await wrapper.findAll('button').find(button => button.text() === label)!.trigger('click');
     await flushPromises();
   };
   await click('转弱');
   await click('近5次变化');
-  expect(trendFollowingApi.transitions).toHaveBeenLastCalledWith('US', 5, 'deteriorating', undefined, false);
+  expect(trendFollowingApi.transitions).toHaveBeenLastCalledWith('US', 5, 'deteriorating', undefined, false, 20);
   await click('转强');
   await click('今日变化');
-  expect(trendFollowingApi.transitions).toHaveBeenLastCalledWith('US', 1, 'strengthening', undefined, false);
+  expect(trendFollowingApi.transitions).toHaveBeenLastCalledWith('US', 1, 'strengthening', undefined, false, 20);
   await wrapper.get('[data-testid="trend-transition"]').trigger('click');
   expect(wrapper.emitted('select')).toEqual([[{ code: 'TEST.US', tradeDate: '2026-09-11', preview: false }]]);
   expect(wrapper.text()).toContain('新确认趋势');
@@ -105,10 +105,10 @@ it('reloads market, historical cutoff, mode and refresh; stale responses cannot 
   resolve({ ...history, points: [] });
   await flushPromises();
   expect(wrapper.findAllComponents({ name: 'VChart' })).toHaveLength(2);
-  expect(trendFollowingApi.breadthHistory).toHaveBeenLastCalledWith('CN', '2026-09-11', false);
+  expect(trendFollowingApi.breadthHistory).toHaveBeenLastCalledWith('CN', '2026-09-11', false, 20);
   await wrapper.setProps({ includePreview: true, asOf: undefined });
   await flushPromises();
-  expect(trendFollowingApi.transitions).toHaveBeenLastCalledWith('CN', 3, 'all', undefined, true);
+  expect(trendFollowingApi.transitions).toHaveBeenLastCalledWith('CN', 3, 'all', undefined, true, 20);
   await wrapper.setProps({ refreshKey: 1 });
   await flushPromises();
   expect(trendFollowingApi.breadthHistory).toHaveBeenCalledTimes(4);
