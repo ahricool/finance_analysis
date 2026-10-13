@@ -11,13 +11,18 @@ const result: DailyBarsResponse = { symbol: 'AAPL.US', market: 'US', interval: '
   items: [{ tradeDate: '2026-09-18', open: 100, high: 105, low: 98, close: 103, volume: 100, amount: 1000 }] };
 const options = { props: { symbol: 'AAPL.US', endDate: '2026-09-18' }, global: { stubs: { MarketKLineChart: true } } };
 describe('DailyKLineCard', () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-13T12:00:00Z'));
+  });
+  afterEach(() => vi.useRealTimers());
   it('shows loading, success mapping and passes the historical end date', async () => {
     let resolve!: (value: DailyBarsResponse) => void;
     vi.mocked(marketDataApi.dailyBars).mockReturnValue(new Promise(r => { resolve = r; }));
     const wrapper = mount(DailyKLineCard, options);
     expect(wrapper.text()).toContain('加载中');
-    expect(marketDataApi.dailyBars).toHaveBeenCalledWith('AAPL.US', '2026-09-18', undefined, expect.any(AbortSignal));
+    expect(marketDataApi.dailyBars).toHaveBeenCalledWith('AAPL.US', '2026-09-18', '2021-09-18', expect.any(AbortSignal));
     resolve({ ...result, items: [{ ...result.items[0]!, low: 1.237 }] }); await flushPromises();
     expect(stocksApi.classification).toHaveBeenCalled();
     expect(wrapper.find('[data-testid="stock-membership-tags"]').exists()).toBe(false);
@@ -32,7 +37,7 @@ describe('DailyKLineCard', () => {
     ] });
     const wrapper = mount(DailyKLineCard, { ...options, props: { symbol: 'AAPL.US', highlightDate: '2026-09-18' } });
     await flushPromises();
-    expect(marketDataApi.dailyBars).toHaveBeenLastCalledWith('AAPL.US', undefined, '2025-09-18', expect.any(AbortSignal));
+    expect(marketDataApi.dailyBars).toHaveBeenLastCalledWith('AAPL.US', undefined, '2021-10-13', expect.any(AbortSignal));
     const chart = wrapper.getComponent(MarketKLineChart);
     expect(chart.props('bars')).toHaveLength(2);
     expect(chart.props('overlays')![0]!.points![0]).toEqual({ timestamp: Date.parse('2026-09-18T00:00:00Z'), value: 105 });
@@ -46,6 +51,34 @@ describe('DailyKLineCard', () => {
     await flushPromises();
     expect(wrapper.getComponent(MarketKLineChart).props('overlays')).toHaveLength(0);
     expect(wrapper.text()).toContain('当日无 K 线');
+    wrapper.unmount();
+  });
+  it('reuses the same five-year window across periods and maps the research date to its bucket', async () => {
+    vi.mocked(marketDataApi.dailyBars).mockResolvedValue({ ...result, items: [
+      { ...result.items[0]!, tradeDate: '2026-09-17' }, result.items[0]!,
+      { ...result.items[0]!, tradeDate: '2026-09-21' },
+    ] });
+    const wrapper = mount(DailyKLineCard, { ...options,
+      props: { symbol: 'AAPL.US', endDate: '2026-09-21', highlightDate: '2026-09-18' } });
+    await flushPromises();
+    await wrapper.get('[data-testid="kline-period-1w"]').trigger('click'); await flushPromises();
+    expect(marketDataApi.dailyBars).toHaveBeenLastCalledWith('AAPL.US', '2026-09-21', '2021-09-21', expect.any(AbortSignal));
+    const chart = wrapper.getComponent(MarketKLineChart);
+    expect(chart.props('period')).toBe('1w');
+    expect(chart.props('bars')).toHaveLength(2);
+    expect(chart.props('bars')[0].volume).toBe(200);
+    expect(chart.props('overlays')![0]!.points![0]!.timestamp).toBe(Date.parse('2026-09-17T00:00:00Z'));
+    expect(wrapper.find('[data-testid="daily-pattern-summary"]').exists()).toBe(false);
+    await wrapper.get('[data-testid="kline-period-1M"]').trigger('click'); await flushPromises();
+    expect(marketDataApi.dailyBars).toHaveBeenLastCalledWith('AAPL.US', '2026-09-21', '2021-09-21', expect.any(AbortSignal));
+    expect(wrapper.getComponent(MarketKLineChart).props('bars')).toHaveLength(1);
+    expect(wrapper.get('[data-testid="kline-coverage"]').text()).toContain('1 根月 K');
+    await wrapper.get('[data-testid="kline-period-1d"]').trigger('click'); await flushPromises();
+    expect(wrapper.getComponent(MarketKLineChart).props('bars')).toHaveLength(3);
+    expect(wrapper.find('[data-testid="daily-pattern-summary"]').exists()).toBe(true);
+    expect(marketDataApi.dailyBars).toHaveBeenCalledTimes(1);
+    expect(wrapper.text()).toContain('最近 5 年');
+    expect(wrapper.find('[aria-label="加载范围"]').exists()).toBe(false);
     wrapper.unmount();
   });
   it('keeps fallback history visible and states its actual data date', async () => {

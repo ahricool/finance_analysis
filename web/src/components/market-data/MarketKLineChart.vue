@@ -103,7 +103,7 @@ function initialize() {
   if (!chart) return;
   styles();
   chart.createIndicator('VOL');
-  if (props.period === '1d') {
+  if (['1d', '1w', '1M'].includes(props.period)) {
     chart.createIndicator({ name: 'MA', calcParams: [5, 10, 20], paneId: 'candle_pane' });
   }
   // KLineChart synchronizes price-series indicators (including MA) from the symbol precision.
