@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import date
 
-from finance_analysis.trend_following.config import DEFAULT_CONFIG  # pragma: allowlist secret
+from finance_analysis.trend_following.config import DEFAULT_CONFIG, TrendFollowingConfig  # pragma: allowlist secret
 from finance_analysis.trend_following.features import calculate_features  # pragma: allowlist secret
 from finance_analysis.trend_following.models import DailyBar  # pragma: allowlist secret
 
@@ -18,6 +18,7 @@ def count_trend_duration_days(
     *,
     as_of: date,
     minimum_bars: int = 21,
+    config: TrendFollowingConfig = DEFAULT_CONFIG,
 ) -> int:
     """Count consecutive trading days, ending at ``as_of``, where trend_candidate holds.
 
@@ -33,13 +34,14 @@ def count_trend_duration_days(
         ordered = ordered[-DURATION_HISTORY_BARS:]
     if not ordered or ordered[-1].trade_date != as_of:
         return 0
+    minimum_bars = max(minimum_bars, config.trend_period + 1)
     duration = 0
     for end in range(len(ordered), 0, -1):
         start = max(0, end - minimum_bars)
         window = ordered[start:end]
         if len(window) < minimum_bars:
             break
-        features = calculate_features(window, minimum_bars)
+        features = calculate_features(window, minimum_bars, config)
         if features is None or not features["trend_candidate"]:
             break
         duration += 1

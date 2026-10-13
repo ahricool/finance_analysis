@@ -4,17 +4,22 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+TREND_PERIODS = (20, 40, 60)
+DEFAULT_TREND_PERIOD = 20
+
 TREND_UNIVERSE_KEYS = {"CN": "cn_trend", "US": "us_trend"}
 
 
 @dataclass(frozen=True)
 class TrendFollowingConfig:
+    trend_period: int = DEFAULT_TREND_PERIOD
+
     risk_budget_pct: float = 0.01
     risk_stop_atr_multiple: float = 2.5
     risk_max_position_pct: float = 0.25
     # Independent point-in-time structure research; never enters Alpha or Entry.
-    box_windows: tuple[int, ...] = (15, 20, 30, 40, 60)
-    box_min_days: int = 15
+    box_windows: tuple[int, ...] = field(init=False)
+    box_min_days: int = field(init=False)
     box_max_width_pct: float = 0.15
     box_ideal_width_pct: float = 0.08
     box_width_plateau_min_pct: float = 0.05
@@ -35,7 +40,7 @@ class TrendFollowingConfig:
     box_quality_weights: dict[str, float] = field(default_factory=lambda: {
         "width": .25, "flatness": .30, "occupancy": .15, "compression": .20, "touch": .10,
     })
-    mr_rsi_period: int = 14
+    mr_rsi_period: int = field(init=False)
     mr_rsi_max: float = 35.0
     mr_distance_max_atr: float = -1.0
     mr_return_5d_max: float = 0.0
@@ -51,8 +56,8 @@ class TrendFollowingConfig:
     })
     event_study_default_days: int = 60
     event_study_max_days: int = 730
-    history_bars: int = 60
-    minimum_history_bars: int = 21
+    history_bars: int = field(init=False)
+    minimum_history_bars: int = field(init=False)
     calendar_lookback_days: int = 180
     minimum_data_coverage: float = 0.90
     benchmark_codes: dict[str, str] = field(default_factory=lambda: {"CN": "510300.SH", "US": "SPY.US"})
@@ -97,7 +102,7 @@ class TrendFollowingConfig:
         }
     )
     slope_direction_scale: float = 0.002
-    resume_lookback_days: int = 5
+    resume_lookback_days: int = field(init=False)
     resume_touch_atr: float = 0.5
     entry_trend_min: float = 62.0
     entry_resume_trend_min: float = 60.0
@@ -144,9 +149,9 @@ class TrendFollowingConfig:
     volatility_penalty_start: float = 1.10
     volatility_penalty_width: float = 0.80
     downside_ratio_scale: float = 1.0
-    path_return_window: int = 10
-    concentration_top_count: int = 2
-    volatility_atr_window: int = 5
+    path_return_window: int = field(init=False)
+    concentration_top_count: int = field(init=False)
+    volatility_atr_window: int = field(init=False)
     candidate_trend_score: float = 62.0
     candidate_rs_score: float = 60.0
     candidate_alpha_score: float = 67.0
@@ -156,6 +161,33 @@ class TrendFollowingConfig:
     history_limit_max: int = 250
 
 
+    def __post_init__(self):
+        if self.trend_period not in TREND_PERIODS:
+            raise ValueError("trend_period must be 20, 40 or 60")
+        for name, value in {
+            "box_windows": (self.trend_period,), "box_min_days": self.trend_period,
+            "mr_rsi_period": self.trend_period, "minimum_history_bars": self.trend_period + 1,
+            "resume_lookback_days": self.trend_period // 4,
+            "path_return_window": self.trend_period // 2,
+            "volatility_atr_window": self.trend_period // 4,
+            "concentration_top_count": self.trend_period // 10,
+            "history_bars": self.trend_period + self.trend_period // 4 + 2,
+        }.items():
+            object.__setattr__(self, name, value)
+
+    @property
+    def short_window(self) -> int:
+        return self.trend_period // 2
+
+    @property
+    def recent_window(self) -> int:
+        return self.trend_period // 4
+
+    @property
+    def shock_window(self) -> int:
+        return self.trend_period * 3 // 20
+
+
 DEFAULT_CONFIG = TrendFollowingConfig()
 
-__all__ = ["DEFAULT_CONFIG", "TREND_UNIVERSE_KEYS", "TrendFollowingConfig"]
+__all__ = ["DEFAULT_CONFIG", "DEFAULT_TREND_PERIOD", "TREND_PERIODS", "TREND_UNIVERSE_KEYS", "TrendFollowingConfig"]

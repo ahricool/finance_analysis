@@ -258,7 +258,7 @@ def test_sql_filters_events_and_preserves_predecessor_before_start():
 
 def test_api_range_regime_strategy_validation_and_schema(monkeypatch):
     repo = mock_repo([row()])
-    monkeypatch.setattr(api, "TrendFollowingRepository", lambda market: repo)
+    monkeypatch.setattr(api, "TrendFollowingRepository", lambda market, **kwargs: repo)
     app = FastAPI()
     app.include_router(api.router)
     app.dependency_overrides[api.require_current_user] = lambda: SimpleNamespace(id=1)
@@ -396,7 +396,7 @@ def test_split_api_default_range_and_no_summary_on_events(monkeypatch):
     import finance_analysis.trend_following.event_study_cache as cache
     from finance_analysis.trend_following.config import DEFAULT_CONFIG
     repo = mock_repo([row()])
-    monkeypatch.setattr(api, "TrendFollowingRepository", lambda market: repo)
+    monkeypatch.setattr(api, "TrendFollowingRepository", lambda market, **kwargs: repo)
     monkeypatch.setattr(cache.EventStudyCache, "load", lambda self: None)
     monkeypatch.setattr(cache.EventStudyCache, "save", lambda self, body: None)
     app = FastAPI()

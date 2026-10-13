@@ -175,10 +175,10 @@ def calculate_box_structure(
     # Yesterday is tested against the selected box excluding yesterday itself.
     # Match yesterday's confirmation basis: ATR ending before yesterday.
     previous = bars[-2]
-    resistance = max(bar.high for bar in bars[-selected.days - 1 : -2])
+    resistance = max(bar.high for bar in bars[-selected.days - 2 : -2])
     from .features import true_ranges
 
-    previous_atr = float(np.mean(true_ranges(bars[:-2])[-20:])) if len(bars) >= 22 else None
+    previous_atr = float(np.mean(true_ranges(bars[:-2])[-config.trend_period:])) if len(bars) >= config.trend_period + 3 else None
     previous_z = (previous.close - resistance) / previous_atr if previous_atr and previous_atr > 0 else None
     previous_clv = (
         (previous.close - previous.low) / (previous.high - previous.low) if previous.high > previous.low else None

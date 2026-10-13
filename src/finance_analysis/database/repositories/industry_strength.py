@@ -94,16 +94,16 @@ class IndustryStrengthRepository:
 
     def latest_cn_trend_date(self):
         with self.db.get_session() as session:
-            return session.scalar(select(func.max(TrendSnapshot.trade_date)).where(TrendSnapshot.market == "CN"))
+            return session.scalar(select(func.max(TrendSnapshot.trade_date)).where(TrendSnapshot.trend_period == 20, TrendSnapshot.market == "CN"))
 
     def latest_cn_trend_ranks(self, codes):
         """One query at the latest formal CN date, independent of the industry date."""
         codes = sorted(set(codes))
         if not codes:
             return {}
-        latest = select(func.max(TrendSnapshot.trade_date)).where(TrendSnapshot.market == "CN").scalar_subquery()
+        latest = select(func.max(TrendSnapshot.trade_date)).where(TrendSnapshot.trend_period == 20, TrendSnapshot.market == "CN").scalar_subquery()
         query = select(TrendSnapshot.code, TrendSnapshot.rank).where(
-            TrendSnapshot.market == "CN", TrendSnapshot.trade_date == latest, TrendSnapshot.code.in_(codes)
+            TrendSnapshot.trend_period == 20, TrendSnapshot.market == "CN", TrendSnapshot.trade_date == latest, TrendSnapshot.code.in_(codes)
         )
         with self.db.get_session() as session:
             return dict(session.execute(query).all())

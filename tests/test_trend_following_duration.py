@@ -84,7 +84,7 @@ def test_trend_duration_is_not_truncated_by_strategy_history_bars() -> None:
     assert features["trend_candidate"] is True
     truncated = count_trend_duration_days(history[-DEFAULT_CONFIG.history_bars :], as_of=as_of)
     full = count_trend_duration_days(history, as_of=as_of)
-    assert DEFAULT_CONFIG.history_bars == 60
+    assert DEFAULT_CONFIG.history_bars == 27
     assert DEFAULT_CONFIG.minimum_history_bars == 21
     assert truncated == DEFAULT_CONFIG.history_bars - DEFAULT_CONFIG.minimum_history_bars + 1
     assert truncated <= 40

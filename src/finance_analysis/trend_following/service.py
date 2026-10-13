@@ -55,13 +55,18 @@ class TrendFollowingService:
         *,
         config: TrendFollowingConfig = DEFAULT_CONFIG,
         market_data: MarketDataService | None = None,
+        input_cache: dict | None = None,
     ) -> None:
         self.market = normalize_market(market)
-        self.repository = repository or TrendFollowingRepository(self.market)
+        self.repository = repository or TrendFollowingRepository(self.market, trend_period=config.trend_period)
         if normalize_market(getattr(self.repository, "market", self.market)) != self.market:
             raise ValueError("Trend Following repository market does not match service market")
+        if getattr(self.repository, "trend_period", config.trend_period) != config.trend_period:
+            raise ValueError("repository trend_period does not match service config")
         self.config = config
         self.market_data = market_data or MarketDataService()
+        self._shared_inputs = input_cache is not None
+        self.input_cache = input_cache if input_cache is not None else {}
 
     def resolve_trade_date(self, requested: date | None = None) -> date:
         if requested is not None:
@@ -96,6 +101,8 @@ class TrendFollowingService:
         return sorted(set([requested, *dates]))
 
     def run(self, trade_date: date | None = None) -> dict[str, Any]:
+        if not self._shared_inputs:
+            self.input_cache.clear()
         initial_latest = self.repository.latest_snapshot_date()
         dates = self._rebuild_dates(trade_date)
         results: list[dict[str, Any]] = []
@@ -113,6 +120,7 @@ class TrendFollowingService:
                 return {
                     "status": "failed",
                     "market": self.market,
+                    "trend_period": self.config.trend_period,
                     "trade_date": current.isoformat(),
                     "rebuilt_from": dates[0].isoformat(),
                     "rebuilt_dates": [item["trade_date"] for item in results],
@@ -155,6 +163,8 @@ class TrendFollowingService:
         Preview never writes ``trend_following_snapshot`` and never feeds later
         official or preview runs. Each call reloads the previous official snapshot.
         """
+        if not self._shared_inputs:
+            self.input_cache.clear()
         started = monotonic()
         effective_date = self.resolve_preview_trade_date(trade_date)
         members = get_universe(self.market)
@@ -165,12 +175,12 @@ class TrendFollowingService:
         quote_count = 0
         data_as_of = None
         try:
-            bars, provider, quote_count, data_as_of = collect_preview_daily_bars(
-                self.market_data,
-                self.market,
-                requested,
-                effective_date,
-            )
+            key = ("preview", self.market, effective_date, tuple(requested))
+            if key not in self.input_cache:
+                self.input_cache[key] = collect_preview_daily_bars(
+                    self.market_data, self.market, requested, effective_date,
+                )
+            bars, provider, quote_count, data_as_of = self.input_cache[key]
             overlay = {
                 code: DailyBar(
                     trade_date=bar.trade_date,
@@ -198,6 +208,7 @@ class TrendFollowingService:
                 {
                     "status": "failed",
                     "market": self.market,
+                    "trend_period": self.config.trend_period,
                     "trade_date": effective_date.isoformat(),
                     "preview_time": utc_isoformat(generated_at),
                     "data_as_of": utc_isoformat(data_as_of),
@@ -258,6 +269,13 @@ class TrendFollowingService:
         if not codes:
             return {}
         lookback = self.config.calendar_lookback_days if calendar_lookback_days is None else calendar_lookback_days
+        # Bound catch-up memory to one session while sharing all three periods' inputs.
+        for cached in list(self.input_cache):
+            if cached[2] != effective_date:
+                del self.input_cache[cached]
+        key = ("benchmark", self.market, effective_date, lookback, tuple(sorted(codes)))
+        if key in self.input_cache:
+            return self.input_cache[key]
         result = self.market_data.get_daily_bars(
             sorted(codes),
             effective_date - timedelta(days=lookback),
@@ -272,6 +290,7 @@ class TrendFollowingService:
                 for bar in sorted(bars, key=lambda item: item.trade_date)
                 if bar.trade_date <= effective_date
             ]
+        self.input_cache[key] = histories
         return histories
 
     def _load_db_histories(
@@ -284,9 +303,12 @@ class TrendFollowingService:
     ) -> dict[str, list[DailyBar]]:
         histories: dict[str, list[DailyBar]] = defaultdict(list)
         lookback = self.config.calendar_lookback_days if calendar_lookback_days is None else calendar_lookback_days
-        rows = self.repository.load_daily_history(
-            codes, effective_date, calendar_lookback_days=lookback
-        )
+        key = ("daily", self.market, effective_date, lookback, tuple(sorted(codes)))
+        if key not in self.input_cache:
+            self.input_cache[key] = self.repository.load_daily_history(
+                codes, effective_date, calendar_lookback_days=lookback
+            )
+        rows = self.input_cache[key]
         for item in rows:
             if item["trade_date"] > effective_date:
                 continue
@@ -350,6 +372,7 @@ class TrendFollowingService:
             return {
                 "status": "incomplete",
                 "market": self.market,
+                "trend_period": self.config.trend_period,
                 "trade_date": effective_date.isoformat(),
                 "universe_size": len(universe_codes),
                 "data_ready_count": len(ready_codes),
@@ -368,6 +391,7 @@ class TrendFollowingService:
             return {
                 "status": "incomplete",
                 "market": self.market,
+                "trend_period": self.config.trend_period,
                 "trade_date": effective_date.isoformat(),
                 "universe_size": len(universe_codes),
                 "data_ready_count": len(ready_codes),
@@ -397,6 +421,7 @@ class TrendFollowingService:
             return {
                 "status": "incomplete",
                 "market": self.market,
+                "trend_period": self.config.trend_period,
                 "trade_date": effective_date.isoformat(),
                 "universe_size": len(universe_codes),
                 "data_ready_count": len(ready_codes),
@@ -407,9 +432,9 @@ class TrendFollowingService:
                 "warnings": [*warnings, warning],
             }
         benchmark_close = [bar.close for bar in benchmark_bars]
-        benchmark_return_5d = benchmark_close[-1] / benchmark_close[-6] - 1.0
-        benchmark_return_10d = benchmark_close[-1] / benchmark_close[-11] - 1.0
-        benchmark_return_20d = benchmark_close[-1] / benchmark_close[-21] - 1.0
+        benchmark_return_5d = benchmark_close[-1] / benchmark_close[-self.config.recent_window - 1] - 1.0
+        benchmark_return_10d = benchmark_close[-1] / benchmark_close[-self.config.short_window - 1] - 1.0
+        benchmark_return_20d = benchmark_close[-1] / benchmark_close[-self.config.trend_period - 1] - 1.0
         previous = self.repository.previous_snapshots(effective_date, universe_codes)
         features: list[dict[str, Any]] = []
         sufficient_histories: dict[str, list[DailyBar]] = {}
@@ -440,6 +465,7 @@ class TrendFollowingService:
             return {
                 "status": "incomplete",
                 "market": self.market,
+                "trend_period": self.config.trend_period,
                 "trade_date": effective_date.isoformat(),
                 "universe_size": len(universe_codes),
                 "data_ready_count": len(ready_codes),
@@ -479,13 +505,14 @@ class TrendFollowingService:
 
         for row in ranked:
             prior = previous.get(row["code"], {})
-            visible = histories.get(row["code"], [])
+            visible = sufficient_histories[row["code"]]
             prior_features = prior.get("features") if len(visible) > 1 and prior.get("trade_date") == visible[-2].trade_date else None
             row.update(calculate_mean_reversion(visible, row, self.config, previous_features=prior_features))
             decision = decisions[row["code"]]
             snapshots.append(
                 {
                     "market": self.market,
+                    "trend_period": self.config.trend_period,
                     "trade_date": effective_date,
                     "code": row["code"],
                     "universe_key": universe_key,
@@ -515,6 +542,7 @@ class TrendFollowingService:
                 histories.get(str(snapshot["code"]), []),
                 as_of=effective_date,
                 minimum_bars=self.config.minimum_history_bars,
+                config=self.config,
             )
 
             code = str(snapshot["code"])
@@ -534,6 +562,7 @@ class TrendFollowingService:
 
         summary = {
             "market": self.market,
+            "trend_period": self.config.trend_period,
             "trade_date": effective_date,
             "universe_key": universe_key,
             "benchmark_code": benchmark_code,

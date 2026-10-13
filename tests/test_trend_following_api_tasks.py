@@ -22,7 +22,7 @@ TRADE_DATE = date(2026, 8, 28)
 
 
 class FakeRepository:
-    def __init__(self, market):
+    def __init__(self, market, **kwargs):
         self.market = market
 
     def historical_composite_ranks(self, trade_date, codes):
@@ -345,14 +345,14 @@ def test_trend_task_business_status_drives_existing_lifecycle(monkeypatch, marke
     notification = Mock()
     domain = Mock()
     domain.run.return_value = result
-    monkeypatch.setattr(tasks, "TrendFollowingService", lambda actual_market: domain)
+    monkeypatch.setattr(tasks, "TrendFollowingService", lambda actual_market, **kwargs: domain)
     monkeypatch.setattr(lifecycle, "get_task_lifecycle_service", lambda: service)
     monkeypatch.setattr(lifecycle, "task_logging_context", lambda *args, **kwargs: nullcontext())
     monkeypatch.setattr(lifecycle, "_relative_task_log_path", lambda *args, **kwargs: "fake.log")
     monkeypatch.setattr(lifecycle, "_send_task_failure_notification", notification)
     task = tasks.run_trend_following_cn if market == "CN" else tasks.run_trend_following_us
     if status == "completed":
-        assert task.run(trade_date="2026-09-08") == result
+        assert task.run(trade_date="2026-09-08") == {**result, "periods": {str(p): result for p in (20, 40, 60)}}
         service.mark_completed.assert_called_once()
         service.mark_failed.assert_not_called()
         notification.assert_not_called()
@@ -364,7 +364,8 @@ def test_trend_task_business_status_drives_existing_lifecycle(monkeypatch, marke
         service.mark_failed.assert_called_once()
         service.mark_completed.assert_not_called()
         notification.assert_called_once()
-    domain.run.assert_called_once_with(date(2026, 9, 8))
+    assert domain.run.call_count == 3
+    domain.run.assert_called_with(date(2026, 9, 8))
 
 
 @pytest.fixture(autouse=True)

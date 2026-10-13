@@ -21,12 +21,12 @@ class SignalCenterRepository(ConfluenceRepository):
                 "rs_score breakout_score reference_price features trend_lifecycle trend_duration_days fragility_score"
             )
             query = select(*(getattr(TrendFollowingSnapshot, k) for k in fields.split())).where(
-                TrendFollowingSnapshot.market == market, TrendFollowingSnapshot.trade_date == day
+                TrendFollowingSnapshot.trend_period == 20, TrendFollowingSnapshot.market == market, TrendFollowingSnapshot.trade_date == day
             )
             result = [dict(row._mapping) for row in session.execute(query)]
             previous_day = session.scalar(
                 select(func.max(TrendFollowingSnapshot.trade_date)).where(
-                    TrendFollowingSnapshot.market == market, TrendFollowingSnapshot.trade_date < day
+                    TrendFollowingSnapshot.trend_period == 20, TrendFollowingSnapshot.market == market, TrendFollowingSnapshot.trade_date < day
                 )
             )
             previous = {
@@ -34,7 +34,7 @@ class SignalCenterRepository(ConfluenceRepository):
                 for r in session.execute(
                     select(
                         TrendFollowingSnapshot.code, TrendFollowingSnapshot.rank, TrendFollowingSnapshot.state
-                    ).where(TrendFollowingSnapshot.market == market, TrendFollowingSnapshot.trade_date == previous_day)
+                    ).where(TrendFollowingSnapshot.trend_period == 20, TrendFollowingSnapshot.market == market, TrendFollowingSnapshot.trade_date == previous_day)
                 )
             }
             for item in result:
@@ -112,7 +112,10 @@ class SignalCenterRepository(ConfluenceRepository):
                 (TrendFollowingSummary, "market_regime market_score data_coverage warnings", "trend"),
                 (ETFMarketRotationSnapshot, "regime benchmark_trend diagnostics", "etf"),
             ):
-                row = session.scalar(select(model).where(model.market == market, model.trade_date == day))
+                query = select(model).where(model.market == market, model.trade_date == day)
+                if model is TrendFollowingSummary:
+                    query = query.where(model.trend_period == 20)
+                row = session.scalar(query)
                 if row:
                     result.append(dict(values(row, "trade_date generated_at " + fields), source=source))
             return result

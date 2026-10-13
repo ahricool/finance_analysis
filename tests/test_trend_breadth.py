@@ -42,7 +42,7 @@ def source(monkeypatch):
         session.add(row)
         session.add(TrendFollowingSummary(id=5000, **{**_summary(TODAY), 'market': 'CN', 'rankable_count': 1}))
     original = repositories.TrendFollowingRepository
-    monkeypatch.setattr(repositories, 'TrendFollowingRepository', lambda market: original(market, database))
+    monkeypatch.setattr(repositories, 'TrendFollowingRepository', lambda market, **kwargs: original(market, database, **kwargs))
     monkeypatch.setattr(breadth, 'get_market_now', lambda market: datetime.combine(TODAY, datetime.min.time(), timezone.utc))
     preview = Mock(return_value=None)
     monkeypatch.setattr(breadth, 'load_preview', preview)

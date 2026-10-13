@@ -109,7 +109,7 @@ def test_breakout_gates_priority_and_missing_fragility():
         assert result["entry_type"] == "NONE" and result["entry_score"] == 0
     actual = ranked(resume_bars()[:-1] + [replace(resume_bars()[-1], close=152, high=153)])
     assert actual["breakout_20d"] and not actual["trend_resume"]
-    assert actual["setup"] == "BREAKOUT_20D"
+    assert actual["setup"] == "BREAKOUT_LONG"
 
 
 def test_preview_volume_is_provisional_not_a_low_volume_veto():

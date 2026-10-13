@@ -539,7 +539,7 @@ def test_preview_task_result_omits_snapshots(monkeypatch):
     monkeypatch.setattr(tasks, "is_market_open", lambda market, day: True)
 
     class Service:
-        def __init__(self, market):
+        def __init__(self, market, **kwargs):
             self.market = market
 
         def run_preview(self, requested):
@@ -721,7 +721,7 @@ def test_preview_cache_round_trip():
     }
     client = Redis()
     save_preview("CN", payload, client=client)
-    assert stored["key"] == PREVIEW_KEY_TEMPLATE.format(market="CN")
+    assert stored["key"] == PREVIEW_KEY_TEMPLATE.format(market="CN", trend_period=20)
     assert stored["ex"] == 24 * 60 * 60
     loaded = load_preview("CN", client=client)
     assert loaded["market"] == "CN"
@@ -735,7 +735,7 @@ def test_preview_api_returns_cached_payload(monkeypatch):
     monkeypatch.setattr(
         trend_following,
         "load_preview",
-        lambda market: {"market": market, "status": "completed",
+        lambda market, **kwargs: {"market": market, "status": "completed",
                         "snapshots": [{"features": {"box_state": "BOX_READY", "box_quality": 88}}],
                         "trade_date": "2026-09-10"},
     )
@@ -748,7 +748,7 @@ def test_preview_api_returns_cached_payload(monkeypatch):
 def test_preview_api_404_when_missing(monkeypatch):
     from finance_analysis.interfaces.api.v1.endpoints import trend_following  # pragma: allowlist secret
 
-    monkeypatch.setattr(trend_following, "load_preview", lambda market: None)
+    monkeypatch.setattr(trend_following, "load_preview", lambda market, **kwargs: None)
     with pytest.raises(HTTPException) as error:
         trend_following.preview(SimpleNamespace(id=1), "US")
     assert error.value.status_code == 404

@@ -6,6 +6,7 @@ export type StockDetailTab = 'overview' | 'holdings' | 'options' | 'trend' | 'et
 /** The originating observation stays attached when switching tabs. */
 export interface StockDetailContext {
   tradeDate?: string;
+  trendPeriod?: 20 | 40 | 60;
   view?: 'official' | 'preview';
   accountId?: number;
   positionId?: number;

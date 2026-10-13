@@ -37,7 +37,7 @@ class ConfluenceRepository:
             dates = list(
                 session.scalars(
                     select(TrendFollowingSnapshot.trade_date)
-                    .where(TrendFollowingSnapshot.market == market, TrendFollowingSnapshot.trade_date <= day)
+                    .where(TrendFollowingSnapshot.trend_period == 20, TrendFollowingSnapshot.market == market, TrendFollowingSnapshot.trade_date <= day)
                     .distinct()
                     .order_by(TrendFollowingSnapshot.trade_date.desc())
                     .limit(2)
@@ -48,7 +48,7 @@ class ConfluenceRepository:
             rows = list(
                 session.scalars(
                     select(TrendFollowingSnapshot).where(
-                        TrendFollowingSnapshot.market == market, TrendFollowingSnapshot.trade_date.in_(dates)
+                        TrendFollowingSnapshot.trend_period == 20, TrendFollowingSnapshot.market == market, TrendFollowingSnapshot.trade_date.in_(dates)
                     )
                 )
             )

@@ -5,6 +5,7 @@ from .health_config import DEFAULT_CONFIG
 
 def classify_lifecycle(snapshot, config=DEFAULT_CONFIG):
     features = snapshot.get("features") or {}
+    scale = features.get("trend_period", 20) / 20
     candidate = features.get("trend_candidate")
     if candidate is None:
         return None
@@ -22,14 +23,14 @@ def classify_lifecycle(snapshot, config=DEFAULT_CONFIG):
     if decays >= config.exhaustion_components:
         return "EXHAUSTION"
     healthy = quality >= config.healthy_quality and efficiency > 0 and features["distance_from_ma20"] > 0
-    if duration <= config.ignition_days and acceleration > 0 and quality >= config.ignition_quality:
+    if duration <= (config.ignition_days * scale) and acceleration > 0 and quality >= config.ignition_quality:
         return "IGNITION"
-    if duration <= config.emerging_days:
+    if duration <= (config.emerging_days * scale):
         return "EMERGING"
-    if duration >= config.mature_days:
+    if duration >= (config.mature_days * scale):
         return "MATURE"
     if (
-        duration > config.emerging_days
+        duration > (config.emerging_days * scale)
         and quality >= config.expansion_quality
         and efficiency >= config.expansion_efficiency
         and relative_strength >= config.expansion_rs

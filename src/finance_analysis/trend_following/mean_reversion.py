@@ -24,13 +24,13 @@ def calculate_mean_reversion(bars, features, config=DEFAULT_CONFIG, *, previous_
     """Replay visible history only. A consumed episode rearms after leaving oversold."""
     closes = pd.Series([bar.close for bar in bars], dtype=float)
     rsi = rsi_series(closes, config.mr_rsi_period, wilder=True).to_numpy()
-    ma = closes.rolling(20).mean().to_numpy()
-    atr = pd.Series(true_ranges(bars)).rolling(20).mean().to_numpy()
+    ma = closes.rolling(config.trend_period).mean().to_numpy()
+    atr = pd.Series(true_ranges(bars)).rolling(config.trend_period).mean().to_numpy()
     consumed, previous_state, state = False, "MR_NONE", "MR_NONE"
     current_distance = None
     # With an official predecessor only today's transition needs replaying.
     has_previous = previous_features and previous_features.get("mr_state") is not None
-    for i in range(len(bars) - 1 if has_previous else 20, len(bars)):
+    for i in range(len(bars) - 1 if has_previous else config.trend_period, len(bars)):
         if i == len(bars) - 1 and has_previous:
             previous_state = previous_features["mr_state"]
             consumed = previous_features.get("mr_episode_consumed", False)
@@ -47,7 +47,7 @@ def calculate_mean_reversion(bars, features, config=DEFAULT_CONFIG, *, previous_
             and np.isfinite(rsi[i])
             and rsi[i] <= config.mr_rsi_max
             and distance <= config.mr_distance_max_atr
-            and closes.iloc[i] / closes.iloc[i - 5] - 1 < config.mr_return_5d_max
+            and closes.iloc[i] / closes.iloc[i - config.recent_window] - 1 < config.mr_return_5d_max
         )
         bar = bars[i]
         clv = (bar.close - bar.low) / (bar.high - bar.low) if bar.high > bar.low else None

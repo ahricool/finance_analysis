@@ -66,7 +66,7 @@ describe('TrendEventStudy', () => {
     expect(trendFollowingApi.eventStudySummary).toHaveBeenCalledTimes(2);
     await wrapper.get('[data-testid="study-query"]').trigger('click');
     await flushPromises();
-    expect(trendFollowingApi.eventStudySummary).toHaveBeenLastCalledWith('US', '2026-08-01', '2026-09-01', 'RISK_ON', expect.any(AbortSignal));
+    expect(trendFollowingApi.eventStudySummary).toHaveBeenLastCalledWith('US', '2026-08-01', '2026-09-01', 'RISK_ON', expect.any(AbortSignal), 20);
     await wrapper.findAll('button').find(b => b.text() === '导出汇总')!.trigger('click');
     await flushPromises();
     expect(exportExcel).toHaveBeenCalled();
@@ -86,7 +86,7 @@ describe('TrendEventStudy', () => {
   it('defaults to 60D, keeps presets/custom as drafts, and isolates event pagination loading', async () => {
     const wrapper = mount(TrendEventStudy, { props: { market: 'CN', endDate: '2026-09-01' } });
     await flushPromises();
-    expect(trendFollowingApi.eventStudySummary).toHaveBeenLastCalledWith('CN', '2026-07-03', '2026-09-01', 'ALL', expect.any(AbortSignal));
+    expect(trendFollowingApi.eventStudySummary).toHaveBeenLastCalledWith('CN', '2026-07-03', '2026-09-01', 'ALL', expect.any(AbortSignal), 20);
     expect(trendFollowingApi.eventStudyEvents).not.toHaveBeenCalled();
     for (const label of ['30D', '60D', '90D', '180D', '自定义']) {
       await wrapper.findAll('button').find(b => b.text() === label)!.trigger('click');
@@ -110,7 +110,7 @@ describe('TrendEventStudy', () => {
     expect(wrapper.text()).toContain('事件样本加载中');
     expect(wrapper.findAll('[data-testid="study-strategy-row"]')).toHaveLength(4);
     expect(trendFollowingApi.eventStudySummary).toHaveBeenCalledTimes(2);
-    expect(trendFollowingApi.eventStudyEvents).toHaveBeenLastCalledWith('CN', '2026-08-01', '2026-09-01', 'RISK_OFF', expect.any(String), 100, expect.any(AbortSignal));
+    expect(trendFollowingApi.eventStudyEvents).toHaveBeenLastCalledWith('CN', '2026-08-01', '2026-09-01', 'RISK_OFF', expect.any(String), 100, expect.any(AbortSignal), 20);
     resolve(response());
     await flushPromises();
     await wrapper.setProps({ endDate: '2026-09-02' });

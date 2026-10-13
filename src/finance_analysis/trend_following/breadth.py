@@ -56,17 +56,17 @@ def aggregate_point(day, counts, denominator, *, is_preview=False):
     }
 
 
-def _source(market, days, as_of, include_preview):
+def _source(market, days, as_of, include_preview, trend_period):
     from finance_analysis.database.repositories.trend_following import TrendFollowingRepository
 
     today = get_market_now(market.lower()).date()
     if as_of is not None and as_of > today:
         raise ValueError("as_of must not be later than the market's current date")
-    repository = TrendFollowingRepository(market)
+    repository = TrendFollowingRepository(market, trend_period=trend_period)
     dates = repository.recent_snapshot_dates(as_of=as_of or today, days=days)
     preview, warnings = None, []
     if include_preview and (as_of is None or as_of == today) and today not in dates:
-        candidate = load_preview(market)
+        candidate = load_preview(market, trend_period=trend_period)
         if (candidate and candidate.get("status") == "completed" and candidate.get("market") == market
                 and candidate.get("trade_date") == today.isoformat() and candidate.get("snapshots")):
             preview = candidate
@@ -75,8 +75,8 @@ def _source(market, days, as_of, include_preview):
     return repository, dates, preview, warnings
 
 
-def get_breadth_history(market: str, *, days=30, as_of: date | None = None, include_preview=False):
-    repository, dates, preview, warnings = _source(market, days, as_of, include_preview)
+def get_breadth_history(market: str, *, days=30, as_of: date | None = None, include_preview=False, trend_period=20):
+    repository, dates, preview, warnings = _source(market, days, as_of, include_preview, trend_period)
     counts = {day: Counter() for day in dates}
     summaries = {}
     if dates:
@@ -99,8 +99,8 @@ def get_breadth_history(market: str, *, days=30, as_of: date | None = None, incl
     }
 
 
-def get_transitions(market: str, *, days=3, direction="all", limit=20, as_of=None, include_preview=False):
-    repository, dates, preview, warnings = _source(market, days + 1, as_of, include_preview)
+def get_transitions(market: str, *, days=3, direction="all", limit=20, as_of=None, include_preview=False, trend_period=20):
+    repository, dates, preview, warnings = _source(market, days + 1, as_of, include_preview, trend_period)
     by_date = {day: {} for day in dates}
     if dates:
         for row in repository.transition_rows(dates):
