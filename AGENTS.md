@@ -42,7 +42,9 @@ When investigating production issues, assume:
 
 生产发布先拉取同一提交的 SHA 镜像并固定 digest，暂停 Beat 后无限等待普通/Qlib worker
 优雅退出，再迁移和替换应用，健康检查通过后恢复 Beat；不更新 PostgreSQL/Redis。
-不持久化 Beat 调度状态，不补发部署期间漏掉的定时任务。失败阶段与恢复命令见 `docs/deployment.md`。
+不持久化 Beat 调度状态，不补发部署期间漏掉的定时任务。失败后修复并重新运行 `bash deploy.sh`，
+会准备最新 main 并重新等待当前 worker；pending 只供诊断，不锁定旧 SHA/digest。
+`--resume` 是正常部署的兼容别名，不再提供恢复旧容器的 `--recover`。详见 `docs/deployment.md`。
 
 These are operational facts for debugging and incident investigation.
 Use them when checking deployment state, logs, runtime files, migrations, or service behavior.

@@ -51,32 +51,52 @@ bash deploy.sh logs --tail 100 worker qlib-worker beat
 DEPLOY_DRAIN_WARN_SECONDS=1800 DEPLOY_READY_TIMEOUT=600 bash deploy.sh
 ```
 
-Ctrl-C/SIGTERM 会中断部署客户端，保留部署记录。已发出的 Docker stop 请求仍可能由 daemon
-继续执行；不要立即重启这些 worker，也不要对它们执行另一次强制替换。
-新部署和透传的修改命令会被未完成记录拦截，`--status` 和日志/ps 等只读命令仍可使用。
+Ctrl-C/SIGTERM 会中断部署客户端，保留阶段记录。已发出的 Docker stop 请求仍可能由 daemon
+继续执行；重新运行部署会再次等待当前容器退出，不直接强制替换它们。
 
-| 失败位置 | 恢复方式 |
+**失败后的统一入口仍是 `bash deploy.sh`。** 每次都会拉取最新 main 并准备对应镜像，
+然后停止 Beat、等待当前 worker（包括上次部分发布后已经启动的 worker）、迁移并更新应用。
+不要求完成上次失败的版本，也不要求 HEAD 与上次相同。工作区仍需干净。
+
+| 失败位置 | 处理方式 |
 | --- | --- |
-| 拉取、校验或其他暂停前检查 | 旧任务不受影响；排除原因后重新运行 `bash deploy.sh` |
-| Beat/worker 停止阶段，尚未开始替换 | 等待已请求停止的原容器正常退出，运行 `bash deploy.sh --recover` 恢复原容器，或 `--resume` 继续原发布 |
-| API 停止、迁移或应用替换已经开始 | 核查迁移/容器日志，排除原因后 `bash deploy.sh --resume`；禁止自动回滚数据库或启动旧 Beat |
-| 新 Beat 启动/心跳校验失败 | 脚本再次暂停 Beat，保留现场；排除原因后 `--resume` |
+| 拉取、校验或其他暂停前检查 | 当前服务保持原状；排除原因后重新运行部署 |
+| Beat/worker 停止阶段 | 重新运行部署，继续等待当前任务正常结束 |
+| 迁移或应用替换 | 修复并发布新版本镜像后重新运行部署，向前修复，不自动回滚数据库 |
+| 新 Beat 启动/心跳校验 | 脚本再次暂停 Beat；排除原因后重新运行部署 |
 
-`--resume` 要求工作区干净且 HEAD 与未完成发布的 SHA 相同，使用已记录的 digest，
-再次优雅停止当前 worker（包括已经运行任务的新 worker）后继续发布。
-一旦进入替换阶段，即使继续部署时再次在 drain 阶段失败，也不能使用 `--recover` 回滚旧版本。
-worker 非零退出、OOM 或被强杀时，不会被当成正常排空；需要先核查任务和日志。
+`--resume` 保留为无参数部署的兼容别名，**同样部署最新 main，不再锁定失败版本**。
+`--recover` 不再启动原版本容器，而是提示使用正常部署入口。
+worker 非零退出、OOM 或被强杀时，包括重试前已经停止的容器，都不会被当成正常排空；
+需核查任务和容器日志，确认异常原因后处理。脚本不会自动重启旧 Beat。
 
-部署记录、锁、日志和 digest override 位于 Git 的内部
-`finance-deploy` 目录，通常是 `.git/finance-deploy/`，不会进入提交，也不保存 Compose
-配置或业务 payload/result。`release.json` 是最近成功发布；`pending.json` 是未完成发布。
-不要通过删除 pending 文件跳过恢复检查。
+阶段记录、锁、日志和本轮 digest override 位于 Git 内部的 `finance-deploy` 目录，
+通常是 `.git/finance-deploy/`。`release.json` 是最近成功发布；`pending.json` 记录未完成发布，
+仅供诊断，不阻止新发布。新一轮准备完成并开始暂停服务后更新 pending；准备失败时保留旧记录。
+旧脚本留下的 pending 无需手动删除。digest 只保证本轮使用已经校验的镜像，不限制下一轮选版本。
 
-兼容原来的 Compose 参数透传，例如 `bash deploy.sh ps`。成功发布之后修改类透传命令使用
-该发布的 digest；日志/ps 等只读命令在部署持锁期间也可使用。
-`restart/stop/down/up` 等透传命令属于显式维护操作，不执行完整优雅发布流程；
-直接 Compose 停 worker 的后备宽限为普通 worker 1h、Qlib 4h，期限结束后仍会强杀。
-日常发布使用无参数入口。
+兼容 Compose 参数透传，例如 `bash deploy.sh ps`；只读命令在部署持锁期间仍可用。
+修改类透传命令使用最近尝试发布的镜像（存在 pending 时优先于成功记录），属于显式维护，
+不执行任务等待流程。直接 Compose 停 worker 的后备宽限为普通 worker 1h、Qlib 4h，
+期限结束后仍会强杀。日常发布和失败重试都使用无参数入口。
+
+### 0072 趋势索引旧名导致迁移失败
+
+历史迁移 `0031` 创建 `ix_trend_following_symbol_date`，`0039` 只将列改名为
+`instrument_id`，未改索引名；旧 `0072` 因找不到 `ix_trend_following_instrument_date` 而失败。
+修复后的 `0072` 兼容旧名、新名、两者并存及缺失的情况，统一重建带周期的索引。
+
+包含迁移修复和新版部署脚本的代码合并、SHA 镜像发布完成后，在生产目录执行：
+
+```bash
+cd ~/svr/finance_analysis
+git pull --ff-only origin main
+bash deploy.sh
+```
+
+这里先手动 pull 是为了让本次启动直接加载新版部署脚本；旧版 Python 脚本已经加载到内存后，
+不会因运行中的 git pull 自动切换实现。无需修改索引名、手动 stamp 或删除 pending。
+`0072` 仍按原设计清空旧趋势快照和汇总，部署后需要重新计算。
 
 ## 调度暂停的边界
 
@@ -84,10 +104,9 @@ worker 非零退出、OOM 或被强杀时，不会被当成正常排空；需要
 Beat 的调度状态仍使用容器内默认文件，不挂载到宿主机持久化。
 部署脚本不检查、不补发暂停期间漏掉的定时任务；不增加任务重放或业务补算逻辑。
 每次正常发布都重建 Beat，从新容器的调度状态开始，避免同版本发布重新启动旧调度状态。
-`--recover` 恢复原容器时仍使用 Celery 默认到期判断，不增加额外补偿逻辑。
 
 ## 首次使用新脚本
 
-旧 deploy.sh 在拉取代码后会继续执行旧的全栈更新逻辑。合并本次 PR 后首次安装应先手动
-`git pull --ff-only origin main`，确认新脚本已在生产目录，再运行 `bash deploy.sh`。
+从旧脚本升级时，首次应先手动 `git pull --ff-only origin main`，
+确认新脚本已在生产目录，再运行 `bash deploy.sh`。
 宿主机需要能写入仓库的 Git 内部目录，用于锁和部署记录。
