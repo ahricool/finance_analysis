@@ -23,6 +23,8 @@ MR_NUMERIC_FIELDS = (
 def calculate_mean_reversion(bars, features, config=DEFAULT_CONFIG, *, previous_features=None):
     """Replay visible history only. A consumed episode rearms after leaving oversold."""
     closes = pd.Series([bar.close for bar in bars], dtype=float)
+    # Compare both days on this run's same Wilder seed. Only episode state is
+    # inherited: the official predecessor may have used a different rolling window.
     rsi = rsi_series(closes, config.mr_rsi_period, wilder=True).to_numpy()
     ma = closes.rolling(config.trend_period).mean().to_numpy()
     atr = pd.Series(true_ranges(bars)).rolling(config.trend_period).mean().to_numpy()
@@ -34,8 +36,6 @@ def calculate_mean_reversion(bars, features, config=DEFAULT_CONFIG, *, previous_
         if i == len(bars) - 1 and has_previous:
             previous_state = previous_features["mr_state"]
             consumed = previous_features.get("mr_episode_consumed", False)
-            if previous_features.get("rsi14") is not None:
-                rsi[i - 1] = previous_features["rsi14"]
         distance = (closes.iloc[i] - ma[i]) / atr[i] if atr[i] > 0 else None
         if i == len(bars) - 1:
             distance = (

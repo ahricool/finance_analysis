@@ -12,7 +12,6 @@ from ..core.time import utc_isoformat, utc_now
 from ..database.repositories.trend_following import TrendFollowingRepository
 from ..integrations.market_data.preview import (
     CN_PREVIEW_PROVIDER,
-    PreviewQuoteError,
     US_PREVIEW_PROVIDER,
     collect_preview_daily_bars,
 )
@@ -177,9 +176,15 @@ class TrendFollowingService:
         try:
             key = ("preview", self.market, effective_date, tuple(requested))
             if key not in self.input_cache:
-                self.input_cache[key] = collect_preview_daily_bars(
-                    self.market_data, self.market, requested, effective_date,
-                )
+                try:
+                    self.input_cache[key] = collect_preview_daily_bars(
+                        self.market_data, self.market, requested, effective_date,
+                    )
+                except Exception as exc:
+                    # Share this round's collection failure as well as successful inputs.
+                    self.input_cache[key] = exc
+            if isinstance(self.input_cache[key], Exception):
+                raise self.input_cache[key]
             bars, provider, quote_count, data_as_of = self.input_cache[key]
             overlay = {
                 code: DailyBar(
@@ -194,7 +199,7 @@ class TrendFollowingService:
                 for code, bar in bars.items()
             }
             result = self._run_single_date(effective_date, persist=False, overlay_bars=overlay)
-        except PreviewQuoteError as exc:
+        except Exception as exc:
             elapsed = round(monotonic() - started, 3)
             generated_at = preview_time or utc_now()
             logger.exception(
@@ -275,14 +280,20 @@ class TrendFollowingService:
                 del self.input_cache[cached]
         key = ("benchmark", self.market, effective_date, lookback, tuple(sorted(codes)))
         if key in self.input_cache:
+            if isinstance(self.input_cache[key], Exception):
+                raise self.input_cache[key]
             return self.input_cache[key]
-        result = self.market_data.get_daily_bars(
-            sorted(codes),
-            effective_date - timedelta(days=lookback),
-            effective_date,
-            adjustment="forward",
-            source_policy="db_fresh",
-        ).data
+        try:
+            result = self.market_data.get_daily_bars(
+                sorted(codes),
+                effective_date - timedelta(days=lookback),
+                effective_date,
+                adjustment="forward",
+                source_policy="db_fresh",
+            ).data
+        except Exception as exc:
+            self.input_cache[key] = exc
+            raise
         histories: dict[str, list[DailyBar]] = {}
         for code, bars in result.items():
             histories[code] = [

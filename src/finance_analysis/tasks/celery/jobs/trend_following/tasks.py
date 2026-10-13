@@ -51,7 +51,10 @@ def _run_periods(market, requested, *, preview=False, trend_period=None):
     inputs, results = {}, {}
     for period in periods:
         service = TrendFollowingService(market, config=replace(DEFAULT_CONFIG, trend_period=period), input_cache=inputs)
-        result = service.run_preview(requested) if preview else service.run(requested)
+        try:
+            result = service.run_preview(requested) if preview else service.run(requested)
+        except Exception as exc:
+            result = {"status": "failed", "market": market, "trend_period": period, "warnings": [str(exc)]}
         results[str(period)] = _preview_task_result(result) if preview else result
     if any(result.get("status") != "completed" for result in results.values()):
         raise RuntimeError("Trend Following did not complete: " + json.dumps(results, ensure_ascii=False, default=str))
