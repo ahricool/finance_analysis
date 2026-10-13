@@ -10,9 +10,18 @@ import { tradeMarkerOverlays } from './tradeMarkerOverlay';
 import type { TradeMarker } from '@/lib/tradeMarkers';
 import { detectDailyPatterns, dailyPatternMarketDate, type DailyPatternEvent } from '@/utils/dailyPatterns';
 import { dailyPatternOverlays } from './dailyPatternOverlay';
+import { aggregateStockBars, stockPeriodKey, type StockKlinePeriod } from '@/utils/stockKline';
 import { useTheme } from '@/composables/useTheme';
 
 const props = defineProps<{ symbol: string; endDate?: string; highlightDate?: string; markers?: TradeMarker[]; markerCaption?: string }>();
+const period = ref<StockKlinePeriod>('1d');
+const periodOptions = [{ value: '1d', label: '日 K' }, { value: '1w', label: '周 K' }, { value: '1M', label: '月 K' }] as const;
+function changePeriod(value: StockKlinePeriod) {
+  period.value = value;
+  selected.value = null;
+  selectedPattern.value = null;
+  focusTimestamp.value = undefined;
+}
 const selected = ref<TradeMarker | null>(null);
 const selectedPattern = ref<DailyPatternEvent | null>(null);
 const marketDate = ref<string>();
@@ -42,26 +51,35 @@ function patternAge(event: DailyPatternEvent) {
 }
 const patternOverlays = computed(() => dailyPatternOverlays(patterns.value, dailyBars.value,
   resolvedTheme.value === 'dark', event => { selectedPattern.value = event; }));
-const bars = computed(() => dailyBars.value.map(row => ({ timestamp: Date.parse(`${row.tradeDate}T00:00:00Z`), open: row.open,
+const periodBars = computed(() => aggregateStockBars(dailyBars.value, period.value));
+const bars = computed(() => periodBars.value.map(row => ({ timestamp: Date.parse(`${row.tradeDate}T00:00:00Z`), open: row.open,
     high: row.high, low: row.low, close: row.close, volume: row.volume, turnover: row.amount ?? undefined })));
 const tradeOverlays = computed(() => tradeMarkerOverlays(props.markers ?? [], timestamp => {
   const bar = bars.value.find(item => item.timestamp === timestamp) ?? bars.value.at(-1);
   return bar?.close ?? 0;
 }, marker => { selected.value = marker; }));
-const highlightedBar = computed(() => bars.value.find(bar =>
-  bar.timestamp === Date.parse(`${props.highlightDate}T00:00:00Z`)));
+const highlightedBar = computed(() => {
+  if (!props.highlightDate || !dailyBars.value.some(bar => bar.tradeDate === props.highlightDate)) return undefined;
+  const key = stockPeriodKey(props.highlightDate, period.value);
+  const index = periodBars.value.findIndex(bar => stockPeriodKey(bar.tradeDate, period.value) === key);
+  return bars.value[index];
+});
 const overlays = computed(() => {
   const bar = highlightedBar.value;
-  return [...tradeOverlays.value, ...patternOverlays.value, ...(bar ? [{
+  return [...(period.value === '1d' ? [...tradeOverlays.value, ...patternOverlays.value] : []), ...(bar ? [{
     name: 'tradeBst', id: 'research-date', groupId: 'research-date', lock: true,
     points: [{ timestamp: bar.timestamp, value: bar.high }],
     extendData: { label: `查看日 ${props.highlightDate}`, kind: 'date' },
   }] : [])];
 });
 function historyStart() {
-  if (!props.highlightDate) return undefined;
-  const day = new Date(`${props.highlightDate}T00:00:00Z`);
-  day.setUTCDate(day.getUTCDate() - 365);
+  const market = /\.(SH|SZ|BJ)$/.test(props.symbol) ? 'CN' : props.symbol.endsWith('.HK') ? 'HK' : 'US';
+  const anchor = props.endDate ?? dailyPatternMarketDate(market, new Date());
+  const day = new Date(`${anchor}T00:00:00Z`);
+  const month = day.getUTCMonth();
+  day.setUTCFullYear(day.getUTCFullYear() - 5);
+  // Clamp February 29 to February 28 in a non-leap target year.
+  if (day.getUTCMonth() !== month) day.setUTCDate(0);
   return day.toISOString().slice(0, 10);
 }
 const pricePrecision = computed(() => bars.value.reduce((precision, bar) => {
@@ -105,10 +123,28 @@ onBeforeUnmount(() => controller?.abort());
     class="min-w-0 rounded-xl border bg-card p-4"
     data-testid="daily-kline-card"
   >
-    <div class="mb-3 flex min-h-6 items-center gap-3">
+    <div class="mb-3 flex min-h-6 flex-wrap items-center gap-3">
       <h3 class="shrink-0 text-sm font-semibold">
-        日 K
+        K 线
       </h3>
+      <div
+        class="flex gap-1"
+        role="group"
+        aria-label="K线周期"
+      >
+        <Button
+          v-for="option in periodOptions"
+          :key="option.value"
+          size="sm"
+          :variant="period === option.value ? 'secondary' : 'ghost'"
+          :aria-pressed="period === option.value"
+          :data-testid="`kline-period-${option.value}`"
+          @click="changePeriod(option.value)"
+        >
+          {{ option.label }}
+        </Button>
+      </div>
+      <span class="text-xs text-muted-foreground">最近 5 年</span>
       <StockMembershipTags :code="symbol" />
       <span
         v-if="highlightDate && !loading && !error"
@@ -133,6 +169,17 @@ onBeforeUnmount(() => controller?.abort());
         </Button>
       </template>
     </div>
+    <p
+      v-if="!loading && !error && bars.length"
+      class="mb-3 text-xs text-muted-foreground"
+      data-testid="kline-coverage"
+    >
+      前复权 · {{ dailyBars[0]?.tradeDate }} — {{ dailyBars.at(-1)?.tradeDate }} · {{ bars.length }} 根{{ periodOptions.find(option => option.value === period)?.label }} · 可拖动、缩放查看历史
+      <span
+        v-if="period !== '1d'"
+        class="block mt-1"
+      >按交易日期聚合已有日线；首尾周期可能不完整，缺失交易日不补零。日线形态与交易标记请切回日 K 查看。</span>
+    </p>
     <p
       v-if="data?.historyFallback && bars.length"
       class="mb-3 text-sm text-muted-foreground"
@@ -162,7 +209,7 @@ onBeforeUnmount(() => controller?.abort());
     <MarketKLineChart
       v-else
       :symbol="data?.symbol ?? symbol"
-      period="1d"
+      :period="period"
       :price-precision="pricePrecision"
       :overlays="overlays"
       :bars="bars"
@@ -171,7 +218,7 @@ onBeforeUnmount(() => controller?.abort());
       :source-key="`${symbol}:${endDate ?? 'latest'}`"
     />
     <section
-      v-if="!loading && !error && bars.length"
+      v-if="period === '1d' && !loading && !error && bars.length"
       class="mt-3 border-t pt-3 text-sm"
       data-testid="daily-pattern-summary"
       aria-label="Price Action 最近形态"
