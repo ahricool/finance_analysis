@@ -338,7 +338,7 @@ onBeforeUnmount(() => { generation++; poolGeneration++; });
           v-if="ladder?.source"
           class="max-h-[500px] overflow-auto"
         >
-          <table class="w-full text-left text-xs">
+          <table class="w-full min-w-max text-left text-xs">
             <thead>
               <tr>
                 <th class="p-2">

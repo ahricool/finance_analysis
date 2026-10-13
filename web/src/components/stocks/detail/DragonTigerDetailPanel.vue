@@ -87,7 +87,7 @@ onBeforeUnmount(() => { ++generation; });
         <p class="text-xs text-muted-foreground">
           股票原始净额与概念贡献分别列示；概念归属按各交易日观测保存。
         </p>
-        <table class="w-full text-sm">
+        <table class="w-full min-w-max text-sm">
           <thead>
             <tr>
               <th class="p-2 text-left">

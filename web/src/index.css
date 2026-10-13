@@ -185,6 +185,19 @@
     @apply min-w-0 flex-wrap;
   }
 
+  /* Headers set the minimum column width, including labels and help icons.
+     Scope this to headers so body cells can still truncate or wrap. */
+  th {
+    white-space: nowrap;
+  }
+
+  th [data-slot='bilingual-label'] {
+    width: max-content;
+    min-width: max-content;
+    max-width: none;
+    flex-shrink: 0;
+  }
+
   /* Numeric columns: right-aligned, tabular figures. */
   .num {
     @apply text-right tabular-nums font-medium;

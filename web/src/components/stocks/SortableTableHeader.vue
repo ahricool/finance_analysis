@@ -36,10 +36,10 @@ defineEmits<{
     :class="cn('whitespace-nowrap px-4 py-3 font-medium', props.class, props.align === 'right' ? 'text-right' : 'text-left')"
     :aria-sort="active ? (direction === 'asc' ? 'ascending' : 'descending') : 'none'"
   >
-    <div class="flex items-center gap-1">
+    <div class="flex min-w-max items-center gap-1">
       <button
         type="button"
-        class="flex min-w-0 items-center gap-1.5 transition-colors hover:text-foreground"
+        class="flex shrink-0 items-center gap-1.5 transition-colors hover:text-foreground"
         :class="props.align === 'right' ? 'ml-auto' : ''"
         @click="$emit('sort')"
       >

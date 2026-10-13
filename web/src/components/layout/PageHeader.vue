@@ -28,13 +28,21 @@ withDefaults(defineProps<{
         </BreadcrumbList>
       </Breadcrumb>
       <div>
-        <component
-          :is="variant === 'section' ? 'h2' : 'h1'"
-          class="font-semibold tracking-tight text-foreground"
-          :class="variant === 'section' ? 'text-lg' : 'text-2xl sm:text-3xl'"
-        >
-          {{ title }}
-        </component>
+        <div class="flex items-center justify-between gap-4">
+          <component
+            :is="variant === 'section' ? 'h2' : 'h1'"
+            class="min-w-0 font-semibold tracking-tight text-foreground"
+            :class="variant === 'section' ? 'text-lg' : 'text-2xl sm:text-3xl'"
+          >
+            {{ title }}
+          </component>
+          <div
+            v-if="$slots['title-actions']"
+            class="shrink-0"
+          >
+            <slot name="title-actions" />
+          </div>
+        </div>
         <p
           v-if="en"
           class="mt-1 text-xs font-normal tracking-wide text-muted-foreground sm:text-sm"
