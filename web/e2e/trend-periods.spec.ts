@@ -38,6 +38,22 @@ for (const width of [390, 768, 1024, 1280, 1440, 1920]) {
     });
     await page.goto('/research/trend-following');
     await expect(page.getByTestId('trend-row')).toContainText('周期20');
+    const periods = page.getByTestId('trend-period');
+    const layout = await periods.evaluate(element => {
+      const toolbar = element.parentElement!;
+      const style = getComputedStyle(toolbar);
+      return {
+        flexWrap: getComputedStyle(element).flexWrap,
+        right: element.getBoundingClientRect().right,
+        toolbarRight: toolbar.getBoundingClientRect().right - parseFloat(style.paddingRight) - parseFloat(style.borderRightWidth),
+        buttonTops: Array.from(element.querySelectorAll('button'), button => button.getBoundingClientRect().top),
+      };
+    });
+    expect(layout.flexWrap).toBe('nowrap');
+    expect(Math.abs(layout.right - layout.toolbarRight)).toBeLessThanOrEqual(1);
+    expect(new Set(layout.buttonTops).size).toBe(1);
+    await expect(page.getByTestId('trend-refresh')).toBeVisible();
+    await expect(page.getByTestId('trend-run-latest')).toBeVisible();
     for (const period of [40, 60]) {
       await page.getByTestId('trend-period').getByRole('button', { name: `${period}日`, exact: true }).click();
       await expect(page.getByTestId('trend-row')).toContainText(`周期${period}`);

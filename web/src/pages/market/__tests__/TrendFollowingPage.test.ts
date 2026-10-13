@@ -105,6 +105,28 @@ describe('TrendFollowingPage', () => {
   });
   afterEach(() => { document.body.innerHTML = ''; vi.clearAllMocks(); });
 
+  it.each(['official', 'preview'] as const)('keeps the period selector at the right end of the wrapping %s toolbar', async (mode) => {
+    mockPreview({ ...ranking('CN'), status: 'completed',
+      previewTime: '2026-08-28T10:00:00Z', snapshots: [snapshot()] });
+    const wrapper = mount(TrendFollowingPage);
+    await flushPromises();
+    await wrapper.get(`[data-testid="research-mode-${mode}"]`).trigger('click');
+    await flushPromises();
+
+    const toolbar = wrapper.get('.research-toolbar');
+    const periods = wrapper.get('[data-testid="trend-period"]');
+    expect(toolbar.element.lastElementChild).toBe(periods.element);
+    expect(toolbar.classes()).toContain('flex-wrap');
+    expect(periods.classes()).toEqual(expect.arrayContaining(['ml-auto', 'shrink-0', 'flex-nowrap!']));
+    expect(periods.findAll('button').map(button => button.text())).toEqual(['20日', '40日', '60日']);
+    expect(toolbar.find('[data-testid="trend-market"]').exists()).toBe(true);
+    expect(toolbar.find('[data-testid="trend-refresh"]').exists()).toBe(true);
+    expect(toolbar.find('[data-testid="trend-run-latest"]').exists()).toBe(mode === 'official');
+    expect(toolbar.find('[data-testid="trend-date-input"]').exists()).toBe(mode === 'official');
+    expect(toolbar.find('[data-testid="trend-date-readonly"]').exists()).toBe(mode === 'preview');
+    wrapper.unmount();
+  });
+
   it('switches complete strategy periods, ignores stale rankings, and carries the period into detail', async () => {
     const wrapper = mount(TrendFollowingPage);
     await flushPromises();
