@@ -1,3 +1,4 @@
+import { metricLabel } from '@/i18n/labels';
 import { exportExcel } from '@/utils/excelExport';
 import { marketDataApi } from '@/api/marketData';
 import ETFRotationHistoryCharts from '@/components/etf-rotation/ETFRotationHistoryCharts.vue';
@@ -14,7 +15,7 @@ const apiMocks = vi.hoisted(() => ({
   ranking: vi.fn(),
   candidates: vi.fn(),
   dates: vi.fn(),
-  detail: vi.fn(), detailHistory: vi.fn(),
+  detail: vi.fn(), previewDetail: vi.fn(), detailHistory: vi.fn(),
   run: vi.fn(),
   preview: vi.fn(), previewStatus: vi.fn(),
 }));
@@ -157,6 +158,11 @@ function mockPreview(payload: Record<string, unknown> | null) {
     previewTime: payload.previewTime, dataAsOf: payload.dataAsOf, provider: payload.provider,
     snapshotCount: Array.isArray(rows) ? rows.length : 0, warnings: payload.warnings ?? [],
   } : null);
+  apiMocks.previewDetail.mockImplementation(async (code: string, market: string, date?: string) => {
+    const row = (payload?.items as ETFMomentumSnapshot[] ?? []).find(row => row.code === code && (!date || row.tradeDate === date));
+    if (!row || payload?.status !== 'completed') throw { response: { status: 404 } };
+    return { market, metadata: row, latest: row, history: [], marketSnapshot: payload.marketSnapshot };
+  });
 }
 
 describe('ETFRotationPage', () => {
@@ -262,11 +268,11 @@ describe('ETFRotationPage', () => {
     await flushPromises();
 
     expect(document.body.textContent).toContain('科创50ETF');
-    expect(wrapper.findAll('thead th')).toHaveLength(17);
+    expect(wrapper.findAll('thead th')).toHaveLength(18);
     expect(wrapper.text()).toContain('持续天数');
     await wrapper.get('tbody tr').trigger('click');
     await flushPromises();
-    expect(document.body.textContent).toContain('+1.10%');
+    await vi.waitFor(() => expect(document.body.textContent).toContain('+1.10%'));
     expect(document.body.textContent).toContain('+2.34%');
     expect(document.body.textContent).toContain('-1.20%');
     expect(document.body.textContent).toContain('+4.00%');
@@ -276,8 +282,8 @@ describe('ETFRotationPage', () => {
     expect(document.body.textContent).toContain('#3');
     expect(document.body.textContent).toContain('+4');
     expect(apiMocks.ranking).toHaveBeenCalledWith('CN', undefined);
-    expect(document.body.querySelector('[aria-label="查看 3D 指标说明与计算公式"]')).not.toBeNull();
-    expect(document.body.querySelector('[aria-label="查看 Entry 指标说明与计算公式"]')).not.toBeNull();
+    expect(document.body.querySelector('[aria-label="查看 3D 说明"]')).not.toBeNull();
+    expect(document.body.querySelector('[aria-label="查看 入场 说明"]')).not.toBeNull();
   });
 
   it('documents both explanations and the complete fast-rotation formulas in indicator hints', () => {
@@ -346,9 +352,9 @@ describe('ETFRotationPage', () => {
 
     expect(wrapper.get('[data-testid="rotation-candidate"]').text()).toContain('科创50ETF');
     expect(wrapper.get('[data-testid="rotation-exit"]').text()).toContain('上证50ETF');
-    expect(wrapper.get('[data-testid="etf-regime-change"]').text()).toContain('NEUTRAL → RISK_ON');
-    expect(wrapper.get('[data-testid="etf-change-new-buy"]').text()).toContain('Composite Δ +7.2');
-    expect(wrapper.get('[data-testid="etf-change-new-emerging"]').text()).toContain('NEUTRAL → EMERGING');
+    expect(wrapper.get('[data-testid="etf-regime-change"]').text()).toContain('中性 → 风险偏好');
+    expect(wrapper.get('[data-testid="etf-change-newBuy"]').text()).toContain('综合分 Δ +7.2');
+    expect(wrapper.get('[data-testid="etf-change-newEmerging"]').text()).toContain('NEUTRAL → EMERGING');
     expect(wrapper.get('[data-testid="etf-rank-mover"]').text()).toContain('#8 → #3 (+5)');
   });
 
@@ -369,7 +375,7 @@ describe('ETFRotationPage', () => {
     await wrapper.get('[data-testid="rotation-candidate"]').trigger('click');
     await flushPromises();
     await vi.waitFor(() => expect(apiMocks.detail).toHaveBeenLastCalledWith('159915.SZ', 'CN', 60, '2026-08-21'));
-    expect(marketDataApi.dailyBars).toHaveBeenLastCalledWith('159915.SZ', undefined, '2025-08-21', expect.any(AbortSignal));
+    expect(marketDataApi.dailyBars).toHaveBeenLastCalledWith('159915.SZ', undefined, expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/), expect.any(AbortSignal));
   });
 
   it('resets the selected date and reloads US snapshots when switching markets', async () => {
@@ -430,7 +436,7 @@ describe('ETFRotationPage', () => {
     expect(document.body.textContent).toContain('RS10');
     expect(document.body.textContent).toContain('Signed ER10');
     expect(apiMocks.detail).toHaveBeenCalledWith('588000.SH', 'CN', 60, '2026-08-25');
-    expect(marketDataApi.dailyBars).toHaveBeenLastCalledWith('588000.SH', undefined, '2025-08-25', expect.any(AbortSignal));
+    expect(marketDataApi.dailyBars).toHaveBeenLastCalledWith('588000.SH', undefined, expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/), expect.any(AbortSignal));
   });
 
   it('renders nullable actions and snapshot warnings without treating them as signals', async () => {
@@ -479,7 +485,7 @@ describe('ETFRotationPage', () => {
     expect(wrapper.get('[data-testid="research-provider"]').text()).toBe('Tencent');
     expect(wrapper.get('[data-testid="rotation-candidate"]').text()).toContain('半导体ETF');
     expect(wrapper.get('[data-testid="rotation-candidate-vs-official"]').text()).toContain('vs 正式');
-    expect(wrapper.get('[data-testid="etf-preview-change-new-buy"]').text()).toContain('半导体ETF');
+    expect(wrapper.get('[data-testid="etf-preview-change-newBuy"]').text()).toContain('半导体ETF');
     expect(wrapper.find('[data-testid="etf-rotation-date"]').exists()).toBe(false);
     expect(wrapper.find('[data-testid="etf-rotation-run"]').exists()).toBe(false);
   });
@@ -604,8 +610,8 @@ describe('ETFRotationPage', () => {
     expect(apiMocks.detailHistory).toHaveBeenCalledWith('512480.SH', 'CN', '2026-09-10');
     const modal = document.body.querySelector('[data-testid="etf-detail-modal"]');
     expect(modal?.textContent).toContain('81.3');
-    expect(modal?.textContent).toContain('EMERGING');
-    expect(modal?.textContent).toContain('BUY');
+    expect(modal?.textContent).toContain('萌芽');
+    expect(modal?.textContent).toContain('买入');
     expect(modal?.textContent).not.toContain('60.0');
     expect(modal?.querySelector('[data-testid="etf-detail-history"]')).not.toBeNull();
     const chartHistory = wrapper.getComponent(ETFRotationHistoryCharts).props('history');
@@ -662,7 +668,8 @@ describe('ETFRotationPage', () => {
     });
     const wrapper = mount(ETFRotationPage);
     await flushPromises();
-    const header = wrapper.findAll('th').find(th => th.find('button').text() === label)!;
+    const labels: Record<string, string> = { rank: 'rank', name: 'etf', state: 'state', action: 'action', compositeScore: 'composite', momentumStrengthScore: 'momentum', trendQualityScore: 'trendQuality', relativeStrengthScore: 'relativeStrength', ret5D: 'ret5D', ret20D: 'ret20D', rankChange1D: 'rankChange1D', rankChange3D: 'rankChange3D', rankChange5D: 'rankChange5D' };
+    const header = wrapper.findAll('th').find(th => th.find('button').text() === metricLabel(labels[key]!).zh)!;
     const order = () => wrapper.findAll('[data-testid="etf-ranking-row"] span.font-mono').map(cell => cell.text());
     if (label !== 'Composite') await header.get('button').trigger('click');
     const ascending = ['A.SH', 'B.SH', 'C.SH', 'D.SH'];

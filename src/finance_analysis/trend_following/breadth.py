@@ -4,7 +4,7 @@ from collections import Counter
 from datetime import date
 
 from finance_analysis.market_review.trading_calendar import get_market_now
-from finance_analysis.trend_following.preview_cache import load_preview
+from finance_analysis.trend_following.preview_cache import load_preview_states as load_preview
 
 STATE_GROUPS = {
     "inactive": ("IDLE", "WATCHING"),

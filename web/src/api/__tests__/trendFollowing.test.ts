@@ -4,6 +4,16 @@ import { trendFollowingApi } from '../trendFollowing';
 
 vi.mock('../index', () => ({ default: { get: vi.fn(), post: vi.fn() } }));
 
+function tableDto(data: Record<string, unknown>) {
+  const items = data.items as Record<string, unknown>[];
+  const columns = [...new Set(items.flatMap(row => Object.keys(row).filter(key => key !== 'features' && key !== 'score_breakdown')))];
+  const features = [...new Set(items.flatMap(row => Object.keys((row.features ?? {}) as object)))];
+  return { ...data, items: undefined, table: { columns, feature_columns: features,
+    rows: items.map(row => [...columns.map(key => row[key] ?? null),
+      ...features.map(key => (row.features as Record<string, unknown> | undefined)?.[key] ?? null)]),
+  } };
+}
+
 describe('trendFollowingApi', () => {
   beforeEach(() => vi.clearAllMocks());
 
@@ -34,13 +44,13 @@ describe('trendFollowingApi', () => {
   });
 
   it('converts nested snapshot fields and scopes ranking to market/date', async () => {
-    vi.mocked(apiClient.get).mockResolvedValue({ data: {
+    vi.mocked(apiClient.get).mockResolvedValue({ data: tableDto({
       trade_date: '2026-08-28', market: 'US', items: [{ code: 'AAPL.US', alpha_score: 82,
         score_breakdown: { trend: { weighted_r2: 90 }, rs: { score: 57 }, setup: { volume_quality: 80 },
           path: { concentration_quality: 88 }, alpha: { version: 3, components: { trend: 80, rs: 70, setup: 60, path: 90 } } },
         features: { alpha_version: 3, path_score: 95, setup_score: 80,
           positive_return_concentration: .3, atr_expansion_ratio: 1.1, downside_control_quality: 90, return_5d: 0.03, return_10d: 0.06, return_20d: 0.1, weighted_r2: 0.9,
-          rs_5d: 0.01, rs_10d: 0.02, trend_candidate: true, trend_resume: false } }],
+          rs_5d: 0.01, rs_10d: 0.02, trend_candidate: true, trend_resume: false, r2_quality: 90, volume_quality: 80, concentration_quality: 88 } }],
       changes: {
         previous_trade_date: '2026-08-27',
         market_score_change: 2.5,
@@ -52,9 +62,9 @@ describe('trendFollowingApi', () => {
         movers: [{ current: { code: 'AAPL.US' }, previous_rank: 5, rank_change: 4,
           trend_score_change: 3, rs_score_change: 2, alpha_score_change: 2.5 }],
       },
-    } });
+    }) });
     const result = await trendFollowingApi.ranking('US', '2026-08-28');
-    expect(apiClient.get).toHaveBeenCalledWith('/api/v1/trend-following/ranking', {
+    expect(apiClient.get).toHaveBeenCalledWith('/api/v1/trend-following/ranking/table', {
       params: { trend_period: 20, market: 'US', trade_date: '2026-08-28' },
     });
     expect(result.items[0]).toMatchObject({ alphaScore: 82,
@@ -102,10 +112,10 @@ describe('trendFollowingApi', () => {
 });
 
 it('maps ranking snapshot rank changes including null and zero with the bounded DTO mapper', async () => {
-  vi.mocked(apiClient.get).mockResolvedValue({ data: { items: [
+  vi.mocked(apiClient.get).mockResolvedValue({ data: tableDto({ items: [
     { rank_change_1d: 5, rank_change_3d: -17, rank_change_5d: 32 },
     { rank_change_1d: 0, rank_change_3d: null, rank_change_5d: null },
-  ] } });
+  ] }) });
   const items = (await trendFollowingApi.ranking('CN')).items;
   expect(items).toMatchObject([
     { rankChange1D: 5, rankChange3D: -17, rankChange5D: 32, features: {} },
@@ -116,11 +126,11 @@ it('maps ranking snapshot rank changes including null and zero with the bounded 
 });
 
 it('keeps null ranking scalars from the DTO instead of coercing them to zero or IDLE', async () => {
-  vi.mocked(apiClient.get).mockResolvedValue({ data: { items: [{
+  vi.mocked(apiClient.get).mockResolvedValue({ data: tableDto({ items: [{
     code: 'NULL.US', rank: 4, alpha_score: 55,
     state: null, trend_score: null, rs_score: null, breakout_score: null,
     atr: null, reference_price: null,
-  }] } });
+  }] }) });
   const item = (await trendFollowingApi.ranking('CN')).items[0]!;
   expect(item.state).toBeNull();
   expect(item.trendScore).toBeNull();
@@ -208,4 +218,23 @@ it('preserves decimal risk sizing through official detail and preview camelCase 
       stopPrice: 23.75, suggestedPositionPct: .2, stopBasis: 'ATR',
     } });
   }
+});
+
+it('reads a compact preview list and fetches full detail for one exact-date security', async () => {
+  vi.mocked(apiClient.get).mockResolvedValueOnce({ data: {
+    status: 'completed', market: 'CN', trade_date: '2026-10-14', preview_time: '2026-10-14T06:00:00Z',
+    table: { columns: ['code', 'name', 'rank', 'alpha_score'], feature_columns: ['return_20d', 'trend_resume'],
+      rows: [['600519.SH', '贵州茅台', 1, 82.123456789, 0, false]] },
+  } });
+  const result = await trendFollowingApi.previewRanking('CN', 40);
+  expect(result?.snapshots[0]).toMatchObject({ code: '600519.SH', alphaScore: 82.123456789,
+    features: { return20D: 0, trendResume: false } });
+  expect(result?.snapshots[0]).not.toHaveProperty('scoreBreakdown');
+  expect(apiClient.get).toHaveBeenLastCalledWith('/api/v1/trend-following/preview/ranking', { params: { market: 'CN', trend_period: 40 } });
+  vi.mocked(apiClient.get).mockResolvedValueOnce({ data: { latest: { features: { risk_sizing: { stop_price: 12.34 } } } } });
+  const detail = await trendFollowingApi.previewDetail('600519.SH', 'CN', '2026-10-14', 40);
+  expect(detail.latest.features.riskSizing?.stopPrice).toBe(12.34);
+  expect(apiClient.get).toHaveBeenLastCalledWith('/api/v1/trend-following/preview/stocks/600519.SH', {
+    params: { market: 'CN', trend_period: 40, trade_date: '2026-10-14' }, signal: undefined,
+  });
 });

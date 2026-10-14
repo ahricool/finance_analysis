@@ -15,15 +15,7 @@ DAYS = [DAY - timedelta(days=i) for i in range(20, -1, -1)]
 STAMP = datetime.combine(DAY, datetime.min.time(), ZoneInfo("Asia/Shanghai")).replace(hour=11)
 
 
-class Redis:
-    def __init__(self):
-        self.values = {}
-
-    def get(self, key):
-        return self.values.get(key)
-
-    def set(self, key, value, ex):
-        self.values[key] = value
+from tests.preview_redis import MemoryRedis as Redis
 
 
 def quote(price=150, stamp=STAMP, pre_close=120):
@@ -155,7 +147,7 @@ def test_preview_reuses_reference_updates_benchmark_and_only_caches_results():
     assert second["items"][0]["rank_change_3d"] == 12
     assert data.history_calls == 42 and len(data.stock_calls) == 2
     assert data.catalog_calls == 0 and data.member_calls == 0
-    assert set(cache.client.values) == {module.KEY}
+    assert set(cache.client.values) == {module.KEY, f"{module.KEY}:views:v1"}
     PreviewResponse.model_validate(cache.read())
     data.stale_benchmark = True
     with pytest.raises(ValueError, match="benchmark not ready"):
@@ -225,7 +217,7 @@ def test_next_run_recovers_after_upstream_history_is_repaired():
     service.run_preview()
     assert cache.read()["status"] == "completed"
     assert data.history_calls == 22
-    assert set(cache.client.values) == {module.KEY}
+    assert set(cache.client.values) == {module.KEY, f"{module.KEY}:views:v1"}
 
 
 @pytest.mark.parametrize("missing_db", [False, True])
@@ -268,5 +260,5 @@ def test_preview_fallback_is_reloaded_each_run_and_only_results_are_saved():
     assert [call[1]["source_policy"] for call in data.stock_calls] == ["db_only", "remote_only"] * 2
     assert all(call[0] == ["600001.SH"] for call in data.stock_calls)
     assert cache.read()["result"]["items"][0]["above_ma20_ratio"] == 1
-    assert set(cache.client.values) == {module.KEY}
+    assert set(cache.client.values) == {module.KEY, f"{module.KEY}:views:v1"}
     assert repo.saved == [] and repo.members is None

@@ -22,7 +22,34 @@ class PreviewCache:
         return json.loads(raw) if raw else None
 
     def write(self, payload, key=KEY):
-        self.client.set(key, json.dumps(json_ready(payload), ensure_ascii=False), ex=TTL)
+        from finance_analysis.core.preview_views import encode, publish
+
+        ready = json_ready(payload)
+        result = ready.get("result")
+        ranking = {**ready, "result": {**result, "constituents": {}} if result else None}
+        views = {"ranking": ranking, **{
+            f"members:{code}": {"generated_at": result["generated_at"], "trade_date": result["trade_date"],
+                                "constituents": members}
+            for code, members in (result or {}).get("constituents", {}).items()
+        }}
+        publish(self.client, key, encode(ready), views, TTL)
+
+    def read_view(self, field):
+        from finance_analysis.core.preview_views import read
+
+        def fallback():
+            payload = self.read()
+            if not payload:
+                return None
+            result = payload.get("result")
+            if field == "ranking":
+                return {**payload, "result": {**result, "constituents": {}} if result else None}
+            members = (result or {}).get("constituents", {}).get(field.removeprefix("members:"))
+            return {"generated_at": result["generated_at"], "trade_date": result["trade_date"],
+                    "constituents": members} if members else None
+
+        body = read(self.client, KEY, field, fallback)
+        return json.loads(body) if body else None
 
 
 def current_day():

@@ -309,3 +309,13 @@ BTC 多策略以 `strategy_key + symbol` 隔离，代码注册表当前仅 `btc_
 沿用个人中心裁剪 UI 与 URL 展示，源文件/上传文件上限均为 5 MiB。
 后端统一生成 256×256 WebP（quality 82），存独立 `user_avatar` BYTEA 表；上传返回随机版本 URL，
 刷新用户资料后自动更新顶栏和个人头像。删除接口 `DELETE /auth/avatar`，不新增 UI。见 `../docs/user-avatars.md`。
+
+## 研究页面性能边界
+
+趋势页通过轻量 `/trend-following/status` 与 `/preview/status` 选择默认模式，
+正式 `/ranking/table` 和预演 `/preview/ranking` 使用列名一次传输的完整排名格式，由 API 模块还原类型。
+不得恢复预演首屏先下载正式排名的串行流程，或删减完整本地筛选、排序和导出的股票集合。
+趋势与 ETF 的 Preview 详情读取 `/preview/stocks/{code}`，必须带来源日期（趋势另带周期），不下载全市场预演。
+行业 Preview 列表读取 `/preview/ranking`，成分按行业和列表生成时间读取；版本过期显示刷新提示，不混用正式成分。
+首次鉴权共享进行中的状态请求；登录、退出和显式重试会开启新代次，旧响应不得覆盖新会话状态。
+统一证券弹窗的行情和期权面板按需加载，避免各研究页首屏引入完整图表依赖。

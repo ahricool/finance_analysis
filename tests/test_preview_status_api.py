@@ -1,6 +1,9 @@
 """Preview status reads existing cache metadata without exposing strategy rows."""
 from copy import deepcopy
 
+from finance_analysis.core.preview_metadata import preview_metadata
+from finance_analysis.core.preview_views import encode
+
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -20,7 +23,10 @@ def test_status_reads_cache_once_and_only_returns_metadata(monkeypatch, endpoint
     }
     original = deepcopy(payload)
     calls = []
-    monkeypatch.setattr(endpoint, "load_preview", lambda market, **kwargs: calls.append(market) or payload)
+    monkeypatch.setattr(endpoint, "load_preview_view",
+                        lambda market, field, **kwargs: calls.append((market, field)) or
+                        encode(preview_metadata(payload, rows_key=rows_key)))
+    monkeypatch.setattr(endpoint, "load_preview", lambda market, **kwargs: payload)
     app = FastAPI()
     app.include_router(endpoint.router)
     app.dependency_overrides[endpoint.require_current_user] = lambda: None
@@ -31,7 +37,7 @@ def test_status_reads_cache_once_and_only_returns_metadata(monkeypatch, endpoint
         "status", "market", "trade_date", "preview_time", "data_as_of", "provider", "warnings",
     )}, "snapshot_count": 3794}
     assert len(response.content) < 400
-    assert calls == ["CN"]
+    assert calls == [("CN", "status")]
     assert payload == original
     # Existing full endpoint and cache shape remain intact.
     assert endpoint.preview(None, "CN") == original
@@ -40,6 +46,7 @@ def test_status_reads_cache_once_and_only_returns_metadata(monkeypatch, endpoint
 @pytest.mark.parametrize("endpoint", [trend_following, etf_rotation])
 def test_status_missing_preview_preserves_404(monkeypatch, endpoint):
     monkeypatch.setattr(endpoint, "load_preview", lambda market, **kwargs: None)
+    monkeypatch.setattr(endpoint, "load_preview_view", lambda *args, **kwargs: None)
     app = FastAPI()
     app.include_router(endpoint.router)
     app.dependency_overrides[endpoint.require_current_user] = lambda: None

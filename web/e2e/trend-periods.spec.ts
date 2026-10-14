@@ -1,3 +1,4 @@
+import { compactTrendResponse } from './researchReadViews';
 import { expect, test } from '@playwright/test';
 
 for (const width of [390, 768, 1024, 1280, 1440, 1920]) {
@@ -29,12 +30,12 @@ for (const width of [390, 768, 1024, 1280, 1440, 1920]) {
       let body: object = { items: [] };
       if (path === '/api/v1/auth/status') body = { loggedIn: true, user: { uid: 1, username: 'Tester', role: 'user', extra: {} } };
       else if (path.endsWith('/trend-following/dates')) body = { items: ['2026-10-12'] };
-      else if (path.endsWith('/trend-following/ranking')) body = { ...summary, items: [snapshot], changes: null, candidates: [] };
+      else if (path.endsWith('/trend-following/ranking/table')) body = { ...summary, items: [snapshot], changes: null, candidates: [] };
       else if (path.endsWith('/trend-following/000001.SZ')) body = { market: 'CN', latest: snapshot, metadata: snapshot, history: [snapshot], market_context: summary };
       else if (path.endsWith('/breadth-history')) body = { market: 'CN', points: [], dates: [], warnings: [] };
       else if (path.endsWith('/transitions')) body = { market: 'CN', items: [], warnings: [] };
       else if (path.includes('/event-study/')) body = { groups: [], events: [], snapshot_dates: [], warnings: [], event_count: 0 };
-      return route.fulfill({ json: body });
+      return route.fulfill({ json: compactTrendResponse(new URL(route.request().url()).pathname, body) });
     });
     await page.goto('/research/trend-following');
     await expect(page.getByTestId('trend-row')).toContainText('周期20');
@@ -65,6 +66,6 @@ for (const width of [390, 768, 1024, 1280, 1440, 1920]) {
     await page.getByTestId('trend-row').click();
     await expect(page.getByTestId('trend-detail')).toContainText('MA30 / MA60');
     expect(requested.some(r => r.path.endsWith('/trend-following/000001.SZ') && r.period === '60')).toBe(true);
-    expect(requested.filter(r => r.path.endsWith('/trend-following/ranking')).map(r => r.period)).toEqual(['20', '40', '60']);
+    expect(requested.filter(r => r.path.endsWith('/trend-following/ranking/table')).map(r => r.period)).toEqual(['20', '40', '60']);
   });
 }

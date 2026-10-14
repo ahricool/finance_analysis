@@ -14,7 +14,7 @@ vi.mock('@/api/stocks', () => ({ stocksApi: { quote: vi.fn(), classification: vi
 beforeEach(() => { vi.mocked(stocksApi.quote).mockReset().mockResolvedValue({ code: 'AAPL.US', symbol: 'AAPL.US', market_type: 'US', available: false }); });
 const stock = { code: 'AAPL.US', name: 'Apple', market_type: 'US' as const };
 const slots = { template: '<div><slot /></div>' };
-const stubs = { Dialog: { props: ['open'], template: '<div v-if="open"><slot /></div>' }, DialogContent: slots, DialogHeader: slots, DialogTitle: slots, DialogDescription: slots, ResearchEvidence: true, DailyKLineCard: true, OptionsPanel: true };
+const stubs = { Dialog: { props: ['open'], template: '<div v-if="open"><slot /></div>' }, DialogContent: slots, DialogHeader: slots, DialogTitle: slots, DialogDescription: slots, ResearchEvidence: true, DailyKLineCard: true, OptionsPanel: { name: 'OptionsPanel', props: ['symbol', 'initialView', 'initialDate'], template: '<div />' } };
 function render(initialTab: StockDetailTab = 'overview') {
   return mount(StockDetailDialog, { props: { stock, kind: 'research', initialTab, context: { tradeDate: '2026-10-09', view: 'official' } }, global: { stubs } });
 }

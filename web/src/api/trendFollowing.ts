@@ -16,6 +16,7 @@ import type {
   TrendMarket,
   TrendPeriod,
   TrendPreviewResponse,
+  TrendPreviewRankingResponse,
   TrendPreviewStatusResponse,
   TrendRankingResponse,
   TrendRunAccepted,
@@ -43,6 +44,19 @@ function rankingDto(data: Record<string, unknown>): TrendRankingResponse {
     changes: changes ? mappedChanges : null,
     candidates: rows(candidates),
   } as unknown as TrendRankingResponse;
+}
+
+interface TableDto {
+  columns: string[];
+  feature_columns: string[];
+  rows: Array<Array<string | number | boolean | null>>;
+}
+
+function expandTable(table: TableDto): Record<string, unknown>[] {
+  return table.rows.map(values => ({
+    ...Object.fromEntries(table.columns.map((key, i) => [key, values[i]])),
+    features: Object.fromEntries(table.feature_columns.map((key, i) => [key, values[table.columns.length + i]])),
+  }));
 }
 
 export const trendFollowingApi = {
@@ -90,10 +104,37 @@ export const trendFollowingApi = {
     return toCamelCase(data);
   },
   async ranking(market: TrendMarket, tradeDate?: string, trendPeriod: TrendPeriod = 20): Promise<TrendRankingResponse> {
-    const { data } = await apiClient.get('/api/v1/trend-following/ranking', {
+    const { data } = await apiClient.get('/api/v1/trend-following/ranking/table', {
       params: { trend_period: trendPeriod, market, ...(tradeDate ? { trade_date: tradeDate } : {}) },
     });
-    return rankingDto(data);
+    const { table, ...summary } = data;
+    return rankingDto({ ...summary, items: expandTable(table) });
+  },
+  async snapshotStatus(market: TrendMarket, trendPeriod: TrendPeriod = 20): Promise<{ tradeDate: string; generatedAt: string | null } | null> {
+    try {
+      const { data } = await apiClient.get('/api/v1/trend-following/status', { params: { market, trend_period: trendPeriod } });
+      return toCamelCase(data);
+    } catch (error) {
+      if (getParsedApiError(error).status === 404) return null;
+      throw error;
+    }
+  },
+  async previewDetail(code: string, market: TrendMarket, tradeDate?: string, trendPeriod: TrendPeriod = 20,
+    signal?: AbortSignal): Promise<TrendDetailResponse> {
+    const { data } = await apiClient.get(`/api/v1/trend-following/preview/stocks/${encodeURIComponent(code)}`, {
+      params: { market, trend_period: trendPeriod, ...(tradeDate ? { trade_date: tradeDate } : {}) }, signal,
+    });
+    return toCamelCase(data);
+  },
+  async previewRanking(market: TrendMarket, trendPeriod: TrendPeriod = 20): Promise<TrendPreviewRankingResponse | null> {
+    try {
+      const { data } = await apiClient.get('/api/v1/trend-following/preview/ranking', { params: { market, trend_period: trendPeriod } });
+      const { table, ...summary } = data;
+      return { ...toCamelCase<TrendPreviewRankingResponse>(summary), snapshots: expandTable(table).map(rankingSnapshotFromDto) };
+    } catch (error) {
+      if (getParsedApiError(error).status === 404) return null;
+      throw error;
+    }
   },
   async candidates(market: TrendMarket, tradeDate?: string, trendPeriod: TrendPeriod = 20): Promise<TrendCandidatesResponse> {
     const { data } = await apiClient.get('/api/v1/trend-following/candidates', {

@@ -11,8 +11,8 @@ import TrendRankHistoryChart from '@/components/trend-following/TrendRankHistory
 import ETFRotationHistoryCharts from '@/components/etf-rotation/ETFRotationHistoryCharts.vue';
 
 const mocks = vi.hoisted(() => ({
-  trend: { detail: vi.fn(), preview: vi.fn(), detailHistory: vi.fn() },
-  etf: { detail: vi.fn(), preview: vi.fn(), detailHistory: vi.fn() },
+  trend: { detail: vi.fn(), previewDetail: vi.fn(), detailHistory: vi.fn() },
+  etf: { detail: vi.fn(), previewDetail: vi.fn(), detailHistory: vi.fn() },
 }));
 vi.mock('@/api/trendFollowing', () => ({ trendFollowingApi: mocks.trend }));
 vi.mock('@/api/etfRotation', () => ({ etfRotationApi: mocks.etf }));
@@ -41,14 +41,13 @@ for (const kind of ['trend', 'etf'] as const) {
       props: { symbol: 'AAPL.US', market: 'US', context },
       global: { renderStubDefaultSlot: true },
     });
-    function preview(date = '2026-09-10') {
-      return { status: 'completed', market: 'US', tradeDate: date, previewTime: `${date}T16:00:00Z`,
-        [kind === 'trend' ? 'snapshots' : 'items']: [snapshot('AAPL.US', date)], marketSnapshot: null };
-    }
     beforeEach(() => {
       vi.resetAllMocks();
       api.detail.mockResolvedValue(detail());
-      api.preview.mockResolvedValue(preview());
+      api.previewDetail.mockImplementation(async (_code: string, _market: string, date?: string) => {
+        if (date && date !== '2026-09-10') throw { response: { status: 404 } };
+        return detail();
+      });
       api.detailHistory.mockResolvedValue({ history: [] });
     });
 
@@ -56,7 +55,7 @@ for (const kind of ['trend', 'etf'] as const) {
       const wrapper = mountPanel();
       await flushPromises();
       expect(api.detail).toHaveBeenCalledWith('AAPL.US', 'US', 60, undefined, ...(kind === 'trend' ? [20] : []));
-      expect(api.preview).not.toHaveBeenCalled();
+      expect(api.previewDetail).not.toHaveBeenCalled();
       expect(wrapper.getComponent(DailyKLineCard).props('highlightDate')).toBe('2026-09-10');
       await wrapper.setProps({ context: { tradeDate: '2026-08-20', view: 'official' } });
       await flushPromises();
@@ -88,7 +87,7 @@ for (const kind of ['trend', 'etf'] as const) {
       const wrapper = mountPanel({ view: 'preview', tradeDate: '2026-09-10' });
       await flushPromises();
       expect(api.detail).not.toHaveBeenCalled();
-      expect(api.preview).toHaveBeenCalledWith('US', ...(kind === 'trend' ? [20] : []));
+      expect(api.previewDetail).toHaveBeenCalledWith('AAPL.US', 'US', '2026-09-10', ...(kind === 'trend' ? [20] : []));
       expect(api.detailHistory).toHaveBeenCalledWith('AAPL.US', 'US', '2026-09-10', ...(kind === 'trend' ? [60, 20] : []));
       expect(wrapper.text()).toContain('当前详情为 Preview');
       expect(wrapper.findComponent(DailyKLineCard).exists()).toBe(true);
@@ -130,11 +129,11 @@ for (const kind of ['trend', 'etf'] as const) {
     });
 
     it('invalidates preview and history work after unmount or a newer context', async () => {
-      const pending = deferred<ReturnType<typeof preview>>();
-      api.preview.mockReturnValueOnce(pending.promise);
+      const pending = deferred<ReturnType<typeof detail>>();
+      api.previewDetail.mockReturnValueOnce(pending.promise);
       const closed = mountPanel({ view: 'preview' });
       closed.unmount();
-      pending.resolve(preview());
+      pending.resolve(detail());
       await flushPromises();
       expect(api.detailHistory).not.toHaveBeenCalled();
       const staleHistory = deferred<{ history: ReturnType<typeof snapshot>[] }>();

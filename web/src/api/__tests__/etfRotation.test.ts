@@ -184,3 +184,12 @@ it('loads all rank history in one request and preserves null ranks and preview m
   });
   expect(result).toMatchObject({ officialCount: 1, previewDate: '2026-09-11', series: [{ ranks: [null, 2] }] });
 });
+
+it('fetches one preview ETF with its source date instead of the whole market', async () => {
+  vi.mocked(apiClient.get).mockResolvedValueOnce({ data: { latest: { code: '588000.SH', composite_score: 81.3 }, history: [] } });
+  const detail = await etfRotationApi.previewDetail('588000.SH', 'CN', '2026-10-14');
+  expect(detail.latest.compositeScore).toBe(81.3);
+  expect(apiClient.get).toHaveBeenLastCalledWith('/api/v1/etf-rotation/preview/stocks/588000.SH', {
+    params: { market: 'CN', trade_date: '2026-10-14' }, signal: undefined,
+  });
+});

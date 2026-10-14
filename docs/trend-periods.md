@@ -59,3 +59,18 @@ N+N/4+2 根；RSI 在这个窗口初始化并使用 Wilder 递推。额外日线
 示例：管理员调用 `POST /api/v1/trend-following/run`，body
 `{"market":"CN","trade_date":"2026-10-12"}` 可生成该日期的三套结果；省略日期生成最新可用交易日。
 历史补算与失败后的状态链失效遵循现有 service 行为，范围限定在对应周期。
+
+### 页面读取与传输
+
+趋势页通过 `/trend-following/status` 和 `/preview/status` 的轻量元数据选择默认视图，
+只下载该视图的列表。正式列表为 `/ranking/table`，预演列表为 `/preview/ranking`；
+响应保留原有市场摘要，并以 `table.columns`、`table.feature_columns` 和 `table.rows`
+传输完整排名。每行先按 `columns` 排列顶层值，再按 `feature_columns` 排列指标值；
+整列均为空的指标可省略，前端仍显示缺失值。数值不取整，保留完整筛选、排序和 Excel 导出。
+完整诊断通过 `/preview/stocks/{code}?trade_date=YYYY-MM-DD&trend_period=20|40|60`
+按证券读取，日期不匹配返回 404，不回退其他日期。
+
+Preview 发布时同一 Redis 事务写入原始文档及 `:views:v1` hash（元数据、排名、状态和证券详情），
+共享 24 小时 TTL；覆盖时先清理旧 hash，删除离开本轮的证券。原始缓存键保持不变，
+旧工件在下次正常定时发布前通过只读投影兼容，兼容回退不写入预演缓存或运行策略。正式列表缓存仍受提交后的
+market revision 失效保护，并按市场、日期、周期隔离。无需数据库迁移或手动清理 Redis。

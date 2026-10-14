@@ -1,3 +1,4 @@
+import { compactTrendResponse, isRankingPath } from './researchReadViews';
 import { expect, test } from '@playwright/test';
 
 const snapshot = {
@@ -79,14 +80,14 @@ for (const width of [1280, 1440, 1920]) {
           body = { market: 'CN', latest: snapshot.tradeDate, items: [snapshot.tradeDate] };
         } else if (pathname.endsWith('/trend-following/state-history')) {
           body = { market: 'CN', anchorDate: null, dates: [], items: [], officialCount: 0, warnings: [] };
-        } else if (pathname.endsWith('/trend-following/ranking')) {
+        } else if (pathname.endsWith('/trend-following/ranking/table')) {
           body = { ...summary, items: [snapshot], candidates: [snapshot] };
         } else if (pathname.endsWith('/trend-following/candidates')) {
           body = { ...summary, items: [snapshot], candidates: [snapshot] };
         } else if (pathname.endsWith('/trend-following/000001.SZ')) {
           body = { market: 'CN', metadata: snapshot, latest: snapshot, history, marketContext: summary };
         }
-        await route.fulfill({ json: body });
+        await route.fulfill({ json: compactTrendResponse(new URL(route.request().url()).pathname, body) });
       });
       const errors: string[] = [];
       page.on('pageerror', error => errors.push(error.message));
@@ -206,7 +207,7 @@ test('full universe has no pagination and remains sortable', async ({ page }) =>
     if (path.endsWith('/transitions')) body = { days: 3, items: [], warnings: [] };
     if (path.endsWith('/dates')) body = { items: [snapshot.tradeDate] };
     if (path.endsWith('/preview/status') || path.endsWith('/preview')) { await route.fulfill({ status: 404, json: {} }); return; }
-    if (path.endsWith('/ranking')) {
+    if (isRankingPath(path)) {
       const states = ['IDLE', 'WATCHING', 'CANDIDATE', 'TRENDING', 'WEAKENING', 'BROKEN'];
       body = { ...summary, items: Array.from({ length: 3800 }, (_, rank) => ({
         ...snapshot, code: `TEST${rank}`, name: `Stock ${rank}`, rank: rank + 1,
@@ -214,7 +215,7 @@ test('full universe has no pagination and remains sortable', async ({ page }) =>
       })), candidates: [] };
       rankingStarted = Date.now();
     }
-    await route.fulfill({ json: body });
+    await route.fulfill({ json: compactTrendResponse(new URL(route.request().url()).pathname, body) });
   });
   await page.goto('/research/trend-following');
   await expect(page.getByTestId('trend-row')).toHaveCount(28);
@@ -273,12 +274,12 @@ test('ranking row opens detail from keyboard and restores focus', async ({ page 
       body = { market: 'CN', days: 3, items: [], warnings: [] };
     } else if (pathname.endsWith('/trend-following/dates')) {
       body = { market: 'CN', latest: snapshot.tradeDate, items: [snapshot.tradeDate] };
-    } else if (pathname.endsWith('/trend-following/ranking')) {
+    } else if (pathname.endsWith('/trend-following/ranking/table')) {
       body = { ...summary, items: [snapshot], candidates: [snapshot] };
     } else if (pathname.endsWith('/trend-following/000001.SZ')) {
       body = { market: 'CN', metadata: snapshot, latest: snapshot, history, marketContext: summary };
     }
-    await route.fulfill({ json: body });
+    await route.fulfill({ json: compactTrendResponse(new URL(route.request().url()).pathname, body) });
   });
   await page.goto('/research/trend-following');
   const row = page.getByTestId('trend-row').first();

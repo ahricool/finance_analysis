@@ -12,7 +12,6 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import Response
 
-from finance_analysis.core.preview_metadata import preview_metadata
 from finance_analysis.database.models.user import User  # pragma: allowlist secret
 from finance_analysis.database.repositories.trend_following import (  # pragma: allowlist secret
     MEANINGFUL_STATES,
@@ -29,6 +28,8 @@ from finance_analysis.interfaces.api.v1.schemas.trend_following import (  # prag
     TrendRankingItem,
     TrendBreadthResponse,
     TrendTransitionsResponse,
+    TrendRankingTableResponse,
+    TrendSnapshotStatusResponse,
 )
 from finance_analysis.tasks.celery.schedule import (  # pragma: allowlist secret
     JOB_TREND_FOLLOWING_CN,
@@ -40,7 +41,7 @@ from finance_analysis.core.ranking import calculate_rank_changes  # pragma: allo
 from finance_analysis.trend_following.ranking_cache import RankingCache
 from finance_analysis.trend_following.read_models import CANDIDATE_FIELDS, ranking_item
 from finance_analysis.trend_following.config import DEFAULT_CONFIG  # pragma: allowlist secret
-from finance_analysis.trend_following.preview_cache import load_preview  # pragma: allowlist secret
+from finance_analysis.trend_following.preview_cache import load_preview, load_preview_view  # pragma: allowlist secret
 from finance_analysis.trend_following.universe import universe_by_code  # pragma: allowlist secret
 
 router = APIRouter()
@@ -319,6 +320,41 @@ def ranking(
     return Response(body, media_type="application/json")
 
 
+@router.get("/ranking/table", responses={200: {"model": TrendRankingTableResponse}})
+def ranking_table(
+    trade_date: date | None = None,
+    user: User = Depends(require_current_user),
+    market: Market = "CN",
+    trend_period: TrendPeriod = 20,
+):
+    from finance_analysis.core.preview_views import encode
+    from finance_analysis.trend_following.table import table_rows
+
+    repository = TrendFollowingRepository(market, trend_period=trend_period)
+    resolved = _resolve_date(repository, trade_date)
+    cache = RankingCache(market, resolved, trend_period=trend_period, table=True)
+    body = cache.load()
+    if body is None:
+        payload = json.loads(ranking(resolved, "alpha_score", None, user, market, None, trend_period).body)
+        payload["table"] = table_rows(payload.pop("items"))
+        body = encode(payload)
+        if payload.get("data_coverage", 0) >= DEFAULT_CONFIG.minimum_data_coverage:
+            cache.save(body)
+    return Response(body, media_type="application/json")
+
+
+@router.get("/status", response_model=TrendSnapshotStatusResponse)
+def snapshot_status(
+    _: User = Depends(require_current_user), market: Market = "CN", trend_period: TrendPeriod = 20,
+):
+    repository = TrendFollowingRepository(market, trend_period=trend_period)
+    resolved = _resolve_date(repository, None)
+    summary = repository.summary_by_date(resolved)
+    if summary is None:
+        raise HTTPException(404, "Trend Following snapshot is not available")
+    return jsonable_encoder({"trade_date": resolved, "generated_at": summary.get("generated_at")})
+
+
 @router.get("/breadth-history", response_model=TrendBreadthResponse)
 def breadth_history(
     days: int = Query(default=30, ge=1, le=120),
@@ -384,10 +420,29 @@ def dates(_: User = Depends(require_current_user), market: Market = "CN", trend_
 
 @router.get("/preview/status")
 def preview_status(_: User = Depends(require_current_user), market: Market = "CN", trend_period: TrendPeriod = 20):
-    payload = load_preview(market, trend_period=trend_period)
-    if payload is None:
+    body = load_preview_view(market, "status", trend_period=trend_period)
+    if body is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Trend Following preview is not available")
-    return jsonable_encoder(preview_metadata(payload, rows_key="snapshots"))
+    return Response(body, media_type="application/json")
+
+
+@router.get("/preview/ranking", responses={200: {"model": TrendRankingTableResponse}})
+def preview_ranking(_: User = Depends(require_current_user), market: Market = "CN", trend_period: TrendPeriod = 20):
+    body = load_preview_view(market, "ranking", trend_period=trend_period)
+    if body is None:
+        raise HTTPException(404, "Trend Following preview is not available")
+    return Response(body, media_type="application/json")
+
+
+@router.get("/preview/stocks/{code}")
+def preview_stock(
+    code: str, trade_date: date | None = None, _: User = Depends(require_current_user),
+    market: Market = "CN", trend_period: TrendPeriod = 20,
+):
+    body = load_preview_view(market, f"stock:{code.strip().upper()}", trend_period=trend_period)
+    if body is None or (trade_date is not None and json.loads(body)["trade_date"] != trade_date.isoformat()):
+        raise HTTPException(404, "Trend Following preview is not available for this stock and date")
+    return Response(body, media_type="application/json")
 
 
 @router.get("/preview")

@@ -35,7 +35,7 @@ import { Table, TableBody, TableCell, TableHeader, TableRow } from '@/components
 import type {
   TrendMarket,
   TrendPeriod,
-  TrendPreviewResponse,
+  TrendPreviewRankingResponse,
   TrendPreviewStatusResponse,
   TrendRankingChanges,
   TrendRankingResponse,
@@ -45,10 +45,7 @@ import type {
   TrendSummary,
 } from '@/types/trendFollowing';
 import { formatMarketCurrencyAmount } from '@/utils/marketCurrency';
-import {
-  asRankingSnapshot,
-  rankingFeatureValue,
-} from '@/utils/rankingFeatures';
+import { rankingFeatureValue } from '@/utils/rankingFeatures';
 import type { RankingFeatureKey } from '@/types/trendFollowing';
 import { RANKING_FEATURE_KEYS } from '@/types/trendFollowing';
 import {
@@ -81,12 +78,12 @@ const error = ref<ParsedApiError | null>(null);
 const dataMode = ref<ResearchDataMode>('official');
 const modeChosenByUser = ref(false);
 const { previewStatus, previewPayload, previewLoading, previewError, refreshPreviewStatus, loadPreview, resetPreview } =
-  useLazyResearchPreview<TrendMarket, TrendPreviewStatusResponse, TrendPreviewResponse>(() => market.value, {
+  useLazyResearchPreview<TrendMarket, TrendPreviewStatusResponse, TrendPreviewRankingResponse>(() => market.value, {
     previewStatus: market => trendFollowingApi.previewStatus(market, trendPeriod.value),
-    preview: market => trendFollowingApi.preview(market, trendPeriod.value),
+    preview: market => trendFollowingApi.previewRanking(market, trendPeriod.value),
   });
 const previewInfo = computed(() => previewPayload.value ?? previewStatus.value);
-const officialLatest = shallowRef<TrendRankingResponse | null>(null);
+const officialLatest = shallowRef<{ tradeDate: string; generatedAt: string | null } | null>(null);
 const officialSelected = shallowRef<TrendRankingResponse | null>(null);
 const detailOpen = ref(false);
 const detailStock = ref<{ code: string; name: string; market_type: TrendMarket } | null>(null);
@@ -392,7 +389,7 @@ function badgeVariant(value: string | null): 'default' | 'success' | 'warning' |
   if (value === 'CANDIDATE') return 'info';
   return 'outline';
 }
-function applyPreviewPayload(payload: TrendPreviewResponse | null) {
+function applyPreviewPayload(payload: TrendPreviewRankingResponse | null) {
   if (!payload) {
     items.value = [];
     changes.value = null;
@@ -421,7 +418,7 @@ function applyPreviewPayload(payload: TrendPreviewResponse | null) {
     changes.value = null;
     return;
   }
-  items.value = payload.snapshots.map(asRankingSnapshot);
+  items.value = payload.snapshots;
   changes.value = null;
 }
 function applyOfficialRanking(ranking: TrendRankingResponse) {
@@ -456,28 +453,30 @@ async function load(refreshDates = false, options: { autoSelectMode?: boolean } 
   }).catch(() => undefined);
   const previewTask = auxiliary ? refreshPreviewStatus(refreshVisiblePreview) : Promise.resolve();
   try {
-    const ranking = await trendFollowingApi.ranking(requestedMarket, requestedDate, trendPeriod.value);
-    if (current !== generation) return;
-    officialSelected.value = ranking;
-    if (!requestedDate || requestedDate === availableDates.value[0]) officialLatest.value = ranking;
-    selectedDate.value = ranking.tradeDate;
-    if (dataMode.value === 'official') applyOfficialRanking(ranking);
-    loading.value = false;
-    refreshing.value = false;
-    await previewTask;
-    if (current !== generation) return;
     if (autoSelectMode && !modeChosenByUser.value) {
-      dataMode.value = chooseDefaultResearchDataMode({
-        officialTradeDate: ranking.tradeDate,
-        officialGeneratedAt: ranking.generatedAt,
-        previewAvailable: previewStatus.value != null,
-        previewStatus: previewStatus.value?.status,
-        previewTradeDate: previewStatus.value?.tradeDate,
-        previewTime: previewStatus.value?.previewTime,
+      let metadataFailed = false;
+      const statusTask = trendFollowingApi.snapshotStatus(requestedMarket, trendPeriod.value)
+        .catch(() => { metadataFailed = true; return null; });
+      const [official] = await Promise.all([statusTask, previewTask]);
+      if (current !== generation) return;
+      officialLatest.value = official;
+      if (!modeChosenByUser.value) dataMode.value = metadataFailed ? 'official' : chooseDefaultResearchDataMode({
+        officialTradeDate: official?.tradeDate, officialGeneratedAt: official?.generatedAt,
+        previewAvailable: previewStatus.value != null, previewStatus: previewStatus.value?.status,
+        previewTradeDate: previewStatus.value?.tradeDate, previewTime: previewStatus.value?.previewTime,
       });
     }
-    if (dataMode.value === 'preview') await showPreview();
-    else applyOfficialRanking(ranking);
+    if (dataMode.value === 'preview') {
+      await previewTask;
+      if (current !== generation) return;
+      await showPreview();
+    } else {
+      const ranking = await trendFollowingApi.ranking(requestedMarket, requestedDate, trendPeriod.value);
+      if (current !== generation) return;
+      officialSelected.value = ranking;
+      if (!requestedDate || requestedDate === availableDates.value[0]) officialLatest.value = ranking;
+      applyOfficialRanking(ranking);
+    }
   } catch (reason) {
     if (current === generation) {
       const parsed = getParsedApiError(reason);

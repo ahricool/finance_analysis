@@ -197,3 +197,7 @@ ETF Price/MA、Composite、Rank、RS 和 Trend Rank/Fragility 图均通过日期
 复用 `POST /api/v1/market-data/forward-returns` 批量只读数据库前复权日线，独立于排名缓存，
 不写行情、策略快照或 Redis。中美各按交易所日历定位目标日，停牌或目标日缺数不顺延；
 未收盘、未到期、基准/目标日价格无效或成交量为零时显示「—」。Preview 不计算该收益率。
+
+预演详情通过 `/etf-rotation/preview/stocks/{code}?market=CN|US&trade_date=YYYY-MM-DD`
+读取单证券完整指标，不再重复下载全市场预演。`/preview/status` 独立读取随 Preview 原子发布的轻量元数据；
+视图与原始缓存共享 TTL，旧缓存在下一轮发布前只读兼容。指定日期不匹配返回 404。

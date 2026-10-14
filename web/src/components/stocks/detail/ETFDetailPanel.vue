@@ -9,7 +9,6 @@ import IndicatorLabel from '@/components/app/IndicatorHelpLabel.vue';
 import { Skeleton } from '@/components/ui/skeleton';
 import { detailChartHistory as buildDetailChartHistory } from '@/utils/detailChartHistory';
 import { formatMarketCurrencyAmount } from '@/utils/marketCurrency';
-import { isPreviewCompleted } from '@/utils/researchPreview';
 import type { StockDetailPanelProps } from './types';
 import { etfRotationApi } from '@/api/etfRotation';
 import type { ETFDetailResponse } from '@/types/etfRotation';
@@ -68,13 +67,9 @@ async function loadDetail() {
   detailLoading.value = true;
   try {
     if (preview) {
-      const payload = await etfRotationApi.preview(market);
+      const response = await etfRotationApi.previewDetail(symbol, market, tradeDate);
       if (request !== generation) return;
-      const snapshot = payload && isPreviewCompleted(payload.status)
-        && (!tradeDate || payload.tradeDate === tradeDate)
-        ? payload.items.find(row => row.code === symbol && (!tradeDate || row.tradeDate === tradeDate)) : undefined;
-      if (!snapshot || !payload) { unavailable.value = '此证券在所选日期暂无ETF 轮动预演数据。'; return; }
-      selected.value = { market, metadata: snapshot, latest: snapshot, history: [], marketSnapshot: payload.marketSnapshot };
+      selected.value = response;
       void loadDetailHistory();
     } else {
       const response = await etfRotationApi.detail(symbol, market, 60, tradeDate);
@@ -83,7 +78,7 @@ async function loadDetail() {
   } catch (reason) {
     if (request !== generation) return;
     const parsed = getParsedApiError(reason);
-    if (parsed.status === 404) unavailable.value = '此证券在所选日期暂无ETF 轮动数据。';
+    if (parsed.status === 404) unavailable.value = preview ? '此证券在所选日期暂无ETF 轮动预演数据。' : '此证券在所选日期暂无ETF 轮动数据。';
     else detailError.value = parsed;
   } finally {
     if (request === generation) detailLoading.value = false;

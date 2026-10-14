@@ -440,17 +440,9 @@ def test_official_run_after_preview_still_persists(monkeypatch):
 
 
 def test_preview_cache_round_trip_and_set_failure():
-    stored = {}
+    from tests.preview_redis import MemoryRedis
 
-    class Redis:
-        def set(self, key, value, ex=None):
-            stored["key"] = key
-            stored["value"] = value
-            stored["ex"] = ex
-
-        def get(self, key):
-            return stored["value"] if stored.get("key") == key else None
-
+    client = MemoryRedis()
     payload = {
         "market": "CN",
         "trade_date": TRADE_DATE,
@@ -458,15 +450,14 @@ def test_preview_cache_round_trip_and_set_failure():
         "items": [{"code": "588000.SH", "trade_date": TRADE_DATE, "action": "BUY"}],
         "market_snapshot": {"regime": "RISK_ON"},
     }
-    save_preview("CN", payload, client=Redis())
-    assert stored["key"] == PREVIEW_KEY_TEMPLATE.format(market="CN")
-    assert stored["ex"] == 24 * 60 * 60
-    loaded = load_preview("CN", client=Redis())
+    save_preview("CN", payload, client=client)
+    assert client.ttls[PREVIEW_KEY_TEMPLATE.format(market="CN")] == 24 * 60 * 60
+    loaded = load_preview("CN", client=client)
     assert loaded["items"][0]["code"] == "588000.SH"
     assert loaded["market_snapshot"]["regime"] == "RISK_ON"
 
     class Broken:
-        def set(self, key, value, ex=None):
+        def pipeline(self, transaction=True):
             raise ConnectionError("redis unavailable")
 
     with pytest.raises(RuntimeError, match="Failed to save ETF Rotation preview for CN") as exc_info:

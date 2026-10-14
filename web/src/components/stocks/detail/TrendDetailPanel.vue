@@ -9,7 +9,6 @@ import IndicatorLabel from '@/components/app/IndicatorHelpLabel.vue';
 import { Skeleton } from '@/components/ui/skeleton';
 import { detailChartHistory as buildDetailChartHistory } from '@/utils/detailChartHistory';
 import { formatMarketCurrencyAmount } from '@/utils/marketCurrency';
-import { isPreviewCompleted } from '@/utils/researchPreview';
 import type { StockDetailPanelProps } from './types';
 import { trendFollowingApi } from '@/api/trendFollowing';
 import type { TrendAlphaBreakdown, TrendDetailResponse, TrendState } from '@/types/trendFollowing';
@@ -73,13 +72,9 @@ async function loadDetail() {
   detailLoading.value = true;
   try {
     if (preview) {
-      const payload = await trendFollowingApi.preview(market, trendPeriod.value);
+      const response = await trendFollowingApi.previewDetail(symbol, market, tradeDate, trendPeriod.value);
       if (request !== generation) return;
-      const snapshot = payload && isPreviewCompleted(payload.status)
-        && (!tradeDate || payload.tradeDate === tradeDate)
-        ? payload.snapshots.find(row => row.code === symbol && (!tradeDate || row.tradeDate === tradeDate)) : undefined;
-      if (!snapshot || !payload) { unavailable.value = '此证券在所选日期暂无趋势研究预演数据。'; return; }
-      detail.value = { market, metadata: { market, code: snapshot.code, name: snapshot.name }, latest: snapshot, history: [], marketContext: { ...payload, generatedAt: payload.previewTime ?? '' } };
+      detail.value = response;
       void loadDetailHistory();
     } else {
       const response = await trendFollowingApi.detail(symbol, market, 60, tradeDate, trendPeriod.value);
@@ -88,7 +83,7 @@ async function loadDetail() {
   } catch (reason) {
     if (request !== generation) return;
     const parsed = getParsedApiError(reason);
-    if (parsed.status === 404) unavailable.value = '此证券在所选日期暂无趋势研究数据。';
+    if (parsed.status === 404) unavailable.value = preview ? '此证券在所选日期暂无趋势研究预演数据。' : '此证券在所选日期暂无趋势研究数据。';
     else detailError.value = parsed;
   } finally {
     if (request === generation) detailLoading.value = false;

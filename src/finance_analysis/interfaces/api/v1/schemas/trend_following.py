@@ -217,6 +217,27 @@ class TrendRankingItem(BaseModel):
     features: TrendRankingFeatures
 
 
+class TrendTable(BaseModel):
+    """Each row contains column values followed by feature_column values, in order."""
+
+    columns: list[str]
+    feature_columns: list[str]
+    rows: list[list[str | float | bool | None]]
+
+
+class TrendRankingTableResponse(BaseModel):
+    market: Literal["CN", "US"]
+    trade_date: date
+    table: TrendTable
+    # The surrounding summary/change metadata matches the existing ranking/preview API.
+    model_config = {"extra": "allow"}
+
+
+class TrendSnapshotStatusResponse(BaseModel):
+    trade_date: date
+    generated_at: datetime | None
+
+
 StrategyKey = Literal["TREND_FOLLOWING", "BOX_BREAKOUT", "PULLBACK_RESUME", "MEAN_REVERSION"]
 EvaluationStatus = Literal["pending", "missing", "available"]
 

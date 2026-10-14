@@ -38,13 +38,18 @@ def json_ready(value: Any) -> Any:
 
 
 def save_preview(market: str, payload: dict[str, Any], *, client: Any | None = None) -> None:
-    body = json.dumps(json_ready(payload), ensure_ascii=False, separators=(",", ":"))
+    from finance_analysis.core.preview_views import encode, publish
+    from .table import preview_views
+
+    ready = json_ready(payload)
+    body = encode(ready)
     redis_client = client if client is not None else _redis_client()
     if redis_client is None:
         logger.error("market=%s job=trend_following_preview cache_write_failed redis_unavailable", market)
         raise RuntimeError(f"Trend Following preview Redis unavailable for {market}")
     try:
-        redis_client.set(preview_cache_key(market, payload.get("trend_period", 20)), body, ex=PREVIEW_TTL_SECONDS)
+        publish(redis_client, preview_cache_key(market, payload.get("trend_period", 20)),
+                body, preview_views(ready), PREVIEW_TTL_SECONDS)
     except Exception as exc:
         logger.exception("market=%s job=trend_following_preview cache_write_failed", market)
         raise RuntimeError(f"Failed to save Trend Following preview for {market}") from exc
@@ -67,13 +72,39 @@ def load_preview(market: str, *, trend_period: int = 20, client: Any | None = No
     return payload if isinstance(payload, dict) else None
 
 
+def load_preview_view(market: str, field: str, *, trend_period: int = 20, client=None):
+    from finance_analysis.core.preview_views import read
+    from .table import preview_views
+
+    redis_client = client if client is not None else _redis_client()
+    if redis_client is None:
+        return None
+
+    def fallback():
+        payload = load_preview(market, trend_period=trend_period, client=redis_client)
+        return preview_views(payload).get(field) if payload else None
+
+    try:
+        return read(redis_client, preview_cache_key(market, trend_period), field, fallback)
+    except Exception:
+        logger.exception("market=%s job=trend_following_preview view_read_failed", market)
+        return None
+
+
+def load_preview_states(market: str, *, trend_period: int = 20):
+    body = load_preview_view(market, "states", trend_period=trend_period)
+    return json.loads(body) if body else None
+
+
 def _redis_client() -> Any | None:
     try:
         import redis
 
         from finance_analysis.database.config import get_database_config  # pragma: allowlist secret
 
-        return redis.Redis.from_url(get_database_config().redis_url, decode_responses=True)
+        return redis.Redis.from_url(
+            get_database_config().redis_url, decode_responses=True, socket_connect_timeout=2, socket_timeout=2,
+        )
     except Exception:
         logger.exception("job=trend_following_preview redis_client_failed")
         return None
@@ -84,6 +115,8 @@ __all__ = [
     "PREVIEW_TTL_SECONDS",
     "json_ready",
     "load_preview",
+    "load_preview_view",
+    "load_preview_states",
     "preview_cache_key",
     "save_preview",
 ]
