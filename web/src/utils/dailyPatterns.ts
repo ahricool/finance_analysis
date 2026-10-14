@@ -1,8 +1,10 @@
 import type { DailyBar } from '@/api/marketData';
 
 export type DailyPatternType = 'bullish_engulfing' | 'bearish_engulfing' | 'hammer' |
-  'shooting_star' | 'morning_star' | 'evening_star';
-export type DailyPatternDirection = 'bullish' | 'bearish';
+  'shooting_star' | 'morning_star' | 'evening_star' | 'piercing_line' | 'dark_cloud_cover' |
+  'inverted_hammer' | 'hanging_man' | 'bullish_harami' | 'bearish_harami' |
+  'three_white_soldiers' | 'three_black_crows' | 'doji';
+export type DailyPatternDirection = 'bullish' | 'bearish' | 'neutral';
 export interface DailyPatternEvent {
   date: string;
   timestamp: number;
@@ -19,14 +21,24 @@ export interface DailyPatternOptions {
   minQuality?: number;
 }
 export const DAILY_PATTERN_MIN_QUALITY = 70;
-const definitions = {
+export const DAILY_PATTERN_DEFINITIONS = {
   bullish_engulfing: { name: '看涨吞没', priority: 2 },
   bearish_engulfing: { name: '看跌吞没', priority: 2 },
   hammer: { name: '锤子线', priority: 1 },
   shooting_star: { name: '射击之星', priority: 1 },
   morning_star: { name: '晨星', priority: 3 },
   evening_star: { name: '黄昏星', priority: 3 },
+  piercing_line: { name: '刺透线', priority: 2 },
+  dark_cloud_cover: { name: '乌云盖顶', priority: 2 },
+  inverted_hammer: { name: '倒锤子线', priority: 1 },
+  hanging_man: { name: '上吊线', priority: 1 },
+  bullish_harami: { name: '看涨孕线', priority: 2 },
+  bearish_harami: { name: '看跌孕线', priority: 2 },
+  three_white_soldiers: { name: '红三兵', priority: 3 },
+  three_black_crows: { name: '三只乌鸦', priority: 3 },
+  doji: { name: '十字星', priority: 1 },
 } as const;
+const definitions = DAILY_PATTERN_DEFINITIONS;
 /** Quality wins; specificity only breaks equal-score ties for display. */
 export function compareDailyPatternCandidates(
   a: Pick<DailyPatternEvent, 'quality' | 'type'>, b: Pick<DailyPatternEvent, 'quality' | 'type'>,
@@ -41,10 +53,11 @@ function geometry(bar: DailyBar) {
   const lowerShadow = Math.min(bar.open, bar.close) - bar.low;
   return { body, range, upperShadow, lowerShadow, bodyRatio: body / range };
 }
-function valid(bar: DailyBar) {
+export function isValidDailyBar(bar: DailyBar) {
   return [bar.open, bar.high, bar.low, bar.close].every(value => Number.isFinite(value) && value > 0) &&
     bar.high > bar.low && bar.high >= Math.max(bar.open, bar.close) && bar.low <= Math.min(bar.open, bar.close);
 }
+const valid = isValidDailyBar;
 /** Conservative fallback: today's bar stays Preview even after the nominal close.
  * No exchange calendar/closed flag is available in daily-bars. Unknown market => unconfirmed.
  */
@@ -123,8 +136,43 @@ export function detectDailyPatterns(bars: readonly DailyBar[], options: DailyPat
           (longShadow / g.body - 2) / 2,
           `${bullish ? '下' : '上'}影线为实体的 ${(longShadow / g.body).toFixed(2)} 倍，${bullish ? '上' : '下'}影线不超过实体一半，实体占振幅 ${(g.bodyRatio * 100).toFixed(0)}%`);
       }
+      // Same geometry, different preceding trend: inverted hammer and hanging man.
+      if (g.bodyRatio >= 0.15 && g.bodyRatio <= 0.35 && g.body / current.close >= 0.002 &&
+        shortShadow >= g.body * 2 && longShadow <= g.body * 0.5) {
+        add(bullish ? 'inverted_hammer' : 'hanging_man', bullish, 1,
+          (shortShadow / g.body - 2) / 2,
+          `${bullish ? '上' : '下'}影线为实体的 ${(shortShadow / g.body).toFixed(2)} 倍；结合此前${bullish ? '下跌' : '上涨'}趋势观察反转`);
+      }
+      const penetrationPrevious = sign * (current.close - previous.close) / p.body;
+      const opensBeyondClose = sign * (current.open - previous.close) <= 0;
+      if (strongBody && sign * (previous.close - previous.open) < 0 && p.bodyRatio >= 0.55 &&
+        p.body / previous.close >= 0.005 && opensBeyondClose && penetrationPrevious >= 0.5 && penetrationPrevious < 1) {
+        add(bullish ? 'piercing_line' : 'dark_cloud_cover', bullish, 2, penetrationPrevious,
+          `反向大实体收盘穿透前一根实体 ${(penetrationPrevious * 100).toFixed(0)}%，未完整吞没；不要求跳空`);
+      }
+      const insideBody = Math.min(current.open, current.close) >= Math.min(previous.open, previous.close) &&
+        Math.max(current.open, current.close) <= Math.max(previous.open, previous.close);
+      if (directional && insideBody && p.bodyRatio >= 0.55 && p.body / previous.close >= 0.005 &&
+        sign * (previous.close - previous.open) < 0 && g.body / current.close >= 0.002 &&
+        g.bodyRatio >= 0.2 && g.body <= p.body * 0.5) {
+        add(bullish ? 'bullish_harami' : 'bearish_harami', bullish, 2, 1 - g.body / p.body,
+          `反向小实体包含于前一根大实体内，实体为前一日的 ${(g.body / p.body * 100).toFixed(0)}%`);
+      }
       const first = bars[end - 2]!;
       const f = geometry(first);
+      const trio = [first, previous, current];
+      if (trio.every(bar => {
+        const shape = geometry(bar);
+        const tip = bullish ? shape.upperShadow : shape.lowerShadow;
+        return sign * (bar.close - bar.open) > 0 && shape.bodyRatio >= 0.55 &&
+          shape.body / bar.close >= 0.005 && tip <= shape.body * 0.35;
+      }) && sign * (previous.close - first.close) > 0 && sign * (current.close - previous.close) > 0 &&
+        trio.slice(1).every((bar, i) => bar.open >= Math.min(trio[i]!.open, trio[i]!.close) &&
+          bar.open <= Math.max(trio[i]!.open, trio[i]!.close))) {
+        add(bullish ? 'three_white_soldiers' : 'three_black_crows', bullish, 3,
+          Math.min(...trio.map(bar => geometry(bar).bodyRatio)),
+          `连续三根${bullish ? '阳' : '阴'}线，收盘逐根${bullish ? '抬高' : '降低'}，开盘位于前根实体内且方向端影线短`);
+      }
       const penetration = sign * (current.close - first.close) / f.body;
       const middleAtExtreme = bullish
         ? Math.max(previous.open, previous.close) <= first.close + 0.25 * f.body
@@ -136,6 +184,20 @@ export function detectDailyPatterns(bars: readonly DailyBar[], options: DailyPat
           (penetration - 0.5) / 0.5,
           `首根明显${bullish ? '阴' : '阳'}线、次根小实体、第三根明显${bullish ? '阳' : '阴'}线；收盘穿透首根实体 ${(penetration * 100).toFixed(0)}%（不要求跳空）`);
       }
+    }
+    // Neutral observation, with no bullish/bearish assignment or volume score.
+    const context = bars.slice(end - 6, end + 1);
+    if (context.every((bar, i) => valid(bar) && (i === 0 || bar.tradeDate > context[i - 1]!.tradeDate)) &&
+      g.bodyRatio <= 0.08 && g.range / current.close >= 0.015 &&
+      g.upperShadow >= g.range * 0.3 && g.lowerShadow >= g.range * 0.3) {
+      const quality = Math.round(70 + 15 * (1 - g.bodyRatio / 0.08) +
+        15 * Math.min(g.upperShadow, g.lowerShadow) / Math.max(g.upperShadow, g.lowerShadow));
+      if (quality >= (options.minQuality ?? DAILY_PATTERN_MIN_QUALITY)) candidates.push({
+        date: current.tradeDate, timestamp: Date.parse(`${current.tradeDate}T00:00:00Z`),
+        type: 'doji', name: definitions.doji.name, direction: 'neutral', quality, confirmed,
+        reasons: [`实体占振幅 ${(g.bodyRatio * 100).toFixed(1)}%，上下影线各占振幅至少30%`,
+          '表示多空犹豫，仅作中性观察；不直接判定上涨、下跌或反转'],
+      });
     }
     candidates.sort(compareDailyPatternCandidates);
     if (candidates[0]) events.push(candidates[0]);

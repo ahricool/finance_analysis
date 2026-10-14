@@ -8,7 +8,11 @@ import StockMembershipTags from '@/components/stocks/StockMembershipTags.vue';
 import MarketKLineChart from './MarketKLineChart.vue';
 import { ensureTradeMarkerOverlay, tradeMarkerOverlays } from './tradeMarkerOverlay';
 import type { TradeMarker } from '@/lib/tradeMarkers';
-import { detectDailyPatterns, dailyPatternMarketDate, type DailyPatternEvent } from '@/utils/dailyPatterns';
+import { detectDailyPatterns, dailyPatternMarketDate, DAILY_PATTERN_DEFINITIONS, type DailyPatternEvent } from '@/utils/dailyPatterns';
+import { detectDailyStructures, type DailyStructureEvent } from '@/utils/dailyStructures';
+import DailyStructureSummary from './DailyStructureSummary.vue';
+import { dailyStructureOverlays } from './dailyStructureOverlay';
+import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
 import { dailyPatternOverlays } from './dailyPatternOverlay';
 import { aggregateStockBars, stockPeriodKey, type StockKlinePeriod } from '@/utils/stockKline';
 import { useTheme } from '@/composables/useTheme';
@@ -20,10 +24,16 @@ function changePeriod(value: StockKlinePeriod) {
   period.value = value;
   selected.value = null;
   selectedPattern.value = null;
+  selectedStructure.value = null;
+  hoveredPattern.value = null;
+  hoveredStructure.value = null;
   focusTimestamp.value = undefined;
 }
 const selected = ref<TradeMarker | null>(null);
 const selectedPattern = ref<DailyPatternEvent | null>(null);
+const hoveredPattern = ref<DailyPatternEvent | null>(null);
+const selectedStructure = ref<DailyStructureEvent | null>(null);
+const hoveredStructure = ref<DailyStructureEvent | null>(null);
 const marketDate = ref<string>();
 const { resolvedTheme } = useTheme();
 const focusTimestamp = ref<number>();
@@ -39,18 +49,27 @@ let controller: AbortController | undefined;
 const dailyBars = computed(() => (data.value?.items ?? [])
   .filter(row => !props.endDate || row.tradeDate <= props.endDate));
 const patterns = computed(() => detectDailyPatterns(dailyBars.value, { marketDate: marketDate.value }));
+const structures = computed(() => detectDailyStructures(dailyBars.value, { marketDate: marketDate.value }));
+const patternCutoff = computed(() => dailyBars.value.at(-20)?.tradeDate ?? dailyBars.value[0]?.tradeDate ?? '');
 const recentPatterns = computed(() => {
   const cutoff = dailyBars.value.at(-20)?.tradeDate ?? dailyBars.value[0]?.tradeDate ?? '';
   return patterns.value.filter(event => event.date >= cutoff).slice(-3).reverse();
 });
-const activePattern = computed(() => selectedPattern.value ?? recentPatterns.value[0]);
+const activePattern = computed(() => hoveredPattern.value ?? selectedPattern.value ?? recentPatterns.value[0]);
 function patternAge(event: DailyPatternEvent) {
   const index = dailyBars.value.findIndex(bar => bar.tradeDate === event.date);
   const age = dailyBars.value.length - 1 - index;
   return age === 0 ? '最新交易日' : `${age} 个交易日前`;
 }
 const patternOverlays = computed(() => dailyPatternOverlays(patterns.value, dailyBars.value,
-  resolvedTheme.value === 'dark', event => { selectedPattern.value = event; }));
+  resolvedTheme.value === 'dark', event => { selectedPattern.value = event; }, event => { hoveredPattern.value = event; }));
+const structureOverlays = computed(() => dailyStructureOverlays(structures.value, resolvedTheme.value === 'dark',
+  selectedStructure.value?.id, event => { selectedStructure.value = event; }, event => { hoveredStructure.value = event; }));
+function selectStructure(event: DailyStructureEvent | null) {
+  selectedStructure.value = event;
+  hoveredStructure.value = null;
+  if (event) navigate(event.timestamp);
+}
 const periodBars = computed(() => aggregateStockBars(dailyBars.value, period.value));
 const bars = computed(() => periodBars.value.map(row => ({ timestamp: Date.parse(`${row.tradeDate}T00:00:00Z`), open: row.open,
     high: row.high, low: row.low, close: row.close, volume: row.volume, turnover: row.amount ?? undefined })));
@@ -68,7 +87,7 @@ const overlays = computed(() => {
   const bar = highlightedBar.value;
   // Weekly/monthly views skip the daily BST computed, so register the date overlay independently.
   if (bar) ensureTradeMarkerOverlay();
-  return [...(period.value === '1d' ? [...tradeOverlays.value, ...patternOverlays.value] : []), ...(bar ? [{
+  return [...(period.value === '1d' ? [...tradeOverlays.value, ...patternOverlays.value, ...structureOverlays.value] : []), ...(bar ? [{
     name: 'tradeBst', id: 'research-date', groupId: 'research-date', lock: true,
     points: [{ timestamp: bar.timestamp, value: bar.high }],
     extendData: { label: `查看日 ${props.highlightDate}`, kind: 'date' },
@@ -96,6 +115,9 @@ async function load() {
   controller?.abort();
   selected.value = null;
   selectedPattern.value = null;
+  selectedStructure.value = null;
+  hoveredPattern.value = null;
+  hoveredStructure.value = null;
   marketDate.value = undefined;
   focusTimestamp.value = undefined;
   const request = new AbortController();
@@ -121,181 +143,216 @@ onBeforeUnmount(() => controller?.abort());
 </script>
 
 <template>
-  <section
-    class="min-w-0 rounded-xl border bg-card p-4"
-    data-testid="daily-kline-card"
-  >
-    <div class="mb-3 flex min-h-6 flex-wrap items-center gap-3">
-      <h3 class="shrink-0 text-sm font-semibold">
-        K 线
-      </h3>
-      <div
-        class="flex gap-1"
-        role="group"
-        aria-label="K线周期"
-      >
-        <Button
-          v-for="option in periodOptions"
-          :key="option.value"
-          size="sm"
-          :variant="period === option.value ? 'secondary' : 'ghost'"
-          :aria-pressed="period === option.value"
-          :data-testid="`kline-period-${option.value}`"
-          @click="changePeriod(option.value)"
-        >
-          {{ option.label }}
-        </Button>
-      </div>
-      <span class="text-xs text-muted-foreground">最近 5 年</span>
-      <StockMembershipTags :code="symbol" />
-      <span
-        v-if="highlightDate && !loading && !error"
-        class="text-xs text-muted-foreground"
-      >
-        查看日 {{ highlightDate }} · {{ highlightedBar ? '↓ 图中标记' : '当日无 K 线' }} · 行情至 {{ data?.items?.at(-1)?.tradeDate ?? '—' }}
-      </span>
-      <template v-if="highlightedBar && !loading">
-        <Button
-          size="sm"
-          variant="outline"
-          @click="navigate(highlightedBar.timestamp)"
-        >
-          定位查看日
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          @click="navigate()"
-        >
-          最新行情
-        </Button>
-      </template>
-    </div>
-    <p
-      v-if="!loading && !error && bars.length"
-      class="mb-3 text-xs text-muted-foreground"
-      data-testid="kline-coverage"
-    >
-      前复权 · {{ dailyBars[0]?.tradeDate }} — {{ dailyBars.at(-1)?.tradeDate }} · {{ bars.length }} 根{{ periodOptions.find(option => option.value === period)?.label }} · 可拖动、缩放查看历史
-      <span
-        v-if="period !== '1d'"
-        class="block mt-1"
-      >按交易日期聚合已有日线；首尾周期可能不完整，缺失交易日不补零。日线形态与交易标记请切回日 K 查看。</span>
-    </p>
-    <p
-      v-if="data?.historyFallback && bars.length"
-      class="mb-3 text-sm text-muted-foreground"
-      role="status"
-    >
-      最新历史行情暂不可用，已保留已有数据。当前图表至 {{ data.items.at(-1)?.tradeDate ?? '—' }}。
-    </p>
-    <p
-      v-if="loading"
-      class="py-12 text-center text-sm text-muted-foreground"
-      role="status"
-    >
-      日 K 加载中…
-    </p>
-    <AppApiErrorAlert
-      v-else-if="error"
-      :error="error"
-      action-label="重试"
-      @action="load"
-    />
-    <p
-      v-else-if="!bars.length"
-      class="py-12 text-center text-sm text-muted-foreground"
-    >
-      暂无日 K 数据
-    </p>
-    <MarketKLineChart
-      v-else
-      :symbol="data?.symbol ?? symbol"
-      :period="period"
-      :price-precision="pricePrecision"
-      :overlays="overlays"
-      :bars="bars"
-      :focus-timestamp="focusTimestamp"
-      :focus-request="focusRequest"
-      :source-key="`${symbol}:${endDate ?? 'latest'}`"
-    />
+  <TooltipProvider :delay-duration="150">
     <section
-      v-if="period === '1d' && !loading && !error && bars.length"
-      class="mt-3 border-t pt-3 text-sm"
-      data-testid="daily-pattern-summary"
-      aria-label="Price Action 最近形态"
+      class="min-w-0 rounded-xl border bg-card p-4"
+      data-testid="daily-kline-card"
     >
-      <div class="flex items-center justify-between gap-3">
-        <h4 class="font-medium">
-          Price Action · 最近形态
-        </h4>
-        <span class="text-xs text-muted-foreground">最近 20 个交易日 · Quality 为规则匹配分，非胜率</span>
+      <div class="mb-3 flex min-h-6 flex-wrap items-center gap-3">
+        <h3 class="shrink-0 text-sm font-semibold">
+          K 线
+        </h3>
+        <div
+          class="flex gap-1"
+          role="group"
+          aria-label="K线周期"
+        >
+          <Button
+            v-for="option in periodOptions"
+            :key="option.value"
+            size="sm"
+            :variant="period === option.value ? 'secondary' : 'ghost'"
+            :aria-pressed="period === option.value"
+            :data-testid="`kline-period-${option.value}`"
+            @click="changePeriod(option.value)"
+          >
+            {{ option.label }}
+          </Button>
+        </div>
+        <span class="text-xs text-muted-foreground">最近 5 年</span>
+        <StockMembershipTags :code="symbol" />
+        <span
+          v-if="highlightDate && !loading && !error"
+          class="text-xs text-muted-foreground"
+        >
+          查看日 {{ highlightDate }} · {{ highlightedBar ? '↓ 图中标记' : '当日无 K 线' }} · 行情至 {{ data?.items?.at(-1)?.tradeDate ?? '—' }}
+        </span>
+        <template v-if="highlightedBar && !loading">
+          <Button
+            size="sm"
+            variant="outline"
+            @click="navigate(highlightedBar.timestamp)"
+          >
+            定位查看日
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            @click="navigate()"
+          >
+            最新行情
+          </Button>
+        </template>
       </div>
       <p
-        v-if="!recentPatterns.length"
-        class="mt-2 text-muted-foreground"
+        v-if="!loading && !error && bars.length"
+        class="mb-3 text-xs text-muted-foreground"
+        data-testid="kline-coverage"
       >
-        最近未发现高质量经典 K 线形态
+        前复权 · {{ dailyBars[0]?.tradeDate }} — {{ dailyBars.at(-1)?.tradeDate }} · {{ bars.length }} 根{{ periodOptions.find(option => option.value === period)?.label }} · 可拖动、缩放查看历史
+        <span
+          v-if="period !== '1d'"
+          class="block mt-1"
+        >按交易日期聚合已有日线；首尾周期可能不完整，缺失交易日不补零。日线形态与交易标记请切回日 K 查看。</span>
       </p>
-      <div
-        v-if="recentPatterns.length"
-        class="mt-2 flex flex-wrap gap-2"
+      <p
+        v-if="data?.historyFallback && bars.length"
+        class="mb-3 text-sm text-muted-foreground"
+        role="status"
       >
-        <Button
-          v-for="event in recentPatterns"
-          :key="event.date"
-          size="sm"
-          :variant="activePattern?.date === event.date ? 'secondary' : 'ghost'"
-          :aria-pressed="activePattern?.date === event.date"
-          @click="selectedPattern = event; navigate(event.timestamp)"
-        >
-          {{ event.date.slice(5) }} {{ event.name }} · {{ event.quality }}{{ event.confirmed ? '' : ' · 形成中' }}
-        </Button>
-      </div>
-      <div
-        v-if="activePattern"
-        class="mt-2 rounded border p-3"
-        data-testid="daily-pattern-detail"
-        aria-live="polite"
+        最新历史行情暂不可用，已保留已有数据。当前图表至 {{ data.items.at(-1)?.tradeDate ?? '—' }}。
+      </p>
+      <p
+        v-if="loading"
+        class="py-12 text-center text-sm text-muted-foreground"
+        role="status"
       >
-        <div class="flex flex-wrap items-center gap-2">
-          <strong :class="activePattern.direction === 'bullish' ? 'text-market-up' : 'text-market-down'">
-            {{ activePattern.direction === 'bullish' ? '↑' : '↓' }} {{ activePattern.name }}
-          </strong>
-          <span>{{ activePattern.date }} · {{ patternAge(activePattern) }}</span>
-          <span>Quality {{ activePattern.quality }}</span>
-          <span :class="activePattern.confirmed ? 'text-muted-foreground' : 'rounded border border-dashed px-2'">
-            {{ activePattern.confirmed ? 'Confirmed / 已完成日 K' : 'Preview / 形成中' }}
-          </span>
+        日 K 加载中…
+      </p>
+      <AppApiErrorAlert
+        v-else-if="error"
+        :error="error"
+        action-label="重试"
+        @action="load"
+      />
+      <p
+        v-else-if="!bars.length"
+        class="py-12 text-center text-sm text-muted-foreground"
+      >
+        暂无日 K 数据
+      </p>
+      <MarketKLineChart
+        v-else
+        :symbol="data?.symbol ?? symbol"
+        :period="period"
+        :price-precision="pricePrecision"
+        :overlays="overlays"
+        :bars="bars"
+        :focus-timestamp="focusTimestamp"
+        :focus-request="focusRequest"
+        :source-key="`${symbol}:${endDate ?? 'latest'}`"
+      />
+      <section
+        v-if="period === '1d' && !loading && !error && bars.length"
+        class="mt-3 border-t pt-3 text-sm"
+        data-testid="daily-pattern-summary"
+        aria-label="Price Action 最近形态"
+      >
+        <div class="flex items-center justify-between gap-3">
+          <h4 class="font-medium">
+            蜡烛形态
+          </h4>
+          <span class="text-xs text-muted-foreground">最近 20 个交易日 · Quality 为规则匹配分，非胜率</span>
         </div>
-        <ul class="mt-2 list-inside list-disc text-xs leading-5 text-muted-foreground">
-          <li
-            v-for="reason in activePattern.reasons"
-            :key="reason"
-          >
-            {{ reason }}
-          </li>
-        </ul>
         <p
-          v-if="!activePattern.confirmed"
-          class="mt-2 text-xs text-muted-foreground"
+          v-if="!recentPatterns.length"
+          class="mt-2 text-muted-foreground"
         >
-          未取得收盘确认；市场当日 K 保守显示为形成中，收盘后也不自动升级。
+          最近未发现高质量经典 K 线形态
+        </p>
+        <div
+          v-if="recentPatterns.length"
+          class="mt-2 flex flex-wrap gap-2"
+        >
+          <Tooltip
+            v-for="event in recentPatterns"
+            :key="event.date"
+          >
+            <TooltipTrigger as-child>
+              <Button
+                size="sm"
+                :variant="activePattern?.date === event.date ? 'secondary' : 'ghost'"
+                :aria-pressed="activePattern?.date === event.date"
+                @click="selectedPattern = event; navigate(event.timestamp)"
+              >
+                {{ event.date.slice(5) }} {{ event.name }} · {{ event.quality }}{{ event.confirmed ? '' : ' · 形成中' }}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent class="max-w-xs">
+              {{ event.reasons[0] }}
+            </TooltipContent>
+          </Tooltip>
+        </div>
+        <div
+          v-if="activePattern"
+          class="mt-2 rounded border p-3"
+          data-testid="daily-pattern-detail"
+          aria-live="polite"
+        >
+          <div class="flex flex-wrap items-center gap-2">
+            <strong :class="activePattern.direction === 'bullish' ? 'text-market-up' : activePattern.direction === 'bearish' ? 'text-market-down' : 'text-muted-foreground'">
+              {{ activePattern.direction === 'bullish' ? '↑' : activePattern.direction === 'bearish' ? '↓' : '◇' }} {{ activePattern.name }}
+            </strong>
+            <span>{{ activePattern.date }} · {{ patternAge(activePattern) }}</span>
+            <span>Quality {{ activePattern.quality }}</span>
+            <span :class="activePattern.confirmed ? 'text-muted-foreground' : 'rounded border border-dashed px-2'">
+              {{ activePattern.confirmed ? 'Confirmed / 已完成日 K' : 'Preview / 形成中' }}
+            </span>
+          </div>
+          <ul class="mt-2 list-inside list-disc text-xs leading-5 text-muted-foreground">
+            <li
+              v-for="reason in activePattern.reasons"
+              :key="reason"
+            >
+              {{ reason }}
+            </li>
+          </ul>
+          <p
+            v-if="!activePattern.confirmed"
+            class="mt-2 text-xs text-muted-foreground"
+          >
+            未取得收盘确认；市场当日 K 保守显示为形成中，收盘后也不自动升级。
+          </p>
+        </div>
+        <details
+          class="mt-2 text-xs text-muted-foreground"
+          data-testid="daily-pattern-catalog"
+        >
+          <summary class="cursor-pointer">
+            支持的形态与观察窗口
+          </summary>
+          <p class="mt-2 leading-5">
+            蜡烛形态：{{ Object.values(DAILY_PATTERN_DEFINITIONS).map(item => item.name).join('、') }}。
+          </p>
+          <p class="mt-1 leading-5">
+            蜡烛形态使用 1–3 根日 K 与此前 6 根趋势背景；十字星为中性观察。结构形态：箱体向上突破／向下跌破（20／40／60 根）、双底／双顶（最多120根）、上升／下降／对称三角形（20／40／60 根）、突破后回踩／跌破后反抽（突破后3–15根）。观察窗口为规则参数，不代表固定形成周期。
+          </p>
+          <p class="mt-1 leading-5">
+            图上 ▴／▾／◇ 为蜡烛标记，底部 ◆／× 为结构事件；悬停在图下查看详情。已完成日 K 不等于反转得到后续验证。
+          </p>
+        </details>
+      </section>
+      <DailyStructureSummary
+        v-if="period === '1d' && !loading && !error && bars.length"
+        :events="structures"
+        :cutoff="patternCutoff"
+        :selected="selectedStructure"
+        :hovered="hoveredStructure"
+        @select="selectStructure"
+      />
+      <div
+        v-if="selected"
+        class="mt-3 rounded border p-3 text-sm"
+        data-testid="trade-marker-detail"
+      >
+        <strong>{{ markerCaption || '操作 BST' }} · {{ selected.type }}</strong>
+        <p
+          v-for="(item, index) in selected.operations"
+          :key="index"
+        >
+          {{ item.executedAt }} {{ item.side === 'BUY' ? '买入' : item.side === 'SELL' ? '卖出' : item.side }}{{ item.quantity ? item.quantity : '' }}{{ item.price ? ` @${item.price}` : '' }}
         </p>
       </div>
     </section>
-    <div
-      v-if="selected"
-      class="mt-3 rounded border p-3 text-sm"
-      data-testid="trade-marker-detail"
-    >
-      <strong>{{ markerCaption || '操作 BST' }} · {{ selected.type }}</strong>
-      <p
-        v-for="(item, index) in selected.operations"
-        :key="index"
-      >
-        {{ item.executedAt }} {{ item.side === 'BUY' ? '买入' : item.side === 'SELL' ? '卖出' : item.side }}{{ item.quantity ? item.quantity : '' }}{{ item.price ? ` @${item.price}` : '' }}
-      </p>
-    </div>
-  </section>
+  </TooltipProvider>
 </template>

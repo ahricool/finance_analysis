@@ -9,7 +9,10 @@ it('renders short directional labels, distinct Preview style, theme colors and k
   const bars = engulfing();
   const event = detectDailyPatterns(bars, { marketDate: '2026-09-09' })[0]!;
   const onSelect = vi.fn();
-  const overlays = dailyPatternOverlays([event], bars, false, onSelect);
+  const hover = vi.fn();
+  const overlays = dailyPatternOverlays([event], bars, false, onSelect, hover);
+  overlays[0]!.onMouseEnter!({} as never); expect(hover).toHaveBeenLastCalledWith(event);
+  overlays[0]!.onMouseLeave!({} as never); expect(hover).toHaveBeenLastCalledWith(null);
   expect(overlays[0]).toMatchObject({ name: 'dailyPattern', groupId: 'daily-patterns',
     points: [{ timestamp: event.timestamp, value: bars.at(-1)!.low }] });
   overlays[0]!.onClick!({} as never);
@@ -20,13 +23,13 @@ it('renders short directional labels, distinct Preview style, theme colors and k
       bounding: { height: 300 } } as OverlayCreateFiguresCallbackParams<DailyPatternEvent & { dark: boolean }>;
     return (draw(params) as OverlayFigure[])[0]!;
   }
-  expect(figure(event, false, 295)).toMatchObject({ attrs: { text: '↑ 吞没', y: 290 }, styles: { color: '#dc2626', weight: 'bold' } });
+  expect(figure(event, false, 295)).toMatchObject({ attrs: { text: '▴', y: 270 }, styles: { color: '#dc2626', weight: 'bold' } });
   expect(figure({ ...event, confirmed: false }, true, 100)).toMatchObject({
-    attrs: { text: '↑ 吞没 · 形成中', y: 122 }, styles: { color: '#e86464', weight: 'normal', backgroundColor: '#171717' },
+    attrs: { text: '▴', y: 114 }, styles: { color: '#e86464', weight: 'normal' },
   });
   const bearishBars = mirror(bars);
   const bearish = detectDailyPatterns(bearishBars, { marketDate: '2026-09-09' })[0]!;
-  expect(figure(bearish, false, 20)).toMatchObject({ attrs: { text: '↓ 吞没', y: 10 }, styles: { color: '#16854e' } });
+  expect(figure(bearish, false, 20)).toMatchObject({ attrs: { text: '▾', y: 10 }, styles: { color: '#16854e' } });
   expect(dailyPatternOverlays([bearish], bearishBars, true, onSelect)[0]!.points![0]!.value).toBe(bearishBars.at(-1)!.high);
   expect(dailyPatternOverlays([], bars, false, onSelect)).toEqual([]);
   expect(dailyPatternOverlays([event], [], false, onSelect)).toEqual([]);

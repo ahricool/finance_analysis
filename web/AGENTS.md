@@ -300,8 +300,9 @@ BTC 多策略以 `strategy_key + symbol` 隔离，代码注册表当前仅 `btc_
 
 ## 日 K Price Action
 
-`DailyKLineCard` 用 `utils/dailyPatterns.ts` 纯函数分析已加载日线，六种经典反转形态仅用于研究展示。
-独立 `daily-patterns` overlay 与 BST / `research-date` 共存；只显示 Quality ≥70，同日最多一个。
+`DailyKLineCard` 用 `utils/dailyPatterns.ts` / `dailyStructures.ts` 纯函数分析已加载日线，15种蜡烛形态（十字星中性）与箱体、双顶／底、三角及突破回测结构仅用于研究展示。
+独立 `daily-patterns` / `daily-structures` overlay 与 BST / `research-date` 共存；只显示 Quality ≥70，蜡烛同日最多一个，结构历史保留全部状态事件。
+图上只画小标记，悬停证据在图下显示；结构边界仅点击后显示并可隐藏。结构状态与日 K 收盘状态分开，拐点需要右侧两根已完成日 K，不允许用未来数据回填识别日期。
 当日 K 无可靠收盘标志时保守显示 Preview，不按名义收盘时间自动确认。规则与测试见 `../docs/daily-patterns.md`。
 
 ## 用户头像
