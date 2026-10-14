@@ -6,6 +6,11 @@ import { createOperationId } from '@/utils/operationId';
 import StockAutocomplete from '@/components/StockAutocomplete/StockAutocomplete.vue';
 import HoldingsPage from '../market/HoldingsPage.vue';
 
+vi.mock('@/composables/useRealtimeQuotes', async () => {
+  const { ref } = await import('vue');
+  return { useRealtimeQuotes: () => ({ portfolio: ref(null), status: ref('connected') }) };
+});
+
 const mocks = vi.hoisted(() => ({
   summary: vi.fn(),
   buy: vi.fn(),
@@ -302,4 +307,29 @@ it('creates mutation ids on non-secure LAN origins without randomUUID', () => {
     expect(first).toMatch(/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/);
     expect(createOperationId()).not.toBe(first);
   } finally { vi.unstubAllGlobals(); }
+});
+
+it('shows names, daily change and PnL, removes market value, and sorts missing values last', async () => {
+  const priced = { ...summary.positions[0]!, name: '贵州茅台', changePct: '2.5', changeAmount: '0.3', dayPnl: '300', unrealizedPnlPct: '20', quoteSource: 'fuyao', quoteTime: '2026-07-16T02:40:00Z', quoteStatus: 'current' };
+  mocks.summary.mockResolvedValue({ ...summary, missingQuoteCount: 1, positions: [priced,
+    { ...priced, id: 22, symbol: '510300.SH', name: '沪深300ETF', changePct: '-1' },
+    { ...priced, id: 33, symbol: '000001.SZ', name: '平安银行', currentPrice: null, changePct: null },
+  ] });
+  await mountPage();
+  const headers = wrapper.findAll('thead th').map(header => header.text());
+  expect(headers.join()).not.toContain('市值');
+  expect(headers.join()).toContain('当日涨跌');
+  const first = wrapper.findAll('[data-testid="position-row"]')[0]!;
+  expect(first.text()).toContain('贵州茅台');
+  expect(first.text()).toContain('+20.00%');
+  expect(first.text()).toContain('+2,000.00');
+  expect(wrapper.get('[data-testid="valuation-incomplete"]').text()).toContain('1 只');
+  const column = wrapper.findAll('thead th').find(header => header.text().includes('当日涨跌'))!;
+  await column.get('button').trigger('click');
+  expect(wrapper.findAll('[data-testid="position-row"]').map(row => row.text().includes('平安银行'))).toEqual([false, false, true]);
+  expect(wrapper.findAll('[data-testid="position-row"]')[0]!.text()).toContain('贵州茅台');
+  await column.get('button').trigger('click');
+  expect(wrapper.findAll('[data-testid="position-row"]')[0]!.text()).toContain('沪深300ETF');
+  expect(wrapper.findAll('[data-testid="position-row"]')[2]!.text()).toContain('平安银行');
+  wrapper.unmount();
 });

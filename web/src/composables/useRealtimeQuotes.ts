@@ -1,95 +1,133 @@
 import {
-  buildMarketWebSocketUrl,
-  isRealtimeQuoteMessage,
-  marketQuoteKey,
-  type RealtimeConnectionStatus,
-  type RealtimeQuote,
+  buildMarketWebSocketUrl, isRealtimeQuoteMessage, marketQuoteKey, MarketStreamAuthError,
+  portfolioFromMessage, readMarketEvents,
+  type MarketStreamOptions, type RealtimeConnectionStatus, type RealtimeQuote, type RealtimeQuoteMessage,
 } from '@/api/realtimeMarket';
+import type { HoldingsSummary } from '@/api/holdings';
 import type { MarketType } from '@/api/watchList';
-import { onMounted, onUnmounted, ref, shallowRef } from 'vue';
+import { onMounted, onUnmounted, ref, shallowRef, toValue, watch, type MaybeRefOrGetter } from 'vue';
 
-const INITIAL_RECONNECT_DELAY_MS = 1_000;
-const MAX_RECONNECT_DELAY_MS = 30_000;
+const CONNECTION_TIMEOUT_MS = 20_000;
 
-export function useRealtimeQuotes() {
+export function useRealtimeQuotes(options: MaybeRefOrGetter<MarketStreamOptions> = {}) {
   const quotes = shallowRef<Record<string, RealtimeQuote>>({});
+  const portfolio = shallowRef<HoldingsSummary | null>(null);
   const status = ref<RealtimeConnectionStatus>('connecting');
   const lastUpdatedAt = ref<string | null>(null);
   let socket: WebSocket | null = null;
+  let controller: AbortController | null = null;
   let reconnectTimer: number | null = null;
-  let reconnectAttempts = 0;
+  let watchdog: number | null = null;
+  let failures = 0;
+  let useSse = false;
   let stopped = false;
+  let generation = 0;
 
-  function clearReconnectTimer() {
-    if (reconnectTimer !== null) {
-      window.clearTimeout(reconnectTimer);
-      reconnectTimer = null;
-    }
+  function clearTimers() {
+    if (reconnectTimer !== null) window.clearTimeout(reconnectTimer);
+    if (watchdog !== null) window.clearTimeout(watchdog);
+    reconnectTimer = watchdog = null;
   }
 
-  function scheduleReconnect() {
-    if (stopped || reconnectTimer !== null) return;
-    status.value = 'reconnecting';
-    const delay = Math.min(INITIAL_RECONNECT_DELAY_MS * 2 ** reconnectAttempts, MAX_RECONNECT_DELAY_MS);
-    reconnectAttempts += 1;
-    reconnectTimer = window.setTimeout(() => {
-      reconnectTimer = null;
-      connect();
-    }, delay);
+  function armWatchdog(expire: () => void) {
+    if (watchdog !== null) window.clearTimeout(watchdog);
+    watchdog = window.setTimeout(expire, CONNECTION_TIMEOUT_MS);
+  }
+
+  function accept(message: RealtimeQuoteMessage) {
+    quotes.value = Object.fromEntries(message.quotes.map(q => [marketQuoteKey(q.code, q.market_type), q]));
+    portfolio.value = portfolioFromMessage(message);
+    lastUpdatedAt.value = message.generated_at;
+  }
+
+  function retry(callback: () => void, sse = false) {
+    status.value = sse ? 'sse-reconnecting' : 'reconnecting';
+    reconnectTimer = window.setTimeout(() => { reconnectTimer = null; callback(); }, sse ? 5_000 : 1_000);
+  }
+
+  function connectSse() {
+    if (stopped || controller) return;
+    status.value = 'sse-reconnecting';
+    const current = new AbortController();
+    const ownedGeneration = generation;
+    controller = current;
+    armWatchdog(() => current.abort());
+    void readMarketEvents(toValue(options), current.signal, message => {
+      if (stopped || generation !== ownedGeneration || controller !== current) return;
+      accept(message);
+      status.value = 'sse';
+      armWatchdog(() => current.abort());
+    }).catch(error => {
+      if (stopped || generation !== ownedGeneration || controller !== current) return;
+      clearTimers();
+      controller = null;
+      if (error instanceof MarketStreamAuthError) status.value = 'unauthorized';
+      else retry(connectSse, true);
+    });
   }
 
   function connect() {
-    if (stopped || socket) return;
-    status.value = reconnectAttempts ? 'reconnecting' : 'connecting';
-    const current = new WebSocket(buildMarketWebSocketUrl());
+    if (stopped || socket || controller || reconnectTimer !== null || status.value === 'unauthorized') return;
+    if (useSse) { connectSse(); return; }
+    status.value = failures ? 'reconnecting' : 'connecting';
+    let current: WebSocket;
+    try { current = new WebSocket(buildMarketWebSocketUrl(toValue(options))); }
+    catch { failed(); return; }
     socket = current;
-
+    function failed() {
+      if (stopped || (current && socket !== current)) return;
+      clearTimers();
+      socket = null;
+      if (current && current.readyState < WebSocket.CLOSING) current.close();
+      failures += 1;
+      if (failures >= 2) { useSse = true; connectSse(); }
+      else retry(connect);
+    }
+    armWatchdog(failed);
     current.onopen = () => {
-      reconnectAttempts = 0;
+      if (socket === current && !stopped) status.value = 'connected';
+    };
+    current.onmessage = event => {
+      if (socket !== current || stopped) return;
+      let message: unknown;
+      try { message = JSON.parse(String(event.data)); } catch { return; }
+      if (!isRealtimeQuoteMessage(message)) return;
+      failures = 0;
+      accept(message);
       status.value = 'connected';
+      armWatchdog(failed);
     };
-    current.onmessage = (event) => {
-      try {
-        const message: unknown = JSON.parse(String(event.data));
-        if (!isRealtimeQuoteMessage(message)) return;
-        quotes.value = Object.fromEntries(
-          message.quotes.map((quote) => [marketQuoteKey(quote.code, quote.market_type), quote]),
-        );
-        lastUpdatedAt.value = message.generated_at;
-      } catch {
-        // Ignore malformed frames; the next five-second snapshot replaces all state.
-      }
-    };
-    current.onerror = () => {
-      if (!stopped) status.value = 'reconnecting';
-    };
-    current.onclose = (event) => {
-      if (socket === current) socket = null;
-      if (stopped) return;
+    current.onerror = failed;
+    current.onclose = event => {
+      if (socket !== current || stopped) return;
       if (event.code === 4401 || event.code === 4403) {
-        status.value = 'unauthorized';
-        return;
-      }
-      scheduleReconnect();
+        clearTimers(); socket = null; status.value = 'unauthorized';
+      } else failed();
     };
   }
 
-  function disconnect() {
-    stopped = true;
-    clearReconnectTimer();
+  function release() {
+    generation++;
+    clearTimers();
     const current = socket;
     socket = null;
-    if (current && current.readyState < WebSocket.CLOSING) {
-      current.close(1000, 'Page closed');
-    }
+    if (current && current.readyState < WebSocket.CLOSING) current.close(1000, 'Page closed');
+    controller?.abort();
+    controller = null;
   }
 
+  function disconnect() { stopped = true; release(); }
   function getQuote(code: string, marketType: MarketType): RealtimeQuote | undefined {
     return quotes.value[marketQuoteKey(code, marketType)];
   }
 
+  watch(() => JSON.stringify(toValue(options)), () => {
+    release();
+    quotes.value = {}; portfolio.value = null; lastUpdatedAt.value = null;
+    // Once downgraded, stay on SSE for this page's lifetime, including market switches.
+    if (!stopped) connect();
+  });
   onMounted(connect);
   onUnmounted(disconnect);
-
-  return { quotes, status, lastUpdatedAt, getQuote, connect, disconnect };
+  return { quotes, portfolio, status, lastUpdatedAt, getQuote, connect, disconnect };
 }

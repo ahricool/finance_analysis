@@ -1,7 +1,10 @@
 import { API_BASE_URL } from '@/utils/constants';
 import type { MarketType } from './watchList';
+import type { HoldingsSummary } from './holdings';
+import { toCamelCase } from './utils';
 
-export type RealtimeConnectionStatus = 'connecting' | 'connected' | 'reconnecting' | 'unauthorized';
+export type RealtimeConnectionStatus = 'connecting' | 'connected' | 'reconnecting' | 'unauthorized' | 'sse' | 'sse-reconnecting';
+export interface MarketStreamOptions { scope?: 'watch-list' | 'holdings'; market?: 'CN' | 'US' }
 
 export type TrendDirection = 'above' | 'below' | 'neutral' | 'insufficient';
 
@@ -78,6 +81,8 @@ export interface RealtimeQuote {
   market_type: MarketType;
   symbol: string;
   available: boolean;
+  source?: string;
+  quote_status?: 'current' | 'delayed' | 'unavailable';
   trading_date?: string | null;
   last_price?: number | null;
   change_amount?: number | null;
@@ -99,20 +104,69 @@ export interface RealtimeQuoteMessage {
   type: 'quotes';
   generated_at: string;
   quotes: RealtimeQuote[];
+  portfolio?: unknown;
 }
 
 export function marketQuoteKey(code: string, marketType: MarketType): string {
   return `${marketType}:${code.trim().toUpperCase()}`;
 }
 
-export function buildMarketWebSocketUrl(): string {
+function marketUrl(path: string, options: MarketStreamOptions): URL {
   const base = API_BASE_URL || window.location.origin;
   const url = new URL(base, window.location.origin);
-  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
-  url.pathname = `${url.pathname.replace(/\/$/, '')}/api/v1/market-data/ws`.replace(/\/+/g, '/');
+  url.pathname = `${url.pathname.replace(/\/$/, '')}/api/v1/market-data/${path}`.replace(/\/+/g, '/');
   url.search = '';
   url.hash = '';
+  if (options.scope) url.searchParams.set('scope', options.scope);
+  if (options.market) url.searchParams.set('market', options.market);
+  return url;
+}
+
+export function buildMarketWebSocketUrl(options: MarketStreamOptions = {}): string {
+  const url = marketUrl('ws', options);
+  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
   return url.toString();
+}
+
+export class MarketStreamAuthError extends Error {}
+
+export function portfolioFromMessage(message: RealtimeQuoteMessage): HoldingsSummary | null {
+  if (!message.portfolio || typeof message.portfolio !== 'object') return null;
+  const portfolio = toCamelCase<HoldingsSummary>(message.portfolio);
+  return Array.isArray(portfolio.positions) && Array.isArray(portfolio.accounts) ? portfolio : null;
+}
+
+export async function readMarketEvents(
+  options: MarketStreamOptions, signal: AbortSignal, onMessage: (message: RealtimeQuoteMessage) => void,
+): Promise<void> {
+  const response = await fetch(marketUrl('events', options), {
+    credentials: 'include', headers: { Accept: 'text/event-stream' }, signal,
+  });
+  if (response.status === 401 || response.status === 403) throw new MarketStreamAuthError();
+  if (!response.ok || !response.body) throw new Error('行情连接失败');
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  try {
+    while (!signal.aborted) {
+      const { done, value } = await reader.read();
+      if (done) throw new Error('行情连接已断开');
+      buffer += decoder.decode(value, { stream: true });
+      const frames = buffer.split(/\r?\n\r?\n/);
+      buffer = frames.pop() || '';
+      for (const frame of frames) {
+        const data = frame.split(/\r?\n/).filter(line => line.startsWith('data:'))
+          .map(line => line.slice(5).trimStart()).join('\n');
+        if (!data) continue;
+        let message: unknown;
+        try { message = JSON.parse(data); } catch { continue; }
+        if (isRealtimeQuoteMessage(message)) onMessage(message);
+      }
+    }
+  } finally {
+    await reader.cancel().catch(() => {});
+    reader.releaseLock();
+  }
 }
 
 export function isRealtimeQuoteMessage(value: unknown): value is RealtimeQuoteMessage {

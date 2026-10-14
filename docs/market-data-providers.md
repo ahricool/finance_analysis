@@ -21,14 +21,14 @@ ReferenceDataSyncService 独立路由这两类来源。请求失败或返回空�
 | --- | --- | --- | --- |
 | DAILY_BARS | tickflow → fuyao → yfinance | yfinance → tickflow | longbridge → yfinance |
 | MINUTE_BARS | streaming → longbridge | streaming → longbridge → yfinance | streaming → longbridge |
-| REALTIME_QUOTES | streaming → longbridge → fuyao | streaming → longbridge → yfinance | streaming → longbridge → yfinance |
+| REALTIME_QUOTES | fuyao → streaming → longbridge | longbridge → streaming → yfinance | streaming → longbridge → yfinance |
 | LATEST_MARKET_SNAPSHOT | fuyao → easyquotation（腾讯） | — | — |
 | MARKET_INDICES | fuyao | longbridge → yfinance | longbridge → yfinance |
 | MARKET_STATS / SECTOR_RANKINGS | fuyao | — | — |
 | INSTRUMENT_INFO | database → tickflow → longbridge → fuyao → yfinance | database → tickflow → longbridge → yfinance | database → tickflow → longbridge → yfinance |
 
-本次只替换或删除原来源位置，没有提升 Fuyao 相对 TickFlow、yfinance 或 Longbridge
-的优先级。easyquotation 用于 Tencent CN Trend Following / ETF Rotation Preview，
+实时 Quote 按上表优先级路由；日线和分钟线保持各自独立的顺序。
+easyquotation 用于 Tencent CN Trend Following / ETF Rotation Preview，
 并作为 CN 全市场快照的备用来源；不参与逐股 Quote、指数或板块排行 fallback。
 TickFlow → Longbridge 的证券主数据同步顺序不变。
 

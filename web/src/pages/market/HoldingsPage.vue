@@ -8,8 +8,13 @@ import {
   type PortfolioAccount,
   type PortfolioPosition,
   type TradeEnginePosition,
+  type HoldingsSummary,
 } from '@/api/holdings';
 import StockDetailDialog from '@/components/stocks/StockDetailDialog.vue';
+import SortableTableHeader from '@/components/stocks/SortableTableHeader.vue';
+import RealtimeStatus from '@/components/stocks/RealtimeStatus.vue';
+import { useRealtimeQuotes } from '@/composables/useRealtimeQuotes';
+import { signedTextClass } from '@/utils/marketTone';
 import StockAutocomplete from '@/components/StockAutocomplete/StockAutocomplete.vue';
 import type { AssetType, Market } from '@/types/stockIndex';
 import ApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
@@ -19,11 +24,15 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { MoreHorizontal } from 'lucide-vue-next';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { createOperationId } from '@/utils/operationId';
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 
 const market = ref<'CN' | 'US'>('CN');
+const { portfolio: livePortfolio, status: realtimeStatus } = useRealtimeQuotes(() => ({ scope: 'holdings', market: market.value }));
 const loading = ref(false);
 const error = ref<ParsedApiError | null>(null);
 const accounts = ref<PortfolioAccount[]>([]);
@@ -32,6 +41,17 @@ const cash = ref('0');
 const marketValue = ref('0');
 const totalAsset = ref('0');
 const exposure = ref<string | null>(null);
+const missingQuotes = ref(0);
+const updatedAt = ref<string | null>(null);
+type SortKey = 'symbol' | 'currentPrice' | 'changePct' | 'engine' | 'quantity' | 'averageCost' | 'weight' | 'dayPnl' | 'unrealizedPnlPct';
+const sortKey = ref<SortKey>('weight');
+const sortDirection = ref<'asc' | 'desc'>('desc');
+const columns: Array<{ key: SortKey; label: string }> = [
+  { key: 'symbol', label: '股票' }, { key: 'currentPrice', label: '现价' },
+  { key: 'changePct', label: '当日涨跌' }, { key: 'engine', label: '交易引擎' },
+  { key: 'quantity', label: '数量' }, { key: 'averageCost', label: '成本' },
+  { key: 'weight', label: '仓位' }, { key: 'dayPnl', label: '当日盈亏' }, { key: 'unrealizedPnlPct', label: '盈亏' },
+];
 const engine = ref<TradeEnginePosition[]>([]);
 const formOpen = ref(false);
 const formKind = ref<'buy' | 'sell' | 'cash'>('buy');
@@ -63,6 +83,52 @@ onMounted(() => {
   void load();
 });
 const engineByPosition = computed(() => Object.fromEntries(engine.value.map(item => [item.positionId, item])));
+function numeric(value?: string | null): number | null {
+  return value == null || value === '' || !Number.isFinite(Number(value)) ? null : Number(value);
+}
+function engineLabel(row: PortfolioPosition) {
+  if (row.tradeEngineEnabled === false) return '已关闭';
+  if (engineLoading.value) return '加载中';
+  if (engineError.value) return '读取失败';
+  return engineByPosition.value[String(row.id)]?.action || '暂无正式信号';
+}
+const sortedPositions = computed(() => [...positions.value].sort((a, b) => {
+  const key = sortKey.value;
+  const left = key === 'symbol' ? a.name || a.symbol : key === 'engine' ? engineLabel(a) : numeric(a[key]);
+  const right = key === 'symbol' ? b.name || b.symbol : key === 'engine' ? engineLabel(b) : numeric(b[key]);
+  if (left == null) return right == null ? a.id - b.id : 1;
+  if (right == null) return -1;
+  const order = typeof left === 'number' && typeof right === 'number' ? left - right : String(left).localeCompare(String(right), 'zh-CN');
+  return order ? order * (sortDirection.value === 'asc' ? 1 : -1) : a.id - b.id;
+}));
+function sort(key: SortKey) {
+  if (sortKey.value === key) sortDirection.value = sortDirection.value === 'asc' ? 'desc' : 'asc';
+  else { sortKey.value = key; sortDirection.value = key === 'symbol' || key === 'engine' ? 'asc' : 'desc'; }
+}
+function signed(value?: string | null, suffix = '') {
+  const number = numeric(value);
+  return number == null ? '—' : `${number > 0 ? '+' : ''}${number.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}${suffix}`;
+}
+function quoteTime(value?: string | null, compact = false) {
+  if (!value) return '时间未知';
+  const options: Intl.DateTimeFormatOptions = { timeZone: market.value === 'CN' ? 'Asia/Shanghai' : 'America/New_York', hour12: false };
+  if (compact) Object.assign(options, { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  return new Date(value).toLocaleString('zh-CN', options);
+}
+function quoteSource(row: PortfolioPosition) {
+  return ({ fuyao: '扶摇', longbridge: 'Longbridge', streaming: '行情流', yfinance: 'Yahoo' } as Record<string, string>)[row.quoteSource || ''] || '来源未知';
+}
+function applySummary(summary: HoldingsSummary) {
+  if (summary.market !== market.value) return;
+  if (summary.generatedAt && updatedAt.value && Date.parse(summary.generatedAt) < Date.parse(updatedAt.value)) return;
+  accounts.value = summary.accounts; positions.value = summary.positions;
+  cash.value = summary.cash; marketValue.value = summary.marketValue;
+  totalAsset.value = summary.totalAsset; exposure.value = summary.grossExposure;
+  missingQuotes.value = summary.missingQuoteCount ?? summary.positions.filter(row => row.currentPrice == null).length;
+  updatedAt.value = summary.generatedAt || null;
+  error.value = null;
+}
+watch(livePortfolio, summary => { if (summary) applySummary(summary); });
 
 function fmt(value?: string | null) {
   if (value == null || value === '') return '-';
@@ -78,12 +144,7 @@ async function loadSummary() {
   try {
     const summary = await holdingsApi.summary(requestedMarket);
     if (stopped || request !== listRequest || requestedMarket !== market.value) return;
-    accounts.value = summary.accounts;
-    positions.value = summary.positions;
-    cash.value = summary.cash;
-    marketValue.value = summary.marketValue;
-    totalAsset.value = summary.totalAsset;
-    exposure.value = summary.grossExposure;
+    applySummary(summary);
   } catch (err) {
     if (!stopped && request === listRequest) error.value = getParsedApiError(err);
   } finally {
@@ -120,6 +181,8 @@ function changeMarket(value: 'CN' | 'US') {
   positions.value = [];
   cash.value = marketValue.value = totalAsset.value = '';
   exposure.value = null;
+  updatedAt.value = null;
+  missingQuotes.value = 0;
   void load();
 }
 
@@ -264,7 +327,7 @@ function closeDetail() {
       </Button>
     </div>
 
-    <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+    <div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
       <Card>
         <CardHeader>
           <CardDescription>
@@ -317,6 +380,13 @@ function closeDetail() {
 
     <div class="flex flex-wrap gap-2">
       <Button
+        variant="outline"
+        :disabled="loading"
+        @click="load"
+      >
+        刷新
+      </Button>
+      <Button
         data-testid="action-cash"
         :disabled="!account || loading || !!error"
         @click="openForm('cash')"
@@ -332,7 +402,22 @@ function closeDetail() {
         买入
       </Button>
     </div>
+    <div class="flex flex-wrap items-center gap-2">
+      <RealtimeStatus :status="realtimeStatus" />
+      <span class="self-center text-xs text-muted-foreground">
+        {{ market === 'CN' ? '人民币 CNY · 上海时间' : '美元 USD · 纽约时间' }}
+        <template v-if="updatedAt"> · 更新于 {{ quoteTime(updatedAt) }}</template>
+      </span>
+    </div>
 
+    <p
+      v-if="missingQuotes"
+      role="status"
+      class="text-sm text-warning"
+      data-testid="valuation-incomplete"
+    >
+      估值不完整：{{ missingQuotes }} 只持仓暂无有效报价，总资产与仓位仅包含已获报价的持仓。
+    </p>
     <Card>
       <CardHeader>
         <CardTitle>持仓</CardTitle>
@@ -348,109 +433,113 @@ function closeDetail() {
         <Table v-else>
           <TableHeader>
             <TableRow>
-              <TableHead>
-                <IndicatorHelpLabel
-                  scope="holdings"
-                  label="股票"
-                  compact
-                />
-              </TableHead>
-              <TableHead>
-                <IndicatorHelpLabel
-                  scope="holdings"
-                  label="现价"
-                  compact
-                />
-              </TableHead>
-              <TableHead>
-                <IndicatorHelpLabel
-                  scope="holdings"
-                  label="数量（股）"
-                  compact
-                />
-              </TableHead>
-              <TableHead>
-                <IndicatorHelpLabel
-                  scope="holdings"
-                  label="平均成本"
-                  compact
-                />
-              </TableHead>
-              <TableHead>
-                <IndicatorHelpLabel
-                  scope="holdings"
-                  label="市值"
-                  compact
-                />
-              </TableHead>
-              <TableHead>
-                <IndicatorHelpLabel
-                  scope="holdings"
-                  label="仓位"
-                  compact
-                />
-              </TableHead>
-              <TableHead>
-                <IndicatorHelpLabel
-                  scope="holdings"
-                  label="盈亏"
-                  compact
-                />
-              </TableHead>
-              <TableHead>
-                <IndicatorHelpLabel
-                  scope="holdings"
-                  label="交易引擎"
-                  compact
-                />
-              </TableHead>
-              <TableHead>
-                <IndicatorHelpLabel
-                  scope="holdings"
-                  label="操作"
-                  compact
-                />
-              </TableHead>
+              <SortableTableHeader
+                v-for="column in columns"
+                :key="column.key"
+                :class="column.key === 'symbol' ? 'sticky left-0 z-10 bg-muted px-2' : 'px-2'"
+                :label="column.label"
+                scope="holdings"
+                :active="sortKey === column.key"
+                :direction="sortDirection"
+                :align="column.key === 'symbol' || column.key === 'engine' ? 'left' : 'right'"
+                @sort="sort(column.key)"
+              />
+              <TableHead>操作</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             <TableRow
-              v-for="row in positions"
+              v-for="row in sortedPositions"
               :key="row.id"
               data-testid="position-row"
             >
-              <TableCell>
+              <TableCell class="sticky left-0 z-10 bg-background">
                 <button
                   class="text-left font-medium"
                   @click="openDetail(row)"
                 >
-                  {{ row.symbol }}
+                  <span class="block">{{ row.name || row.symbol }}</span>
+                  <span
+                    v-if="row.name"
+                    class="block text-xs font-normal text-muted-foreground"
+                  >{{ row.symbol }}</span>
                 </button>
               </TableCell>
-              <TableCell>{{ fmt(row.currentPrice) }}</TableCell>
-              <TableCell>{{ fmt(row.quantity) }}</TableCell>
-              <TableCell>{{ fmt(row.averageCost) }}</TableCell>
-              <TableCell>{{ fmt(row.marketValue) }}</TableCell>
-              <TableCell>{{ row.weight ? `${(Number(row.weight) * 100).toFixed(1)}%` : '-' }}</TableCell>
-              <TableCell>{{ fmt(row.unrealizedPnl) }}</TableCell>
-              <TableCell>{{ engineLoading ? '加载中' : engineError ? '读取失败' : engineByPosition[String(row.id)]?.action || '暂无正式信号' }}</TableCell>
-              <TableCell class="space-x-2">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  :disabled="loading || !!error"
-                  @click="openForm('buy', row)"
-                >
-                  买入
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  :disabled="loading || !!error"
-                  @click="openForm('sell', row)"
-                >
-                  卖出
-                </Button>
+              <TableCell class="text-right tabular-nums">
+                <span class="font-medium">{{ fmt(row.currentPrice) }}</span>
+                <span
+                  v-if="row.quoteStatus === 'delayed'"
+                  class="ml-1 text-xs text-warning"
+                >延迟</span>
+                <span
+                  v-if="row.currentPrice == null"
+                  class="block text-xs text-muted-foreground"
+                >暂无报价</span>
+                <TooltipProvider v-else>
+                  <Tooltip>
+                    <TooltipTrigger as-child>
+                      <span
+                        tabindex="0"
+                        class="block whitespace-nowrap text-xs text-muted-foreground"
+                      >{{ quoteSource(row) }} · {{ quoteTime(row.quoteTime, true) }}</span>
+                    </TooltipTrigger>
+                    <TooltipContent>报价时间：{{ quoteTime(row.quoteTime) }} · {{ quoteSource(row) }}</TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </TableCell>
+              <TableCell
+                class="text-right tabular-nums"
+                :class="signedTextClass(numeric(row.changePct))"
+              >
+                <span class="block font-medium">{{ signed(row.changePct, '%') }}</span>
+                <span class="block text-xs">{{ signed(row.changeAmount) }}</span>
+              </TableCell>
+              <TableCell class="whitespace-nowrap">
+                {{ engineLabel(row) }}
+              </TableCell>
+              <TableCell class="text-right tabular-nums">
+                {{ fmt(row.quantity) }}
+              </TableCell>
+              <TableCell class="text-right tabular-nums">
+                {{ fmt(row.averageCost) }}
+              </TableCell>
+              <TableCell class="text-right tabular-nums">
+                {{ row.weight != null ? `${(Number(row.weight) * 100).toFixed(1)}%` : '—' }}
+              </TableCell>
+              <TableCell
+                class="text-right tabular-nums"
+                :class="signedTextClass(numeric(row.dayPnl))"
+              >
+                {{ signed(row.dayPnl) }}
+              </TableCell>
+              <TableCell
+                class="text-right tabular-nums"
+                :class="signedTextClass(numeric(row.unrealizedPnl))"
+              >
+                <span class="block font-medium">{{ signed(row.unrealizedPnlPct, '%') }}</span>
+                <span class="block text-xs">{{ signed(row.unrealizedPnl) }}</span>
+              </TableCell>
+              <TableCell>
+                <DropdownMenu>
+                  <DropdownMenuTrigger as-child>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      :disabled="loading || !!error"
+                      :aria-label="`${row.name || row.symbol}持仓操作`"
+                    >
+                      <MoreHorizontal class="size-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem @select="openForm('buy', row)">
+                      买入
+                    </DropdownMenuItem>
+                    <DropdownMenuItem @select="openForm('sell', row)">
+                      卖出
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </TableCell>
             </TableRow>
           </TableBody>

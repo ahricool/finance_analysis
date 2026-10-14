@@ -1,8 +1,9 @@
 import { marketQuoteKey } from '@/api/realtimeMarket';
+import * as marketApi from '@/api/realtimeMarket';
 import { useRealtimeQuotes } from '@/composables/useRealtimeQuotes';
 /* eslint-disable vue/one-component-per-file -- Each anonymous component is an isolated composable test host. */
 import { mount } from '@vue/test-utils';
-import { defineComponent } from 'vue';
+import { defineComponent, nextTick, ref } from 'vue';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 class MockWebSocket {
@@ -50,6 +51,7 @@ describe('useRealtimeQuotes', () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     vi.useRealTimers();
     vi.unstubAllGlobals();
   });
@@ -97,6 +99,78 @@ describe('useRealtimeQuotes', () => {
     await vi.advanceTimersByTimeAsync(30_000);
 
     expect(MockWebSocket.instances).toHaveLength(1);
+    wrapper.unmount();
+  });
+
+  it('falls back after exactly two failures, stays on SSE, and aborts on unmount', async () => {
+    let signal!: AbortSignal;
+    const sse = vi.spyOn(marketApi, 'readMarketEvents').mockImplementation(async (_options, nextSignal, accept) => {
+      signal = nextSignal;
+      accept({ type: 'quotes', generated_at: 'now', quotes: [] });
+      await new Promise(() => {});
+    });
+    let state!: ReturnType<typeof useRealtimeQuotes>;
+    const wrapper = mount(defineComponent({ setup() { state = useRealtimeQuotes(); return {}; }, template: '<div />' }));
+    MockWebSocket.instances[0].onerror?.();
+    MockWebSocket.instances[0].disconnect(); // Error and close belong to one failed request.
+    await vi.advanceTimersByTimeAsync(1_000);
+    MockWebSocket.instances[1].disconnect();
+    expect(sse).toHaveBeenCalledTimes(1);
+    expect(state.status.value).toBe('sse');
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(MockWebSocket.instances).toHaveLength(2);
+    wrapper.unmount();
+    expect(signal.aborted).toBe(true);
+  });
+
+  it('times out silent sockets and stops all retries on SSE authentication failure', async () => {
+    vi.spyOn(marketApi, 'readMarketEvents').mockRejectedValue(new marketApi.MarketStreamAuthError());
+    let state!: ReturnType<typeof useRealtimeQuotes>;
+    const wrapper = mount(defineComponent({ setup() { state = useRealtimeQuotes(); return {}; }, template: '<div />' }));
+    await vi.advanceTimersByTimeAsync(41_000);
+    expect(MockWebSocket.instances).toHaveLength(2);
+    expect(state.status.value).toBe('unauthorized');
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(marketApi.readMarketEvents).toHaveBeenCalledTimes(1);
+    wrapper.unmount();
+  });
+
+  it('retries failed SSE over HTTP without returning to WS', async () => {
+    const sse = vi.spyOn(marketApi, 'readMarketEvents').mockRejectedValueOnce(new Error('offline'))
+      .mockImplementation(() => new Promise(() => {}));
+    const wrapper = mount(defineComponent({ setup: () => useRealtimeQuotes(), template: '<div />' }));
+    MockWebSocket.instances[0].disconnect();
+    await vi.advanceTimersByTimeAsync(1_000);
+    MockWebSocket.instances[1].disconnect();
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(sse).toHaveBeenCalledTimes(2);
+    expect(MockWebSocket.instances).toHaveLength(2);
+    wrapper.unmount();
+  });
+
+  it('releases old market streams and ignores their late portfolio snapshots', async () => {
+    const market = ref<'CN' | 'US'>('CN');
+    const streams: Array<{ signal: AbortSignal; accept: Parameters<typeof marketApi.readMarketEvents>[2] }> = [];
+    const sse = vi.spyOn(marketApi, 'readMarketEvents').mockImplementation((_options, signal, accept) => {
+      streams.push({ signal, accept });
+      return new Promise(() => {});
+    });
+    let state!: ReturnType<typeof useRealtimeQuotes>;
+    const wrapper = mount(defineComponent({
+      setup() { state = useRealtimeQuotes(() => ({ scope: 'holdings', market: market.value })); return {}; }, template: '<div />',
+    }));
+    MockWebSocket.instances[0].disconnect();
+    await vi.advanceTimersByTimeAsync(1_000);
+    MockWebSocket.instances[1].disconnect();
+    market.value = 'US';
+    await nextTick();
+    expect(streams[0]!.signal.aborted).toBe(true);
+    expect(sse.mock.calls[1]![0]).toEqual({ scope: 'holdings', market: 'US' });
+    streams[1]!.accept({ type: 'quotes', generated_at: 'US', quotes: [], portfolio: { market: 'US', positions: [], accounts: [] } });
+    streams[0]!.accept({ type: 'quotes', generated_at: 'old CN', quotes: [], portfolio: { market: 'CN', positions: [], accounts: [] } });
+    expect(state.portfolio.value?.market).toBe('US');
+    expect(state.lastUpdatedAt.value).toBe('US');
+    expect(MockWebSocket.instances).toHaveLength(2);
     wrapper.unmount();
   });
 });

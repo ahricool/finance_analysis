@@ -88,7 +88,7 @@ def test_registry_exact_external_inventory_internal_readers_and_order():
         registry.resolve(["fuyao"], MINUTE_BARS)
     assert provider_order("CN", DAILY_BARS) == ("tickflow", "fuyao", "yfinance")
     assert provider_order("CN", MINUTE_BARS) == ("streaming", "longbridge")
-    assert provider_order("CN", REALTIME_QUOTES) == ("streaming", "longbridge", "fuyao")
+    assert provider_order("CN", REALTIME_QUOTES) == ("fuyao", "streaming", "longbridge")
     assert provider_order("CN", LATEST_MARKET_SNAPSHOT) == ("fuyao", "easyquotation")
     for capability in (MARKET_INDICES, MARKET_STATS, SECTOR_RANKINGS):
         assert provider_order("CN", capability) == ("fuyao",)
@@ -100,7 +100,9 @@ def test_registry_exact_external_inventory_internal_readers_and_order():
         assert provider_order(market, MINUTE_BARS) == (
             ("streaming", "longbridge", "yfinance") if market == "US" else ("streaming", "longbridge")
         )
-        assert provider_order(market, REALTIME_QUOTES) == ("streaming", "longbridge", "yfinance")
+        assert provider_order(market, REALTIME_QUOTES) == (
+            ("longbridge", "streaming", "yfinance") if market == "US" else ("streaming", "longbridge", "yfinance")
+        )
         assert provider_order(market, MARKET_INDICES) == ("longbridge", "yfinance")
         assert provider_order(market, INSTRUMENT_INFO) == ("database", "tickflow", "longbridge", "yfinance")
 

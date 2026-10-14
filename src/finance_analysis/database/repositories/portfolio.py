@@ -206,6 +206,16 @@ class PortfolioRepository:
             ).scalars()
         )
 
+    def operations_in_window(self, session, *, uid, position_ids, start, end):
+        if not position_ids:
+            return []
+        return list(session.execute(select(TradeOperation).where(
+            TradeOperation.uid == uid,
+            TradeOperation.position_id.in_(position_ids),
+            TradeOperation.executed_at >= start,
+            TradeOperation.executed_at <= end,
+        )).scalars())
+
     def add_position(self, session: Session, **payload: Any) -> PortfolioPosition:
         row = PortfolioPosition(**payload)
         session.add(row)
