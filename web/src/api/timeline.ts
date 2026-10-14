@@ -39,6 +39,7 @@ export interface EarningsOutlook {
   intradayLow?: number | null; intradayHigh?: number | null;
   referencePrice?: number | null; referencePriceAt?: string | null; referencePriceSession?: string;
   responseDirection?: string; targetTradingDate?: string; generatedAt?: string; dataCutoff?: string;
+  freshness?: 'fresh' | 'stale'; freshUntil?: string;
   searchStatus?: string; stage?: string; provisional?: boolean; assumption?: string;
   missingData?: string[]; uncertainties?: string[];
   scenarios?: { name: string; conditions: string; reactionReason: string; low: number | null; high: number | null }[];

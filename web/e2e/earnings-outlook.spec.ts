@@ -1,10 +1,10 @@
 import { test, expect } from '@playwright/test';
 
-for (const width of [1280, 1440, 1920]) {
+for (const width of [390, 768, 1024, 1280, 1440, 1920]) {
   test(`earnings outlook card and detail at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 1000 });
     const outlook = {
-      status: 'current', memberships: ['us_sp500', 'us_nasdaq100'], earnings_high: true, reaction_high: true,
+      status: 'current', stage: 'near', freshness: 'fresh', memberships: ['us_nasdaq100'], earnings_high: true, reaction_high: true,
       eps: { judgment: 'beat', expected_value: 1.2, consensus: null }, revenue: { judgment: 'meet', expected_value: 100, consensus: null },
       guidance: 'above', conclusion: '经营有望超预期，但近期涨幅已反映部分利好。',
       earnings_confidence: 9, reaction_confidence: 8, expected_close: 98, expected_return_pct: -2,
@@ -39,6 +39,7 @@ for (const width of [1280, 1440, 1920]) {
     await expect(card).toContainText('财报判断高置信度');
     await expect(card).toContainText('首日走势高置信度');
     await expect(card).toContainText('Nasdaq-100');
+    await expect(card).toContainText('临近版 · 生成于');
     expect(detailCalls).toBe(0);
     await page.getByRole('checkbox', { name: '仅高置信度' }).check();
     await expect.poll(() => filters.at(-1)).toBe(true);

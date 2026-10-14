@@ -1,4 +1,4 @@
-"""The only eligible scope: active stock Instrument identities in two indices."""
+"""The only eligible scope: current active Nasdaq-100 stock Instrument identities."""
 
 from finance_analysis.database.repositories.universe import UniverseResolver
 from finance_analysis.database.models.stock import validate_instrument_code
@@ -16,5 +16,6 @@ def resolve_members(resolver=None):
         for row in active:
             code = validate_instrument_code("US", row.code)
             item = members.setdefault(row.id, dict(instrument_id=row.id, symbol=code, name=row.name, memberships=[]))
-            item["memberships"].append(key)
+            if key not in item["memberships"]:
+                item["memberships"].append(key)
     return {item["symbol"]: item for item in members.values()}

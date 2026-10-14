@@ -59,8 +59,52 @@ def trading_days(start, end):
 
 def matches_schedule(event, schedule_hash, frozen_event=None):
     current = schedule(event)
-    # Provider completion of the already-researched quarter is not a rescheduled release.
-    return digest(current) == schedule_hash or current == frozen_event
+    if digest(current) == schedule_hash:
+        return True
+    if not frozen_event:
+        return False
+    # Quarter completion is metadata enrichment, including when no quarter was
+    # recoverable at prediction time. Two conflicting known quarters are different events.
+    if (
+        current["reporting_period"] and frozen_event.get("reporting_period")
+        and current["reporting_period"] != frozen_event["reporting_period"]
+    ):
+        return False
+    for key in ("symbol", "event_date", "event_datetime", "market_session"):
+        a, b = current[key], frozen_event.get(key)
+        if key == "event_datetime":
+            a, b = timestamp(a), timestamp(b)
+        if key == "market_session":
+            a, b = (a or "").lower(), (b or "").lower()
+        if a != b:
+            return False
+    return True
+
+
+def completed_stages(stage, generated_at, event_date):
+    """Automatic credits, including read-only compatibility with immutable legacy versions."""
+    if stage == "manual":
+        return set()
+    if stage == "final":
+        return {"initial", "near", "final"}
+    if stage == "near":
+        return {"initial", "near"}
+    if stage == "daily":
+        days = (event_date - timestamp(generated_at).astimezone(NY).date()).days
+        return {"initial", "near"} if 1 <= days <= 3 else {"initial"}
+    return {"initial"} if stage == "initial" else set()
+
+
+def automatic_stage(requested, event_date, now, completed):
+    """Select at most one round; later automatic rounds subsume earlier rounds."""
+    if requested == "manual":
+        return "manual"
+    if requested == "final":
+        return None if "final" in completed else "final"
+    near = 1 <= (event_date - now.astimezone(NY).date()).days <= 3
+    if near:
+        return None if "near" in completed else "near"
+    return None if "initial" in completed else "initial"
 
 
 def event_window(event):

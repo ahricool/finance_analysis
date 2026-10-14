@@ -21,7 +21,7 @@ def event(day=date(2026, 7, 2), session="amc", **kw):
     return NS(event_date=day, market_session=session, event_datetime=None, reported_eps=None, **kw)
 
 
-def test_union_deduplicates_instrument_identity_and_excludes_inactive_etfs():
+def test_only_nasdaq100_active_stocks_are_resolved():
     a = NS(id=1, code="A.US", name="A", market="US", instrument_type="STOCK", listing_status="ACTIVE")
     b = NS(id=2, code="B.US", name="B", market="US", instrument_type="STOCK", listing_status="ACTIVE")
     etf = NS(id=3, code="ETF.US", name="ETF", market="US", instrument_type="ETF", listing_status="ACTIVE")
@@ -30,12 +30,12 @@ def test_union_deduplicates_instrument_identity_and_excludes_inactive_etfs():
 
     def resolve(key):
         calls.append(key)
-        return [a, etf, dead] if key == "us_sp500" else [a, b]
+        return [b] if key == "us_sp500" else [a, a, etf, dead]
 
     members = resolve_members(NS(resolve_universe=resolve))
-    assert set(members) == {"A.US", "B.US"}
-    assert members["A.US"]["memberships"] == ["us_sp500", "us_nasdaq100"]
-    assert calls == ["us_sp500", "us_nasdaq100"]
+    assert set(members) == {"A.US"}
+    assert members["A.US"]["memberships"] == ["us_nasdaq100"]
+    assert calls == ["us_nasdaq100"]
     with pytest.raises(ValueError, match="Empty"):
         resolve_members(NS(resolve_universe=lambda _: []))
 
@@ -212,3 +212,24 @@ def test_high_quality_structured_evidence_is_not_capped_for_absent_search():
     p = normalize_prediction({**r, "eps": "bad section", "scenarios": None}, context())
     assert p["eps"]["judgment"] == "unknown" and p["revenue"]["judgment"] == "beat"
     assert p["expected_close"] == 98
+
+
+@pytest.mark.parametrize("now,day,expected", [
+    # NY is still July 1, even though UTC is July 2.
+    (datetime(2026, 7, 2, 0, 30, tzinfo=timezone.utc), date(2026, 7, 5), "initial"),
+    (datetime(2026, 7, 2, 4, 30, tzinfo=timezone.utc), date(2026, 7, 5), "near"),
+    # Saturday -> Monday is in the calendar-day window, independent of exchange closure.
+    (datetime(2026, 7, 4, 12, tzinfo=timezone.utc), date(2026, 7, 6), "near"),
+])
+def test_automatic_window_uses_new_york_calendar_days(now, day, expected):
+    from finance_analysis.earnings_outlook.rules import automatic_stage
+
+    assert automatic_stage("daily", day, now, set()) == expected
+    assert automatic_stage("daily", day, now, {"initial", "near"}) is None
+
+
+def test_legacy_daily_credit_uses_generation_new_york_date():
+    from finance_analysis.earnings_outlook.rules import completed_stages
+
+    assert completed_stages("daily", datetime(2026, 7, 2, 0, 30, tzinfo=timezone.utc), date(2026, 7, 5)) == {"initial"}
+    assert completed_stages("daily", datetime(2026, 7, 2, 4, 30, tzinfo=timezone.utc), date(2026, 7, 5)) == {"initial", "near"}

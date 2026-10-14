@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 
 class OutlookVersion(BaseModel):
     id: int
-    stage: Literal["daily", "final", "manual"]
+    stage: Literal["initial", "near", "daily", "final", "manual"]
     applicability: Literal["valid", "superseded", "ineligible"]
     generated_at: datetime
     data_cutoff: datetime

@@ -2,9 +2,9 @@
 import { computed } from 'vue';
 import type { EarningsOutlook } from '@/api/timeline';
 import { formatDateTimeInDisplayTimezone } from '@/utils/format';
-import { outlookStatus, guidanceLabels, price, pct } from './earningsFormat';
+import { outlookStatus, outlookStage, guidanceLabels, price, pct } from './earningsFormat';
 const props = defineProps<{ outlook: EarningsOutlook }>();
-const current = computed(() => props.outlook.status === 'current');
+const current = computed(() => props.outlook.status === 'current' && props.outlook.freshness !== 'stale');
 const earningsHigh = computed(() => current.value && props.outlook.earningsHigh &&
   props.outlook.eps?.judgment !== 'unknown' && props.outlook.revenue?.judgment !== 'unknown');
 const reactionHigh = computed(() => current.value && props.outlook.reactionHigh && !props.outlook.provisional &&
@@ -53,6 +53,7 @@ const reactionHigh = computed(() => current.value && props.outlook.reactionHigh 
     </p>
     <p class="text-muted-foreground">
       {{ outlookStatus[outlook.status] || '信息不足' }}
+      <span v-if="outlook.freshness === 'stale'"> · 资料待更新</span>
     </p>
     <p
       v-if="outlook.referencePriceAt"
@@ -64,7 +65,7 @@ const reactionHigh = computed(() => current.value && props.outlook.reactionHigh 
       v-if="outlook.generatedAt"
       class="text-[11px] text-muted-foreground"
     >
-      更新 {{ formatDateTimeInDisplayTimezone(outlook.generatedAt) }}
+      {{ outlookStage[outlook.stage || ''] || outlook.stage }} · 生成于 {{ formatDateTimeInDisplayTimezone(outlook.generatedAt) }}
     </p>
   </div>
 </template>

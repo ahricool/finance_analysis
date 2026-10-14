@@ -23,7 +23,7 @@ from finance_analysis.market_calendar.events import CALENDAR_TYPE_LABELS, merge_
 logger = logging.getLogger(__name__)
 
 MARKET_CALENDAR_LOOKAHEAD_DAYS = 30
-EARNINGS_UNIVERSES = {"US": "us_sp500", "CN": "cn_csi300"}
+EARNINGS_UNIVERSES = {"US": "us_nasdaq100", "CN": "cn_csi300"}
 MARKET_CALENDAR_TIMEZONE = "Asia/Shanghai"
 MARKET_CALENDAR_NOTIFICATION_DAYS = MARKET_CALENDAR_LOOKAHEAD_DAYS
 
