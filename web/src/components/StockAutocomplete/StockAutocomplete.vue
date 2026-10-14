@@ -2,6 +2,7 @@
 import SuggestionsList from '@/components/StockAutocomplete/SuggestionsList.vue';
 import { useAutocomplete } from '@/composables/useAutocomplete';
 import type { AssetType, Market } from '@/types/stockIndex';
+import type { MarketType } from '@/api/watchList';
 import { cn } from '@/utils/cn';
 import { nextTick, onUnmounted, ref, watch } from 'vue';
 
@@ -15,12 +16,14 @@ const props = withDefaults(
     teleported?: boolean;
     placeholder?: string;
     class?: string;
+    market?: MarketType;
   }>(),
   {
     disabled: false,
     teleported: true,
     placeholder: '输入股票代码或名称',
     class: '',
+    market: undefined,
   },
 );
 
@@ -47,7 +50,7 @@ const {
   close,
   isComposing,
   setIsComposing,
-} = useAutocomplete();
+} = useAutocomplete({ market: () => props.market });
 
 const inputRef = ref<HTMLInputElement | null>(null);
 const dropdownStyle = ref<Record<string, string> | null>(null);

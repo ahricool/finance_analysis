@@ -6,12 +6,15 @@ import {
   type MarketType,
   type WatchListItem,
   type WatchListItemCreate,
+  type WatchListTag,
+  type WatchListTagDraft,
 } from '@/api/watchList';
 import ApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
 import { Button } from '@/components/ui/button';
 import AppConfirmDialog from '@/components/app/AppConfirmDialog.vue';
 import FieldInput from '@/components/forms/FieldInput.vue';
-import FieldSelect from '@/components/forms/FieldSelect.vue';
+import WatchListTagPicker from '@/components/watch-list/WatchListTagPicker.vue';
+import WatchListTagManager from '@/components/watch-list/WatchListTagManager.vue';
 import PatternStatus from '@/components/stocks/PatternStatus.vue';
 import RealtimeStatus from '@/components/stocks/RealtimeStatus.vue';
 import SortableTableHeader from '@/components/stocks/SortableTableHeader.vue';
@@ -34,9 +37,9 @@ import { formatSecurityLabel } from '@/utils/security';
 import { signedTextClass } from '@/utils/marketTone';
 import { calculateZeroDteStatus, zeroDteStatusSortValue } from '@/utils/zeroDteStatus';
 import { Eye, Heart, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-vue-next';
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 
-type MarketFilter = MarketType | 'ALL';
+type TagFilter = 'ALL' | 'UNGROUPED' | number;
 type SortDirection = 'asc' | 'desc';
 type WatchListSortKey =
   | 'is_favorite'
@@ -72,7 +75,17 @@ const deletingId = ref<number | null>(null);
 const deletingCode = ref('');
 const togglingFavoriteId = ref<number | null>(null);
 const detailItem = ref<WatchListItem | null>(null);
-const { status: realtimeStatus, getQuote } = useRealtimeQuotes();
+const selectedMarket = ref<'CN' | 'US'>('CN');
+const selectedTag = ref<TagFilter>('ALL');
+const tags = ref<WatchListTag[]>([]);
+const formTags = ref<WatchListTagDraft[]>([]);
+const showTagManager = ref(false);
+const filters = computed(() => ({
+  market: selectedMarket.value,
+  tagId: typeof selectedTag.value === 'number' ? selectedTag.value : undefined,
+  ungrouped: selectedTag.value === 'UNGROUPED',
+}));
+const { status: realtimeStatus, getQuote } = useRealtimeQuotes(() => ({ scope: 'watch-list', ...filters.value }));
 const currentTime = useCurrentTime();
 
 const marketOptions: { value: MarketType; label: string }[] = [
@@ -80,21 +93,11 @@ const marketOptions: { value: MarketType; label: string }[] = [
   { value: 'US', label: '美股' },
   { value: 'HK', label: '港股' },
 ];
-const marketFilterOptions: { value: MarketFilter; label: string }[] = [
-  { value: 'ALL', label: '所有' },
-  { value: 'US', label: '美股' },
-  { value: 'HK', label: '港股' },
-  { value: 'CN', label: 'A 股' },
-];
-const selectedMarket = ref<MarketFilter>('ALL');
 const sortKey = ref<WatchListSortKey | null>('is_favorite');
 const sortDirection = ref<SortDirection>('desc');
 
 const visibleItems = computed(() => {
-  const filtered =
-    selectedMarket.value === 'ALL'
-      ? items.value
-      : items.value.filter((item) => item.market_type === selectedMarket.value);
+  const filtered = items.value;
 
   const activeSortKey = sortKey.value;
   if (!activeSortKey) {
@@ -231,48 +234,78 @@ watch(formStockQuery, (value) => {
   }
 });
 
+let listGeneration = 0;
+let listController: AbortController | null = null;
+onUnmounted(() => { ++listGeneration; listController?.abort(); });
+watch(filters, () => { void loadList(); });
+
+function mergeTags(values: WatchListTag[]) {
+  const merged = new Map(tags.value.map(tag => [tag.id, tag]));
+  values.forEach(tag => merged.set(tag.id, tag));
+  tags.value = [...merged.values()].sort((a, b) => a.id - b.id);
+}
+function renameTag(tag: WatchListTag) {
+  mergeTags([tag]);
+  items.value.forEach(item => { item.tags = item.tags.map(value => value.id === tag.id ? tag : value); });
+  if (detailItem.value) detailItem.value.tags = detailItem.value.tags.map(value => value.id === tag.id ? tag : value);
+}
+function deleteTag(id: number) {
+  tags.value = tags.value.filter(tag => tag.id !== id);
+  if (selectedTag.value === id) selectedTag.value = 'ALL';
+  else void loadList();
+}
+
 // ── API Calls ─────────────────────────────────────────────────────────────────
 async function loadList() {
+  const generation = ++listGeneration;
+  listController?.abort();
+  listController = new AbortController();
   loading.value = true;
   error.value = null;
+  items.value = [];
+  total.value = 0;
   try {
-    const res = await watchListApi.list();
+    const res = await watchListApi.list(filters.value, listController.signal);
+    if (generation !== listGeneration) return;
     items.value = res.items;
     total.value = res.total;
   } catch (e) {
-    error.value = getParsedApiError(e);
+    if (generation === listGeneration) error.value = getParsedApiError(e);
   } finally {
-    loading.value = false;
+    if (generation === listGeneration) loading.value = false;
   }
 }
 
 async function save() {
+  if (saving.value) return;
   formError.value = null;
   const code = formCode.value.trim();
-  if (editingId.value === null && (!code || !formMarketType.value)) {
+  if (editingId.value === null && (!code || formMarketType.value !== selectedMarket.value)) {
     formError.value = '请先搜索并选择股票';
     return;
   }
   saving.value = true;
+  const savedTags = formTags.value.map(tag => tag.id !== undefined ? { id: tag.id } : { name: tag.name });
   try {
     if (editingId.value !== null) {
       const updated = await watchListApi.update(editingId.value, {
         notes: formNotes.value.trim(),
+        tags: savedTags,
       });
-      const idx = items.value.findIndex((i) => i.id === editingId.value);
-      if (idx !== -1) items.value[idx] = updated;
+      mergeTags(updated.tags);
     } else {
       const body: WatchListItemCreate = {
         code,
         name: formName.value.trim() || undefined,
         notes: formNotes.value.trim() || undefined,
-        market_type: formMarketType.value ?? undefined,
+        market_type: selectedMarket.value,
+        tags: savedTags,
       };
       const created = await watchListApi.create(body);
-      items.value.push(created);
-      total.value++;
+      mergeTags(created.tags);
     }
     closeDialog();
+    await loadList();
   } catch (e) {
     const parsed = getParsedApiError(e);
     formError.value = parsed.message || '操作失败，请重试';
@@ -285,8 +318,7 @@ async function confirmDelete() {
   if (deletingId.value === null) return;
   try {
     await watchListApi.remove(deletingId.value);
-    items.value = items.value.filter((i) => i.id !== deletingId.value);
-    total.value--;
+    await loadList();
   } catch (e) {
     error.value = getParsedApiError(e);
   } finally {
@@ -303,6 +335,7 @@ function openCreate() {
   formCode.value = '';
   formName.value = '';
   formNotes.value = '';
+  formTags.value = [];
   formMarketType.value = null;
   formError.value = null;
   showDialog.value = true;
@@ -314,6 +347,7 @@ function openEdit(item: WatchListItem) {
   formName.value = item.name ?? '';
   formStockQuery.value = formatStockQuery(item.code, item.name);
   formNotes.value = item.notes ?? '';
+  formTags.value = item.tags.map(tag => ({ ...tag }));
   formMarketType.value = item.market_type;
   formError.value = null;
   showDialog.value = true;
@@ -331,7 +365,7 @@ function handleStockAutocompleteSubmit(
   market?: Market,
 ) {
   const marketType = marketToMarketType(market);
-  if (source !== 'autocomplete' || !marketType) {
+  if (source !== 'autocomplete' || marketType !== selectedMarket.value) {
     formCode.value = '';
     formName.value = '';
     formMarketType.value = null;
@@ -370,7 +404,10 @@ async function toggleFavorite(item: WatchListItem) {
   }
 }
 
-onMounted(loadList);
+onMounted(() => {
+  void loadList();
+  void watchListApi.listTags().then(mergeTags).catch(e => { error.value = getParsedApiError(e); });
+});
 </script>
 
 <template>
@@ -383,9 +420,6 @@ onMounted(loadList);
         </h2>
         <p class="mt-1 text-sm text-muted-foreground">
           跟踪关注标的的实时行情，查看价格走势与股票详情。
-        </p>
-        <p class="mt-1 text-xs text-muted-foreground">
-          共 {{ total }} 只
         </p>
       </div>
       <Button
@@ -405,7 +439,81 @@ onMounted(loadList);
       class="mb-4"
     />
 
-    <!-- Loading skeleton -->
+    <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
+      <div
+        role="group"
+        aria-label="自选股市场"
+        class="inline-flex items-center gap-1 rounded-lg bg-muted/80 p-1 ring-1 ring-border/50"
+      >
+        <Button
+          v-for="market in (['US', 'CN'] as const)"
+          :key="market"
+          variant="ghost"
+          size="sm"
+          :class="selectedMarket === market ? 'bg-background text-foreground shadow-sm hover:bg-background' : 'text-muted-foreground'"
+          :aria-pressed="selectedMarket === market"
+          :data-testid="`market-${market.toLowerCase()}`"
+          @click="selectedMarket = market"
+        >
+          {{ market === 'US' ? '美股' : 'A股' }}
+        </Button>
+      </div>
+      <div class="flex items-center gap-3">
+        <RealtimeStatus :status="realtimeStatus" />
+        <p
+          class="whitespace-nowrap text-xs text-muted-foreground"
+          data-testid="watch-list-count"
+        >
+          显示 {{ visibleItems.length }} / {{ total }} 只
+        </p>
+      </div>
+    </div>
+    <div
+      class="mb-4 flex flex-wrap items-center gap-2"
+      role="group"
+      aria-label="分组筛选"
+      data-testid="tag-filters"
+    >
+      <Button
+        variant="outline"
+        size="sm"
+        :class="selectedTag === 'ALL' && 'bg-muted'"
+        :aria-pressed="selectedTag === 'ALL'"
+        @click="selectedTag = 'ALL'"
+      >
+        全部
+      </Button>
+      <Button
+        variant="outline"
+        size="sm"
+        :class="selectedTag === 'UNGROUPED' && 'bg-muted'"
+        :aria-pressed="selectedTag === 'UNGROUPED'"
+        @click="selectedTag = 'UNGROUPED'"
+      >
+        未分组
+      </Button>
+      <Button
+        v-for="tag in tags"
+        :key="tag.id"
+        variant="outline"
+        size="sm"
+        class="h-auto max-w-full whitespace-normal py-1.5"
+        :class="selectedTag === tag.id && 'bg-muted'"
+        :aria-pressed="selectedTag === tag.id"
+        @click="selectedTag = tag.id"
+      >
+        <span class="break-all">{{ tag.name }}</span>
+      </Button>
+      <Button
+        variant="ghost"
+        size="sm"
+        class="text-muted-foreground"
+        @click="showTagManager = true"
+      >
+        管理标签
+      </Button>
+    </div>
+
     <div
       v-if="loading"
       class="space-y-2"
@@ -416,37 +524,19 @@ onMounted(loadList);
         class="h-16 w-full"
       />
     </div>
-
-    <!-- Empty state -->
-    <Empty
-      v-else-if="!items.length"
-    >
+    <Empty v-else-if="!visibleItems.length">
       <EmptyHeader>
         <EmptyMedia variant="icon">
           <Eye />
-        </EmptyMedia><EmptyTitle>暂无自选股</EmptyTitle><EmptyDescription>点击「添加」开始关注股票并跟踪实时行情。</EmptyDescription>
+        </EmptyMedia>
+        <EmptyTitle>{{ total === 0 ? '当前市场暂无自选股' : '当前分组暂无自选股' }}</EmptyTitle>
+        <EmptyDescription>{{ total === 0 ? '点击「添加」开始关注股票并跟踪实时行情。' : '可切换分组，或添加股票到此分组。' }}</EmptyDescription>
       </EmptyHeader>
       <Button @click="openCreate">
         <Plus />添加自选股
       </Button>
     </Empty>
-
     <template v-else>
-      <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <FieldSelect
-          v-model="selectedMarket"
-          label="市场"
-          class="min-w-[180px]"
-          :options="marketFilterOptions"
-        />
-        <div class="flex items-center gap-3">
-          <RealtimeStatus :status="realtimeStatus" />
-          <p class="whitespace-nowrap text-xs text-muted-foreground">
-            显示 {{ visibleItems.length }} / {{ total }} 只
-          </p>
-        </div>
-      </div>
-
       <Card class="block">
         <CardHeader><CardTitle>自选股列表</CardTitle><CardDescription>点击任一行打开行情详情；次要操作收纳在行菜单中。</CardDescription></CardHeader><CardContent>
           <Table class="w-full min-w-[1500px] table-auto text-left text-sm">
@@ -592,6 +682,17 @@ onMounted(loadList);
                         </TooltipContent>
                       </Tooltip>
                     </TooltipProvider>
+                    <div
+                      v-if="item.tags.length"
+                      class="mt-1 flex max-w-full flex-wrap gap-1"
+                      data-testid="stock-tags"
+                    >
+                      <span
+                        v-for="tag in item.tags"
+                        :key="tag.id"
+                        class="max-w-full rounded border border-border/60 bg-muted/60 px-1.5 py-0.5 text-[10px] leading-tight text-muted-foreground break-all"
+                      >{{ tag.name }}</span>
+                    </div>
                   </TableCell>
                   <TableCell class="px-4 py-3">
                     <span
@@ -682,10 +783,10 @@ onMounted(loadList);
     <!-- Add / Edit Dialog -->
     <Dialog
       :open="showDialog"
-      @update:open="showDialog = $event"
+      @update:open="!saving && (showDialog = $event)"
     >
       <DialogContent class="max-w-md">
-        <DialogHeader><DialogTitle>{{ editingId !== null ? '编辑自选股' : '添加自选股' }}</DialogTitle><DialogDescription>{{ editingId !== null ? '查看已选股票并修改备注。' : '搜索并选择股票，市场自动识别，可按需补充备注。' }}</DialogDescription></DialogHeader>
+        <DialogHeader><DialogTitle>{{ editingId !== null ? '编辑自选股' : '添加自选股' }}</DialogTitle><DialogDescription>{{ editingId !== null ? '修改备注与分组标签。' : '搜索当前市场股票，可按需补充备注与分组标签。' }}</DialogDescription></DialogHeader>
         <div class="space-y-4 py-2">
           <div>
             <Label
@@ -703,6 +804,7 @@ onMounted(loadList);
               v-model="formStockQuery"
               placeholder="搜索股票代码或名称"
               :teleported="false"
+              :market="selectedMarket"
               @submit="handleStockAutocompleteSubmit"
             />
           </div>
@@ -717,6 +819,11 @@ onMounted(loadList);
               placeholder="备注信息"
             />
           </div>
+          <WatchListTagPicker
+            v-model="formTags"
+            :tags="tags"
+            :disabled="saving"
+          />
           <p
             v-if="formError"
             class="text-sm text-destructive"
@@ -728,6 +835,7 @@ onMounted(loadList);
         <DialogFooter>
           <Button
             variant="ghost"
+            :disabled="saving"
             @click="closeDialog"
           >
             取消
@@ -742,6 +850,15 @@ onMounted(loadList);
         </DialogFooter>
       </DialogContent>
     </Dialog>
+
+    <WatchListTagManager
+      v-if="showTagManager"
+      v-model:open="showTagManager"
+      :tags="tags"
+      @created="mergeTags([$event])"
+      @renamed="renameTag"
+      @deleted="deleteTag"
+    />
 
     <AppConfirmDialog
       :open="showDeleteConfirm"

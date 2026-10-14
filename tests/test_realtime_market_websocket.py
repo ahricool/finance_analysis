@@ -567,7 +567,7 @@ async def test_sse_has_snapshot_parity_and_closes_repository_on_cancel(monkeypat
     expected = {"type": "quotes", "generated_at": "2026-07-16T15:00:00Z", "quotes": [], "portfolio": {"market": "CN"}}
     calls = []
 
-    async def snapshot(uid, repo, scope, market):
+    async def snapshot(uid, repo, scope, market, tag_id=None, ungrouped=False):
         calls.append((uid, scope, market))
         return expected
 
@@ -594,7 +594,7 @@ async def test_sse_sends_heartbeats_during_one_slow_snapshot_and_cancels_on_clos
     cancelled = asyncio.Event()
     calls = []
 
-    async def slow_snapshot(uid, repo, next_scope, market):
+    async def slow_snapshot(uid, repo, next_scope, market, tag_id=None, ungrouped=False):
         calls.append((uid, next_scope, market))
         try:
             await released.wait()
@@ -750,3 +750,51 @@ def test_market_quotes_maps_canonical_hk_keys_back_to_stream_symbols(monkeypatch
     monkeypatch.setattr(market_data, "MarketDataService", lambda: SimpleNamespace(get_realtime_quotes=quotes))
     assert offline_market_quotes([market_data.TrackedStock("00700", "HK", "0700.HK")]) == {"0700.HK": value}
     assert seen == [["0700.HK"]]
+
+
+def test_websocket_forwards_group_and_market_filters(monkeypatch):
+    from fastapi import FastAPI
+    calls = []
+    repository = FakeQuoteRepository({})
+    monkeypatch.setattr(market_data, "parse_session_uid", lambda token: 7)
+    monkeypatch.setattr(market_data, "_user_exists", lambda uid: True)
+    monkeypatch.setattr(market_data.RealtimeStateRepository, "from_url", lambda url: repository)
+
+    async def snapshot(uid, repo, scope, market, tag_id=None, ungrouped=False):
+        calls.append((uid, scope, market, tag_id, ungrouped))
+        return {"type": "quotes", "quotes": []}
+
+    monkeypatch.setattr(market_data, "_live_snapshot", snapshot)
+    app = FastAPI()
+    app.include_router(market_data.router, prefix="/market-data")
+    with TestClient(app) as client:
+        with client.websocket_connect("/market-data/ws?market=US&tag_id=12") as socket:
+            assert socket.receive_json()["quotes"] == []
+        assert calls[-1] == (7, "watch-list", "US", 12, False)
+        with client.websocket_connect("/market-data/ws?market=CN&ungrouped=true") as socket:
+            assert socket.receive_json()["quotes"] == []
+        assert calls[-1] == (7, "watch-list", "CN", None, True)
+
+
+@pytest.mark.asyncio
+async def test_sse_forwards_group_and_market_filters(monkeypatch):
+    import json
+    repository = FakeQuoteRepository({})
+    monkeypatch.setattr(market_data.RealtimeStateRepository, "from_url", lambda url: repository)
+    monkeypatch.setattr(market_data, "get_effective_uid", lambda request: 7)
+    calls = []
+
+    async def snapshot(uid, repo, scope, market, tag_id=None, ungrouped=False):
+        calls.append((uid, scope, market, tag_id, ungrouped))
+        return {"type": "quotes", "quotes": []}
+
+    monkeypatch.setattr(market_data, "_live_snapshot", snapshot)
+    response = await market_data.realtime_events(
+        SimpleNamespace(is_disconnected=_not_disconnected), "watch-list", "US", 12, False,
+    )
+    assert await anext(response.body_iterator) == ": connected\n\n"
+    frame = await anext(response.body_iterator)
+    assert json.loads(frame.removeprefix("data: ").strip())["quotes"] == []
+    assert calls == [(7, "watch-list", "US", 12, False)]
+    await response.body_iterator.aclose()
+    assert repository.closed

@@ -6,12 +6,13 @@ from __future__ import annotations
 import logging
 from typing import Any, Iterable, List, Optional
 
-from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session, selectinload
 
 from finance_analysis.stocks.markets import canonical_watch_list_code, normalize_market_type
 from finance_analysis.database.session import DatabaseManager
 from finance_analysis.database.models import WatchListItem
+from finance_analysis.database.models.watch_list import WatchListTag, watch_list_tag_link
 from finance_analysis.core.time import utc_now
 
 
@@ -30,22 +31,45 @@ def get_db() -> DatabaseManager:
     return DatabaseManager.get_instance()
 
 
+def normalize_tag_name(name: str) -> tuple[str, str]:
+    name = name.strip()
+    if not 1 <= len(name) <= 32:
+        raise ValueError("标签名称须为 1–32 个字符")
+    return name, name.casefold()
+
+
 class WatchListRepo:
     def __init__(self, db: Optional[DatabaseManager] = None):
         self.db = db or get_db()
 
     # ── Read ──────────────────────────────────────────────────────────────────
 
-    def list_all(self, uid: Optional[int] = None) -> List[WatchListItem]:
+    def list_all(
+        self, uid: Optional[int] = None, *, market_type: Optional[str] = None,
+        tag_id: Optional[int] = None, ungrouped: bool = False,
+    ) -> List[WatchListItem]:
         with self.db.get_session() as session:
-            stmt = select(WatchListItem).order_by(WatchListItem.created_at)
+            stmt = select(WatchListItem).options(selectinload(WatchListItem.tags)).order_by(WatchListItem.created_at)
             if uid is not None:
                 stmt = stmt.where(WatchListItem.uid == uid)
+            if market_type is not None:
+                stmt = stmt.where(WatchListItem.market_type == normalize_market_type(market_type))
+            if tag_id is not None:
+                stmt = stmt.where(WatchListItem.tags.any(WatchListTag.id == tag_id))
+            if ungrouped:
+                stmt = stmt.where(~WatchListItem.tags.any())
             return session.execute(stmt).scalars().all()
+
+    def count(self, *, uid: int, market_type: Optional[str] = None) -> int:
+        with self.db.get_session() as session:
+            stmt = select(func.count()).select_from(WatchListItem).where(WatchListItem.uid == uid)
+            if market_type is not None:
+                stmt = stmt.where(WatchListItem.market_type == normalize_market_type(market_type))
+            return session.scalar(stmt)
 
     def get_by_id(self, item_id: int, uid: Optional[int] = None) -> Optional[WatchListItem]:
         with self.db.get_session() as session:
-            obj = session.get(WatchListItem, item_id)
+            obj = session.get(WatchListItem, item_id, options=[selectinload(WatchListItem.tags)])
             if obj is None:
                 return None
             if uid is not None and obj.uid != uid:
@@ -86,6 +110,73 @@ class WatchListRepo:
 
     # ── Write ─────────────────────────────────────────────────────────────────
 
+    def list_tags(self, *, uid: int) -> list[WatchListTag]:
+        with self.db.get_session() as session:
+            return list(session.scalars(select(WatchListTag).where(WatchListTag.uid == uid).order_by(WatchListTag.id)))
+
+    def _create_tag(self, session: Session, *, uid: int, name: str) -> WatchListTag:
+        name, key = normalize_tag_name(name)
+        if session.scalar(select(WatchListTag.id).where(WatchListTag.uid == uid, WatchListTag.name_key == key)):
+            raise ValueError("同名标签已存在")
+        tag = WatchListTag(uid=uid, name=name, name_key=key)
+        session.add(tag)
+        session.flush()
+        return tag
+
+    def create_tag(self, *, uid: int, name: str) -> WatchListTag:
+        def _write(session: Session) -> WatchListTag:
+            tag = self._create_tag(session, uid=uid, name=name)
+            session.expunge(tag)
+            return tag
+        return self.db._run_write_transaction("watch_list.create_tag", _write)
+
+    def rename_tag(self, tag_id: int, *, uid: int, name: str) -> Optional[WatchListTag]:
+        name, key = normalize_tag_name(name)
+
+        def _write(session: Session) -> Optional[WatchListTag]:
+            tag = session.scalar(select(WatchListTag).where(WatchListTag.id == tag_id, WatchListTag.uid == uid))
+            if tag is None:
+                return None
+            duplicate = session.scalar(select(WatchListTag.id).where(
+                WatchListTag.uid == uid, WatchListTag.name_key == key, WatchListTag.id != tag_id,
+            ))
+            if duplicate:
+                raise ValueError("同名标签已存在")
+            tag.name, tag.name_key = name, key
+            session.flush()
+            session.expunge(tag)
+            return tag
+        return self.db._run_write_transaction("watch_list.rename_tag", _write)
+
+    def delete_tag(self, tag_id: int, *, uid: int) -> bool:
+        def _write(session: Session) -> bool:
+            tag = session.scalar(select(WatchListTag).where(WatchListTag.id == tag_id, WatchListTag.uid == uid))
+            if tag is None:
+                return False
+            session.execute(watch_list_tag_link.delete().where(watch_list_tag_link.c.tag_id == tag_id))
+            session.delete(tag)
+            return True
+        return self.db._run_write_transaction("watch_list.delete_tag", _write)
+
+    def _resolve_tags(self, session: Session, *, uid: int, tags: list[dict]) -> list[WatchListTag]:
+        resolved = {}
+        for value in tags:
+            if value.get("id") is not None:
+                tag = session.scalar(select(WatchListTag).where(
+                    WatchListTag.id == value["id"], WatchListTag.uid == uid,
+                ))
+                if tag is None:
+                    raise ValueError("标签不存在或无权使用")
+            else:
+                name, key = normalize_tag_name(value["name"])
+                tag = session.scalar(select(WatchListTag).where(
+                    WatchListTag.uid == uid, WatchListTag.name_key == key,
+                ))
+                if tag is None:
+                    tag = self._create_tag(session, uid=uid, name=name)
+            resolved[tag.id] = tag
+        return list(resolved.values())
+
     def create(
         self,
         *,
@@ -95,6 +186,7 @@ class WatchListRepo:
         notes: Optional[str] = None,
         market_type: Optional[str] = None,
         is_favorite: bool = False,
+        tags: Optional[list[dict]] = None,
     ) -> WatchListItem:
         resolved_market = normalize_market_type(market_type, code)
         canonical_watch_list_code(code, resolved_market)  # Validate before entering the write transaction.
@@ -110,9 +202,12 @@ class WatchListRepo:
         )
 
         def _write(session: Session) -> WatchListItem:
+            item.tags = self._resolve_tags(session, uid=uid, tags=tags) if tags else []
             session.add(item)
             session.flush()
             session.refresh(item)
+            for tag in item.tags:
+                session.expunge(tag)  # Commit must not expire nested response objects.
             session.expunge(item)
             return item
 
@@ -127,6 +222,7 @@ class WatchListRepo:
         notes: Optional[str] = None,
         market_type: Optional[str] = None,
         is_favorite: Optional[bool] = None,
+        tags: Optional[list[dict]] = None,
     ) -> Optional[WatchListItem]:
         def _write(session: Session) -> Optional[WatchListItem]:
             obj = session.get(WatchListItem, item_id)
@@ -135,7 +231,10 @@ class WatchListRepo:
             if uid is not None and obj.uid != uid:
                 return None
             resolved_market = normalize_market_type(market_type, obj.code) if market_type is not None else obj.market_type
-            canonical_watch_list_code(obj.code, resolved_market)  # Validate before mutating any row fields.
+            # Validate before mutating any row fields.
+            canonical_watch_list_code(obj.code, resolved_market)
+            if tags is not None:
+                obj.tags = self._resolve_tags(session, uid=obj.uid, tags=tags)
             if name is not None:
                 obj.name = name.strip() or None
             if notes is not None:
@@ -147,6 +246,8 @@ class WatchListRepo:
             obj.updated_at = utc_now()
             session.flush()
             session.refresh(obj)
+            for tag in obj.tags:
+                session.expunge(tag)
             session.expunge(obj)
             return obj
 

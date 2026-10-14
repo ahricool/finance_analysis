@@ -14,6 +14,7 @@ vi.mock('@/api/watchList', () => ({
   watchListApi: {
     create: vi.fn(),
     list: mocks.listWatchItems,
+    listTags: vi.fn().mockResolvedValue([]),
     remove: vi.fn(),
     update: mocks.updateWatchItem,
   },
@@ -35,6 +36,7 @@ const watchItem = {
   name: 'Apple',
   market_type: 'US' as const,
   notes: '等待财报确认',
+  tags: [],
   is_favorite: true,
   created_at: '2026-06-01T01:00:00Z',
   updated_at: '2026-06-02T02:00:00Z',
@@ -63,6 +65,8 @@ async function mountPage() {
     attachTo: document.body,
     global: { plugins: [createPinia(), router], stubs: { StockAutocomplete: true } },
   });
+  await flushPromises();
+  await wrapper.get('[data-testid=market-us]').trigger('click');
   await flushPromises();
   return wrapper;
 }

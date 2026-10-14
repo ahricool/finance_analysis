@@ -140,7 +140,7 @@ static/                    Web 构建产物，由 `web/vite.config.ts` 生成
 
 - `/auth`：登录、状态、用户资料、密码和通知配置。
 - `/stocks`：证券静态信息、实时 Quote、日线历史和证券主数据搜索。
-- `/watch-list`：用户级自选股 CRUD。
+- `/watch-list`：用户级自选股 CRUD 与跨市场用户标签；列表及实时接口按市场/分组筛选，标签不影响后台任务范围。见 `docs/watch-list.md`。
 - `/calendar`：日历记录和财经事件。
 - `/tasks`：周期定义、手动触发及任务运行记录。
 - `/quant`、`/etf-rotation`、`/trend-following`：研究结果与运行入口；趋势预演为 `GET /trend-following/preview`。

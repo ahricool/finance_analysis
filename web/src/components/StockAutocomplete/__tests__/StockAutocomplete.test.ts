@@ -117,3 +117,21 @@ describe('StockAutocomplete', () => {
     ]);
   });
 });
+
+it('passes a market restriction to search and invalidates pending results on a market change', async () => {
+  vi.useFakeTimers();
+  let resolveOld!: (value: InstrumentSearchItem[]) => void;
+  vi.mocked(stocksApi.searchInstruments).mockImplementationOnce(() => new Promise(resolve => { resolveOld = resolve; }));
+  const page = mount(StockAutocomplete, { props: { modelValue: 'Apple', market: 'CN' } });
+  await vi.advanceTimersByTimeAsync(250);
+  expect(stocksApi.searchInstruments).toHaveBeenLastCalledWith('Apple', expect.objectContaining({ market: 'CN' }));
+  vi.mocked(stocksApi.searchInstruments).mockResolvedValue([]);
+  await page.setProps({ market: 'US' });
+  resolveOld([moutai]);
+  await nextTick();
+  expect(page.text()).not.toContain('贵州茅台');
+  await vi.advanceTimersByTimeAsync(250);
+  expect(stocksApi.searchInstruments).toHaveBeenLastCalledWith('Apple', expect.objectContaining({ market: 'US' }));
+  page.unmount();
+  vi.useRealTimers();
+});

@@ -1,5 +1,6 @@
 import axios from 'axios';
-import { onUnmounted, ref, type Ref } from 'vue';
+import { onUnmounted, ref, toValue, watch, type MaybeRefOrGetter, type Ref } from 'vue';
+import type { MarketType } from '@/api/watchList';
 import { stocksApi, type InstrumentSearchItem } from '@/api/stocks';
 import type { AssetType, Market, StockSuggestion } from '@/types/stockIndex';
 import { SEARCH_CONFIG } from '@/utils/stockIndexFields';
@@ -8,6 +9,7 @@ export interface UseAutocompleteOptions {
   minLength?: number;
   debounceMs?: number;
   limit?: number;
+  market?: MaybeRefOrGetter<MarketType | undefined>;
 }
 
 export interface UseAutocompleteResult {
@@ -110,6 +112,7 @@ export function useAutocomplete(options: UseAutocompleteOptions = {}): UseAutoco
       const results = await stocksApi.searchInstruments(needle, {
         limit,
         signal: controller.signal,
+        market: toValue(options.market),
       });
       if (id !== requestId) return;
       suggestions.value = results.map(toStockSuggestion);
@@ -129,15 +132,20 @@ export function useAutocomplete(options: UseAutocompleteOptions = {}): UseAutoco
   }
 
   function setQuery(value: string) {
+    ++requestId;
+    clearPending();
+    suggestions.value = [];
+    isOpen.value = false;
+    highlightedIndex.value = -1;
+    searching.value = false;
     query.value = value;
-    if (debounceTimer) {
-      clearTimeout(debounceTimer);
-    }
     debounceTimer = setTimeout(() => {
       debounceTimer = null;
       void runSearch(value);
     }, debounceMs);
   }
+
+  watch(() => toValue(options.market), () => setQuery(query.value));
 
   function handleSelect(suggestion: StockSuggestion) {
     query.value = suggestion.displayCode;
