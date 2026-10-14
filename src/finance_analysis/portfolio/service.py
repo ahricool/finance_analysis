@@ -309,12 +309,27 @@ class PortfolioService:
             rows = self.repository.list_open_positions(session, uid=uid, market=market)
             return [self._position_view(session, row) for row in rows]
 
+    def read_snapshot(self, uid: int, market: str) -> tuple[list[dict], list[dict]]:
+        """Read live-page facts without creating accounts on every streaming tick."""
+        with self.repository.db.get_session() as session:
+            accounts = [self._account_view(row) for row in self.repository.list_accounts(session, uid=uid, market=market)]
+            positions = [self._position_view(session, row) for row in self.repository.list_open_positions(
+                session, uid=uid, market=market,
+            )]
+            return accounts, positions
+
     def list_operations(self, uid: int, position_id: int) -> list[dict[str, Any]]:
         with self.repository.db.get_session() as session:
             position = self.repository.get_position(session, uid=uid, position_id=position_id)
             if position is None:
                 raise PortfolioError("持仓不存在")
             return [self._operation_view(row) for row in self.repository.list_operations(session, uid=uid, position_id=position_id)]
+
+    def operations_in_window(self, uid, position_ids, start, end):
+        with self.repository.db.get_session() as session:
+            return [self._operation_view(row) for row in self.repository.operations_in_window(
+                session, uid=uid, position_ids=position_ids, start=start, end=end,
+            )]
 
     def _account_view(self, account) -> dict[str, Any]:
         market = account.market

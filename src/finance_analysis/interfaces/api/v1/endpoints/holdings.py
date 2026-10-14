@@ -3,8 +3,6 @@
 
 from __future__ import annotations
 
-from decimal import Decimal
-
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 
 from finance_analysis.interfaces.api.deps import get_effective_uid, require_current_user  # pragma: allowlist secret
@@ -18,7 +16,8 @@ from finance_analysis.portfolio.errors import OperationConflictError, PortfolioE
 from finance_analysis.portfolio.markers import markers_from_operations  # pragma: allowlist secret
 from finance_analysis.portfolio.resolver import PortfolioResolver  # pragma: allowlist secret
 from finance_analysis.portfolio.service import PortfolioService  # pragma: allowlist secret
-from finance_analysis.trade_engine.market import RiskMarketGateway  # pragma: allowlist secret
+from finance_analysis.portfolio.valuation import portfolio_summary
+from finance_analysis.portfolio.views import _account_payload, _json_dec, _position_payload
 
 router = APIRouter(dependencies=[Depends(require_current_user)])
 NO_STORE = {"Cache-Control": "private, no-store"}
@@ -36,55 +35,15 @@ def _private(response: Response) -> None:
     response.headers.update(NO_STORE)
 
 
-def _json_dec(value) -> str | None:
-    if value is None:
-        return None
-    return format(value, "f")
-
-
 @router.get("/summary")
 def summary(
     request: Request,
     response: Response,
-    market: str = Query("CN"),
+    market: str = Query("CN", pattern="^(CN|US)$"),
     service: PortfolioService = Depends(_portfolio),
 ):
     _private(response)
-    uid = get_effective_uid(request)
-    market = market.upper()
-    accounts = service.list_accounts(uid, market=market)
-    positions = service.list_positions(uid, market=market)
-    quotes = {}
-    try:
-        quotes = RiskMarketGateway().quotes([item["symbol"] for item in positions])
-    except Exception:
-        quotes = {}
-    cash = sum((item["cash"] for item in accounts), start=Decimal("0"))
-    market_value = Decimal("0")
-    priced = []
-    for item in positions:
-        quote = quotes.get(item["symbol"])
-        price = quote.price if quote is not None and quote.valid and not quote.stale else None
-        value = None if price is None else item["quantity"] * price
-        if value is not None:
-            market_value += value
-        pnl = None if price is None else (price - item["average_cost"]) * item["quantity"]
-        priced.append({**_position_payload(item), "current_price": _json_dec(price), "market_value": _json_dec(value), "unrealized_pnl": _json_dec(pnl)})
-    total = cash + market_value
-    for item in priced:
-        weight = None
-        if total > 0 and item["market_value"] is not None:
-            weight = format(Decimal(item["market_value"]) / total, "f")
-        item["weight"] = weight
-    return {
-        "market": market,
-        "accounts": [_account_payload(item) for item in accounts],
-        "cash": _json_dec(cash),
-        "market_value": _json_dec(market_value),
-        "total_asset": _json_dec(total),
-        "gross_exposure": None if total <= 0 else format(market_value / total, "f"),
-        "positions": priced,
-    }
+    return portfolio_summary(get_effective_uid(request), market, service=service)
 
 
 @router.get("/positions")
@@ -264,38 +223,3 @@ def resolved(request: Request, response: Response, market: str | None = None, re
 def context(request: Request, response: Response, resolver: PortfolioResolver = Depends(_resolver)):
     _private(response)
     return {"text": render_portfolio_context(resolver.get_resolved_portfolio(get_effective_uid(request)))}
-
-
-def _account_payload(item: dict) -> dict:
-    return {
-        "id": item["id"],
-        "name": item["name"],
-        "market": item["market"],
-        "cash": _json_dec(item["cash"]),
-        "currency": item["currency"],
-    }
-
-
-def _position_payload(item: dict) -> dict:
-    return {
-        "id": item["id"],
-        "account_id": item["account_id"],
-        "market": item["market"],
-        "symbol": item["symbol"],
-        "asset_type": item["asset_type"],
-        "quantity": _json_dec(item["quantity"]),
-        "average_cost": _json_dec(item["average_cost"]),
-        "trade_engine_enabled": True if item.get("trade_engine_enabled") is None else bool(item.get("trade_engine_enabled")),
-        "opened_at": item.get("opened_at"),
-        "closed_at": item.get("closed_at"),
-        "lots": [
-            {
-                "id": lot["id"],
-                "role": lot["role"],
-                "entry_price": _json_dec(lot["entry_price"]),
-                "remaining_quantity": _json_dec(lot["remaining_quantity"]),
-                "entry_time": lot["entry_time"],
-            }
-            for lot in item.get("lots") or []
-        ],
-    }

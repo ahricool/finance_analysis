@@ -145,7 +145,7 @@ static/                    Web 构建产物，由 `web/vite.config.ts` 生成
 - `/tasks`：周期定义、手动触发及任务运行记录。
 - `/quant`、`/etf-rotation`、`/trend-following`：研究结果与运行入口；趋势预演为 `GET /trend-following/preview`。
 - `/holdings`：DB 持仓买卖/现金、`PATCH /positions/{id}` 交易提醒开关；页面 `/market/holdings`。`/trade-engine` 只读正式信号与管理员手动运行。
-- `/market-data/ws`：基于 Cookie 的用户自选股实时 WebSocket。
+- `/market-data/ws`、`/market-data/events`：用户自选股/持仓行情 WS 与 HTTP SSE；`scope=holdings&market=CN|US` 为持仓。WS连续两次失败固定回落SSE。
 - `/usage`：LLM 使用统计；`/celery` 是演示/诊断端点。
 
 具体请求/响应以对应 `endpoints/` 和 `schemas/` 为准，不要根据前端字段猜测后端契约。

@@ -14,6 +14,7 @@ export interface PortfolioPosition {
   accountId: number;
   market: string;
   symbol: string;
+  name?: string | null;
   assetType: string;
   quantity: string;
   averageCost: string;
@@ -21,6 +22,13 @@ export interface PortfolioPosition {
   marketValue?: string | null;
   weight?: string | null;
   unrealizedPnl?: string | null;
+  unrealizedPnlPct?: string | null;
+  changeAmount?: string | null;
+  changePct?: string | null;
+  dayPnl?: string | null;
+  quoteTime?: string | null;
+  quoteSource?: string | null;
+  quoteStatus?: 'current' | 'delayed' | 'unavailable';
   openedAt?: string | null;
   closedAt?: string | null;
   tradeEngineEnabled?: boolean;
@@ -35,6 +43,8 @@ export interface HoldingsSummary {
   totalAsset: string;
   grossExposure: string | null;
   positions: PortfolioPosition[];
+  missingQuoteCount?: number;
+  generatedAt?: string;
 }
 
 export interface TradeMarkerView {

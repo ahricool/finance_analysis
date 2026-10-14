@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from dataclasses import asdict, dataclass
 from datetime import date, datetime, timedelta
 from decimal import Decimal
-from typing import Any, cast
+from typing import Any, Literal, cast
 
-from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi.encoders import jsonable_encoder
+from fastapi.responses import StreamingResponse
 
 from finance_analysis.core.time import utc_isoformat, utc_now
 from finance_analysis.database.config import get_database_config
@@ -27,6 +30,8 @@ from finance_analysis.interfaces.api.v1.schemas.market_data import (
     ForwardReturnsRequest,
     ForwardReturnsResponse,
 )
+from finance_analysis.interfaces.api.deps import get_effective_uid, require_current_user
+from finance_analysis.portfolio.valuation import portfolio_summary
 from finance_analysis.market_review.trading_calendar import get_completed_trading_days, is_market_open
 from finance_analysis.market_stream.config import (
     is_regular_session_minute,
@@ -382,15 +387,27 @@ def _quote_payload(
 async def _build_snapshot(uid: int, repository: RealtimeStateRepository) -> dict[str, Any]:
     stocks = await asyncio.to_thread(_load_tracked_stocks, uid)
     symbols = [stock.symbol for stock in stocks]
-    quotes_result, trends_result, patterns_result = await asyncio.gather(
+    quotes_result, trends_result, patterns_result, market_quotes = await asyncio.gather(
         repository.get_quotes(symbols),
         repository.get_trend_states(symbols),
         repository.get_pattern_states(symbols),
+        asyncio.to_thread(_market_quotes, stocks),
         return_exceptions=True,
     )
-    if isinstance(quotes_result, BaseException):
-        raise quotes_result
-    quotes = quotes_result
+    quotes = {} if isinstance(quotes_result, BaseException) else quotes_result
+    sources = {}
+    if not isinstance(market_quotes, BaseException):
+        for symbol, quote in market_quotes.items():
+            if quote.quote_time is None:
+                continue
+            sources[symbol] = quote.provider
+            quotes[symbol] = QuoteState(
+                symbol=symbol, trading_date=market_trading_date(quote.quote_time, quote.market.value),
+                last_price=_decimal(quote.price), pre_close=_decimal(quote.pre_close),
+                open=_decimal(quote.open_price), high=_decimal(quote.high), low=_decimal(quote.low),
+                volume=quote.volume, turnover=_decimal(quote.amount), event_time=quote.quote_time,
+                received_at=utc_now(),
+            )
     if isinstance(trends_result, BaseException):
         logger.warning("批量读取实时趋势失败: %s", trends_result)
         trends: dict[str, TrendState] = {}
@@ -402,25 +419,89 @@ async def _build_snapshot(uid: int, repository: RealtimeStateRepository) -> dict
     else:
         patterns = patterns_result
     now = utc_now()
+    payloads = []
+    for stock in stocks:
+        quote = quotes.get(stock.symbol)
+        payload = _quote_payload(stock, quote, trends.get(stock.symbol), patterns.get(stock.symbol), now=now)
+        payload.update(
+            source=sources.get(stock.symbol, "streaming"),
+            quote_status=_display_quote_status(quote, now) if payload["available"] else "unavailable",
+        )
+        payloads.append(payload)
     return {
         "type": "quotes",
         "generated_at": utc_isoformat(now),
-        "quotes": [
-            _quote_payload(
-                stock,
-                quotes.get(stock.symbol),
-                trends.get(stock.symbol),
-                patterns.get(stock.symbol),
-                now=now,
-            )
-            for stock in stocks
-        ],
+        "quotes": payloads,
     }
 
 
+def _decimal(value):
+    return Decimal(str(value)) if value is not None else None
+
+
+def _display_quote_status(quote, now):
+    if quote is None or quote.event_time is None:
+        return "unavailable"
+    return "delayed" if now - quote.event_time > timedelta(seconds=90) else "current"
+
+
+def _market_quotes(stocks):
+    if not stocks:
+        return {}
+    service = MarketDataService()
+    quotes = {}
+    for market in sorted({stock.market_type for stock in stocks}):
+        symbols = [stock.symbol for stock in stocks if stock.market_type == market]
+        try:
+            batch = service.get_realtime_quotes(symbols).data
+            quotes.update({symbol: batch[canonical_symbol(symbol)] for symbol in symbols if canonical_symbol(symbol) in batch})
+        except Exception:
+            logger.warning("行情快照获取失败 market=%s", market, exc_info=True)
+    return quotes
+
+
+async def _live_snapshot(uid, repository, scope, market):
+    if scope == "holdings":
+        portfolio = await asyncio.to_thread(portfolio_summary, uid, market, initialize_accounts=False)
+        return jsonable_encoder({"type": "quotes", "generated_at": portfolio["generated_at"],
+                                 "quotes": [], "portfolio": portfolio})
+    return await _build_snapshot(uid, repository)
+
+
+@router.get("/events", dependencies=[Depends(require_current_user)])
+async def realtime_events(
+    request: Request,
+    scope: Literal["watch-list", "holdings"] = "watch-list",
+    market: Literal["CN", "US"] = "CN",
+):
+    uid = get_effective_uid(request)
+
+    async def events():
+        repository = RealtimeStateRepository.from_url(get_database_config().redis_url)
+        try:
+            while not await request.is_disconnected():
+                try:
+                    snapshot = await _live_snapshot(uid, repository, scope, market)
+                except Exception:
+                    logger.warning("SSE 行情推送失败 uid=%s", uid, exc_info=True)
+                    snapshot = {"type": "error", "message": "实时行情暂时不可用"}
+                yield f"data: {json.dumps(snapshot, ensure_ascii=False)}\n\n"
+                await asyncio.sleep(PUSH_INTERVAL_SECONDS)
+        finally:
+            await repository.close()
+
+    return StreamingResponse(events(), media_type="text/event-stream", headers={
+        "Cache-Control": "private, no-store", "X-Accel-Buffering": "no",
+    })
+
+
 @router.websocket("/ws")
-async def realtime_quotes(websocket: WebSocket) -> None:
-    """Push the current Redis quote snapshot every five seconds."""
+async def realtime_quotes(
+    websocket: WebSocket,
+    scope: Literal["watch-list", "holdings"] = "watch-list",
+    market: Literal["CN", "US"] = "CN",
+) -> None:
+    """Push user-owned market/portfolio snapshots every five seconds."""
     session = websocket.cookies.get(COOKIE_NAME)
     uid = parse_session_uid(session or "")
     if uid is None:
@@ -437,7 +518,7 @@ async def realtime_quotes(websocket: WebSocket) -> None:
     try:
         while True:
             try:
-                await websocket.send_json(await _build_snapshot(uid, repository))
+                await websocket.send_json(await _live_snapshot(uid, repository, scope, market))
             except WebSocketDisconnect:
                 raise
             except Exception as exc:

@@ -103,8 +103,13 @@ const visibleItems = computed(() => {
 
   const direction = sortDirection.value === 'asc' ? 1 : -1;
   return [...filtered].sort(
-    (a, b) =>
-      compareSortValues(sortValue(a, activeSortKey), sortValue(b, activeSortKey)) * direction,
+    (a, b) => {
+      const left = sortValue(a, activeSortKey);
+      const right = sortValue(b, activeSortKey);
+      if (left == null) return right == null ? a.id - b.id : 1;
+      if (right == null) return -1;
+      return compareSortValues(left, right) * direction;
+    },
   );
 });
 
@@ -599,6 +604,10 @@ onMounted(loadList);
                     class="whitespace-nowrap px-4 py-3 text-right font-medium tabular-nums text-foreground"
                   >
                     {{ formatQuoteNumber(getQuote(item.code, item.market_type)?.last_price) }}
+                    <span
+                      v-if="getQuote(item.code, item.market_type)?.quote_status === 'delayed'"
+                      class="ml-1 text-xs text-warning"
+                    >延迟</span>
                   </TableCell>
                   <TableCell
                     class="whitespace-nowrap px-4 py-3 text-right font-medium tabular-nums"

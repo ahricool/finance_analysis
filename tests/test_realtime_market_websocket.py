@@ -15,6 +15,13 @@ from finance_analysis.interfaces.api.v1.endpoints import market_data
 from finance_analysis.users.auth import COOKIE_NAME
 
 
+@pytest.fixture(autouse=True)
+def offline_market_quotes(monkeypatch):
+    original = market_data._market_quotes
+    monkeypatch.setattr(market_data, "_market_quotes", lambda stocks: {})
+    return original
+
+
 class FakeQuoteRepository:
     def __init__(
         self,
@@ -511,3 +518,88 @@ def test_websocket_sends_user_scoped_redis_snapshot_and_closes_repository(monkey
 
     assert repository.requested == ["AAPL.US"]
     assert repository.closed is True
+
+
+@pytest.mark.asyncio
+async def test_snapshot_uses_primary_market_quote_and_preserves_redis_structure(monkeypatch):
+    repository = FakeQuoteRepository({"AAPL.US": quote("AAPL.US", "99", "100")})
+    stocks = [market_data.TrackedStock("AAPL", "US", "AAPL.US")]
+    now = datetime(2026, 7, 16, 15, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr(market_data, "_load_tracked_stocks", lambda uid: stocks)
+    monkeypatch.setattr(market_data, "utc_now", lambda: now)
+    from finance_analysis.integrations.market_data.models import Market
+    primary = SimpleNamespace(price=105, pre_close=100, open_price=101, high=106, low=100,
+                              volume=100, amount=10000, quote_time=now, provider="longbridge", market=Market.US)
+    monkeypatch.setattr(market_data, "_market_quotes", lambda stocks: {"AAPL.US": primary})
+    snapshot = await market_data._build_snapshot(7, repository)
+    assert snapshot["quotes"][0]["last_price"] == 105
+    assert snapshot["quotes"][0]["source"] == "longbridge"
+    assert snapshot["quotes"][0]["change_pct"] == 5
+
+
+def test_holdings_socket_uses_owned_portfolio_without_watchlist(monkeypatch):
+    repository = FakeQuoteRepository({})
+    calls = []
+    monkeypatch.setattr(market_data, "parse_session_uid", lambda session: 7)
+    monkeypatch.setattr(market_data, "_user_exists", lambda uid: True)
+    monkeypatch.setattr(market_data.RealtimeStateRepository, "from_url", lambda url: repository)
+
+    def portfolio(uid, market, *, initialize_accounts):
+        assert initialize_accounts is False
+        calls.append((uid, market))
+        return {"market": market, "generated_at": "2026-07-16T15:00:00Z", "positions": [], "accounts": []}
+
+    monkeypatch.setattr(market_data, "portfolio_summary", portfolio)
+    client = TestClient(create_app())
+    with client.websocket_connect("/api/v1/market-data/ws?scope=holdings&market=US") as ws:
+        assert ws.receive_json()["portfolio"]["market"] == "US"
+    assert calls == [(7, "US")]
+    assert repository.closed
+
+
+@pytest.mark.asyncio
+async def test_sse_has_snapshot_parity_and_closes_repository_on_cancel(monkeypatch):
+    import json
+    repository = FakeQuoteRepository({})
+    monkeypatch.setattr(market_data.RealtimeStateRepository, "from_url", lambda url: repository)
+    monkeypatch.setattr(market_data, "get_effective_uid", lambda request: 7)
+    expected = {"type": "quotes", "generated_at": "2026-07-16T15:00:00Z", "quotes": [], "portfolio": {"market": "CN"}}
+    calls = []
+
+    async def snapshot(uid, repo, scope, market):
+        calls.append((uid, scope, market))
+        return expected
+
+    monkeypatch.setattr(market_data, "_live_snapshot", snapshot)
+    response = await market_data.realtime_events(SimpleNamespace(is_disconnected=_not_disconnected), "holdings", "CN")
+    frame = await anext(response.body_iterator)
+    assert json.loads(frame.removeprefix("data: ").strip()) == expected
+    assert response.headers["x-accel-buffering"] == "no"
+    assert response.headers["cache-control"] == "private, no-store"
+    await response.body_iterator.aclose()
+    assert calls == [(7, "holdings", "CN")]
+    assert repository.closed
+
+
+async def _not_disconnected():
+    return False
+
+
+def test_sse_requires_authenticated_session():
+    from fastapi import FastAPI
+    app = FastAPI()
+    app.include_router(market_data.router, prefix="/market-data")
+    assert TestClient(app).get("/market-data/events").status_code == 401
+
+
+def test_market_quotes_maps_canonical_hk_keys_back_to_stream_symbols(monkeypatch, offline_market_quotes):
+    value = object()
+    seen = []
+
+    def quotes(symbols):
+        seen.append(symbols)
+        return SimpleNamespace(data={"700.HK": value})
+
+    monkeypatch.setattr(market_data, "MarketDataService", lambda: SimpleNamespace(get_realtime_quotes=quotes))
+    assert offline_market_quotes([market_data.TrackedStock("00700", "HK", "0700.HK")]) == {"0700.HK": value}
+    assert seen == [["0700.HK"]]

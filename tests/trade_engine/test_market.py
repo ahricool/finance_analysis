@@ -153,7 +153,7 @@ def test_fresh_streaming_quote_retains_received_time_through_market_data(monkeyp
         source.close()
 
 
-def test_us_yfinance_fallback_has_snapshot_time(monkeypatch):
+def test_us_yfinance_fallback_preserves_actual_quote_time(monkeypatch):
     from datetime import timezone
     from types import SimpleNamespace
     import yfinance
@@ -163,14 +163,15 @@ def test_us_yfinance_fallback_has_snapshot_time(monkeypatch):
     from finance_analysis.integrations.market_data.registry import ProviderRegistry, REALTIME_QUOTES
     from finance_analysis.integrations.market_data.service import MarketDataService
 
-    monkeypatch.setattr(yfinance, "Ticker", lambda symbol: SimpleNamespace(fast_info={
-        "last_price": 100, "previous_close": 99, "open": 99,
-        "day_high": 101, "day_low": 98, "last_volume": 123456,
+    stamp = datetime.now(timezone.utc).replace(microsecond=0)
+    monkeypatch.setattr(yfinance, "Ticker", lambda symbol: SimpleNamespace(info={
+        "regularMarketPrice": 100, "regularMarketPreviousClose": 99, "regularMarketOpen": 99,
+        "regularMarketDayHigh": 101, "regularMarketDayLow": 98, "regularMarketVolume": 123456,
+        "regularMarketTime": int(stamp.timestamp()),
     }))
     provider = YFinanceProvider()
-    before = datetime.now(timezone.utc)
     quote = provider.fetch_quotes(QuoteRequest(("AAPL.US",))).data["AAPL.US"]
-    assert before <= quote.quote_time <= datetime.now(timezone.utc)
+    assert quote.quote_time == stamp
     assert quote.quote_time.utcoffset().total_seconds() == 0
 
     calls = []
@@ -190,13 +191,13 @@ def test_us_yfinance_fallback_has_snapshot_time(monkeypatch):
     service = MarketDataService(registry=registry)
     result = service.get_realtime_quotes(["AAPL.US"])
     assert result.providers_used["AAPL.US"] == "yfinance"
-    assert calls == ["streaming", "longbridge"]
+    assert calls == ["longbridge", "streaming"]
     view = RiskMarketGateway(market_data=service).quotes(["AAPL.US"])["AAPL.US"]
     assert view.valid is True
     assert view.quote_as_of is not None
 
 
-def test_longbridge_pull_preserves_timestamp_or_uses_fetch_time(monkeypatch):
+def test_longbridge_pull_preserves_timestamp_and_leaves_unknown_time_missing(monkeypatch):
     from datetime import timezone
     from types import SimpleNamespace
     from finance_analysis.integrations.market_data.providers.longbridge.market import LongbridgeProvider
@@ -207,15 +208,13 @@ def test_longbridge_pull_preserves_timestamp_or_uses_fetch_time(monkeypatch):
     monkeypatch.setattr(provider, "_get_ctx", lambda: SimpleNamespace(quote=lambda symbols: [raw]))
     monkeypatch.setattr(provider, "_get_static_info", lambda symbol: None)
     monkeypatch.setattr(provider, "_compute_volume_ratio", lambda symbol, volume: None)
-    before = datetime.now(timezone.utc)
     quote = provider.get_realtime_quote("AAPL.US")
-    assert before <= quote.quote_time <= datetime.now(timezone.utc)
-    assert quote.quote_time.utcoffset().total_seconds() == 0
+    assert quote.quote_time is None
     raw.timestamp = datetime(2026, 9, 16, 14, 0, tzinfo=timezone.utc)
     assert provider.get_realtime_quote("AAPL.US").quote_time == raw.timestamp
 
 
-def test_fuyao_snapshot_preserves_timestamp_or_uses_fetch_time(monkeypatch):
+def test_fuyao_snapshot_preserves_timestamp_and_leaves_unknown_time_missing(monkeypatch):
     from datetime import timezone
     from finance_analysis.integrations.market_data.models import QuoteRequest
     from finance_analysis.integrations.market_data.providers.fuyao import FuyaoProvider
@@ -223,9 +222,8 @@ def test_fuyao_snapshot_preserves_timestamp_or_uses_fetch_time(monkeypatch):
     provider = FuyaoProvider(api_key="test")
     payload = {"item": [{"thscode": "600519.SH", "last_price": 100, "asset_type": "a-share"}]}
     monkeypatch.setattr(provider, "_get", lambda *args, **kwargs: payload)
-    before = datetime.now(timezone.utc)
     quote = provider.fetch_quotes(QuoteRequest(("600519.SH",))).data["600519.SH"]
-    assert before <= quote.quote_time <= datetime.now(timezone.utc)
+    assert quote.quote_time is None
     stamp = datetime(2026, 9, 16, 7, 0, tzinfo=timezone.utc)
     payload["timestamp"] = int(stamp.timestamp() * 1000)
     assert provider.fetch_quotes(QuoteRequest(("600519.SH",))).data["600519.SH"].quote_time == stamp

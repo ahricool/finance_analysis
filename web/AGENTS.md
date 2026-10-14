@@ -156,7 +156,7 @@ Cookie 会话，`apiClient` 设了 `withCredentials: true`。
 - 请求路径走 `/api/v1/...`。
 - 后端 snake_case 时，在 API 模块里用 `toCamelCase()` 再交给页面；**不要在 Vue 里散落 `stock_code` 字段访问**。
 - 少数接口（如部分 auth JSON）后端已是 camelCase，保持原样，不要双重转换。
-- 行情推送：`useRealtimeQuotes()` 连 WebSocket，指数退避重连；`4401`/`4403` 视为未授权，停止重连。
+- 行情推送：`useRealtimeQuotes()` 优先 WebSocket，连续两次连接/快照超时失败后固定回落 HTTP SSE；SSE 断开仅重试 SSE。`4401`/`4403` 或 SSE 401/403 视为未授权，停止重连；切市场与卸载取消旧连接。
 
 ## 语言边界
 
@@ -191,7 +191,7 @@ Cookie 会话，`apiClient` 设了 `withCredentials: true`。
 | `useAuth` | 对 `authStore` 的稳定 API |
 | `useTheme` | 主题偏好（`system` / `light` / `dark`）与 `documentElement` class |
 | `useQuantMarket` | 量化 `market` query |
-| `useRealtimeQuotes` | 行情 WebSocket |
+| `useRealtimeQuotes` | 自选/持仓 WebSocket 与 HTTP SSE 降级 |
 | `useAutocomplete` | 证券主数据搜索建议（debounce 请求搜索 API） |
 | `useCurrentTime` | 随展示时区走的当前时间 |
 

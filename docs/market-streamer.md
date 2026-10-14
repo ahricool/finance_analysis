@@ -50,3 +50,14 @@ generation 的事件或预热结果会被丢弃。
 - `MARKET_STREAM_BAR_LIMIT=420`
 
 长桥凭证及 URL、region、日志和语言配置继续使用项目已有的 `LONGBRIDGE_*` 配置。
+
+## 页面行情传输
+
+`/api/v1/market-data/ws` 和 `/api/v1/market-data/events`（HTTP SSE）使用同一个快照构建器。
+默认 `scope=watch-list` 读取当前用户自选列表，报价通过 MarketDataService 按市场优先级获取，
+一分钟趋势/形态仍只读Streamer Redis。`scope=holdings&market=CN|US` 返回当前用户该市场
+的账户/持仓估值快照，不要求持仓已在自选中。WS使用会话Cookie，SSE使用现有HTTP会话鉴权；
+均不接受客户端uid，约每5秒推送一次，不写行情数据库或Streamer状态。
+
+浏览器WS连续两次连接/快照超时失败后固定回落SSE，后续不再自动尝试WS；
+SSE失败每5秒重连SSE，未授权停止重试。切换市场或离开页面取消旧连接。
