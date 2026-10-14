@@ -131,7 +131,6 @@ CSS Columns 按列流动而非逐行左右交替；追加数据或高度变化�
 | `trade_engine_cn` / `trade_engine_us` | notification | 仅确认后的 TradeSignal |
 | 财经同步/重要度任务 | finance_events | TaskRecord；同步摘要不进入 Timeline |
 | `analysis_us_premarket_news` | news_intel + usage + news_analysis | TaskRecord 统计 + Top 新闻通知 |
-| `analysis_daily` | notification | 执行统计只进 TaskRecord |
 
 ## 迁移
 

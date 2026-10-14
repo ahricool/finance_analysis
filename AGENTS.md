@@ -106,7 +106,7 @@ static/                    Web 构建产物，由 `web/vite.config.ts` 生成
 
 ### 个股分析
 
-1. Celery 周期任务（如 `analysis_daily`、盘中/收盘复盘）或 `tasks/queue.py` 发布 `run_stock_analysis`。
+1. 按需个股分析由 `tasks/queue.py` 发布 `run_stock_analysis`；美股盘前分析等周期任务复用分析流水线。
 2. `StockAnalysisPipeline` 要求 PostgreSQL 已有目标前复权日线；普通分析不负责补写历史行情。 <!-- pragma: allowlist secret -->
 3. `MarketDataService` 聚合实时 Quote、证券信息及可选基本面；分析还会执行技术指标。
 4. StockReportAnalyzer 构造 prompt，经 LLMClient 调用并解析为 `AnalysisResult`。
