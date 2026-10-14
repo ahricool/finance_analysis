@@ -29,7 +29,7 @@ test('trend preview skips official rows and opens one security without downloadi
       return route.fulfill({ json: { market: 'CN', latest: snapshot, metadata: snapshot, history: [], market_context: summary } });
     }
     if (path.endsWith('/breadth-history')) return route.fulfill({ json: { points: [], warnings: [] } });
-    if (path.endsWith('/classification')) return route.fulfill({ json: { memberships: { industries: [] } } });
+    if (path.endsWith('/classification')) return route.fulfill({ json: { memberships: { industries: [], indices: [] } } });
     return route.fulfill({ json: { items: [], history: [], warnings: [] } });
   });
   const errors: string[] = [];
