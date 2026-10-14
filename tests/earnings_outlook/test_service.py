@@ -198,6 +198,7 @@ def test_event_lock_and_global_slots_never_call_llm_when_busy(setup):
     with repo.slot(0), repo.slot(1):
         assert service.refresh(1, "daily", members, {})["status"] == "busy"
     llm.complete_text.assert_not_called()
+    assert repo.state(1).status == "pending"
 
 
 def test_freeze_and_changed_event_do_not_expose_old_target(setup):
@@ -674,8 +675,15 @@ def test_slots_cover_only_model_calls_and_are_released_on_failure(setup):
     assert not Lock.held
 
 
-def test_busy_outlook_preserves_research_for_deferred_retry(setup):
+@pytest.mark.parametrize("previous_success", [False, True])
+def test_busy_outlook_preserves_research_for_deferred_retry(setup, previous_success):
     service, db, repo, llm, members = setup
+    if previous_success:
+        service.refresh(1, "daily", members, {})
+    previous = repo.state(1)
+    previous_id = previous.latest_prediction_id if previous else None
+    before_calls = llm.complete_text.call_count
+    stage = "final" if previous_success else "daily"
     original = service.research_slot
     attempts = 0
 
@@ -690,10 +698,16 @@ def test_busy_outlook_preserves_research_for_deferred_retry(setup):
                 yield acquired
 
     service.research_slot = contend_second_call
-    assert service.refresh(1, "daily", members, {})["status"] == "busy"
-    assert llm.complete_text.call_count == 1
-    assert service.refresh(1, "daily", members, {})["status"] == "success"
-    assert llm.complete_text.call_count == 2
+    assert service.refresh(1, stage, members, {})["status"] == "busy"
+    pending = repo.state(1)
+    assert pending.status == "pending" and pending.error is None
+    assert pending.latest_prediction_id == previous_id
+    if previous_success:
+        assert display_summary(repo.event(1), pending, members, NOW)["status"] == "current"
+    assert llm.complete_text.call_count == before_calls + 1
+    assert service.refresh(1, stage, members, {})["status"] == "success"
+    assert repo.state(1).status == "success"
+    assert llm.complete_text.call_count == before_calls + 2
     assert not Lock.held
 
 

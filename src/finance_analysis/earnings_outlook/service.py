@@ -152,6 +152,9 @@ class EarningsOutlookService:
                 try:
                     return self._refresh(event_id, stage, members, public)
                 except ResearchBusy:
+                    # No model call is running once the event lock is released.
+                    # Preserve the successful pointer and any saved research for retry.
+                    self.repo.mark(event_id, "pending")
                     return dict(event_id=event_id, status="busy", reason="research concurrency limit")
                 except Exception as exc:
                     # The successful projection/pointer is intentionally untouched.
