@@ -1,9 +1,31 @@
 """Daily industry observations, independent of tradeable universes and strategies."""
 
-from sqlalchemy import Boolean, Column, Date, DateTime, Float, Integer, JSON, String, UniqueConstraint, CheckConstraint
+from sqlalchemy import (
+    Boolean, Column, Date, DateTime, Float, ForeignKey, Integer, JSON, String, UniqueConstraint, CheckConstraint,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from finance_analysis.core.time import utc_now
 from finance_analysis.database.base import Base
+
+
+class IndustryCatalog(Base):
+    """Weekly reference catalog, independent of daily observations."""
+
+    __tablename__ = "industry_catalog"
+    industry_code = Column(String(32), primary_key=True)
+    industry_name = Column(String(128), nullable=False)
+    members_observed_at = Column(DateTime(timezone=True), nullable=False)
+
+
+class IndustryMembership(Base):
+    """Current weekly membership; never a historical effective-date claim."""
+
+    __tablename__ = "industry_membership"
+    industry_code = Column(
+        String(32), ForeignKey("industry_catalog.industry_code", ondelete="CASCADE"), primary_key=True,
+    )
+    stock_code = Column(String(32), primary_key=True, index=True)
+    stock_name = Column(String(128), nullable=False)
 
 
 class IndustryStrengthSnapshot(Base):

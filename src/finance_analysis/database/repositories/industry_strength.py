@@ -5,6 +5,7 @@ from sqlalchemy.dialects.postgresql import insert
 from finance_analysis.core.time import utc_now
 from finance_analysis.database.models.industry_strength import IndustryStrengthSnapshot as Snapshot
 from finance_analysis.database.models.industry_strength import IndustryStrengthConstituent as Constituent
+from finance_analysis.database.models.industry_strength import IndustryCatalog, IndustryMembership
 from finance_analysis.database.models.trend_following import TrendFollowingSnapshot as TrendSnapshot
 
 SORT_FIELDS = {
@@ -38,15 +39,74 @@ class IndustryStrengthRepository:
             db_manager = DatabaseManager.get_instance()
         self.db = db_manager
 
+    def reference_data(self, *, include_members=True):
+        """One statement reads a consistent catalog and membership generation."""
+        query = select(IndustryCatalog).order_by(IndustryCatalog.industry_code)
+        if include_members:
+            query = (
+                select(IndustryCatalog, IndustryMembership)
+                .outerjoin(IndustryMembership, IndustryMembership.industry_code == IndustryCatalog.industry_code)
+                .order_by(IndustryCatalog.industry_code, IndustryMembership.stock_code)
+            )
+        catalog, memberships = {}, {}
+        with self.db.get_session() as session:
+            for result in session.execute(query):
+                industry, member = result[0], result[1] if include_members else None
+                code = industry.industry_code
+                catalog[code] = {
+                    "thscode": code, "name": industry.industry_name,
+                    "members_observed_at": industry.members_observed_at,
+                }
+                memberships.setdefault(code, [])
+                if member is not None:
+                    memberships[code].append({"thscode": member.stock_code, "name": member.stock_name})
+        return list(catalog.values()), memberships
+
+    def save_reference(self, catalog, memberships, observed_at):
+        """Replace a complete weekly generation atomically; preserve daily result tables."""
+        codes = [row["thscode"] for row in catalog]
+        if not codes or len(set(codes)) != len(codes) or set(codes) != set(memberships):
+            raise ValueError("A complete industry reference generation is required")
+        members = []
+        for code in codes:
+            rows = memberships[code]
+            if not rows or len({r["thscode"] for r in rows}) != len(rows):
+                raise ValueError("Each industry requires a nonempty, unique member list")
+            members.extend({"industry_code": code, "stock_code": r["thscode"], "stock_name": r["name"]}
+                           for r in rows)
+        with self.db.session_scope() as session:
+            if session.bind.dialect.name == "postgresql":
+                session.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": 954000001})
+            session.execute(delete(IndustryMembership))
+            session.execute(delete(IndustryCatalog))
+            session.execute(IndustryCatalog.__table__.insert(), [
+                {"industry_code": r["thscode"], "industry_name": r["name"], "members_observed_at": observed_at}
+                for r in catalog
+            ])
+            session.execute(IndustryMembership.__table__.insert(), members)
+
+    def stock_memberships(self, code):
+        """Current industries are available even before the first daily calculation."""
+        query = (
+            select(IndustryCatalog.industry_code.label("code"), IndustryCatalog.industry_name.label("name"),
+                   IndustryCatalog.members_observed_at)
+            .join(IndustryMembership, IndustryMembership.industry_code == IndustryCatalog.industry_code)
+            .where(IndustryMembership.stock_code == code)
+            .order_by(IndustryCatalog.industry_code)
+        )
+        with self.db.get_session() as session:
+            return [dict(row) for row in session.execute(query).mappings()]
+
     def stock_context(self, code):
         """Latest membership only; never infer historical membership from this table."""
         day = select(func.max(Snapshot.trade_date)).scalar_subquery()
         query = (
             select(Snapshot.industry_code, Snapshot.industry_name, Snapshot.trade_date,
                    Snapshot.state, Snapshot.strength_score, Snapshot.strength_rank,
-                   Constituent.updated_at.label("members_observed_at"))
+                   Snapshot.members_observed_at)
             .join(Constituent, Constituent.industry_code == Snapshot.industry_code)
-            .where(Constituent.stock_code == code, Snapshot.trade_date == day)
+            .where(Constituent.stock_code == code, Snapshot.trade_date == day,
+                   Snapshot.members_observed_at.is_not(None))
             .order_by(Snapshot.strength_rank, Snapshot.industry_code)
         )
         with self.db.get_session() as session:

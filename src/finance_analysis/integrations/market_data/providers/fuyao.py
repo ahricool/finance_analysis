@@ -92,12 +92,14 @@ class FuyaoProvider:
     _shared_cache = {}
     _cache_lock = RLock()
 
-    def __init__(self, *, api_key: str | None = None, timeout: float | None = None, transport=None):
+    def __init__(self, *, api_key: str | None = None, timeout: float | None = None, transport=None,
+                 instrument_repository=None):
         config = get_data_provider_config()
         self._api_key = api_key if api_key is not None else config.fuyao_api_key
         self.timeout = timeout if timeout is not None else config.fuyao_timeout_seconds
         self._transport = transport
         self._asset_types: dict[str, tuple[float, str]] = {}
+        self._instrument_repository = instrument_repository
 
     def get_dragon_tiger_board(self, trade_date, board_type="all"):
         from ..dragon_tiger import normalize_source
@@ -228,24 +230,45 @@ class FuyaoProvider:
                 return rows
         raise FuyaoError("Fuyao pagination exceeded bound")
 
-    def _asset_type(self, symbol: str) -> str:
-        cached = self._asset_types.get(symbol)
-        if cached and monotonic() - cached[0] < 1800:
-            return cached[1]
-        data = self._get("/api/meta/tickers/search", q=symbol, limit=50)
-        row = next((r for r in self._items(data) if r.get("thscode") == symbol), None)
-        kind = row.get("asset_type") if row else None
-        if kind not in {"a-share", "a-share-index", "fund-etf"}:
-            raise FuyaoError("Fuyao missing or unsupported instrument type")
+    def _prime_asset_types(self, symbols):
+        """Resolve identities in one DB query; never search remote metadata per stock."""
         if len(self._asset_types) >= 10000:
             self._asset_types.clear()
-        self._asset_types[symbol] = (monotonic(), kind)
-        return kind
+        now = monotonic()
+        missing = [s for s in dict.fromkeys(symbols)
+                   if s not in self._asset_types or now - self._asset_types[s][0] >= 1800]
+        if not missing:
+            return
+        if self._instrument_repository is None:
+            from finance_analysis.database.repositories.stock import InstrumentRepository
+
+            self._instrument_repository = InstrumentRepository()
+        kinds = {"STOCK": "a-share", "INDEX": "a-share-index", "ETF": "fund-etf"}
+        for symbol, row in self._instrument_repository.get_by_codes(missing).items():
+            kind = kinds.get(str(row.instrument_type).upper())
+            if str(row.market).upper() == "CN" and kind:
+                self._asset_types[symbol] = (now, kind)
+
+    def _asset_type(self, symbol: str) -> str:
+        cached = self._asset_types.get(symbol)
+        # Expiry is checked once by _prime_asset_types at the request boundary.
+        # Long serial history reads must keep that batch's known DB identities.
+        if cached:
+            return cached[1]
+        raise FuyaoError("Fuyao missing or unsupported database instrument type")
 
     def fetch_daily_bars(self, request: DailyBarsRequest) -> BatchBarResult:
         if request.adjustment is not Adjustment.FORWARD:
             raise ValueError("Fuyao daily bars require forward adjustment")
+        symbols = tuple(self._symbol(value) for value in request.symbols)
         result = BatchBarResult()
+        try:
+            self._prime_asset_types(symbols)
+        except Exception as exc:
+            reason = f"Database instrument types unavailable: {type(exc).__name__}"
+            result.failed_symbols = dict.fromkeys(symbols, reason)
+            result.request_errors = dict(result.failed_symbols)
+            return result
         for value in request.symbols:
             symbol = self._symbol(value)
             try:
@@ -333,6 +356,11 @@ class FuyaoProvider:
     def fetch_quotes(self, request: QuoteRequest) -> BatchQuoteResult:
         symbols = tuple(self._symbol(value) for value in request.symbols)
         result = BatchQuoteResult()
+        try:
+            self._prime_asset_types(symbols)
+        except Exception as exc:
+            result.failed_symbols = dict.fromkeys(symbols, f"Database instrument types unavailable: {type(exc).__name__}")
+            return result
         groups = {"a-share": [], "a-share-index": [], "fund-etf": []}
         for symbol in symbols:
             try:
@@ -365,10 +393,10 @@ class FuyaoProvider:
         result.missing_symbols = [s for s in symbols if s not in result.data and s not in result.failed_symbols]
         return result
 
-    def fetch_market_snapshot(self, market: Market) -> BatchQuoteResult:
+    def fetch_market_snapshot(self, market: Market, *, include_names=True) -> BatchQuoteResult:
         self._cn(market)
         # Directory names are required by review/ST filters, but absent in prices.
-        names = {row["code"]: row["name"] for row in self.fetch_instruments("CN")}
+        names = {row["code"]: row["name"] for row in self.fetch_instruments("CN")} if include_names else {}
         result = BatchQuoteResult()
         size, seen, total = 1000, set(), None
         for offset in range(0, 100000, size):

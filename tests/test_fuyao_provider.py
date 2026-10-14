@@ -33,6 +33,64 @@ SYMBOL = "600519.SH"
 DAY = date(2026, 9, 15)
 
 
+def test_quote_batch_uses_one_database_type_query_and_no_remote_metadata():
+    from types import SimpleNamespace
+
+    symbols = tuple(f"{600001 + i:06d}.SH" for i in range(201))
+    reads, requests = [], []
+    def identities(codes):
+        reads.append(tuple(codes))
+        return {code: SimpleNamespace(market="CN", instrument_type="STOCK") for code in codes}
+    def handle(request):
+        requests.append(request.url.path)
+        assert request.url.path == "/api/a-share/prices/snapshot"
+        return httpx.Response(200, json={"code": 0, "data": {
+            "timestamp": date_ms(DAY),
+            "item": [snapshot(code) for code in request.url.params["thscodes"].split(",")],
+        }})
+    p = FuyaoProvider(api_key="test", transport=httpx.MockTransport(handle),
+                      instrument_repository=SimpleNamespace(get_by_codes=identities))
+    result = p.fetch_quotes(QuoteRequest(symbols))
+    assert len(result.data) == 201
+    assert len(reads) == 1 and reads[0] == symbols
+    assert len(requests) == 3
+    p.fetch_quotes(QuoteRequest(symbols))
+    assert len(reads) == 1 and len(requests) == 6
+
+
+def test_unknown_database_type_never_triggers_remote_search():
+    from types import SimpleNamespace
+
+    def forbidden(request):
+        raise AssertionError("Unknown identity must not cause HTTP requests")
+    p = FuyaoProvider(api_key="test", transport=httpx.MockTransport(forbidden),
+                      instrument_repository=SimpleNamespace(get_by_codes=lambda codes: {}))
+    assert SYMBOL in p.fetch_quotes(QuoteRequest((SYMBOL,))).failed_symbols
+    result = p.fetch_daily_bars(DailyBarsRequest((SYMBOL,), DAY, DAY, Adjustment.FORWARD))
+    assert SYMBOL in result.failed_symbols and result.data == {}
+
+
+def test_full_market_prices_only_reads_pages_without_names_or_types():
+    calls = []
+    symbols = [f"{600001 + i:06d}.SH" for i in range(1001)]
+    def handle(request):
+        assert request.url.path == "/api/a-share/prices/snapshot"
+        assert "thscodes" not in request.url.params
+        offset = int(request.url.params["offset"])
+        calls.append(offset)
+        return httpx.Response(200, json={"code": 0, "data": {
+            "total": len(symbols), "timestamp": date_ms(DAY),
+            "item": [snapshot(code) for code in symbols[offset:offset + 1000]],
+        }})
+    p = FuyaoProvider(api_key="test", transport=httpx.MockTransport(handle))
+    registry = ProviderRegistry()
+    registry.register("fuyao", p, capabilities={LATEST_MARKET_SNAPSHOT})
+    result = MarketDataService(registry).get_market_snapshot("CN", providers=("fuyao",), include_names=False)
+    assert len(result.data) == 1001 and result.failed_symbols == {}
+    assert calls == [0, 1000]
+    assert all(not quote.name for quote in result.data.values())
+
+
 def snapshot(symbol=SYMBOL, change=1.5):
     return {
         "thscode": symbol,
@@ -409,9 +467,14 @@ def test_daily_selects_official_asset_endpoint_and_keeps_forward_contract(symbol
         }
 
     p, calls = provider(handler)
+    from types import SimpleNamespace
+    identities = SimpleNamespace(get_by_codes=lambda codes: {
+        symbol: SimpleNamespace(market="CN", instrument_type="ETF" if kind == "fund-etf" else "INDEX")
+    })
+    p._instrument_repository = identities
     result = p.fetch_daily_bars(DailyBarsRequest((symbol,), DAY, DAY, Adjustment.FORWARD))
     assert result.data[symbol][0].adjustment == Adjustment.FORWARD
-    assert len(calls) == 2
+    assert len(calls) == 1
 
 
 def test_suspended_and_unavailable_rows_are_excluded_not_counted_flat():

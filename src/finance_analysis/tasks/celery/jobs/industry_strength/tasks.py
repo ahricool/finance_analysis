@@ -9,6 +9,25 @@ from finance_analysis.tasks.celery.app import celery_app
 from finance_analysis.tasks.advisory_lock import TaskAdvisoryLockId
 from finance_analysis.tasks.celery.schedule import require_scheduled_task_definition
 from finance_analysis.tasks.lifecycle import track_task, TaskSkipped
+from finance_analysis.industry_strength.reference_sync import IndustryReferenceSyncService
+
+REFERENCE = require_scheduled_task_definition("industry_reference_sync")
+
+
+@celery_app.task(name=REFERENCE.celery_task_name)
+@track_task(
+    task_type=REFERENCE.task_type,
+    task_name=REFERENCE.name,
+    source="celery",
+    trigger_source="scheduler",
+    scheduler_job_id=REFERENCE.job_id,
+    record_result=True,
+    strip_lifecycle_kwargs=True,
+    advisory_lock_id=TaskAdvisoryLockId.INDUSTRY_REFERENCE_SYNC,
+    advisory_lock_blocking=False,
+)
+def sync_industry_reference(**kwargs):
+    return IndustryReferenceSyncService().run()
 
 DEFINITION = require_scheduled_task_definition("industry_strength_cn")
 

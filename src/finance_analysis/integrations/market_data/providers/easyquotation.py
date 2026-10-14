@@ -144,7 +144,7 @@ class EasyQuotationProvider:
             client._preview_timeout_patched = True
         return client
 
-    def fetch_market_snapshot(self, market: Market) -> BatchQuoteResult:
+    def fetch_market_snapshot(self, market: Market, *, include_names=True) -> BatchQuoteResult:
         if market is not Market.CN:
             raise ValueError("easyquotation tencent snapshot supports CN only")
         try:

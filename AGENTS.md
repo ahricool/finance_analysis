@@ -334,7 +334,11 @@ BTC 多策略以 `strategy_key + symbol` 隔离，代码注册表当前仅 `btc_
 `industry_strength/` 只计算 A 股行业观察，不输出交易动作，与 ETF Rotation 独立。
 扶摇是 `integrations/market_data/providers/fuyao.py` 的独立 Provider，通过 `MarketDataService`
 复用行业目录、指数历史、当前成分三个 CN capability；`FUYAO_API_KEY` 仅后端读取。
-`industry_strength_cn` 在上海19:10检查收盘、行业/成分覆盖率后保存独立快照；禁止用当前成分回填历史 Breadth。
+`industry_reference_sync` 每周日上海10:00在 ingestion 队列原子保存 `industry_catalog` / `industry_membership`；首次部署管理员手动同步。
+行业正式/Preview 只读已存目录与成分；股票日线批量读 DB，仅缺目标日时远程补取且不落库，Preview 目标为昨日。
+扶摇股票历史不支持 batch；Preview 使用全市场分页报价。股票类型批量复用 DB Instrument，不逐股请求 meta。
+`industry_strength_cn` 在上海19:10检查收盘、行业/成分覆盖率后保存独立快照；成员观测时间来自周同步，禁止回填历史 Breadth。
+个股详情通过只读 classification 显示所属行业。
 页面 `/research/industry-strength`，指标和口径见 `docs/industry-strength.md`。
 
 ## Holdings / Trade Engine

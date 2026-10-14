@@ -259,6 +259,7 @@ def test_lock_ids_are_stable_and_readable() -> None:
         "TRADE_ENGINE_CN": 11,
         "TRADE_ENGINE_US": 12,
         "OPTIONS_INTELLIGENCE": 13,
+        "INDUSTRY_REFERENCE_SYNC": 14,
     }
 
 
@@ -288,6 +289,7 @@ def test_lock_declarations_are_exactly_nine_nonblocking_scheduled_and_one_blocki
         "industry_strength_preview_cn": (TaskAdvisoryLockId.CN_INDUSTRY_STRENGTH_PREVIEW, False),
         "market_sentiment_cn": (TaskAdvisoryLockId.CN_MARKET_SENTIMENT, False),
         "reference_data_sync": (TaskAdvisoryLockId.REFERENCE_DATA_SYNC, False),
+        "industry_reference_sync": (TaskAdvisoryLockId.INDUSTRY_REFERENCE_SYNC, False),
         "market_data_sync_cn": (TaskAdvisoryLockId.CN_DAILY_MARKET_DATA_SYNC, False),
         "market_data_sync_us": (TaskAdvisoryLockId.US_DAILY_MARKET_DATA_SYNC, False),
     }
