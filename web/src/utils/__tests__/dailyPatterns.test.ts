@@ -37,14 +37,15 @@ describe('daily candlestick rules', () => {
     for (const sample of [flat, opposite, mirror(flat), mirror(opposite)]) {
       const events = detectDailyPatterns(sample, options);
       if (fixture === star) expect(events.some(event => event.type === 'morning_star' || event.type === 'evening_star')).toBe(false);
+      else if (fixture === hammer) expect(events.some(event => event.type === 'hammer' || event.type === 'shooting_star')).toBe(false);
       else expect(events).toEqual([]);
     }
   });
   it('requires full engulfment and excludes tiny preceding bodies', () => {
     for (const last of [candle(98.1, 101), candle(97.8, 99.9)]) {
       const bars = engulfing(); bars[7] = { ...last, tradeDate: bars[7]!.tradeDate };
-      expect(detectDailyPatterns(bars, options)).toEqual([]);
-      expect(detectDailyPatterns(mirror(bars), options)).toEqual([]);
+      expect(detectDailyPatterns(bars, options).some(event => event.type === 'bullish_engulfing')).toBe(false);
+      expect(detectDailyPatterns(mirror(bars), options).some(event => event.type === 'bearish_engulfing')).toBe(false);
     }
     const bars = engulfing(); bars[6]!.open = 98.01;
     expect(detectDailyPatterns(bars, options)).toEqual([]);

@@ -6,6 +6,7 @@ import MarketKLineChart from '../MarketKLineChart.vue';
 import * as tradeOverlay from '../tradeMarkerOverlay';
 import { marketDataApi, type DailyBarsResponse } from '@/api/marketData';
 import { candle, dated, engulfing, hammer } from '@/utils/__tests__/fixtures/dailyPatterns';
+import { box } from '@/utils/__tests__/fixtures/dailyStructures';
 vi.mock('@/api/stocks', () => ({ stocksApi: { classification: vi.fn().mockRejectedValue(new Error('offline')) } }));
 vi.mock('@/api/marketData', () => ({ marketDataApi: { dailyBars: vi.fn() } }));
 const result: DailyBarsResponse = { symbol: 'AAPL.US', market: 'US', interval: '1d', adjustment: 'forward', source: 'database',
@@ -141,6 +142,34 @@ describe('DailyKLineCard Price Action', () => {
   const patternOptions = { ...options, props: { symbol: 'AAPL.US', highlightDate: '2026-09-08',
     markers: [{ timestamp: Date.parse('2026-09-08T00:00:00Z'), type: 'B' as const,
       operations: [{ executedAt: '2026-09-08', side: 'BUY' as const, quantity: '10', price: '100' }] }] } };
+  it('shows structure evidence on hover below the chart, draws boundaries only on click, and clears on period/symbol changes', async () => {
+    vi.setSystemTime(new Date('2027-01-01T12:00:00Z'));
+    const items = dated([...box(), candle(106, 108)]);
+    vi.mocked(marketDataApi.dailyBars).mockResolvedValue({ ...result, items });
+    const wrapper = mount(DailyKLineCard, { ...options, props: { symbol: 'AAPL.US' } }); await flushPromises();
+    const overlays = wrapper.getComponent(MarketKLineChart).props('overlays')!;
+    const structure = overlays.filter(overlay => overlay.groupId === 'daily-structures').at(-1)!;
+    expect(structure.points).toHaveLength(1);
+    structure.onMouseEnter!({} as never); await wrapper.vm.$nextTick();
+    expect(wrapper.get('[data-testid="daily-structure-detail"]').text()).toContain('箱体向上突破');
+    expect(wrapper.getComponent(MarketKLineChart).props('overlays')!.filter(overlay => overlay.groupId === 'daily-structures').at(-1)!.points).toHaveLength(1);
+    structure.onClick!({} as never); await wrapper.vm.$nextTick();
+    expect(wrapper.getComponent(MarketKLineChart).props('overlays')!.filter(overlay => overlay.groupId === 'daily-structures').at(-1)!.points).toHaveLength(5);
+    const hide = wrapper.findAll('button').find(button => button.text() === '隐藏边界')!;
+    await hide.trigger('click');
+    expect(wrapper.getComponent(MarketKLineChart).props('overlays')!.filter(overlay => overlay.groupId === 'daily-structures').at(-1)!.points).toHaveLength(1);
+    await wrapper.get('[data-testid="kline-period-1w"]').trigger('click');
+    expect(wrapper.find('[data-testid="daily-structure-summary"]').exists()).toBe(false);
+    expect(wrapper.getComponent(MarketKLineChart).props('overlays')).toEqual([]);
+    await wrapper.get('[data-testid="kline-period-1d"]').trigger('click');
+    expect(wrapper.find('[data-testid="daily-structure-summary"]').exists()).toBe(true);
+    expect(marketDataApi.dailyBars).toHaveBeenCalledTimes(1);
+    vi.mocked(marketDataApi.dailyBars).mockResolvedValue({ ...result, items: engulfing() });
+    await wrapper.setProps({ symbol: 'MSFT.US' }); await flushPromises();
+    expect(wrapper.find('[data-testid="daily-structure-detail"]').exists()).toBe(false);
+    expect(wrapper.text()).not.toContain('隐藏边界');
+    wrapper.unmount();
+  });
   it('creates separate pattern/date/BST overlays, shows latest evidence and supports clicks', async () => {
     const items = dated([...engulfing(), ...hammer()]);
     vi.mocked(marketDataApi.dailyBars).mockResolvedValue({ ...result, items });

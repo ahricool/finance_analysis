@@ -15,10 +15,11 @@ for (const theme of ['light', 'dark']) {
     await page.addInitScript(() => {
       const original = CanvasRenderingContext2D.prototype.fillText;
       CanvasRenderingContext2D.prototype.fillText = function (text, x, y, maxWidth) {
-        if (text.startsWith('↑ 吞没')) {
+        // The earlier bullish marker is the engulfing, the last one is the hammer.
+        if (text === '▴' && !this.canvas.dataset.patternX) {
           const transform = this.getTransform();
-          this.canvas.dataset.patternX = String((transform.a * x + transform.e) / this.canvas.width);
-          this.canvas.dataset.patternY = String((transform.d * y + transform.f) / this.canvas.height);
+          this.canvas.dataset.patternX = String((transform.a * (x + this.measureText(text).width / 2) + transform.e) / this.canvas.width);
+          this.canvas.dataset.patternY = String((transform.d * (y + 6) + transform.f) / this.canvas.height);
         }
         if (text.startsWith('查看日 ')) this.canvas.dataset.researchMarker = 'true';
         original.call(this, text, x, y, maxWidth);
@@ -29,6 +30,7 @@ for (const theme of ['light', 'dark']) {
       const path = new URL(route.request().url()).pathname;
       let body: object = {};
       if (path.endsWith('/auth/status')) body = { loggedIn: true, user: { uid: 1, username: 'Tester', role: 'user', extra: {} } };
+      else if (path.endsWith('/classification')) body = { code: snapshot.code, market: 'CN', memberships: { indices: [], industries: [] } };
       else if (path.endsWith('/preview') || path.endsWith('/preview/status')) return route.fulfill({ status: 404, json: {} });
       else if (path.endsWith('/rank-history')) body = { market: 'CN', dates: [highlightedDate], officialCount: 1, series: [], previewDate: null };
       else if (path.endsWith('/forward-returns')) body = { items: [] };
@@ -55,6 +57,8 @@ for (const theme of ['light', 'dark']) {
     const box = (await canvas.boundingBox())!;
     const x = Number(await canvas.getAttribute('data-pattern-x')) * box.width;
     const y = Number(await canvas.getAttribute('data-pattern-y')) * box.height;
+    await page.mouse.move(box.x + x, box.y + y);
+    await expect(detail).toContainText('看涨吞没');
     await page.mouse.click(box.x + x, box.y + y);
     await expect(detail).toContainText('看涨吞没');
     await expect(detail).toContainText('阳线实体完整吞没');
