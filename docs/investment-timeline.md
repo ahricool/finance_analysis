@@ -200,6 +200,9 @@ Longbridge Content API 是唯一的外部新闻消息源，其他 Provider 只�
   未取得同季度同口径实际数据时保持pending，不推算实际营收或EPS。
 - `POST /api/v1/timeline/earnings/{event_id}/outlook/refresh` 为管理员异步手工刷新，返回task_id。
   同事件使用非阻塞 PostgreSQL session advisory lock；多个worker共享默认2个研究槽位，可配置1–8。
+  前瞻槽位只包住每次 LLMClient 调用（包括其回退/重试），资格/阶段判断、上下文采集和业务写库不占槽位。
+  两阶段之间释放槽位；竞争时状态恢复pending，保留上一成功预测及已保存研究，延后重试复用同阶段有效研究。事件锁仍覆盖整轮，
+  防止手工/定时重复执行；复盘的槽位行为不变。
   槽位或事件锁忙时按原event_id/阶段60秒内延后投递，跨日不重新扫描下一日；消息在发布截止时间过期，
   执行及保存仍重新检查截止时间，避免最终刷新被静默丢弃。
   网络调用期间没有DB写事务；失败记录状态/原因，原成功版本和展示指针保留。
@@ -220,7 +223,10 @@ Longbridge Content API 是唯一的外部新闻消息源，其他 Provider 只�
 
 1. `earnings_research`：逐个事件研究，查询必须含公司名、代码、季度及财报词。
    输入只保留事件身份、公司、截止时间、预期、指引、分析师修正与历史财报；不携带股价、原始K线或大盘行情。
-   第二阶段 `earnings_outlook` 仍使用完整冻结上下文判断价格反应，不减少批次事件数或改变研究并发。
+   第二阶段 `earnings_outlook` 保留个股最多30日完整K线；公共SPY/QQQ和板块ETF只传既有
+   return_pct、volatility、atr14、sessions、as_of等摘要，去掉重复公共OHLCV数组。
+   宏观、市场结构、缺失说明和来源不裁剪。压缩后的上下文同时用于模型输入、input_hash和预测快照，
+   不修改线程间共享公共快照，也不减少批次事件数或提高并发上限。
    通常只用近30天资料，最近一季官方指引可更早。保存来源、发布时间、检索时间、事实引用及冲突采用理由。
    一致预期与个别分析师观点分开，不平均混合季度/单位/GAAP口径。
 2. `earnings_outlook`：不搜索，输入冻结的context和research bundle，分别判断经营表现与价格反应。
@@ -296,3 +302,12 @@ JSONB保存研究/预测，成功版本保留。事件日程变化时旧版本su
 
 离线测试：`uv run pytest tests/earnings_outlook tests/test_market_calendar_task.py tests/test_llm_client.py tests/test_llm_fallback.py -q`。
 本地验证使用独立PostgreSQL副本复制公开证券/股票池/财报/日线，不复制账户数据；LLM、搜索和实时价格均mock。
+
+### 前瞻执行耗时诊断
+
+服务日志按 event_id 输出 context、earnings_research、earnings_outlook、total 的 duration_ms，
+异常退出也记录；模型调用额外记录 prompt_chars，不额外输出研究正文。
+context 包含公共快照首次采集/等待；两类LLM阶段耗时包含槽位获取以及LLMClient内部回退、审计；
+total还包含事件锁连接、资格判断与业务持久化。这些阶段耗时有包含关系，不能直接全部相加。
+结合现有LLM JSONL的attempt、search_evidence、ssh_ms、cli_execution_ms、api_ms定位瓶颈。
+本次保持模型回退和搜索证据要求，不基于模型自述判定搜索成功。实际生产加速幅度需由日志确认。

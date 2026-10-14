@@ -67,6 +67,22 @@ def research_context(context):
     return {key: context[key] for key in keys if key in context}
 
 
+def outlook_context(context):
+    """Keep company bars, but use existing summaries for shared market series.
+
+    Copy nested mappings: concurrent events share the original public snapshot.
+    The returned projection is both sent to the model and persisted as its input.
+    """
+    market = dict(context.get("market") or {})
+    for group in ("benchmarks", "sector_performance"):
+        if group in market:
+            market[group] = {
+                symbol: {key: value for key, value in series.items() if key != "bars"}
+                for symbol, series in market[group].items()
+            }
+    return {**context, "market": market}
+
+
 class ContextCollector:
     def __init__(self, repo, market=None, llm=None):
         self.repo, self.market, self.llm = repo, market or MarketDataService(), llm
