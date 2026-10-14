@@ -138,6 +138,7 @@ export function portfolioFromMessage(message: RealtimeQuoteMessage): HoldingsSum
 
 export async function readMarketEvents(
   options: MarketStreamOptions, signal: AbortSignal, onMessage: (message: RealtimeQuoteMessage) => void,
+  onActivity: () => void = () => {},
 ): Promise<void> {
   const response = await fetch(marketUrl('events', options), {
     credentials: 'include', headers: { Accept: 'text/event-stream' }, signal,
@@ -148,9 +149,11 @@ export async function readMarketEvents(
   const decoder = new TextDecoder();
   let buffer = '';
   try {
+    onActivity(); // HTTP is connected even when the first quote is still being collected.
     while (!signal.aborted) {
       const { done, value } = await reader.read();
       if (done) throw new Error('行情连接已断开');
+      if (value.byteLength) onActivity(); // Includes comment heartbeats and fragmented frames.
       buffer += decoder.decode(value, { stream: true });
       const frames = buffer.split(/\r?\n\r?\n/);
       buffer = frames.pop() || '';

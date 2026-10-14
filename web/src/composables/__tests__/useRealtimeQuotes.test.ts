@@ -43,6 +43,29 @@ class MockWebSocket {
   }
 }
 
+function mockHttpEvents(waitForHeaders = false) {
+  const requests: Array<{
+    signal: AbortSignal;
+    stream: ReadableStreamDefaultController<Uint8Array>;
+    respond: () => void;
+  }> = [];
+  const encoder = new TextEncoder();
+  vi.stubGlobal('fetch', vi.fn((_url, options: RequestInit) => new Promise<Response>((resolve, reject) => {
+    const signal = options.signal!;
+    let stream!: ReadableStreamDefaultController<Uint8Array>;
+    const body = new ReadableStream<Uint8Array>({ start(controller) { stream = controller; } });
+    const respond = () => resolve(new Response(body, { headers: { 'Content-Type': 'text/event-stream' } }));
+    requests.push({ signal, stream, respond });
+    signal.addEventListener('abort', () => {
+      const error = new DOMException('Aborted', 'AbortError');
+      stream.error(error);
+      reject(error);
+    });
+    if (!waitForHeaders) respond();
+  })));
+  return { requests, send(index: number, frame: string) { requests[index]!.stream.enqueue(encoder.encode(frame)); } };
+}
+
 describe('useRealtimeQuotes', () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -150,9 +173,9 @@ describe('useRealtimeQuotes', () => {
 
   it('releases old market streams and ignores their late portfolio snapshots', async () => {
     const market = ref<'CN' | 'US'>('CN');
-    const streams: Array<{ signal: AbortSignal; accept: Parameters<typeof marketApi.readMarketEvents>[2] }> = [];
-    const sse = vi.spyOn(marketApi, 'readMarketEvents').mockImplementation((_options, signal, accept) => {
-      streams.push({ signal, accept });
+    const streams: Array<{ signal: AbortSignal; accept: Parameters<typeof marketApi.readMarketEvents>[2]; activity: () => void }> = [];
+    const sse = vi.spyOn(marketApi, 'readMarketEvents').mockImplementation((_options, signal, accept, activity) => {
+      streams.push({ signal, accept, activity: activity! });
       return new Promise(() => {});
     });
     let state!: ReturnType<typeof useRealtimeQuotes>;
@@ -171,6 +194,104 @@ describe('useRealtimeQuotes', () => {
     expect(state.portfolio.value?.market).toBe('US');
     expect(state.lastUpdatedAt.value).toBe('US');
     expect(MockWebSocket.instances).toHaveLength(2);
+    streams[1]!.activity();
+    await vi.advanceTimersByTimeAsync(29_000);
+    streams[0]!.activity(); // Stale transport callbacks must not extend the current connection's timeout.
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(streams[1]!.signal.aborted).toBe(true);
+    wrapper.unmount();
+  });
+
+  it.each([false, true])('keeps a live SSE open through slow quotes (first quote received=%s)', async hasQuote => {
+    const http = mockHttpEvents();
+    let state!: ReturnType<typeof useRealtimeQuotes>;
+    const wrapper = mount(defineComponent({ setup() { state = useRealtimeQuotes(); return {}; }, template: '<div />' }));
+    MockWebSocket.instances[0].disconnect();
+    await vi.advanceTimersByTimeAsync(1_000);
+    MockWebSocket.instances[1].disconnect();
+    await vi.advanceTimersByTimeAsync(0);
+    if (hasQuote) http.send(0, 'data: {"type":"quotes","generated_at":"first","quotes":[]}\n\n');
+    for (let tick = 0; tick < 9; tick++) {
+      await vi.advanceTimersByTimeAsync(10_000);
+      http.send(0, ': heartbeat\n\n');
+      await vi.advanceTimersByTimeAsync(0);
+      expect(http.requests[0]!.signal.aborted).toBe(false);
+    }
+    expect(state.lastUpdatedAt.value).toBe(hasQuote ? 'first' : null);
+    expect(state.status.value).toBe('sse');
+    expect(http.requests).toHaveLength(1);
+    expect(MockWebSocket.instances).toHaveLength(2);
+    http.send(0, 'data: {"type":"quotes","generated_at":"slow result","quotes":[]}\n\n');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(state.lastUpdatedAt.value).toBe('slow result');
+    wrapper.unmount();
+    expect(http.requests[0]!.signal.aborted).toBe(true);
+  });
+
+  it('allows slow HTTP headers, then expires only after transport becomes idle', async () => {
+    const http = mockHttpEvents(true);
+    const wrapper = mount(defineComponent({ setup: () => useRealtimeQuotes(), template: '<div />' }));
+    MockWebSocket.instances[0].disconnect();
+    await vi.advanceTimersByTimeAsync(1_000);
+    MockWebSocket.instances[1].disconnect();
+    await vi.advanceTimersByTimeAsync(45_000);
+    expect(http.requests[0]!.signal.aborted).toBe(false);
+    http.requests[0]!.respond();
+    await vi.advanceTimersByTimeAsync(29_000);
+    // Even an incomplete data frame proves transport activity.
+    http.send(0, 'data: {"type":');
+    await vi.advanceTimersByTimeAsync(29_999);
+    expect(http.requests[0]!.signal.aborted).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(http.requests[0]!.signal.aborted).toBe(true);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(http.requests).toHaveLength(2);
+    wrapper.unmount();
+  });
+
+  it('times out HTTP requests that never return headers', async () => {
+    const http = mockHttpEvents(true);
+    const wrapper = mount(defineComponent({ setup: () => useRealtimeQuotes(), template: '<div />' }));
+    MockWebSocket.instances[0].disconnect();
+    await vi.advanceTimersByTimeAsync(1_000);
+    MockWebSocket.instances[1].disconnect();
+    await vi.advanceTimersByTimeAsync(59_999);
+    expect(http.requests[0]!.signal.aborted).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(http.requests[0]!.signal.aborted).toBe(true);
+    wrapper.unmount();
+  });
+
+  it('backs off repeated SSE failures even if headers arrive, and resets after a quote', async () => {
+    let accept!: Parameters<typeof marketApi.readMarketEvents>[2];
+    let fail!: (error: Error) => void;
+    const sse = vi.spyOn(marketApi, 'readMarketEvents').mockImplementation((_options, _signal, _onMessage, onActivity) => {
+      onActivity?.();
+      return Promise.reject(new Error('connection closed'));
+    });
+    const wrapper = mount(defineComponent({ setup: () => useRealtimeQuotes(), template: '<div />' }));
+    MockWebSocket.instances[0].disconnect();
+    await vi.advanceTimersByTimeAsync(1_000);
+    MockWebSocket.instances[1].disconnect();
+    await vi.advanceTimersByTimeAsync(0);
+    for (const [index, delay] of [5_000, 10_000, 20_000, 30_000, 30_000].entries()) {
+      await vi.advanceTimersByTimeAsync(delay - 1);
+      expect(sse).toHaveBeenCalledTimes(index + 1);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(sse).toHaveBeenCalledTimes(index + 2);
+    }
+    sse.mockImplementation((_options, _signal, onMessage, onActivity) => {
+      accept = onMessage;
+      onActivity?.();
+      return new Promise((_resolve, reject) => { fail = reject; });
+    });
+    await vi.advanceTimersByTimeAsync(30_000);
+    accept({ type: 'quotes', generated_at: 'recovered', quotes: [] });
+    fail(new Error('lost again'));
+    await vi.advanceTimersByTimeAsync(4_999);
+    expect(sse).toHaveBeenCalledTimes(7);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(sse).toHaveBeenCalledTimes(8);
     wrapper.unmount();
   });
 });

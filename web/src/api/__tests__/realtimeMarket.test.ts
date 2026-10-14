@@ -29,4 +29,24 @@ describe('HTTP market events', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('', { status: 401 })));
     await expect(readMarketEvents({}, new AbortController().signal, () => {})).rejects.toBeInstanceOf(MarketStreamAuthError);
   });
+
+  it('reports headers, heartbeat, error and fragmented bytes as activity without treating them as quotes', async () => {
+    const controller = new AbortController();
+    let stream!: ReadableStreamDefaultController<Uint8Array>;
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(new ReadableStream<Uint8Array>({
+      start(value) { stream = value; },
+    }))));
+    const onMessage = vi.fn();
+    const onActivity = vi.fn();
+    const reading = readMarketEvents({}, controller.signal, onMessage, onActivity);
+    await vi.waitFor(() => expect(onActivity).toHaveBeenCalledTimes(1));
+    for (const [index, frame] of [': heartbeat\n\n', 'data: {"type":"error"}\n\n', 'data: {'].entries()) {
+      stream.enqueue(encoder.encode(frame));
+      await vi.waitFor(() => expect(onActivity).toHaveBeenCalledTimes(index + 2));
+    }
+    expect(onMessage).not.toHaveBeenCalled();
+    controller.abort();
+    stream.close();
+    await expect(reading).rejects.toThrow('行情连接已断开');
+  });
 });
