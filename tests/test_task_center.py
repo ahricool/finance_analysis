@@ -253,7 +253,7 @@ def test_task_run_list_scopes_regular_user_and_keeps_admin_unscoped():
         [
             _record("user-task", uid=10),
             _record("other-task", uid=11),
-            _record("system-task", uid=None, scheduler_job_id="analysis_daily"),
+            _record("system-task", uid=None, scheduler_job_id="analysis_us_premarket"),
         ]
     )
     service = TaskQueryService(repository=repo, db=SimpleNamespace())
@@ -309,3 +309,39 @@ def test_long_batch_counts_remain_structured_in_task_detail(is_admin):
     assert detail.result["status_counts"] == {"failed": 39, "success": 1}
     assert detail.result["results"][-1]["truncated"] is True
     assert "preview" not in detail.result
+
+
+def test_retired_scheduled_task_is_hidden_and_cannot_be_submitted():
+    from finance_analysis.tasks.service import ScheduledTaskNotFoundError
+
+    record = _record("historical-run", uid=None, scheduler_job_id="analysis_daily")
+    repo = _FakeTaskRepo([record])
+    submitter = _RecordingSubmitter()
+    service = ScheduledTaskService(
+        repository=repo, task_submitter=submitter, beat_status_reader=lambda: "active"
+    )
+
+    assert all(item["job_id"] != record.scheduler_job_id for item in service.list_scheduled_tasks())
+    with pytest.raises(ScheduledTaskNotFoundError, match="analysis_daily"):
+        service.run_scheduled_task_now(job_id=record.scheduler_job_id, triggered_by_uid=7)
+    assert not submitter.calls
+    assert repo.records == [record]
+    assert not repo.updated
+
+
+def test_retired_scheduled_task_history_remains_readable_to_admin():
+    record = _record("historical-run", uid=None, scheduler_job_id="analysis_daily")
+    record.task_type = "scheduled_daily"
+    record.task_name = "每日全量分析"
+    service = TaskQueryService(repository=_FakeTaskRepo([record]), db=SimpleNamespace())
+    service._load_users = lambda uids: {}
+
+    runs = service.list_runs(is_admin=True, current_uid=1, page=1, page_size=20)
+    assert runs["total"] == 1
+    assert runs["items"][0]["scheduler_job_id"] == record.scheduler_job_id
+    assert runs["items"][0]["task_name"] == record.task_name
+    detail = service.get_run_detail(task_id=record.task_id, is_admin=True, current_uid=1)
+    assert detail["task_type"] == record.task_type
+    assert detail["result"] == {"ok": True}
+    assert detail["status"] == "completed"
+    assert service.get_run_detail(task_id=record.task_id, is_admin=False, current_uid=1) is None

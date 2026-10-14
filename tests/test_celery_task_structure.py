@@ -35,7 +35,6 @@ EXPECTED_CUSTOM_TASKS = {
     "analysis.run_stock_analysis",
     "analysis.run_market_review",
     "analysis.market_calendar_importance",
-    "scheduled.analysis_daily",
     "scheduled.market_calendar",
     "scheduled.analysis_us_premarket_news",
     "scheduled.analysis_us_premarket",
@@ -76,8 +75,8 @@ def test_worker_registers_exactly_the_expected_custom_tasks():
 
 
 def test_each_task_package_has_one_explicit_tasks_module_and_expected_tasks():
-    assert len(TASK_PACKAGES) == 28
-    assert len(TASK_MODULES) == 28
+    assert len(TASK_PACKAGES) == 27
+    assert len(TASK_MODULES) == 27
     for package, module_name in zip(TASK_PACKAGES, TASK_MODULES):
         assert module_name == f"{package}.tasks"
         module = importlib.import_module(module_name)
@@ -110,7 +109,7 @@ def test_all_custom_task_names_and_job_ids_are_unique():
     celery_names.extend(item.celery_task_name for item in scheduled)
     job_ids = [item.job_id for item in scheduled]
 
-    assert len(celery_names) == len(set(celery_names)) == 47
+    assert len(celery_names) == len(set(celery_names)) == 46
     assert len(job_ids) == len(set(job_ids))
 
 
@@ -165,3 +164,31 @@ def test_removed_legacy_modules_and_batch_business_references_are_absent():
     market_sync_root = source_root / "tasks" / "celery" / "jobs" / "market_data_sync"
     market_sync_text = "\n".join(path.read_text(encoding="utf-8") for path in market_sync_root.rglob("*.py"))
     assert "fetch_minute" not in market_sync_text
+
+
+def test_retired_daily_analysis_is_not_registered_or_routed():
+    from finance_analysis.tasks.celery.schedule import (
+        build_beat_schedule,
+        build_task_routes,
+        get_definition_by_task_name,
+        get_scheduled_task_definition,
+    )
+
+    celery_app.loader.import_default_modules()
+    job_id = "analysis_daily"
+    task_name = f"scheduled.{job_id}"
+    assert get_scheduled_task_definition(job_id) is None
+    assert get_definition_by_task_name(task_name) is None
+    assert task_name not in celery_app.tasks
+    assert task_name not in build_task_routes()
+    assert task_name not in celery_app.conf.task_routes
+    for schedule in (build_beat_schedule(), celery_app.conf.beat_schedule):
+        assert job_id not in schedule
+        assert all(entry["task"] != task_name for entry in schedule.values())
+    assert not any("daily_analysis" in package for package in TASK_PACKAGES)
+
+    source_root = Path(__file__).resolve().parents[1] / "src" / "finance_analysis"
+    assert not any((source_root / "tasks" / "celery" / "jobs" / "daily_analysis").glob("*.py"))
+    source_text = "\n".join(path.read_text(encoding="utf-8") for path in source_root.rglob("*.py"))
+    for removed_symbol in (job_id, "JOB_DAILY_ANALYSIS", "DailyAnalysisTaskService", "resolve_report_type", "EXPIRES_DAILY"):
+        assert removed_symbol not in source_text

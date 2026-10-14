@@ -6,7 +6,6 @@ import logging
 import random
 import time
 from datetime import datetime
-from typing import Any
 from zoneinfo import ZoneInfo
 
 from finance_analysis.tasks.celery.schedule import SCHEDULE_TIMEZONE
@@ -31,21 +30,8 @@ def sleep_random_start_delay(
     time.sleep(delay)
     return delay
 
-
-def resolve_report_type(config: Any):
-    from finance_analysis.reporting.types import ReportType
-
-    report_type = str(getattr(config, "report_type", "simple") or "simple").lower()
-    if report_type == "brief":
-        return ReportType.BRIEF
-    if report_type == "full":
-        return ReportType.FULL
-    return ReportType.SIMPLE
-
-
 __all__ = [
     "INTRADAY_START_DELAY_MAX_SECONDS",
-    "resolve_report_type",
     "scheduled_now",
     "sleep_random_start_delay",
 ]

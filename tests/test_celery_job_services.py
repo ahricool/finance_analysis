@@ -6,7 +6,6 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from finance_analysis.tasks.celery.jobs.daily_analysis import service as daily_module
 from finance_analysis.tasks.celery.jobs.market_calendar_sync import service as calendar_module
 from finance_analysis.tasks.celery.jobs.us_postmarket_review import service as postmarket_module
 from finance_analysis.tasks.celery.jobs.us_premarket_analysis import service as premarket_module
@@ -16,32 +15,6 @@ from finance_analysis.tasks.celery.jobs.scheduled_support import (
     sleep_random_start_delay,
 )
 from finance_analysis.tasks.lifecycle import TaskSkipped
-
-
-def test_daily_task_service_invokes_pipeline_and_records_result():
-    pipeline = MagicMock()
-    pipeline.run.return_value = []
-    with (
-        patch("finance_analysis.analysis.pipeline_config.get_pipeline_config", return_value=MagicMock()) as config,
-        patch("finance_analysis.analysis.pipeline.StockAnalysisPipeline", return_value=pipeline) as pipeline_class,
-        patch("finance_analysis.database.repositories.watch_list.get_watch_list_codes", return_value=["600519"]),
-    ):
-        daily_module.DailyAnalysisTaskService().run()
-
-    pipeline_class.assert_called_once_with(config=config.return_value)
-    pipeline.run.assert_called_once_with(stock_codes=["600519"])
-
-
-def test_daily_task_service_records_then_reraises_pipeline_failure():
-    pipeline = MagicMock()
-    pipeline.run.side_effect = RuntimeError("boom")
-    with (
-        patch("finance_analysis.analysis.pipeline_config.get_pipeline_config", return_value=MagicMock()),
-        patch("finance_analysis.analysis.pipeline.StockAnalysisPipeline", return_value=pipeline),
-        patch("finance_analysis.database.repositories.watch_list.get_watch_list_codes", return_value=["600519"]),
-        pytest.raises(RuntimeError, match="boom"),
-    ):
-        daily_module.DailyAnalysisTaskService().run()
 
 
 def test_us_premarket_service_runs_pipeline_for_us_watch_list():
@@ -183,12 +156,8 @@ def test_market_calendar_importance_submission_failure_is_non_fatal():
     submit.assert_called_once()
 
 
-@pytest.mark.parametrize("module,getter", [
-    (daily_module, "get_watch_list_codes"),
-    (premarket_module, "get_watch_list_codes_by_market"),
-])
 @pytest.mark.parametrize("valid", [True, False])
-def test_invalid_watch_row_is_counted_without_blocking_valid_analysis(module, getter, valid):
+def test_invalid_watch_row_is_counted_without_blocking_valid_analysis(valid):
     from finance_analysis.database.repositories.watch_list import WatchListCodes
     from finance_analysis.tasks.outcomes import analysis_batch_outcome
 
@@ -196,13 +165,12 @@ def test_invalid_watch_row_is_counted_without_blocking_valid_analysis(module, ge
     codes = WatchListCodes(["MSFT.US"] if valid else [], validation_failures=[invalid])
     pipeline = MagicMock()
     pipeline.run.return_value = [MagicMock()] if valid else []
-    service_class = module.DailyAnalysisTaskService if module is daily_module else module.USPremarketAnalysisTaskService
     with (
         patch("finance_analysis.analysis.pipeline_config.get_pipeline_config", return_value=MagicMock()),
         patch("finance_analysis.analysis.pipeline.StockAnalysisPipeline", return_value=pipeline) as factory,
-        patch("finance_analysis.database.repositories.watch_list." + getter, return_value=codes),
+        patch("finance_analysis.database.repositories.watch_list.get_watch_list_codes_by_market", return_value=codes),
     ):
-        result = service_class().run()
+        result = premarket_module.USPremarketAnalysisTaskService().run()
     assert result["total_count"] == (2 if valid else 1)
     assert result["success_count"] == (1 if valid else 0)
     assert result["failed_count"] == 1
