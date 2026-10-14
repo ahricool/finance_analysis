@@ -15,6 +15,12 @@ class Repository:
         self.members = None
         self.trend_calls = []
         self.ranks = {}
+        self.catalog = [{"thscode": f"{i:06d}.TI", "name": str(i),
+                         "members_observed_at": datetime(2026, 9, 13, tzinfo=timezone.utc)} for i in range(20)]
+        self.memberships = {r["thscode"]: [{"thscode": "600001.SH", "name": "共同成分"}] for r in self.catalog}
+
+    def reference_data(self, *, include_members=True):
+        return self.catalog, self.memberships
 
     def ranking(self, day):
         return []
@@ -100,11 +106,12 @@ def test_stale_benchmark_blocks_all_publication():
     assert repo.saved == []
 
 
-def test_missing_stock_history_uses_existing_provider_without_persisting():
+def test_fresh_short_stock_history_reuses_database_without_remote_requests():
     repo, data = Repository(), MarketData(partial_stock=True)
     IndustryStrengthService(repo, data).run()
-    assert [call[1]["source_policy"] for call in data.stock_calls] == ["db_only", "remote_only"]
+    assert [call[1]["source_policy"] for call in data.stock_calls] == ["db_only"]
     assert len(repo.saved) == 1
+    assert repo.saved[0][1][0]["above_ma20_ratio"] is None
 
 
 def test_incomplete_breadth_does_not_reject_publication():
@@ -126,7 +133,7 @@ def test_current_members_are_not_used_to_backfill_previous_day(monkeypatch):
 
 def test_sixty_percent_ma20_coverage_still_ranks_every_industry():
     repo, data = Repository(), MarketData()
-    data.get_index_constituents = lambda code: [{"thscode": str(i), "name": str(i)} for i in range(5)]
+    repo.memberships = {r["thscode"]: [{"thscode": str(i), "name": str(i)} for i in range(5)] for r in repo.catalog}
     full = [Obj(trade_date=d, close=100 + i, amount=100, volume=10) for i, d in enumerate(DAYS)]
     data.get_daily_bars = lambda *a, **kw: Obj(data={str(i): full if i < 3 else full[-10:] for i in range(5)})
     assert IndustryStrengthService(repo, data).run()["industries"] == 20
@@ -139,13 +146,14 @@ def test_sixty_percent_ma20_coverage_still_ranks_every_industry():
         assert row["ma20_valid_count"] == row["above_ma20_count"] == 3
 
 
-def test_constituent_api_failure_does_not_remove_valid_indices():
+def test_calculation_never_requests_catalog_or_constituents():
     repo, data = Repository(), MarketData()
     def fail(code):
         raise module.FuyaoError("upstream unavailable")
+    data.get_industry_catalog = fail
     data.get_index_constituents = fail
     assert IndustryStrengthService(repo, data).run()["industries"] == 20
-    assert repo.saved[0][1][0]["quality"]["breadth_errors"]
+    assert repo.saved[0][1][0]["members_observed_at"] == repo.catalog[0]["members_observed_at"]
 
 
 def test_failed_remote_history_preserves_usable_short_stored_window():
@@ -226,3 +234,60 @@ def test_failure_and_historical_backfill_preserve_latest_members(monkeypatch):
     IndustryStrengthService(repo, MarketData()).run(DAY)
     assert repo.members is previous
     assert repo.trend_calls == [["600001.SH"]]
+
+
+@pytest.mark.parametrize("sessions", [DAYS, DAYS[:-1]])
+def test_latest_session_is_the_only_remote_fetch_trigger(sessions):
+    code = "600001.SH"
+    data = MarketData()
+    short = [Obj(trade_date=d, close=100, amount=100, volume=10) for d in sessions[-2:]]
+    calls = []
+    def read(codes, start, end, **kwargs):
+        calls.append((codes, start, end, kwargs))
+        return Obj(data={code: short})
+    data.get_daily_bars = read
+    result = IndustryStrengthService(Repository(), data).load_member_history([code], sessions)
+    assert result[code] == short
+    assert len(calls) == 1 and calls[0][3]["source_policy"] == "db_only"
+    assert calls[0][2] == sessions[-1]
+
+
+def test_only_stale_stocks_fetch_remote_with_required_target_date():
+    fresh, stale = "600001.SH", "600002.SH"
+    db_bars = [Obj(trade_date=d, close=100) for d in DAYS]
+    remote_bars = [Obj(trade_date=d, close=120) for d in DAYS]
+    calls = []
+    def read(codes, start, end, **kwargs):
+        calls.append((codes, kwargs))
+        return Obj(data={fresh: db_bars, stale: db_bars[:-1]} if kwargs["source_policy"] == "db_only"
+                   else {stale: remote_bars})
+    result = IndustryStrengthService(Repository(), Obj(get_daily_bars=read)).load_member_history([fresh, stale], DAYS)
+    assert calls[1] == ([stale], {"adjustment": "forward", "source_policy": "remote_only", "required_dates": (DAY,)})
+    assert result[fresh] == db_bars and result[stale] == remote_bars
+
+
+@pytest.mark.parametrize("failure", [True, False])
+def test_failed_or_stale_remote_does_not_replace_usable_database_history(failure):
+    short = [Obj(trade_date=d, close=100) for d in DAYS[-11:-1]]
+    def read(codes, start, end, **kwargs):
+        if kwargs["source_policy"] == "db_only":
+            return Obj(data={"600001.SH": short})
+        if failure:
+            raise RuntimeError("source unavailable")
+        return Obj(data={"600001.SH": short[-2:]})
+    result = IndustryStrengthService(Repository(), Obj(get_daily_bars=read)).load_member_history(["600001.SH"], DAYS)
+    assert result["600001.SH"] == short
+
+
+def test_overlapping_industries_compute_stock_observations_once_and_preserve_reference_names(monkeypatch):
+    repo = Repository()
+    repo.memberships["000000.TI"][0]["name"] = "行业内名称"
+    real = module.constituent_observations
+    calls = []
+    def observe(members, stocks, sessions):
+        calls.append([m["thscode"] for m in members])
+        return real(members, stocks, sessions)
+    monkeypatch.setattr(module, "constituent_observations", observe)
+    IndustryStrengthService(repo, MarketData()).run()
+    assert calls == [["600001.SH"]]
+    assert next(m for m in repo.members if m["industry_code"] == "000000.TI")["stock_name"] == "行业内名称"

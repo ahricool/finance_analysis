@@ -22,6 +22,7 @@ from finance_analysis.tasks.celery.schedule.cron import (
 )  # pragma: allowlist secret
 
 EXPECTED_JOBS = {
+    "industry_reference_sync": ("scheduled_industry_reference_sync", "Asia/Shanghai"),
     "options_intelligence_intraday": ("scheduled_options_intelligence_intraday", "America/New_York"),
     "options_intelligence_daily": ("scheduled_options_intelligence_daily", "America/New_York"),
     "earnings_outlook_final": ("scheduled_earnings_outlook_final", "America/New_York"),

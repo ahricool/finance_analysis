@@ -31,6 +31,7 @@ class TaskAdvisoryLockId(IntEnum):
     TRADE_ENGINE_CN = 11
     TRADE_ENGINE_US = 12
     OPTIONS_INTELLIGENCE = 13
+    INDUSTRY_REFERENCE_SYNC = 14
 
 
 @dataclass

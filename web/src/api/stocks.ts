@@ -25,8 +25,67 @@ export type StockIndexMembership = {
 export type StockClassification = {
   code: string;
   market: string;
-  memberships: { indices: StockIndexMembership[] };
+  memberships: { indices: StockIndexMembership[]; industries?: StockIndustryMembership[] };
 };
+
+export type StockIndustryMembership = {
+  code: string;
+  name: string;
+  membersObservedAt: string;
+};
+
+type ClassificationRequest = {
+  promise: Promise<StockClassification>;
+  controller: AbortController;
+  consumers: number;
+  completed: boolean;
+  expiresAt: number;
+};
+const classifications = new Map<string, ClassificationRequest>();
+
+async function readClassification(code: string, signal?: AbortSignal): Promise<StockClassification> {
+  if (signal?.aborted) throw new DOMException('Request aborted', 'AbortError');
+  const now = Date.now();
+  for (const [key, entry] of classifications) {
+    if (entry.completed && entry.expiresAt <= now) classifications.delete(key);
+  }
+  const key = code.trim().toUpperCase();
+  let entry = classifications.get(key);
+  if (!entry) {
+    const controller = new AbortController();
+    const promise = apiClient.get(`/api/v1/stocks/${encodeURIComponent(key)}/classification`, { signal: controller.signal })
+      .then(({ data }) => toCamelCase<StockClassification>(data));
+    entry = { promise, controller, consumers: 0, completed: false, expiresAt: Infinity };
+    const request = entry;
+    classifications.set(key, request);
+    void promise.then(() => {
+      request.completed = true;
+      request.expiresAt = Date.now() + 60_000;
+    }, () => {
+      request.completed = true;
+      if (classifications.get(key) === request) classifications.delete(key);
+    });
+  }
+  const request = entry;
+  request.consumers++;
+  let abort: (() => void) | undefined;
+  try {
+    const result = await new Promise<StockClassification>((resolve, reject) => {
+      abort = () => reject(new DOMException('Request aborted', 'AbortError'));
+      signal?.addEventListener('abort', abort, { once: true });
+      void request.promise.then(resolve, reject);
+    });
+    // Consumers own their data; a list must not mutate the detail's cached reference.
+    return structuredClone(result);
+  } finally {
+    if (abort) signal?.removeEventListener('abort', abort);
+    request.consumers--;
+    if (!request.completed && request.consumers === 0) {
+      if (classifications.get(key) === request) classifications.delete(key);
+      request.controller.abort();
+    }
+  }
+}
 
 export const stocksApi = {
   async quote(code: string, market: MarketType, signal?: AbortSignal): Promise<RealtimeQuote> {
@@ -45,10 +104,7 @@ export const stocksApi = {
     };
   },
   async classification(code: string, signal?: AbortSignal): Promise<StockClassification> {
-    const { data } = await apiClient.get<StockClassification>(
-      `/api/v1/stocks/${encodeURIComponent(code)}/classification`, { signal },
-    );
-    return data;
+    return readClassification(code, signal);
   },
   async searchInstruments(
     query: string,

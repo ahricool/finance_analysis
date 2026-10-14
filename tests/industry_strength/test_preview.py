@@ -74,17 +74,21 @@ class Data:
             for c in codes
         }
 
-    def get_realtime_quotes(self, codes, *, providers):
-        self.quote_calls.append((codes, providers))
-        assert codes == ["600001.SH"]
-        assert providers == ("fuyao",)
-        return Obj(data={c: quote() for c in codes})
+    def get_market_snapshot(self, market, *, providers, include_names):
+        self.quote_calls.append((market, providers, include_names))
+        assert market == "CN" and providers == ("fuyao",) and include_names is False
+        return Obj(data={"600001.SH": quote()}, failed_symbols={})
 
 
 class Repo:
     def __init__(self):
         self.saved = []
         self.members = None
+
+    def reference_data(self, *, include_members=True):
+        catalog = [{"thscode": f"{i:06d}.TI", "name": str(i), "members_observed_at": STAMP - timedelta(days=3)}
+                   for i in range(20)]
+        return catalog, {r["thscode"]: [{"thscode": "600001.SH", "name": "共同成分"}] for r in catalog}
 
     def latest_cn_trend_ranks(self, codes):
         return {}
@@ -128,7 +132,7 @@ def test_overlay_replaces_today_and_rebases_adjusted_history():
     assert len(overlay(bars, quote(stamp=STAMP - timedelta(days=1)), DAY, DAYS[-2])) == 20
 
 
-def test_preview_refetches_full_inputs_updates_benchmark_and_only_caches_results():
+def test_preview_reuses_reference_updates_benchmark_and_only_caches_results():
     repo, data, cache = Repo(), Data(), PreviewCache(Redis())
     service = IndustryPreviewService(repo, data, cache=cache)
     service.run_preview()
@@ -143,14 +147,14 @@ def test_preview_refetches_full_inputs_updates_benchmark_and_only_caches_results
     assert repo.saved == [] and repo.members is None
     assert data.history_calls == 21
     assert len(data.stock_calls) == 1
-    assert data.quote_calls == [(["600001.SH"], ("fuyao",))]
+    assert data.quote_calls == [("CN", ("fuyao",), False)]
     data.benchmark_price = 130
     service.run_preview()
     second = cache.read()["result"]
     assert second["items"][0]["rs_5d"] < row["rs_5d"]
     assert second["items"][0]["rank_change_3d"] == 12
     assert data.history_calls == 42 and len(data.stock_calls) == 2
-    assert data.catalog_calls == 2 and data.member_calls == 40
+    assert data.catalog_calls == 0 and data.member_calls == 0
     assert set(cache.client.values) == {module.KEY}
     PreviewResponse.model_validate(cache.read())
     data.stale_benchmark = True
@@ -238,7 +242,7 @@ def test_preview_and_formal_calculations_match_for_identical_daily_inputs(missin
         return {code: Obj(**{**vars(quote(100, pre_close=100)), "amount": 100, "volume": 10}) for code in codes}
 
     data.get_index_quotes = index_quotes
-    data.get_realtime_quotes = lambda codes, **kwargs: Obj(data=stock_quotes(codes))
+    data.get_market_snapshot = lambda *args, **kwargs: Obj(data=stock_quotes(["600001.SH"]), failed_symbols={})
     # Formal includes today's stored bar; Preview replaces it with the identical live bar.
     service = IndustryStrengthService(Repo(), data)
     data.stock_history_end = DAY

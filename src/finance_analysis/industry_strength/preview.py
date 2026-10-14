@@ -53,26 +53,22 @@ class IndustryPreviewService(IndustryStrengthService):
         rows, constituents, stamps = self.calculate(day, False, preview=True)
         now = utc_now()
         trend_date = self.repository.latest_cn_trend_date()
-        grouped = {}
+        grouped, member_items = {}, {}
+        for member in constituents:
+            member_items.setdefault(member["industry_code"], []).append({
+                "code": member["stock_code"], "name": member["stock_name"],
+                **{k: v for k, v in member.items() if k not in {"industry_code", "stock_code", "stock_name"}},
+            })
         for row in rows:
             row.update(created_at=now, updated_at=now)
             row["quality"].pop("member_codes", None)
-            row["quality"].update(breadth_basis="intraday_current_members", turnover_basis="intraday_cumulative")
+            row["quality"].update(breadth_basis="intraday_weekly_observed_members", turnover_basis="intraday_cumulative")
             code = row["industry_code"]
-            items = [
-                {
-                    "code": r["stock_code"],
-                    "name": r["stock_name"],
-                    **{k: v for k, v in r.items() if k not in {"industry_code", "stock_code", "stock_name"}},
-                }
-                for r in constituents
-                if r["industry_code"] == code
-            ]
             grouped[code] = {
                 "industry_code": code,
                 "updated_at": now,
                 "trend_rank_date": trend_date,
-                "items": items,
+                "items": member_items.get(code, []),
                 **{
                     k: row[k]
                     for k in (

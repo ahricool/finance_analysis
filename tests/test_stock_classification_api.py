@@ -14,6 +14,7 @@ def client(monkeypatch):
     universes = Mock()
     monkeypatch.setattr(stocks, "InstrumentRepository", lambda: instruments)
     monkeypatch.setattr(stocks, "UniverseRepository", lambda: universes)
+    monkeypatch.setattr(stocks, "IndustryStrengthRepository", lambda: SimpleNamespace(stock_memberships=lambda code: []))
     # Classification must never use the external market-data facade.
     monkeypatch.setattr(stocks, "MarketDataService", Mock(side_effect=AssertionError("database only")))
     app = FastAPI()
@@ -39,7 +40,7 @@ def test_classification_response(client, code, market, indices):
     universes.list_index_memberships.return_value = indices
     response = http.get(f"/api/v1/stocks/{code}/classification")
     assert response.status_code == 200
-    assert response.json() == {"code": code, "market": market, "memberships": {"indices": indices}}
+    assert response.json() == {"code": code, "market": market, "memberships": {"indices": indices, "industries": []}}
     instruments.get_by_code.assert_called_once_with(code)
     universes.list_index_memberships.assert_called_once_with(code)
 
@@ -58,3 +59,19 @@ def test_classification_invalid_code_matches_stock_info(client):
     assert response.status_code == 422
     assert response.json() == http.get("/api/v1/stocks/INVALID.SH/info").json()
     instruments.get_by_code.assert_not_called()
+
+
+def test_classification_industries_are_independent_of_daily_results(client, monkeypatch):
+    http, instruments, universes = client
+    instruments.get_by_code.return_value = SimpleNamespace(code="600519.SH", market="CN")
+    universes.list_index_memberships.return_value = []
+    rows = [{"code": "881101.TI", "name": "食品饮料", "members_observed_at": "2026-10-11T02:00:00Z"}]
+    reads = []
+    def memberships(code):
+        reads.append(code)
+        return rows
+    monkeypatch.setattr(stocks, "IndustryStrengthRepository", lambda: SimpleNamespace(stock_memberships=memberships))
+    response = http.get("/api/v1/stocks/600519.SH/classification")
+    assert response.status_code == 200
+    assert response.json()["memberships"]["industries"] == rows
+    assert reads == ["600519.SH"]

@@ -289,8 +289,11 @@ Beat `crypto_btc_strategy` 每15m收盘后一分钟执行，只读闭合K线，�
 `industry_strength_snapshot`；正式任务同事务整表替换 `industry_strength_constituent` 最新成分。
 成分 HTTP 只读该表，Trend Rank 批量读取最新 CN 正式快照并物化（可空），历史补算不覆盖最新成分。
 三个扶摇能力仅支持 CN；指数无股票复权语义，使用 `IndexDailyBar`。
-正式任务和 Preview 共用计算流程：行业指数历史请求 API，个股历史 DB 优先，完整窗口不足时 API 只读补取；不缓存计算输入，
-不写 `stock_daily`，不修改 ETF Universe。
+正式任务和 Preview 共用计算流程：目录与成分由 `industry_reference_sync` 周日10:00原子同步后批量读 DB；
+行业指数历史请求 API。个股历史批量读 DB，仅缺目标交易日时 API 只读补取（正式当日、Preview 昨日），
+不因更早缺日重新请求，不写 `stock_daily`，不修改 ETF Universe。Preview 复用扶摇全市场分页行情，跳过名称/类型查询。
+Fuyao 定向报价和日线批量复用 DB Instrument 类型，未知类型不访问远程 search。
+`/stocks/{code}/classification` 的 `memberships.industries` 只读周同步 reference，不依赖正式快照。
 盘中任务 `industry_strength_preview_cn` 在 10:00/11:00/13:00/14:00/14:30 Asia/Shanghai 触发，与 A 股 ETF/Trend Preview 一致，午休不运行。
 正式 Breadth 仅当日收盘计算，不做当前成分历史回填。配置、状态和覆盖规则见 `docs/industry-strength.md`。
 

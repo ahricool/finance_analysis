@@ -382,7 +382,8 @@ def test_stock_context_uses_only_latest_official_date_and_current_membership():
     Snapshot.__table__.create(db.bind)
     IndustryStrengthConstituent.__table__.create(db.bind)
     with db.session_scope() as session:
-        session.add_all([Snapshot(**payload(day=OLD)), Snapshot(**payload(day=DAY)),
+        observed_at = datetime(2026, 9, 13, tzinfo=timezone.utc)
+        session.add_all([Snapshot(**payload(day=OLD)), Snapshot(**{**payload(day=DAY), "members_observed_at": observed_at}),
                          Snapshot(**payload(code="OLD_ONLY", day=OLD))])
         for industry in ["881101.TI", "OLD_ONLY"]:
             session.add(IndustryStrengthConstituent(industry_code=industry, stock_code="600001.SH", stock_name="Test"))
@@ -391,7 +392,11 @@ def test_stock_context_uses_only_latest_official_date_and_current_membership():
     assert rows[0]["trade_date"] == DAY
     assert rows[0]["industry_code"] == "881101.TI"
     assert rows[0]["members_observed_at"] is not None
+    assert rows[0]["members_observed_at"].date() == date(2026, 9, 13)
     assert IndustryStrengthRepository(db).stock_context("AAPL.US") == []
+    with db.session_scope() as session:
+        session.add(Snapshot(**{**payload(day=date(2026, 9, 17)), "members_observed_at": None}))
+    assert IndustryStrengthRepository(db).stock_context("600001.SH") == []
 
 
 def test_stock_context_api_is_read_only_and_cn_scoped(api):

@@ -222,12 +222,14 @@ class MarketDataRouter:
                 result.missing_symbols.append(symbol)
         return result
 
-    def route_market_snapshot(self, market: Market, providers: Iterable[str] | None = None) -> BatchQuoteResult:
+    def route_market_snapshot(self, market: Market, providers: Iterable[str] | None = None,
+                              *, include_names=True) -> BatchQuoteResult:
         registrations = self._providers(market=market, capability=LATEST_MARKET_SNAPSHOT, providers=providers)
         errors = []
         for registration in registrations:
             try:
-                result = registration.provider.fetch_market_snapshot(market)
+                kwargs = {} if include_names else {"include_names": False}
+                result = registration.provider.fetch_market_snapshot(market, **kwargs)
                 if market.value in result.failed_symbols:
                     errors.append(f"{registration.name}: {result.failed_symbols[market.value]}")
                     logger.warning("market=%s snapshot failed: %s", market.value, errors[-1])

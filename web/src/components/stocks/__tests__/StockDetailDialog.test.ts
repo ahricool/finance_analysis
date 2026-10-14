@@ -10,7 +10,7 @@ vi.mock('../detail/ConfluenceDetailPanel.vue', () => ({ __esModule: true, defaul
 vi.mock('../detail/IntradayDetailPanel.vue', () => ({ __esModule: true, default: { name: 'IntradayDetailPanel', props: ['symbol', 'market', 'context'], template: '<div data-testid="intraday-panel">{{ symbol }}</div>' } }));
 vi.mock('../detail/DragonTigerDetailPanel.vue', () => ({ __esModule: true, default: { name: 'DragonTigerDetailPanel', props: ['symbol', 'market', 'context'], template: '<div data-testid="dragon-panel">{{ symbol }}</div>' } }));
 vi.mock('../detail/QuantDetailPanel.vue', () => ({ __esModule: true, default: { name: 'QuantDetailPanel', props: ['symbol', 'market', 'context'], template: '<div data-testid="quant-panel">{{ symbol }}</div>' } }));
-vi.mock('@/api/stocks', () => ({ stocksApi: { quote: vi.fn() } }));
+vi.mock('@/api/stocks', () => ({ stocksApi: { quote: vi.fn(), classification: vi.fn().mockResolvedValue({ memberships: { industries: [] } }) } }));
 beforeEach(() => { vi.mocked(stocksApi.quote).mockReset().mockResolvedValue({ code: 'AAPL.US', symbol: 'AAPL.US', market_type: 'US', available: false }); });
 const stock = { code: 'AAPL.US', name: 'Apple', market_type: 'US' as const };
 const slots = { template: '<div><slot /></div>' };

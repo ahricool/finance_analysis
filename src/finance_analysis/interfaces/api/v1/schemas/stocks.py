@@ -9,6 +9,7 @@
 2. 定义历史 K 线数据模型
 """
 
+from datetime import datetime
 from typing import Optional, List
 
 from pydantic import BaseModel, Field
@@ -130,8 +131,15 @@ class StockIndexMembership(BaseModel):
     source: str = Field(..., description="指数成分来源（UniverseMember.source）")
 
 
+class StockIndustryMembership(BaseModel):
+    code: str
+    name: str
+    members_observed_at: datetime
+
+
 class StockMemberships(BaseModel):
     indices: list[StockIndexMembership] = Field(default_factory=list)
+    industries: list[StockIndustryMembership] = Field(default_factory=list)
 
 
 class StockClassificationResponse(BaseModel):

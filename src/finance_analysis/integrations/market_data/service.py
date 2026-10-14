@@ -201,7 +201,8 @@ def build_default_registry(
     )
     registry.register(
         "fuyao",
-        FuyaoProvider(api_key=resolved_config.fuyao_api_key, timeout=resolved_config.fuyao_timeout_seconds),
+        FuyaoProvider(api_key=resolved_config.fuyao_api_key, timeout=resolved_config.fuyao_timeout_seconds,
+                      instrument_repository=instrument_repository),
         capabilities={DAILY_BARS, REALTIME_QUOTES, LATEST_MARKET_SNAPSHOT, MARKET_INDICES,
                       MARKET_STATS, SECTOR_RANKINGS, INSTRUMENT_INFO,
                       INDUSTRY_CATALOG, INDEX_HISTORY, INDEX_CONSTITUENTS, INDEX_QUOTES,
@@ -588,8 +589,10 @@ class MarketDataService:
                 logger.warning("Intraday daily quote unavailable: %s provider=%s", code, provider, exc_info=True)
         return None
 
-    def get_market_snapshot(self, market: Market | str, *, providers: Iterable[str] | None = None) -> BatchQuoteResult:
-        return self.router.route_market_snapshot(market_from_value(market), providers)
+    def get_market_snapshot(self, market: Market | str, *, providers: Iterable[str] | None = None,
+                            include_names: bool = True) -> BatchQuoteResult:
+        """Full-market prices; callers with known names can skip remote name enrichment."""
+        return self.router.route_market_snapshot(market_from_value(market), providers, include_names=include_names)
 
     def get_market_indices(self, market: Market | str, *, providers: Iterable[str] | None = None) -> list[MarketIndex]:
         return self.router.route_indices(market_from_value(market), providers)

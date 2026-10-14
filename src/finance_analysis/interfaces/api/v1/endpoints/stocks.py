@@ -15,6 +15,7 @@ import logging
 from fastapi import APIRouter, HTTPException, Query
 
 from finance_analysis.database.repositories.universe import UniverseRepository
+from finance_analysis.database.repositories.industry_strength import IndustryStrengthRepository
 from finance_analysis.database.models.stock import Instrument  # pragma: allowlist secret
 from finance_analysis.database.repositories.stock import InstrumentRepository  # pragma: allowlist secret
 
@@ -107,8 +108,8 @@ def get_stock_info(stock_code: str) -> StockInstrumentInfo:
     "/{stock_code}/classification",
     response_model=StockClassificationResponse,
     responses={404: {"description": "股票不存在", "model": ErrorResponse}},
-    summary="获取个股当前所属指数",
-    description="只读取数据库中已启用的 INDEX Universe 及其当前成分，不调用外部数据源。",
+    summary="获取个股当前所属指数与行业",
+    description="只读取数据库中的 INDEX Universe 和周同步行业成分，不调用外部数据源。",
 )
 def get_stock_classification(stock_code: str) -> StockClassificationResponse:
     try:
@@ -121,7 +122,10 @@ def get_stock_classification(stock_code: str) -> StockClassificationResponse:
     return StockClassificationResponse(
         code=instrument.code,
         market=instrument.market,
-        memberships=StockMemberships(indices=UniverseRepository().list_index_memberships(code)),
+        memberships=StockMemberships(
+            indices=UniverseRepository().list_index_memberships(code),
+            industries=IndustryStrengthRepository().stock_memberships(code) if instrument.market == "CN" else [],
+        ),
     )
 
 

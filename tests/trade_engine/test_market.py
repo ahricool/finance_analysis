@@ -216,10 +216,13 @@ def test_longbridge_pull_preserves_timestamp_and_leaves_unknown_time_missing(mon
 
 def test_fuyao_snapshot_preserves_timestamp_and_leaves_unknown_time_missing(monkeypatch):
     from datetime import timezone
+    from types import SimpleNamespace
     from finance_analysis.integrations.market_data.models import QuoteRequest
     from finance_analysis.integrations.market_data.providers.fuyao import FuyaoProvider
 
-    provider = FuyaoProvider(api_key="test")
+    provider = FuyaoProvider(api_key="test", instrument_repository=SimpleNamespace(
+        get_by_codes=lambda codes: {code: SimpleNamespace(market="CN", instrument_type="STOCK") for code in codes},
+    ))
     payload = {"item": [{"thscode": "600519.SH", "last_price": 100, "asset_type": "a-share"}]}
     monkeypatch.setattr(provider, "_get", lambda *args, **kwargs: payload)
     quote = provider.fetch_quotes(QuoteRequest(("600519.SH",))).data["600519.SH"]

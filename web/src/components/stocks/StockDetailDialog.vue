@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import IndicatorHelpLabel from '@/components/app/IndicatorHelpLabel.vue';
 import ResearchEvidence from './ResearchEvidence.vue';
+import StockIndustryTags from './StockIndustryTags.vue';
 import DailyKLineCard from '@/components/market-data/DailyKLineCard.vue';
 import type { RealtimeQuote } from '@/api/realtimeMarket';
 import type { MarketType } from '@/api/watchList';
@@ -204,6 +205,11 @@ function movementClass(value: number | null | undefined): string {
           >{{ marketName }}</span>
         </DialogTitle>
         <DialogDescription>查看同一股票或 ETF 的行情、持仓与研究详情；各页签保留各自的数据日期与口径。</DialogDescription>
+        <StockIndustryTags
+          v-if="stock?.market_type === 'CN' && isOpen"
+          :key="stock.code"
+          :code="stock.code"
+        />
       </DialogHeader>
       <Tabs
         v-model="activeTab"
