@@ -701,16 +701,7 @@ def test_preview_task_skips_non_trading_days(monkeypatch):
 
 
 def test_preview_cache_round_trip():
-    stored = {}
-
-    class Redis:
-        def set(self, key, value, ex=None):
-            stored["key"] = key
-            stored["value"] = value
-            stored["ex"] = ex
-
-        def get(self, key):
-            return stored["value"] if stored.get("key") == key else None
+    from tests.preview_redis import MemoryRedis
 
     payload = {
         "market": "CN",
@@ -719,10 +710,10 @@ def test_preview_cache_round_trip():
         "status": "completed",
         "snapshots": [{"code": "600519.SH", "trade_date": TRADE_DATE}],
     }
-    client = Redis()
+    client = MemoryRedis()
     save_preview("CN", payload, client=client)
-    assert stored["key"] == PREVIEW_KEY_TEMPLATE.format(market="CN", trend_period=20)
-    assert stored["ex"] == 24 * 60 * 60
+    key = PREVIEW_KEY_TEMPLATE.format(market="CN", trend_period=20)
+    assert client.ttls[key] == 24 * 60 * 60
     loaded = load_preview("CN", client=client)
     assert loaded["market"] == "CN"
     assert loaded["trade_date"] == "2026-08-24"

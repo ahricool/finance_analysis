@@ -193,15 +193,7 @@ def test_preview_and_read_caches_are_isolated_by_period():
     from finance_analysis.trend_following.preview_cache import load_preview, save_preview
     from finance_analysis.trend_following.ranking_cache import RankingCache
 
-    class MemoryRedis:
-        def __init__(self):
-            self.values = {}
-
-        def set(self, key, value, **kwargs):
-            self.values[key] = value
-
-        def get(self, key):
-            return self.values.get(key)
+    from tests.preview_redis import MemoryRedis
 
     client = MemoryRedis()
     day = date(2026, 10, 12)

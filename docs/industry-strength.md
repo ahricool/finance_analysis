@@ -264,3 +264,8 @@ Redis 仅保存整批预览结果及状态。
 - `/stocks/{code}/classification` 返回 `memberships.industries`（code/name/members_observed_at）；仅查询周同步 DB，不依赖当天行业强度计算成功。A 股统一个股详情头部展示所属行业和观测时间。
 - 浏览器对相同代码的 classification 合并进行中的请求、复用成功响应60秒；各消费者独立取消，全部离开才取消网络请求，失败不缓存。列表与详情不会重复下载同一份分类。
 - 日线加载日志记录目标日期、DB命中和远程补取数；计算日志记录 reference、指数、股票历史、报价与计算阶段耗时。
+
+页面预演列表读取 `/industry-strength/preview/ranking`，不包含全行业成分明细。
+打开行业后通过 `/preview/{industry_code}/constituents?generated_at=...` 读取单行业预演成分，
+时间戳固定为列表的 `result.generated_at`；版本已变更或过期时返回 404，需刷新列表。
+列表与成分视图随原始 Preview 在同一 Redis 事务发布，并沿用原始 TTL；旧缓存只读兼容。

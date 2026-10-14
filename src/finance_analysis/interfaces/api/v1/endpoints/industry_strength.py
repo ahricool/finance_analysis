@@ -1,6 +1,6 @@
 """Authenticated shared A-share observations; reads use official DB snapshots or isolated Preview Redis."""
 
-from datetime import date
+from datetime import date, datetime
 from fastapi import APIRouter, Depends, HTTPException, Query
 from finance_analysis.database.repositories.industry_strength import IndustryStrengthRepository, SORT_FIELDS
 from finance_analysis.interfaces.api.deps import require_current_user
@@ -74,6 +74,30 @@ def preview():
     if result and result["trade_date"] != get_market_now("cn").date().isoformat():
         payload = {**payload, "result": None}
     return payload
+
+
+@router.get("/preview/ranking", response_model=PreviewResponse)
+def preview_ranking():
+    from finance_analysis.industry_strength.preview import PreviewCache
+    from finance_analysis.market_review.trading_calendar import get_market_now
+
+    payload = PreviewCache().read_view("ranking") or {}
+    result = payload.get("result")
+    if result and result["trade_date"] != get_market_now("cn").date().isoformat():
+        return {**payload, "result": None}
+    return payload
+
+
+@router.get("/preview/{industry_code}/constituents", response_model=ConstituentsResponse)
+def preview_constituents(industry_code: str, generated_at: datetime):
+    from finance_analysis.industry_strength.preview import PreviewCache
+    from finance_analysis.market_review.trading_calendar import get_market_now
+
+    payload = PreviewCache().read_view(f"members:{industry_code}")
+    if (payload is None or datetime.fromisoformat(payload["generated_at"]) != generated_at
+            or payload["trade_date"] != get_market_now("cn").date().isoformat()):
+        raise HTTPException(404, "所选预演已更新或过期，请刷新行业列表")
+    return payload["constituents"]
 
 
 @router.get("/stocks/{code}/context", response_model=list[StockIndustryContext])

@@ -1,3 +1,4 @@
+import { compactTrendResponse, isRankingPath } from './researchReadViews';
 import { expect, test } from '@playwright/test';
 
 for (const domain of ['trend-following', 'etf-rotation']) {
@@ -20,26 +21,28 @@ for (const domain of ['trend-following', 'etf-rotation']) {
       let body: object = {};
       if (path.endsWith('/auth/status')) {
         body = { loggedIn: true, user: { uid: 1, username: 'Tester', role: 'user', extra: {} } };
-      } else if (path.endsWith('/preview/status')) body = status;
-      else if (path.endsWith('/preview')) body = { ...summary, ...status, snapshots: [], items: [], market_snapshot: null };
+      } else if (path.endsWith('/trend-following/status')) body = summary;
+      else if (path.endsWith('/preview/status')) body = status;
+      else if ((path.endsWith('/preview') || path.endsWith('/preview/ranking'))) body = { ...summary, ...status, snapshots: [], items: [], market_snapshot: null };
+      else if (path.includes('/event-study/')) body = { groups: [], snapshot_dates: [], missing_snapshot_dates: [], box_feature_coverage: {}, mr_feature_coverage: {} };
       else if (path.endsWith('/rank-history')) body = { market: 'CN', dates: [], series: [], warnings: [] };
       else if (path.endsWith('/state-history')) body = { market: 'CN', dates: [], items: [], official_count: 0, warnings: [] };
       else if (path.endsWith('/dates')) body = { market: 'CN', latest: summary.trade_date, items: [summary.trade_date] };
-      else if (path.endsWith('/ranking')) body = {
+      else if (isRankingPath(path)) body = {
         ...summary, items: [], candidates: [], market_snapshot: null,
       };
-      await route.fulfill({ json: body });
+      await route.fulfill({ json: compactTrendResponse(new URL(route.request().url()).pathname, body) });
     });
     const errors: string[] = [];
     page.on('pageerror', error => errors.push(error.message));
     await page.goto(`/research/${domain}`);
-    const fullCount = () => requests.filter(path => path.endsWith('/preview')).length;
+    const fullCount = () => requests.filter(path => (path.endsWith('/preview') || path.endsWith('/preview/ranking'))).length;
     const statusCount = () => requests.filter(path => path.endsWith('/preview/status')).length;
     await expect(page.getByTestId('research-mode-preview')).toBeEnabled();
     await expect(page.getByTestId('research-data-status')).toHaveAttribute('data-mode', 'official');
     expect(statusCount()).toBe(1);
     expect(fullCount()).toBe(0);
-    expect(requests.filter(path => path.endsWith('/ranking'))).toHaveLength(1);
+    expect(requests.filter(path => isRankingPath(path) && !path.includes('/preview/'))).toHaveLength(1);
     expect(requests.some(path => path.endsWith('/candidates'))).toBe(false);
 
     await page.getByTestId('research-mode-preview').click();

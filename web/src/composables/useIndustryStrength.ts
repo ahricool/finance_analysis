@@ -156,13 +156,13 @@ export function useIndustryStrength() {
   }
 
   async function loadConstituents(code: string, force = false) {
-    if (previewMode.value) {
-      constituents.value = preview.value?.result?.constituents[code] ?? null;
+    const token = ++membersSeq;
+    if (previewMode.value && !rows.value.some(row => row.industryCode === code)) {
+      constituents.value = null;
       membersError.value = null;
       membersLoading.value = false;
       return;
     }
-    const token = ++membersSeq;
     if (constituents.value?.industryCode !== code) constituents.value = null;
     membersError.value = null;
     if (!force) {
@@ -176,7 +176,10 @@ export function useIndustryStrength() {
     }
     membersLoading.value = true;
     try {
-      const data = await api.constituents(code);
+      const previewGeneration = preview.value?.result?.generatedAt;
+      if (previewMode.value && !previewGeneration) return;
+      const data = previewMode.value
+        ? await api.previewConstituents(code, previewGeneration!) : await api.constituents(code);
       if (token !== membersSeq) return;
       constituentsCache.set(code, data);
       constituents.value = data;

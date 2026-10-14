@@ -164,7 +164,7 @@ test('preview switch is read-only and uses same-batch constituent details', asyn
   page.on('request', request => {
     if (request.method() === 'POST') writes.push(request.url());
   });
-  await page.route('**/api/v1/industry-strength/preview', route => route.fulfill({ json: {
+  const previewPayload = {
     status: 'completed', error: null,
     result: {
       trade_date: day, expected_trade_date: day, source: 'preview',
@@ -178,7 +178,16 @@ test('preview switch is read-only and uses same-batch constituent details', asyn
           amount: 500000, volume: 100, above_ma5: true, above_ma20: true, trend_rank: 8 }],
       }])),
     },
+  };
+  await page.route('**/api/v1/industry-strength/preview/ranking', route => route.fulfill({ json: {
+    ...previewPayload, result: { ...previewPayload.result, constituents: {} },
   } }));
+  await page.route(/\/industry-strength\/preview\/[^/]+\/constituents(?:\?|$)/, route => {
+    const url = new URL(route.request().url());
+    expect(url.searchParams.get('generated_at')).toBe(previewPayload.result.generated_at);
+    const code = url.pathname.split('/').at(-2)!;
+    return route.fulfill({ json: previewPayload.result.constituents[code] });
+  });
   await page.goto('/research/industry-strength');
   await expect(page.getByTestId('industry-snapshot-kind')).toHaveText('正式收盘');
   await page.getByTestId('industry-preview-switch').click();

@@ -38,13 +38,16 @@ def json_ready(value: Any) -> Any:
 
 
 def save_preview(market: str, payload: dict[str, Any], *, client: Any | None = None) -> None:
-    body = json.dumps(json_ready(payload), ensure_ascii=False, separators=(",", ":"))
+    from finance_analysis.core.preview_views import encode, publish
+
+    ready = json_ready(payload)
+    body = encode(ready)
     redis_client = client if client is not None else _redis_client()
     if redis_client is None:
         logger.error("market=%s job=etf_rotation_preview cache_write_failed redis_unavailable", market)
         raise RuntimeError(f"ETF Rotation preview Redis unavailable for {market}")
     try:
-        redis_client.set(preview_cache_key(market), body, ex=PREVIEW_TTL_SECONDS)
+        publish(redis_client, preview_cache_key(market), body, preview_views(ready), PREVIEW_TTL_SECONDS)
     except Exception as exc:
         logger.exception("market=%s job=etf_rotation_preview cache_write_failed", market)
         raise RuntimeError(f"Failed to save ETF Rotation preview for {market}") from exc
@@ -67,13 +70,44 @@ def load_preview(market: str, *, client: Any | None = None) -> dict[str, Any] | 
     return payload if isinstance(payload, dict) else None
 
 
+def preview_views(payload):
+    from finance_analysis.core.preview_metadata import preview_metadata
+
+    return {
+        "status": preview_metadata(payload, rows_key="items"),
+        **{f"stock:{row['code']}": {
+            "market": payload["market"], "trade_date": payload["trade_date"],
+            "metadata": row, "latest": row, "history": [], "market_snapshot": payload.get("market_snapshot"),
+        } for row in payload.get("items", []) if payload.get("status") == "completed"},
+    }
+
+
+def load_preview_view(market: str, field: str, *, client=None):
+    from finance_analysis.core.preview_views import read
+
+    redis_client = client if client is not None else _redis_client()
+    if redis_client is None:
+        return None
+
+    def fallback():
+        payload = load_preview(market, client=redis_client)
+        return preview_views(payload).get(field) if payload else None
+
+    try:
+        return read(redis_client, preview_cache_key(market), field, fallback)
+    except Exception:
+        logger.exception("market=%s job=etf_rotation_preview view_read_failed", market)
+        return None
+
+
 def _redis_client() -> Any | None:
     try:
         import redis
 
         from finance_analysis.database.config import get_database_config  # pragma: allowlist secret
 
-        return redis.Redis.from_url(get_database_config().redis_url, decode_responses=True)
+        return redis.Redis.from_url(get_database_config().redis_url, decode_responses=True,
+                                   socket_connect_timeout=2, socket_timeout=2)
     except Exception:
         logger.exception("job=etf_rotation_preview redis_client_failed")
         return None
@@ -84,6 +118,7 @@ __all__ = [
     "PREVIEW_TTL_SECONDS",
     "json_ready",
     "load_preview",
+    "load_preview_view",
     "preview_cache_key",
     "save_preview",
 ]

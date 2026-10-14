@@ -2,7 +2,6 @@
 import IndicatorHelpLabel from '@/components/app/IndicatorHelpLabel.vue';
 import ResearchEvidence from './ResearchEvidence.vue';
 import StockIndustryTags from './StockIndustryTags.vue';
-import DailyKLineCard from '@/components/market-data/DailyKLineCard.vue';
 import type { RealtimeQuote } from '@/api/realtimeMarket';
 import type { MarketType } from '@/api/watchList';
 import { stocksApi } from '@/api/stocks';
@@ -24,10 +23,11 @@ import {
 import { computed, defineAsyncComponent, onBeforeUnmount, ref, watch } from 'vue';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import type { OptionsView } from '@/api/optionsIntelligence';
-import OptionsPanel from '@/components/options-intelligence/OptionsPanel.vue';
 import type { StockDetailContext, StockDetailTab } from './detail/types';
 
 const HoldingsDetailPanel = defineAsyncComponent(() => import('./detail/HoldingsDetailPanel.vue'));
+const DailyKLineCard = defineAsyncComponent(() => import('@/components/market-data/DailyKLineCard.vue'));
+const OptionsPanel = defineAsyncComponent(() => import('@/components/options-intelligence/OptionsPanel.vue'));
 const detailPanels = {
   trend: defineAsyncComponent(() => import('./detail/TrendDetailPanel.vue')),
   etf: defineAsyncComponent(() => import('./detail/ETFDetailPanel.vue')),

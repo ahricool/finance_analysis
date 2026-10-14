@@ -22,20 +22,35 @@ export const useAuthStore = defineStore('auth', () => {
   const currentUser = ref<AuthStatusResponse['user']>(null);
   const isLoading = ref(true);
   const loadError = ref<ParsedApiError | null>(null);
+  let statusTask: Promise<void> | null = null;
+  let statusGeneration = 0;
 
-  async function fetchStatus() {
+  function fetchStatus(force = false): Promise<void> {
+    if (statusTask && !force) return statusTask;
+    const generation = ++statusGeneration;
     isLoading.value = true;
     loadError.value = null;
+    const task = loadStatus(generation);
+    statusTask = task;
+    return task;
+  }
+
+  async function loadStatus(generation: number) {
     try {
       const status = await authApi.getStatus();
+      if (generation !== statusGeneration) return;
       loggedIn.value = status.loggedIn;
       currentUser.value = status.user ?? null;
     } catch (err) {
+      if (generation !== statusGeneration) return;
       loadError.value = getParsedApiError(err);
       loggedIn.value = false;
       currentUser.value = null;
     } finally {
-      isLoading.value = false;
+      if (generation === statusGeneration) {
+        isLoading.value = false;
+        statusTask = null;
+      }
     }
   }
 
@@ -60,7 +75,7 @@ export const useAuthStore = defineStore('auth', () => {
       if (result.requiresRelogin) {
         return { success: true };
       }
-      await fetchStatus();
+      await fetchStatus(true);
       return { success: true };
     } catch (err: unknown) {
       return { success: false, error: extractLoginError(err) };
@@ -73,7 +88,7 @@ export const useAuthStore = defineStore('auth', () => {
   ): Promise<{ success: boolean; error?: ParsedApiError }> {
     try {
       await authApi.login(email, password);
-      await fetchStatus();
+      await fetchStatus(true);
       return { success: true };
     } catch (err: unknown) {
       return { success: false, error: extractLoginError(err) };
@@ -100,7 +115,7 @@ export const useAuthStore = defineStore('auth', () => {
     } catch (err) {
       logoutError = err;
     } finally {
-      await fetchStatus();
+      await fetchStatus(true);
     }
 
     if (logoutError && getParsedApiError(logoutError).status !== 401) {
@@ -118,7 +133,7 @@ export const useAuthStore = defineStore('auth', () => {
     login,
     changePassword,
     logout,
-    refreshStatus: fetchStatus,
+    refreshStatus: () => fetchStatus(true),
     fetchStatus,
   };
 });

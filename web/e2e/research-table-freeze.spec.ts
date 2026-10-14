@@ -1,3 +1,4 @@
+import { compactTrendResponse, isRankingPath } from './researchReadViews';
 import { expect, test } from '@playwright/test';
 
 for (const domain of ['etf-rotation', 'trend-following']) {
@@ -13,7 +14,7 @@ for (const domain of ['etf-rotation', 'trend-following']) {
         let body: object = { items: [], dates: [], series: [], points: [], warnings: [] };
         if (path.endsWith('/auth/status')) body = { loggedIn: true, user: { uid: 1, username: 'Tester', role: 'user', extra: {} } };
         if (path.endsWith('/dates')) body = { items: ['2026-09-18'] };
-        if (path.endsWith('/ranking')) body = {
+        if (isRankingPath(path)) body = {
           market: 'CN', tradeDate: '2026-09-18', universeSize: 80, dataReadyCount: 80,
           dataCoverage: 1, rankableSize: 80, rankableCount: 80, rankableCoverage: 1,
           marketSnapshot: null, warnings: [], features: {}, candidates: [],
@@ -25,7 +26,7 @@ for (const domain of ['etf-rotation', 'trend-following']) {
             features: {}, diagnostics: {}, reasons: [],
           })),
         };
-        await route.fulfill({ json: body });
+        await route.fulfill({ json: compactTrendResponse(new URL(route.request().url()).pathname, body) });
       });
       await page.goto(`/research/${domain}`);
       const scroll = page.getByTestId(domain === 'etf-rotation' ? 'etf-ranking-scroll' : 'trend-ranking-scroll');

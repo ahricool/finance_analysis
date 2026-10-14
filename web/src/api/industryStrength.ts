@@ -37,7 +37,7 @@ export const industryStrengthApi = {
     return toCamelCase((await apiClient.get(`${base}/stocks/${encodeURIComponent(code)}/context`)).data);
   },
   async preview(): Promise<IndustryPreview> {
-    const result = toCamelCase<IndustryPreview>((await apiClient.get(`${base}/preview`)).data);
+    const result = toCamelCase<IndustryPreview>((await apiClient.get(`${base}/preview/ranking`)).data);
     if (result.result) {
       // Dynamic symbol keys must not be camel-cased (881101.TI -> 881101Ti).
       result.result.constituents = Object.fromEntries(
@@ -45,6 +45,11 @@ export const industryStrengthApi = {
       );
     }
     return result;
+  },
+  async previewConstituents(code: string, generatedAt: string): Promise<Constituents> {
+    return toCamelCase((await apiClient.get(`${base}/preview/${encodeURIComponent(code)}/constituents`, {
+      params: { generated_at: generatedAt },
+    })).data);
   },
   async ranking(tradeDate?: string): Promise<IndustryRanking> {
     return toCamelCase((await apiClient.get(`${base}/ranking`, { params: { trade_date: tradeDate } })).data);

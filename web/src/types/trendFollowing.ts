@@ -288,6 +288,8 @@ export interface TrendPreviewResponse extends Omit<TrendSummary, 'generatedAt'> 
   elapsedSeconds?: number;
 }
 
+export type TrendPreviewRankingResponse = Omit<TrendPreviewResponse, 'snapshots'> & { snapshots: TrendRankingSnapshot[] };
+
 /** Metadata only; complete strategy rows are fetched separately on entering Preview. */
 export interface TrendPreviewStatusResponse {
   status: string;

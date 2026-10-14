@@ -12,13 +12,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import Response
 
-from finance_analysis.core.preview_metadata import preview_metadata
 from finance_analysis.database.models.user import User
 from finance_analysis.database.repositories.etf_rotation import ETFRotationRepository
 from finance_analysis.etf_rotation.config import DEFAULT_CONFIG
 from finance_analysis.etf_rotation.rank_history import get_rank_history
 from finance_analysis.etf_rotation.ranking_cache import RankingCache
-from finance_analysis.etf_rotation.preview_cache import load_preview  # pragma: allowlist secret
+from finance_analysis.etf_rotation.preview_cache import load_preview, load_preview_view  # pragma: allowlist secret
 from finance_analysis.etf_rotation.universe import get_etf_universe, universe_by_code  # pragma: allowlist secret
 from finance_analysis.interfaces.api.deps import require_admin, require_current_user
 from finance_analysis.interfaces.api.v1.schemas.etf_rotation import ETFRankHistoryResponse, ETFRotationRunRequest
@@ -262,10 +261,20 @@ def dates(_: User = Depends(require_current_user), market: Market = "CN"):
 
 @router.get("/preview/status")
 def preview_status(_: User = Depends(require_current_user), market: Market = "CN"):
-    payload = load_preview(market)
-    if payload is None:
+    body = load_preview_view(market, "status")
+    if body is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "ETF Rotation preview is not available")
-    return jsonable_encoder(preview_metadata(payload, rows_key="items"))
+    return Response(body, media_type="application/json")
+
+
+@router.get("/preview/stocks/{code}")
+def preview_stock(
+    code: str, trade_date: date | None = None, _: User = Depends(require_current_user), market: Market = "CN",
+):
+    body = load_preview_view(market, f"stock:{code.strip().upper()}")
+    if body is None or (trade_date is not None and json.loads(body)["trade_date"] != trade_date.isoformat()):
+        raise HTTPException(404, "ETF Rotation preview is not available for this stock and date")
+    return Response(body, media_type="application/json")
 
 
 @router.get("/preview")

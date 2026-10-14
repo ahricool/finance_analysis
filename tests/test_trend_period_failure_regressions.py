@@ -57,16 +57,7 @@ def test_rolling_rsi_uses_one_seed_and_preserves_consumed_episode(period):
     assert again["mr_episode_consumed"] is True
 
 
-class MemoryRedis:
-    def __init__(self):
-        self.values = {}
-
-    def set(self, key, value, **kwargs):
-        self.values[key] = value
-
-    def get(self, key):
-        return self.values.get(key)
-
+from tests.preview_redis import MemoryRedis
 
 @pytest.mark.parametrize("failure", [None, 20, 40, "collection", "benchmark"])
 def test_preview_round_failure_isolation_cache_replacement_and_retry(monkeypatch, failure):
@@ -74,7 +65,7 @@ def test_preview_round_failure_isolation_cache_replacement_and_retry(monkeypatch
     calls, calculated = [], []
     mode = {"failure": failure}
     for period in (20, 40, 60):
-        save_preview("US", {"status": "completed", "trend_period": period, "snapshots": ["old"]}, client=client)
+        save_preview("US", {"market": "US", "trade_date": DAY.isoformat(), "status": "completed", "trend_period": period, "snapshots": [{"code": "OLD.US"}]}, client=client)
 
     def collect(*args):
         calls.append("collect")
@@ -94,7 +85,7 @@ def test_preview_round_failure_isolation_cache_replacement_and_retry(monkeypatch
             "market": "US",
             "trend_period": period,
             "trade_date": day.isoformat(),
-            "snapshots": [period],
+            "snapshots": [{"code": "AAA.US", "alpha_score": period}],
         }
 
     benchmark_calls = []
@@ -135,7 +126,7 @@ def test_preview_round_failure_isolation_cache_replacement_and_retry(monkeypatch
         payload = load_preview("US", trend_period=period, client=client)
         failed = failure in (period, "collection", "benchmark")
         assert payload["status"] == results[str(period)]["status"] == ("failed" if failed else "completed")
-        assert payload["snapshots"] == ([] if failed else [period])
+        assert payload["snapshots"] == ([] if failed else [{"code": "AAA.US", "alpha_score": period}])
         assert payload["trade_date"] == DAY.isoformat()
         assert payload["trend_period"] == period
         if failed:
@@ -146,7 +137,7 @@ def test_preview_round_failure_isolation_cache_replacement_and_retry(monkeypatch
     assert calls == ["collect", "collect"]
     assert all(row["status"] == "completed" for row in result["periods"].values())
     for period in (20, 40, 60):
-        assert load_preview("US", trend_period=period, client=client)["snapshots"] == [period]
+        assert load_preview("US", trend_period=period, client=client)["snapshots"] == [{"code": "AAA.US", "alpha_score": period}]
 
 
 @pytest.mark.parametrize("period", [20, 40, 60])

@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Constituents, IndustryDetail, IndustryHistory, IndustryRanking, IndustrySnapshot } from '@/api/industryStrength';
 import { useIndustryStrength } from '../useIndustryStrength';
 
-const api = vi.hoisted(() => ({ preview: vi.fn(), runPreview: vi.fn(), ranking: vi.fn(), dates: vi.fn(), history: vi.fn(), detail: vi.fn(), constituents: vi.fn() }));
+const api = vi.hoisted(() => ({ preview: vi.fn(), previewConstituents: vi.fn(), runPreview: vi.fn(), ranking: vi.fn(), dates: vi.fn(), history: vi.fn(), detail: vi.fn(), constituents: vi.fn() }));
 vi.mock('@/api/industryStrength', () => ({ industryStrengthApi: api }));
 
 function row(code = '881101.TI', name = '行业甲', rank = 1, tradeDate = '2026-09-16', overrides: Partial<IndustrySnapshot> = {}): IndustrySnapshot {
@@ -300,6 +300,7 @@ describe('intraday preview', () => {
   it('switches the full view and uses the same batch for constituents', async () => {
     const previewRow = { ...a, strengthScore: 42 };
     const previewMembers = members(a.industryCode, t);
+    api.previewConstituents.mockResolvedValue(previewMembers);
     api.preview.mockResolvedValue({ status: 'completed', error: null, result: {
       ...rankingOf(t, [previewRow]), generatedAt: t, dataAsOf: t,
       constituents: { [a.industryCode]: previewMembers },
@@ -314,6 +315,7 @@ describe('intraday preview', () => {
     page.openIndustry(a.industryCode);
     await flushPromises();
     expect(page.constituents.value).toEqual(previewMembers);
+    expect(api.previewConstituents).toHaveBeenCalledWith(a.industryCode, t);
     expect(api.constituents).not.toHaveBeenCalled();
     expect(page.matchedDetail.value?.current.strengthScore).toBe(42);
     await page.switchMode();

@@ -1,3 +1,4 @@
+import { compactTrendResponse, isRankingPath } from './researchReadViews';
 import { expect, test } from '@playwright/test';
 
 const dates = Array.from({ length: 30 }, (_, i) => new Date(Date.UTC(2026, 6, 31 + i * 2)).toISOString().slice(0, 10));
@@ -37,9 +38,11 @@ for (const width of [1280, 1440, 1920]) {
         const path = url.pathname;
         let body: object = {};
         if (path === '/api/v1/auth/status') body = { loggedIn: true, user: { uid: 1, username: 'Tester', role: 'user', extra: {} } };
-        else if (path.endsWith('/preview/status') || path.endsWith('/preview')) {
+        else if (path.endsWith('/preview/status') || (path.endsWith('/preview') || path.endsWith('/preview/ranking'))) {
           await route.fulfill({ status: 404, json: {} }); return;
-        } else if (path.endsWith('/breadth-history')) {
+        } else if (path.includes('/event-study/')) body = { groups: [], snapshot_dates: [], missing_snapshot_dates: [], box_feature_coverage: {}, mr_feature_coverage: {} };
+        else if (path.includes('/market-data/daily-bars/')) body = { items: [] };
+        else if (path.endsWith('/breadth-history')) {
           if (fail) { await route.fulfill({ status: 503, json: { detail: 'Breadth unavailable' } }); return; }
           expect(url.searchParams.get('days')).toBe('30');
           body = breadth;
@@ -48,18 +51,18 @@ for (const width of [1280, 1440, 1920]) {
           body = { market: 'CN', days: Number(url.searchParams.get('days')), warnings: [],
             items: direction === 'all' ? items : items.filter(item => item.direction === direction) };
         } else if (path.endsWith('/dates')) body = { market: 'CN', latest: dates[29], items: [...dates].reverse() };
-        else if (path.endsWith('/ranking')) body = { ...summary, items: snapshots, candidates: [] };
+        else if (isRankingPath(path)) body = { ...summary, items: snapshots, candidates: [] };
         else {
           const code = decodeURIComponent(path.split('/').pop()!);
           const stock = snapshots.find(item => item.code === code);
-          if (stock) {
+          if (stock && path.includes('/trend-following/')) {
             requestedDetails.push(code);
             expect(url.searchParams.get('trade_date')).toBe(dates[28]);
             body = { market: 'CN', metadata: stock, latest: { ...stock, tradeDate: dates[28] }, marketContext: summary,
               history: dates.slice(0, -1).map(tradeDate => ({ ...stock, tradeDate })) };
           }
         }
-        await route.fulfill({ json: body });
+        await route.fulfill({ json: compactTrendResponse(new URL(route.request().url()).pathname, body) });
       });
       const errors: string[] = [];
       page.on('pageerror', error => errors.push(error.message));
@@ -116,18 +119,21 @@ test('Preview is an extra point and same-day official transitions open official 
     } else if (path.endsWith('/transitions')) {
       body = { days: 3, warnings: [], previewDate: officialToday ? null : previewDate,
         items: [{ ...items[0], tradeDate: previewDate, isPreview: !officialToday }] };
-    } else if (path.endsWith('/preview/status') || path.endsWith('/preview')) {
+    } else if (path.endsWith('/preview/status') || (path.endsWith('/preview') || path.endsWith('/preview/ranking'))) {
       body = { ...summary, status: 'completed', tradeDate: previewDate, previewTime: '2026-09-29T06:35:00Z',
         snapshots: previewSnapshots, snapshotCount: 12, scoreBreakdown: {},
       };
-    } else if (path.endsWith('/ranking')) body = { ...summary, items: snapshots, candidates: [] };
+    } else if (isRankingPath(path)) body = { ...summary, items: snapshots, candidates: [] };
     else if (path.endsWith('/dates')) body = { market: 'CN', latest: dates[29], items: [...dates].reverse() };
-    else if (path.endsWith('/000001.SZ')) {
+    else if (path.includes('/preview/stocks/')) {
+      expect(url.searchParams.get('trade_date')).toBe(previewDate);
+      body = { market: 'CN', metadata: previewSnapshots[0], latest: previewSnapshots[0], history: [], marketContext: summary };
+    } else if (path.endsWith('/trend-following/000001.SZ')) {
       expect(url.searchParams.get('trade_date') ?? url.searchParams.get('before_trade_date')).toBe(previewDate);
-      body = { market: 'CN', metadata: snapshots[0], latest: snapshots[0], marketContext: summary,
+      body = { market: 'CN', metadata: snapshots[0], latest: { ...snapshots[0], tradeDate: previewDate }, marketContext: summary,
         history: dates.map(tradeDate => ({ ...snapshots[0], tradeDate })) };
-    }
-    await route.fulfill({ json: body });
+    } else if (path.includes('/market-data/daily-bars/')) body = { items: [] };
+    await route.fulfill({ json: compactTrendResponse(new URL(route.request().url()).pathname, body) });
   });
   await page.goto('/research/trend-following');
   const panel = page.getByTestId('trend-market-overview');
