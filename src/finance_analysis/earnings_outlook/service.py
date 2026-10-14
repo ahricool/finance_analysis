@@ -5,16 +5,18 @@ import logging
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from datetime import timedelta
+from threading import Lock
 
 from finance_analysis.core.time import utc_now
 from finance_analysis.database.repositories.earnings_outlook import EarningsOutlookRepository
 from finance_analysis.llm import LLMClient, LLMRequest
 from finance_analysis.llm.json_parse import parse_llm_json_response
-from .config import OutlookConfig, PROMPT_VERSION
+from .config import OutlookConfig, PROMPT_VERSION, CALENDAR_LOOKAHEAD_DAYS
 from .context import ContextCollector, consensus, raw_facts, research_context
 from .prompts import RESEARCH, OUTLOOK
 from .rules import (
     NY,
+    automatic_stage,
     digest,
     schedule,
     event_window,
@@ -72,12 +74,20 @@ class EarningsOutlookService:
             events = self.repo.events(target, target)
             events.sort(key=lambda e: (e.market_session != "bmo", e.id))
         else:
-            events = self.repo.events(
-                today, today + timedelta(days=self.config.lookahead_days), include_unpredicted=True
-            )
+            events = self.repo.events(today, today + timedelta(days=CALENDAR_LOOKAHEAD_DAYS))
         # Reconcile historical applicability even for removed members, without deleting versions.
         events = [e for e in events if e.calendar_type == "earnings" and e.market == "US"]
-        public = self.collector.public(now) if events else {}
+        # Most daily scans are no-ops. Collect the shared public context only if
+        # an event actually needs a new round, once per batch across threads.
+        public_context = None
+        public_lock = Lock()
+
+        def public():
+            nonlocal public_context
+            with public_lock:
+                if public_context is None:
+                    public_context = self.collector.public(self.clock())
+                return public_context
 
         def process(event):
             try:
@@ -132,16 +142,17 @@ class EarningsOutlookService:
         if released(event, now, window) or (state and state.frozen_schedule_hash == stamp):
             self.repo.mark(event_id, "frozen", frozen_schedule_hash=stamp)
             return dict(event_id=event_id, status="frozen")
-        if (
-            event.event_date > now.astimezone(NY).date() + timedelta(days=self.config.lookahead_days)
-            and state and state.latest_prediction_id
-        ):
-            return dict(event_id=event_id, status="skipped", reason="outside research window")
+        if stage != "manual" and event.event_date > now.astimezone(NY).date() + timedelta(days=CALENDAR_LOOKAHEAD_DAYS):
+            return dict(event_id=event_id, status="skipped", reason="outside calendar window")
+        stage = automatic_stage(stage, event.event_date, now, self.repo.completed_stages(event))
+        if stage is None:
+            return dict(event_id=event_id, status="cached")
         # Cache invalidates on identity, schedule, expectations, or structured guidance changes, not quote changes.
         cache_key = digest(
             dict(
                 member=member["instrument_id"],
                 event_id=event_id,
+                stage=stage,
                 schedule=schedule(event),
                 consensus={
                     k: {f: v for f, v in c.items() if f != "observed_at"} if c else None
@@ -152,14 +163,8 @@ class EarningsOutlookService:
             )
         )
         research = self.repo.cached_research(event_id, cache_key, now)
-        if (
-            stage != "manual"
-            and research
-            and self.repo.completed(event_id, stage, now.astimezone(NY).date(), stamp, research.id)
-        ):
-            return dict(event_id=event_id, status="cached")
         self.repo.mark(event_id, "processing")
-        context = self.collector.collect(event, member, now, window, public)
+        context = self.collector.collect(event, member, now, window, public() if callable(public) else public)
         now = self.clock()  # Freeze after deterministic collection, before any research call.
         if released(self.repo.event(event_id), now, window):
             self.repo.mark(event_id, "frozen", frozen_schedule_hash=stamp)
@@ -282,7 +287,8 @@ class EarningsOutlookService:
             self.repo.mark(event_id, "ineligible")
             return dict(event_id=event_id, status="ineligible")
         generated = self.clock()
-        expires = min(generated + timedelta(hours=24), window["cutoff"])
+        expires = window["cutoff"]
+        fresh_until = min(now + timedelta(hours=24), timestamp(research.expires_at), expires)
         summary = {
             k: v
             for k, v in prediction.items()
@@ -297,6 +303,7 @@ class EarningsOutlookService:
             and prediction["response_direction"] != "uncertain",
             generated_at=generated.isoformat(),
             expires_at=expires.isoformat(),
+            fresh_until=fresh_until.isoformat(),
             release_cutoff=window["cutoff"].isoformat(),
             stage=stage,
             search_status=research.search_evidence["status"],

@@ -109,7 +109,7 @@ def setup(monkeypatch):
             )
         )
     resolver = NS(resolve_universe=lambda _: [instrument])
-    member = dict(instrument_id=1, symbol="A.US", name="A", memberships=["us_sp500", "us_nasdaq100"])
+    member = dict(instrument_id=1, symbol="A.US", name="A", memberships=["us_nasdaq100"])
     collector = Mock()
 
     def collect(e, m, now, window, public):
@@ -142,9 +142,9 @@ def test_cache_final_snapshot_and_failed_refresh_preserves_success(setup):
     assert llm.complete_text.call_count == 2
     assert service.refresh(1, "daily", members, {})["status"] == "cached"
     assert llm.complete_text.call_count == 2
-    # Different stage updates snapshot without forcing a new research call.
+    # Final must acquire fresh research for its own stage.
     assert service.refresh(1, "final", members, {})["status"] == "success"
-    assert llm.complete_text.call_count == 3
+    assert llm.complete_text.call_count == 4
     assert repo.state(1).latest_prediction_id != old_id
     latest = repo.state(1).latest_prediction_id
     llm.complete_text.side_effect = RuntimeError("upstream failed")
@@ -209,13 +209,13 @@ def test_freeze_and_changed_event_do_not_expose_old_target(setup):
     assert llm.complete_text.call_count == 2
 
 
-def test_changed_consensus_invalidates_research_and_same_day_analysis(setup):
+def test_changed_consensus_does_not_repeat_completed_stage(setup):
     service, db, repo, llm, members = setup
     service.refresh(1, "daily", members, {})
     with db.get_session() as s, s.begin():
         s.get(FinanceEvent, 1).eps_estimate = 2
     service.refresh(1, "daily", members, {})
-    assert llm.complete_text.call_count == 4
+    assert llm.complete_text.call_count == 2
 
 
 def test_unverified_model_sources_are_not_used_as_live_evidence(setup):
@@ -281,13 +281,13 @@ def test_manual_refresh_hash_tracks_price_and_deduplicates_identical_input(setup
     assert llm.complete_text.call_count == 3  # one research, two outlooks
 
 
-def test_expired_research_is_not_reused(setup):
+def test_expired_research_does_not_repeat_successful_stage(setup):
     service, db, repo, llm, members = setup
     service.refresh(1, "daily", members, {})
     with db.get_session() as s, s.begin():
         s.scalar(select(EarningsResearch)).expires_at = NOW - timedelta(seconds=1)
     service.refresh(1, "daily", members, {})
-    assert llm.complete_text.call_count == 4
+    assert llm.complete_text.call_count == 2
 
 
 def test_final_scan_uses_next_exchange_session_and_bmo_priority(setup):
@@ -419,26 +419,214 @@ def test_busy_events_requeue_until_release_without_rescanning(monkeypatch):
     enqueue.assert_not_called()
 
 
-def test_first_snapshot_outside_seven_days_then_daily_market_refresh(setup):
+def test_three_rounds_across_dates_and_ttl_expiry(setup):
     service, db, repo, llm, members = setup
     with db.get_session() as s, s.begin():
         s.get(FinanceEvent, 1).event_date = date(2026, 7, 17)
-    assert [e.id for e in repo.events(NOW.date(), date(2026, 7, 8), include_unpredicted=True)] == [1]
     assert service.refresh(1, "daily", members, {})["status"] == "success"
-    assert repo.events(NOW.date(), date(2026, 7, 8), include_unpredicted=True) == []
-    assert service.refresh(1, "daily", members, {})["status"] == "skipped"
+    assert repo.detail(1)["versions"][0]["stage"] == "initial"
+    service.clock = lambda: NOW + timedelta(days=2)
+    assert service.refresh(1, "daily", members, {})["status"] == "cached"
     assert llm.complete_text.call_count == 2
-    service.clock = lambda: datetime(2026, 7, 10, 15, tzinfo=timezone.utc)
-    original = service.collector.collect.side_effect
-
-    def collect(*args):
-        value = original(*args)
-        value["reference_price"] = 105
-        return value
-
-    service.collector.collect.side_effect = collect
+    # Three calendar days before release, not three exchange sessions.
+    service.clock = lambda: datetime(2026, 7, 14, 11, tzinfo=timezone.utc)
     assert service.refresh(1, "daily", members, {})["status"] == "success"
+    assert repo.detail(1)["versions"][0]["stage"] == "near"
+    service.clock = lambda: datetime(2026, 7, 15, 11, tzinfo=timezone.utc)
+    assert service.refresh(1, "daily", members, {})["status"] == "cached"
+    service.clock = lambda: datetime(2026, 7, 16, 20, 10, tzinfo=timezone.utc)
+    assert service.refresh(1, "final", members, {})["status"] == "success"
+    service.clock = lambda: datetime(2026, 7, 17, 11, tzinfo=timezone.utc)
+    assert service.refresh(1, "final", members, {})["status"] == "cached"
+    assert service.refresh(1, "daily", members, {})["status"] == "cached"
+    assert llm.complete_text.call_count == 6
     versions = repo.detail(1)["versions"]
-    assert len(versions) == 2
-    assert versions[0]["context"]["reference_price"] == 105
-    assert versions[1]["context"]["reference_price"] == 100
+    assert [v["stage"] for v in versions] == ["final", "near", "initial"]
+    assert len({v["context"]["research_id"] for v in versions}) == 3
+    assert service.collector.collect.call_count == 3
+
+
+def test_first_analysis_in_near_window_combines_initial_and_near(setup):
+    service, db, repo, llm, members = setup
+    assert service.refresh(1, "daily", members, {})["status"] == "success"
+    assert repo.detail(1)["versions"][0]["stage"] == "near"
+    assert repo.completed_stages(repo.event(1)) == {"initial", "near"}
+    service.clock = lambda: NOW + timedelta(days=1)
+    assert service.refresh(1, "daily", members, {})["status"] == "cached"
+    assert llm.complete_text.call_count == 2
+
+
+@pytest.mark.parametrize("stage", ["daily", "final"])
+def test_failed_outlook_reuses_only_same_stage_research(setup, stage):
+    service, db, repo, llm, members = setup
+    original = llm.complete_text.side_effect
+    if stage == "final":
+        service.refresh(1, "daily", members, {})
+    previous = repo.state(1)
+    previous_id = previous.latest_prediction_id if previous else None
+    calls = llm.complete_text.call_count
+
+    def fail_outlook(request, validator):
+        if request.call_type == "earnings_outlook":
+            raise RuntimeError("outlook unavailable")
+        return original(request, validator)
+
+    llm.complete_text.side_effect = fail_outlook
+    with pytest.raises(RuntimeError):
+        service.refresh(1, stage, members, {})
+    assert repo.state(1).latest_prediction_id == previous_id
+    if previous_id:
+        assert display_summary(repo.event(1), repo.state(1), members, NOW)["status"] == "current"
+    llm.complete_text.side_effect = original
+    assert service.refresh(1, stage, members, {})["status"] == "success"
+    assert llm.complete_text.call_count == calls + 3  # research + failed outlook + retry outlook
+    assert service.refresh(1, stage, members, {})["status"] == "cached"
+    assert llm.complete_text.call_count == calls + 3
+
+
+def test_failed_stage_expired_research_is_searched_again(setup):
+    service, db, repo, llm, members = setup
+    original = llm.complete_text.side_effect
+
+    def fail_outlook(request, validator):
+        if request.call_type == "earnings_outlook":
+            raise RuntimeError("outlook unavailable")
+        return original(request, validator)
+
+    llm.complete_text.side_effect = fail_outlook
+    with pytest.raises(RuntimeError):
+        service.refresh(1, "daily", members, {})
+    with db.get_session() as s, s.begin():
+        s.scalar(select(EarningsResearch)).expires_at = NOW - timedelta(seconds=1)
+    llm.complete_text.side_effect = original
+    service.refresh(1, "daily", members, {})
+    assert llm.complete_text.call_count == 4
+
+
+def test_reschedule_renews_stage_but_quarter_enrichment_does_not(setup):
+    service, db, repo, llm, members = setup
+    with db.get_session() as s, s.begin():
+        s.get(FinanceEvent, 1).reporting_period = None
+    service.refresh(1, "daily", members, {})
+    with db.get_session() as s, s.begin():
+        s.get(FinanceEvent, 1).reporting_period = "2026-Q2"
+    assert service.refresh(1, "daily", members, {})["status"] == "cached"
+    assert display_summary(repo.event(1), repo.state(1), members, NOW)["status"] == "current"
+    with db.get_session() as s, s.begin():
+        s.get(FinanceEvent, 1).event_date = date(2026, 7, 17)
+    assert display_summary(repo.event(1), repo.state(1), members, NOW)["status"] == "superseded"
+    assert service.refresh(1, "daily", members, {})["status"] == "success"
+    assert repo.detail(1)["versions"][0]["stage"] == "initial"
+    assert llm.complete_text.call_count == 4
+
+
+@pytest.mark.parametrize("legacy,created,expected", [
+    ("daily", NOW, {"initial", "near"}),
+    ("daily", NOW - timedelta(days=5), {"initial"}),
+    ("final", NOW, {"initial", "near", "final"}),
+    ("manual", NOW, set()),
+])
+def test_legacy_stage_credits_do_not_rewrite_history(setup, legacy, created, expected):
+    service, db, repo, llm, members = setup
+    service.refresh(1, "daily", members, {})
+    with db.get_session() as s, s.begin():
+        version = s.scalar(select(EarningsPrediction))
+        version.stage, version.created_at = legacy, created
+        s.scalar(select(EarningsResearch)).cache_key = "legacy-unscoped-research"
+    assert repo.completed_stages(repo.event(1)) == expected
+    assert repo.detail(1)["versions"][0]["stage"] == legacy
+    before = llm.complete_text.call_count
+    result = service.refresh(1, "daily", members, {})
+    assert result["status"] == ("cached" if "near" in expected else "success")
+    assert llm.complete_text.call_count == before + (0 if "near" in expected else 2)
+
+
+def test_manual_does_not_consume_or_reset_automatic_stages(setup):
+    service, db, repo, llm, members = setup
+    service.refresh(1, "manual", members, {})
+    assert repo.completed_stages(repo.event(1)) == set()
+    service.refresh(1, "daily", members, {})
+    service.refresh(1, "manual", members, {})
+    assert service.refresh(1, "daily", members, {})["status"] == "cached"
+    assert repo.completed_stages(repo.event(1)) == {"initial", "near"}
+
+
+def test_ineligible_event_never_calls_collectors_or_llm(setup):
+    service, db, repo, llm, members = setup
+    assert service.refresh(1, "daily", {}, {})["status"] == "ineligible"
+    service.collector.collect.assert_not_called()
+    llm.complete_text.assert_not_called()
+
+
+def test_noop_batch_does_not_collect_public_context(setup, monkeypatch):
+    service, db, repo, llm, members = setup
+    service.refresh(1, "daily", members, {})
+    repo.events = Mock(return_value=[repo.event(1)])
+    # Execute the real service serially for SQLite's connection affinity.
+    @contextmanager
+    def inline_pool(**kwargs):
+        yield NS(map=map)
+
+    monkeypatch.setattr("finance_analysis.earnings_outlook.service.ThreadPoolExecutor", inline_pool)
+    assert service.run("daily")["results"][0]["status"] == "cached"
+    service.collector.public.assert_not_called()
+    assert service.collector.collect.call_count == 1
+    repo.events.assert_called_once_with(date(2026, 7, 1), date(2026, 7, 31))
+
+
+def test_amc_cutoff_forbids_all_forecast_stages(setup):
+    service, db, repo, llm, members = setup
+    service.clock = lambda: datetime(2026, 7, 2, 20, tzinfo=timezone.utc)
+    for stage in ("daily", "final", "manual"):
+        assert service.refresh(1, stage, members, {})["status"] == "frozen"
+    llm.complete_text.assert_not_called()
+
+
+@pytest.mark.parametrize("legacy", [False, True])
+def test_applicability_outlives_freshness_and_freezes_at_release(setup, legacy):
+    service, db, repo, llm, members = setup
+    with db.get_session() as s, s.begin():
+        s.get(FinanceEvent, 1).event_date = date(2026, 7, 17)
+    service.refresh(1, "daily", members, {})
+    # High scores already passed evidence validation at generation time.
+    with db.get_session() as s, s.begin():
+        state = s.get(EarningsOutlookState, 1)
+        summary = {**state.summary, "earnings_high": True, "reaction_high": True}
+        if legacy:
+            summary.pop("fresh_until")
+            summary["expires_at"] = (NOW + timedelta(hours=24)).isoformat()
+            summary["stage"] = "daily"
+        state.summary = summary
+    event, state = repo.event(1), repo.state(1)
+    fresh = display_summary(event, state, members, NOW)
+    assert fresh["status"] == "current" and fresh["freshness"] == "fresh"
+    assert fresh["earnings_high"] and fresh["reaction_high"]
+    stale = display_summary(event, state, members, NOW + timedelta(hours=25))
+    assert stale["status"] == "current" and stale["freshness"] == "stale"
+    assert stale["expected_close"] == fresh["expected_close"]
+    assert not stale["earnings_high"] and not stale["reaction_high"]
+    frozen = display_summary(event, state, members, datetime(2026, 7, 17, 20, tzinfo=timezone.utc))
+    assert frozen["status"] == "frozen" and not frozen["earnings_high"]
+    assert display_summary(event, state, {}, NOW) is None
+
+
+def test_detail_uses_same_summary_and_accepts_new_and_legacy_stages(setup, monkeypatch):
+    from finance_analysis.interfaces.api.v1.endpoints.timeline import earnings_detail
+    from finance_analysis.interfaces.api.v1.schemas.earnings_outlook import OutlookDetail
+    from finance_analysis.timeline.service import TimelineService
+    import finance_analysis.database.repositories.earnings_outlook as repository
+
+    service, db, repo, llm, members = setup
+    service.refresh(1, "daily", members, {})
+    monkeypatch.setattr(repository, "EarningsOutlookRepository", lambda: repo)
+    monkeypatch.setattr(TimelineService, "_members", lambda _: members)
+    monkeypatch.setattr("finance_analysis.core.time.utc_now", lambda: NOW)
+    detail = OutlookDetail.model_validate(earnings_detail(1))
+    assert detail.summary == display_summary(repo.event(1), repo.state(1), members, NOW)
+    assert detail.versions[0].stage == "near" and detail.versions[0].applicability == "valid"
+    with db.get_session() as s, s.begin():
+        s.scalar(select(EarningsPrediction)).stage = "daily"
+    assert OutlookDetail.model_validate(earnings_detail(1)).versions[0].stage == "daily"
+    members.clear()
+    detail = OutlookDetail.model_validate(earnings_detail(1))
+    assert detail.summary is None and detail.versions[0].applicability == "ineligible"

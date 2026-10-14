@@ -317,7 +317,7 @@ SCHEDULED_TASK_DEFINITIONS = (
     ScheduledTaskDefinition(
         job_id=JOB_MARKET_CALENDAR,
         name="财经日历同步",
-        description="同步标普500与Nasdaq-100并集、沪深300财报及美国宏观事件",
+        description="同步Nasdaq-100、沪深300财报及美国宏观事件",
         task_type="scheduled_market_calendar",
         celery_task_name=celery_task_name(JOB_MARKET_CALENDAR),
         schedules=(CronSchedule(minute="0", hour="7", timezone=US_TIMEZONE),),

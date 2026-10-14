@@ -1,12 +1,12 @@
 """Short database transactions around external calls, append-only successful versions."""
 
 from datetime import timedelta
-from sqlalchemy import select, or_
+from sqlalchemy import select
 from finance_analysis.core.time import utc_now
 from finance_analysis.database.models.market_calendar import FinanceEvent
 from finance_analysis.database.models.earnings_outlook import EarningsResearch, EarningsPrediction, EarningsOutlookState
 from finance_analysis.database.session import DatabaseManager
-from finance_analysis.earnings_outlook.rules import timestamp, matches_schedule
+from finance_analysis.earnings_outlook.rules import timestamp, matches_schedule, completed_stages
 from finance_analysis.earnings_outlook.facts import has_actual
 from finance_analysis.tasks.advisory_lock import PostgreSQLAdvisoryLock
 
@@ -28,22 +28,15 @@ class EarningsOutlookRepository:
                 s.expunge(row)
             return row
 
-    def events(self, start, end, include_unpredicted=False):
+    def events(self, start, end):
         with self.db.get_session() as s:
-            query = select(FinanceEvent).where(
-                FinanceEvent.calendar_type == "earnings",
-                FinanceEvent.market == "US",
-                FinanceEvent.event_date >= start,
-            )
-            if include_unpredicted:
-                query = query.outerjoin(EarningsOutlookState, EarningsOutlookState.event_id == FinanceEvent.id).where(
-                    or_(FinanceEvent.event_date <= end, EarningsOutlookState.latest_prediction_id.is_(None))
-                )
-            else:
-                query = query.where(FinanceEvent.event_date <= end)
             rows = list(
                 s.scalars(
-                    query.order_by(FinanceEvent.event_date, FinanceEvent.id)
+                    select(FinanceEvent).where(
+                        FinanceEvent.calendar_type == "earnings",
+                        FinanceEvent.market == "US",
+                        FinanceEvent.event_date.between(start, end),
+                    ).order_by(FinanceEvent.event_date, FinanceEvent.id)
                 )
             )
             for row in rows:
@@ -149,20 +142,23 @@ class EarningsOutlookRepository:
 
         self.db._run_write_transaction("earnings.state", write)
 
-    def completed(self, event_id, stage, day, schedule_hash, research_id):
+    def completed_stages(self, event):
+        # Successful rows are append-only. State may be failed/processing after a
+        # later attempt and is deliberately not the source of stage completion.
         with self.db.get_session() as s:
-            rows = s.scalars(
-                select(EarningsPrediction)
-                .where(
-                    EarningsPrediction.event_id == event_id,
-                    EarningsPrediction.stage == stage,
-                    EarningsPrediction.schedule_hash == schedule_hash,
-                    EarningsPrediction.research_id == research_id,
-                )
-                .order_by(EarningsPrediction.id.desc())
-                .limit(1)
+            rows = s.execute(
+                select(
+                    EarningsPrediction.stage,
+                    EarningsPrediction.created_at,
+                    EarningsPrediction.schedule_hash,
+                    EarningsPrediction.context["event"].label("event"),
+                ).where(EarningsPrediction.event_id == event.id)
             )
-            return next((r for r in rows if r.context.get("run_date") == str(day)), None)
+            stages = set()
+            for row in rows:
+                if matches_schedule(event, row.schedule_hash, row.event):
+                    stages.update(completed_stages(row.stage, row.created_at, event.event_date))
+            return stages
 
     def find_input(self, event_id, stage, input_hash):
         with self.db.get_session() as s:
@@ -292,9 +288,11 @@ def display_summary(event, state, members, now):
     status = "current"
     if has_actual(event) or now >= timestamp(value["release_cutoff"]) or state.status == "frozen":
         status = "frozen"
-    elif now >= timestamp(value["expires_at"]):
-        status = "stale"
+    # Legacy expires_at was a 24h TTL. It now limits freshness, not applicability.
+    fresh_until = timestamp(value.get("fresh_until") or value.get("expires_at"))
+    fresh = fresh_until is not None and now < fresh_until
+    value["freshness"] = "fresh" if fresh else "stale"
     value["status"] = status
-    value["earnings_high"] = status == "current" and bool(value.get("earnings_high"))
-    value["reaction_high"] = status == "current" and bool(value.get("reaction_high"))
+    value["earnings_high"] = status == "current" and fresh and bool(value.get("earnings_high"))
+    value["reaction_high"] = status == "current" and fresh and bool(value.get("reaction_high"))
     return value

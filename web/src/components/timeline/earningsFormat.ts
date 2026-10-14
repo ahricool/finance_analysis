@@ -1,5 +1,5 @@
 export const outlookStatus: Record<string, string> = {
-  current: '当前前瞻', frozen: '公布前预测', stale: '预测已过期', superseded: '事件已变更，待重新分析',
+  current: '当前前瞻', frozen: '公布前预测', stale: '资料待更新', superseded: '事件已变更，待重新分析',
   ineligible: '不在当前覆盖范围', pending: '待分析', processing: '分析中', failed: '分析失败，待重试',
 };
 export const searchStatus: Record<string, string> = {
@@ -9,3 +9,5 @@ export const guidanceLabels: Record<string, string> = { above: '高于预期', i
 export const scenarioLabels: Record<string, string> = { optimistic: '乐观', base: '基准', pessimistic: '悲观' };
 export function price(value: number | null | undefined) { return value == null ? '—' : `$${value.toFixed(2)}`; }
 export function pct(value: number | null | undefined) { return value == null ? '—' : `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`; }
+
+export const outlookStage: Record<string, string> = { initial: '初版', near: '临近版', final: '最终版', daily: '历史每日版', manual: '手工刷新' };

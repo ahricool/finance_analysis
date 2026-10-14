@@ -79,7 +79,6 @@ def test_both_sources_both_markets_and_macro_always_requested(setup_service):
         assert adapter.fetch_earnings_calendar.call_count == 2
         adapter.fetch_macro_calendar.assert_called_once()
     assert [call.args[0] for call in resolver.resolve_universe.call_args_list] == [
-        "us_sp500",
         "us_nasdaq100",
         "cn_csi300",
     ]
@@ -260,7 +259,7 @@ def test_nasdaq_only_members_are_included_in_calendar_sync(setup_service):
     def members(key):
         if key == "cn_csi300":
             return (SimpleNamespace(code="600519.SH"),)
-        codes = ["NVDA.US"] if key == "us_sp500" else ["NVDA.US", "NASDAQONLY.US"]
+        codes = ["SPONLY.US"] if key == "us_sp500" else ["NVDA.US", "NASDAQONLY.US"]
         return tuple(
             SimpleNamespace(
                 id=i + 1, code=code, name=code, market="US", instrument_type="STOCK", listing_status="ACTIVE"
@@ -269,7 +268,7 @@ def test_nasdaq_only_members_are_included_in_calendar_sync(setup_service):
         )
 
     resolver.resolve_universe.side_effect = members
-    yahoo = source([event(symbol="NASDAQONLY.US"), event(symbol="OUTSIDE.US")])
+    yahoo = source([event(symbol="NASDAQONLY.US"), event(symbol="SPONLY.US"), event(symbol="OUTSIDE.US")])
     result = build(yahoo, source()).run(NOW)
     rows = repo.list_events_by_date_range(date(2026, 6, 18), date(2026, 7, 18))
     assert {row.symbol for row in rows} == {"NASDAQONLY.US"}

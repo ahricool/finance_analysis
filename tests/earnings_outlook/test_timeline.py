@@ -68,3 +68,10 @@ def test_high_confidence_filter_is_public_batched_and_cursor_safe(monkeypatch):
     assert len(statements) <= 12
     plain = service.list(timezone_name="America/New_York", limit=20)
     assert plain["total"] == 5
+    stale = next(item.outlook for item in plain["items"] if item.source_id == ids[1])
+    assert stale["status"] == "current" and stale["freshness"] == "stale"
+    assert not stale["earnings_high"] and not stale["reaction_high"]
+    # Removing the current member instantly disables both list and filter projections.
+    service.resolver = NS(resolve_universe=lambda _: [NS(**{**vars(member), "code": "B.US", "id": 2})])
+    assert service.list(timezone_name="America/New_York", high_confidence=True)["total"] == 0
+    assert all(item.outlook is None for item in service.list(timezone_name="America/New_York")["items"])

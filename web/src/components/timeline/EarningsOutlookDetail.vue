@@ -6,7 +6,7 @@ import ApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
 import { Button } from '@/components/ui/button';
 import { useAuthStore } from '@/stores/authStore';
 import EarningsOutlookSummary from './EarningsOutlookSummary.vue';
-import { searchStatus, guidanceLabels, scenarioLabels, price } from './earningsFormat';
+import { searchStatus, outlookStage, guidanceLabels, scenarioLabels, price } from './earningsFormat';
 import { formatDateTimeInDisplayTimezone } from '@/utils/format';
 const props = defineProps<{ eventId: number }>();
 const auth = useAuthStore();
@@ -96,7 +96,7 @@ function when(value: string | null | undefined) { return value ? formatDateTimeI
             v-for="(v, i) in data?.versions"
             :key="v.id"
             :value="i"
-          >{{ when(v.generatedAt) }} · {{ v.stage }} · {{ v.applicability }}</option>
+          >{{ when(v.generatedAt) }} · {{ outlookStage[v.stage] || v.stage }} · {{ v.applicability }}</option>
         </select>
       </label>
       <div class="space-y-2 text-sm">
@@ -210,7 +210,7 @@ function when(value: string | null | undefined) { return value ? formatDateTimeI
           </li>
         </ul>
         <p class="mt-2 text-xs">
-          阶段 {{ version.stage }} · {{ version.backend }}/{{ version.model }} · {{ version.promptVersion }}
+          阶段 {{ outlookStage[version.stage] || version.stage }} · {{ version.backend }}/{{ version.model }} · {{ version.promptVersion }}
         </p>
       </div>
       <div
