@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
@@ -572,12 +573,158 @@ async def test_sse_has_snapshot_parity_and_closes_repository_on_cancel(monkeypat
 
     monkeypatch.setattr(market_data, "_live_snapshot", snapshot)
     response = await market_data.realtime_events(SimpleNamespace(is_disconnected=_not_disconnected), "holdings", "CN")
+    assert await anext(response.body_iterator) == ": connected\n\n"
     frame = await anext(response.body_iterator)
     assert json.loads(frame.removeprefix("data: ").strip()) == expected
     assert response.headers["x-accel-buffering"] == "no"
     assert response.headers["cache-control"] == "private, no-store"
     await response.body_iterator.aclose()
     assert calls == [(7, "holdings", "CN")]
+    assert repository.closed
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("scope", ["watch-list", "holdings"])
+async def test_sse_sends_heartbeats_during_one_slow_snapshot_and_cancels_on_close(monkeypatch, scope):
+    repository = FakeQuoteRepository({})
+    monkeypatch.setattr(market_data.RealtimeStateRepository, "from_url", lambda url: repository)
+    monkeypatch.setattr(market_data, "get_effective_uid", lambda request: 7)
+    monkeypatch.setattr(market_data, "SSE_HEARTBEAT_SECONDS", 0)
+    released = asyncio.Event()
+    cancelled = asyncio.Event()
+    calls = []
+
+    async def slow_snapshot(uid, repo, next_scope, market):
+        calls.append((uid, next_scope, market))
+        try:
+            await released.wait()
+            return {"type": "quotes", "quotes": []}
+        finally:
+            cancelled.set()
+
+    monkeypatch.setattr(market_data, "_live_snapshot", slow_snapshot)
+    response = await market_data.realtime_events(SimpleNamespace(is_disconnected=_not_disconnected), scope, "CN")
+    frames = response.body_iterator
+    assert await anext(frames) == ": connected\n\n"
+    for _ in range(3):
+        assert await asyncio.wait_for(anext(frames), 1) == ": heartbeat\n\n"
+    assert calls == [(7, scope, "CN")]
+    await frames.aclose()
+    assert cancelled.is_set()
+    assert repository.closed
+
+
+@pytest.mark.asyncio
+async def test_sse_delivers_slow_snapshot_after_heartbeat_without_restarting(monkeypatch):
+    import json
+
+    repository = FakeQuoteRepository({})
+    monkeypatch.setattr(market_data.RealtimeStateRepository, "from_url", lambda url: repository)
+    monkeypatch.setattr(market_data, "get_effective_uid", lambda request: 7)
+    monkeypatch.setattr(market_data, "SSE_HEARTBEAT_SECONDS", 0)
+    ready = asyncio.Event()
+    expected = {"type": "quotes", "quotes": []}
+
+    async def slow_snapshot(*args):
+        await ready.wait()
+        return expected
+
+    monkeypatch.setattr(market_data, "_live_snapshot", slow_snapshot)
+    response = await market_data.realtime_events(SimpleNamespace(is_disconnected=_not_disconnected))
+    frames = response.body_iterator
+    assert await anext(frames) == ": connected\n\n"
+    assert await asyncio.wait_for(anext(frames), 1) == ": heartbeat\n\n"
+    ready.set()
+    frame = await asyncio.wait_for(anext(frames), 1)
+    assert json.loads(frame.removeprefix("data: ").strip()) == expected
+    await frames.aclose()
+    assert repository.closed
+
+
+@pytest.mark.asyncio
+async def test_sse_detects_disconnect_during_snapshot_and_releases_resources(monkeypatch):
+    repository = FakeQuoteRepository({})
+    monkeypatch.setattr(market_data.RealtimeStateRepository, "from_url", lambda url: repository)
+    monkeypatch.setattr(market_data, "get_effective_uid", lambda request: 7)
+    monkeypatch.setattr(market_data, "SSE_HEARTBEAT_SECONDS", 0)
+    cancelled = asyncio.Event()
+
+    async def slow_snapshot(*args):
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cancelled.set()
+
+    checks = iter([False, True])
+
+    async def disconnected():
+        return next(checks)
+
+    monkeypatch.setattr(market_data, "_live_snapshot", slow_snapshot)
+    response = await market_data.realtime_events(SimpleNamespace(is_disconnected=disconnected))
+    assert await anext(response.body_iterator) == ": connected\n\n"
+    with pytest.raises(StopAsyncIteration):
+        await asyncio.wait_for(anext(response.body_iterator), 1)
+    assert cancelled.is_set()
+    assert repository.closed
+
+
+@pytest.mark.asyncio
+async def test_sse_closes_repository_if_pending_snapshot_fails_while_heartbeat_is_yielded(monkeypatch):
+    repository = FakeQuoteRepository({})
+    monkeypatch.setattr(market_data.RealtimeStateRepository, "from_url", lambda url: repository)
+    monkeypatch.setattr(market_data, "get_effective_uid", lambda request: 7)
+    monkeypatch.setattr(market_data, "SSE_HEARTBEAT_SECONDS", 0)
+    ready = asyncio.Event()
+    failed = asyncio.Event()
+
+    async def snapshot(*args):
+        await ready.wait()
+        failed.set()
+        raise RuntimeError("provider unavailable")
+
+    monkeypatch.setattr(market_data, "_live_snapshot", snapshot)
+    response = await market_data.realtime_events(SimpleNamespace(is_disconnected=_not_disconnected))
+    assert await anext(response.body_iterator) == ": connected\n\n"
+    assert await anext(response.body_iterator) == ": heartbeat\n\n"
+    ready.set()
+    await asyncio.wait_for(failed.wait(), 1)
+    await response.body_iterator.aclose()
+    assert repository.closed
+
+
+@pytest.mark.asyncio
+async def test_sse_asgi_disconnect_finishes_async_repository_cleanup(monkeypatch):
+    repository = FakeQuoteRepository({})
+    cancelled = asyncio.Event()
+    disconnected = asyncio.Event()
+
+    async def close():
+        await asyncio.sleep(0)  # Real Redis close also awaits I/O.
+        repository.closed = True
+
+    async def snapshot(*args):
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cancelled.set()
+
+    async def receive():
+        await disconnected.wait()
+        return {"type": "http.disconnect"}
+
+    async def send(message):
+        if message.get("body") == b": heartbeat\n\n":
+            disconnected.set()
+
+    monkeypatch.setattr(repository, "close", close)
+    monkeypatch.setattr(market_data.RealtimeStateRepository, "from_url", lambda url: repository)
+    monkeypatch.setattr(market_data, "get_effective_uid", lambda request: 7)
+    monkeypatch.setattr(market_data, "SSE_HEARTBEAT_SECONDS", 0)
+    monkeypatch.setattr(market_data, "_live_snapshot", snapshot)
+    response = await market_data.realtime_events(SimpleNamespace(is_disconnected=_not_disconnected))
+    await asyncio.wait_for(response({"type": "http", "asgi": {"spec_version": "2.0"}}, receive, send), 1)
+    assert cancelled.is_set()
     assert repository.closed
 
 

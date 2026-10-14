@@ -8,6 +8,8 @@ import type { MarketType } from '@/api/watchList';
 import { onMounted, onUnmounted, ref, shallowRef, toValue, watch, type MaybeRefOrGetter } from 'vue';
 
 const CONNECTION_TIMEOUT_MS = 20_000;
+const SSE_CONNECTION_TIMEOUT_MS = 60_000;
+const SSE_IDLE_TIMEOUT_MS = 30_000;
 
 export function useRealtimeQuotes(options: MaybeRefOrGetter<MarketStreamOptions> = {}) {
   const quotes = shallowRef<Record<string, RealtimeQuote>>({});
@@ -20,6 +22,7 @@ export function useRealtimeQuotes(options: MaybeRefOrGetter<MarketStreamOptions>
   let watchdog: number | null = null;
   let failures = 0;
   let useSse = false;
+  let sseFailures = 0;
   let stopped = false;
   let generation = 0;
 
@@ -29,9 +32,9 @@ export function useRealtimeQuotes(options: MaybeRefOrGetter<MarketStreamOptions>
     reconnectTimer = watchdog = null;
   }
 
-  function armWatchdog(expire: () => void) {
+  function armWatchdog(expire: () => void, timeout = CONNECTION_TIMEOUT_MS) {
     if (watchdog !== null) window.clearTimeout(watchdog);
-    watchdog = window.setTimeout(expire, CONNECTION_TIMEOUT_MS);
+    watchdog = window.setTimeout(expire, timeout);
   }
 
   function accept(message: RealtimeQuoteMessage) {
@@ -42,7 +45,8 @@ export function useRealtimeQuotes(options: MaybeRefOrGetter<MarketStreamOptions>
 
   function retry(callback: () => void, sse = false) {
     status.value = sse ? 'sse-reconnecting' : 'reconnecting';
-    reconnectTimer = window.setTimeout(() => { reconnectTimer = null; callback(); }, sse ? 5_000 : 1_000);
+    const delay = sse ? Math.min(5_000 * 2 ** Math.min(sseFailures - 1, 3), 30_000) : 1_000;
+    reconnectTimer = window.setTimeout(() => { reconnectTimer = null; callback(); }, delay);
   }
 
   function connectSse() {
@@ -51,18 +55,22 @@ export function useRealtimeQuotes(options: MaybeRefOrGetter<MarketStreamOptions>
     const current = new AbortController();
     const ownedGeneration = generation;
     controller = current;
-    armWatchdog(() => current.abort());
+    armWatchdog(() => current.abort(), SSE_CONNECTION_TIMEOUT_MS);
     void readMarketEvents(toValue(options), current.signal, message => {
       if (stopped || generation !== ownedGeneration || controller !== current) return;
       accept(message);
       status.value = 'sse';
-      armWatchdog(() => current.abort());
+      sseFailures = 0;
+    }, () => {
+      if (stopped || generation !== ownedGeneration || controller !== current) return;
+      status.value = 'sse';
+      armWatchdog(() => current.abort(), SSE_IDLE_TIMEOUT_MS);
     }).catch(error => {
       if (stopped || generation !== ownedGeneration || controller !== current) return;
       clearTimers();
       controller = null;
       if (error instanceof MarketStreamAuthError) status.value = 'unauthorized';
-      else retry(connectSse, true);
+      else { sseFailures += 1; retry(connectSse, true); }
     });
   }
 
@@ -124,6 +132,7 @@ export function useRealtimeQuotes(options: MaybeRefOrGetter<MarketStreamOptions>
   watch(() => JSON.stringify(toValue(options)), () => {
     release();
     quotes.value = {}; portfolio.value = null; lastUpdatedAt.value = null;
+    sseFailures = 0;
     // Once downgraded, stay on SSE for this page's lifetime, including market switches.
     if (!stopped) connect();
   });

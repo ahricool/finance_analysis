@@ -5,11 +5,13 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from contextlib import suppress
 from dataclasses import asdict, dataclass
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any, Literal, cast
 
+from anyio import CancelScope
 from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import StreamingResponse
@@ -50,6 +52,7 @@ PATTERN_CONFIG = PatternConfig()
 logger = logging.getLogger(__name__)
 router = APIRouter()
 PUSH_INTERVAL_SECONDS = 5
+SSE_HEARTBEAT_SECONDS = 10
 
 
 @router.post("/forward-returns", response_model=ForwardReturnsResponse)
@@ -478,17 +481,36 @@ async def realtime_events(
 
     async def events():
         repository = RealtimeStateRepository.from_url(get_database_config().redis_url)
+        snapshot_task: asyncio.Task[dict[str, Any]] | None = None
         try:
+            yield ": connected\n\n"
             while not await request.is_disconnected():
+                snapshot_task = asyncio.create_task(_live_snapshot(uid, repository, scope, market))
+                while True:
+                    # Waiting must not cancel or restart a slow provider request.
+                    done, _ = await asyncio.wait({snapshot_task}, timeout=SSE_HEARTBEAT_SECONDS)
+                    if done:
+                        break
+                    if await request.is_disconnected():
+                        return
+                    yield ": heartbeat\n\n"
                 try:
-                    snapshot = await _live_snapshot(uid, repository, scope, market)
+                    snapshot = snapshot_task.result()
                 except Exception:
                     logger.warning("SSE 行情推送失败 uid=%s", uid, exc_info=True)
                     snapshot = {"type": "error", "message": "实时行情暂时不可用"}
+                snapshot_task = None
                 yield f"data: {json.dumps(snapshot, ensure_ascii=False)}\n\n"
                 await asyncio.sleep(PUSH_INTERVAL_SECONDS)
         finally:
-            await repository.close()
+            # ASGI disconnect cancellation must not interrupt asynchronous resource cleanup.
+            with CancelScope(shield=True):
+                if snapshot_task is not None:
+                    snapshot_task.cancel()
+                    # Retrieve completed provider failures without skipping repository cleanup.
+                    with suppress(asyncio.CancelledError, Exception):
+                        await snapshot_task
+                await repository.close()
 
     return StreamingResponse(events(), media_type="text/event-stream", headers={
         "Cache-Control": "private, no-store", "X-Accel-Buffering": "no",
