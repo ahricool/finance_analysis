@@ -4,7 +4,9 @@ import type { HoldingsSummary } from './holdings';
 import { toCamelCase } from './utils';
 
 export type RealtimeConnectionStatus = 'connecting' | 'connected' | 'reconnecting' | 'unauthorized' | 'sse' | 'sse-reconnecting';
-export interface MarketStreamOptions { scope?: 'watch-list' | 'holdings'; market?: 'CN' | 'US' }
+export interface MarketStreamOptions {
+  scope?: 'watch-list' | 'holdings'; market?: 'CN' | 'US'; tagId?: number; ungrouped?: boolean;
+}
 
 export type TrendDirection = 'above' | 'below' | 'neutral' | 'insufficient';
 
@@ -119,6 +121,8 @@ function marketUrl(path: string, options: MarketStreamOptions): URL {
   url.hash = '';
   if (options.scope) url.searchParams.set('scope', options.scope);
   if (options.market) url.searchParams.set('market', options.market);
+  if (options.tagId !== undefined) url.searchParams.set('tag_id', String(options.tagId));
+  if (options.ungrouped) url.searchParams.set('ungrouped', 'true');
   return url;
 }
 

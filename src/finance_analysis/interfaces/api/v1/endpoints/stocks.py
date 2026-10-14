@@ -11,6 +11,7 @@
 """
 
 import logging
+from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query
 
@@ -59,8 +60,12 @@ def _instrument_match_type(row: Instrument, keyword: str) -> str:
 def search_instruments(
     q: str = Query(..., min_length=1, max_length=64, description="代码、native code 或名称"),
     limit: int = Query(10, ge=1, le=50, description="返回条数"),
+    market: Literal["CN", "US", "HK"] | None = Query(None, description="限定市场"),
 ) -> InstrumentSearchResponse:
-    rows = InstrumentRepository().search_instruments(q, limit=limit)
+    options = {"limit": limit}
+    if market is not None:
+        options["markets"] = [market]
+    rows = InstrumentRepository().search_instruments(q, **options)
     return InstrumentSearchResponse(
         items=[
             InstrumentSearchItem(

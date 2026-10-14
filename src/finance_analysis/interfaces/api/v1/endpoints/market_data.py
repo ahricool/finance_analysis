@@ -9,10 +9,10 @@ from contextlib import suppress
 from dataclasses import asdict, dataclass
 from datetime import date, datetime, timedelta
 from decimal import Decimal
-from typing import Any, Literal, cast
+from typing import Annotated, Any, Literal, cast
 
 from anyio import CancelScope
-from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import StreamingResponse
 
@@ -150,9 +150,12 @@ class TrackedStock:
     symbol: str
 
 
-def _load_tracked_stocks(uid: int) -> list[TrackedStock]:
+def _load_tracked_stocks(
+    uid: int, market: str | None = None, tag_id: int | None = None, ungrouped: bool = False,
+) -> list[TrackedStock]:
     tracked: dict[str, TrackedStock] = {}
-    for item in WatchListRepo().list_all(uid=uid):
+    filters = {"market_type": market, "tag_id": tag_id, "ungrouped": ungrouped} if market or tag_id or ungrouped else {}
+    for item in WatchListRepo().list_all(uid=uid, **filters):
         code = str(item.code).strip().upper()
         market_type = str(item.market_type).strip().upper()
         try:
@@ -387,8 +390,12 @@ def _quote_payload(
     }
 
 
-async def _build_snapshot(uid: int, repository: RealtimeStateRepository) -> dict[str, Any]:
-    stocks = await asyncio.to_thread(_load_tracked_stocks, uid)
+async def _build_snapshot(
+    uid: int, repository: RealtimeStateRepository,
+    market: str | None = None, tag_id: int | None = None, ungrouped: bool = False,
+) -> dict[str, Any]:
+    filters = (market, tag_id, ungrouped) if market or tag_id or ungrouped else ()
+    stocks = await asyncio.to_thread(_load_tracked_stocks, uid, *filters)
     symbols = [stock.symbol for stock in stocks]
     quotes_result, trends_result, patterns_result, market_quotes = await asyncio.gather(
         repository.get_quotes(symbols),
@@ -463,11 +470,13 @@ def _market_quotes(stocks):
     return quotes
 
 
-async def _live_snapshot(uid, repository, scope, market):
+async def _live_snapshot(uid, repository, scope, market, tag_id=None, ungrouped=False):
     if scope == "holdings":
-        portfolio = await asyncio.to_thread(portfolio_summary, uid, market, initialize_accounts=False)
+        portfolio = await asyncio.to_thread(portfolio_summary, uid, market or "CN", initialize_accounts=False)
         return jsonable_encoder({"type": "quotes", "generated_at": portfolio["generated_at"],
                                  "quotes": [], "portfolio": portfolio})
+    if market or tag_id or ungrouped:
+        return await _build_snapshot(uid, repository, market, tag_id, ungrouped)
     return await _build_snapshot(uid, repository)
 
 
@@ -475,8 +484,14 @@ async def _live_snapshot(uid, repository, scope, market):
 async def realtime_events(
     request: Request,
     scope: Literal["watch-list", "holdings"] = "watch-list",
-    market: Literal["CN", "US"] = "CN",
+    market: Literal["CN", "US", "HK"] | None = None,
+    tag_id: Annotated[int | None, Query(ge=1)] = None,
+    ungrouped: bool = False,
 ):
+    if tag_id is not None and ungrouped:
+        raise HTTPException(status_code=422, detail="不能同时筛选标签与未分组")
+    if scope == "holdings" and market == "HK":
+        raise HTTPException(status_code=422, detail="持仓行情仅支持美股与 A 股")
     uid = get_effective_uid(request)
 
     async def events():
@@ -485,7 +500,7 @@ async def realtime_events(
         try:
             yield ": connected\n\n"
             while not await request.is_disconnected():
-                snapshot_task = asyncio.create_task(_live_snapshot(uid, repository, scope, market))
+                snapshot_task = asyncio.create_task(_live_snapshot(uid, repository, scope, market, tag_id, ungrouped))
                 while True:
                     # Waiting must not cancel or restart a slow provider request.
                     done, _ = await asyncio.wait({snapshot_task}, timeout=SSE_HEARTBEAT_SECONDS)
@@ -521,7 +536,9 @@ async def realtime_events(
 async def realtime_quotes(
     websocket: WebSocket,
     scope: Literal["watch-list", "holdings"] = "watch-list",
-    market: Literal["CN", "US"] = "CN",
+    market: Literal["CN", "US", "HK"] | None = None,
+    tag_id: Annotated[int | None, Query(ge=1)] = None,
+    ungrouped: bool = False,
 ) -> None:
     """Push user-owned market/portfolio snapshots every five seconds."""
     session = websocket.cookies.get(COOKIE_NAME)
@@ -535,12 +552,17 @@ async def realtime_quotes(
         await websocket.close(code=4401, reason="Login required")
         return
 
+    if tag_id is not None and ungrouped or scope == "holdings" and market == "HK":
+        await websocket.accept()
+        await websocket.close(code=1008, reason="Invalid market/group filter")
+        return
+
     repository = RealtimeStateRepository.from_url(get_database_config().redis_url)
     await websocket.accept()
     try:
         while True:
             try:
-                await websocket.send_json(await _live_snapshot(uid, repository, scope, market))
+                await websocket.send_json(await _live_snapshot(uid, repository, scope, market, tag_id, ungrouped))
             except WebSocketDisconnect:
                 raise
             except Exception as exc:

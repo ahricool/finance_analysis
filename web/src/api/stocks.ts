@@ -108,10 +108,10 @@ export const stocksApi = {
   },
   async searchInstruments(
     query: string,
-    options: { limit?: number; signal?: AbortSignal } = {},
+    options: { limit?: number; signal?: AbortSignal; market?: MarketType } = {},
   ): Promise<InstrumentSearchItem[]> {
     const { data } = await apiClient.get<Record<string, unknown>>('/api/v1/stocks/search', {
-      params: { q: query, limit: options.limit ?? 10 },
+      params: { q: query, limit: options.limit ?? 10, market: options.market },
       signal: options.signal,
     });
     return toCamelCase<InstrumentSearchResponse>(data).items ?? [];

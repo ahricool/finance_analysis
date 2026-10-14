@@ -11,8 +11,10 @@
 """
 
 import logging
+from typing import Annotated, Literal
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
+from sqlalchemy.exc import IntegrityError
 
 from finance_analysis.interfaces.api.deps import get_effective_uid
 from finance_analysis.interfaces.api.v1.schemas.watch_list import (
@@ -20,6 +22,8 @@ from finance_analysis.interfaces.api.v1.schemas.watch_list import (
     WatchListItemResponse,
     WatchListItemUpdate,
     WatchListResponse,
+    WatchListTagName,
+    WatchListTagResponse,
 )
 from finance_analysis.database.repositories.watch_list import WatchListRepo
 from finance_analysis.database.repositories.stock import InstrumentRepository
@@ -59,13 +63,20 @@ def _responses(repository: WatchListRepo, items) -> list[WatchListItemResponse]:
 
 
 @router.get("", response_model=WatchListResponse, summary="获取自选股列表")
-def list_watch_list(http_request: Request):
+def list_watch_list(
+    http_request: Request,
+    market: Literal["CN", "US", "HK"] | None = None,
+    tag_id: Annotated[int | None, Query(ge=1)] = None,
+    ungrouped: bool = False,
+):
+    if tag_id is not None and ungrouped:
+        raise HTTPException(status_code=422, detail="不能同时筛选标签与未分组")
     uid = get_effective_uid(http_request)
     repository = _repo()
-    items = repository.list_all(uid=uid)
+    items = repository.list_all(uid=uid, market_type=market, tag_id=tag_id, ungrouped=ungrouped)
     return WatchListResponse(
         items=_responses(repository, items),
-        total=len(items),
+        total=repository.count(uid=uid, market_type=market),
     )
 
 
@@ -91,13 +102,50 @@ def create_watch_list_item(http_request: Request, body: WatchListItemCreate):
             notes=body.notes,
             market_type=body.market_type,
             is_favorite=body.is_favorite,
+            tags=[tag.model_dump(exclude_none=True) for tag in body.tags],
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except IntegrityError as exc:
+        raise HTTPException(status_code=409, detail="自选股或标签已存在，请刷新后重试") from exc
     except Exception as e:
         logger.exception("创建自选股失败: %s", e)
         raise HTTPException(status_code=500, detail="创建失败，请重试") from e
     return _responses(repo, [item])[0]
+
+
+@router.get("/tags", response_model=list[WatchListTagResponse], summary="获取用户分组标签")
+def list_tags(http_request: Request):
+    return _repo().list_tags(uid=get_effective_uid(http_request))
+
+
+@router.post("/tags", response_model=WatchListTagResponse, status_code=201, summary="创建分组标签")
+def create_tag(http_request: Request, body: WatchListTagName):
+    try:
+        return _repo().create_tag(uid=get_effective_uid(http_request), name=body.name)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except IntegrityError as exc:
+        raise HTTPException(status_code=409, detail="同名标签已存在") from exc
+
+
+@router.put("/tags/{tag_id}", response_model=WatchListTagResponse, summary="重命名分组标签")
+def rename_tag(http_request: Request, tag_id: int, body: WatchListTagName):
+    try:
+        tag = _repo().rename_tag(tag_id, uid=get_effective_uid(http_request), name=body.name)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except IntegrityError as exc:
+        raise HTTPException(status_code=409, detail="同名标签已存在") from exc
+    if tag is None:
+        raise HTTPException(status_code=404, detail="未找到该标签")
+    return tag
+
+
+@router.delete("/tags/{tag_id}", status_code=204, summary="删除分组标签及其关联")
+def delete_tag(http_request: Request, tag_id: int):
+    if not _repo().delete_tag(tag_id, uid=get_effective_uid(http_request)):
+        raise HTTPException(status_code=404, detail="未找到该标签")
 
 
 @router.put("/{item_id}", response_model=WatchListItemResponse, summary="更新自选股")
@@ -113,6 +161,8 @@ def update_watch_list_item(http_request: Request, item_id: int, body: WatchListI
         item = repo.update(item_id=item_id, uid=uid, **update_data)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except IntegrityError as exc:
+        raise HTTPException(status_code=409, detail="自选股或标签已存在，请刷新后重试") from exc
     if item is None:
         raise HTTPException(status_code=404, detail="未找到该自选股")
     return _responses(repo, [item])[0]

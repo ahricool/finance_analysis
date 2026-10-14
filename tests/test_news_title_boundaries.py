@@ -58,7 +58,7 @@ def test_news_title_uses_existing_varchar_and_single_options_head():
     column = NewsIntel.__table__.c.title
     assert isinstance(column.type, sa.String) and not isinstance(column.type, sa.Text)
     assert column.type.length == 300 and not column.nullable
-    assert ScriptDirectory.from_config(Config("alembic.ini")).get_heads() == ["0074_industry_reference"]
+    assert ScriptDirectory.from_config(Config("alembic.ini")).get_heads() == ["0075_watch_list_tags"]
 
 
 @pytest.mark.parametrize("title", ["a" * 299, "汉" * 300, "🙂" * 301, "汉🙂" * 180],

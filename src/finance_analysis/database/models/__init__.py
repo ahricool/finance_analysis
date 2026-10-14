@@ -64,7 +64,7 @@ from finance_analysis.database.models.trend_following import (
 )  # pragma: allowlist secret
 from finance_analysis.database.models.user_avatar import UserAvatar  # noqa: F401
 from finance_analysis.database.models.user import User  # pragma: allowlist secret
-from finance_analysis.database.models.watch_list import WatchListItem  # pragma: allowlist secret
+from finance_analysis.database.models.watch_list import WatchListItem, WatchListTag  # pragma: allowlist secret
 
 from finance_analysis.database.models.crypto import (
     CryptoStrategySnapshot,
@@ -74,6 +74,7 @@ from finance_analysis.database.models.crypto import (
 from .dragon_tiger_flow import DragonTigerFlowBatch
 
 __all__ = [
+    "WatchListTag",
     "DragonTigerFlowBatch",
     "ConfluenceRun",
     "ConfluenceSnapshot",

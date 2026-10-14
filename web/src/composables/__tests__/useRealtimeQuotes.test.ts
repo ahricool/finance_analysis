@@ -294,4 +294,56 @@ describe('useRealtimeQuotes', () => {
     expect(sse).toHaveBeenCalledTimes(8);
     wrapper.unmount();
   });
+
+  it('rebuilds group sockets, clears quotes and ignores messages from the previous group', async () => {
+    const tagId = ref<number | undefined>(undefined);
+    const ungrouped = ref(false);
+    let state!: ReturnType<typeof useRealtimeQuotes>;
+    const page = mount(defineComponent({
+      setup() { state = useRealtimeQuotes(() => ({ market: 'US', tagId: tagId.value, ungrouped: ungrouped.value })); return {}; },
+      template: '<div />',
+    }));
+    const first = MockWebSocket.instances[0]!;
+    first.message({ type: 'quotes', generated_at: 'all', quotes: [{ code: 'AAPL', market_type: 'US' }] });
+    tagId.value = 12;
+    await nextTick();
+    expect(first.close).toHaveBeenCalled();
+    expect(state.quotes.value).toEqual({});
+    expect(MockWebSocket.instances[1]!.url).toContain('market=US&tag_id=12');
+    first.message({ type: 'quotes', generated_at: 'stale', quotes: [{ code: 'MSFT', market_type: 'US' }] });
+    expect(state.quotes.value).toEqual({});
+    tagId.value = undefined;
+    ungrouped.value = true;
+    await nextTick();
+    expect(MockWebSocket.instances[2]!.url).toContain('market=US&ungrouped=true');
+    expect(MockWebSocket.instances[2]!.url).not.toContain('tag_id');
+    page.unmount();
+  });
+
+  it('aborts and rebuilds filtered SSE while keeping the fallback and ignoring old group frames', async () => {
+    const tagId = ref<number | undefined>(1);
+    const streams: Array<{ signal: AbortSignal; accept: Parameters<typeof marketApi.readMarketEvents>[2] }> = [];
+    const sse = vi.spyOn(marketApi, 'readMarketEvents').mockImplementation((_options, signal, accept) => {
+      streams.push({ signal, accept });
+      return new Promise(() => {});
+    });
+    let state!: ReturnType<typeof useRealtimeQuotes>;
+    const page = mount(defineComponent({
+      setup() { state = useRealtimeQuotes(() => ({ market: 'CN', tagId: tagId.value })); return {}; }, template: '<div />',
+    }));
+    MockWebSocket.instances[0]!.disconnect();
+    await vi.advanceTimersByTimeAsync(1_000);
+    MockWebSocket.instances[1]!.disconnect();
+    tagId.value = 2;
+    await nextTick();
+    expect(streams[0]!.signal.aborted).toBe(true);
+    expect(sse.mock.calls[1]![0]).toEqual({ market: 'CN', tagId: 2 });
+    streams[1]!.accept({ type: 'quotes', generated_at: 'group2', quotes: [] });
+    streams[0]!.accept({ type: 'quotes', generated_at: 'old', quotes: [] });
+    expect(state.lastUpdatedAt.value).toBe('group2');
+    expect(MockWebSocket.instances).toHaveLength(2);
+    page.unmount();
+    expect(streams[1]!.signal.aborted).toBe(true);
+  });
+
 });
