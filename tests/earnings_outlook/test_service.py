@@ -156,7 +156,7 @@ def test_cache_final_snapshot_and_failed_refresh_preserves_success(setup):
         assert s.scalar(select(func.count()).select_from(EarningsPrediction)) == 2
 
 
-def test_search_has_single_event_evidence_and_outlook_retains_full_price_context(setup):
+def test_search_is_bounded_and_outlook_compacts_market_but_keeps_company_bars(setup):
     service, db, repo, llm, members = setup
     collect = service.collector.collect.side_effect
     market = {"benchmarks": {"SPY.US": {"bars": [{"close": 100}] * 4000}}}
@@ -177,13 +177,16 @@ def test_search_has_single_event_evidence_and_outlook_retains_full_price_context
     assert search_input["guidance_evidence"] == forecast_input["guidance_evidence"]
     assert search_input["data_cutoff"] == forecast_input["data_cutoff"]
     assert "market" not in search_input and "technical" not in search_input and "reference_price" not in search_input
-    assert len(research.prompt) < 2000 and len(outlook.prompt) > 50000
+    assert len(research.prompt) < 2000 and len(outlook.prompt) < 10000
     assert research.web_search and research.prefer_search
     assert research.timeout is None and outlook.timeout is None  # Both retain the unified global budget.
-    assert forecast_input["market"] == market and forecast_input["technical"] == technical
+    assert forecast_input["market"] == {"benchmarks": {"SPY.US": {}}}
+    assert forecast_input["technical"] == technical
+    assert len(market["benchmarks"]["SPY.US"]["bars"]) == 4000
     with db.get_session() as session:
         prediction = session.get(EarningsPrediction, repo.state(1).latest_prediction_id)
-        assert prediction.context["market"] == market and prediction.context["technical"] == technical
+        assert prediction.context["market"] == forecast_input["market"]
+        assert prediction.context["technical"] == technical
     assert service.refresh(1, "daily", members, {})["status"] == "cached"
     assert llm.complete_text.call_count == 2
 
@@ -630,3 +633,96 @@ def test_detail_uses_same_summary_and_accepts_new_and_legacy_stages(setup, monke
     members.clear()
     detail = OutlookDetail.model_validate(earnings_detail(1))
     assert detail.summary is None and detail.versions[0].applicability == "ineligible"
+
+
+
+def test_noop_events_do_not_require_research_slots(setup):
+    service, db, repo, llm, members = setup
+    service.refresh(1, "daily", members, {})
+    with repo.slot(0), repo.slot(1):
+        assert service.refresh(1, "daily", members, {})["status"] == "cached"
+        assert service.refresh(1, "daily", {}, {})["status"] == "ineligible"
+    assert llm.complete_text.call_count == 2
+
+
+def test_slots_cover_only_model_calls_and_are_released_on_failure(setup):
+    service, db, repo, llm, members = setup
+    collect = service.collector.collect.side_effect
+    complete = llm.complete_text.side_effect
+    save = repo.save_research
+
+    def collect_without_slot(*args):
+        assert not any(key[0] == "slot" for key in Lock.held)
+        return collect(*args)
+
+    def save_without_slot(**kwargs):
+        assert not any(key[0] == "slot" for key in Lock.held)
+        return save(**kwargs)
+
+    def complete_with_slot(request, validator):
+        assert ("event", 1) in Lock.held
+        assert sum(key[0] == "slot" for key in Lock.held) == 1
+        if request.call_type == "earnings_outlook":
+            raise RuntimeError("model unavailable")
+        return complete(request, validator)
+
+    service.collector.collect.side_effect = collect_without_slot
+    repo.save_research = save_without_slot
+    llm.complete_text.side_effect = complete_with_slot
+    with pytest.raises(RuntimeError):
+        service.refresh(1, "daily", members, {})
+    assert not Lock.held
+
+
+def test_busy_outlook_preserves_research_for_deferred_retry(setup):
+    service, db, repo, llm, members = setup
+    original = service.research_slot
+    attempts = 0
+
+    @contextmanager
+    def contend_second_call():
+        nonlocal attempts
+        attempts += 1
+        if attempts == 2:
+            yield False
+        else:
+            with original() as acquired:
+                yield acquired
+
+    service.research_slot = contend_second_call
+    assert service.refresh(1, "daily", members, {})["status"] == "busy"
+    assert llm.complete_text.call_count == 1
+    assert service.refresh(1, "daily", members, {})["status"] == "success"
+    assert llm.complete_text.call_count == 2
+    assert not Lock.held
+
+
+def test_context_projection_preserves_summaries_and_shared_input():
+    from copy import deepcopy
+    from finance_analysis.earnings_outlook.context import outlook_context
+
+    series = dict(bars=[dict(close=100)], return_pct=2, volatility=.1, atr14=3, sessions=30, as_of="2026-07-01")
+    original = dict(
+        market=dict(benchmarks={"SPY.US": series}, sector_performance={"XLK.US": dict(series, name="Technology")},
+                    missing_data=["sector mapping unavailable"], macro_events=[{"title": "CPI"}]),
+        technical=series, reference_price=100,
+    )
+    before = deepcopy(original)
+    compact = outlook_context(original)
+    assert original == before
+    assert compact["technical"] == series
+    for group in ("benchmarks", "sector_performance"):
+        for symbol, value in compact["market"][group].items():
+            assert value == {k: v for k, v in original["market"][group][symbol].items() if k != "bars"}
+    assert compact["market"]["missing_data"] == original["market"]["missing_data"]
+    assert compact["market"]["macro_events"] == original["market"]["macro_events"]
+
+
+def test_event_phase_timings_are_logged(setup, caplog):
+    import logging
+
+    service, db, repo, llm, members = setup
+    with caplog.at_level(logging.INFO, logger="finance_analysis.earnings_outlook.service"):
+        service.refresh(1, "daily", members, {})
+    for phase in ("context", "earnings_research", "earnings_outlook", "total"):
+        assert f"event_id=1 phase={phase} duration_ms=" in caplog.text

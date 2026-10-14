@@ -2,6 +2,7 @@
 
 import json
 import logging
+import time
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from datetime import timedelta
@@ -12,7 +13,7 @@ from finance_analysis.database.repositories.earnings_outlook import EarningsOutl
 from finance_analysis.llm import LLMClient, LLMRequest
 from finance_analysis.llm.json_parse import parse_llm_json_response
 from .config import OutlookConfig, PROMPT_VERSION, CALENDAR_LOOKAHEAD_DAYS
-from .context import ContextCollector, consensus, raw_facts, research_context
+from .context import ContextCollector, consensus, raw_facts, research_context, outlook_context
 from .prompts import RESEARCH, OUTLOOK
 from .rules import (
     NY,
@@ -44,6 +45,10 @@ def parse_json_object(text):
 
 def json_value(value):
     return json.loads(json.dumps(value, default=str, ensure_ascii=False))
+
+
+class ResearchBusy(Exception):
+    """No paid-call slot is available; the task adapter will defer this event."""
 
 
 class EarningsOutlookService:
@@ -115,15 +120,39 @@ class EarningsOutlookService:
                 return
         yield False
 
-    def refresh(self, event_id, stage, members, public):
-        with self.repo.lock(event_id) as lock:
-            if not lock.acquired:
-                return dict(event_id=event_id, status="busy")
+    @contextmanager
+    def timed(self, event_id, phase):
+        started = time.monotonic()
+        try:
+            yield
+        finally:
+            logger.info(
+                "Earnings timing event_id=%s phase=%s duration_ms=%s",
+                event_id, phase, round((time.monotonic() - started) * 1000),
+            )
+
+    def forecast_call(self, event_id, request):
+        # The event lock still covers the entire round. Shared slots limit only
+        # paid calls, not quote collection, cache checks or database writes.
+        with self.timed(event_id, request.call_type):
             with self.research_slot() as acquired:
                 if not acquired:
-                    return dict(event_id=event_id, status="busy", reason="research concurrency limit")
+                    raise ResearchBusy()
+                logger.info(
+                    "Earnings model input event_id=%s call_type=%s prompt_chars=%s",
+                    event_id, request.call_type, len(request.prompt),
+                )
+                return self.llm.complete_text(request, validator=parse_json_object)
+
+    def refresh(self, event_id, stage, members, public):
+        with self.timed(event_id, "total"):
+            with self.repo.lock(event_id) as lock:
+                if not lock.acquired:
+                    return dict(event_id=event_id, status="busy")
                 try:
                     return self._refresh(event_id, stage, members, public)
+                except ResearchBusy:
+                    return dict(event_id=event_id, status="busy", reason="research concurrency limit")
                 except Exception as exc:
                     # The successful projection/pointer is intentionally untouched.
                     self.repo.mark(event_id, "failed", str(exc)[:1000])
@@ -164,7 +193,8 @@ class EarningsOutlookService:
         )
         research = self.repo.cached_research(event_id, cache_key, now)
         self.repo.mark(event_id, "processing")
-        context = self.collector.collect(event, member, now, window, public() if callable(public) else public)
+        with self.timed(event_id, "context"):
+            context = self.collector.collect(event, member, now, window, public() if callable(public) else public)
         now = self.clock()  # Freeze after deterministic collection, before any research call.
         if released(self.repo.event(event_id), now, window):
             self.repo.mark(event_id, "frozen", frozen_schedule_hash=stamp)
@@ -172,15 +202,14 @@ class EarningsOutlookService:
         context["data_cutoff"] = now.isoformat()
         context["tolerance"] = vars(self.config)
         if research is None:
-            result = self.llm.complete_text(
-                LLMRequest(
+            result = self.forecast_call(
+                event_id, LLMRequest(
                     prompt=json.dumps(research_context(context), ensure_ascii=False, default=str),
                     system_prompt=RESEARCH,
                     call_type="earnings_research",
                     web_search=True,
                     prefer_search=True,
                 ),
-                validator=parse_json_object,
             )
             bundle = clean_research(parse_json_object(result.text), now, self.clock())
             proof = result.search_evidence or dict(status="unverified", requested=True, configured_support=False)
@@ -261,7 +290,7 @@ class EarningsOutlookService:
         ]
         context["run_date"] = str(now.astimezone(NY).date())
         context["research_id"] = research.id
-        context = json_value(context)
+        context = json_value(outlook_context(context))
         analysis_bundle = {k: v for k, v in bundle.items() if k != "unverified_sources"}
         frozen = dict(context=context, research=analysis_bundle)
         hash_context = {k: v for k, v in context.items() if k != "data_cutoff"}
@@ -275,11 +304,10 @@ class EarningsOutlookService:
         if not matches_schedule(fresh, stamp, context["event"]) or released(fresh, self.clock(), window):
             self.repo.mark(event_id, "frozen" if released(fresh, self.clock(), window) else "superseded")
             return dict(event_id=event_id, status="frozen_or_changed")
-        result = self.llm.complete_text(
-            LLMRequest(
+        result = self.forecast_call(
+            event_id, LLMRequest(
                 prompt=json.dumps(frozen, ensure_ascii=False), system_prompt=OUTLOOK, call_type="earnings_outlook"
             ),
-            validator=parse_json_object,
         )
         prediction = normalize_prediction(parse_json_object(result.text), context, self.config)
         # Membership may change during a long external call. Never publish an ineligible prediction.
