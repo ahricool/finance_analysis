@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Table, TableHeader, TableHead, TableBody, TableRow, TableCell } from '@/components/ui/table';
 import { formatDateOnly } from '@/utils/format';
 import { numberLabel, returnClass, returnLabel, seriesLabel, trendLabel, regimeLabel } from './display';
+const emit = defineEmits<{ select: [asset: MacroInstrument] }>();
 defineProps<{ rows: (MacroInstrument | MacroRatio)[]; ratios?: boolean }>();
 const categories: Record<string, string> = { EQUITY: '权益', RATES: '利率', DOLLAR: '美元', COMMODITY: '商品', CREDIT: '信用', RISK: '风险偏好', DEFENSIVE: '防御', VOLATILITY: '波动率' };
 </script>
@@ -66,10 +67,24 @@ const categories: Record<string, string> = { EQUITY: '权益', RATES: '利率', 
           <TableRow
             v-for="row in rows"
             :key="'code' in row ? row.code : row.key"
+            :class="{ 'cursor-pointer': 'code' in row }"
+            @click="'code' in row && emit('select', row)"
           >
             <TableCell>
-              <p class="font-medium">
-                {{ seriesLabel('code' in row ? row.code : row.key) }}
+              <button
+                v-if="'code' in row"
+                type="button"
+                class="rounded-sm font-medium text-left hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                :aria-label="`查看 ${row.code} ${row.name} 详情`"
+                @click.stop="emit('select', row)"
+              >
+                {{ row.code }}
+              </button>
+              <p
+                v-else
+                class="font-medium"
+              >
+                {{ seriesLabel(row.key) }}
               </p><p class="text-xs text-muted-foreground">
                 {{ row.name }}
               </p><Badge

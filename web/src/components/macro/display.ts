@@ -3,7 +3,6 @@ import { enumLabel } from '@/i18n/labels';
 import { formatPercent } from '@/utils/quant';
 
 export const macroAssets = ['SPY', 'QQQ', 'TLT', 'UUP', 'USO', 'GLD', 'HYG', 'LQD', 'IWM', 'SMH', 'XLY', 'XLP', 'VIX'].map(s => `${s}.US`);
-export const defaultAssets = ['SPY.US', 'QQQ.US', 'TLT.US', 'UUP.US', 'USO.US', 'HYG.US'];
 export const ratioDescriptions: Record<string, string> = {
   HYG_LQD: 'Credit Risk Appetite', IWM_SPY: 'Small Cap Breadth',
   SMH_SPY: 'Semiconductor Leadership', XLY_XLP: 'Cyclical / Defensive',
