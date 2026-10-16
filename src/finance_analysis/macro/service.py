@@ -267,6 +267,7 @@ class MacroService:
             mode=mode,
             benchmark=benchmark if mode == "relative" else None,
             trade_date=context.trade_date,
+            dates=sorted(expected_dates),
             series=curves,
             data_quality=data_quality,
         )

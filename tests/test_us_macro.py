@@ -254,6 +254,8 @@ def test_chart_modes_and_ratio_alignment(database):
     assert [p.value for p in ratio.series[0].points] == [2, 3, 4] and ratio.series[0].partial
     ratio_normalized = macro.series(range="20d", series=["SMH_SPY"])
     assert [p.value for p in ratio_normalized.series[0].points] == [100, 150, 200]
+    assert ratio_normalized.dates == days
+    assert relative.dates == days
     dashboard = macro.dashboard()
     assert next(item for item in dashboard.ratios if item.key == "SMH_SPY").value == 4
 
@@ -303,6 +305,7 @@ def test_api_auth_dashboard_series_validation(database):
         assert response.status_code == 200 and response.json()["trade_date"] == "2026-09-11"
         response = client.get("/api/v1/macro/series?symbols=SPY.US&range=20d&mode=normalized")
         assert response.status_code == 200 and response.json()["series"][0]["points"][0]["value"] == 100
+        assert response.json()["dates"] == [day.isoformat() for day in sessions(20)]
         assert client.get("/api/v1/macro/series?series=HYG_LQD").status_code == 200
         for query in (
             "range=3d",

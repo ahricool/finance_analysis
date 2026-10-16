@@ -4,37 +4,30 @@ import { getMacroSeries, type MacroRange, type MacroMode, type MacroSeriesResult
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import AppApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
 import MacroSeriesChart from './MacroSeriesChart.vue';
-import { defaultAssets, macroAssets, ratioKeys, seriesLabel } from './display';
+import { macroAssets, ratioKeys } from './display';
 const props = defineProps<{ ratios?: boolean }>();
 const range = ref<MacroRange>('60d');
 const mode = ref<MacroMode>('normalized');
-const symbols = ref([...defaultAssets]);
 const result = shallowRef<MacroSeriesResult | null>(null);
 const loading = ref(true);
 const error = shallowRef<ParsedApiError | null>(null);
 let sequence = 0;
-function toggleAsset(code: string) {
-  if (symbols.value.includes(code)) symbols.value = symbols.value.filter(s => s !== code);
-  else if (symbols.value.length < 8) symbols.value = [...symbols.value, code];
-}
 async function load() {
   const request = ++sequence;
   error.value = null;
-  if (!props.ratios && !symbols.value.length) { result.value = null; loading.value = false; return; }
   loading.value = true;
   try {
     const response = await getMacroSeries({ range: range.value, mode: props.ratios ? 'normalized' : mode.value,
-      ...(props.ratios ? { series: ratioKeys } : { symbols: [...symbols.value], ...(mode.value === 'relative' ? { benchmark: 'SPY.US' } : {}) }),
+      ...(props.ratios ? { series: ratioKeys } : { symbols: [...macroAssets], ...(mode.value === 'relative' ? { benchmark: 'SPY.US' } : {}) }),
     });
     if (request === sequence) result.value = response;
   } catch (cause) {
     if (request === sequence) error.value = { ...getParsedApiError(cause), title: props.ratios ? '风险偏好图加载失败' : '跨资产走势图加载失败' };
   } finally { if (request === sequence) loading.value = false; }
 }
-watch([range, mode, symbols], load, { immediate: true, flush: 'sync' });
+watch([range, mode, () => props.ratios], load, { immediate: true, flush: 'sync' });
 onBeforeUnmount(() => { sequence++; });
 </script>
 <template>
@@ -79,26 +72,6 @@ onBeforeUnmount(() => { sequence++; });
           </NativeSelect>
         </div>
       </div>
-      <div
-        v-if="!ratios"
-        class="flex flex-wrap items-center gap-1.5"
-        role="group"
-        aria-label="选择资产，最多 8 个"
-      >
-        <Button
-          v-for="code in macroAssets"
-          :key="code"
-          size="sm"
-          :variant="symbols.includes(code) ? 'secondary' : 'ghost'"
-          :aria-pressed="symbols.includes(code)"
-          :disabled="!symbols.includes(code) && symbols.length >= 8"
-          :data-testid="`macro-asset-${code}`"
-          @click="toggleAsset(code)"
-        >
-          {{ seriesLabel(code) }}
-        </Button>
-        <span class="ml-2 text-xs text-muted-foreground">{{ symbols.length }} / 8</span>
-      </div>
     </CardHeader>
     <CardContent class="space-y-3">
       <AppApiErrorAlert
@@ -121,7 +94,7 @@ onBeforeUnmount(() => { sequence++; });
         向上通常代表风险偏好增强，向下代表风险偏好转弱。HYG/LQD 观察信用；IWM/SPY 观察小盘与市场宽度；SMH/SPY 观察半导体领导力；XLY/XLP 观察周期与防御的相对表现。
       </p>
       <p class="text-xs text-muted-foreground">
-        {{ ratios || mode !== 'price' ? '各曲线从自身首个有效点归一至 100；起点日期可能不同。' : '价格模式：ETF 为美元价格，VIX 为波动率指数点数。' }} 数据日期：{{ result?.tradeDate ?? '—' }} · 点击图例隐藏 / 显示
+        {{ ratios || mode !== 'price' ? '各曲线从自身首个有效点归一至 100；起点日期可能不同。' : '价格模式：ETF 为美元价格，VIX 为波动率指数点数。' }} 数据日期：{{ result?.tradeDate ?? '—' }} · 点击图例隐藏 / 显示 · 虚线连接缺失交易日两侧的真实数据，不代表期间实际价格
       </p>
     </CardContent>
   </Card>

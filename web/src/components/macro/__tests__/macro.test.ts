@@ -7,7 +7,8 @@ import MacroPerformanceChart from '../MacroPerformanceChart.vue';
 import MacroSeriesChart from '../MacroSeriesChart.vue';
 import { createPinia, setActivePinia } from 'pinia';
 import { theme, systemPrefersDark } from '@/composables/useTheme';
-import { defaultAssets, ratioKeys } from '../display';
+import { macroAssets, ratioKeys } from '../display';
+vi.mock('@/components/stocks/StockDetailDialog.vue', () => ({ __esModule: true, default: { name: 'StockDetailDialog', props: ['stock', 'kind', 'initialTab', 'context'], emits: ['update:open'], template: '<div data-testid="asset-detail">{{ stock.code }}</div>' } }));
 vi.mock('@/api/macro', () => ({ getMacroDashboard: vi.fn(), getMacroSeries: vi.fn() }));
 vi.mock('vue-echarts', () => ({ default: { name: 'VChart', props: ['option', 'autoresize'], template: '<div />' } }));
 enableAutoUnmount(afterEach);
@@ -41,6 +42,21 @@ describe('Macro dashboard', () => {
     expect(wrapper.get('[data-testid="macro-ratio-table"]').text()).toContain('数据不足');
     expect(wrapper.get('[data-testid="macro-ratio-table"]').text()).toContain('0.754');
   });
+  it('opens the shared asset detail with source date, and closes/replaces its identity', async () => {
+    const data = dashboard();
+    data.instruments.push({ ...data.instruments[0]!, code: 'VIX.US', name: 'VIX', category: 'VOLATILITY' });
+    vi.mocked(getMacroDashboard).mockResolvedValue(data);
+    const wrapper = mount(MacroPage); await flushPromises();
+    expect(wrapper.find('[data-testid="asset-detail"]').exists()).toBe(false);
+    await wrapper.get('[aria-label="查看 TLT.US Long Treasury 详情"]').trigger('click'); await flushPromises();
+    let detail = wrapper.findComponent({ name: 'StockDetailDialog' });
+    expect(detail.props()).toMatchObject({ stock: { code: 'TLT.US', market_type: 'US' }, initialTab: 'overview', context: { tradeDate: metrics.tradeDate, view: 'official' } });
+    detail.vm.$emit('update:open', false); await flushPromises();
+    expect(wrapper.find('[data-testid="asset-detail"]').exists()).toBe(false);
+    await wrapper.get('[aria-label="查看 VIX.US VIX 详情"]').trigger('click'); await flushPromises();
+    detail = wrapper.findComponent({ name: 'StockDetailDialog' });
+    expect(detail.props('stock').code).toBe('VIX.US');
+  });
   it('preserves null score and regime and keeps complete quality compact', async () => {
     vi.mocked(getMacroDashboard).mockResolvedValue({ ...dashboard(), riskScore: null, regime: null, dataQuality: { ...quality, partial: false } });
     const wrapper = mount(MacroPage); await flushPromises();
@@ -70,24 +86,26 @@ describe('Macro dashboard', () => {
   });
 });
 describe('Macro series requests', () => {
-  it('requests six core assets and the four normalized ratios independently', async () => {
+  it('requests all thirteen assets and the four normalized ratios independently', async () => {
     mount(MacroPage); await flushPromises();
-    expect(getMacroSeries).toHaveBeenCalledWith({ range: '60d', mode: 'normalized', symbols: defaultAssets });
+    expect(getMacroSeries).toHaveBeenCalledWith({ range: '60d', mode: 'normalized', symbols: macroAssets });
     expect(getMacroSeries).toHaveBeenCalledWith({ range: '60d', mode: 'normalized', series: ratioKeys });
   });
-  it('supports all ranges, modes, asset selection and an eight-asset limit', async () => {
+  it('supports all ranges and modes with every asset included', async () => {
     const wrapper = mount(MacroPerformanceChart); await flushPromises();
     for (const range of ['20d', '120d', '250d', 'ytd', '60d']) { await wrapper.get('select[data-testid="macro-range"]').setValue(range); await flushPromises(); expect(getMacroSeries).toHaveBeenLastCalledWith(expect.objectContaining({ range })); }
     await wrapper.get('select[data-testid="macro-mode"]').setValue('relative'); await flushPromises();
     expect(getMacroSeries).toHaveBeenLastCalledWith(expect.objectContaining({ mode: 'relative', benchmark: 'SPY.US' }));
     await wrapper.get('select[data-testid="macro-mode"]').setValue('price'); await flushPromises();
-    expect(getMacroSeries).toHaveBeenLastCalledWith({ range: '60d', mode: 'price', symbols: defaultAssets });
-    for (const code of ['VIX.US', 'GLD.US']) await wrapper.get(`[data-testid="macro-asset-${code}"]`).trigger('click'); await flushPromises();
-    expect(getMacroSeries).toHaveBeenLastCalledWith(expect.objectContaining({ symbols: [...defaultAssets, 'VIX.US', 'GLD.US'] }));
-    expect(wrapper.get('[data-testid="macro-asset-SMH.US"]').attributes('disabled')).toBeDefined();
-    for (const code of [...defaultAssets, 'VIX.US', 'GLD.US']) await wrapper.get(`[data-testid="macro-asset-${code}"]`).trigger('click'); await flushPromises();
-    expect(wrapper.text()).toContain('暂无走势数据');
-    expect(vi.mocked(getMacroSeries).mock.calls.every(([params]) => params!.symbols!.length > 0)).toBe(true);
+    expect(getMacroSeries).toHaveBeenLastCalledWith({ range: '60d', mode: 'price', symbols: macroAssets });
+    expect(macroAssets).toHaveLength(13);
+    const requests = vi.mocked(getMacroSeries).mock.calls.length;
+    const legend = wrapper.get('[data-testid="macro-legend-SPY.US"]');
+    await legend.trigger('click');
+    expect(legend.attributes('aria-pressed')).toBe('false');
+    expect(getMacroSeries).toHaveBeenCalledTimes(requests);
+    await legend.trigger('click');
+    expect(legend.attributes('aria-pressed')).toBe('true');
   });
   it('ignores stale success and error responses and retains chart during loading', async () => {
     const wrapper = mount(MacroPerformanceChart); await flushPromises();
@@ -106,16 +124,54 @@ describe('Macro series requests', () => {
   });
 });
 describe('Macro chart rendering', () => {
-  it('uses actual dated points, partial legend, normalized tooltip and autoresize', async () => {
-    const wrapper = mount(MacroSeriesChart, { props: { result: series(), loading: false, label: '走势' } }); await flushPromises();
-    const chart = wrapper.findComponent({ name: 'VChart' }); const option = chart.props('option');
-    expect(option.series[0].data).toEqual([['2026-09-08', 100], ['2026-09-11', 105.2]]);
-    expect(option.legend.formatter('SPY.US')).toContain('数据不完整');
-    expect(option.tooltip.formatter([{ seriesName: 'SPY.US', value: ['2026-09-11', 105.2] }])).toContain('+5.2%');
+  it('shows wrapping code/name legends and preserves selection across refreshes', async () => {
+    const response = series(); response.series[0]!.name = 'S&P 500';
+    const wrapper = mount(MacroSeriesChart, { props: { result: response, loading: false, label: '走势' } }); await flushPromises();
+    const chart = wrapper.findComponent({ name: 'VChart' });
+    expect(chart.props('option').series[0].data).toEqual([100, 105.2]);
+    expect(chart.props('option').xAxis.data).toEqual(['2026-09-08', '2026-09-11']);
+    expect(wrapper.get('[data-testid="macro-legend"]').text()).toContain('SPY.US · S&P 500');
+    expect(wrapper.get('[data-testid="macro-legend"]').text()).not.toContain('数据不完整');
+    expect(chart.props('option').tooltip.formatter({ seriesName: 'SPY.US', dataIndex: 1 })).toContain('+5.2%');
     expect(chart.props('autoresize')).toBeDefined();
+    expect(wrapper.text()).not.toContain('暂无走势数据');
+    await wrapper.get('button').trigger('click');
+    await wrapper.setProps({ result: { ...response, mode: 'price' } });
+    expect(chart.props('option').legend.selected['SPY.US']).toBe(false);
+    expect(chart.props('option').tooltip.formatter({ seriesName: 'SPY.US', dataIndex: 1 })).not.toContain('相对区间起点');
     const ratios = series(); ratios.series[0]!.key = 'HYG_LQD';
     await wrapper.setProps({ result: ratios });
-    expect(chart.props('option').tooltip.formatter([{ seriesName: 'HYG_LQD', value: ['2026-09-11', 105.2] }])).toContain('Credit Risk Appetite');
+    expect(chart.props('option').tooltip.formatter({ seriesName: 'HYG_LQD', dataIndex: 1 })).toContain('Credit Risk Appetite');
+  });
+  it('draws dashed bridges across missing sessions without filling or extrapolating values', async () => {
+    const response = series();
+    response.dates = ['2026-09-07', '2026-09-08', '2026-09-09', '2026-09-10', '2026-09-11', '2026-09-14'];
+    const wrapper = mount(MacroSeriesChart, { props: { result: response, loading: false, label: '走势' } });
+    const option = wrapper.findComponent({ name: 'VChart' }).props('option');
+    const [dashed, solid] = option.series;
+    expect(dashed.lineStyle.type).toBe('dashed'); expect(dashed.connectNulls).toBe(true);
+    expect(dashed.silent).toBe(true); expect(dashed.tooltip.show).toBe(false);
+    expect(solid.connectNulls).toBe(false);
+    expect(solid.data).toEqual([null, 100, null, null, 105.2, null]);
+    expect(dashed.data).toEqual(solid.data); expect(dashed.name).toBe(solid.name);
+    expect(option.tooltip.formatter({ seriesName: 'SPY.US', dataIndex: 2 })).toBe('');
+    await wrapper.get('button').trigger('click');
+    expect(wrapper.findComponent({ name: 'VChart' }).props('option').legend.selected['SPY.US']).toBe(false);
+  });
+  it('keeps isolated observations and wholly missing assets without false connectors', async () => {
+    const response = series();
+    response.dates = ['2026-09-10', '2026-09-11', '2026-09-14'];
+    response.series[0]!.points = [{ date: '2026-09-11', value: 100 }];
+    response.series.push({ ...response.series[0]!, key: 'VIX.US', code: 'VIX.US', name: 'VIX', points: [] });
+    const wrapper = mount(MacroSeriesChart, { props: { result: response, loading: false, label: '走势' } });
+    const option = wrapper.findComponent({ name: 'VChart' }).props('option');
+    expect(option.series).toHaveLength(2);
+    expect(option.series[0].data).toEqual([null, 100, null]);
+    expect(option.series[1].data).toEqual([null, null, null]);
+    expect(wrapper.findAll('[data-testid^="macro-legend-"]')).toHaveLength(2);
+    await wrapper.setProps({ result: { ...response, series: response.series.slice(1) } });
+    expect(wrapper.text()).toContain('暂无走势数据');
+    expect(wrapper.find('[data-testid="macro-legend-VIX.US"]').exists()).toBe(true);
   });
   it('supports light, dark and system theme including chart tokens', async () => {
     const wrapper = mount(MacroSeriesChart, { props: { result: series(), loading: false, label: '走势' } });

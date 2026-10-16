@@ -39,7 +39,7 @@ export interface MacroSeries {
 }
 export interface MacroSeriesResult {
   range: MacroRange; mode: MacroMode; benchmark: string | null; tradeDate: string | null;
-  series: MacroSeries[]; dataQuality: MacroDataQuality;
+  dates?: string[]; series: MacroSeries[]; dataQuality: MacroDataQuality;
 }
 export interface MacroSeriesParams {
   range?: MacroRange; mode?: MacroMode; symbols?: string[]; series?: string[]; benchmark?: string; asOf?: string;

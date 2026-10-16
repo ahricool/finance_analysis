@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref, shallowRef } from 'vue';
-import { getMacroDashboard, type MacroDashboard } from '@/api/macro';
+import { defineAsyncComponent, onBeforeUnmount, onMounted, ref, shallowRef } from 'vue';
+import { getMacroDashboard, type MacroInstrument, type MacroDashboard } from '@/api/macro';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import AppApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
 import PageHeader from '@/components/layout/PageHeader.vue';
@@ -10,6 +10,8 @@ import MacroStateCards from '@/components/macro/MacroStateCards.vue';
 import MacroPerformanceChart from '@/components/macro/MacroPerformanceChart.vue';
 import MacroMetricsTable from '@/components/macro/MacroMetricsTable.vue';
 import { formatDateOnly, formatDateTime } from '@/utils/format';
+const StockDetailDialog = defineAsyncComponent(() => import('@/components/stocks/StockDetailDialog.vue'));
+const selected = shallowRef<MacroInstrument | null>(null);
 const dashboard = shallowRef<MacroDashboard | null>(null);
 const loading = ref(true);
 const error = shallowRef<ParsedApiError | null>(null);
@@ -74,7 +76,10 @@ onBeforeUnmount(() => { sequence++; });
     <MacroPerformanceChart />
     <MacroPerformanceChart ratios />
     <template v-if="dashboard">
-      <MacroMetricsTable :rows="dashboard.instruments" /><MacroMetricsTable
+      <MacroMetricsTable
+        :rows="dashboard.instruments"
+        @select="selected = $event"
+      /><MacroMetricsTable
         :rows="dashboard.ratios"
         ratios
       />
@@ -82,5 +87,13 @@ onBeforeUnmount(() => { sequence++; });
     <template v-else-if="loading">
       <Skeleton class="h-80" /><Skeleton class="h-56" />
     </template>
+    <StockDetailDialog
+      v-if="selected"
+      :stock="{ code: selected.code, name: selected.name, market_type: 'US' }"
+      kind="research"
+      initial-tab="overview"
+      :context="{ tradeDate: selected.tradeDate ?? undefined, view: 'official' }"
+      @update:open="open => { if (!open) selected = null; }"
+    />
   </div>
 </template>

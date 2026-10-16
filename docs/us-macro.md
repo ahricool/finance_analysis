@@ -96,7 +96,7 @@ Ratio 包括 `key/name/value/trade_date/ret_1d/ret_5d/ret_20d/trend/signal/parti
 - `benchmark=SPY.US`，仅用于 relative，必须来自固定 Macro 配置。
 - 可选 `as_of` 与 dashboard 相同。
 
-返回 `range/mode/benchmark/trade_date/series/data_quality`；每条曲线有
+返回 `range/mode/benchmark/trade_date/dates/series/data_quality`；每条曲线有
 `key/code/name/category/points/partial`，points 为 `{date, value}`，按日期递增。
 price 返回 close 或原始 Ratio；normalized 将每条曲线首个有效值归一到 100；
 relative 对 symbol 与 benchmark 按日期求比值，再归一到 100。
@@ -122,3 +122,17 @@ MacroRepository 批量读取 Universe、最新日期和窗口边界；价格唯�
 `MarketDataService.get_daily_bars(..., source_policy="db_only", adjustment="forward")`，
 使用已有 StockRepository 批量历史读取。普通请求最多四次 SELECT，数量不随成员数增长。
 没有远程补数、日线写入、Macro 行情表、snapshot、Redis cache 或派生指标持久化。
+
+## WebUI 图表与资产详情
+
+跨资产图默认加载全部 13 个资产，风险偏好图加载全部 4 个 Ratio。图例复用 ETF 轮动的换行按钮样式，
+展示代码和名称，点击只切换曲线显隐，不重新请求；图例不附加数据完整性标签，质量信息保留在看板的数据质量区。
+
+`series` API 的 `dates` 是本次窗口全部 Macro 成员已存有效交易日的并集，前端据此对齐各曲线，
+缺失点保持 null。曲线内部缺口以虚线连接两侧真实观测，虚线不是补齐的实际价格；
+周末和全体均无观测的日期不额外插入，首尾缺失不外推，完全缺失的资产只有图例，不产生曲线。
+
+资产表可点击行或通过代码按钮打开统一 `StockDetailDialog` 行情页签，查看基本行情和最近 5 年日／周／月 K。
+来源日作为查看日标记，K 线仍加载至最新；VIX 复用指数证券代码 `VIX.US`。
+详情沿用现有 quote/daily-bars 接口的只读远程降级语义，不改变 Macro 看板 API 的 DB-only 边界。
+Ratio 为派生序列，无独立证券 K 线。

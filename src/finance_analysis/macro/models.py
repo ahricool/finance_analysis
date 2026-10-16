@@ -100,5 +100,6 @@ class MacroSeriesResult(BaseModel):
     mode: SeriesMode
     benchmark: str | None
     trade_date: date | None
+    dates: list[date] = Field(default_factory=list)
     series: list[MacroSeries]
     data_quality: DataQuality
