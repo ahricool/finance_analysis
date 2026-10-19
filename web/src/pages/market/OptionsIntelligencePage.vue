@@ -4,20 +4,35 @@ import { optionsIntelligenceApi, type OptionMetrics, type OptionsView } from '@/
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import { useAuthStore } from '@/stores/authStore';
 import OptionsDataControls from '@/components/options-intelligence/OptionsDataControls.vue';
-import OptionHelp from '@/components/options-intelligence/OptionHelp.vue';
+import { optionHelp } from '@/components/options-intelligence/help';
+import SortableTableHeader from '@/components/stocks/SortableTableHeader.vue';
 import PageHeader from '@/components/layout/PageHeader.vue';
 import { Input } from '@/components/ui/input';
 import FieldSelect from '@/components/forms/FieldSelect.vue';
 import LoadingButton from '@/components/app/LoadingButton.vue';
 import AppApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
 import StockDetailDialog, { type StockDetailRecord } from '@/components/stocks/StockDetailDialog.vue';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Table, TableBody, TableCell, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import { formatDateTimeInDisplayTimezone } from '@/utils/format';
 import { formatSecurityLabel } from '@/utils/security';
 import { eventLabels, formatOptionNumber as num, formatOptionPct as pct } from '@/components/options-intelligence/labels';
 const auth = useAuthStore();
-const items = ref<OptionMetrics[]>([]), query = ref(''), eventType = ref(''), sort = ref('unusualActivity');
+const columns = [
+  { key: 'symbol', label: '股票' },
+  { key: 'underlyingPrice', label: '股价 ($)' },
+  { key: 'bearishDemand', label: '看跌保护需求' },
+  { key: 'unusualActivity', label: '异常活动' },
+  { key: 'liquidityRisk', label: '流动性风险' },
+  { key: 'skew30D', label: '25Δ Skew' },
+  { key: 'putCallVolumeRatio', label: 'Put/Call Volume' },
+  { key: 'topEvent', label: '主要异常' },
+  { key: 'evidenceGrade', label: '证据' },
+  { key: 'observedAt', label: '更新时间' },
+] as const;
+type SortKey = typeof columns[number]['key'];
+const items = ref<OptionMetrics[]>([]), query = ref(''), eventType = ref('');
+const sortKey = ref<SortKey>('unusualActivity'), sortDirection = ref<'asc' | 'desc'>('desc');
 const loading = ref(false), error = ref<ParsedApiError | null>(null), selected = ref<StockDetailRecord | null>(null);
 const pending = ref('');
 const mode = ref<OptionsView>('official'), requestedDate = ref(''), selectedDate = ref('');
@@ -25,12 +40,43 @@ const dates = ref<string[]>([]), reason = ref<string | null>(null);
 const failedCount = ref(0), failureSource = ref<string | null>(null);
 const taskSummary = ref<{ failedCount: number; totalCount: number } | null>(null);
 let generation = 0;
+function eventText(row: OptionMetrics) {
+  if (row.refreshStatus === 'failed') return '刷新失败，显示上次预演';
+  if (row.status === 'failed') return '采集失败';
+  if (row.topEvent) return eventLabels[row.topEvent.eventType] ?? row.topEvent.eventType;
+  if (row.status === 'not_scanned') return mode.value === 'preview' ? '本轮预演尚未采集' : '无正式快照／未确认执行结果';
+  return '无满足规则的异常';
+}
+function sortValue(row: OptionMetrics, key: SortKey) {
+  if (key === 'bearishDemand' || key === 'unusualActivity' || key === 'liquidityRisk') return row.scores?.[key].value;
+  if (key === 'topEvent') return eventText(row);
+  if (key === 'observedAt') return row.observedAt ? Date.parse(row.observedAt) : null;
+  if (key === 'evidenceGrade') return row.evidenceGrade === 'N/A' ? null : row.evidenceGrade;
+  return row[key];
+}
+function defaultSortDirection(key: SortKey) {
+  return ['symbol', 'topEvent', 'evidenceGrade'].includes(key) ? 'asc' : 'desc';
+}
+function toggleSort(key: SortKey) {
+  sortDirection.value = sortKey.value === key
+    ? (sortDirection.value === 'asc' ? 'desc' : 'asc') : defaultSortDirection(key);
+  sortKey.value = key;
+}
+function selectSort(value: string) {
+  sortKey.value = value as SortKey;
+  sortDirection.value = defaultSortDirection(sortKey.value);
+}
 const filtered = computed(() => items.value.filter(r =>
   formatSecurityLabel(r.symbol, r.name).toLowerCase().includes(query.value.trim().toLowerCase()) &&
   (!eventType.value || r.eventTypes?.includes(eventType.value))).sort((a, b) => {
-    const key = sort.value as 'bearishDemand' | 'unusualActivity' | 'liquidityRisk';
-    const x = a.scores?.[key].value, y = b.scores?.[key].value;
-    return x == null ? y == null ? a.symbol.localeCompare(b.symbol) : 1 : y == null ? -1 : y - x || a.symbol.localeCompare(b.symbol);
+    const left = sortValue(a, sortKey.value), right = sortValue(b, sortKey.value);
+    const missing = (value: typeof left) => value == null || value === '' || (typeof value === 'number' && !Number.isFinite(value));
+    const tie = a.symbol.localeCompare(b.symbol);
+    if (missing(left)) return missing(right) ? tie : 1;
+    if (missing(right)) return -1;
+    const comparison = typeof left === 'string' || typeof right === 'string'
+      ? String(left).localeCompare(String(right), 'zh-CN') : Number(left) - Number(right);
+    return (sortDirection.value === 'asc' ? comparison : -comparison) || tie;
   }));
 async function load() {
   const version = ++generation;
@@ -131,9 +177,10 @@ onBeforeUnmount(() => { generation++; });
           placeholder="股票代码 / 名称…"
         />
       </div><FieldSelect
-        v-model="sort"
-        label="按评分排序"
-        :options="[{ value: 'unusualActivity', label: '异常交易活动 ↓' }, { value: 'bearishDemand', label: '看跌保护需求 ↓' }, { value: 'liquidityRisk', label: '流动性风险 ↓' }]"
+        :model-value="sortKey"
+        label="排序字段"
+        :options="columns.map(column => ({ value: column.key, label: column.label }))"
+        @update:model-value="selectSort"
       /><FieldSelect
         v-model="eventType"
         label="异常类型"
@@ -144,57 +191,15 @@ onBeforeUnmount(() => { generation++; });
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead>
-              <OptionHelp
-                label="股票"
-                compact
-              />
-            </TableHead><TableHead>
-              <OptionHelp
-                label="股价 ($)"
-                compact
-              />
-            </TableHead><TableHead>
-              <OptionHelp
-                label="看跌保护需求"
-                compact
-              />
-            </TableHead><TableHead>
-              <OptionHelp
-                label="异常活动"
-                compact
-              />
-            </TableHead><TableHead>
-              <OptionHelp
-                label="流动性风险"
-                compact
-              />
-            </TableHead><TableHead>
-              <OptionHelp
-                label="25Δ Skew"
-                compact
-              />
-            </TableHead><TableHead>
-              <OptionHelp
-                label="Put/Call Volume"
-                compact
-              />
-            </TableHead><TableHead>
-              <OptionHelp
-                label="主要异常"
-                compact
-              />
-            </TableHead><TableHead>
-              <OptionHelp
-                label="证据"
-                compact
-              />
-            </TableHead><TableHead>
-              <OptionHelp
-                label="更新时间"
-                compact
-              />
-            </TableHead>
+            <SortableTableHeader
+              v-for="column in columns"
+              :key="column.key"
+              :label="column.label"
+              :description="optionHelp[column.label]"
+              :active="sortKey === column.key"
+              :direction="sortDirection"
+              @sort="toggleSort(column.key)"
+            />
           </TableRow>
         </TableHeader><TableBody>
           <TableRow
@@ -238,7 +243,7 @@ onBeforeUnmount(() => { generation++; });
                 </p>
               </template>
               <template v-else>
-                {{ r.topEvent ? eventLabels[r.topEvent.eventType] : r.status === 'not_scanned' ? (mode === 'preview' ? '本轮预演尚未采集' : '无正式快照／未确认执行结果') : '无满足规则的异常' }}
+                {{ eventText(r) }}
               </template>
             </TableCell><TableCell>
               {{ r.evidenceGrade ?? 'N/A' }}<p class="text-xs text-muted-foreground">
