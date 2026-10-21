@@ -1,4 +1,4 @@
-"""Standalone multi-market Longbridge streamer orchestration."""
+"""Shared realtime calculations with independent Longbridge and CN polling feeds."""
 
 from __future__ import annotations
 
@@ -90,6 +90,7 @@ class MarketStreamService:
             self.config.redis_url,
             bar_limit=self.config.bar_limit,
             removed_ttl_seconds=self.config.removed_symbol_cache_ttl_seconds,
+            retain_session=True,
         )
         self.watchlist_monitor = watchlist_monitor or WatchListMonitor()
         self.history_loader = history_loader or LongbridgeHistoryLoader()
@@ -116,6 +117,7 @@ class MarketStreamService:
         self.regular_session_closes: dict[str, dict[date, Decimal]] = {}
         self.last_event_at: datetime | None = None
         self.redis_degraded = False
+        self.subscription_reconcile_task = None
         self.stop_event = asyncio.Event()
         self.instance_id = f"{socket.gethostname()}:{os.getpid()}:{uuid.uuid4().hex[:8]}"
         self.warmup_semaphore = asyncio.Semaphore(self.config.warmup_concurrency)
@@ -130,10 +132,19 @@ class MarketStreamService:
             connection_cleanup_callback=self._cleanup_connection_buffers,
             minimum_history_bars=self.config.minimum_history_bars,
         )
+        from finance_analysis.market_stream.cn_feed import CnQuoteFeed
+
+        self.cn_feed = CnQuoteFeed(self)
         self.leader_lock = LeaderLock(
             self.repository.redis,
             ttl_seconds=self.config.leader_lock_ttl_seconds,
         )
+
+    def _state(self, symbol):
+        return self.cn_feed.states.get(symbol) or self.manager.symbol_states.get(symbol)
+
+    def _tracked(self, symbol):
+        return symbol in self.cn_feed.targets or symbol in self.manager.desired_targets
 
     def _symbol_lock(self, symbol: str) -> asyncio.Lock:
         return self.symbol_locks.setdefault(symbol, asyncio.Lock())
@@ -162,17 +173,22 @@ class MarketStreamService:
         ]
         try:
             snapshot = await self.watchlist_monitor.poll()
-            self.manager.desired_targets = snapshot.targets
+            self.manager.desired_targets = {s: t for s, t in snapshot.targets.items() if t.market_type != "CN"}
+            await self.cn_feed.reconcile({s: t for s, t in snapshot.targets.items() if t.market_type == "CN"})
             tasks.extend(
                 [
                     asyncio.create_task(self.manager.start(), name="market-stream-connect"),
                     asyncio.create_task(self._poll_watchlist(), name="market-stream-watchlist"),
+                    asyncio.create_task(self.cn_feed.run(), name="market-stream-cn"),
                     asyncio.create_task(self._check_connection(), name="market-stream-health"),
                 ]
             )
             await self.stop_event.wait()
         finally:
             self.stop_event.set()
+            if self.subscription_reconcile_task is not None:
+                self.subscription_reconcile_task.cancel()
+                await asyncio.gather(self.subscription_reconcile_task, return_exceptions=True)
             await self.manager.stop()
             preview_tasks = list(self.pattern_preview_tasks.values())
             for task in preview_tasks:
@@ -225,7 +241,17 @@ class MarketStreamService:
         while not self.stop_event.is_set():
             try:
                 snapshot = await self.watchlist_monitor.poll()
-                await self.manager.reconcile(snapshot.targets)
+                await self.cn_feed.reconcile({s: t for s, t in snapshot.targets.items() if t.market_type == "CN"})
+                previous = self.subscription_reconcile_task
+                if previous is None or previous.done():
+                    if previous is not None:
+                        try:
+                            previous.result()
+                        except Exception:
+                            logger.warning("Longbridge 订阅对账失败", exc_info=True)
+                    self.subscription_reconcile_task = asyncio.create_task(
+                        self.manager.reconcile({s: t for s, t in snapshot.targets.items() if t.market_type != "CN"})
+                    )
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
@@ -233,7 +259,8 @@ class MarketStreamService:
             await asyncio.sleep(self.config.watchlist_poll_seconds)
 
     async def _reload_desired_targets(self) -> dict[str, SubscriptionTarget]:
-        return (await self.watchlist_monitor.poll()).targets
+        targets = (await self.watchlist_monitor.poll()).targets
+        return {s: t for s, t in targets.items() if t.market_type != "CN"}
 
     async def _consume_events(self) -> None:
         while not self.stop_event.is_set():
@@ -248,10 +275,12 @@ class MarketStreamService:
     async def _handle_event(self, event: MarketEvent) -> None:
         if event.connection_generation != self.manager.connection_generation:
             return
-        state = self.manager.symbol_states.get(event.symbol)
-        if state is None or event.symbol not in self.manager.desired_targets:
+        state = self._state(event.symbol)
+        if state is None or not self._tracked(event.symbol):
             return
         if state.status in {SymbolStatus.REMOVING, SymbolStatus.INACTIVE, SymbolStatus.PENDING}:
+            return
+        if event.event_time > event.received_at + timedelta(seconds=30):
             return
         self.last_event_at = event.received_at
         if event.event_type in {"quote", "quote_snapshot", "quote_reference"}:
@@ -295,8 +324,8 @@ class MarketStreamService:
         async with self._symbol_lock(candle.symbol):
             if connection_generation != self.manager.connection_generation:
                 return
-            state = self.manager.symbol_states.get(candle.symbol)
-            if state is None or candle.symbol not in self.manager.desired_targets:
+            state = self._state(candle.symbol)
+            if state is None or not self._tracked(candle.symbol):
                 return
             if state.status in {SymbolStatus.REMOVING, SymbolStatus.INACTIVE, SymbolStatus.PENDING}:
                 return
@@ -338,7 +367,12 @@ class MarketStreamService:
             state.status in {SymbolStatus.INSUFFICIENT_HISTORY, SymbolStatus.ERROR}
             and count >= self.config.minimum_history_bars
         ):
-            await self.manager.bars_updated(candle.symbol, count, symbol_generation=state.generation)
+            if candle.symbol in self.cn_feed.states:
+                state.status = SymbolStatus.ACTIVE
+                state.bars_count = count
+                await self._write_symbol_state(state)
+            else:
+                await self.manager.bars_updated(candle.symbol, count, symbol_generation=state.generation)
 
     def _update_live_candle_memory(
         self,
@@ -375,6 +409,8 @@ class MarketStreamService:
             previous.volume,
             previous.turnover,
             previous.confirmed,
+            previous.sample_count,
+            previous.partial,
         ) == (
             candle.symbol,
             candle.open,
@@ -384,6 +420,8 @@ class MarketStreamService:
             candle.volume,
             candle.turnover,
             candle.confirmed,
+            candle.sample_count,
+            candle.partial,
         ):
             return False, len(bars)
         if previous is not None and (candle.confirmed, candle.received_at) < (
@@ -485,6 +523,7 @@ class MarketStreamService:
             return
         try:
             await self.repository.write_pattern_state(pattern)
+            await self.repository.record_pattern_event(pattern, utc_now())
             self.pending_patterns.pop(symbol, None)
         except Exception as exc:
             self.pending_patterns[symbol] = pattern
@@ -509,7 +548,7 @@ class MarketStreamService:
         previous = self.pattern_preview_calculated_at.get(symbol)
         if previous is not None and now - previous < interval:
             if symbol not in self.pattern_preview_tasks:
-                state = self.manager.symbol_states.get(symbol)
+                state = self._state(symbol)
                 if state is not None:
                     delay = interval - (now - previous)
                     self.pattern_preview_tasks[symbol] = asyncio.create_task(
@@ -540,13 +579,13 @@ class MarketStreamService:
         task = asyncio.current_task()
         try:
             await asyncio.sleep(max(0, delay))
-            state = self.manager.symbol_states.get(symbol)
+            state = self._state(symbol)
             candle = self.current_candles.get(symbol)
             if (
                 connection_generation != self.manager.connection_generation
                 or state is None
                 or state.generation != symbol_generation
-                or symbol not in self.manager.desired_targets
+                or not self._tracked(symbol)
                 or state.status in {SymbolStatus.REMOVING, SymbolStatus.INACTIVE, SymbolStatus.PENDING}
                 or candle is None
                 or candle.confirmed
@@ -640,7 +679,7 @@ class MarketStreamService:
         bars: list[CandleState] = []
         trading_date: date | None = None
         async with self._symbol_lock(state.symbol):
-            current = self.manager.symbol_states.get(state.symbol)
+            current = self._state(state.symbol)
             target = self.manager.desired_targets.get(state.symbol)
             if (
                 current is not state
@@ -810,6 +849,8 @@ class MarketStreamService:
         # Quote sequence values are connection-scoped. Keep the merged fields
         # for partial pushes, but let the new connection establish a baseline.
         for symbol, quote in self.quotes.items():
+            if symbol in self.cn_feed.states:
+                continue
             quote.sequence = None
             self.pending_quotes.pop(symbol, None)
         self.pattern_preview_calculated_at.clear()
@@ -822,6 +863,8 @@ class MarketStreamService:
             if event.connection_generation > connection_generation
         }
         for symbol, bars in list(self.bars_1m.items()):
+            if symbol in self.cn_feed.states:
+                continue
             confirmed = deque((bar for bar in bars if bar.confirmed), maxlen=self.config.bar_limit)
             self.bars_1m[symbol] = confirmed
             if confirmed:
@@ -866,9 +909,12 @@ class MarketStreamService:
                     {
                         "instance_id": self.instance_id,
                         "status": status,
+                        "cn_status": "READY" if self.cn_feed.healthy else "DISCONNECTED",
                         "connection_generation": self.manager.connection_generation,
-                        "desired_symbols": ",".join(sorted(self.manager.desired_targets)),
-                        "active_symbols": ",".join(sorted(self.manager.active_symbols)),
+                        "desired_symbols": ",".join(
+                            sorted(set(self.manager.desired_targets) | set(self.cn_feed.targets))
+                        ),
+                        "active_symbols": ",".join(sorted(set(self.manager.active_symbols) | set(self.cn_feed.states))),
                         "warming_symbols": ",".join(sorted(self.manager.warming_symbols)),
                         "last_event_at": self.last_event_at,
                         "updated_at": utc_now(),
@@ -876,7 +922,9 @@ class MarketStreamService:
                     ttl_seconds=self.config.heartbeat_ttl_seconds,
                 )
                 renewable = [
-                    state.symbol for state in self.manager.symbol_states.values() if state.status in renewable_statuses
+                    state.symbol
+                    for state in [*self.manager.symbol_states.values(), *self.cn_feed.states.values()]
+                    if state.status in renewable_statuses
                 ]
                 await self.repository.refresh_subscription_ttls(
                     renewable,

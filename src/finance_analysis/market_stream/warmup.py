@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import defaultdict
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any, Iterable
 
@@ -51,11 +51,16 @@ class LongbridgeHistoryLoader:
 
     async def fetch(self, symbol: str, market_type: MarketType, count: int) -> list[CandleState]:
         received_at = datetime.now(timezone.utc)
+        from finance_analysis.market_stream.session import display_day, session_bounds
+
+        day = display_day(market_type, received_at)
+        start, close = session_bounds(market_type, day)
+        end = min(received_at, close)
         result = await asyncio.to_thread(
             self.market_data.get_minute_bars,
             [symbol],
-            received_at - timedelta(minutes=max(count, 1)),
-            received_at,
+            start,
+            end,
             interval="1m",
         )
         values = next(iter(result.data.values()), [])
@@ -76,6 +81,8 @@ class LongbridgeHistoryLoader:
         for item in raw:
             try:
                 bar_time = _parse_time(item.get("bar_time") or item.get("timestamp"))
+                if bar_time > received_at:
+                    continue
                 bar = CandleState(
                     symbol=symbol,
                     bar_time=bar_time,

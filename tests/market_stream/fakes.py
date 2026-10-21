@@ -63,6 +63,22 @@ class FakeRedis:
         self.hashes[key].update({str(k): str(v) for k, v in (mapping or {}).items()})
         return len(self.hashes[key]) - before
 
+    async def hsetnx(self, key, field, value):
+        if field in self.hashes.get(key, {}):
+            return 0
+        self.hashes[key][field] = str(value)
+        return 1
+
+    async def delete(self, *keys):
+        count = 0
+        for key in keys:
+            count += int(key in self.hashes or key in self.zsets or key in self.strings)
+            self.hashes.pop(key, None)
+            self.zsets.pop(key, None)
+            self.strings.pop(key, None)
+            self.expires.pop(key, None)
+        return count
+
     async def hgetall(self, key: str) -> dict[str, str]:
         return dict(self.hashes.get(key, {}))
 
@@ -95,11 +111,7 @@ class FakeRedis:
         return values[start : end + 1]
 
     async def zrangebyscore(self, key: str, minimum: float, maximum: float) -> list[str]:
-        return [
-            field
-            for field in self._ordered(key)
-            if float(minimum) <= self.zsets[key][field] <= float(maximum)
-        ]
+        return [field for field in self._ordered(key) if float(minimum) <= self.zsets[key][field] <= float(maximum)]
 
     async def zrem(self, key: str, *fields: str) -> int:
         removed = 0

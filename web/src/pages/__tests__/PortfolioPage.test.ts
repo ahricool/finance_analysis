@@ -8,7 +8,7 @@ import HoldingsPage from '../market/HoldingsPage.vue';
 
 vi.mock('@/composables/useRealtimeQuotes', async () => {
   const { ref } = await import('vue');
-  return { useRealtimeQuotes: () => ({ portfolio: ref(null), status: ref('connected') }) };
+  return { useRealtimeQuotes: () => ({ portfolio: ref(null), status: ref('connected'), getQuote: () => undefined }) };
 });
 
 const mocks = vi.hoisted(() => ({

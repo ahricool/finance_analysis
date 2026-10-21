@@ -15,12 +15,13 @@ import AppConfirmDialog from '@/components/app/AppConfirmDialog.vue';
 import FieldInput from '@/components/forms/FieldInput.vue';
 import WatchListTagPicker from '@/components/watch-list/WatchListTagPicker.vue';
 import WatchListTagManager from '@/components/watch-list/WatchListTagManager.vue';
+import IntradayStockPanel from '@/components/stocks/IntradayStockPanel.vue';
 import PatternStatus from '@/components/stocks/PatternStatus.vue';
 import RealtimeStatus from '@/components/stocks/RealtimeStatus.vue';
 import SortableTableHeader from '@/components/stocks/SortableTableHeader.vue';
 import StockDetailDialog from '@/components/stocks/StockDetailDialog.vue';
 import TrendStatus from '@/components/stocks/TrendStatus.vue';
-import ZeroDteStatus from '@/components/stocks/ZeroDteStatus.vue';
+import IntradayDirectionStatus from '@/components/stocks/IntradayDirectionStatus.vue';
 import StockAutocomplete from '@/components/StockAutocomplete/StockAutocomplete.vue';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -35,7 +36,7 @@ import { useRealtimeQuotes } from '@/composables/useRealtimeQuotes';
 import type { Market } from '@/types/stockIndex';
 import { formatSecurityLabel } from '@/utils/security';
 import { signedTextClass } from '@/utils/marketTone';
-import { calculateZeroDteStatus, zeroDteStatusSortValue } from '@/utils/zeroDteStatus';
+import { calculateIntradayDirection, intradayDirectionSortValue } from '@/utils/intradayDirection';
 import { Eye, Heart, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-vue-next';
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 
@@ -51,7 +52,7 @@ type WatchListSortKey =
   | 'change_pct'
   | 'trend'
   | 'pattern'
-  | 'zero_dte';
+  | 'intraday_direction';
 
 // ── State ─────────────────────────────────────────────────────────────────────
 const items = ref<WatchListItem[]>([]);
@@ -75,11 +76,14 @@ const deletingId = ref<number | null>(null);
 const deletingCode = ref('');
 const togglingFavoriteId = ref<number | null>(null);
 const detailItem = ref<WatchListItem | null>(null);
+const expandedCode = ref<string | null>(null);
 const selectedMarket = ref<'CN' | 'US'>('CN');
 const selectedTag = ref<TagFilter>('ALL');
 const tags = ref<WatchListTag[]>([]);
 const formTags = ref<WatchListTagDraft[]>([]);
 const showTagManager = ref(false);
+watch(selectedMarket, () => { expandedCode.value = null; });
+watch(selectedTag, () => { expandedCode.value = null; });
 const filters = computed(() => ({
   market: selectedMarket.value,
   tagId: typeof selectedTag.value === 'number' ? selectedTag.value : undefined,
@@ -144,9 +148,9 @@ function sortValue(
   if (key === 'change_pct') return quote?.change_pct;
   if (key === 'trend') return trendSortValue(quote?.trend_1m);
   if (key === 'pattern') return patternSortValue(quote?.pattern_1m);
-  if (key === 'zero_dte') {
-    return zeroDteStatusSortValue(
-      calculateZeroDteStatus(quote, item.market_type, currentTime.value),
+  if (key === 'intraday_direction') {
+    return intradayDirectionSortValue(
+      calculateIntradayDirection(quote, item.market_type, currentTime.value),
     );
   }
   return item[key];
@@ -538,7 +542,7 @@ onMounted(() => {
     </Empty>
     <template v-else>
       <Card class="block">
-        <CardHeader><CardTitle>自选股列表</CardTitle><CardDescription>点击任一行打开行情详情；次要操作收纳在行菜单中。</CardDescription></CardHeader><CardContent>
+        <CardHeader><CardTitle>自选股列表</CardTitle><CardDescription>点击股票名称查看详情，点击行展开分钟行情；次要操作收纳在行菜单中。</CardDescription></CardHeader><CardContent>
           <Table class="w-full min-w-[1500px] table-auto text-left text-sm">
             <colgroup>
               <col class="w-[110px]" />
@@ -615,10 +619,10 @@ onMounted(() => {
                 />
                 <SortableTableHeader
                   scope="watch"
-                  label="0DTE状态"
-                  :active="sortKey === 'zero_dte'"
+                  label="日内方向状态"
+                  :active="sortKey === 'intraday_direction'"
                   :direction="sortDirection"
-                  @sort="toggleSort('zero_dte')"
+                  @sort="toggleSort('intraday_direction')"
                 />
                 <TableHead class="whitespace-nowrap px-4 py-3 text-right font-medium">
                   操作
@@ -635,137 +639,152 @@ onMounted(() => {
                 </TableCell>
               </TableRow>
               <template v-else>
-                <TableRow
+                <template
                   v-for="item in visibleItems"
                   :key="item.id"
-                  class="cursor-pointer border-b border-border/50 transition-colors last:border-0 hover:bg-muted/70 focus-visible:bg-muted/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-                  tabindex="0"
-                  :aria-label="`查看 ${formatSecurityLabel(item.code, item.name)} 详情`"
-                  @click="detailItem = item"
-                  @keydown.enter.self="detailItem = item"
-                  @keydown.space.self.prevent="detailItem = item"
                 >
-                  <TableCell class="px-4 py-3">
-                    <button
-                      type="button"
-                      class="rounded-lg p-1.5 transition-colors disabled:opacity-50"
-                      :class="
-                        item.is_favorite
-                          ? 'text-brand hover:text-brand/90'
-                          : 'text-muted-foreground hover:text-brand'
-                      "
-                      :disabled="togglingFavoriteId === item.id"
-                      :aria-label="item.is_favorite ? '取消特别关注' : '标记为特别关注'"
-                      :aria-pressed="item.is_favorite"
-                      @click.stop="toggleFavorite(item)"
-                    >
-                      <Heart
-                        class="h-4 w-4"
-                        :class="{ 'fill-current': item.is_favorite }"
-                      />
-                    </button>
-                  </TableCell>
-                  <TableCell class="max-w-[220px] px-4 py-3">
-                    <TooltipProvider :delay-duration="200">
-                      <Tooltip>
-                        <TooltipTrigger as-child>
-                          <button
-                            class="cell-ellipsis max-w-full text-left text-sm font-semibold text-primary hover:underline"
-                            :aria-label="formatSecurityLabel(item.code, item.name)"
-                            @click.stop="detailItem = item"
-                          >
+                  <TableRow
+                    class="cursor-pointer border-b border-border/50 transition-colors last:border-0 hover:bg-muted/70 focus-visible:bg-muted/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                    tabindex="0"
+                    :aria-label="`展开 ${formatSecurityLabel(item.code, item.name)} 分钟行情`"
+                    :aria-expanded="expandedCode === item.code"
+                    @click="expandedCode = expandedCode === item.code ? null : item.code"
+                    @keydown.enter.self="expandedCode = expandedCode === item.code ? null : item.code"
+                    @keydown.space.self.prevent="expandedCode = expandedCode === item.code ? null : item.code"
+                  >
+                    <TableCell class="px-4 py-3">
+                      <button
+                        type="button"
+                        class="rounded-lg p-1.5 transition-colors disabled:opacity-50"
+                        :class="
+                          item.is_favorite
+                            ? 'text-brand hover:text-brand/90'
+                            : 'text-muted-foreground hover:text-brand'
+                        "
+                        :disabled="togglingFavoriteId === item.id"
+                        :aria-label="item.is_favorite ? '取消特别关注' : '标记为特别关注'"
+                        :aria-pressed="item.is_favorite"
+                        @click.stop="toggleFavorite(item)"
+                      >
+                        <Heart
+                          class="h-4 w-4"
+                          :class="{ 'fill-current': item.is_favorite }"
+                        />
+                      </button>
+                    </TableCell>
+                    <TableCell class="max-w-[220px] px-4 py-3">
+                      <TooltipProvider :delay-duration="200">
+                        <Tooltip>
+                          <TooltipTrigger as-child>
+                            <button
+                              class="cell-ellipsis max-w-full text-left text-sm font-semibold text-primary hover:underline"
+                              :aria-label="formatSecurityLabel(item.code, item.name)"
+                              @click.stop="detailItem = item"
+                            >
+                              {{ formatSecurityLabel(item.code, item.name) }}
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent>
                             {{ formatSecurityLabel(item.code, item.name) }}
-                          </button>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          {{ formatSecurityLabel(item.code, item.name) }}
-                        </TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-                    <div
-                      v-if="item.tags.length"
-                      class="mt-1 flex max-w-full flex-wrap gap-1"
-                      data-testid="stock-tags"
-                    >
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                      <div
+                        v-if="item.tags.length"
+                        class="mt-1 flex max-w-full flex-wrap gap-1"
+                        data-testid="stock-tags"
+                      >
+                        <span
+                          v-for="tag in item.tags"
+                          :key="tag.id"
+                          class="max-w-full rounded border border-border/60 bg-muted/60 px-1.5 py-0.5 text-[10px] leading-tight text-muted-foreground break-all"
+                        >{{ tag.name }}</span>
+                      </div>
+                    </TableCell>
+                    <TableCell class="px-4 py-3">
                       <span
-                        v-for="tag in item.tags"
-                        :key="tag.id"
-                        class="max-w-full rounded border border-border/60 bg-muted/60 px-1.5 py-0.5 text-[10px] leading-tight text-muted-foreground break-all"
-                      >{{ tag.name }}</span>
-                    </div>
-                  </TableCell>
-                  <TableCell class="px-4 py-3">
-                    <span
-                      class="rounded-lg border border-border/60 bg-background px-2 py-0.5 text-xs font-medium text-muted-foreground"
+                        class="rounded-lg border border-border/60 bg-background px-2 py-0.5 text-xs font-medium text-muted-foreground"
+                      >
+                        {{ marketLabel(item.market_type) }}
+                      </span>
+                    </TableCell>
+                    <TableCell
+                      class="whitespace-nowrap px-4 py-3 text-right font-medium tabular-nums text-foreground"
                     >
-                      {{ marketLabel(item.market_type) }}
-                    </span>
-                  </TableCell>
-                  <TableCell
-                    class="whitespace-nowrap px-4 py-3 text-right font-medium tabular-nums text-foreground"
-                  >
-                    {{ formatQuoteNumber(getQuote(item.code, item.market_type)?.last_price) }}
-                    <span
-                      v-if="getQuote(item.code, item.market_type)?.quote_status === 'delayed'"
-                      class="ml-1 text-xs text-warning"
-                    >延迟</span>
-                  </TableCell>
-                  <TableCell
-                    class="whitespace-nowrap px-4 py-3 text-right font-medium tabular-nums"
-                    :class="movementClass(getQuote(item.code, item.market_type)?.change_amount)"
-                  >
-                    {{
-                      formatSignedQuoteNumber(getQuote(item.code, item.market_type)?.change_amount)
-                    }}
-                  </TableCell>
-                  <TableCell
-                    class="whitespace-nowrap px-4 py-3 text-right font-medium tabular-nums"
-                    :class="movementClass(getQuote(item.code, item.market_type)?.change_pct)"
-                  >
-                    {{
-                      formatSignedQuoteNumber(getQuote(item.code, item.market_type)?.change_pct, '%')
-                    }}
-                  </TableCell>
-                  <TableCell class="px-4 py-3">
-                    <TrendStatus :trend="getQuote(item.code, item.market_type)?.trend_1m" />
-                  </TableCell>
-                  <TableCell class="px-4 py-3">
-                    <PatternStatus
-                      :pattern="getQuote(item.code, item.market_type)?.pattern_1m"
-                      :now="currentTime"
-                    />
-                  </TableCell>
-                  <TableCell class="px-4 py-3">
-                    <ZeroDteStatus
-                      :quote="getQuote(item.code, item.market_type)"
-                      :market-type="item.market_type"
-                      :now="currentTime"
-                    />
-                  </TableCell>
-                  <TableCell class="px-4 py-3 text-right">
-                    <DropdownMenu>
-                      <DropdownMenuTrigger as-child>
-                        <Button
-                          variant="ghost"
-                          size="icon-sm"
-                          aria-label="自选股操作"
-                          @click.stop
-                        >
-                          <MoreHorizontal />
-                        </Button>
-                      </DropdownMenuTrigger><DropdownMenuContent align="end">
-                        <DropdownMenuItem @select="openEdit(item)">
-                          <Pencil />编辑
-                        </DropdownMenuItem><DropdownMenuSeparator /><DropdownMenuItem
-                          class="text-destructive"
-                          @select="openDelete(item)"
-                        >
-                          <Trash2 />删除
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </TableCell>
-                </TableRow>
+                      {{ formatQuoteNumber(getQuote(item.code, item.market_type)?.last_price) }}
+                      <span
+                        v-if="getQuote(item.code, item.market_type)?.quote_status === 'delayed'"
+                        class="ml-1 text-xs text-warning"
+                      >延迟</span>
+                    </TableCell>
+                    <TableCell
+                      class="whitespace-nowrap px-4 py-3 text-right font-medium tabular-nums"
+                      :class="movementClass(getQuote(item.code, item.market_type)?.change_amount)"
+                    >
+                      {{
+                        formatSignedQuoteNumber(getQuote(item.code, item.market_type)?.change_amount)
+                      }}
+                    </TableCell>
+                    <TableCell
+                      class="whitespace-nowrap px-4 py-3 text-right font-medium tabular-nums"
+                      :class="movementClass(getQuote(item.code, item.market_type)?.change_pct)"
+                    >
+                      {{
+                        formatSignedQuoteNumber(getQuote(item.code, item.market_type)?.change_pct, '%')
+                      }}
+                    </TableCell>
+                    <TableCell class="px-4 py-3">
+                      <TrendStatus :trend="getQuote(item.code, item.market_type)?.trend_1m" />
+                    </TableCell>
+                    <TableCell class="px-4 py-3">
+                      <PatternStatus
+                        :pattern="getQuote(item.code, item.market_type)?.pattern_1m"
+                        :now="currentTime"
+                      />
+                    </TableCell>
+                    <TableCell class="px-4 py-3">
+                      <IntradayDirectionStatus
+                        :quote="getQuote(item.code, item.market_type)"
+                        :market-type="item.market_type"
+                        :now="currentTime"
+                      />
+                    </TableCell>
+                    <TableCell class="px-4 py-3 text-right">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger as-child>
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            aria-label="自选股操作"
+                            @click.stop
+                          >
+                            <MoreHorizontal />
+                          </Button>
+                        </DropdownMenuTrigger><DropdownMenuContent align="end">
+                          <DropdownMenuItem @select="openEdit(item)">
+                            <Pencil />编辑
+                          </DropdownMenuItem><DropdownMenuSeparator /><DropdownMenuItem
+                            class="text-destructive"
+                            @select="openDelete(item)"
+                          >
+                            <Trash2 />删除
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </TableCell>
+                  </TableRow>
+                  <TableRow v-if="expandedCode === item.code">
+                    <TableCell
+                      :colspan="10"
+                      class="max-w-0 p-3"
+                    >
+                      <IntradayStockPanel
+                        :symbol="item.code"
+                        :market="selectedMarket"
+                      />
+                    </TableCell>
+                  </TableRow>
+                </template>
               </template>
             </TableBody>
           </Table>

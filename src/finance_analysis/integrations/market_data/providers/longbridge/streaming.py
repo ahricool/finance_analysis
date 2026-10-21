@@ -16,7 +16,6 @@ from finance_analysis.integrations.market_data.providers.longbridge.normalizer i
     normalize_quote_snapshot,
 )
 
-
 EventSink = Callable[[MarketEvent], None]
 logger = logging.getLogger(__name__)
 
@@ -28,6 +27,7 @@ class LongbridgeStreamingClient:
         self.context: Any | None = None
         self.generation = 0
         self.event_sink: EventSink | None = None
+        self.prepared_symbols: set[str] = set()
 
     async def connect(self, generation: int, event_sink: EventSink) -> None:
         from longbridge.openapi import AsyncQuoteContext
@@ -53,15 +53,23 @@ class LongbridgeStreamingClient:
             return
         if self.context is None:
             raise RuntimeError("Longbridge streaming context is disconnected")
-        from longbridge.openapi import Period, SubType, TradeSessions
+        from longbridge.openapi import Period, TradeSessions
 
         ordered = sorted(symbols)
-        # No pushes can arrive before this subscription call, so the full
-        # snapshot is safe to use as the initial quote state.
-        await self.refresh_quotes(symbols, reference_only=False)
-        await self.context.subscribe(ordered, [SubType.Quote])
+        await self.prepare_quotes(symbols - self.prepared_symbols)
         for symbol in ordered:
             await self.context.subscribe_candlesticks(symbol, Period.Min_1, TradeSessions.Intraday)
+
+    async def prepare_quotes(self, symbols: set[str]) -> None:
+        """Batch snapshot and quote subscription; only the SDK's candle API is per symbol."""
+        from longbridge.openapi import SubType
+
+        ordered = sorted(symbols - self.prepared_symbols)
+        for offset in range(0, len(ordered), 100):
+            batch = ordered[offset : offset + 100]
+            await self.refresh_quotes(set(batch), reference_only=False)
+            await self.context.subscribe(batch, [SubType.Quote])
+            self.prepared_symbols.update(batch)
 
     async def refresh_quotes(
         self,
@@ -75,14 +83,13 @@ class LongbridgeStreamingClient:
         if self.context is None:
             raise RuntimeError("Longbridge streaming context is disconnected")
         ordered = sorted(symbols)
-        try:
-            snapshots = await self.context.quote(ordered)
-        except Exception as exc:
-            # Quote pushes do not contain prev_close. Keep streaming available
-            # when the initial snapshot fails, but make the missing reference
-            # price observable so the next reconnect can retry it.
-            logger.warning("长桥行情快照失败: symbols=%s error=%s", ordered, exc)
-            return set()
+        snapshots = []
+        for offset in range(0, len(ordered), 100):
+            batch = ordered[offset:offset + 100]
+            try:
+                snapshots.extend(await self.context.quote(batch))
+            except Exception as exc:
+                logger.warning("长桥行情快照失败: symbols=%s error=%s", batch, exc)
         if self.event_sink is None:
             raise RuntimeError("Longbridge streaming event sink is unavailable")
         refreshed: set[str] = set()
@@ -105,6 +112,7 @@ class LongbridgeStreamingClient:
         for symbol in ordered:
             await self.context.unsubscribe_candlesticks(symbol, Period.Min_1)
         await self.context.unsubscribe(ordered, [SubType.Quote])
+        self.prepared_symbols.difference_update(symbols)
 
     async def health_check(self) -> None:
         if self.context is None:
@@ -116,3 +124,4 @@ class LongbridgeStreamingClient:
         # the context releases the Rust-owned connection after callbacks detach.
         self.context = None
         self.event_sink = None
+        self.prepared_symbols.clear()

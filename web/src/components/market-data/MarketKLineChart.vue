@@ -15,6 +15,7 @@ const props = defineProps<{
   focusTimestamp?: number;
   focusRequest?: number;
   overlays?: OverlayCreate[];
+  timezone?: string;
 }>();
 const element = ref<HTMLElement>();
 const { resolvedTheme } = useTheme();
@@ -99,12 +100,15 @@ function focusOnTimestamp(timestamp: number) {
 function initialize() {
   destroy();
   if (!element.value) return;
-  chart = init(element.value, { timezone: 'UTC', locale: 'zh-CN' });
+  chart = init(element.value, { timezone: props.timezone ?? 'UTC', locale: 'zh-CN' });
   if (!chart) return;
   styles();
   chart.createIndicator('VOL');
   if (['1d', '1w', '1M'].includes(props.period)) {
     chart.createIndicator({ name: 'MA', calcParams: [5, 10, 20], paneId: 'candle_pane' });
+  }
+  if (props.period === '1m' && props.timezone) {
+    chart.createIndicator({ name: 'MA', calcParams: [20], paneId: 'candle_pane' });
   }
   // KLineChart synchronizes price-series indicators (including MA) from the symbol precision.
   chart.setSymbol({ ticker: props.symbol, volumePrecision: props.period === '1m' ? 4 : 0,
@@ -137,7 +141,7 @@ watch(() => [props.focusTimestamp, props.focusRequest], () => {
   if (timestamp != null) focusOnTimestamp(timestamp);
   else chart?.scrollToRealTime();
 });
-watch(() => [props.symbol, props.period, props.sourceKey, props.pricePrecision], initialize);
+watch(() => [props.symbol, props.period, props.sourceKey, props.pricePrecision, props.timezone], initialize);
 watch(() => props.bars, () => chart?.resetData());
 watch(() => props.current, () => {
   const bar = liveBar();
@@ -158,6 +162,6 @@ onBeforeUnmount(() => { observer?.disconnect(); destroy(); });
     ref="element"
     class="h-80 min-w-0 w-full sm:h-[28rem]"
     role="img"
-    :aria-label="`${symbol} ${period} K线，红涨绿跌，时间为UTC，可拖动和缩放查看历史`"
+    :aria-label="`${symbol} ${period} K线，红涨绿跌，时间为${timezone ?? 'UTC'}，可拖动和缩放查看历史`"
   />
 </template>

@@ -133,9 +133,7 @@ class SubscriptionManager:
         symbol_generation: int | None = None,
     ) -> Any:
         future: asyncio.Future[Any] = asyncio.get_running_loop().create_future()
-        await self.commands.put(
-            SubscriptionCommand(action, payload, connection_generation, symbol_generation, future)
-        )
+        await self.commands.put(SubscriptionCommand(action, payload, connection_generation, symbol_generation, future))
         return await future
 
     async def _run(self) -> None:
@@ -230,6 +228,8 @@ class SubscriptionManager:
                 self.client = client
                 logger.info("长桥连接成功: generation=%s", self.connection_generation)
                 self.connection_status = ConnectionStatus.SUBSCRIBING
+                if hasattr(client, "prepare_quotes"):
+                    await self._prepare_quotes(set(self.desired_targets))
                 for target in sorted(self.desired_targets.values(), key=lambda item: item.symbol):
                     await self._add_target(target)
                 self.connection_status = ConnectionStatus.READY
@@ -277,9 +277,19 @@ class SubscriptionManager:
         to_add = (self.desired_targets.keys() - subscribed) | changed
         for symbol in sorted(to_remove):
             await self._remove_symbol(symbol)
+        if self.client is not None and hasattr(self.client, "prepare_quotes"):
+            await self._prepare_quotes(set(to_add))
         for symbol in sorted(to_add):
             await self._add_target(self.desired_targets[symbol])
         return bool(to_add or to_remove)
+
+    async def _prepare_quotes(self, symbols):
+        # Snapshot callbacks may run before subscribe returns; register ownership first.
+        for symbol in symbols:
+            target = self.desired_targets[symbol]
+            state = self.symbol_states.setdefault(symbol, SymbolRuntimeState(symbol, target.market_type))
+            state.status = SymbolStatus.WARMING
+        await self.client.prepare_quotes(symbols)
 
     async def _refresh_quotes(self, symbols: set[str], *, reference_only: bool) -> set[str]:
         if self.client is None:

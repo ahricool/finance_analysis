@@ -29,7 +29,7 @@ Vue WebUI ──HTTP/SSE/WS──> FastAPI
 - PostgreSQL 是用户、证券、前复权日线、任务状态、分析历史及策略结果的权威存储。 <!-- pragma: allowlist secret -->
 - Redis 是 Celery broker/result backend、Beat 心跳、实时行情状态和量化“最新结果”缓存；不是业务事实源。
 - Celery Worker 执行按需及周期任务，Celery Beat 根据代码注册表发任务；没有 APScheduler。
-- `finance-analysis-stream` 独立消费 Longbridge 实时行情，把 Quote、1 分钟 K 线、趋势和形态状态写入 Redis，不写 PostgreSQL 行情。 <!-- pragma: allowlist secret -->
+- `finance-analysis-stream` 对自选与持仓并集采集 US/HK Longbridge 推送及 CN 扶摇10秒报价采样，把 Quote、1 分钟 K 线、趋势和形态状态写入 Redis，不写 PostgreSQL 行情。 <!-- pragma: allowlist secret -->
 - Qlib 0.9.7 只能运行在独立 Python 3.12 Worker；主应用为 Python 3.13。两侧只经 Redis Celery 协议和 `data/quant` 工件交换，不共享数据库凭据。
 - WebUI 是 Vue 3 SPA；开发时由 Vite 代理 `/api`，生产由 nginx 同源代理到 FastAPI。
 
@@ -405,3 +405,5 @@ Beat `options_intelligence_intraday/daily` 复用 ingestion 与独立任务锁�
 API/页面支持 preview/official 与正式日期选择；正式读取关联日度基线，不回退旧日期或重算历史报价时效。看跌保护初始规则与采集报价流动性研究代理均标注低可信度，不伪装历史分位数或实时 NBBO。
 页面 `/research/options-intelligence` 与现有美股股票详情「期权」Tab。迁移 `0070_options_intelligence`；
 规则、数据能力、OPRA 检查与配置见 `docs/options-intelligence.md`，离线测试 `tests/options_intelligence/`。
+
+Streamer 页面行情只读 Redis；CN/US 共用日内方向状态，分钟线与形态事件仅保留最近交易日，跨周末/长假 TTL 由交易日历确定。自选与持仓表点行展开分钟图、点名称打开详情。ETF扶摇批量参数已实测不支持，保留单证券接口。见 `docs/market-streamer.md`。

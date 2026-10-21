@@ -1,7 +1,7 @@
 import type { RealtimeQuote } from '@/api/realtimeMarket';
 import { mount } from '@vue/test-utils';
 import { afterEach, describe, expect, it } from 'vitest';
-import ZeroDteStatus from '../ZeroDteStatus.vue';
+import IntradayDirectionStatus from '../IntradayDirectionStatus.vue';
 
 const NOW = new Date('2026-07-22T15:00:00Z');
 
@@ -11,6 +11,8 @@ function quote(): RealtimeQuote {
     market_type: 'US',
     symbol: 'AAPL.US',
     available: true,
+    event_time: NOW.toISOString(),
+    received_at: NOW.toISOString(),
     last_price: 101,
     trend_1m: {
       timeframe: '1m',
@@ -48,17 +50,17 @@ afterEach(() => {
   document.body.innerHTML = '';
 });
 
-describe('ZeroDteStatus', () => {
+describe('IntradayDirectionStatus', () => {
   it('renders extended status with text, icon, muted direction styling and chase warning', () => {
-    const wrapper = mount(ZeroDteStatus, { props: { quote: quote(), marketType: 'US', now: NOW } });
-    expect(wrapper.text()).toContain('CALL延续');
+    const wrapper = mount(IntradayDirectionStatus, { props: { quote: quote(), marketType: 'US', now: NOW } });
+    expect(wrapper.text()).toContain('多头延续');
     expect(wrapper.text()).toContain('不宜追高');
     expect(wrapper.find('svg').exists()).toBe(true);
     expect(wrapper.get('span.border').classes()).toContain('text-market-up/80');
   });
 
   it('explains the status without presenting an automatic holding instruction', async () => {
-    const wrapper = mount(ZeroDteStatus, {
+    const wrapper = mount(IntradayDirectionStatus, {
       attachTo: document.body,
       props: { quote: quote(), marketType: 'US', now: NOW },
     });
@@ -70,7 +72,7 @@ describe('ZeroDteStatus', () => {
   });
 
   it('renders a dash for a non-US instrument', () => {
-    const wrapper = mount(ZeroDteStatus, { props: { quote: quote(), marketType: 'HK', now: NOW } });
+    const wrapper = mount(IntradayDirectionStatus, { props: { quote: quote(), marketType: 'HK', now: NOW } });
     expect(wrapper.text()).toBe('—');
   });
 });

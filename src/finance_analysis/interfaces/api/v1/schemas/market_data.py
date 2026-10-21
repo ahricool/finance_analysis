@@ -1,7 +1,7 @@
 """Read-only forward-adjusted daily market data."""
 
-from datetime import date
-from typing import Literal
+from datetime import date, datetime
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -43,3 +43,28 @@ class ForwardReturnItem(BaseModel):
 class ForwardReturnsResponse(BaseModel):
     trade_date: date
     items: list[ForwardReturnItem]
+
+
+class IntradayBarItem(BaseModel):
+    timestamp: int
+    open: float
+    high: float
+    low: float
+    close: float
+    volume: int
+    turnover: float | None = None
+    confirmed: bool
+    sampled: bool
+    sample_count: int
+    partial: bool
+
+
+class IntradayBarsResponse(BaseModel):
+    symbol: str
+    market: str
+    trading_date: date
+    generated_at: datetime
+    reset: bool
+    items: list[IntradayBarItem]
+    quote: dict[str, Any]
+    events: list[dict[str, Any]]

@@ -1,67 +1,88 @@
-# 长桥实时行情 Streamer
+# 实时行情 Streamer
 
-`finance-analysis-stream` 是独立于 FastAPI、Celery Worker 和 Celery Beat 的常驻进程。它只从 PostgreSQL
-读取美股 WatchList，并把实时 Quote、1 分钟 K 线、订阅状态和心跳写入 Redis；不会向 PostgreSQL 写行情数据。
+`finance-analysis-stream` 独立于 FastAPI / Celery 运行。采集池是所有用户自选股与未清仓持仓的去重并集，
+从 PostgreSQL 只读加载；报价、分钟线、趋势、形态和观测事件只写 Redis，不写行情数据库。
 
-## 启动
+## 两条独立采集链
+
+- US（以及保留的 HK）：Longbridge 批量报价快照和 Quote 订阅，每批至多 100 只。
+  SDK 的 1min K 线订阅／历史接口只接受单证券，保留这些必要的单证券调用。
+  批量订阅前先注册标的归属，重连沿用 connection / symbol generation 防旧事件污染。
+  历史预热限定最近交易日的常规交易时段。
+- CN：交易日常规时段每 10 秒经 MarketDataService 请求整个采集池，限定 Fuyao Provider。
+  股票、指数按 100 只分批，ETF 保留接口要求的单标的请求；轮询不叠加未完成轮次。
+  没有浏览器连接也继续采集；午休、假期和收盘后不生成新分钟。
+  Longbridge 重连不阻塞 CN 采集池更新和轮询，心跳另外报告 CN 健康状态。
+
+ETF 接口于 2026-10-21 使用生产密钥只读实测：单 thscode 返回 code=0；
+thscodes=510300.SH,510500.SH 返回 1001（缺少 thscode）；
+thscode=510300.SH,510500.SH 返回 1002（每次只允许一个代码），不支持批量。
+可显式复测（此脚本不属于离线测试）：
+
+```bash
+uv run python scripts/check_fuyao_etf_protocol.py --env /path/to/backend.env
+```
+
+## A 股采样口径
+
+分钟 O/C 为首／末采样价，H/L 为采样价极值，不能使用报价里的当日累计最高／最低。
+成交量、成交额由相邻采样的日累计值差分归入当前采样分钟，跨分钟分配属于估算。
+数据保留 sampled、sample_count、partial，不伪装成原生分钟线。
+
+首次采样、累计量回退、采样间断、过晚进入分钟和样本过少的分钟标记 partial。
+分钟结束后封闭，即使后续请求失败／进入午休也会封闭已存在的分钟，不补造缺失分钟。
+重复、乱序、超过 30 秒或未来超过 5 秒的采样时间不生成 K 线。
+扶摇时间是批次级上游时间，记录 timestamp_kind=batch，不声称逐证券成交时间。
+
+首次切换 CN 来源会清理旧 Longbridge 分钟缓存，避免原生与采样线混用。重启恢复已保存的采样闭合线，未持久化的采样基线重新建立；只能从已有采集时段开始展示。
+趋势和形态复用纯计算；partial 或缺失分钟中断采样线正式指标的连续窗口，午休不当作缺失交易分钟。
+最少 5 根计算趋势，最少 15 根开始形态计算，均只使用本交易日数据。
+
+## Redis 与保留范围
+
+| Key | 类型 | 内容 |
+| --- | --- | --- |
+| rt:quote:{symbol} | Hash | 报价、市场日期、上游时间、接收时间、来源 |
+| rt:candle:1m:{symbol}:current | Hash | 最新分钟及闭合标志 |
+| rt:bars:1m:{symbol}:index / :data | Sorted Set / Hash | 闭合分钟索引与内容 |
+| rt:trend:1m:{symbol} | Hash | 均线方向与连续根数 |
+| rt:pattern:1m:{symbol} | Hash | 正式形态与未闭合线预览 |
+| rt:pattern:1m:{symbol}:events | Hash | 首次观测的形态阶段证据，幂等且不覆盖 |
+| rt:subscription:{symbol} | Hash | 采集／预热状态 |
+| rt:streamer:heartbeat | Hash | 全局及 CN 状态，TTL 30 秒 |
+
+分钟只保留最近一个市场交易日，新日期写入时删除旧日期，迟到旧包不能补回旧日期。
+Streamer 写入按交易日历设置 TTL，保留到下一交易日收盘后两小时，覆盖周末和长假。
+形态事件也随新日期清理。删除出整个采集池的标的缓存保留两小时后到期。
+TTL 仅用于清理，不代表行情有效期。保留上游时间和接收时间，拒绝未来异常时间；
+交易时段内报价超过 90 秒或分钟趋势未及时更新时暂停方向判断，不将接收时间冒充上游时间。
+
+## 页面读取与展开图
+
+WS / SSE、持仓汇总、个股报价及日 K 今日报价叠加均只读 Redis 报价，缓存缺失不触发外部报价请求。
+历史日线查询沿用原有规则，后台策略保留自己的行情读取策略。
+读取前按用户、市场与分组过滤；holdings scope 同时返回本人持仓估值及对应行情指标。
+WS 每轮完成后等待 5 秒；连续两次连接／快照超时后浏览器固定回落 SSE。
+SSE 等待时每 10 秒发送心跳，重连按 5/10/20/30 秒退避；鉴权失败停止。
+
+GET /api/v1/market-data/intraday/{symbol}?since=<aware ISO time> 只允许本人自选或持有的 CN/US 证券。
+首次／交易日变化返回 reset，后续返回 since 起的分钟更新；只读最近交易日分钟线和形态事件。
+两张表复用同一展开组件：点名称保留详情，点普通单元格展开，按钮不触发展开。
+仅展开时每 5 秒读取增量，收起或切市场后取消旧请求；图表时间使用上海／纽约时区。
+右侧展示报价、趋势、形态、日内方向状态和采样覆盖信息。
+形态按首次实际观测时间标记，可点击查看保存的证据、参考位和失效位，避免回画确认标记。
+日内方向为 CN/US 公共计算，包含多空观察／确认／延续、失效、过期、休市和延迟；
+不读取期权合约，交易窗口来自后端日历并支持美股半日市。
+
+## 运行与验证
 
 ```bash
 uv run finance-analysis-stream
-docker compose -f docker-compose.dev.yml up -d --build streamer
-docker compose -f docker-compose.prod.yml up -d streamer
+uv run pytest tests/market_stream tests/test_realtime_market_websocket.py -q
+cd web
+pnpm exec playwright test e2e/intraday-streamer.spec.ts
 ```
 
-进程启动后先获取 `lock:market_stream:leader`。锁使用唯一 token、有限 TTL 和 token 校验续租/释放；锁丢失时
-streamer 主动停止，避免两个实例同时写实时状态。
-
-## 动态订阅
-
-服务默认每 5 秒通过现有 `get_watch_list_codes_by_market("US")` 读取所有用户 WatchList 的并集。新增标的先建立
-Quote 和 1 分钟 K 线订阅，再从 Redis 或长桥同步接口预热近期 K 线；预热期间的推送保存在内存 buffer，随后按
-`bar_time + trade_session` 合并。删除标的时串行取消两个订阅，清理进程内状态，但 Redis 数据保留 2 小时。
-
-连接健康检查失败后，服务按 1、2、4、8、16、30 秒上限并附加 jitter 重建 Context。每次重建都会增加
-connection generation、重新注册回调、重新读取 WatchList 并重新订阅/预热。旧 connection generation 和旧 symbol
-generation 的事件或预热结果会被丢弃。
-
-## Redis Keys
-
-| Key | 类型 | 用途 |
-| --- | --- | --- |
-| `rt:quote:{symbol}` | Hash | 最新合并 Quote |
-| `rt:candle:1m:{symbol}:current` | Hash | 当前 1 分钟 K 线 |
-| `rt:bars:1m:{symbol}:index` | Sorted Set | 分钟时间戳索引 |
-| `rt:bars:1m:{symbol}:data` | Hash | 时间戳到 K 线 JSON 的稳定映射 |
-| `rt:subscription:{symbol}` | Hash | symbol 订阅和 warmup 状态 |
-| `rt:streamer:heartbeat` | Hash | streamer 状态，TTL 30 秒 |
-| `lock:market_stream:leader` | String | 单实例 Leader Lock |
-
-历史 K 线使用稳定的分钟时间戳作为 Sorted Set member 和 Hash field，因此同一分钟更新不会残留多个 JSON member。
-
-## 配置
-
-`REALTIME_REDIS_URL` 留空时回退 `REDIS_URL`。其余可选配置：
-
-- `MARKET_STREAM_WATCHLIST_POLL_SECONDS=5`
-- `MARKET_STREAM_HEARTBEAT_SECONDS=5`
-- `MARKET_STREAM_LEADER_LOCK_TTL_SECONDS=30`
-- `MARKET_STREAM_REDIS_FLUSH_INTERVAL_MS=250`
-- `MARKET_STREAM_WARMUP_CONCURRENCY=3`
-- `MARKET_STREAM_BAR_LIMIT=420`
-
-长桥凭证及 URL、region、日志和语言配置继续使用项目已有的 `LONGBRIDGE_*` 配置。
-
-## 页面行情传输
-
-`/api/v1/market-data/ws` 和 `/api/v1/market-data/events`（HTTP SSE）使用同一个快照构建器。
-默认 `scope=watch-list` 读取当前用户自选列表，报价通过 MarketDataService 按市场优先级获取，
-一分钟趋势/形态仍只读Streamer Redis。`scope=holdings&market=CN|US` 返回当前用户该市场
-的账户/持仓估值快照，不要求持仓已在自选中。WS使用会话Cookie，SSE使用现有HTTP会话鉴权；
-均不接受客户端uid，约每5秒推送一次，不写行情数据库或Streamer状态。
-
-浏览器WS连续两次连接/快照超时失败后固定回落SSE，后续不再自动尝试WS；
-SSE 建连后立即发送注释帧，查询行情期间每10秒发送心跳；慢查询不会启动额外的快照请求。
-浏览器等待 HTTP 建连最多60秒，建连后按响应字节（含心跳）检测30秒无活动，
-不以行情更新间隔判断连接失效。行情时间戳仍只在收到完整快照时更新。
-SSE 失败按5/10/20/30秒退避，仅重连SSE，收到有效行情后重置退避；未授权停止重试。
-切换市场或离开页面取消旧连接和未完成的快照协程。
+REALTIME_REDIS_URL 留空时回退 REDIS_URL，读写两侧保持一致。凭证沿用 LONGBRIDGE_* 和 FUYAO_API_KEY。
+其余频率和容量由 MarketStreamConfig 定义，并非任意 MARKET_STREAM_* 环境变量。
+使用 lock:market_stream:leader 保证单写者，失锁退出；正常部署仍使用生产目录的 bash deploy.sh。

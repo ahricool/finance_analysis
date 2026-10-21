@@ -43,7 +43,7 @@ class StockService:
             # 调用数据获取器获取实时行情
             from finance_analysis.integrations.market_data import MarketDataService
 
-            result = MarketDataService().get_realtime_quotes([stock_code])
+            result = MarketDataService().get_cached_quotes([stock_code])
             quote = next(iter(result.data.values()), None)
 
             if quote is None:
@@ -75,7 +75,7 @@ class StockService:
                 "prev_close": getattr(quote, "pre_close", None),
                 "volume": getattr(quote, "volume", None),
                 "amount": getattr(quote, "amount", None),
-                "update_time": datetime.now().isoformat(),
+                "update_time": quote.quote_time.isoformat() if quote.quote_time else None,
             }
 
         except ImportError:

@@ -180,7 +180,11 @@ def sanitize_bars(bars: Sequence[CandleState], market_type: MarketType) -> list[
     if not ordered:
         return []
     target_date = market_trading_date(ordered[-1].bar_time, market_type)
-    return [bar for bar in ordered if market_trading_date(bar.bar_time, market_type) == target_date]
+    from finance_analysis.market_stream.quality import indicator_tail
+
+    return indicator_tail(
+        [bar for bar in ordered if market_trading_date(bar.bar_time, market_type) == target_date], market_type
+    )
 
 
 def quote_updates_preview_bar(bar: CandleState, quote: QuoteState, market_type: MarketType) -> bool:

@@ -14,10 +14,20 @@ from functools import lru_cache
 from typing import Any, Callable, Generic, TypeVar
 
 from finance_analysis.core.time import utc_now  # pragma: allowlist secret
-from finance_analysis.integrations.market_data.providers.longbridge.market import _to_longbridge_symbol  # pragma: allowlist secret
-from finance_analysis.integrations.market_data.realtime_state.models import CandleState, QuoteState  # pragma: allowlist secret
-from finance_analysis.integrations.market_data.realtime_state.repository import RealtimeStateRepository  # pragma: allowlist secret
-from finance_analysis.integrations.market_data.realtime_types import RealtimeSource, UnifiedRealtimeQuote  # pragma: allowlist secret
+from finance_analysis.integrations.market_data.providers.longbridge.market import (
+    _to_longbridge_symbol,
+)  # pragma: allowlist secret
+from finance_analysis.integrations.market_data.realtime_state.models import (
+    CandleState,
+    QuoteState,
+)  # pragma: allowlist secret
+from finance_analysis.integrations.market_data.realtime_state.repository import (
+    RealtimeStateRepository,
+)  # pragma: allowlist secret
+from finance_analysis.integrations.market_data.realtime_types import (
+    RealtimeSource,
+    UnifiedRealtimeQuote,
+)  # pragma: allowlist secret
 from finance_analysis.market_stream.config import (  # pragma: allowlist secret
     MarketStreamConfig,
     latest_completed_bar_time,
@@ -209,11 +219,7 @@ class RealtimeMarketDataSource:
         spec = market_spec(normalized_market)
         by_identity: dict[tuple[datetime, str], CandleState] = {}
         for bar in bars:
-            local_time = (
-                bar.bar_time.astimezone(spec.timezone).time()
-                if bar.bar_time.tzinfo
-                else None
-            )
+            local_time = bar.bar_time.astimezone(spec.timezone).time() if bar.bar_time.tzinfo else None
             if (
                 bar.symbol != canonical_symbol
                 or bar.bar_time.tzinfo is None
@@ -242,7 +248,12 @@ class RealtimeMarketDataSource:
         heartbeat = await self.repository.get_heartbeat()
         if not heartbeat:
             return "missing_heartbeat"
-        if str(heartbeat.get("status") or "").upper() not in self._HEALTHY_STREAMER_STATUSES:
+        status = (
+            heartbeat.get("cn_status")
+            if market_type == "CN" and heartbeat.get("cn_status")
+            else heartbeat.get("status")
+        )
+        if str(status or "").upper() not in self._HEALTHY_STREAMER_STATUSES:
             return "unhealthy_heartbeat"
         heartbeat_at = _parse_datetime(heartbeat.get("updated_at"))
         if (
@@ -397,9 +408,7 @@ class SyncRealtimeMarketDataSource:
             return future.result(timeout=self.operation_timeout_seconds)
         except FutureTimeoutError as exc:
             future.cancel()
-            raise TimeoutError(
-                f"realtime market data read exceeded {self.operation_timeout_seconds:.1f}s"
-            ) from exc
+            raise TimeoutError(f"realtime market data read exceeded {self.operation_timeout_seconds:.1f}s") from exc
 
     def _run_loop(self) -> None:
         asyncio.set_event_loop(self._loop)
@@ -478,6 +487,12 @@ def _quote_invalid_reason(
         return "invalid_quote"
     if quote.received_at is None or quote.received_at.tzinfo is None:
         return "invalid_quote_time"
+    if quote.event_time is not None:
+        if quote.event_time.tzinfo is None:
+            return "invalid_quote_time"
+        event_age = now - quote.event_time.astimezone(timezone.utc)
+        if event_age > max_age or event_age < -timedelta(seconds=5):
+            return "stale_quote"
     age = now - quote.received_at.astimezone(timezone.utc)
     if age > max_age or age < -timedelta(seconds=5):
         return "stale_quote"

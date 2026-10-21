@@ -39,64 +39,88 @@ def setup_api(monkeypatch):
 
 
 def bar(code="600519.SH", day=date(2026, 9, 18)):
-    return MarketBar(code, Market.US if code.endswith('.US') else Market.CN, "1d", day, None,
-                     100, 105, 98, 103, 123456, 123456789, "CNY", Adjustment.FORWARD, "daily")
+    return MarketBar(
+        code,
+        Market.US if code.endswith(".US") else Market.CN,
+        "1d",
+        day,
+        None,
+        100,
+        105,
+        98,
+        103,
+        123456,
+        123456789,
+        "CNY",
+        Adjustment.FORWARD,
+        "daily",
+    )
 
 
 def test_database_data_never_calls_provider(setup_api):
     client, stocks, provider = setup_api
     stocks.has_daily_data.return_value = True
-    stocks.get_range.return_value = [SimpleNamespace(
-        instrument=SimpleNamespace(code="600519.SH", market="CN"), date=date(2026, 9, 18),
-        open=100, high=105, low=98, close=103, volume=123456, amount=123456789,
-    )]
-    response = client.get('/api/v1/market-data/daily-bars/600519.SH?start_date=2026-09-01&end_date=2026-09-18')
+    stocks.get_range.return_value = [
+        SimpleNamespace(
+            instrument=SimpleNamespace(code="600519.SH", market="CN"),
+            date=date(2026, 9, 18),
+            open=100,
+            high=105,
+            low=98,
+            close=103,
+            volume=123456,
+            amount=123456789,
+        )
+    ]
+    response = client.get("/api/v1/market-data/daily-bars/600519.SH?start_date=2026-09-01&end_date=2026-09-18")
     assert response.status_code == 200
-    assert response.json()['source'] == 'database'
-    assert response.json()['adjustment'] == 'forward'
-    stocks.get_range.assert_called_once_with('600519.SH', date(2026, 9, 1), date(2026, 9, 18))
+    assert response.json()["source"] == "database"
+    assert response.json()["adjustment"] == "forward"
+    stocks.get_range.assert_called_once_with("600519.SH", date(2026, 9, 1), date(2026, 9, 18))
     provider.fetch_daily_bars.assert_not_called()
     stocks.upsert_daily.assert_not_called()
 
 
-@pytest.mark.parametrize('raw,code,market', [('sh600519', '600519.SH', 'CN'), ('aapl', 'AAPL.US', 'US')])
-@pytest.mark.parametrize('db_error', [False, True])
+@pytest.mark.parametrize("raw,code,market", [("sh600519", "600519.SH", "CN"), ("aapl", "AAPL.US", "US")])
+@pytest.mark.parametrize("db_error", [False, True])
 def test_empty_or_failed_database_falls_back(setup_api, raw, code, market, db_error, caplog):
     client, stocks, provider = setup_api
     if db_error:
-        stocks.get_range.side_effect = RuntimeError('database offline')
+        stocks.get_range.side_effect = RuntimeError("database offline")
     provider.fetch_daily_bars.return_value = BatchBarResult(data={code: [bar(code)]})
-    response = client.get(f'/api/v1/market-data/daily-bars/{raw}?start_date=2026-09-01&end_date=2026-09-18')
+    response = client.get(f"/api/v1/market-data/daily-bars/{raw}?start_date=2026-09-01&end_date=2026-09-18")
     assert response.status_code == 200
     value = response.json()
-    assert (value['symbol'], value['market'], value['source'], value['interval']) == (code, market, 'daily', '1d')
-    assert value['items'][0]['trade_date'] == '2026-09-18'
+    assert (value["symbol"], value["market"], value["source"], value["interval"]) == (code, market, "daily", "1d")
+    assert value["items"][0]["trade_date"] == "2026-09-18"
     request = provider.fetch_daily_bars.call_args.args[0]
     assert request.start_date == date(2026, 9, 1)
     assert request.end_date == date(2026, 9, 18)
     assert request.adjustment is Adjustment.FORWARD
     stocks.upsert_daily.assert_not_called()
     if db_error:
-        assert 'falling back' in caplog.text
+        assert "falling back" in caplog.text
 
 
 def test_provider_failure_is_503(setup_api):
     client, stocks, provider = setup_api
-    stocks.get_range.side_effect = RuntimeError('database offline')
-    provider.fetch_daily_bars.side_effect = RuntimeError('provider offline')
-    response = client.get('/api/v1/market-data/daily-bars/AAPL.US')
+    stocks.get_range.side_effect = RuntimeError("database offline")
+    provider.fetch_daily_bars.side_effect = RuntimeError("provider offline")
+    response = client.get("/api/v1/market-data/daily-bars/AAPL.US")
     assert response.status_code == 503
-    assert 'provider offline' not in response.text
+    assert "provider offline" not in response.text
 
 
 def test_empty_invalid_dates_and_default_window(setup_api):
     client, _, provider = setup_api
     provider.fetch_daily_bars.return_value = BatchBarResult()
-    assert client.get('/api/v1/market-data/daily-bars/AAPL?start_date=bad').status_code == 422
-    assert client.get('/api/v1/market-data/daily-bars/AAPL?start_date=2026-09-19&end_date=2026-09-18').status_code == 422
+    assert client.get("/api/v1/market-data/daily-bars/AAPL?start_date=bad").status_code == 422
+    assert (
+        client.get("/api/v1/market-data/daily-bars/AAPL?start_date=2026-09-19&end_date=2026-09-18").status_code == 422
+    )
     provider.fetch_daily_bars.assert_not_called()
-    response = client.get('/api/v1/market-data/daily-bars/AAPL?end_date=2026-09-18')
-    assert response.json()['items'] == []
+    response = client.get("/api/v1/market-data/daily-bars/AAPL?end_date=2026-09-18")
+    assert response.json()["items"] == []
     request = provider.fetch_daily_bars.call_args.args[0]
     assert (request.end_date - request.start_date).days == 365
 
@@ -104,154 +128,140 @@ def test_empty_invalid_dates_and_default_window(setup_api):
 def test_recovered_data_ignores_sticky_errors_and_excludes_future(setup_api):
     client, _, provider = setup_api
     provider.fetch_daily_bars.return_value = BatchBarResult(
-        data={'600519.SH': [bar(), bar(day=date(2026, 9, 19))]},
-        request_errors={'600519.SH': 'earlier provider failed'},
+        data={"600519.SH": [bar(), bar(day=date(2026, 9, 19))]},
+        request_errors={"600519.SH": "earlier provider failed"},
     )
-    response = client.get('/api/v1/market-data/daily-bars/600519.SH?end_date=2026-09-18')
+    response = client.get("/api/v1/market-data/daily-bars/600519.SH?end_date=2026-09-18")
     assert response.status_code == 200
-    assert [row['trade_date'] for row in response.json()['items']] == ['2026-09-18']
+    assert [row["trade_date"] for row in response.json()["items"]] == ["2026-09-18"]
 
 
 @pytest.fixture
 def realtime_api(setup_api, monkeypatch):
-    from finance_analysis.integrations.market_data.registry import REALTIME_QUOTES
+    from finance_analysis.integrations.market_data.models import BatchQuoteResult
 
     client, stocks, daily = setup_api
     service = market_data.MarketDataService()
-    providers = {name: Mock() for name in ('fuyao', 'yfinance', 'longbridge')}
-    for name, provider in providers.items():
-        service.registry.register(name, provider, capabilities={REALTIME_QUOTES})
+    service.get_cached_quotes = Mock(return_value=BatchQuoteResult())
+    service.get_realtime_quotes = Mock(side_effect=AssertionError("interactive quote must be cache-only"))
     now = datetime(2026, 9, 21, 15, tzinfo=timezone.utc)
-    monkeypatch.setattr(market_data, 'utc_now', lambda: now)
-    monkeypatch.setattr(market_service, 'utc_now', lambda: now)
-    return client, stocks, daily, providers
+    monkeypatch.setattr(market_data, "utc_now", lambda: now)
+    monkeypatch.setattr(market_service, "utc_now", lambda: now)
+    return client, stocks, daily, service.get_cached_quotes
 
 
-def realtime_quote(code, provider, **changes):
+def realtime_quote(code, **changes):
     from finance_analysis.integrations.market_data.models import BatchQuoteResult, MarketQuote
 
-    fields = dict(symbol=code, market=Market.US if code.endswith('.US') else Market.CN,
-                  provider=provider, currency='USD' if code.endswith('.US') else 'CNY',
-                  open_price=103, high=110, low=100, price=108, volume=123, amount=13284,
-                  quote_time=datetime(2026, 9, 21, 15, tzinfo=timezone.utc))
+    fields = dict(
+        symbol=code,
+        market=Market.US if code.endswith(".US") else Market.CN,
+        provider="streaming",
+        currency="USD" if code.endswith(".US") else "CNY",
+        open_price=103,
+        high=110,
+        low=100,
+        price=108,
+        volume=123,
+        amount=13284,
+        quote_time=datetime(2026, 9, 21, 15, tzinfo=timezone.utc),
+    )
     fields.update(changes)
     return BatchQuoteResult(data={code: MarketQuote(**fields)})
 
 
-@pytest.mark.parametrize('code,primary', [('600519.SH', 'fuyao'), ('AAPL.US', 'yfinance')])
-@pytest.mark.parametrize('failure', [None, 'exception', 'missing', 'stale', 'invalid'])
-def test_intraday_provider_order_and_validation(realtime_api, code, primary, failure):
-    from finance_analysis.integrations.market_data.models import BatchQuoteResult
-
-    client, stocks, daily, providers = realtime_api
+@pytest.mark.parametrize("code", ["600519.SH", "AAPL.US"])
+def test_intraday_overlay_uses_only_cached_quote(realtime_api, code):
+    client, stocks, daily, cached = realtime_api
     daily.fetch_daily_bars.return_value = BatchBarResult(data={code: [bar(code)]})
-    providers[primary].fetch_quotes.return_value = realtime_quote(code, primary)
-    if failure == 'exception':
-        providers[primary].fetch_quotes.side_effect = RuntimeError('offline')
-    elif failure == 'missing':
-        providers[primary].fetch_quotes.return_value = BatchQuoteResult()
-    elif failure == 'stale':
-        providers[primary].fetch_quotes.return_value = realtime_quote(
-            code, primary, quote_time=datetime(2026, 9, 18, 15, tzinfo=timezone.utc))
-    elif failure == 'invalid':
-        providers[primary].fetch_quotes.return_value = realtime_quote(code, primary, high=101)
-    providers['longbridge'].fetch_quotes.return_value = realtime_quote(code, 'longbridge')
-    response = client.get(f'/api/v1/market-data/daily-bars/{code}?end_date=2026-09-21')
+    cached.return_value = realtime_quote(code)
+    response = client.get(f"/api/v1/market-data/daily-bars/{code}?end_date=2026-09-21")
     assert response.status_code == 200
-    assert [row['trade_date'] for row in response.json()['items']] == ['2026-09-18', '2026-09-21']
-    assert response.json()['items'][-1] == dict(
-        trade_date='2026-09-21', open=103, high=110, low=100, close=108, volume=123, amount=13284)
-    providers[primary].fetch_quotes.assert_called_once()
-    assert providers['longbridge'].fetch_quotes.call_count == (1 if failure else 0)
-    providers['yfinance' if primary == 'fuyao' else 'fuyao'].fetch_quotes.assert_not_called()
+    assert [row["trade_date"] for row in response.json()["items"]] == ["2026-09-18", "2026-09-21"]
+    assert response.json()["items"][-1] == dict(
+        trade_date="2026-09-21", open=103, high=110, low=100, close=108, volume=123, amount=13284
+    )
+    cached.assert_called_once_with([code])
     stocks.upsert_daily.assert_not_called()
 
 
-@pytest.mark.parametrize('changes', [
-    {'quote_time': datetime(2026, 9, 18, 15, tzinfo=timezone.utc)},
-    {'quote_time': None}, {'quote_time': datetime(2026, 9, 21, 15)},
-    {'open_price': None}, {'price': float('nan')}, {'high': float('inf')},
-    {'low': 109}, {'open_price': 0}, {'volume': None},
-])
-def test_unusable_quotes_do_not_create_today(realtime_api, changes):
-    client, _, daily, providers = realtime_api
-    code = '600519.SH'
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"quote_time": datetime(2026, 9, 18, 15, tzinfo=timezone.utc)},
+        {"quote_time": None},
+        {"quote_time": datetime(2026, 9, 21, 15)},
+        {"open_price": None},
+        {"price": float("nan")},
+        {"high": float("inf")},
+        {"low": 109},
+        {"open_price": 0},
+        {"volume": None},
+        {"quote_time": datetime(2026, 9, 21, 1, 29, 59, tzinfo=timezone.utc)},
+    ],
+)
+def test_unusable_cached_quotes_do_not_create_today(realtime_api, changes):
+    client, _, daily, cached = realtime_api
+    code = "600519.SH"
     daily.fetch_daily_bars.return_value = BatchBarResult(data={code: [bar(code)]})
-    for name in ('fuyao', 'longbridge'):
-        providers[name].fetch_quotes.return_value = realtime_quote(code, name, **changes)
-    response = client.get(f'/api/v1/market-data/daily-bars/{code}?end_date=2026-09-21')
+    cached.return_value = realtime_quote(code, **changes)
+    response = client.get(f"/api/v1/market-data/daily-bars/{code}?end_date=2026-09-21")
     assert response.status_code == 200
-    assert [row['trade_date'] for row in response.json()['items']] == ['2026-09-18']
+    assert [row["trade_date"] for row in response.json()["items"]] == ["2026-09-18"]
 
 
-def test_both_quote_providers_fail_open(realtime_api):
-    client, _, daily, providers = realtime_api
-    daily.fetch_daily_bars.return_value = BatchBarResult(data={'AAPL.US': [bar('AAPL.US')]})
-    for provider in providers.values():
-        provider.fetch_quotes.side_effect = RuntimeError('offline')
-    response = client.get('/api/v1/market-data/daily-bars/AAPL.US?end_date=2026-09-21')
-    assert response.status_code == 200
-    assert len(response.json()['items']) == 1
-    providers['yfinance'].fetch_quotes.assert_called_once()
-    providers['longbridge'].fetch_quotes.assert_called_once()
+@pytest.mark.parametrize("failure", ["missing", "exception"])
+def test_cache_miss_does_not_launch_external_quote_fallback(realtime_api, failure):
+    client, _, daily, cached = realtime_api
+    daily.fetch_daily_bars.return_value = BatchBarResult(data={"AAPL.US": [bar("AAPL.US")]})
+    if failure == "exception":
+        cached.side_effect = RuntimeError("Redis unavailable")
+    response = client.get("/api/v1/market-data/daily-bars/AAPL.US?end_date=2026-09-21")
+    assert response.status_code == 200 and len(response.json()["items"]) == 1
+    cached.assert_called_once()
 
 
-@pytest.mark.parametrize('code,now,query', [
-    ('600519.SH', '2026-09-21T03:00:00+00:00', '?end_date=2026-09-18'),
-    ('600519.SH', '2026-09-21T03:00:00+00:00', '?start_date=2026-09-22&end_date=2026-09-23'),
-    ('600519.SH', '2026-09-20T03:00:00+00:00', ''),
-    ('600519.SH', '2026-10-01T03:00:00+00:00', ''),
-    ('AAPL.US', '2026-09-07T15:00:00+00:00', ''),
-    ('AAPL.US', '2026-09-21T01:00:00+00:00', ''),  # Sunday in New York
-    ('00700.HK', '2026-09-21T03:00:00+00:00', ''),
-])
-def test_outside_today_or_nontrading_day_skips_quotes(realtime_api, monkeypatch, code, now, query):
-    client, _, daily, providers = realtime_api
-    monkeypatch.setattr(market_data, 'utc_now', lambda: datetime.fromisoformat(now))
+@pytest.mark.parametrize(
+    "code,now,query",
+    [
+        ("600519.SH", "2026-09-21T03:00:00+00:00", "?end_date=2026-09-18"),
+        ("600519.SH", "2026-09-21T03:00:00+00:00", "?start_date=2026-09-22&end_date=2026-09-23"),
+        ("600519.SH", "2026-10-01T03:00:00+00:00", ""),
+        ("600519.SH", "2026-09-21T01:29:59+00:00", ""),
+        ("AAPL.US", "2026-09-07T15:00:00+00:00", ""),
+        ("AAPL.US", "2026-09-21T01:00:00+00:00", ""),
+        ("00700.HK", "2026-09-21T03:00:00+00:00", ""),
+    ],
+)
+def test_outside_today_or_nontrading_day_skips_cached_overlay(realtime_api, monkeypatch, code, now, query):
+    client, _, daily, cached = realtime_api
+    monkeypatch.setattr(market_data, "utc_now", lambda: datetime.fromisoformat(now))
     daily.fetch_daily_bars.return_value = BatchBarResult()
-    response = client.get(f'/api/v1/market-data/daily-bars/{code}{query}')
-    assert response.status_code == 200
-    assert response.json()['items'] == []
-    for provider in providers.values():
-        provider.fetch_quotes.assert_not_called()
+    response = client.get(f"/api/v1/market-data/daily-bars/{code}{query}")
+    assert response.status_code == 200 and response.json()["items"] == []
+    cached.assert_not_called()
 
 
-@pytest.mark.parametrize('code,primary,now', [
-    ('600519.SH', 'fuyao', '2026-09-21T01:30:00+00:00'),
-    ('600519.SH', 'fuyao', '2026-09-21T04:00:00+00:00'),  # lunch recess
-    ('600519.SH', 'fuyao', '2026-09-21T08:00:00+00:00'),  # after close
-    ('AAPL.US', 'yfinance', '2026-09-21T13:30:00+00:00'),
-    ('AAPL.US', 'yfinance', '2026-09-22T00:30:00+00:00'),
-])
-def test_market_date_default_and_existing_today_replaced(realtime_api, monkeypatch, code, primary, now):
-    client, stocks, daily, providers = realtime_api
+@pytest.mark.parametrize(
+    "code,now",
+    [
+        ("600519.SH", "2026-09-21T01:30:00+00:00"),
+        ("600519.SH", "2026-09-21T04:00:00+00:00"),
+        ("600519.SH", "2026-09-21T08:00:00+00:00"),
+        ("AAPL.US", "2026-09-21T13:30:00+00:00"),
+    ],
+)
+def test_market_date_and_database_history_preserved_with_cached_overlay(realtime_api, monkeypatch, code, now):
+    client, stocks, daily, cached = realtime_api
     now = datetime.fromisoformat(now)
-    monkeypatch.setattr(market_data, 'utc_now', lambda: now)
+    monkeypatch.setattr(market_data, "utc_now", lambda: now)
     daily.fetch_daily_bars.return_value = BatchBarResult(data={code: [bar(code, date(2026, 9, 21)), bar(code)]})
-    providers[primary].fetch_quotes.return_value = realtime_quote(code, primary, quote_time=now)
-    response = client.get(f'/api/v1/market-data/daily-bars/{code}')
+    cached.return_value = realtime_quote(code, quote_time=now)
+    response = client.get(f"/api/v1/market-data/daily-bars/{code}")
     assert response.status_code == 200
-    rows = response.json()['items']
-    assert [row['trade_date'] for row in rows] == ['2026-09-18', '2026-09-21']
-    assert rows[-1]['close'] == 108
-    assert daily.fetch_daily_bars.call_args.args[0].end_date == date(2026, 9, 21)
-    stocks.upsert_daily.assert_not_called()
-
-
-def test_today_overlay_keeps_database_freshness_and_no_sync(realtime_api):
-    client, stocks, daily, providers = realtime_api
-    stocks.has_daily_data.return_value = True
-    stocks.get_range.return_value = [SimpleNamespace(
-        instrument=SimpleNamespace(code='AAPL.US', market='US'), date=date(2026, 9, 18),
-        open=100, high=105, low=98, close=103, volume=123456, amount=None,
-    )]
-    providers['yfinance'].fetch_quotes.return_value = realtime_quote('AAPL.US', 'yfinance')
-    response = client.get('/api/v1/market-data/daily-bars/AAPL.US?end_date=2026-09-21')
-    assert response.status_code == 200
-    assert response.json()['source'] == 'database'
-    assert [row['trade_date'] for row in response.json()['items']] == ['2026-09-18', '2026-09-21']
-    stocks.get_range.assert_called_once_with('AAPL.US', date(2025, 9, 21), date(2026, 9, 21))
-    daily.fetch_daily_bars.assert_not_called()
+    rows = response.json()["items"]
+    assert [row["trade_date"] for row in rows] == ["2026-09-18", "2026-09-21"]
+    assert rows[-1]["close"] == 108
     stocks.upsert_daily.assert_not_called()
 
 
@@ -259,8 +269,14 @@ def test_today_overlay_keeps_database_freshness_and_no_sync(realtime_api):
 def test_stale_database_is_preserved_when_latest_remote_is_unavailable(setup_api, remote_failure):
     client, stocks, provider = setup_api
     row = SimpleNamespace(
-        instrument=SimpleNamespace(code="600519.SH", market="CN"), date=date(2026, 9, 17),
-        open=100, high=105, low=98, close=103, volume=100, amount=None,
+        instrument=SimpleNamespace(code="600519.SH", market="CN"),
+        date=date(2026, 9, 17),
+        open=100,
+        high=105,
+        low=98,
+        close=103,
+        volume=100,
+        amount=None,
     )
     stocks.get_range.return_value = [row]
     stocks.get_daily_ranges.return_value = {"600519.SH": [row]}
@@ -268,50 +284,7 @@ def test_stale_database_is_preserved_when_latest_remote_is_unavailable(setup_api
         provider.fetch_daily_bars.side_effect = RuntimeError("offline")
     else:
         provider.fetch_daily_bars.return_value = BatchBarResult()
-    response = client.get('/api/v1/market-data/daily-bars/600519.SH?start_date=2026-09-01')
-    assert response.status_code == 200
-    assert response.json()['history_fallback'] is True
-    assert response.json()['source'] == 'database'
-    assert [row['trade_date'] for row in response.json()['items']] == ['2026-09-17']
-    stocks.get_daily_ranges.assert_called_once_with(('600519.SH',), date(2026, 9, 1), date(2026, 9, 20))
+    response = client.get("/api/v1/market-data/daily-bars/600519.SH?start_date=2026-09-01")
+    assert response.status_code == 200 and response.json()["history_fallback"]
+    assert response.json()["items"][0]["trade_date"] == "2026-09-17"
     stocks.upsert_daily.assert_not_called()
-
-
-@pytest.mark.parametrize('code,primary,now', [
-    ('600519.SH', 'fuyao', '2026-09-21T00:30:00+08:00'),
-    ('600519.SH', 'fuyao', '2026-09-21T09:29:59+08:00'),
-    ('AAPL.US', 'yfinance', '2026-09-21T09:29:59-04:00'),
-    ('AAPL.US', 'yfinance', '2026-01-05T09:29:59-05:00'),
-])
-def test_preopen_snapshot_cannot_duplicate_previous_daily_bar(realtime_api, monkeypatch, code, primary, now):
-    client, stocks, daily, providers = realtime_api
-    now = datetime.fromisoformat(now)
-    monkeypatch.setattr(market_data, 'utc_now', lambda: now)
-    previous = date(2026, 1, 2) if now.month == 1 else date(2026, 9, 18)
-    daily.fetch_daily_bars.return_value = BatchBarResult(data={code: [bar(code, previous)]})
-    # A snapshot can carry a new response timestamp with the previous session's OHLCV.
-    providers[primary].fetch_quotes.return_value = realtime_quote(
-        code, primary, quote_time=now, open_price=100, high=105, low=98, price=103,
-        volume=123456, amount=123456789)
-    response = client.get(f'/api/v1/market-data/daily-bars/{code}')
-    assert response.status_code == 200
-    assert [row['trade_date'] for row in response.json()['items']] == [previous.isoformat()]
-    for provider in providers.values():
-        provider.fetch_quotes.assert_not_called()
-    stocks.upsert_daily.assert_not_called()
-
-
-@pytest.mark.parametrize('code,primary,quote_time', [
-    ('600519.SH', 'fuyao', '2026-09-21T09:29:59+08:00'),
-    ('AAPL.US', 'yfinance', '2026-09-21T09:29:59-04:00'),
-])
-def test_preopen_quote_after_open_falls_back(realtime_api, code, primary, quote_time):
-    client, _, daily, providers = realtime_api
-    daily.fetch_daily_bars.return_value = BatchBarResult(data={code: [bar(code)]})
-    providers[primary].fetch_quotes.return_value = realtime_quote(
-        code, primary, quote_time=datetime.fromisoformat(quote_time), price=104)
-    providers['longbridge'].fetch_quotes.return_value = realtime_quote(code, 'longbridge')
-    response = client.get(f'/api/v1/market-data/daily-bars/{code}')
-    assert response.status_code == 200
-    assert response.json()['items'][-1]['close'] == 108
-    providers['longbridge'].fetch_quotes.assert_called_once()

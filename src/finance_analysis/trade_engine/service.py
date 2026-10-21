@@ -405,7 +405,7 @@ class TradeEngineService:
         positions = list(portfolio.positions if market is None else portfolio.positions_for_market(market))
         symbols = list(dict.fromkeys(item.symbol for item in positions))
         now = utc_now()
-        quotes = self.market.quotes(symbols, now=now) if symbols else {}
+        quotes = self.market.quotes(symbols, now=now, cached_only=True) if symbols else {}
         policy = get_risk_policy()
         start = history_start_date(positions, now=now, lookback_days=policy.daily_lookback_days) if positions else now.date()
         daily = self.market.daily_bars(symbols, start=start, end=now.date(), now=now) if symbols else {}

@@ -125,7 +125,7 @@ layout（Shell / PageHeader / ModuleLayout）+ ui/app 组件
 
 A 股详情头部通过 `/stocks/{code}/classification` 读取周同步行业归属，显示观测时间；与正式行业强度指标独立，切股票/关闭后取消旧请求。
 
-`components/stocks/detail/` 的面板独立读取既有 API，只有当前页签挂载；切证券、日期、页签或关闭后必须作废旧请求。404/不适用显示空态，接口失败保留独立重试。持仓为当前真实账户；盘中确认按 `context.tradeDate` 读取持久化历史，未提供日期时读取当日；缺少历史不回退当日。行情优先使用匹配证券的自选行情，否则激活行情页签时请求既有 `/stocks/{code}/quote`；保留时间戳与缺失值，不承诺额外轮询。
+`components/stocks/detail/` 的面板独立读取既有 API，只有当前页签挂载；切证券、日期、页签或关闭后必须作废旧请求。404/不适用显示空态，接口失败保留独立重试。持仓为当前真实账户；盘中确认按 `context.tradeDate` 读取持久化历史，未提供日期时读取当日；缺少历史不回退当日。行情优先使用匹配证券的自选行情，否则激活行情页签时请求既有只读 Redis `/stocks/{code}/quote`；保留时间戳与缺失值，不承诺额外轮询。
 
 ## 鉴权
 
@@ -320,3 +320,5 @@ BTC 多策略以 `strategy_key + symbol` 隔离，代码注册表当前仅 `btc_
 行业 Preview 列表读取 `/preview/ranking`，成分按行业和列表生成时间读取；版本过期显示刷新提示，不混用正式成分。
 首次鉴权共享进行中的状态请求；登录、退出和显式重试会开启新代次，旧响应不得覆盖新会话状态。
 统一证券弹窗的行情和期权面板按需加载，避免各研究页首屏引入完整图表依赖。
+
+市场自选与持仓表复用 `IntradayStockPanel`，点名称保留详情、点普通单元格展开。最近交易日分钟图仅展开时增量读取 `/market-data/intraday/{symbol}`，所有报价只读 Redis，无外部取价回退。CN10秒采样、US原生分钟线共用 `intradayDirection.ts`，显示日内方向状态，不再显示0DTE/CALL/PUT。
