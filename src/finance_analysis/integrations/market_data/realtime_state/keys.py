@@ -28,5 +28,9 @@ def pattern_key(symbol: str) -> str:
     return f"rt:pattern:1m:{symbol}"
 
 
+def pattern_events_key(symbol: str) -> str:
+    return f"rt:pattern:1m:{symbol}:events"
+
+
 def subscription_key(symbol: str) -> str:
     return f"rt:subscription:{symbol}"

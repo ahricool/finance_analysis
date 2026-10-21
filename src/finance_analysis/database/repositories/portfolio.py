@@ -50,9 +50,15 @@ class PortfolioRepository:
                 from sqlalchemy.dialects.sqlite import insert
             # The unique insert waits for a concurrent owner to commit/rollback.
             # Receipt and business changes always share this transaction.
-            session.execute(insert(PortfolioMutation).values(
-                uid=uid, operation_id=operation_id, request_hash=request_hash,
-            ).on_conflict_do_nothing(index_elements=["uid", "operation_id"]))
+            session.execute(
+                insert(PortfolioMutation)
+                .values(
+                    uid=uid,
+                    operation_id=operation_id,
+                    request_hash=request_hash,
+                )
+                .on_conflict_do_nothing(index_elements=["uid", "operation_id"])
+            )
             receipt = session.get(PortfolioMutation, (uid, operation_id))
             if receipt.request_hash != request_hash:
                 raise OperationConflictError()
@@ -87,8 +93,7 @@ class PortfolioRepository:
 
     def get_account_by_market(self, session: Session, *, uid: int, market: str) -> PortfolioAccount | None:
         return session.execute(
-            select(PortfolioAccount)
-            .where(
+            select(PortfolioAccount).where(
                 PortfolioAccount.uid == uid,
                 PortfolioAccount.market == market,
                 PortfolioAccount.name == DEFAULT_ACCOUNT_NAMES[market],
@@ -101,7 +106,9 @@ class PortfolioRepository:
         for market, name in DEFAULT_ACCOUNT_NAMES.items():
             row = self.get_account_by_market(session, uid=uid, market=market)
             if row is None:
-                row = PortfolioAccount(uid=uid, name=name, market=market, cash=Decimal("0"), created_at=now, updated_at=now)
+                row = PortfolioAccount(
+                    uid=uid, name=name, market=market, cash=Decimal("0"), created_at=now, updated_at=now
+                )
                 session.add(row)
                 session.flush()
             accounts.append(row)
@@ -152,6 +159,20 @@ class PortfolioRepository:
         if market:
             query = query.where(PortfolioPosition.market == market)
         return list(session.execute(query.distinct()).scalars())
+
+    def monitored_symbols(self) -> list[tuple[str, str]]:
+        """Distinct open holdings across users, for the shared ingestion pool only."""
+        with self.db.get_session() as session:
+            return list(
+                session.execute(
+                    select(PortfolioPosition.symbol, PortfolioPosition.market)
+                    .where(
+                        PortfolioPosition.closed_at.is_(None),
+                        PortfolioPosition.quantity > 0,
+                    )
+                    .distinct()
+                ).all()
+            )
 
     def get_position(self, session: Session, *, uid: int, position_id: int) -> PortfolioPosition | None:
         row = session.get(PortfolioPosition, position_id)
@@ -209,12 +230,16 @@ class PortfolioRepository:
     def operations_in_window(self, session, *, uid, position_ids, start, end):
         if not position_ids:
             return []
-        return list(session.execute(select(TradeOperation).where(
-            TradeOperation.uid == uid,
-            TradeOperation.position_id.in_(position_ids),
-            TradeOperation.executed_at >= start,
-            TradeOperation.executed_at <= end,
-        )).scalars())
+        return list(
+            session.execute(
+                select(TradeOperation).where(
+                    TradeOperation.uid == uid,
+                    TradeOperation.position_id.in_(position_ids),
+                    TradeOperation.executed_at >= start,
+                    TradeOperation.executed_at <= end,
+                )
+            ).scalars()
+        )
 
     def add_position(self, session: Session, **payload: Any) -> PortfolioPosition:
         row = PortfolioPosition(**payload)

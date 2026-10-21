@@ -232,7 +232,7 @@ async def test_unconfirmed_bar_is_never_written_to_confirmed_history() -> None:
 
 
 @pytest.mark.asyncio
-async def test_post_close_stored_bars_keep_multiple_days_without_heartbeat() -> None:
+async def test_post_close_stored_bars_keep_latest_session_without_heartbeat() -> None:
     redis = FakeRedis()
     repository = RealtimeStateRepository(redis)
     first_day = candle(1)
@@ -247,7 +247,7 @@ async def test_post_close_stored_bars_keep_multiple_days_without_heartbeat() -> 
 
     bars = await source.get_stored_bars("AAPL", 10, market_type="US")
 
-    assert [bar["timestamp"][:10] for bar in bars] == ["2026-06-26", "2026-06-29"]
+    assert [bar["timestamp"][:10] for bar in bars] == ["2026-06-29"]
 
 
 @pytest.mark.asyncio

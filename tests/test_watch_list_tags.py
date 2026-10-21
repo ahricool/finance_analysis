@@ -130,8 +130,10 @@ def test_api_contracts_and_legacy_rows(repo, monkeypatch):
     with TestClient(app) as client:
         old = repo.create(uid=1, code="00700", market_type="HK")
         assert client.get("/watch-list").json()["items"][0]["tags"] == []
-        response = client.post("/watch-list", json={"code": "AAPL", "market_type": "US", "name": "Apple",
-                                                    "tags": [{"name": "成长"}, {"name": "科技"}]})
+        response = client.post(
+            "/watch-list",
+            json={"code": "AAPL", "market_type": "US", "name": "Apple", "tags": [{"name": "成长"}, {"name": "科技"}]},
+        )
         assert response.status_code == 201
         item = response.json()
         assert len(item["tags"]) == 2
@@ -174,7 +176,8 @@ def test_migration_preserves_existing_stocks_and_matches_models():
             assert {i["name"] for i in actual.get_indexes(table.name)} == {i.name for i in table.indexes}
             assert {tuple(c["column_names"]) for c in actual.get_unique_constraints(table.name)} == {
                 tuple(col.name for col in c.columns)
-                for c in table.constraints if c.__class__.__name__ == "UniqueConstraint"
+                for c in table.constraints
+                if c.__class__.__name__ == "UniqueConstraint"
             }
             assert {fk["options"].get("ondelete") for fk in actual.get_foreign_keys(table.name)} == {
                 fk.ondelete for fk in table.foreign_key_constraints
@@ -185,7 +188,6 @@ def test_migration_preserves_existing_stocks_and_matches_models():
         assert inspect(connection).get_table_names() == ["watch_list"]
         assert connection.execute(select(WatchListItem.code)).scalar() == "00700"
     engine.dispose()
-
 
 
 @pytest.mark.asyncio
@@ -200,7 +202,6 @@ async def test_realtime_fetches_only_the_current_user_market_and_group(repo, mon
     repo.create(uid=2, code="NVDA.US", market_type="US", tags=[{"id": other.id}])
     monkeypatch.setattr(market_data, "WatchListRepo", lambda: repo)
     requested = []
-    provider_requested = []
 
     class State:
         async def get_quotes(self, symbols):
@@ -210,14 +211,9 @@ async def test_realtime_fetches_only_the_current_user_market_and_group(repo, mon
         get_trend_states = get_quotes
         get_pattern_states = get_quotes
 
-    def market_quotes(stocks):
-        provider_requested.append([stock.symbol for stock in stocks])
-        return {}
-
-    monkeypatch.setattr(market_data, "_market_quotes", market_quotes)
     payload = await market_data._live_snapshot(1, State(), "watch-list", "US", tag.id, False)
     assert [quote["symbol"] for quote in payload["quotes"]] == ["AAPL.US"]
-    assert all(symbols == ["AAPL.US"] for symbols in requested + provider_requested)
+    assert all(symbols == ["AAPL.US"] for symbols in requested)
     requested.clear()
     payload = await market_data._live_snapshot(1, State(), "watch-list", "US", None, True)
     assert [quote["symbol"] for quote in payload["quotes"]] == ["MSFT.US"]
@@ -228,6 +224,7 @@ async def test_realtime_fetches_only_the_current_user_market_and_group(repo, mon
 def test_search_market_is_forwarded_to_existing_repository(monkeypatch):
     from types import SimpleNamespace
     from finance_analysis.interfaces.api.v1.endpoints import stocks
+
     calls = []
 
     def search(q, **kwargs):

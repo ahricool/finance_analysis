@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any
 
-from finance_analysis.integrations.market_data.realtime_state.models import CandleState  # pragma: allowlist secret
+from finance_analysis.integrations.market_data.realtime_state.models import (
+    CandleState,
+    MarketEvent,
+)  # pragma: allowlist secret
 
 CN_VOLUME_MULTIPLIER = 100
 
@@ -99,22 +101,12 @@ def _session(value: Any) -> str | None:
     return text or None
 
 
-@dataclass(slots=True)
-class MarketEvent:
-    event_type: str
-    symbol: str
-    event_time: datetime
-    received_at: datetime
-    sequence: int | None
-    trade_session: str | None
-    payload: dict[str, Any]
-    connection_generation: int
-
-
 def normalize_quote(symbol: str, push: Any, *, generation: int) -> MarketEvent:
     received_at = datetime.now(timezone.utc)
     event_time = _time(getattr(push, "timestamp", None), received_at)
-    payload: dict[str, Any] = {}
+    payload: dict[str, Any] = {
+        "timestamp_kind": "provider" if try_parse_longbridge_datetime(getattr(push, "timestamp", None)) else "received"
+    }
     for source, target in (
         ("last_done", "last_price"),
         ("prev_close", "pre_close"),

@@ -7,6 +7,19 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Literal, Mapping, cast
 
+
+@dataclass(slots=True)
+class MarketEvent:
+    event_type: str
+    symbol: str
+    event_time: datetime
+    received_at: datetime
+    sequence: int | None
+    trade_session: str | None
+    payload: dict[str, Any]
+    connection_generation: int
+
+
 TrendDirection = Literal["above", "below", "neutral", "insufficient"]
 
 
@@ -37,6 +50,8 @@ class QuoteState:
     trade_session: str | None = None
     event_time: datetime | None = None
     received_at: datetime | None = None
+    source: str = "longbridge"
+    timestamp_kind: str = "provider"
 
     def merge(
         self,
@@ -53,6 +68,8 @@ class QuoteState:
                 return False
             if self.trading_date is None or trading_date > self.trading_date:
                 advances_trading_date = True
+        if not advances_trading_date and self.event_time and event_time and event_time < self.event_time:
+            return False
 
         incoming_sequence = payload.get("sequence")
         if incoming_sequence is not None:
@@ -113,6 +130,10 @@ class CandleState:
     trade_session: str | None
     confirmed: bool
     received_at: datetime
+    source: str = "longbridge"
+    sampled: bool = False
+    sample_count: int = 0
+    partial: bool = False
 
     @property
     def identity(self) -> tuple[datetime, str]:
@@ -147,6 +168,10 @@ class CandleState:
             trade_session=str(value.get("trade_session") or "") or None,
             confirmed=str(value.get("confirmed", "1")).lower() in {"1", "true", "yes"},
             received_at=received_at,
+            source=str(value.get("source") or "longbridge"),
+            sampled=str(value.get("sampled", "0")).lower() in {"1", "true"},
+            sample_count=int(value.get("sample_count") or 0),
+            partial=str(value.get("partial", "0")).lower() in {"1", "true"},
         )
 
 

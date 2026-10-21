@@ -528,7 +528,9 @@ async def test_connection_cleanup_resets_quote_sequence_for_new_connection() -> 
     assert app.quotes["AAPL.US"].sequence is None
     assert "AAPL.US" not in app.pending_quotes
 
-    await app._handle_event(quote_event("101", 1, 3))
+    next_quote = quote_event("101", 1, 3)
+    next_quote.event_time = next_quote.received_at = app.quotes["AAPL.US"].event_time + timedelta(seconds=1)
+    await app._handle_event(next_quote)
     assert app.quotes["AAPL.US"].last_price == Decimal("101")
     assert app.quotes["AAPL.US"].sequence == 1
 

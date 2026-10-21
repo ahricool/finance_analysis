@@ -16,13 +16,6 @@ from finance_analysis.interfaces.api.v1.endpoints import market_data
 from finance_analysis.users.auth import COOKIE_NAME
 
 
-@pytest.fixture(autouse=True)
-def offline_market_quotes(monkeypatch):
-    original = market_data._market_quotes
-    monkeypatch.setattr(market_data, "_market_quotes", lambda stocks: {})
-    return original
-
-
 class FakeQuoteRepository:
     def __init__(
         self,
@@ -208,6 +201,8 @@ async def test_cn_after_close_snapshot_uses_same_day_previous_close(monkeypatch)
         "_load_tracked_stocks",
         lambda uid: [market_data.TrackedStock("600519", "CN", "600519.SH")],
     )
+    repository.quotes["600519.SH"].event_time = datetime(2026, 7, 16, 7, 0, tzinfo=timezone.utc)
+    repository.quotes["600519.SH"].received_at = datetime(2026, 7, 16, 7, 0, tzinfo=timezone.utc)
     monkeypatch.setattr(market_data, "utc_now", lambda: datetime(2026, 7, 16, 8, 30, tzinfo=timezone.utc))
 
     snapshot = await market_data._build_snapshot(7, repository)
@@ -522,20 +517,19 @@ def test_websocket_sends_user_scoped_redis_snapshot_and_closes_repository(monkey
 
 
 @pytest.mark.asyncio
-async def test_snapshot_uses_primary_market_quote_and_preserves_redis_structure(monkeypatch):
+async def test_snapshot_reads_redis_without_creating_market_provider(monkeypatch):
     repository = FakeQuoteRepository({"AAPL.US": quote("AAPL.US", "99", "100")})
     stocks = [market_data.TrackedStock("AAPL", "US", "AAPL.US")]
     now = datetime(2026, 7, 16, 15, 0, tzinfo=timezone.utc)
     monkeypatch.setattr(market_data, "_load_tracked_stocks", lambda uid: stocks)
     monkeypatch.setattr(market_data, "utc_now", lambda: now)
-    from finance_analysis.integrations.market_data.models import Market
-    primary = SimpleNamespace(price=105, pre_close=100, open_price=101, high=106, low=100,
-                              volume=100, amount=10000, quote_time=now, provider="longbridge", market=Market.US)
-    monkeypatch.setattr(market_data, "_market_quotes", lambda stocks: {"AAPL.US": primary})
+    monkeypatch.setattr(
+        market_data, "MarketDataService", lambda: (_ for _ in ()).throw(AssertionError("external request"))
+    )
     snapshot = await market_data._build_snapshot(7, repository)
-    assert snapshot["quotes"][0]["last_price"] == 105
+    assert snapshot["quotes"][0]["last_price"] == 99
     assert snapshot["quotes"][0]["source"] == "longbridge"
-    assert snapshot["quotes"][0]["change_pct"] == 5
+    assert snapshot["quotes"][0]["change_pct"] == -1
 
 
 def test_holdings_socket_uses_owned_portfolio_without_watchlist(monkeypatch):
@@ -561,6 +555,7 @@ def test_holdings_socket_uses_owned_portfolio_without_watchlist(monkeypatch):
 @pytest.mark.asyncio
 async def test_sse_has_snapshot_parity_and_closes_repository_on_cancel(monkeypatch):
     import json
+
     repository = FakeQuoteRepository({})
     monkeypatch.setattr(market_data.RealtimeStateRepository, "from_url", lambda url: repository)
     monkeypatch.setattr(market_data, "get_effective_uid", lambda request: 7)
@@ -734,26 +729,15 @@ async def _not_disconnected():
 
 def test_sse_requires_authenticated_session():
     from fastapi import FastAPI
+
     app = FastAPI()
     app.include_router(market_data.router, prefix="/market-data")
     assert TestClient(app).get("/market-data/events").status_code == 401
 
 
-def test_market_quotes_maps_canonical_hk_keys_back_to_stream_symbols(monkeypatch, offline_market_quotes):
-    value = object()
-    seen = []
-
-    def quotes(symbols):
-        seen.append(symbols)
-        return SimpleNamespace(data={"700.HK": value})
-
-    monkeypatch.setattr(market_data, "MarketDataService", lambda: SimpleNamespace(get_realtime_quotes=quotes))
-    assert offline_market_quotes([market_data.TrackedStock("00700", "HK", "0700.HK")]) == {"0700.HK": value}
-    assert seen == [["0700.HK"]]
-
-
 def test_websocket_forwards_group_and_market_filters(monkeypatch):
     from fastapi import FastAPI
+
     calls = []
     repository = FakeQuoteRepository({})
     monkeypatch.setattr(market_data, "parse_session_uid", lambda token: 7)
@@ -779,6 +763,7 @@ def test_websocket_forwards_group_and_market_filters(monkeypatch):
 @pytest.mark.asyncio
 async def test_sse_forwards_group_and_market_filters(monkeypatch):
     import json
+
     repository = FakeQuoteRepository({})
     monkeypatch.setattr(market_data.RealtimeStateRepository, "from_url", lambda url: repository)
     monkeypatch.setattr(market_data, "get_effective_uid", lambda request: 7)
@@ -790,7 +775,11 @@ async def test_sse_forwards_group_and_market_filters(monkeypatch):
 
     monkeypatch.setattr(market_data, "_live_snapshot", snapshot)
     response = await market_data.realtime_events(
-        SimpleNamespace(is_disconnected=_not_disconnected), "watch-list", "US", 12, False,
+        SimpleNamespace(is_disconnected=_not_disconnected),
+        "watch-list",
+        "US",
+        12,
+        False,
     )
     assert await anext(response.body_iterator) == ": connected\n\n"
     frame = await anext(response.body_iterator)

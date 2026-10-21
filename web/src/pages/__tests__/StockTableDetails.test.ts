@@ -82,9 +82,9 @@ describe('watch-list table details', () => {
     vi.clearAllMocks();
   });
 
-  it('opens complete details from the row', async () => {
+  it('opens complete details from the stock name', async () => {
     const page = await mountPage();
-    await page.get('tbody tr[tabindex="0"]').trigger('click');
+    await page.get('button[aria-label="AAPL - Apple"]').trigger('click');
     expect(document.body.textContent).toContain('Apple');
     expect(document.body.textContent).toContain('等待财报确认');
   });

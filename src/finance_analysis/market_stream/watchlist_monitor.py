@@ -25,21 +25,33 @@ def _symbol_matches_market(symbol: str, market_type: MarketType) -> bool:
 
 def load_watchlist_targets(
     repo: Any | None = None,
+    portfolio_repo: Any | None = None,
 ) -> dict[str, SubscriptionTarget]:
     """Load all users' watch-list entries."""
     if repo is None:
         from finance_analysis.database.repositories.watch_list import WatchListRepo
 
         repo = WatchListRepo()
+        if portfolio_repo is None:
+            from finance_analysis.database.repositories.portfolio import PortfolioRepository
+
+            portfolio_repo = PortfolioRepository(repo.db)
 
     targets: dict[str, SubscriptionTarget] = {}
     watch_items = list(repo.list_all()) if repo is not None else []
-    for item in watch_items:
-        code = str(getattr(item, "code", "") or "").strip()
-        raw_market = getattr(item, "market_type", None)
+    entries = [(getattr(item, "code", ""), getattr(item, "market_type", None)) for item in watch_items]
+    if portfolio_repo is not None:
+        entries.extend(portfolio_repo.monitored_symbols())
+    for code, raw_market in entries:
+        code = str(code or "").strip()
         try:
             market_type = normalize_market_type(raw_market, code)
-            symbol = _to_longbridge_symbol(code)
+            if market_type == "CN":
+                from finance_analysis.stocks.markets import canonical_watch_list_code
+
+                symbol = canonical_watch_list_code(code, market_type)
+            else:
+                symbol = _to_longbridge_symbol(code)
             if not symbol or not _symbol_matches_market(symbol, market_type):
                 logger.warning("跳过无法转换的 WatchList 标的: code=%r market_type=%r", code, raw_market)
                 continue

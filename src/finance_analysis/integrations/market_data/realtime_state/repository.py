@@ -68,6 +68,7 @@ class RealtimeStateRepository:
         trend_ttl_seconds: int | None = None,
         pattern_ttl_seconds: int | None = None,
         removed_ttl_seconds: int = 2 * 3600,
+        retain_session: bool = False,
     ) -> None:
         self.redis = redis
         self.bar_limit = max(1, min(int(bar_limit), 1000))
@@ -76,6 +77,46 @@ class RealtimeStateRepository:
         self.trend_ttl_seconds = trend_ttl_seconds or bars_ttl_seconds
         self.pattern_ttl_seconds = pattern_ttl_seconds or bars_ttl_seconds
         self.removed_ttl_seconds = removed_ttl_seconds
+        self.retain_session = retain_session
+
+    def _ttl(self, symbol, day, default):
+        if not self.retain_session or day is None:
+            return default
+        from finance_analysis.core.time import utc_now
+        from finance_analysis.market_stream.session import cache_ttl
+
+        market = "US" if symbol.endswith(".US") else "HK" if symbol.endswith(".HK") else "CN"
+        return cache_ttl(market, day, utc_now())
+
+    async def record_pattern_event(self, pattern, observed_at):
+        """Append immutable stage evidence at its detection time, never backdate confirmation."""
+        signal = pattern.signal
+        if signal is None:
+            return
+        key = keys.pattern_events_key(pattern.symbol)
+        field = f"{signal.trading_date}:{signal.pattern_type}:{signal.occurred_at.isoformat()}:{signal.stage}"
+        payload = {**signal.to_dict(), "observed_at": utc_isoformat(observed_at)}
+        previous = await self.redis.hgetall(key)
+        obsolete = [name for name in previous if not name.startswith(f"{signal.trading_date}:")]
+        if obsolete:
+            await self.redis.hdel(key, *obsolete)
+        await self.redis.hsetnx(key, field, json.dumps(payload, ensure_ascii=False))
+        ttl = self._ttl(pattern.symbol, signal.trading_date, self.pattern_ttl_seconds)
+        await self.redis.expire(key, ttl)
+
+    async def get_pattern_events(self, symbol, day):
+        raw = await self.redis.hgetall(keys.pattern_events_key(symbol))
+        events = [json.loads(value) for value in raw.values()]
+        return sorted(
+            (event for event in events if event.get("trading_date") == str(day)), key=lambda event: event["observed_at"]
+        )
+
+    async def clear_intraday(self, symbol):
+        """Discard legacy CN native bars when switching the acquisition source."""
+        await self.redis.delete(
+            keys.current_candle_key(symbol), keys.bars_index_key(symbol), keys.bars_data_key(symbol),
+            keys.trend_key(symbol), keys.pattern_key(symbol), keys.pattern_events_key(symbol),
+        )
 
     @classmethod
     def from_url(cls, url: str, **kwargs: Any) -> "RealtimeStateRepository":
@@ -93,7 +134,7 @@ class RealtimeStateRepository:
     async def write_quote(self, quote: QuoteState) -> None:
         pipe = self.redis.pipeline(transaction=False)
         pipe.hset(keys.quote_key(quote.symbol), mapping=_mapping(quote))
-        pipe.expire(keys.quote_key(quote.symbol), self.quote_ttl_seconds)
+        pipe.expire(keys.quote_key(quote.symbol), self._ttl(quote.symbol, quote.trading_date, self.quote_ttl_seconds))
         await pipe.execute()
 
     async def get_quote(self, symbol: str) -> QuoteState | None:
@@ -125,7 +166,7 @@ class RealtimeStateRepository:
         pipe = self.redis.pipeline(transaction=False)
         for symbol, trend in valid.items():
             pipe.hset(keys.trend_key(symbol), mapping=_mapping(trend))
-            pipe.expire(keys.trend_key(symbol), self.trend_ttl_seconds)
+            pipe.expire(keys.trend_key(symbol), self._ttl(symbol, trend.trading_date, self.trend_ttl_seconds))
         await pipe.execute()
 
     async def get_trend_state(self, symbol: str) -> TrendState | None:
@@ -152,7 +193,7 @@ class RealtimeStateRepository:
         pipe = self.redis.pipeline(transaction=False)
         for symbol, pattern in valid.items():
             pipe.hset(keys.pattern_key(symbol), mapping=pattern.to_mapping())
-            pipe.expire(keys.pattern_key(symbol), self.pattern_ttl_seconds)
+            pipe.expire(keys.pattern_key(symbol), self._ttl(symbol, pattern.trading_date, self.pattern_ttl_seconds))
         await pipe.execute()
 
     async def get_pattern_state(self, symbol: str) -> PatternState | None:
@@ -196,7 +237,10 @@ class RealtimeStateRepository:
     async def write_current_candle(self, candle: CandleState) -> None:
         pipe = self.redis.pipeline(transaction=False)
         pipe.hset(keys.current_candle_key(candle.symbol), mapping=_mapping(candle))
-        pipe.expire(keys.current_candle_key(candle.symbol), self.bars_ttl_seconds)
+        pipe.expire(
+            keys.current_candle_key(candle.symbol),
+            self._ttl(candle.symbol, candle.bar_time.date(), self.bars_ttl_seconds),
+        )
         await pipe.execute()
 
     async def get_current_candle(self, symbol: str) -> CandleState | None:
@@ -212,9 +256,7 @@ class RealtimeStateRepository:
     ) -> None:
         valid_by_symbol = {
             symbol: {
-                self._bar_field(bar): bar
-                for bar in bars
-                if bar.symbol == symbol and bar.confirmed and bar.is_valid()
+                self._bar_field(bar): bar for bar in bars if bar.symbol == symbol and bar.confirmed and bar.is_valid()
             }
             for symbol, bars in bars_by_symbol.items()
         }
@@ -225,11 +267,29 @@ class RealtimeStateRepository:
         for symbol, valid in valid_by_symbol.items():
             index_key = keys.bars_index_key(symbol)
             data_key = keys.bars_data_key(symbol)
+            # Keep one market session, even when a late packet from yesterday arrives.
+            latest = await self.get_recent_bars(symbol, 1)
+            market = "US" if symbol.endswith(".US") else "HK" if symbol.endswith(".HK") else "CN"
+            from finance_analysis.market_stream.config import market_trading_date, market_timezone
+            from datetime import time
+
+            newest = max(bar.bar_time for bar in valid.values())
+            if latest:
+                newest = max(newest, latest[-1].bar_time)
+            day = market_trading_date(newest, market)
+            start = datetime.combine(day, time.min, market_timezone(market))
+            obsolete = await self.redis.zrangebyscore(index_key, float("-inf"), start.timestamp() - 0.001)
+            if obsolete:
+                pipe.zrem(index_key, *obsolete)
+                pipe.hdel(data_key, *obsolete)
             for field, bar in valid.items():
+                if market_trading_date(bar.bar_time, market) != day:
+                    continue
                 pipe.zadd(index_key, {field: bar.bar_time.timestamp()})
                 pipe.hset(data_key, field, _candle_json(bar))
-            pipe.expire(index_key, self.bars_ttl_seconds)
-            pipe.expire(data_key, self.bars_ttl_seconds)
+            ttl = self._ttl(symbol, day, self.bars_ttl_seconds)
+            pipe.expire(index_key, ttl)
+            pipe.expire(data_key, ttl)
         await pipe.execute()
         for symbol in valid_by_symbol:
             await self._trim_bars(keys.bars_index_key(symbol), keys.bars_data_key(symbol))
@@ -322,20 +382,22 @@ class RealtimeStateRepository:
         pipe = self.redis.pipeline(transaction=False)
         for symbol, quote in quotes.items():
             pipe.hset(keys.quote_key(symbol), mapping=_mapping(quote))
-            pipe.expire(keys.quote_key(symbol), self.quote_ttl_seconds)
+            pipe.expire(keys.quote_key(symbol), self._ttl(symbol, quote.trading_date, self.quote_ttl_seconds))
         for symbol, candle in current_candles.items():
             pipe.hset(keys.current_candle_key(symbol), mapping=_mapping(candle))
-            pipe.expire(keys.current_candle_key(symbol), self.bars_ttl_seconds)
+            pipe.expire(
+                keys.current_candle_key(symbol), self._ttl(symbol, candle.bar_time.date(), self.bars_ttl_seconds)
+            )
         for symbol, trend in (trends or {}).items():
             if trend.symbol != symbol:
                 continue
             pipe.hset(keys.trend_key(symbol), mapping=_mapping(trend))
-            pipe.expire(keys.trend_key(symbol), self.trend_ttl_seconds)
+            pipe.expire(keys.trend_key(symbol), self._ttl(symbol, trend.trading_date, self.trend_ttl_seconds))
         for symbol, pattern in (patterns or {}).items():
             if pattern.symbol != symbol:
                 continue
             pipe.hset(keys.pattern_key(symbol), mapping=pattern.to_mapping())
-            pipe.expire(keys.pattern_key(symbol), self.pattern_ttl_seconds)
+            pipe.expire(keys.pattern_key(symbol), self._ttl(symbol, pattern.trading_date, self.pattern_ttl_seconds))
         await pipe.execute()
 
     async def expire_symbol_cache(self, symbol: str, *, ttl_seconds: int | None = None) -> None:
@@ -348,6 +410,7 @@ class RealtimeStateRepository:
             keys.bars_data_key(symbol),
             keys.trend_key(symbol),
             keys.pattern_key(symbol),
+            keys.pattern_events_key(symbol),
             keys.subscription_key(symbol),
         ):
             pipe.expire(key, ttl_seconds)

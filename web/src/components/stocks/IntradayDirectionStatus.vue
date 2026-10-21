@@ -2,7 +2,7 @@
 import type { RealtimeQuote } from '@/api/realtimeMarket';
 import type { MarketType } from '@/api/watchList';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { calculateZeroDteStatus } from '@/utils/zeroDteStatus';
+import { calculateIntradayDirection } from '@/utils/intradayDirection';
 import { ArrowDownRight, ArrowUpRight, Clock3, Minus, ShieldX } from 'lucide-vue-next';
 import { computed } from 'vue';
 
@@ -12,30 +12,30 @@ const props = defineProps<{
   now?: Date;
 }>();
 
-const result = computed(() => calculateZeroDteStatus(props.quote, props.marketType, props.now));
+const result = computed(() => calculateIntradayDirection(props.quote, props.marketType, props.now));
 
 const appearance = computed(() => {
   switch (result.value?.status) {
-    case 'CALL确认':
+    case '多头确认':
       return {
         className: 'border-market-up/35 bg-market-up/12 text-market-up',
         icon: ArrowUpRight,
       };
-    case 'CALL观察':
+    case '多头观察':
       return { className: 'border-market-up/25 bg-market-up/7 text-market-up', icon: ArrowUpRight };
-    case 'CALL延续':
+    case '多头延续':
       return { className: 'border-market-up/20 bg-market-up/5 text-market-up/80', icon: ArrowUpRight };
-    case 'PUT确认':
+    case '空头确认':
       return {
         className: 'border-market-down/35 bg-market-down/12 text-market-down',
         icon: ArrowDownRight,
       };
-    case 'PUT观察':
+    case '空头观察':
       return {
         className: 'border-market-down/25 bg-market-down/7 text-market-down',
         icon: ArrowDownRight,
       };
-    case 'PUT延续':
+    case '空头延续':
       return {
         className: 'border-market-down/20 bg-market-down/5 text-market-down/80',
         icon: ArrowDownRight,
@@ -55,13 +55,13 @@ const appearance = computed(() => {
 });
 
 const helper = computed(() => {
-  if (result.value?.status === 'CALL延续') return '不宜追高';
-  if (result.value?.status === 'PUT延续') return '不宜追空';
+  if (result.value?.status === '多头延续') return '不宜追高';
+  if (result.value?.status === '空头延续') return '不宜追空';
   return '';
 });
 
 const tooltip = computed(() => {
-  if (!result.value) return '仅美股且实时行情、趋势与形态数据完整时计算。';
+  if (!result.value) return 'A股与美股在行情、趋势与形态数据完整时计算。';
   const lines = [
     result.value.reason,
     result.value.ageMinutes === null ? '' : `形态真实年龄：${result.value.ageMinutes} 分钟`,

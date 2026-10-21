@@ -84,6 +84,10 @@ export interface RealtimeQuote {
   symbol: string;
   available: boolean;
   source?: string;
+  timestamp_kind?: string;
+  session_open?: string | null;
+  session_close?: string | null;
+  market_open?: boolean;
   quote_status?: 'current' | 'delayed' | 'unavailable';
   trading_date?: string | null;
   last_price?: number | null;

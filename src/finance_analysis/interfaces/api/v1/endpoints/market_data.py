@@ -12,12 +12,11 @@ from decimal import Decimal
 from typing import Annotated, Any, Literal, cast
 
 from anyio import CancelScope
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import StreamingResponse
 
 from finance_analysis.core.time import utc_isoformat, utc_now
-from finance_analysis.database.config import get_database_config
 from finance_analysis.database.repositories.user import UserRepository
 from finance_analysis.database.repositories.watch_list import WatchListRepo
 from finance_analysis.integrations.market_data.forward_returns import forward_returns
@@ -31,14 +30,15 @@ from finance_analysis.interfaces.api.v1.schemas.market_data import (
     DailyBarsResponse,
     ForwardReturnsRequest,
     ForwardReturnsResponse,
+    IntradayBarsResponse,
 )
 from finance_analysis.interfaces.api.deps import get_effective_uid, require_current_user
 from finance_analysis.portfolio.valuation import portfolio_summary
-from finance_analysis.market_review.trading_calendar import get_completed_trading_days, is_market_open
 from finance_analysis.market_stream.config import (
     is_regular_session_minute,
     is_regular_trade_session,
     latest_completed_bar_time,
+    MarketStreamConfig,
     market_spec,
     market_trading_date,
 )
@@ -53,6 +53,77 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 PUSH_INTERVAL_SECONDS = 5
 SSE_HEARTBEAT_SECONDS = 10
+
+
+@router.get("/intraday/{symbol}", response_model=IntradayBarsResponse, dependencies=[Depends(require_current_user)])
+async def intraday_bars(symbol: str, request: Request, since: datetime | None = None, response: Response = None):
+    """User-owned intraday view; cache misses never launch an external request."""
+    from finance_analysis.portfolio.service import PortfolioService
+
+    if response is not None:
+        response.headers["Cache-Control"] = "private, no-store"
+
+    try:
+        code = canonical_symbol(symbol)
+        market = infer_market(code).value
+        if market not in {"CN", "US"} or (since is not None and since.tzinfo is None):
+            raise ValueError("invalid market or timestamp")
+    except ValueError as exc:
+        raise HTTPException(422, "证券或时间格式无效") from exc
+    uid = get_effective_uid(request)
+    tracked = await asyncio.to_thread(_load_tracked_stocks, uid, market)
+    if code not in {stock.symbol for stock in tracked}:
+        held = await asyncio.to_thread(PortfolioService().list_positions, uid, market=market)
+        if code not in {row["symbol"] for row in held}:
+            raise HTTPException(404, "证券不在本人的自选股或持仓中")
+    repository = RealtimeStateRepository.from_url(MarketStreamConfig.from_env().redis_url)
+    try:
+        now = utc_now()
+        day = _display_trading_date(market, now)
+        bars, current, snapshot, events = await asyncio.gather(
+            repository.get_recent_bars(code, 420),
+            repository.get_current_candle(code),
+            _build_snapshot(uid, repository, stocks=[TrackedStock(code, market, code)]),
+            repository.get_pattern_events(code, day),
+        )
+        reset = since is None or market_trading_date(since, market) != day
+        by_time = {bar.bar_time: bar for bar in bars}
+        if current is not None and (current.bar_time not in by_time or not by_time[current.bar_time].confirmed):
+            by_time[current.bar_time] = current
+        items = [
+            {
+                "timestamp": int(bar.bar_time.timestamp() * 1000),
+                "open": float(bar.open),
+                "high": float(bar.high),
+                "low": float(bar.low),
+                "close": float(bar.close),
+                "volume": bar.volume,
+                "turnover": float(bar.turnover) if bar.turnover is not None else None,
+                "confirmed": bar.confirmed,
+                "sampled": bar.sampled,
+                "sample_count": bar.sample_count,
+                "partial": bar.partial,
+            }
+            for bar in sorted(by_time.values(), key=lambda b: b.bar_time)
+            if market_trading_date(bar.bar_time, market) == day
+            and bar.is_valid()
+            and is_regular_session_minute(bar.bar_time, market)
+            and bar.bar_time <= now
+            and (reset or bar.bar_time >= since)
+        ]
+        return {
+            "symbol": code,
+            "market": market,
+            "trading_date": day,
+            "generated_at": now,
+            "reset": reset,
+            "items": items,
+            "quote": snapshot["quotes"][0],
+            "events": events,
+        }
+    finally:
+        with CancelScope(shield=True):
+            await repository.close()
 
 
 @router.post("/forward-returns", response_model=ForwardReturnsResponse)
@@ -89,9 +160,7 @@ def daily_bars(symbol: str, start_date: date | None = None, end_date: date | Non
         service = MarketDataService()
         unavailable = False
         try:
-            result = service.get_daily_bars(
-                [code], start, end, adjustment="forward", source_policy="db_latest"
-            )
+            result = service.get_daily_bars([code], start, end, adjustment="forward", source_policy="db_latest")
             bars = result.data.get(code, [])
             source = result.providers_used.get(code)
             unavailable = code in result.failed_symbols or code in result.request_errors
@@ -100,9 +169,7 @@ def daily_bars(symbol: str, start_date: date | None = None, end_date: date | Non
             bars, source, unavailable = [], None, True
         if not bars:
             try:
-                stored = service.get_daily_bars(
-                    [code], start, end, adjustment="forward", source_policy="db_only"
-                )
+                stored = service.get_daily_bars([code], start, end, adjustment="forward", source_policy="db_only")
                 bars = stored.data.get(code, [])
                 if bars:
                     source = "database"
@@ -117,7 +184,7 @@ def daily_bars(symbol: str, start_date: date | None = None, end_date: date | Non
         raise HTTPException(status_code=503, detail="日 K 数据暂时不可用，请稍后重试")
     by_date = {bar.trade_date: bar for bar in bars}
     try:
-        today_bar = service.get_intraday_daily_bar(code, start, end, now=now)
+        today_bar = service.get_intraday_daily_bar(code, start, end, now=now, cached_only=True)
         if today_bar is not None:
             by_date[today_bar.trade_date] = today_bar
     except Exception:
@@ -151,7 +218,10 @@ class TrackedStock:
 
 
 def _load_tracked_stocks(
-    uid: int, market: str | None = None, tag_id: int | None = None, ungrouped: bool = False,
+    uid: int,
+    market: str | None = None,
+    tag_id: int | None = None,
+    ungrouped: bool = False,
 ) -> list[TrackedStock]:
     tracked: dict[str, TrackedStock] = {}
     filters = {"market_type": market, "tag_id": tag_id, "ungrouped": ungrouped} if market or tag_id or ungrouped else {}
@@ -159,7 +229,7 @@ def _load_tracked_stocks(
         code = str(item.code).strip().upper()
         market_type = str(item.market_type).strip().upper()
         try:
-            symbol = _to_longbridge_symbol(code)
+            symbol = canonical_symbol(code) if market_type == "CN" else _to_longbridge_symbol(code)
         except Exception as exc:
             logger.warning("无法转换实时行情代码: code=%s market=%s error=%s", code, market_type, exc)
             continue
@@ -233,11 +303,9 @@ def _pattern_payload(pattern: PatternState) -> dict[str, Any]:
 
 
 def _display_trading_date(market_type: str, now: datetime) -> date:
-    market = market_type.lower()
-    local_date = market_trading_date(now, cast(MarketType, market_type))
-    if is_market_open(market, local_date):
-        return local_date
-    return get_completed_trading_days(market, 1, now)[-1]
+    from finance_analysis.market_stream.session import display_day
+
+    return display_day(market_type, now)
 
 
 def _preview_bar_is_current(
@@ -267,6 +335,18 @@ def _preview_bar_is_current(
     return latest_completed is None or preview_bar_time > latest_completed
 
 
+def _session_window(market, now):
+    from finance_analysis.market_stream.session import session_bounds
+
+    return session_bounds(market, _display_trading_date(market, now)) or (None, None)
+
+
+def _market_is_open(market, now):
+    from finance_analysis.market_stream.session import in_session
+
+    return in_session(market, now)
+
+
 def _quote_payload(
     stock: TrackedStock,
     quote: QuoteState | None,
@@ -277,7 +357,17 @@ def _quote_payload(
 ) -> dict[str, Any]:
     try:
         display_date = _display_trading_date(stock.market_type, now)
-        quote_is_current = quote is not None and quote.trading_date == display_date
+        quote_is_current = (
+            quote is not None
+            and quote.trading_date == display_date
+            and quote.last_price is not None
+            and quote.last_price > 0
+            and quote.event_time is not None
+            and quote.received_at is not None
+            and quote.timestamp_kind != "received"
+            and quote.event_time <= now + timedelta(seconds=5)
+            and quote.received_at <= now + timedelta(seconds=5)
+        )
         trend_is_current = trend is not None and trend.trading_date == display_date
         if trend_is_current and trend is not None and trend.bar_time is not None:
             trend_is_current = (
@@ -387,37 +477,34 @@ def _quote_payload(
         "trade_session": quote.trade_session,
         "event_time": utc_isoformat(quote.event_time),
         "received_at": utc_isoformat(quote.received_at),
+        "timestamp_kind": quote.timestamp_kind,
+        "source": quote.source,
+        "session_open": utc_isoformat(_session_window(stock.market_type, now)[0]),
+        "session_close": utc_isoformat(_session_window(stock.market_type, now)[1]),
+        "market_open": _market_is_open(stock.market_type, now),
     }
 
 
 async def _build_snapshot(
-    uid: int, repository: RealtimeStateRepository,
-    market: str | None = None, tag_id: int | None = None, ungrouped: bool = False,
+    uid: int,
+    repository: RealtimeStateRepository,
+    market: str | None = None,
+    tag_id: int | None = None,
+    ungrouped: bool = False,
+    *,
+    stocks=None,
 ) -> dict[str, Any]:
     filters = (market, tag_id, ungrouped) if market or tag_id or ungrouped else ()
-    stocks = await asyncio.to_thread(_load_tracked_stocks, uid, *filters)
+    if stocks is None:
+        stocks = await asyncio.to_thread(_load_tracked_stocks, uid, *filters)
     symbols = [stock.symbol for stock in stocks]
-    quotes_result, trends_result, patterns_result, market_quotes = await asyncio.gather(
+    quotes_result, trends_result, patterns_result = await asyncio.gather(
         repository.get_quotes(symbols),
         repository.get_trend_states(symbols),
         repository.get_pattern_states(symbols),
-        asyncio.to_thread(_market_quotes, stocks),
         return_exceptions=True,
     )
     quotes = {} if isinstance(quotes_result, BaseException) else quotes_result
-    sources = {}
-    if not isinstance(market_quotes, BaseException):
-        for symbol, quote in market_quotes.items():
-            if quote.quote_time is None:
-                continue
-            sources[symbol] = quote.provider
-            quotes[symbol] = QuoteState(
-                symbol=symbol, trading_date=market_trading_date(quote.quote_time, quote.market.value),
-                last_price=_decimal(quote.price), pre_close=_decimal(quote.pre_close),
-                open=_decimal(quote.open_price), high=_decimal(quote.high), low=_decimal(quote.low),
-                volume=quote.volume, turnover=_decimal(quote.amount), event_time=quote.quote_time,
-                received_at=utc_now(),
-            )
     if isinstance(trends_result, BaseException):
         logger.warning("批量读取实时趋势失败: %s", trends_result)
         trends: dict[str, TrendState] = {}
@@ -434,7 +521,7 @@ async def _build_snapshot(
         quote = quotes.get(stock.symbol)
         payload = _quote_payload(stock, quote, trends.get(stock.symbol), patterns.get(stock.symbol), now=now)
         payload.update(
-            source=sources.get(stock.symbol, "streaming"),
+            source=quote.source if quote is not None else "streaming",
             quote_status=_display_quote_status(quote, now) if payload["available"] else "unavailable",
         )
         payloads.append(payload)
@@ -455,26 +542,12 @@ def _display_quote_status(quote, now):
     return "delayed" if now - quote.event_time > timedelta(seconds=90) else "current"
 
 
-def _market_quotes(stocks):
-    if not stocks:
-        return {}
-    service = MarketDataService()
-    quotes = {}
-    for market in sorted({stock.market_type for stock in stocks}):
-        symbols = [stock.symbol for stock in stocks if stock.market_type == market]
-        try:
-            batch = service.get_realtime_quotes(symbols).data
-            quotes.update({symbol: batch[canonical_symbol(symbol)] for symbol in symbols if canonical_symbol(symbol) in batch})
-        except Exception:
-            logger.warning("行情快照获取失败 market=%s", market, exc_info=True)
-    return quotes
-
-
 async def _live_snapshot(uid, repository, scope, market, tag_id=None, ungrouped=False):
     if scope == "holdings":
         portfolio = await asyncio.to_thread(portfolio_summary, uid, market or "CN", initialize_accounts=False)
-        return jsonable_encoder({"type": "quotes", "generated_at": portfolio["generated_at"],
-                                 "quotes": [], "portfolio": portfolio})
+        stocks = [TrackedStock(row["symbol"], row["market"], row["symbol"]) for row in portfolio["positions"]]
+        snapshot = await _build_snapshot(uid, repository, stocks=stocks)
+        return jsonable_encoder({**snapshot, "generated_at": portfolio["generated_at"], "portfolio": portfolio})
     if market or tag_id or ungrouped:
         return await _build_snapshot(uid, repository, market, tag_id, ungrouped)
     return await _build_snapshot(uid, repository)
@@ -495,7 +568,7 @@ async def realtime_events(
     uid = get_effective_uid(request)
 
     async def events():
-        repository = RealtimeStateRepository.from_url(get_database_config().redis_url)
+        repository = RealtimeStateRepository.from_url(MarketStreamConfig.from_env().redis_url)
         snapshot_task: asyncio.Task[dict[str, Any]] | None = None
         try:
             yield ": connected\n\n"
@@ -527,9 +600,14 @@ async def realtime_events(
                         await snapshot_task
                 await repository.close()
 
-    return StreamingResponse(events(), media_type="text/event-stream", headers={
-        "Cache-Control": "private, no-store", "X-Accel-Buffering": "no",
-    })
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "private, no-store",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.websocket("/ws")
@@ -557,7 +635,7 @@ async def realtime_quotes(
         await websocket.close(code=1008, reason="Invalid market/group filter")
         return
 
-    repository = RealtimeStateRepository.from_url(get_database_config().redis_url)
+    repository = RealtimeStateRepository.from_url(MarketStreamConfig.from_env().redis_url)
     await websocket.accept()
     try:
         while True:

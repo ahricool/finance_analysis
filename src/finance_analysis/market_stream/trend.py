@@ -57,6 +57,9 @@ def calculate_ma_trend(
                 candidates[bar.identity] = bar
 
     ordered = sorted(candidates.values(), key=lambda bar: (bar.bar_time, bar.trade_session or ""))
+    from finance_analysis.market_stream.quality import indicator_tail
+
+    ordered = indicator_tail(ordered, market_type)
     latest = ordered[-1] if ordered else None
     count = len(ordered)
     base = TrendState(

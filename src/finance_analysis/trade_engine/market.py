@@ -13,7 +13,10 @@ from finance_analysis.integrations.market_data.models import Adjustment  # pragm
 from finance_analysis.integrations.market_data.normalizer import infer_market  # pragma: allowlist secret
 from finance_analysis.integrations.market_data.service import MarketDataService  # pragma: allowlist secret
 from finance_analysis.trade_engine.config import get_risk_policy  # pragma: allowlist secret
-from finance_analysis.trade_engine.daily import completed_daily_bars, latest_completed_trading_day  # pragma: allowlist secret
+from finance_analysis.trade_engine.daily import (
+    completed_daily_bars,
+    latest_completed_trading_day,
+)  # pragma: allowlist secret
 from finance_analysis.trade_engine.models import DailyBar, QuoteView  # pragma: allowlist secret
 
 logger = logging.getLogger(__name__)
@@ -35,7 +38,7 @@ class RiskMarketGateway:
         policy = get_risk_policy()
         self.quote_max_age = timedelta(seconds=quote_max_age_seconds or policy.quote_max_age_seconds)
 
-    def quotes(self, symbols: Iterable[str], *, now: datetime | None = None) -> dict[str, QuoteView]:
+    def quotes(self, symbols: Iterable[str], *, now: datetime | None = None, cached_only=False) -> dict[str, QuoteView]:
         current = now or utc_now()
         unique = tuple(dict.fromkeys(symbols))
         if not unique:
@@ -45,7 +48,11 @@ class RiskMarketGateway:
             by_market.setdefault(infer_market(symbol), []).append(symbol)
         result: dict[str, QuoteView] = {}
         for _market, codes in by_market.items():
-            batch = self.market_data.get_realtime_quotes(codes)
+            batch = (
+                self.market_data.get_cached_quotes(codes)
+                if cached_only
+                else self.market_data.get_realtime_quotes(codes)
+            )
             for symbol in codes:
                 quote = batch.data.get(symbol)
                 result[symbol] = self._quote_view(quote, current)

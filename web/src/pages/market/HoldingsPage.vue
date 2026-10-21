@@ -13,6 +13,11 @@ import {
 import StockDetailDialog from '@/components/stocks/StockDetailDialog.vue';
 import SortableTableHeader from '@/components/stocks/SortableTableHeader.vue';
 import RealtimeStatus from '@/components/stocks/RealtimeStatus.vue';
+import IntradayStockPanel from '@/components/stocks/IntradayStockPanel.vue';
+import TrendStatus from '@/components/stocks/TrendStatus.vue';
+import PatternStatus from '@/components/stocks/PatternStatus.vue';
+import IntradayDirectionStatus from '@/components/stocks/IntradayDirectionStatus.vue';
+import { useCurrentTime } from '@/composables/useCurrentTime';
 import { useRealtimeQuotes } from '@/composables/useRealtimeQuotes';
 import { signedTextClass } from '@/utils/marketTone';
 import StockAutocomplete from '@/components/StockAutocomplete/StockAutocomplete.vue';
@@ -32,7 +37,9 @@ import { createOperationId } from '@/utils/operationId';
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 
 const market = ref<'CN' | 'US'>('CN');
-const { portfolio: livePortfolio, status: realtimeStatus } = useRealtimeQuotes(() => ({ scope: 'holdings', market: market.value }));
+const { portfolio: livePortfolio, status: realtimeStatus, getQuote } = useRealtimeQuotes(() => ({ scope: 'holdings', market: market.value }));
+const currentTime = useCurrentTime();
+const expandedId = ref<number | null>(null);
 const loading = ref(false);
 const error = ref<ParsedApiError | null>(null);
 const accounts = ref<PortfolioAccount[]>([]);
@@ -175,6 +182,7 @@ async function load() {
 function changeMarket(value: 'CN' | 'US') {
   if (value === market.value) return;
   market.value = value;
+  expandedId.value = null;
   closeDetail();
   closeForm();
   accounts.value = [];
@@ -444,104 +452,135 @@ function closeDetail() {
                 :align="column.key === 'symbol' || column.key === 'engine' ? 'left' : 'right'"
                 @sort="sort(column.key)"
               />
+              <TableHead>趋势持续</TableHead><TableHead>最近形态</TableHead><TableHead>日内方向状态</TableHead>
               <TableHead>操作</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            <TableRow
+            <template
               v-for="row in sortedPositions"
               :key="row.id"
-              data-testid="position-row"
             >
-              <TableCell class="sticky left-0 z-10 bg-background">
-                <button
-                  class="text-left font-medium"
-                  @click="openDetail(row)"
-                >
-                  <span class="block">{{ row.name || row.symbol }}</span>
+              <TableRow
+                data-testid="position-row"
+                class="cursor-pointer"
+                tabindex="0"
+                :aria-label="`展开 ${row.name || row.symbol} 分钟行情`"
+                :aria-expanded="expandedId === row.id"
+                @click="expandedId = expandedId === row.id ? null : row.id"
+                @keydown.enter.self="expandedId = expandedId === row.id ? null : row.id"
+                @keydown.space.self.prevent="expandedId = expandedId === row.id ? null : row.id"
+              >
+                <TableCell class="sticky left-0 z-10 bg-background">
+                  <button
+                    class="text-left font-medium"
+                    @click.stop="openDetail(row)"
+                  >
+                    <span class="block">{{ row.name || row.symbol }}</span>
+                    <span
+                      v-if="row.name"
+                      class="block text-xs font-normal text-muted-foreground"
+                    >{{ row.symbol }}</span>
+                  </button>
+                </TableCell>
+                <TableCell class="text-right tabular-nums">
+                  <span class="font-medium">{{ fmt(row.currentPrice) }}</span>
                   <span
-                    v-if="row.name"
-                    class="block text-xs font-normal text-muted-foreground"
-                  >{{ row.symbol }}</span>
-                </button>
-              </TableCell>
-              <TableCell class="text-right tabular-nums">
-                <span class="font-medium">{{ fmt(row.currentPrice) }}</span>
-                <span
-                  v-if="row.quoteStatus === 'delayed'"
-                  class="ml-1 text-xs text-warning"
-                >延迟</span>
-                <span
-                  v-if="row.currentPrice == null"
-                  class="block text-xs text-muted-foreground"
-                >暂无报价</span>
-                <TooltipProvider v-else>
-                  <Tooltip>
-                    <TooltipTrigger as-child>
-                      <span
-                        tabindex="0"
-                        class="block whitespace-nowrap text-xs text-muted-foreground"
-                      >{{ quoteSource(row) }} · {{ quoteTime(row.quoteTime, true) }}</span>
-                    </TooltipTrigger>
-                    <TooltipContent>报价时间：{{ quoteTime(row.quoteTime) }} · {{ quoteSource(row) }}</TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              </TableCell>
-              <TableCell
-                class="text-right tabular-nums"
-                :class="signedTextClass(numeric(row.changePct))"
-              >
-                <span class="block font-medium">{{ signed(row.changePct, '%') }}</span>
-                <span class="block text-xs">{{ signed(row.changeAmount) }}</span>
-              </TableCell>
-              <TableCell class="whitespace-nowrap">
-                {{ engineLabel(row) }}
-              </TableCell>
-              <TableCell class="text-right tabular-nums">
-                {{ fmt(row.quantity) }}
-              </TableCell>
-              <TableCell class="text-right tabular-nums">
-                {{ fmt(row.averageCost) }}
-              </TableCell>
-              <TableCell class="text-right tabular-nums">
-                {{ row.weight != null ? `${(Number(row.weight) * 100).toFixed(1)}%` : '—' }}
-              </TableCell>
-              <TableCell
-                class="text-right tabular-nums"
-                :class="signedTextClass(numeric(row.dayPnl))"
-              >
-                {{ signed(row.dayPnl) }}
-              </TableCell>
-              <TableCell
-                class="text-right tabular-nums"
-                :class="signedTextClass(numeric(row.unrealizedPnl))"
-              >
-                <span class="block font-medium">{{ signed(row.unrealizedPnlPct, '%') }}</span>
-                <span class="block text-xs">{{ signed(row.unrealizedPnl) }}</span>
-              </TableCell>
-              <TableCell>
-                <DropdownMenu>
-                  <DropdownMenuTrigger as-child>
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      :disabled="loading || !!error"
-                      :aria-label="`${row.name || row.symbol}持仓操作`"
-                    >
-                      <MoreHorizontal class="size-4" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem @select="openForm('buy', row)">
-                      买入
-                    </DropdownMenuItem>
-                    <DropdownMenuItem @select="openForm('sell', row)">
-                      卖出
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </TableCell>
-            </TableRow>
+                    v-if="row.quoteStatus === 'delayed'"
+                    class="ml-1 text-xs text-warning"
+                  >延迟</span>
+                  <span
+                    v-if="row.currentPrice == null"
+                    class="block text-xs text-muted-foreground"
+                  >暂无报价</span>
+                  <TooltipProvider v-else>
+                    <Tooltip>
+                      <TooltipTrigger as-child>
+                        <span
+                          tabindex="0"
+                          class="block whitespace-nowrap text-xs text-muted-foreground"
+                        >{{ quoteSource(row) }} · {{ quoteTime(row.quoteTime, true) }}</span>
+                      </TooltipTrigger>
+                      <TooltipContent>报价时间：{{ quoteTime(row.quoteTime) }} · {{ quoteSource(row) }}</TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                </TableCell>
+                <TableCell
+                  class="text-right tabular-nums"
+                  :class="signedTextClass(numeric(row.changePct))"
+                >
+                  <span class="block font-medium">{{ signed(row.changePct, '%') }}</span>
+                  <span class="block text-xs">{{ signed(row.changeAmount) }}</span>
+                </TableCell>
+                <TableCell class="whitespace-nowrap">
+                  {{ engineLabel(row) }}
+                </TableCell>
+                <TableCell class="text-right tabular-nums">
+                  {{ fmt(row.quantity) }}
+                </TableCell>
+                <TableCell class="text-right tabular-nums">
+                  {{ fmt(row.averageCost) }}
+                </TableCell>
+                <TableCell class="text-right tabular-nums">
+                  {{ row.weight != null ? `${(Number(row.weight) * 100).toFixed(1)}%` : '—' }}
+                </TableCell>
+                <TableCell
+                  class="text-right tabular-nums"
+                  :class="signedTextClass(numeric(row.dayPnl))"
+                >
+                  {{ signed(row.dayPnl) }}
+                </TableCell>
+                <TableCell
+                  class="text-right tabular-nums"
+                  :class="signedTextClass(numeric(row.unrealizedPnl))"
+                >
+                  <span class="block font-medium">{{ signed(row.unrealizedPnlPct, '%') }}</span>
+                  <span class="block text-xs">{{ signed(row.unrealizedPnl) }}</span>
+                </TableCell>
+                <TableCell><TrendStatus :trend="getQuote(row.symbol, market)?.trend_1m" /></TableCell>
+                <TableCell><PatternStatus :pattern="getQuote(row.symbol, market)?.pattern_1m" /></TableCell>
+                <TableCell>
+                  <IntradayDirectionStatus
+                    :quote="getQuote(row.symbol, market)"
+                    :market-type="market"
+                    :now="currentTime"
+                  />
+                </TableCell>
+                <TableCell @click.stop>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger as-child>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        :disabled="loading || !!error"
+                        :aria-label="`${row.name || row.symbol}持仓操作`"
+                      >
+                        <MoreHorizontal class="size-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem @select="openForm('buy', row)">
+                        买入
+                      </DropdownMenuItem>
+                      <DropdownMenuItem @select="openForm('sell', row)">
+                        卖出
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </TableCell>
+              </TableRow>
+              <TableRow v-if="expandedId === row.id">
+                <TableCell
+                  :colspan="columns.length + 4"
+                  class="max-w-0 p-3"
+                >
+                  <IntradayStockPanel
+                    :symbol="row.symbol"
+                    :market="market"
+                  />
+                </TableCell>
+              </TableRow>
+            </template>
           </TableBody>
         </Table>
       </CardContent>

@@ -57,7 +57,11 @@ def portfolio_summary(uid: int, market: str, *, service=None, market_data=None, 
     quotes = {}
     if symbols:
         try:
-            quotes = (market_data or MarketDataService()).get_realtime_quotes(symbols).data
+            quotes = (
+                market_data.get_realtime_quotes(symbols)
+                if market_data is not None
+                else MarketDataService().get_cached_quotes(symbols)
+            ).data
         except Exception:
             # An unavailable feed must not prevent access to owned positions or cash.
             quotes = {}

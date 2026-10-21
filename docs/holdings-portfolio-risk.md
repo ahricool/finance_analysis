@@ -143,8 +143,8 @@ Alembic head 为 `0062_holdings_portfolio_risk`。
 ## 持仓页面行情与损益
 
 `/api/v1/holdings/summary?market=CN|US` 与行情 WS/SSE 的 `scope=holdings&market=CN|US`
-复用 `portfolio/valuation.py`。持仓独立于自选股订阅，按市场批量调用 `MarketDataService`；
-A 股优先扶摇（股票/指数每批100，ETF逐只），美股优先Longbridge。
+复用 `portfolio/valuation.py`。持仓独立于自选股订阅，页面估值通过 `MarketDataService.get_cached_quotes` 按市场批量只读 Redis；
+Streamer 统一采集自选与持仓：A 股扶摇股票/指数每批100、ETF逐只，美股 Longbridge 批量订阅；页面缓存缺失不补拉。
 
 页面先以HTTP加载账户、持仓与正式建议，随后行情快照约每5秒更新持仓估值；正式建议仍经独立HTTP读取。
 WS连续两次连接或快照超时失败后停止WS重连，改用HTTP SSE；SSE失败每5秒重试SSE，

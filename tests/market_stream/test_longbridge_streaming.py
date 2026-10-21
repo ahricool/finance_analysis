@@ -43,6 +43,23 @@ class FakeQuoteContext:
 
 
 @pytest.mark.asyncio
+async def test_prepares_one_quote_batch_and_does_not_refetch_per_symbol():
+    context = FakeQuoteContext()
+    client = LongbridgeStreamingClient()
+    client.context = context
+    client.event_sink = lambda event: None
+    await client.prepare_quotes({"AAPL.US", "MSFT.US"})
+    await client.subscribe({"AAPL.US"})
+    await client.subscribe({"MSFT.US"})
+    assert context.operations == [
+        ("quote", ["AAPL.US", "MSFT.US"]),
+        ("subscribe", ["AAPL.US", "MSFT.US"]),
+        ("subscribe_candlesticks", "AAPL.US"),
+        ("subscribe_candlesticks", "MSFT.US"),
+    ]
+
+
+@pytest.mark.asyncio
 async def test_subscribe_seeds_prev_close_before_starting_pushes() -> None:
     context = FakeQuoteContext()
     events = []

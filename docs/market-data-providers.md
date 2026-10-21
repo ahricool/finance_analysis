@@ -151,7 +151,7 @@ Router 拒绝带 `failed_symbols[market]` 的全市场 Snapshot，即使其中 d
 
 ## 因来源收敛取消的能力
 
-- 原国内分钟行情 fallback：仅保留 Streamer / Longbridge，没有 Fuyao 分钟 K。
+- 原国内分钟行情 fallback：仅保留 Streamer / Longbridge，Fuyao 不提供原生分钟 K；Streamer 的 CN 分钟线由 10 秒报价采样生成，带 sampled/partial 标记，见 docs/market-streamer.md。
 - 业绩预告、业绩快报、机构持仓变化、十大股东持仓变化。
 - 筹码分布、个股所属行业/概念板块反查。
 - 个股和板块主力资金流：官方页面明确尚未开放外部调用。

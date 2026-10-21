@@ -204,11 +204,11 @@ Trade Engine 定时入口使用独立 `TRADE_ENGINE_CN` / `TRADE_ENGINE_US` 非�
 流程：
 
 1. 获取 Redis leader lock，防止多个实例同时写。
-2. 从 PostgreSQL 读取全部用户的 CN/HK/US WatchList，经 Longbridge symbol 转换后动态对账订阅；无法转换的条目会跳过并记录日志。 <!-- pragma: allowlist secret -->
+2. 从 PostgreSQL 读取全部用户 CN/HK/US 自选股与未清仓持仓并集；CN 每10秒经 MarketDataService 批量扶摇报价采样分钟线，US/HK Longbridge 订阅。 <!-- pragma: allowlist secret -->
 3. Longbridge 连接按 symbol generation/connection generation 防旧事件污染。
 4. 从 Redis 或 Longbridge 历史预热 1 分钟 Bar；预热期实时事件先缓冲再合并。
 5. Quote、确认/预览 K 线、MA 趋势、形态、订阅状态与 heartbeat 写 Redis。
-6. API `/market-data/ws` 与 `/market-data/events`（HTTP SSE）约每5秒推送当前用户快照：默认自选股的报价通过 MarketDataService（CN扶摇优先、US Longbridge优先），趋势/形态只读Redis；`scope=holdings&market=CN|US` 独立推送该市场持仓估值。浏览器WS连续两次失败固定回落SSE。
+6. API `/market-data/ws` 与 `/market-data/events`（HTTP SSE）约每5秒推送当前用户快照：默认自选股的报价、趋势与形态只读 Redis，缺失不补拉；`scope=holdings&market=CN|US` 独立推送该市场持仓估值。浏览器WS连续两次失败固定回落SSE。
 
 Streamer 不写 `stock_daily`，也不替代日线同步。更改 Redis key/schema 时同时修改 `integrations/market_data/realtime_state/`、API、分析读取和 `tests/market_stream/`；参考 `docs/market-streamer.md`。
 
