@@ -26,6 +26,7 @@ for (const width of [390, 768, 1024, 1280, 1440, 1920]) {
       await expect(page.getByTestId('options-scanner')).toContainText('AAPL.US');
       await page.getByRole('button', { name: 'AAPL.US', exact: true }).click();
       const dialog = page.getByRole('dialog');
+      await dialog.getByRole('tab', { name: '期权', exact: true }).click();
       await expect(dialog.getByTestId('options-panel')).toBeVisible();
       await expect(dialog.getByRole('tab', { name: '期权', exact: true })).toHaveAttribute('data-state', 'active');
       await expect(dialog).toContainText('N/A');
@@ -74,6 +75,7 @@ test('preview mode reaches the stock detail and hints explain snapshot scores', 
   await expect(page.getByTestId('options-scanner')).toContainText('225');
   await page.getByRole('button', { name: 'AAPL.US', exact: true }).click();
   const dialog = page.getByRole('dialog');
+  await dialog.getByRole('tab', { name: '期权', exact: true }).click();
   await expect(dialog.getByTestId('research-mode-preview')).toHaveAttribute('aria-pressed', 'true');
   await expect(dialog.getByRole('button', { name: '解释异常', exact: true })).toBeDisabled();
   await dialog.getByTestId('research-mode-official').click();
@@ -81,6 +83,6 @@ test('preview mode reaches the stock detail and hints explain snapshot scores', 
   expect(requested.some(url => url.includes('AAPL.US?view=preview'))).toBe(true);
   const help = dialog.getByRole('button', { name: '查看 看跌保护需求 说明', exact: true }).first();
   await help.hover();
-  const hint = page.locator('[data-slot="tooltip-content"]').filter({ hasText: '不是下跌概率' });
+  const hint = page.locator('[data-slot="popover-content"]').filter({ hasText: '不是下跌概率' });
   await expect(hint).toBeVisible();
 });

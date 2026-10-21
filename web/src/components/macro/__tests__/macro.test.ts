@@ -100,7 +100,7 @@ describe('Macro series requests', () => {
     expect(getMacroSeries).toHaveBeenLastCalledWith({ range: '60d', mode: 'price', symbols: macroAssets });
     expect(macroAssets).toHaveLength(13);
     const requests = vi.mocked(getMacroSeries).mock.calls.length;
-    const legend = wrapper.get('[data-testid="macro-legend-SPY.US"]');
+    const legend = wrapper.get('[data-testid="macro-legend-SPY.US"] button[aria-pressed]');
     await legend.trigger('click');
     expect(legend.attributes('aria-pressed')).toBe('false');
     expect(getMacroSeries).toHaveBeenCalledTimes(requests);
@@ -130,7 +130,7 @@ describe('Macro chart rendering', () => {
     const chart = wrapper.findComponent({ name: 'VChart' });
     expect(chart.props('option').series[0].data).toEqual([100, 105.2]);
     expect(chart.props('option').xAxis.data).toEqual(['2026-09-08', '2026-09-11']);
-    expect(wrapper.get('[data-testid="macro-legend"]').text()).toContain('SPY.US · S&P 500');
+    expect(wrapper.get('[data-testid="macro-legend"]').text()).toContain('SPY.US - S&P 500');
     expect(wrapper.get('[data-testid="macro-legend"]').text()).not.toContain('数据不完整');
     expect(chart.props('option').tooltip.formatter({ seriesName: 'SPY.US', dataIndex: 1 })).toContain('+5.2%');
     expect(chart.props('autoresize')).toBeDefined();

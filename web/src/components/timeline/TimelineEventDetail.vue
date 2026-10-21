@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import StockLink from '@/components/stocks/StockLink.vue';
 import EarningsOutlookDetail from './EarningsOutlookDetail.vue';
 import { computed } from 'vue';
 import type { TimelineItem } from '@/api/timeline';
@@ -15,8 +16,6 @@ const when = computed(() => {
 });
 const facts = computed(() =>
   [
-    ['标的', props.item.symbol],
-    ['名称', payload.value.counterName],
     ['报告期', payload.value.reportingPeriod],
     ['EPS 预期', formatEps(payload.value.epsEstimate, payload.value.currency)],
     ['实际 EPS', formatEps(payload.value.reportedEps, payload.value.currency)],
@@ -29,6 +28,12 @@ const providers = computed(() => payload.value.sourceProviders ?? []);
 
 <template>
   <div class="space-y-4">
+    <StockLink
+      v-if="item.symbol"
+      :code="item.symbol"
+      :market="item.market"
+      :name="typeof payload.counterName === 'string' ? payload.counterName : null"
+    />
     <p class="text-sm text-muted-foreground">
       {{ when }}
     </p>

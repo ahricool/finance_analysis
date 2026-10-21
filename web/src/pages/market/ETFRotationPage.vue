@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import StockLink from '@/components/stocks/StockLink.vue';
 import StockDetailDialog from '@/components/stocks/StockDetailDialog.vue';
 import type { StockDetailContext } from '@/components/stocks/detail/types';
 import PageHeader from '@/components/layout/PageHeader.vue';
@@ -323,9 +324,11 @@ function selectDataMode(mode: ResearchDataMode) {
   if (officialSelected.value) applyOfficialRanking(officialSelected.value);
   else void load(false, { autoSelectMode: false });
 }
-function openDetail(target: Pick<ETFMomentumSnapshot, 'code'>) {
+const detailInitialTab = ref<'overview' | 'etf'>('etf');
+function openDetail(target: Pick<ETFMomentumSnapshot, 'code'> & { name?: string }, initialTab: 'overview' | 'etf' = 'etf') {
+  detailInitialTab.value = initialTab;
   const item = items.value.find(row => row.code === target.code);
-  selected.value = { code: target.code, name: item?.name ?? target.code, market_type: market.value };
+  selected.value = { code: target.code, name: target.name ?? item?.name ?? '', market_type: market.value };
   detailContext.value = {
     view: dataMode.value,
     tradeDate: dataMode.value === 'preview' ? item?.tradeDate ?? previewPayload.value?.tradeDate : selectedDate.value || undefined,
@@ -532,15 +535,24 @@ onMounted(async () => {
             暂无当前候选
           </p>
           <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-            <button
+            <div
               v-for="item in candidates"
               :key="item.code"
               data-testid="rotation-candidate"
               class="min-w-0 rounded border p-3 text-left hover:bg-muted/50"
+              tabindex="0"
+              role="button"
+              @keydown.enter.self.prevent="openDetail(item)"
+              @keydown.space.self.prevent="openDetail(item)"
               @click="openDetail(item)"
             >
               <div class="flex items-center justify-between gap-2">
-                <strong class="min-w-0 break-words">#{{ item.candidateRank ?? '—' }} {{ item.name }}</strong><Badge :variant="actionVariant(item.action)">
+                <span>#{{ item.candidateRank ?? '—' }} <StockLink
+                  :code="item.code"
+                  :name="item.name"
+                  :market="market"
+                  @select="openDetail(item, 'overview')"
+                /></span><Badge :variant="actionVariant(item.action)">
                   <BilingualEnum
                     :value="item.action"
                     size="badge"
@@ -548,7 +560,7 @@ onMounted(async () => {
                 </Badge>
               </div>
               <p class="mt-1 truncate text-xs text-muted-foreground">
-                {{ item.code }} · {{ item.riskGroup }}
+                {{ item.riskGroup }}
               </p>
               <div class="mt-3 flex justify-between gap-2 text-sm">
                 <span class="inline-flex items-baseline gap-1"><BilingualLabel
@@ -580,7 +592,7 @@ onMounted(async () => {
               </div><div class="mt-1 break-words text-xs">
                 {{ correlationText(item) }} · Stop {{ stopPct(item.stopLossPct) }} · {{ price(item.suggestedStopPrice) }}
               </div>
-            </button>
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -614,16 +626,24 @@ onMounted(async () => {
                   {{ group.items.length }}
                 </Badge>
               </h3>
-              <button
+              <div
                 v-for="change in group.items"
                 :key="change.current.code"
                 class="mb-2 block w-full rounded bg-muted/50 p-2 text-left text-xs hover:bg-muted"
                 :data-testid="`etf-preview-change-${group.labelKey}`"
+                tabindex="0"
+                role="button"
+                @keydown.enter.self.prevent="openDetail(change.current)"
+                @keydown.space.self.prevent="openDetail(change.current)"
                 @click="openDetail(change.current)"
               >
-                <strong>{{ change.current.name }}</strong>
-                <span class="ml-1 font-mono text-muted-foreground">{{ change.current.code }}</span>
-              </button>
+                <StockLink
+                  :code="change.current.code"
+                  :name="change.current.name"
+                  :market="market"
+                  @select="openDetail(change.current, 'overview')"
+                />
+              </div>
             </section>
           </div>
         </CardContent>
@@ -642,15 +662,24 @@ onMounted(async () => {
             今日无退出信号
           </p>
           <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-            <button
+            <div
               v-for="item in exits"
               :key="item.code"
               data-testid="rotation-exit"
               class="min-w-0 rounded border border-destructive/30 p-3 text-left hover:bg-muted/50"
+              tabindex="0"
+              role="button"
+              @keydown.enter.self.prevent="openDetail(item)"
+              @keydown.space.self.prevent="openDetail(item)"
               @click="openDetail(item)"
             >
               <div class="flex items-center justify-between gap-2">
-                <strong class="min-w-0 break-words">{{ item.name }}</strong>
+                <StockLink
+                  :code="item.code"
+                  :name="item.name"
+                  :market="market"
+                  @select="openDetail(item, 'overview')"
+                />
                 <Badge variant="destructive">
                   <BilingualEnum
                     value="EXIT"
@@ -658,9 +687,7 @@ onMounted(async () => {
                   />
                 </Badge>
               </div>
-              <p class="mt-1 truncate font-mono text-xs text-muted-foreground">
-                {{ item.code }}
-              </p>
+
               <div class="mt-3 flex justify-between gap-2 text-sm">
                 <span class="inline-flex items-baseline gap-1"><BilingualLabel
                   label="composite"
@@ -674,7 +701,7 @@ onMounted(async () => {
                   />
                 </Badge>
               </div>
-            </button>
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -713,20 +740,28 @@ onMounted(async () => {
                 </Badge>
               </h3>
               <div class="space-y-2">
-                <button
+                <div
                   v-for="change in group.items"
                   :key="change.code"
                   class="block w-full rounded bg-muted/50 p-2 text-left text-xs hover:bg-muted"
                   :data-testid="`etf-change-${group.labelKey}`"
+                  tabindex="0"
+                  role="button"
+                  @keydown.enter.self.prevent="openDetail(change)"
+                  @keydown.space.self.prevent="openDetail(change)"
                   @click="openDetail(change)"
                 >
-                  <strong>{{ change.name }}</strong>
-                  <span class="ml-1 font-mono text-muted-foreground">{{ change.code }}</span>
+                  <StockLink
+                    :code="change.code"
+                    :name="change.name"
+                    :market="market"
+                    @select="openDetail(change, 'overview')"
+                  />
                   <span class="mt-1 block">{{ changeTransition(change, group.transition) }} · <BilingualLabel
                     label="composite"
                     compact
                   /> Δ {{ scoreChange(change.compositeScoreChange) }}</span>
-                </button>
+                </div>
                 <p
                   v-if="!group.items.length"
                   class="text-xs text-muted-foreground"
@@ -741,20 +776,29 @@ onMounted(async () => {
               排名变动
             </h3>
             <div class="flex flex-wrap gap-2">
-              <button
+              <div
                 v-for="change in changes?.rankMovers ?? []"
                 :key="change.code"
                 data-testid="etf-rank-mover"
                 class="rounded border px-3 py-2 text-left text-xs hover:bg-muted/50"
+                tabindex="0"
+                role="button"
+                @keydown.enter.self.prevent="openDetail(change)"
+                @keydown.space.self.prevent="openDetail(change)"
                 @click="openDetail(change)"
               >
-                <strong>{{ change.name }}</strong>
+                <StockLink
+                  :code="change.code"
+                  :name="change.name"
+                  :market="market"
+                  @select="openDetail(change, 'overview')"
+                />
                 <span class="ml-2">#{{ change.previousRank ?? '—' }} → #{{ change.currentRank ?? '—' }} ({{ rankChange(change.rankChange) }})</span>
                 <span class="ml-2 inline-flex items-baseline gap-1"><BilingualLabel
                   label="composite"
                   compact
                 /> Δ {{ scoreChange(change.compositeScoreChange) }}</span>
-              </button>
+              </div>
               <span
                 v-if="!changes?.rankMovers?.length"
                 class="text-xs text-muted-foreground"
@@ -856,7 +900,12 @@ onMounted(async () => {
                     class="sticky left-0 z-10 min-w-48 max-w-60 bg-background"
                     data-column="name"
                   >
-                    <strong class="block break-words">{{ item.name }}</strong><span class="font-mono text-xs text-muted-foreground">{{ item.code }}</span>
+                    <StockLink
+                      :code="item.code"
+                      :name="item.name"
+                      :market="market"
+                      @select="openDetail(item, 'overview')"
+                    />
                   </TableCell>
                   <TableCell>
                     <Badge :variant="stateVariant(item.state)">
@@ -912,7 +961,7 @@ onMounted(async () => {
     <StockDetailDialog
       :stock="selected"
       kind="research"
-      initial-tab="etf"
+      :initial-tab="detailInitialTab"
       :context="detailContext"
       @update:open="open => { if (!open) selected = null; }"
     />

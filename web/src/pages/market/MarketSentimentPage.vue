@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import StockLink from '@/components/stocks/StockLink.vue';
 import IndicatorHelpLabel from '@/components/app/IndicatorHelpLabel.vue';
 import { metricHint } from '@/utils/metricHints';
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef } from 'vue';
@@ -372,7 +373,12 @@ onBeforeUnmount(() => { generation++; poolGeneration++; });
                     v-for="s in d.boards[key]"
                     :key="s.thscode"
                   >
-                    {{ s.name }} {{ s.thscode }}（{{ s.boardNum }}板）
+                    <StockLink
+                      :code="s.thscode"
+                      :context="{ tradeDate: d.date }"
+                      :name="s.name"
+                      market="CN"
+                    />（{{ s.boardNum }}板）
                   </p>
                 </td>
               </tr>

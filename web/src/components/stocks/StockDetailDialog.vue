@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import IndicatorHelpLabel from '@/components/app/IndicatorHelpLabel.vue';
-import ResearchEvidence from './ResearchEvidence.vue';
+import StockIdentity from './StockIdentity.vue';
 import StockIndustryTags from './StockIndustryTags.vue';
 import type { RealtimeQuote } from '@/api/realtimeMarket';
 import type { MarketType } from '@/api/watchList';
@@ -11,7 +11,6 @@ import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { formatDateTimeInDisplayTimezone } from '@/utils/format';
-import { formatSecurityLabel } from '@/utils/security';
 import { signedTextClass } from '@/utils/marketTone';
 import {
   formatDecimalText,
@@ -25,6 +24,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import type { OptionsView } from '@/api/optionsIntelligence';
 import type { StockDetailContext, StockDetailTab } from './detail/types';
 
+const ResearchEvidence = defineAsyncComponent(() => import('./ResearchEvidence.vue'));
 const HoldingsDetailPanel = defineAsyncComponent(() => import('./detail/HoldingsDetailPanel.vue'));
 const DailyKLineCard = defineAsyncComponent(() => import('@/components/market-data/DailyKLineCard.vue'));
 const OptionsPanel = defineAsyncComponent(() => import('@/components/options-intelligence/OptionsPanel.vue'));
@@ -76,6 +76,7 @@ const tabs = computed<Array<{ value: StockDetailTab; label: string }>>(() => [
     { value: 'quant' as const, label: '量化' },
   ] : []),
   ...(props.stock?.market_type === 'CN' ? [{ value: 'dragon-tiger' as const, label: '龙虎榜' }] : []),
+  ...(props.stock?.market_type !== 'HK' ? [{ value: 'evidence' as const, label: '研究概览' }] : []),
 ]);
 const activeTab = ref<StockDetailTab>('overview');
 const detailContext = computed<StockDetailContext>(() => ({
@@ -199,7 +200,10 @@ function movementClass(value: number | null | undefined): string {
     <DialogContent class="flex max-h-[calc(100dvh-2rem)] min-w-0 flex-col gap-0 overflow-hidden p-0 sm:max-w-4xl">
       <DialogHeader class="shrink-0 p-6 pr-16 text-left">
         <DialogTitle class="flex flex-wrap items-center gap-2 break-words">
-          {{ formatSecurityLabel(stock?.code, stock?.name, '股票详情') }}
+          <StockIdentity
+            :code="stock?.code"
+            :name="stock?.name"
+          />
           <span
             class="rounded-lg border border-border/60 bg-background px-2 py-0.5 text-xs text-muted-foreground"
           >{{ marketName }}</span>
@@ -253,6 +257,12 @@ function movementClass(value: number | null | undefined): string {
             :context="detailContext"
             class="p-4 sm:p-6"
           />
+          <ResearchEvidence
+            v-else-if="activeTab === 'evidence'"
+            :symbol="stock.code"
+            :market="stock.market_type"
+            class="p-4 sm:p-6"
+          />
           <OptionsPanel
             v-else-if="activeTab === 'options' && stock.market_type === 'US'"
             :key="stock.code"
@@ -284,7 +294,7 @@ function movementClass(value: number | null | undefined): string {
               />
               <dl
                 v-else-if="displayQuote?.available"
-                class="grid grid-cols-2 gap-3"
+                class="grid grid-cols-2 gap-3 sm:grid-cols-4"
               >
                 <div
                   v-for="metric in [
@@ -294,7 +304,7 @@ function movementClass(value: number | null | undefined): string {
                     { label: '交易时段', value: displayQuote.trade_session || '—' },
                   ]"
                   :key="metric.label"
-                  class="min-w-0 rounded-xl border border-border/60 bg-background p-4"
+                  class="min-w-0 rounded-xl border border-border/60 bg-background p-3"
                 >
                   <dt class="text-sm text-muted-foreground">
                     <IndicatorHelpLabel
@@ -304,7 +314,7 @@ function movementClass(value: number | null | undefined): string {
                     />
                   </dt>
                   <dd
-                    class="mt-2 break-words text-xl font-semibold tabular-nums"
+                    class="mt-2 break-words text-lg font-semibold tabular-nums"
                     :class="metric.color"
                   >
                     {{ metric.value }}
@@ -327,49 +337,48 @@ function movementClass(value: number | null | undefined): string {
               >
                 刷新行情
               </Button>
-              <dl
-                class="mt-3 grid grid-cols-2 overflow-hidden rounded-xl border border-border/60"
-              >
-                <div
-                  v-for="entry in [
-                    ['行情标识', formatSecurityLabel(displayQuote?.symbol, stock.name)],
-                    ['开盘', formatNumber(displayQuote?.open, 4)],
-                    ['最高', formatNumber(displayQuote?.high, 4)],
-                    ['最低', formatNumber(displayQuote?.low, 4)],
-                    ['昨收', formatNumber(displayQuote?.pre_close, 4)],
-                    ['成交量 (Volume)', formatNumber(displayQuote?.volume, 0)],
-                    ['成交额', formatNumber(displayQuote?.turnover, 2)],
-                    ['行情时间', formatDateTimeInDisplayTimezone(displayQuote?.event_time)],
-                    ['接收时间', formatDateTimeInDisplayTimezone(displayQuote?.received_at)],
-                  ]"
-                  :key="entry[0]"
-                  class="min-w-0 border-b border-border/50 p-4"
-                  :class="['行情标识', '行情时间', '接收时间'].includes(entry[0] ?? '') ? 'col-span-2' : ''"
+              <details class="mt-3">
+                <summary class="cursor-pointer text-sm text-muted-foreground">
+                  行情明细与时间
+                </summary>
+                <dl
+                  class="mt-3 grid grid-cols-2 overflow-hidden rounded-xl border border-border/60"
                 >
-                  <dt class="text-xs leading-5 text-muted-foreground">
-                    <IndicatorHelpLabel
-                      scope="watch"
-                      :label="entry[0]!"
-                      compact
-                    />
-                  </dt>
-                  <dd
-                    class="mt-1 break-words text-sm leading-6 tabular-nums text-foreground"
+                  <div
+                    v-for="entry in [
+                      ['开盘', formatNumber(displayQuote?.open, 4)],
+                      ['最高', formatNumber(displayQuote?.high, 4)],
+                      ['最低', formatNumber(displayQuote?.low, 4)],
+                      ['昨收', formatNumber(displayQuote?.pre_close, 4)],
+                      ['成交量 (Volume)', formatNumber(displayQuote?.volume, 0)],
+                      ['成交额', formatNumber(displayQuote?.turnover, 2)],
+                      ['行情时间', formatDateTimeInDisplayTimezone(displayQuote?.event_time)],
+                      ['接收时间', formatDateTimeInDisplayTimezone(displayQuote?.received_at)],
+                    ]"
+                    :key="entry[0]"
+                    class="min-w-0 border-b border-border/50 p-4"
+                    :class="['行情时间', '接收时间'].includes(entry[0] ?? '') ? 'col-span-2' : ''"
                   >
-                    {{ entry[1] }}
-                  </dd>
-                </div>
-              </dl>
+                    <dt class="text-xs leading-5 text-muted-foreground">
+                      <IndicatorHelpLabel
+                        scope="watch"
+                        :label="entry[0]!"
+                        compact
+                      />
+                    </dt>
+                    <dd
+                      class="mt-1 break-words text-sm leading-6 tabular-nums text-foreground"
+                    >
+                      {{ entry[1] }}
+                    </dd>
+                  </div>
+                </dl>
+              </details>
             </section>
 
             <DailyKLineCard
               :symbol="stock.code"
               :highlight-date="detailContext.tradeDate"
-            />
-            <ResearchEvidence
-              :key="stock.code"
-              :symbol="stock.code"
-              :market="stock.market_type"
             />
 
             <section v-if="kind !== 'research'">
@@ -388,7 +397,10 @@ function movementClass(value: number | null | undefined): string {
                     />
                   </dt>
                   <dd class="mt-1 text-sm text-foreground">
-                    {{ formatSecurityLabel(stock.code, stock.name) }}
+                    <StockIdentity
+                      :code="stock.code"
+                      :name="stock.name"
+                    />
                   </dd>
                 </div>
                 <div>

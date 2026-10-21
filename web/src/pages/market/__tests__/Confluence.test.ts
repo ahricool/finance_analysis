@@ -44,7 +44,9 @@ describe('confluence controls and detail', () => {
     const dialog = wrapper.getComponent(StockDetailDialog);
     expect(dialog.props('open')).toBe(true);
     expect(dialog.props('stock')).toMatchObject({ code: '600001.SH', market_type: 'CN' });
-    expect(dialog.props('initialTab')).toBe('confluence');
+    expect(dialog.props('initialTab')).toBe('overview');
+  await wrapper.get('tbody tr').trigger('click');
+  expect(dialog.props('initialTab')).toBe('confluence');
     expect(dialog.props('context')).toEqual({ tradeDate: '2026-09-22', view: 'official' });
     dialog.vm.$emit('update:open', false);
     await flushPromises();

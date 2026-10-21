@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import StockLink from '@/components/stocks/StockLink.vue';
 import IndicatorHelpLabel from '@/components/app/IndicatorHelpLabel.vue';
 import PageHeader from '@/components/layout/PageHeader.vue';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
@@ -472,16 +473,12 @@ function closeDetail() {
                 @keydown.space.self.prevent="expandedId = expandedId === row.id ? null : row.id"
               >
                 <TableCell class="sticky left-0 z-10 bg-background">
-                  <button
-                    class="text-left font-medium"
-                    @click.stop="openDetail(row)"
-                  >
-                    <span class="block">{{ row.name || row.symbol }}</span>
-                    <span
-                      v-if="row.name"
-                      class="block text-xs font-normal text-muted-foreground"
-                    >{{ row.symbol }}</span>
-                  </button>
+                  <StockLink
+                    :code="row.symbol"
+                    :name="row.name"
+                    :market="market"
+                    @select="openDetail(row)"
+                  />
                 </TableCell>
                 <TableCell class="text-right tabular-nums">
                   <span class="font-medium">{{ fmt(row.currentPrice) }}</span>
@@ -668,9 +665,9 @@ function closeDetail() {
     </Dialog>
 
     <StockDetailDialog
-      :stock="detail ? { code: detail.symbol, name: null, market_type: market } : null"
+      :stock="detail ? { code: detail.symbol, name: detail.name ?? null, market_type: market } : null"
       kind="research"
-      initial-tab="holdings"
+      initial-tab="overview"
       :context="detail ? { accountId: detail.accountId, positionId: detail.id } : undefined"
       @update:open="value => { if (!value) closeDetail(); }"
       @holdings-updated="load"

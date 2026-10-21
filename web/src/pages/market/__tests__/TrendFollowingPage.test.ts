@@ -503,7 +503,7 @@ describe('TrendFollowingPage', () => {
     expect(missingRow.get('[data-column="referencePrice"]').text()).toBe('—');
     expect(missingRow.get('[data-column="state"]').text()).toBe('等待数据');
     expect(missingRow.text()).not.toContain('无明显趋势');
-    const order = () => wrapper.findAll('[data-testid="trend-row"]').map(row => row.findAll('td')[1]!.find('span').text());
+    const order = () => wrapper.findAll('[data-testid="trend-row"]').map(row => row.findAll('td')[1]!.find('.font-mono').text());
     const click = async (label: string) => {
       await wrapper.findAll('th button').find(button => button.text() === label)!.trigger('click');
     };
@@ -710,7 +710,7 @@ describe('TrendFollowingPage', () => {
     apiMocks.ranking.mockResolvedValueOnce({ ...ranking('CN'), items: [b, c, a] });
     const wrapper = mount(TrendFollowingPage);
     await flushPromises();
-    const order = () => wrapper.findAll('[data-testid="trend-row"]').map(row => row.findAll('td')[1]!.find('span').text());
+    const order = () => wrapper.findAll('[data-testid="trend-row"]').map(row => row.findAll('td')[1]!.find('.font-mono').text());
     const click = async (label: string) => {
       const button = wrapper.findAll('th button').find(button => button.text() === label)!;
       await button.trigger('click');
@@ -851,7 +851,7 @@ describe('TrendFollowingPage', () => {
     (document.body.querySelector('[data-testid="trend-row"]') as HTMLElement).click();
     await flushPromises();
     expect(apiMocks.detail).toHaveBeenCalledWith('000001.SZ', 'CN', 60, '2026-08-28', 20);
-    expect(marketDataApi.dailyBars).toHaveBeenLastCalledWith('000001.SZ', undefined, expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/), expect.any(AbortSignal));
+    expect(marketDataApi.dailyBars).not.toHaveBeenCalled();
     const dialog = document.body.querySelector('[data-testid="trend-detail"]')!;
     const shell = dialog.closest('[role="dialog"]')!;
     expect(shell.classList.contains('top-1/2')).toBe(true);
@@ -1003,7 +1003,7 @@ describe('TrendFollowingPage', () => {
     });
     const wrapper = mount(TrendFollowingPage);
     await flushPromises();
-    const order = () => wrapper.findAll('[data-testid="trend-row"]').map(row => row.findAll('td')[1]!.find('span').text());
+    const order = () => wrapper.findAll('[data-testid="trend-row"]').map(row => row.findAll('td')[1]!.find('.font-mono').text());
     const header = wrapper.findAll('th button').find(button => button.text().includes('生命周期 / 天数'));
     expect(header).toBeTruthy();
     expect(wrapper.text()).toContain('生命周期 / 天数');
@@ -1145,3 +1145,23 @@ describe('TrendFollowingPage', () => {
 
 });
 
+
+it.each(['strong', '.font-mono'])('opens market data from ranking identity %s while the row still opens trend research', async target => {
+  vi.clearAllMocks();
+  document.body.innerHTML = '';
+  const wrapper = mount(TrendFollowingPage, { attachTo: document.body });
+  await flushPromises();
+  await wrapper.get('[data-testid="trend-row"]').get(target).trigger('click');
+  await flushPromises();
+  await vi.dynamicImportSettled();
+  expect(document.body.querySelector('[role="tab"][data-state="active"]')?.textContent).toBe('行情');
+  expect(apiMocks.detail).not.toHaveBeenCalled();
+  expect(marketDataApi.dailyBars).toHaveBeenCalled();
+  const dialog = document.body.querySelector('[role="dialog"]')!;
+  (dialog.querySelector('[data-slot="dialog-close"]') as HTMLElement).click();
+  await flushPromises();
+  await wrapper.get('[data-testid="trend-row"]').trigger('click');
+  await flushPromises();
+  expect(document.body.querySelector('[role="tab"][data-state="active"]')?.textContent).toBe('趋势');
+  wrapper.unmount();
+});

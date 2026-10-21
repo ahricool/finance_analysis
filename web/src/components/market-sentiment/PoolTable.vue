@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import StockLink from '@/components/stocks/StockLink.vue';
 import IndicatorHelpLabel from '@/components/app/IndicatorHelpLabel.vue';
 import type { Pool } from '@/api/marketSentiment';
 import { pct, money, flag } from './display';
@@ -88,7 +89,12 @@ defineProps<{ pool: Pool | null }>();
           class="border-t align-top"
         >
           <td class="whitespace-nowrap">
-            {{ r.thscode }}<br>{{ r.name }}
+            <StockLink
+              :code="r.thscode"
+              :name="r.name"
+              market="CN"
+              :context="{ tradeDate: pool.tradeDate ?? undefined }"
+            />
           </td><td class="whitespace-nowrap">
             {{ r.continueDayText ?? '—' }}<span
               v-if="pool.kind === 'limit_up' && r.consecutiveBoards == null"

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import StockLink from '@/components/stocks/StockLink.vue';
 import { onBeforeUnmount, onMounted, ref, shallowRef } from 'vue';
 import { intradayConfirmationApi as api, type Snapshot, type Confirmation, type Market, type State, type Source } from '@/api/intradayConfirmation';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
@@ -67,6 +68,7 @@ onMounted(refresh);
 onBeforeUnmount(() => { ++generation; ++datesGeneration; ++runGeneration; controller?.abort(); datesController?.abort(); });
 function forwardReturn(value: unknown) { return typeof value === 'number' && Number.isFinite(value) ? `${(value * 100).toFixed(2)}%` : ''; }
 function returnClass(value: unknown) { return typeof value === 'number' && value > 0 ? 'text-market-up' : typeof value === 'number' && value < 0 ? 'text-market-down' : ''; }
+const detailInitialTab = ref<'overview' | 'intraday'>('intraday');
 </script>
 
 <template>
@@ -282,15 +284,19 @@ function returnClass(value: unknown) { return typeof value === 'number' && value
             <TableRow
               v-for="row in result.items"
               :key="row.code"
+              class="cursor-pointer"
+              tabindex="0"
+              @click="detailInitialTab = 'intraday'; show(row)"
+              @keydown.enter.self="detailInitialTab = 'intraday'; show(row)"
+              @keydown.space.self.prevent="detailInitialTab = 'intraday'; show(row)"
             >
               <TableCell>
-                <Button
-                  variant="link"
-                  class="p-0"
-                  @click="show(row)"
-                >
-                  {{ row.name }} {{ row.code }}
-                </Button><p class="text-xs text-muted-foreground">
+                <StockLink
+                  :code="row.code"
+                  :name="row.name"
+                  :market="market"
+                  @select="detailInitialTab = 'overview'; show(row)"
+                /><p class="text-xs text-muted-foreground">
                   {{ stamp(row.metrics.quoteTime) }}
                 </p>
               </TableCell>
@@ -344,7 +350,7 @@ function returnClass(value: unknown) { return typeof value === 'number' && value
       v-model:open="dialogOpen"
       :stock="selected ? { code: selected.code, name: selected.name, market_type: market } : null"
       kind="research"
-      initial-tab="intraday"
+      :initial-tab="detailInitialTab"
       :context="{ tradeDate: result?.tradeDate }"
     />
   </div>

@@ -46,7 +46,7 @@ for (const theme of ['light', 'dark']) {
     const errors: string[] = [];
     page.on('pageerror', error => errors.push(error.message));
     await page.goto('/research/etf-rotation');
-    await page.getByTestId('etf-ranking-row').click();
+    await page.getByTestId('etf-ranking-row').locator('.font-mono').click();
     const daily = page.getByTestId('daily-kline-card');
     await daily.scrollIntoViewIfNeeded();
     const detail = daily.getByTestId('daily-pattern-detail');

@@ -7,7 +7,6 @@ import AppApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
 import { Button } from '@/components/ui/button';
 import type { StockDetailPanelProps } from './types';
 import { confluenceApi as api, type ConfluenceItem, type SignalKey } from '@/api/confluence';
-import DailyKLineCard from '@/components/market-data/DailyKLineCard.vue';
 import { formatDateTime } from '@/utils/format';
 const props = defineProps<StockDetailPanelProps>();
 const selected = shallowRef<ConfluenceItem | null>(null);
@@ -79,10 +78,6 @@ function evidence(row: ConfluenceItem, key: SignalKey, field: string) { return r
       重试
     </Button>
     <template v-if="selected">
-      <DailyKLineCard
-        :symbol="selected.code"
-        :highlight-date="result?.tradeDate || undefined"
-      />
       <p>共振 {{ selected.confluenceScore }} = 各维度贡献合计 / {{ selected.availableWeight }} × 100。正向 {{ selected.positiveSignalCount }} / 有效 {{ selected.availableSignalCount }}。</p>
       <section
         v-for="key in keys"

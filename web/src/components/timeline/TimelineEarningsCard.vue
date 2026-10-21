@@ -1,9 +1,10 @@
 <script setup lang="ts">
+import StockLink from '@/components/stocks/StockLink.vue';
 import { computed } from 'vue';
 import type { TimelineItem } from '@/api/timeline';
 import TimelineCardShell from './TimelineCardShell.vue';
 import EarningsOutlookSummary from './EarningsOutlookSummary.vue';
-import { clockTime, dayHeading, dayKey, distanceLabel, formatEps, formatSurprise, hasValue, sessionLabel } from './timelineFormat';
+import { clockTime, dayHeading, dayKey, distanceLabel, formatEps, formatSurprise, sessionLabel } from './timelineFormat';
 
 const props = defineProps<{ item: TimelineItem }>();
 defineEmits<{ open: [] }>();
@@ -29,11 +30,12 @@ const surprise = computed(() => formatSurprise(payload.value.epsSurprisePct));
       <span>{{ distanceLabel(item) }}</span>
     </template>
     <p class="break-words text-[15px] font-semibold leading-snug tracking-tight">
-      <span class="tabular-nums">{{ item.symbol || item.title }}</span>
-      <span
-        v-if="hasValue(payload.counterName)"
-        class="mt-0.5 block text-sm font-medium text-muted-foreground"
-      >{{ payload.counterName }}</span>
+      <StockLink
+        v-if="item.symbol"
+        :code="item.symbol"
+        :market="item.market"
+        :name="typeof payload.counterName === 'string' ? payload.counterName : null"
+      /><span v-else>{{ item.title }}</span>
     </p>
     <p
       v-if="item.outlook?.memberships.length"

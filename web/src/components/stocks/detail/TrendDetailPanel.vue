@@ -1,8 +1,8 @@
 <script setup lang="ts">
+import StockIdentity from '@/components/stocks/StockIdentity.vue';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import AppApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
-import DailyKLineCard from '@/components/market-data/DailyKLineCard.vue';
 import BilingualEnum from '@/components/app/BilingualEnum.vue';
 import BilingualLabel from '@/components/app/BilingualLabel.vue';
 import IndicatorLabel from '@/components/app/IndicatorHelpLabel.vue';
@@ -168,7 +168,10 @@ function badgeVariant(value: string | null): 'default' | 'success' | 'warning' |
       v-if="detail"
       class="text-sm text-muted-foreground"
     >
-      {{ detail.metadata.name }} · {{ detail.metadata.code }} · {{ detail.latest.tradeDate }} · 趋势指标、风险与状态历史
+      <StockIdentity
+        :code="detail.metadata.code"
+        :name="detail.metadata.name"
+      /> · {{ detail.latest.tradeDate }} · 趋势指标、风险与状态历史
     </p>
     <div
       v-if="detailLoading"
@@ -397,10 +400,6 @@ function badgeVariant(value: string | null): 'default' | 'success' | 'warning' |
           先超跌再确认反弹；同一次超跌过程只触发一次。独立研究信号，不改变 Entry。
         </p>
       </section>
-      <DailyKLineCard
-        :symbol="detail.latest.code"
-        :highlight-date="detail.latest.tradeDate"
-      />
       <details class="rounded-lg border p-4 text-sm">
         <summary class="cursor-pointer">
           <BilingualLabel

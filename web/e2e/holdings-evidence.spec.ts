@@ -14,7 +14,7 @@ for (const width of [1280, 1440, 1920]) {
       requests.push(path);
       if (path === '/api/v1/holdings/summary') return route.fulfill({ json: {
         market: 'CN', accounts: [{ id: 1, name: 'A股账户', market: 'CN', cash: '90000', currency: 'CNY' }], cash: '90000', market_value: '12000', total_asset: '102000', gross_exposure: '0.1176',
-        positions: [{ id: 11, account_id: 1, market: 'CN', symbol: '600519.SH', asset_type: 'STOCK', quantity: '100', average_cost: '100', current_price: '120', market_value: '12000', weight: '0.1176', unrealized_pnl: '2000', trade_engine_enabled: true }],
+        positions: [{ id: 11, account_id: 1, market: 'CN', symbol: '600519.SH', name: '贵州茅台', asset_type: 'STOCK', quantity: '100', average_cost: '100', current_price: '120', market_value: '12000', weight: '0.1176', unrealized_pnl: '2000', trade_engine_enabled: true }],
       } });
       if (path === '/api/v1/trade-engine/positions') return route.fulfill(failEngine ? { status: 503, json: { detail: '建议服务暂不可用' } } : { json: { items: [] } });
       if (path === '/api/v1/trade-engine/signals') return route.fulfill({ json: { items: [
@@ -26,6 +26,7 @@ for (const width of [1280, 1440, 1920]) {
       if (path === '/api/v1/quant/signals/600519.SH') return route.fulfill({ json: { trade_date: '2026-09-18', signal: 'WATCH', final_score: 72, model_version: 'v2', reasons: ['量化信号独立观察'] } });
       if (path.includes('/etf-rotation/600519')) return route.fulfill({ status: 404, json: { detail: 'not covered' } });
       if (path.endsWith('/600519.SH/context')) return route.fulfill({ json: [{ industry_code: '881101.TI', industry_name: '食品饮料', trade_date: '2026-09-21', state: 'STRONG', strength_score: 80, strength_rank: 2, members_observed_at: '2026-09-21T10:00:00Z' }] });
+      if (path.endsWith('/quote')) return route.fulfill({ status: 404, json: { detail: 'No quote' } });
       if (path.endsWith('/classification')) return route.fulfill({ json: { code: '600519.SH', memberships: { indices: [], industries: [] } } });
       if (path.includes('/daily-bars/')) return route.fulfill({ json: { symbol: '600519.SH', bars: [], warnings: [] } });
       return route.fulfill({ json: dashboardResponse(url) });
@@ -37,8 +38,9 @@ for (const width of [1280, 1440, 1920]) {
     await page.getByTestId('retry-engine').click();
     await expect(page.getByTestId('engine-error')).toHaveCount(0);
     expect(requests.filter(path => path === '/api/v1/holdings/summary')).toHaveLength(1);
-    await page.getByRole('button', { name: '600519.SH', exact: true }).click();
+    await page.getByRole('button', { name: '600519.SH - 贵州茅台', exact: true }).click();
     const dialog = page.getByRole('dialog');
+    await dialog.getByRole('tab', { name: '持仓', exact: true }).click();
     await expect(dialog.getByTestId('research-evidence')).toContainText('趋势保持向上');
     await expect(dialog.getByTestId('research-evidence')).toContainText('各模块数据日期不一致');
     await expect(dialog.getByTestId('evidence-industry')).toContainText('食品饮料');

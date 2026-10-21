@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import StockLink from '@/components/stocks/StockLink.vue';
 import IndicatorHelpLabel from '@/components/app/IndicatorHelpLabel.vue';
 import type { MacroDashboard } from '@/api/macro';
 import { Button } from '@/components/ui/button';
@@ -57,7 +58,14 @@ defineProps<{ dashboard: MacroDashboard }>();
               v-for="signal in dashboard.signals"
               :key="signal.key"
             >
-              <TableCell>{{ seriesLabel(signal.key) }}</TableCell><TableCell>{{ trendLabel(signal.trend) }}</TableCell><TableCell>{{ trendLabel(signal.riskOnTrend) }}</TableCell>
+              <TableCell>
+                <StockLink
+                  v-if="signal.key.endsWith('.US')"
+                  :code="signal.key"
+                  :name="dashboard.instruments.find(item => item.code === signal.key)?.name"
+                  market="US"
+                /><span v-else>{{ seriesLabel(signal.key) }}</span>
+              </TableCell><TableCell>{{ trendLabel(signal.trend) }}</TableCell><TableCell>{{ trendLabel(signal.riskOnTrend) }}</TableCell>
               <TableCell>
                 <span class="tabular-nums">{{ signal.contribution === null ? 'N/A' : `+${signal.contribution}` }} / {{ signal.weight }}</span><p
                   v-if="signal.contribution === null"

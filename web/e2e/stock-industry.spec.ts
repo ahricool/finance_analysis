@@ -20,6 +20,7 @@ for (const width of [390, 768, 1024, 1280, 1440, 1920]) {
             quantity: '100', average_cost: '100', current_price: '120', market_value: '12000', weight: '0.1176',
             unrealized_pnl: '2000', trade_engine_enabled: true }],
         } });
+        if (path.endsWith('/quote')) return route.fulfill({ status: 404, json: { detail: 'No quote' } });
         if (path.endsWith('/classification')) {
           classifications++;
           return route.fulfill({ json: { code: '600519.SH', market: 'CN', memberships: { indices: [], industries: [
@@ -40,7 +41,7 @@ for (const width of [390, 768, 1024, 1280, 1440, 1920]) {
         return route.fulfill({ json: dashboardResponse(url) });
       });
       await page.goto('/market/holdings');
-      await page.getByTestId('position-row').getByRole('button', { name: '贵州茅台 600519.SH', exact: true }).click();
+      await page.getByTestId('position-row').getByRole('button', { name: '600519.SH - 贵州茅台', exact: true }).click();
       const dialog = page.getByRole('dialog');
       const industries = dialog.getByTestId('stock-industry-tags');
       await expect(industries).toContainText('食品饮料');

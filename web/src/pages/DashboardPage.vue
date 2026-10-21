@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import StockLink from '@/components/stocks/StockLink.vue';
 import { computed, ref } from 'vue';
 import { RouterLink } from 'vue-router';
 import { ArrowUpRight, Bitcoin } from 'lucide-vue-next';
@@ -208,7 +209,10 @@ const number = (value: string | undefined) => value && Number.isFinite(Number(va
             :empty="!entry.etf.data"
             @retry="entry.etf.refresh"
           >
-            <StrategyChanges :etf="entry.etf.data" />
+            <StrategyChanges
+              :etf="entry.etf.data"
+              :market="entry.market"
+            />
           </DashboardState>
         </div>
         <div class="border-t pt-4">
@@ -223,7 +227,10 @@ const number = (value: string | undefined) => value && Number.isFinite(Number(va
             :empty="!entry.trend.data"
             @retry="entry.trend.refresh"
           >
-            <StrategyChanges :trend="entry.trend.data" />
+            <StrategyChanges
+              :trend="entry.trend.data"
+              :market="entry.market"
+            />
           </DashboardState>
         </div>
       </div>
@@ -284,7 +291,13 @@ const number = (value: string | undefined) => value && Number.isFinite(Number(va
                   v-if="item.impact"
                   :class="item.impact === 'bullish' ? 'text-market-up' : item.impact === 'bearish' ? 'text-market-down' : 'text-muted-foreground'"
                 >{{ item.impact === 'bullish' ? '利多' : item.impact === 'bearish' ? '利空' : '中性' }}</span>
-                <span class="text-muted-foreground">{{ item.relatedSymbols.slice(0, 4).join(' · ') }}</span>
+                <span class="text-muted-foreground"><StockLink
+                  v-for="symbol in item.relatedSymbols.slice(0, 4)"
+                  :key="symbol"
+                  :code="symbol"
+                  :market="item.market"
+                  class="mr-2"
+                /></span>
               </div>
             </RouterLink>
           </div>
@@ -381,7 +394,13 @@ const number = (value: string | undefined) => value && Number.isFinite(Number(va
               :to="{ path: '/research/quant', query: { market: entry.market } }"
               class="flex items-center gap-3 py-2 text-sm"
             >
-              <span class="text-xs tabular-nums text-muted-foreground">0{{ index + 1 }}</span><span class="min-w-0 flex-1 truncate font-medium">{{ item.name || item.code }}</span><span class="tabular-nums">{{ formatScore(item.finalScore) }}</span>
+              <span class="text-xs tabular-nums text-muted-foreground">0{{ index + 1 }}</span><StockLink
+                class="min-w-0 flex-1"
+                :code="item.code"
+                :name="item.name"
+                :market="entry.market"
+                :context="{ tradeDate: item.tradeDate }"
+              /><span class="tabular-nums">{{ formatScore(item.finalScore) }}</span>
             </RouterLink>
           </DashboardState>
         </div>

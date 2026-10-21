@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import StockLink from '@/components/stocks/StockLink.vue';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { optionsIntelligenceApi, type OptionMetrics, type OptionsView } from '@/api/optionsIntelligence';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
@@ -103,6 +104,7 @@ function open(row: OptionMetrics) {
 }
 watch([mode, requestedDate], () => { selected.value = null; void load(); }, { immediate: true });
 onBeforeUnmount(() => { generation++; });
+const detailInitialTab = ref<'overview' | 'options'>('options');
 </script>
 <template>
   <div
@@ -205,15 +207,19 @@ onBeforeUnmount(() => { generation++; });
           <TableRow
             v-for="r in filtered"
             :key="r.symbol"
+            class="cursor-pointer"
+            tabindex="0"
+            @click="detailInitialTab = 'options'; open(r)"
+            @keydown.enter.self="detailInitialTab = 'options'; open(r)"
+            @keydown.space.self.prevent="detailInitialTab = 'options'; open(r)"
           >
             <TableCell>
-              <Button
-                variant="link"
-                class="h-auto whitespace-normal p-0 text-left font-semibold"
-                @click="open(r)"
-              >
-                {{ formatSecurityLabel(r.symbol, r.name) }}
-              </Button>
+              <StockLink
+                :code="r.symbol"
+                :name="r.name"
+                market="US"
+                @select="detailInitialTab = 'overview'; open(r)"
+              />
             </TableCell><TableCell>{{ num(r.underlyingPrice) }}</TableCell><TableCell
               class="text-red-600 dark:text-red-400"
               :class="{ 'bg-red-500/10 font-bold': (r.scores?.bearishDemand.value ?? 0) >= 80 }"
@@ -267,7 +273,7 @@ onBeforeUnmount(() => { generation++; });
     <StockDetailDialog
       :stock="selected"
       kind="research"
-      initial-tab="options"
+      :initial-tab="detailInitialTab"
       :options-view="mode"
       :options-date="selectedDate || undefined"
       @update:open="selected = null"

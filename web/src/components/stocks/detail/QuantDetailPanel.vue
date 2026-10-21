@@ -6,11 +6,9 @@ import AppApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
 import { Button } from '@/components/ui/button';
 import type { StockDetailPanelProps } from './types';
 import PageHeader from '@/components/layout/PageHeader.vue';
-import DailyKLineCard from '@/components/market-data/DailyKLineCard.vue';
 import { quantApi } from '@/api/quant';
 import type { QuantSignal } from '@/types/quant';
 import { formatPredictedReturn, formatScore } from '@/utils/quant';
-import { formatSecurityLabel } from '@/utils/security';
 const props = defineProps<StockDetailPanelProps>();
 const item = shallowRef<QuantSignal | null>(null);
 const history = shallowRef<QuantSignal[]>([]);
@@ -70,7 +68,7 @@ onBeforeUnmount(() => { ++generation; });
     <template v-if="item">
       <PageHeader
         variant="section"
-        :title="formatSecurityLabel(item.code, item.name)"
+        :title="'量化信号'"
         en="Signal Detail"
         :description="`${item.tradeDate} · 排名 ${item.universeRank ?? '—'} · ${item.signal} · 预测 ${formatPredictedReturn(item.predictedReturn)}`"
       />
@@ -98,10 +96,6 @@ onBeforeUnmount(() => { ++generation; });
           </p>
         </div>
       </section>
-      <DailyKLineCard
-        :symbol="item.code"
-        :highlight-date="item.tradeDate"
-      />
       <section class="rounded-xl border bg-card p-4">
         <h3 class="text-sm font-semibold">
           原因说明

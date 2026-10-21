@@ -27,8 +27,9 @@ const score = computed(() =>
 </script>
 
 <template>
-  <button
-    type="button"
+  <div
+    role="button"
+    tabindex="0"
     data-testid="timeline-item"
     :aria-label="`查看${item.title}`"
     :class="[
@@ -38,6 +39,8 @@ const score = computed(() =>
       accent,
     ]"
     @click="$emit('open')"
+    @keydown.enter.self.prevent="$emit('open')"
+    @keydown.space.self.prevent="$emit('open')"
   >
     <div class="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 text-[11px] leading-4 text-muted-foreground">
       <span>{{ kindLabel(item) }}</span>
@@ -55,5 +58,5 @@ const score = computed(() =>
     <div class="mt-2 min-w-0 overflow-hidden">
       <slot />
     </div>
-  </button>
+  </div>
 </template>

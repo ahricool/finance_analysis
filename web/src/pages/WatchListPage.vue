@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import StockIdentity from '@/components/stocks/StockIdentity.vue';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import type { RealtimePatternState, RealtimeTrend } from '@/api/realtimeMarket';
 import {
@@ -681,11 +682,17 @@ onMounted(() => {
                               :aria-label="formatSecurityLabel(item.code, item.name)"
                               @click.stop="detailItem = item"
                             >
-                              {{ formatSecurityLabel(item.code, item.name) }}
+                              <StockIdentity
+                                :code="item.code"
+                                :name="item.name"
+                              />
                             </button>
                           </TooltipTrigger>
                           <TooltipContent>
-                            {{ formatSecurityLabel(item.code, item.name) }}
+                            <StockIdentity
+                              :code="item.code"
+                              :name="item.name"
+                            />
                           </TooltipContent>
                         </Tooltip>
                       </TooltipProvider>

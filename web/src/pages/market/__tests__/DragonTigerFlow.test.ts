@@ -32,6 +32,8 @@ it('opens shared stock detail with the exact observed flow filters and source co
   await wrapper.get('[data-testid="flow-stocks"] tbody button').trigger('click');
   const dialog = wrapper.getComponent(StockDetailDialog);
   expect(dialog.props('open')).toBe(true);
+  expect(dialog.props('initialTab')).toBe('overview');
+  await wrapper.get('[data-testid="flow-stocks"] tbody tr').trigger('click');
   expect(dialog.props('initialTab')).toBe('dragon-tiger');
   expect(dialog.props('context')).toMatchObject({ tradeDate: raw.trade_date, view: 'official', dragonTiger: { endDate: raw.trade_date, days: 1, board: 'all', rangeDays: 1 }, dragonTigerConceptId: raw.concepts[0]!.id });
   dialog.vm.$emit('update:open', false);

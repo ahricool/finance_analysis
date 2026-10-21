@@ -26,7 +26,8 @@ for (const width of [1280, 1440, 1920]) {
       await page.getByTestId('flow-ranking').getByRole('button', { name: /半导体/ }).click();
       await expect(page.getByTestId('flow-paths').locator('canvas')).toHaveCount(2);
       await expect(page.getByTestId('flow-stocks').locator('tbody tr')).toHaveCount(16);
-      await page.getByTestId('flow-stocks').getByRole('button', { name: '测试股票1 · 600001.SH', exact: true }).click();
+      await page.getByTestId('flow-stocks').getByRole('button', { name: '600001.SH - 测试股票1', exact: true }).click();
+      await page.getByRole('dialog').getByRole('tab', { name: '龙虎榜', exact: true }).click();
       await expect(page.getByTestId('dragon-tiger-detail-panel')).toContainText('1/2');
       await page.keyboard.press('Escape');
       await page.getByRole('button', { name: '机构榜', exact: true }).click();

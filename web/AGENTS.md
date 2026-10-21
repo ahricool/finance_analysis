@@ -121,7 +121,11 @@ layout（Shell / PageHeader / ModuleLayout）+ ui/app 组件
 
 ## 统一证券详情
 
-`components/stocks/StockDetailDialog.vue` 是股票/ETF 唯一详情弹窗壳，顶部页签在行情、持仓、期权、趋势、ETF 轮动、共振、盘中确认、量化与龙虎榜之间切换。各研究页仍保留列表与筛选；证券入口以 `initialTab` 和 `StockDetailContext` 传来源日期、official/preview、账户/持仓及龙虎榜筛选。量化旧详情 URL 只作同一弹窗的兼容入口。
+`components/stocks/StockDetailDialog.vue` 是股票/ETF 唯一详情弹窗壳，顶部页签在行情、持仓、期权、趋势、ETF 轮动、共振、盘中确认、量化与龙虎榜之间切换。各研究页仍保留列表与筛选；证券名称/代码入口统一打开首位「行情」；点击行或卡片其余区域保留原研究页签。以 `initialTab` 和 `StockDetailContext` 传来源日期、official/preview、账户/持仓及龙虎榜筛选。量化旧详情 URL 只作同一弹窗的兼容入口。
+
+`StockIdentity` 统一组合显示代码与加粗名称；`StockLink` 的名称与代码均可打开同一详情，阻止冒泡触发行/卡片动作。无页面专用弹窗时复用 `StockDetailHost`，已有弹窗通过 `onSelect` 保留行情与账户上下文。名称缺失时共享精确主数据查询，不使用模糊匹配补名；查不到明确显示「名称暂缺」。表单选择、当前详情标题及短暂图表悬浮读数保持各自语义。
+
+通用日/周/月 K、蜡烛形态和结构只在「行情」加载，研究面板保留自身指标/排名历史图；「持仓」保留账户专用买卖 BST 日 K。原跨模块研究摘要保存在独立「研究概览」，不在「行情」触发研究接口。图例名称/代码打开详情，独立色标按钮负责隐藏/显示曲线。
 
 A 股详情头部通过 `/stocks/{code}/classification` 读取周同步行业归属，显示观测时间；与正式行业强度指标独立，切股票/关闭后取消旧请求。
 

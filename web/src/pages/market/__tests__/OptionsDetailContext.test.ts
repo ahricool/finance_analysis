@@ -16,8 +16,10 @@ describe('options source context in the unified modal', () => {
       await flushPromises();
     }
     await wrapper.findAll('button').find(button => button.text().includes('AAPL.US'))!.trigger('click');
-    expect(wrapper.findComponent({ name: 'StockDetailDialog' }).props()).toMatchObject({ stock: { code: 'AAPL.US', name: 'Apple' }, initialTab: 'options', optionsView: mode, optionsDate: '2026-10-12' });
+    expect(wrapper.findComponent({ name: 'StockDetailDialog' }).props()).toMatchObject({ stock: { code: 'AAPL.US', name: 'Apple' }, initialTab: 'overview', optionsView: mode, optionsDate: '2026-10-12' });
     expect(optionsIntelligenceApi.scan).toHaveBeenLastCalledWith({ view: mode, tradeDate: undefined });
+    await wrapper.get('tbody tr').trigger('click');
+    expect(wrapper.findComponent({ name: 'StockDetailDialog' }).props('initialTab')).toBe('options');
     wrapper.unmount();
   });
 });

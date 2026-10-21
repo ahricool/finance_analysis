@@ -73,6 +73,10 @@ let wrapper: VueWrapper;
 async function settleDetail() {
   await vi.dynamicImportSettled();
   await flushPromises();
+  const holdingsTab = wrapper.findAll('[role="tab"]').find(tab => tab.text() === '持仓');
+  if (holdingsTab) await holdingsTab.trigger('mousedown', { button: 0, ctrlKey: false });
+  await vi.dynamicImportSettled();
+  await flushPromises();
 }
 
 async function mountPage() {

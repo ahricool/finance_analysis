@@ -107,7 +107,7 @@ watch(() => [props.symbol, props.market, props.positionId], () => {
     aria-label="研究证据"
   >
     <h3 class="font-semibold">
-      研究证据 · {{ symbol }}
+      研究证据
     </h3>
     <p class="text-xs text-muted-foreground">
       以下为各模块最新正式结果，日期可能不同；研究信号与个人调仓建议独立展示，不合成为买卖结论。

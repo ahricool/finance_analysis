@@ -102,7 +102,7 @@ describe('Industry Strength', () => {
     const wrapper = await render(); await flushPromises();
     await wrapper.get('[data-testid="industry-summary-strongest"]').trigger('click'); await flushPromises();
     const section = detailEl()!.querySelector('[data-testid="industry-detail-constituents"]')!;
-    const codes = () => [...section.querySelectorAll('tbody tr')].map(row => row.querySelector('td span')!.textContent);
+    const codes = () => [...section.querySelectorAll('tbody tr')].map(row => row.querySelector('td .font-mono')!.textContent);
     expect(codes()).toEqual(ascending); // Initial changePct DESC, even when API items are unsorted.
     expect(section.querySelector('thead [aria-sort="descending"]')?.textContent).toContain('涨跌幅');
     const nullRow = [...section.querySelectorAll('tbody tr')].find(row => row.textContent?.includes('004.SH'))!;

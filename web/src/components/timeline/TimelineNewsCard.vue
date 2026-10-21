@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import StockLink from '@/components/stocks/StockLink.vue';
 import type { TimelineItem } from '@/api/timeline';
 import TimelineCardShell from './TimelineCardShell.vue';
 import { clockTime } from './timelineFormat';
@@ -30,11 +31,12 @@ defineEmits<{ open: [] }>();
         class="font-medium"
         :class="item.impact === 'bullish' ? 'text-market-up' : item.impact === 'bearish' ? 'text-market-down' : 'text-muted-foreground'"
       >{{ item.impact }} {{ item.impactScore !== null && item.impactScore > 0 ? '+' : '' }}{{ item.impactScore }}</span>
-      <span
+      <StockLink
         v-for="symbol in item.relatedSymbols.slice(0, 4)"
         :key="symbol"
-        class="rounded bg-muted px-1 py-px font-medium tabular-nums text-foreground"
-      >{{ symbol }}</span>
+        :code="symbol"
+        :market="item.market"
+      />
     </p>
   </TimelineCardShell>
 </template>

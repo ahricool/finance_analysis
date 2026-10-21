@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import StockDetailHost from '@/components/stocks/StockDetailHost.vue';
 import { storeToRefs } from 'pinia';
 import { onMounted, watch } from 'vue';
 import { RouterView, useRoute, useRouter } from 'vue-router';
@@ -67,6 +68,7 @@ watch(
       </Button>
     </div>
     <RouterView v-else />
+    <StockDetailHost v-if="loggedIn && !isLoading && !loadError" />
     <Toaster
       position="top-center"
       close-button

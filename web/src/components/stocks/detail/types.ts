@@ -1,7 +1,7 @@
 import type { MarketType } from '@/api/watchList';
 import type { FlowFilters } from '@/api/dragonTigerFlow';
 
-export type StockDetailTab = 'overview' | 'holdings' | 'options' | 'trend' | 'etf' | 'confluence' | 'intraday' | 'dragon-tiger' | 'quant';
+export type StockDetailTab = 'overview' | 'evidence' | 'holdings' | 'options' | 'trend' | 'etf' | 'confluence' | 'intraday' | 'dragon-tiger' | 'quant';
 
 /** The originating observation stays attached when switching tabs. */
 export interface StockDetailContext {

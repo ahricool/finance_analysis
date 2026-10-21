@@ -2,7 +2,6 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import AppApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
-import DailyKLineCard from '@/components/market-data/DailyKLineCard.vue';
 import BilingualEnum from '@/components/app/BilingualEnum.vue';
 import BilingualLabel from '@/components/app/BilingualLabel.vue';
 import IndicatorLabel from '@/components/app/IndicatorHelpLabel.vue';
@@ -157,10 +156,6 @@ function boolText(value: boolean | null) { return value == null ? '—' : value 
           /><strong class="mt-1 block text-xl">{{ score(factor[1]) }}</strong>
         </div>
       </div>
-      <DailyKLineCard
-        :symbol="selected.latest.code"
-        :highlight-date="selected.latest.tradeDate"
-      />
       <Card>
         <CardHeader><CardTitle><BilingualLabel label="rawMetrics" /></CardTitle></CardHeader><CardContent
           data-testid="etf-raw-metrics-grid"

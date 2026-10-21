@@ -1,8 +1,8 @@
 <script setup lang="ts">
+import StockIdentity from '@/components/stocks/StockIdentity.vue';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/utils/cn';
 import type { StockSuggestion } from '@/types/stockIndex';
-import { formatSecurityLabel } from '@/utils/security';
 
 const MARKET_BADGE_CONFIG = {
   CN: { label: 'A股', className: 'border-destructive/25 bg-destructive/10 text-destructive' },
@@ -100,7 +100,10 @@ const emit = defineEmits<{
           {{ marketLabel(suggestion.market) }}
         </Badge>
         <span class="min-w-[220px] text-sm font-medium text-foreground">
-          {{ formatSecurityLabel(suggestion.displayCode, suggestion.nameZh) }}
+          <StockIdentity
+            :code="suggestion.displayCode"
+            :name="suggestion.nameZh"
+          />
         </span>
       </div>
       <Badge

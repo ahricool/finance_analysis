@@ -46,7 +46,7 @@ for (const width of [390, 768, 1024, 1280, 1440, 1920]) {
     const errors: string[] = [];
     page.on('pageerror', error => errors.push(error.message));
     await page.goto('/research/etf-rotation');
-    await page.getByTestId('etf-ranking-row').click();
+    await page.getByTestId('etf-ranking-row').locator('.font-mono').click();
     const daily = page.getByTestId('daily-kline-card');
     await daily.scrollIntoViewIfNeeded();
     const summary = daily.getByTestId('daily-structure-summary');

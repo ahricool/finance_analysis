@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import StockLink from '@/components/stocks/StockLink.vue';
 import PageHeader from '@/components/layout/PageHeader.vue';
 import { onBeforeUnmount, onMounted, ref, shallowRef } from 'vue';
 import { confluenceApi as api, type ConfluenceRanking, type ConfluenceItem, type Market, type SignalKey } from '@/api/confluence';
@@ -64,6 +65,7 @@ async function run() {
 function evidence(row: ConfluenceItem, key: SignalKey, field: string) { return row.signals[key].evidence[field] ?? '—'; }
 onMounted(() => { void load(); });
 onBeforeUnmount(() => { ++generation; });
+const detailInitialTab = ref<'overview' | 'confluence'>('confluence');
 </script>
 
 <template>
@@ -326,15 +328,19 @@ onBeforeUnmount(() => { ++generation; });
             <TableRow
               v-for="row in result.items"
               :key="row.code"
+              class="cursor-pointer"
+              tabindex="0"
+              @click="detailInitialTab = 'confluence'; show(row)"
+              @keydown.enter.self="detailInitialTab = 'confluence'; show(row)"
+              @keydown.space.self.prevent="detailInitialTab = 'confluence'; show(row)"
             >
               <TableCell>
-                <Button
-                  variant="link"
-                  class="h-auto p-0"
-                  @click="show(row)"
-                >
-                  {{ row.name }}<br>{{ row.code }}
-                </Button>
+                <StockLink
+                  :code="row.code"
+                  :name="row.name"
+                  :market="market"
+                  @select="detailInitialTab = 'overview'; show(row)"
+                />
               </TableCell>
               <TableCell>
                 <strong>{{ row.confluenceScore?.toFixed(1) ?? '—' }}</strong><p class="text-xs text-muted-foreground">
@@ -394,7 +400,7 @@ onBeforeUnmount(() => { ++generation; });
       v-model:open="dialogOpen"
       :stock="selected ? { code: selected.code, name: selected.name, market_type: market } : null"
       kind="research"
-      initial-tab="confluence"
+      :initial-tab="detailInitialTab"
       :context="{ tradeDate: result?.tradeDate || undefined, view: 'official' }"
     />
   </div>

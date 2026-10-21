@@ -1,8 +1,8 @@
 <script setup lang="ts">
+import StockLink from '@/components/stocks/StockLink.vue';
 import IndicatorHelpLabel from '@/components/app/IndicatorHelpLabel.vue';
 import StockDetailDialog from '@/components/stocks/StockDetailDialog.vue';
 import type { QuantSignal } from '@/types/quant';
-import { Button } from '@/components/ui/button';
 import PageHeader from '@/components/layout/PageHeader.vue';
 import { quantApi } from '@/api/quant';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
@@ -16,7 +16,6 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { useQuantMarket } from '@/composables/useQuantMarket';
 import type { SignalRanking } from '@/types/quant';
 import { formatPredictedReturn, formatRealizedReturn, formatScore } from '@/utils/quant';
-import { formatSecurityLabel } from '@/utils/security';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 
 const { market, tradeDate } = useQuantMarket();
@@ -58,6 +57,7 @@ watch(
   { immediate: true },
 );
 onBeforeUnmount(() => { ++requestVersion; });
+const detailInitialTab = ref<'overview' | 'quant'>('quant');
 </script>
 
 <template>
@@ -179,16 +179,20 @@ onBeforeUnmount(() => { ++requestVersion; });
               <TableRow
                 v-for="item in items"
                 :key="item.id"
+                class="cursor-pointer"
+                tabindex="0"
+                @click="detailInitialTab = 'quant'; show(item)"
+                @keydown.enter.self="detailInitialTab = 'quant'; show(item)"
+                @keydown.space.self.prevent="detailInitialTab = 'quant'; show(item)"
               >
                 <TableCell>{{ item.universeRank ?? '—' }}</TableCell>
                 <TableCell>
-                  <Button
-                    variant="link"
-                    class="font-medium rounded-sm underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                    @click="show(item)"
-                  >
-                    {{ formatSecurityLabel(item.code, item.name) }}
-                  </Button>
+                  <StockLink
+                    :code="item.code"
+                    :name="item.name"
+                    :market="market"
+                    @select="detailInitialTab = 'overview'; show(item)"
+                  />
                 </TableCell><TableCell>{{ formatScore(item.finalScore) }}</TableCell><TableCell>{{ formatScore(item.crossSectionScore) }}</TableCell><TableCell>{{ formatScore(item.timeSeriesScore) }}</TableCell><TableCell>{{ formatScore(item.riskPenalty) }}</TableCell><TableCell>{{ formatPredictedReturn(item.predictedReturn) }}</TableCell>
                 <TableCell>{{ formatRealizedReturn(item.return3D) }}</TableCell>
                 <TableCell>{{ formatRealizedReturn(item.return5D) }}</TableCell>
@@ -211,7 +215,7 @@ onBeforeUnmount(() => { ++requestVersion; });
       v-model:open="dialogOpen"
       :stock="selected ? { code: selected.code, name: selected.name || '', market_type: market } : null"
       kind="research"
-      initial-tab="quant"
+      :initial-tab="detailInitialTab"
       :context="{ tradeDate: selected?.tradeDate || ranking?.tradeDate || tradeDate || undefined, view: 'official' }"
     />
   </div>
