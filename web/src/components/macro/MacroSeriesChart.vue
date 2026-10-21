@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import StockIdentity from '@/components/stocks/StockIdentity.vue';
+import StockLink from '@/components/stocks/StockLink.vue';
 import { computed, nextTick, ref, watch } from 'vue';
 import { use, type ComposeOption } from 'echarts/core';
 import { LineChart, type LineSeriesOption } from 'echarts/charts';
@@ -102,26 +104,38 @@ const option = computed<ComposeOption<LineSeriesOption | GridComponentOption | L
         :key="series.key"
         class="max-w-full"
       >
-        <button
-          type="button"
+        <div
           class="flex max-w-full items-center gap-1.5 rounded-sm py-0.5 text-left text-xs text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           :class="{ 'opacity-40': selectedSeries[series.key] === false }"
-          :aria-pressed="selectedSeries[series.key] !== false"
+
           :data-testid="`macro-legend-${series.key}`"
-          @click="toggleSeries(series.key)"
         >
-          <span
-            class="relative h-0.5 w-5 shrink-0"
-            :style="{ backgroundColor: colors[index % colors.length] }"
-            aria-hidden="true"
+          <button
+            type="button"
+            class="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            :aria-label="`切换 ${series.name} 显示`"
+            :aria-pressed="selectedSeries[series.key] !== false"
+            @click="toggleSeries(series.key)"
           >
             <span
-              class="absolute left-1/2 top-1/2 size-2 -translate-x-1/2 -translate-y-1/2 rounded-full"
+              class="relative block h-0.5 w-5 shrink-0"
               :style="{ backgroundColor: colors[index % colors.length] }"
-            />
-          </span>
-          <span class="min-w-0 break-words"><span class="font-medium">{{ series.code ?? seriesLabel(series.key) }}</span> · {{ series.name }}</span>
-        </button>
+              aria-hidden="true"
+            >
+              <span
+                class="absolute left-1/2 top-1/2 size-2 -translate-x-1/2 -translate-y-1/2 rounded-full"
+                :style="{ backgroundColor: colors[index % colors.length] }"
+              />
+            </span>
+          </button>
+          <StockLink
+            v-if="series.code"
+            :code="series.code"
+            :name="series.name"
+            market="US"
+            :context="{ tradeDate: result?.tradeDate ?? undefined }"
+          /><span v-else>{{ seriesLabel(series.key) }} · {{ series.name }}</span>
+        </div>
       </li>
     </ul>
     <div
@@ -154,7 +168,11 @@ const option = computed<ComposeOption<LineSeriesOption | GridComponentOption | L
         class="pointer-events-none absolute bottom-12 right-4 max-w-[80%] rounded-md border bg-popover px-3 py-2 text-sm text-popover-foreground shadow-md"
         role="status"
       >
-        {{ hoveredSeries.code ?? seriesLabel(hoveredSeries.key) }} · {{ hoveredSeries.name }}
+        <StockIdentity
+          v-if="hoveredSeries.code"
+          :code="hoveredSeries.code"
+          :name="hoveredSeries.name"
+        /><span v-else>{{ seriesLabel(hoveredSeries.key) }} · {{ hoveredSeries.name }}</span>
       </div>
       <div
         v-if="loading && result"

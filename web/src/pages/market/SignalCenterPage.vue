@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import StockLink from '@/components/stocks/StockLink.vue';
 import { onBeforeUnmount, onMounted, ref, shallowRef } from 'vue';
 import { signalCenterApi as api, type DailySignals, type SignalSummary, type SignalDetail, type SignalMarket } from '@/api/signalCenter';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
@@ -183,7 +184,15 @@ onBeforeUnmount(() => { ++generation; ++detailGeneration; });
             v-for="row in history"
             :key="`${row.market}-${row.signalDate}`"
           >
-            <TableCell>{{ row.signalDate }}</TableCell><TableCell>{{ names[row.market] }}</TableCell><TableCell>{{ row.selectedSymbol ? [row.selectedName, row.selectedSymbol].filter(Boolean).join(' ') : '—' }}</TableCell>
+            <TableCell>{{ row.signalDate }}</TableCell><TableCell>{{ names[row.market] }}</TableCell><TableCell>
+              <StockLink
+                v-if="row.selectedSymbol"
+                :code="row.selectedSymbol"
+                :name="row.selectedName"
+                :market="row.market"
+                :context="{ tradeDate: row.signalDate }"
+              /><span v-else>—</span>
+            </TableCell>
             <TableCell>
               <BilingualEnum
                 v-if="row.decision"

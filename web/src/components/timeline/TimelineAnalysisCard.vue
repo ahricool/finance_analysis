@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import StockLink from '@/components/stocks/StockLink.vue';
 import type { TimelineItem } from '@/api/timeline';
 import TimelineCardShell from './TimelineCardShell.vue';
 import { clockTime } from './timelineFormat';
@@ -28,11 +29,12 @@ defineEmits<{ open: [] }>();
       v-if="item.relatedSymbols.length"
       class="mt-2 flex flex-wrap items-center gap-1 text-[11px] leading-4"
     >
-      <span
+      <StockLink
         v-for="symbol in item.relatedSymbols.slice(0, 4)"
         :key="symbol"
-        class="rounded bg-muted px-1 py-px font-medium tabular-nums text-foreground"
-      >{{ symbol }}</span>
+        :code="symbol"
+        :market="item.market"
+      />
     </p>
   </TimelineCardShell>
 </template>

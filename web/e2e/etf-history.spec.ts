@@ -94,7 +94,8 @@ for (const width of [1280, 1440, 1920]) {
       await row.click();
       const dialog = page.getByTestId('etf-detail-modal');
       await expect(dialog).toBeVisible();
-      const daily = dialog.getByTestId('daily-kline-card');
+      await page.getByRole('dialog').getByRole('tab', { name: '行情', exact: true }).click();
+      const daily = page.getByRole('dialog').getByTestId('daily-kline-card');
       await daily.scrollIntoViewIfNeeded();
       await expect(daily.locator('canvas').first()).toBeVisible();
       await expect(daily).toContainText('查看日 2026-08-28 · ↓ 图中标记 · 行情至 2026-09-26');
@@ -104,6 +105,7 @@ for (const width of [1280, 1440, 1920]) {
         .getAttribute('data-research-marker-x'))).toBeCloseTo(0.5, 1);
       await daily.screenshot({ path: testInfo.outputPath(`daily-marker-${theme}-${width}.png`) });
       await daily.getByRole('button', { name: '最新行情' }).click();
+      await page.getByRole('dialog').getByRole('tab', { name: 'ETF 轮动', exact: true }).click();
       const charts = dialog.getByTestId('rotation-history-charts');
       await expect(charts.locator('canvas')).toHaveCount(4);
       for (const label of ['价格与均线', '综合得分', '排名', '相对强度']) {

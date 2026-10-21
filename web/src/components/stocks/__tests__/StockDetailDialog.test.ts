@@ -26,7 +26,7 @@ describe('unified StockDetailDialog', () => {
   it('preserves legacy stock-driven opening and presents accessible responsive tabs', () => {
     const wrapper = render();
     expect(wrapper.text()).toContain('Apple');
-    expect(wrapper.findAll('[role="tab"]').map(item => item.text())).toEqual(['行情', '持仓', '期权', '趋势', 'ETF 轮动', '共振', '盘中确认', '量化']);
+    expect(wrapper.findAll('[role="tab"]').map(item => item.text())).toEqual(['行情', '持仓', '期权', '趋势', 'ETF 轮动', '共振', '盘中确认', '量化', '研究概览']);
     expect(wrapper.get('[role="tabpanel"]').attributes('aria-labelledby')).toBe(wrapper.get('[role="tab"][data-state="active"]').attributes('id'));
     expect(wrapper.get('[data-testid="stock-detail-tabs"]').element.parentElement?.classList.contains('overflow-x-auto')).toBe(true);
     wrapper.unmount();
@@ -148,4 +148,19 @@ describe('unified StockDetailDialog', () => {
     wrapper.unmount();
   });
 
+});
+
+it('keeps general charts and price action in the first market tab and loads research summaries separately', async () => {
+  const wrapper = render('trend'); await flushPromises();
+  expect(wrapper.findComponent({ name: 'DailyKLineCard' }).exists()).toBe(false);
+  expect(wrapper.findComponent({ name: 'ResearchEvidence' }).exists()).toBe(false);
+  await tab(wrapper, '行情');
+  const chart = wrapper.findComponent({ name: 'DailyKLineCard' });
+  expect(chart.attributes('symbol')).toBe('AAPL.US');
+  expect(chart.attributes('highlight-date')).toBe('2026-10-09');
+  expect(wrapper.findComponent({ name: 'ResearchEvidence' }).exists()).toBe(false);
+  await tab(wrapper, '研究概览');
+  expect(wrapper.findComponent({ name: 'DailyKLineCard' }).exists()).toBe(false);
+  expect(wrapper.findComponent({ name: 'ResearchEvidence' }).exists()).toBe(true);
+  wrapper.unmount();
 });

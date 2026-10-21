@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import StockLink from '@/components/stocks/StockLink.vue';
 import StockDetailDialog from '@/components/stocks/StockDetailDialog.vue';
 import type { StockDetailContext } from '@/components/stocks/detail/types';
 import PageHeader from '@/components/layout/PageHeader.vue';
@@ -545,10 +546,12 @@ function onRankingRowKeydown(item: TrendRankingSnapshot, event: KeyboardEvent) {
   event.preventDefault();
   openRankingDetail(item, event);
 }
-function openDetail(item: Pick<TrendSnapshot, 'code'> & { tradeDate?: string; preview?: boolean }) {
+const detailInitialTab = ref<'overview' | 'trend'>('trend');
+function openDetail(item: Pick<TrendSnapshot, 'code'> & { name?: string; tradeDate?: string; preview?: boolean }, initialTab: 'overview' | 'trend' = 'trend') {
+  detailInitialTab.value = initialTab;
   const row = items.value.find(row => row.code === item.code);
   const view = item.preview === undefined ? dataMode.value : item.preview ? 'preview' : 'official';
-  detailStock.value = { code: item.code, name: row?.name ?? item.code, market_type: market.value };
+  detailStock.value = { code: item.code, name: item.name ?? row?.name ?? '', market_type: market.value };
   detailContext.value = {
     view,
     trendPeriod: trendPeriod.value,
@@ -802,19 +805,28 @@ onMounted(async () => {
                 排名 / 分数变动
               </h3>
               <div class="flex flex-wrap gap-2">
-                <button
+                <div
                   v-for="change in changes?.movers ?? []"
                   :key="change.code"
                   data-testid="trend-mover"
                   class="rounded border px-3 py-2 text-left text-xs hover:bg-muted/50"
+                  tabindex="0"
+                  role="button"
+                  @keydown.enter.self.prevent="openDetail(change)"
+                  @keydown.space.self.prevent="openDetail(change)"
                   @click="openDetail(change)"
                 >
-                  <strong>{{ change.name }}</strong>
+                  <StockLink
+                    :code="change.code"
+                    :name="change.name"
+                    :market="market"
+                    @select="openDetail(change, 'overview')"
+                  />
                   <span class="ml-2">Rank {{ rankDelta(change.rankChange) }}</span>
                   <span class="ml-2">Trend {{ scoreDelta(change.trendScoreChange) }}</span>
                   <span class="ml-2">RS {{ scoreDelta(change.rsScoreChange) }}</span>
                   <span class="ml-2">Alpha {{ scoreDelta(change.alphaScoreChange) }}</span>
-                </button>
+                </div>
                 <span
                   v-if="!changes?.movers?.length"
                   class="text-xs text-muted-foreground"
@@ -1023,7 +1035,12 @@ onMounted(async () => {
                         #{{ item.rank }}
                       </template>
                       <template v-else-if="column.key === 'name'">
-                        <strong class="block">{{ item.name }}</strong><span class="font-mono text-xs text-muted-foreground">{{ item.code }}</span>
+                        <StockLink
+                          :code="item.code"
+                          :name="item.name"
+                          :market="market"
+                          @select="openDetail(item, 'overview')"
+                        />
                       </template>
                       <Badge
                         v-else-if="column.key === 'mrState'"
@@ -1138,7 +1155,7 @@ onMounted(async () => {
     <StockDetailDialog
       :stock="detailOpen ? detailStock : null"
       kind="research"
-      initial-tab="trend"
+      :initial-tab="detailInitialTab"
       :context="detailContext"
       @update:open="onDetailOpenChange"
     />

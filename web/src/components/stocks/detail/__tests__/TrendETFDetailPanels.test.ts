@@ -56,7 +56,7 @@ for (const kind of ['trend', 'etf'] as const) {
       await flushPromises();
       expect(api.detail).toHaveBeenCalledWith('AAPL.US', 'US', 60, undefined, ...(kind === 'trend' ? [20] : []));
       expect(api.previewDetail).not.toHaveBeenCalled();
-      expect(wrapper.getComponent(DailyKLineCard).props('highlightDate')).toBe('2026-09-10');
+      expect(wrapper.findComponent(DailyKLineCard).exists()).toBe(false);
       await wrapper.setProps({ context: { tradeDate: '2026-08-20', view: 'official' } });
       await flushPromises();
       expect(api.detail).toHaveBeenLastCalledWith('AAPL.US', 'US', 60, '2026-08-20', ...(kind === 'trend' ? [20] : []));
@@ -90,7 +90,7 @@ for (const kind of ['trend', 'etf'] as const) {
       expect(api.previewDetail).toHaveBeenCalledWith('AAPL.US', 'US', '2026-09-10', ...(kind === 'trend' ? [20] : []));
       expect(api.detailHistory).toHaveBeenCalledWith('AAPL.US', 'US', '2026-09-10', ...(kind === 'trend' ? [60, 20] : []));
       expect(wrapper.text()).toContain('当前详情为 Preview');
-      expect(wrapper.findComponent(DailyKLineCard).exists()).toBe(true);
+      expect(wrapper.findComponent(DailyKLineCard).exists()).toBe(false);
       api.detailHistory.mockResolvedValueOnce({ history: [snapshot('AAPL.US', '2026-09-09'), snapshot()] });
       wrapper.getComponent(AppApiErrorAlert).vm.$emit('action');
       await flushPromises();
@@ -124,7 +124,7 @@ for (const kind of ['trend', 'etf'] as const) {
       await flushPromises();
       stale.resolve(detail('AAPL.US'));
       await flushPromises();
-      expect(wrapper.getComponent(DailyKLineCard).props('symbol')).toBe('MSFT.US');
+      expect(wrapper.findComponent(DailyKLineCard).exists()).toBe(false);
       wrapper.unmount();
     });
 

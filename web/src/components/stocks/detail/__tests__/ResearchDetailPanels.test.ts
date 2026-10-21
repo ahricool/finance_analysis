@@ -46,9 +46,7 @@ describe('independent research detail panels', () => {
     expect(confluenceApi.detail).toHaveBeenCalledWith('600001.SH', 'CN', '2026-09-22');
     expect(wrapper.text()).toContain('各来源以独立日期为准');
     expect(wrapper.text()).toContain('Why Confluence');
-    const chart = wrapper.getComponent(DailyKLineCard);
-    expect(chart.props('highlightDate')).toBe('2026-09-22');
-    expect(chart.props('endDate')).toBeUndefined();
+    expect(wrapper.findComponent(DailyKLineCard).exists()).toBe(false);
     wrapper.unmount();
   });
   it('uses explicit historical confluence dates and ignores an older symbol result', async () => {
@@ -98,8 +96,7 @@ describe('independent research detail panels', () => {
     expect(quantApi.signal).toHaveBeenCalledWith('AAPL.US', 'US', '2026-09-21');
     expect(quantApi.signalHistory).toHaveBeenCalledWith('AAPL.US', 'US', '2026-09-21');
     for (const text of ['量化依据', '风险惩罚', '横截面', '时间序列', '2026-09-18', 'alpha']) expect(wrapper.text()).toContain(text);
-    expect(wrapper.getComponent(DailyKLineCard).props('highlightDate')).toBe('2026-09-21');
-    expect(wrapper.getComponent(DailyKLineCard).props('endDate')).toBeUndefined();
+    expect(wrapper.findComponent(DailyKLineCard).exists()).toBe(false);
     wrapper.unmount();
   });
   it('clears prior quant data on symbol changes and ignores late requests', async () => {

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import StockLink from '@/components/stocks/StockLink.vue';
 import IndicatorHelpLabel from '@/components/app/IndicatorHelpLabel.vue';
 import { computed, ref } from 'vue';
 import type { Constituent, Constituents, IndustryDetail, IndustrySnapshot } from '@/api/industryStrength';
@@ -439,7 +440,13 @@ function ma(value: boolean | null) {
                     v-for="item in sortedItems"
                     :key="item.code"
                   >
-                    <TableCell>{{ item.name }} <span class="ml-2 text-xs text-muted-foreground">{{ item.code }}</span></TableCell>
+                    <TableCell>
+                      <StockLink
+                        :code="item.code"
+                        :name="item.name"
+                        market="CN"
+                      />
+                    </TableCell>
                     <TableCell class="tabular-nums">
                       {{ item.trendRank == null ? '—' : `#${item.trendRank}` }}
                     </TableCell>

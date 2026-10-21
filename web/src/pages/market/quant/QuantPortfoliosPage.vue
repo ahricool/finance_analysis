@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import StockLink from '@/components/stocks/StockLink.vue';
 import IndicatorHelpLabel from '@/components/app/IndicatorHelpLabel.vue';
 import PageHeader from '@/components/layout/PageHeader.vue';
 import { quantApi } from '@/api/quant';
@@ -12,7 +13,6 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { useQuantMarket } from '@/composables/useQuantMarket';
 import type { Portfolio } from '@/types/quant';
 import { formatPercent, formatPredictedReturn, formatScore } from '@/utils/quant';
-import { formatSecurityLabel } from '@/utils/security';
 import { ref, watch } from 'vue';
 
 const { market, tradeDate } = useQuantMarket();
@@ -169,7 +169,12 @@ watch(
                 class="border-t border-border"
               >
                 <TableCell class="p-3">
-                  {{ formatSecurityLabel(row.code, row.name) }}
+                  <StockLink
+                    :code="row.code"
+                    :name="row.name"
+                    :market="market"
+                    :context="{ tradeDate: item.tradeDate }"
+                  />
                 </TableCell>
                 <TableCell>#{{ row.rank }}</TableCell>
                 <TableCell>{{ formatPercent(row.targetWeight) }}</TableCell>

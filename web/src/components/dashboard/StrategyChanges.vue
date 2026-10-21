@@ -1,10 +1,11 @@
 <script setup lang="ts">
+import StockLink from '@/components/stocks/StockLink.vue';
 import type { ETFRankingResponse } from '@/types/etfRotation';
 import type { TrendDashboardResponse } from '@/types/trendFollowing';
 import { computed } from 'vue';
 import BilingualEnum from '@/components/app/BilingualEnum.vue';
 import { etfHighlights, regimeTone } from './dashboardFormat';
-const props = defineProps<{ etf?: ETFRankingResponse | null; trend?: TrendDashboardResponse | null }>();
+const props = defineProps<{ etf?: ETFRankingResponse | null; trend?: TrendDashboardResponse | null; market: 'CN' | 'US' }>();
 const changes = computed(() => props.etf?.changes ?? props.trend?.changes);
 const rows = computed(() => props.etf ? etfHighlights(props.etf.changes) : props.trend?.changes.highlights ?? []);
 const regime = computed(() => props.etf?.marketSnapshot?.regime ?? props.trend?.marketRegime);
@@ -49,7 +50,12 @@ const counts = computed(() => props.etf ? [
       :key="row.code"
       class="flex justify-between gap-2 py-1.5 text-sm"
     >
-      <span class="truncate font-medium">{{ row.name || row.code }}</span>
+      <StockLink
+        :code="row.code"
+        :name="row.name"
+        :market="market"
+        :context="{ tradeDate: etf?.tradeDate ?? trend?.tradeDate }"
+      />
       <span class="inline-flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
         <BilingualEnum
           :value="'previousAction' in row ? row.previousAction : row.previousState"

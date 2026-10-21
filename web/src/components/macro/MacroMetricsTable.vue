@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import StockIdentity from '@/components/stocks/StockIdentity.vue';
 import IndicatorHelpLabel from '@/components/app/IndicatorHelpLabel.vue';
 import type { MacroInstrument, MacroRatio } from '@/api/macro';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
@@ -78,14 +79,20 @@ const categories: Record<string, string> = { EQUITY: '权益', RATES: '利率', 
                 :aria-label="`查看 ${row.code} ${row.name} 详情`"
                 @click.stop="emit('select', row)"
               >
-                {{ row.code }}
+                <StockIdentity
+                  :code="row.code"
+                  :name="row.name"
+                />
               </button>
               <p
                 v-else
                 class="font-medium"
               >
                 {{ seriesLabel(row.key) }}
-              </p><p class="text-xs text-muted-foreground">
+              </p><p
+                v-if="!('code' in row)"
+                class="text-xs text-muted-foreground"
+              >
                 {{ row.name }}
               </p><Badge
                 v-if="'partial' in row && row.partial"

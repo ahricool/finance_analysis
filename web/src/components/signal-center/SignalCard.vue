@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import StockLink from '@/components/stocks/StockLink.vue';
 import type { SignalDetail } from '@/api/signalCenter';
 import { formatDateTime } from '@/utils/format';
 import { Badge } from '@/components/ui/badge';
@@ -16,7 +17,17 @@ const confidence: Record<string, string> = { high: '高', medium: '中', low: '�
     data-testid="signal-card"
   >
     <div class="flex items-center gap-3">
-      <strong class="text-xl">{{ (signal.selectedSymbol ? [signal.selectedName, signal.selectedSymbol].filter(Boolean).join(' ') : '') || (signal.decision === 'NO_TRADE' ? '当日不交易' : '暂无交易信号') }}</strong>
+      <StockLink
+        v-if="signal.selectedSymbol"
+        class="text-xl"
+        :code="signal.selectedSymbol"
+        :name="signal.selectedName"
+        :market="signal.market"
+        :context="{ tradeDate: signal.signalDate }"
+      /><strong
+        v-else
+        class="text-xl"
+      >{{ signal.decision === 'NO_TRADE' ? '当日不交易' : '暂无交易信号' }}</strong>
       <Badge>{{ signal.decision || statuses[signal.status] }}</Badge>
       <span
         v-if="signal.confidence"

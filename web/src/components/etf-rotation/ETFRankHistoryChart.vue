@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import StockIdentity from '@/components/stocks/StockIdentity.vue';
+import StockLink from '@/components/stocks/StockLink.vue';
 import { computed, onBeforeUnmount, shallowRef, ref, watch } from 'vue';
 import { LineChart, type LineSeriesOption } from 'echarts/charts';
 import { GridComponent, LegendComponent, TooltipComponent } from 'echarts/components';
@@ -141,25 +143,35 @@ const option = computed<ComposeOption<LineSeriesOption | GridComponentOption | L
           :key="series.code"
           class="max-w-full"
         >
-          <button
-            type="button"
+          <div
             class="flex max-w-full items-center gap-1.5 rounded-sm py-0.5 text-left text-xs text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             :class="{ 'opacity-40': selectedSeries[series.name] === false }"
-            :aria-pressed="selectedSeries[series.name] !== false"
-            @click="toggleSeries(series.name)"
           >
-            <span
-              class="relative h-0.5 w-5 shrink-0"
-              :style="{ backgroundColor: seriesColors[index % seriesColors.length] }"
-              aria-hidden="true"
+            <button
+              type="button"
+              class="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              :aria-label="`切换 ${series.name} 显示`"
+              :aria-pressed="selectedSeries[series.name] !== false"
+              @click="toggleSeries(series.name)"
             >
               <span
-                class="absolute left-1/2 top-1/2 size-2 -translate-x-1/2 -translate-y-1/2 rounded-full"
+                class="relative block h-0.5 w-5 shrink-0"
                 :style="{ backgroundColor: seriesColors[index % seriesColors.length] }"
-              />
-            </span>
-            <span class="min-w-0 break-words">{{ series.name }}</span>
-          </button>
+                aria-hidden="true"
+              >
+                <span
+                  class="absolute left-1/2 top-1/2 size-2 -translate-x-1/2 -translate-y-1/2 rounded-full"
+                  :style="{ backgroundColor: seriesColors[index % seriesColors.length] }"
+                />
+              </span>
+            </button>
+            <StockLink
+              :code="series.code"
+              :name="series.name"
+              :market="market"
+              :context="{ tradeDate: asOf }"
+            />
+          </div>
         </li>
       </ul>
       <div
@@ -181,8 +193,10 @@ const option = computed<ComposeOption<LineSeriesOption | GridComponentOption | L
           class="pointer-events-none absolute bottom-12 right-4 rounded-md border bg-popover px-3 py-2 text-sm text-popover-foreground shadow-md"
           role="status"
         >
-          <span class="font-medium">{{ hoveredSeries.name }}</span>
-          <span class="ml-2 text-muted-foreground">{{ hoveredSeries.code }}</span>
+          <StockIdentity
+            :code="hoveredSeries.code"
+            :name="hoveredSeries.name"
+          />
         </div>
       </div>
       <p

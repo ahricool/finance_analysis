@@ -375,7 +375,7 @@ describe('ETFRotationPage', () => {
     await wrapper.get('[data-testid="rotation-candidate"]').trigger('click');
     await flushPromises();
     await vi.waitFor(() => expect(apiMocks.detail).toHaveBeenLastCalledWith('159915.SZ', 'CN', 60, '2026-08-21'));
-    expect(marketDataApi.dailyBars).toHaveBeenLastCalledWith('159915.SZ', undefined, expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/), expect.any(AbortSignal));
+    expect(marketDataApi.dailyBars).not.toHaveBeenCalled();
   });
 
   it('resets the selected date and reloads US snapshots when switching markets', async () => {
@@ -436,7 +436,7 @@ describe('ETFRotationPage', () => {
     expect(document.body.textContent).toContain('RS10');
     expect(document.body.textContent).toContain('Signed ER10');
     expect(apiMocks.detail).toHaveBeenCalledWith('588000.SH', 'CN', 60, '2026-08-25');
-    expect(marketDataApi.dailyBars).toHaveBeenLastCalledWith('588000.SH', undefined, expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/), expect.any(AbortSignal));
+    expect(marketDataApi.dailyBars).not.toHaveBeenCalled();
   });
 
   it('renders nullable actions and snapshot warnings without treating them as signals', async () => {
@@ -748,4 +748,18 @@ it('keeps the ranking table usable when rank history fails', async () => {
   wrapper.unmount();
 
 
+});
+
+it.each(['strong', '.font-mono'])('opens market data from ETF identity %s without also opening the research row', async target => {
+  vi.clearAllMocks();
+  document.body.innerHTML = '';
+  const wrapper = mount(ETFRotationPage, { attachTo: document.body });
+  await flushPromises();
+  await wrapper.get('[data-testid="etf-ranking-row"]').get(target).trigger('click');
+  await flushPromises();
+  await vi.dynamicImportSettled();
+  expect(document.body.querySelector('[role="tab"][data-state="active"]')?.textContent).toBe('行情');
+  expect(apiMocks.detail).not.toHaveBeenCalled();
+  expect(marketDataApi.dailyBars).toHaveBeenCalled();
+  wrapper.unmount();
 });

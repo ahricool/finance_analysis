@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import StockLink from '@/components/stocks/StockLink.vue';
 import IndicatorHelpLabel from '@/components/app/IndicatorHelpLabel.vue';
 import { computed, onMounted, ref } from 'vue';
 import { RouterLink } from 'vue-router';
@@ -75,9 +76,16 @@ const metrics = computed(() => data.value ? [
   ['Top5正流入占比', data.value.summary.top5Concentration == null ? '—' : `${(data.value.summary.top5Concentration * 100).toFixed(1)}%`],
 ] : []);
 const generatedAt = computed(() => data.value?.sourceQuality.map(q => q.generatedAt).sort().at(-1));
-const stockName = computed(() => stockRows.value[0]?.name ?? stock.value);
+const stockLabel = ref<string | null>(null);
+const stockName = computed(() => stockLabel.value ?? stockRows.value[0]?.name ?? null);
 const moneyClass = (v: number | null) => signedTextClass(v);
 onMounted(() => { void load(); void loadDates(); });
+const detailInitialTab = ref<'overview' | 'dragon-tiger'>('dragon-tiger');
+function openStock(row: { symbol: string; name: string | null }, tab: 'overview' | 'dragon-tiger') {
+  detailInitialTab.value = tab;
+  stockLabel.value = row.name;
+  stock.value = row.symbol;
+}
 </script>
 
 <template>
@@ -354,16 +362,19 @@ onMounted(() => { void load(); void loadDates(); });
                 <tr
                   v-for="row in allStockRows"
                   :key="row.symbol"
-                  class="border-t"
+                  class="border-t cursor-pointer"
+                  tabindex="0"
+                  @click="openStock(row, 'dragon-tiger')"
+                  @keydown.enter.self="openStock(row, 'dragon-tiger')"
+                  @keydown.space.self.prevent="openStock(row, 'dragon-tiger')"
                 >
                   <td class="p-3 whitespace-nowrap">
-                    <Button
-                      variant="link"
-                      class="h-auto p-0"
-                      @click="stock = row.symbol"
-                    >
-                      {{ row.name }} · {{ row.symbol }}
-                    </Button>
+                    <StockLink
+                      :code="row.symbol"
+                      :name="row.name"
+                      market="CN"
+                      @select="openStock(row, 'overview')"
+                    />
                   </td>
                   <td
                     v-for="column in amountColumns"
@@ -438,18 +449,21 @@ onMounted(() => { void load(); void loadDates(); });
               <tr
                 v-for="(row, i) in data.hotMoneyDetails"
                 :key="`${row.tradeDate}-${row.symbol}-${row.hotMoneyName}-${i}`"
-                class="border-t"
+                class="border-t cursor-pointer"
+                tabindex="0"
+                @click="openStock(row, 'dragon-tiger')"
+                @keydown.enter.self="openStock(row, 'dragon-tiger')"
+                @keydown.space.self.prevent="openStock(row, 'dragon-tiger')"
               >
                 <td class="p-2">
                   {{ row.tradeDate }}
                 </td><td class="p-2">
-                  <Button
-                    variant="link"
-                    class="h-auto p-0"
-                    @click="stock = row.symbol"
-                  >
-                    {{ row.name }} · {{ row.symbol }}
-                  </Button>
+                  <StockLink
+                    :code="row.symbol"
+                    :name="row.name"
+                    market="CN"
+                    @select="openStock(row, 'overview')"
+                  />
                 </td><td class="p-2">
                   {{ row.hotMoneyName }}
                 </td><td
@@ -599,16 +613,19 @@ onMounted(() => { void load(); void loadDates(); });
                   <tr
                     v-for="row in sortedStocks"
                     :key="row.symbol"
-                    class="border-t"
+                    class="border-t cursor-pointer"
+                    tabindex="0"
+                    @click="openStock(row, 'dragon-tiger')"
+                    @keydown.enter.self="openStock(row, 'dragon-tiger')"
+                    @keydown.space.self.prevent="openStock(row, 'dragon-tiger')"
                   >
                     <td class="p-3">
-                      <Button
-                        variant="link"
-                        class="h-auto p-0"
-                        @click="stock = row.symbol"
-                      >
-                        {{ row.name }} · {{ row.symbol }}
-                      </Button>
+                      <StockLink
+                        :code="row.symbol"
+                        :name="row.name"
+                        market="CN"
+                        @select="openStock(row, 'overview')"
+                      />
                     </td><td
                       class="p-3 text-right tabular-nums"
                       :class="moneyClass(row.netValue)"
@@ -629,7 +646,7 @@ onMounted(() => { void load(); void loadDates(); });
       :open="Boolean(stock)"
       :stock="stock ? { code: stock, name: stockName, market_type: 'CN' } : null"
       kind="research"
-      initial-tab="dragon-tiger"
+      :initial-tab="detailInitialTab"
       :context="{ tradeDate: data?.tradeDate || undefined, view: 'official', dragonTiger: { ...filters, endDate: data?.tradeDate || filters.endDate }, dragonTigerConceptId: selected }"
       @update:open="!$event && (stock = '')"
     />

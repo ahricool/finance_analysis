@@ -31,8 +31,8 @@ describe('Signal Center page', () => {
     vi.mocked(api.detail).mockResolvedValue(buy);
     const wrapper = mount(SignalCenterPage, { global: { plugins: [createPinia()] } });
     await flushPromises();
-    const label = selectedName ? `${selectedName} 600000.SH` : '600000.SH';
-    expect(wrapper.get('[data-testid="signal-card"] strong').text()).toBe(label);
+    const label = `600000.SH - ${selectedName || '名称暂缺'}`;
+    expect(wrapper.get('[data-testid="signal-card"] .stock-identity').text()).toBe(label);
     expect(wrapper.get('tbody').text()).toContain(label);
     await wrapper.get('[aria-label="查看 2026-09-22 CN 信号"]').trigger('click');
     await flushPromises();

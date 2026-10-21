@@ -33,6 +33,7 @@ for (const width of [1280, 1440, 1920]) {
       const dialog = page.getByRole('dialog');
       await expect(dialog.getByTestId('daily-kline-card')).toBeVisible();
       await expect(dialog.getByTestId('daily-kline-card').locator('canvas').first()).toBeVisible();
+      await dialog.getByRole('tab', { name: '共振', exact: true }).click();
       await expect(dialog).toContainText('25/25');
       await expect(dialog).toContainText('12 → 4');
       await expect(dialog).toContainText('10/20');

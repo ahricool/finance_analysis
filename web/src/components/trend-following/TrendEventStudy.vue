@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import StockLink from '@/components/stocks/StockLink.vue';
 import IndicatorHelpLabel from '@/components/app/IndicatorHelpLabel.vue';
 import { trendPeriodText } from './indicatorDescriptions';
 import { computed, onBeforeUnmount, ref, shallowRef, watch } from 'vue';
@@ -353,7 +354,14 @@ async function exportSummary() {
             >
               <TableCell class="whitespace-nowrap">
                 {{ event.tradeDate }}
-              </TableCell><TableCell>{{ event.name ?? '—' }}<span class="block text-xs">{{ event.code }}</span></TableCell><TableCell>{{ event.regime }}</TableCell><TableCell>{{ event.signalPrice.toFixed(2) }}</TableCell>
+              </TableCell><TableCell>
+                <StockLink
+                  :code="event.code"
+                  :name="event.name"
+                  :market="market"
+                  :context="{ tradeDate: event.tradeDate, trendPeriod }"
+                />
+              </TableCell><TableCell>{{ event.regime }}</TableCell><TableCell>{{ event.signalPrice.toFixed(2) }}</TableCell>
               <TableCell
                 v-for="days in [5, 10, 20]"
                 :key="days"

@@ -34,6 +34,7 @@ for (const width of [1280, 1440, 1920]) {
       await expect(page.getByRole('table')).toContainText('unavailable');
       await page.screenshot({ path: testInfo.outputPath('list.png'), fullPage: true });
       await page.getByRole('button', { name: /测试候选/ }).click();
+      await page.getByRole('dialog').getByRole('tab', { name: '盘中确认', exact: true }).click();
       await expect(page.getByRole('dialog')).toContainText('EMERGING → EXPANSION');
       await expect(page.getByRole('dialog')).toContainText('Decision · CONFIRMED · Chase Risk HIGH');
       await page.screenshot({ path: testInfo.outputPath('detail.png'), fullPage: true });

@@ -14,7 +14,7 @@ const sortableRow = (symbol: string, value: number | null): OptionMetrics => ({
   observedAt: value == null ? undefined : `2026-10-07T${value === 1 ? '10' : '11'}:00:00Z`,
   evidenceGrade: value == null ? undefined : value === 1 ? 'B' : 'A',
 });
-const rowOrder = (wrapper: ReturnType<typeof mount>) => wrapper.findAll('tbody tr').map(row => row.find('td').text());
+const rowOrder = (wrapper: ReturnType<typeof mount>) => wrapper.findAll('tbody tr').map(row => row.find('td .font-mono').text());
 
 describe('Options scanner header sorting', () => {
   it.each([
@@ -164,7 +164,7 @@ describe('Options scanner stock names', () => {
     await wrapper.get('#options-search').setValue('msft');
     expect(wrapper.text()).toContain('MSFT.US');
     expect(wrapper.text()).not.toContain('AAPL.US');
-    await wrapper.findAll('button').find(button => button.text() === 'MSFT.US')!.trigger('click');
+    await wrapper.findAll('button').find(button => button.attributes('aria-label') === 'MSFT.US')!.trigger('click');
     expect(wrapper.findComponent({ name: 'StockDetailDialog' }).props('stock')).toMatchObject({
       code: 'MSFT.US', name: null,
     });
