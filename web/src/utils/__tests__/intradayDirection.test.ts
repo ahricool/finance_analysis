@@ -1,5 +1,5 @@
 import type { PatternDirection, PatternStage, RealtimeQuote, TrendDirection } from '@/api/realtimeMarket';
-import { calculateIntradayDirection, INTRADAY_ENTRY_MAX_AGE_MINUTES } from '@/utils/intradayDirection';
+import { calculateIntradayDirection, INTRADAY_ENTRY_MAX_AGE_MINUTES, intradayDirectionSortValue } from '@/utils/intradayDirection';
 import { describe, expect, it } from 'vitest';
 
 const NOW = new Date('2026-07-22T15:00:00Z');
@@ -71,11 +71,19 @@ describe('calculateIntradayDirection', () => {
     expect(calculateIntradayDirection(value, 'CN', new Date('2026-07-22T04:00:00Z'))?.status).toBe('休市等待');
   });
 
-  it('rejects stale, missing, future and receipt-only quote timestamps', () => {
-    const old = new Date(NOW.getTime() - 91_000).toISOString();
-    for (const changes of [{ event_time: old }, { received_at: old }, { event_time: undefined },
-      { event_time: new Date(NOW.getTime() + 6_000).toISOString() }, { timestamp_kind: 'received' }]) {
-      expect(calculateIntradayDirection({ ...quote(), ...changes }, 'US', NOW)?.status).toBe('行情延迟');
+  it.each(['event_time', 'received_at'] as const)('accepts ±30 seconds inclusively and distinguishes stale/future %s', field => {
+    for (const offset of [-31_000, -30_000, -10_000, 0, 10_000, 30_000, 31_000]) {
+      const value = { ...quote(), [field]: new Date(NOW.getTime() + offset).toISOString() };
+      const status = calculateIntradayDirection(value, 'US', NOW);
+      expect(status?.status, `${field}: ${offset}ms`).toBe(offset < -30_000 ? '行情延迟' : offset > 30_000 ? '行情超前' : '多头确认');
+      if (Math.abs(offset) > 30_000) expect(intradayDirectionSortValue(status)).toBe(6);
+    }
+  });
+
+  it('distinguishes missing, malformed and receipt-only timestamps from stale quotes', () => {
+    for (const changes of [{ event_time: undefined }, { received_at: undefined }, { event_time: 'invalid' },
+      { received_at: 'invalid' }, { timestamp_kind: 'received' }]) {
+      expect(calculateIntradayDirection({ ...quote(), ...changes }, 'US', NOW)?.status).toBe('时间异常');
     }
     expect(calculateIntradayDirection(quote(), 'US', new Date('invalid'))).toBeNull();
   });
@@ -90,7 +98,25 @@ describe('calculateIntradayDirection', () => {
   it('does not confirm a stale minute trend using a fresh quote', () => {
     const value = quote();
     value.trend_1m!.bar_time = new Date(NOW.getTime() - 181_000).toISOString();
-    expect(calculateIntradayDirection(value, 'US', NOW)?.status).toBe('行情延迟');
+    expect(calculateIntradayDirection(value, 'US', NOW)?.status).toBe('趋势更新延迟');
+    value.trend_1m!.bar_time = new Date(NOW.getTime() - 180_000).toISOString();
+    expect(calculateIntradayDirection(value, 'US', NOW)?.status).toBe('多头确认');
+  });
+
+  it('applies the same future tolerance to trend and signal times without expiring completed minute bars at 30 seconds', () => {
+    const value = quote();
+    value.trend_1m!.bar_time = new Date(NOW.getTime() - 60_000).toISOString();
+    expect(calculateIntradayDirection(value, 'US', NOW)?.status).toBe('多头确认');
+    for (const offset of [30_000, 31_000]) {
+      const timestamp = new Date(NOW.getTime() + offset).toISOString();
+      value.trend_1m!.bar_time = timestamp;
+      value.pattern_1m!.signal!.confirmed_at = timestamp;
+      expect(calculateIntradayDirection(value, 'US', NOW)?.status).toBe(offset === 30_000 ? '多头确认' : '时间异常');
+      value.trend_1m!.bar_time = NOW.toISOString();
+      expect(calculateIntradayDirection(value, 'US', NOW)?.status).toBe(offset === 30_000 ? '多头确认' : '时间异常');
+    }
+    value.trend_1m!.bar_time = 'invalid';
+    expect(calculateIntradayDirection(value, 'US', NOW)?.status).toBe('时间异常');
   });
   it.each([
     [{ direction: 'bullish_continuation', stage: 'warning', ageMinutes: 5 }, '多头观察'],

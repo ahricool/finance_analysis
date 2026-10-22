@@ -21,6 +21,33 @@ beforeEach(() => { vi.useFakeTimers(); mocks.fetch.mockReset(); });
 afterEach(() => { vi.useRealTimers(); });
 
 describe('inline intraday ownership and incremental updates', () => {
+  it('judges live updates every second and detects a stopped feed just after the 30-second tolerance', async () => {
+    vi.setSystemTime(at);
+    const initial = snapshot();
+    initial.quote.trend_1m = { timeframe: '1m', target_period: 20, effective_period: 20, minimum_period: 5,
+      state: 'above', streak: 5, confirmed: true, bar_time: new Date(at - 60_000).toISOString() };
+    initial.quote.pattern_1m = { timeframe: '1m', status: 'none', signal: null };
+    const fresh = () => ({ ...initial, reset: false, quote: { ...initial.quote,
+      event_time: new Date().toISOString(), received_at: new Date().toISOString() } });
+    mocks.fetch.mockImplementation(async () => fresh());
+    const panel = mountPanel();
+    await flushPromises();
+    const direction = () => panel.findComponent({ name: 'IntradayDirectionStatus' }).text();
+    expect(direction()).toBe('震荡等待');
+    // The former 60-second clock would treat these genuine live updates as future data.
+    await vi.advanceTimersByTimeAsync(35_000);
+    expect(direction()).toBe('震荡等待');
+    mocks.fetch.mockResolvedValue(fresh());
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(direction()).toBe('震荡等待');
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(direction()).toBe('行情延迟');
+    mocks.fetch.mockImplementation(async () => fresh());
+    await vi.advanceTimersByTimeAsync(4_000);
+    expect(direction()).toBe('震荡等待');
+    panel.unmount();
+  });
+
   it('opens evidence and levels only after a marker click, preserves grouped events and clears selection on reset', async () => {
     const initial = snapshot();
     const signal: PatternEvent = { timeframe: '1m', pattern_type: 'breakout_retest_continuation', pattern_name: '突破回踩延续',

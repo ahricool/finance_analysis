@@ -34,7 +34,7 @@ const selected = shallowRef<PatternEvent | null>(null);
 const selectedEvents = shallowRef<PatternEvent[]>([]);
 const { resolvedTheme } = useTheme();
 function clearSelection() { selected.value = null; selectedEvents.value = []; }
-const now = useCurrentTime();
+const now = useCurrentTime(1_000);
 const timezone = computed(() => props.market === 'CN' ? 'Asia/Shanghai' : 'America/New_York');
 const toChartBar = (bar: IntradayBar) => ({ ...bar, turnover: bar.turnover ?? undefined });
 const bars = computed(() => rows.value.filter(bar => bar.confirmed).map(toChartBar));

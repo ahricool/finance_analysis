@@ -2,11 +2,15 @@ import type { RealtimePatternSignal, RealtimeQuote } from '@/api/realtimeMarket'
 import type { MarketType } from '@/api/watchList';
 
 export const INTRADAY_ENTRY_MAX_AGE_MINUTES = 10;
+export const INTRADAY_TIME_TOLERANCE_MS = 30_000;
 export const US_MARKET_TIMEZONE = 'America/New_York';
 
 export type IntradayDirectionStatus =
   | '休市等待'
   | '行情延迟'
+  | '行情超前'
+  | '时间异常'
+  | '趋势更新延迟'
   | '多头观察'
   | '多头确认'
   | '多头延续'
@@ -42,6 +46,9 @@ const BEARISH_DIRECTIONS = new Set([
 const STATUS_SORT_WEIGHT: Record<IntradayDirectionStatus, number> = {
   休市等待: 7,
   行情延迟: 6,
+  行情超前: 6,
+  时间异常: 6,
+  趋势更新延迟: 6,
   多头确认: 1,
   空头确认: 1,
   多头观察: 2,
@@ -128,12 +135,25 @@ export function calculateIntradayDirection(
   }
   const observed = Date.parse(quote.event_time || '');
   const received = Date.parse(quote.received_at || '');
-  if (quote.timestamp_kind === 'received' || ![observed, received].every(Number.isFinite) || now.getTime() - observed > 90_000
-    || now.getTime() - received > 90_000 || observed - now.getTime() > 5_000 || received - now.getTime() > 5_000) {
-    return result('行情延迟', 'neutral', 'neutral', '行情时间缺失或延迟，暂停实时方向判断。', null);
+  const nowMs = now.getTime();
+  if (quote.timestamp_kind === 'received' || ![observed, received].every(Number.isFinite)) {
+    return result('时间异常', 'neutral', 'neutral', '缺少可靠的行情时间或接收时间，暂停实时方向判断。', null);
   }
-  if (trend.bar_time && (now.getTime() - Date.parse(trend.bar_time) > 180_000 || Date.parse(trend.bar_time) > now.getTime())) {
-    return result('行情延迟', 'neutral', 'neutral', '分钟趋势未及时更新，暂停实时方向判断。', null);
+  if (observed - nowMs > INTRADAY_TIME_TOLERANCE_MS || received - nowMs > INTRADAY_TIME_TOLERANCE_MS) {
+    return result('行情超前', 'neutral', 'neutral', '行情时间或接收时间领先当前判断时间超过30秒，请检查设备或服务器时钟。', null);
+  }
+  if (nowMs - observed > INTRADAY_TIME_TOLERANCE_MS || nowMs - received > INTRADAY_TIME_TOLERANCE_MS) {
+    return result('行情延迟', 'neutral', 'neutral', '行情时间或接收时间落后当前判断时间超过30秒，暂停实时方向判断。', null);
+  }
+  if (trend.bar_time) {
+    const trendTime = Date.parse(trend.bar_time);
+    if (!Number.isFinite(trendTime) || trendTime - nowMs > INTRADAY_TIME_TOLERANCE_MS) {
+      return result('时间异常', 'neutral', 'neutral', '分钟趋势时间无效或领先当前判断时间超过30秒，暂停实时方向判断。', null);
+    }
+    // A completed minute is timestamped at its start, so its freshness has a separate window.
+    if (nowMs - trendTime > 180_000) {
+      return result('趋势更新延迟', 'neutral', 'neutral', '分钟趋势超过180秒未更新，暂停实时方向判断。', null);
+    }
   }
   if (pattern.status !== 'active' || !pattern.signal) {
     return result('震荡等待', 'neutral', 'neutral', '当前没有有效的一分钟形态，等待结构和方向进一步明确。', null);
@@ -143,7 +163,9 @@ export function calculateIntradayDirection(
   const event = signalEventTime(signal);
   if (!event || !isValidTradingDate(signal.trading_date) || Number.isNaN(now.getTime())) return null;
 
-  if (event.getTime() > now.getTime() + 5_000) return null;
+  if (event.getTime() - nowMs > INTRADAY_TIME_TOLERANCE_MS) {
+    return result('时间异常', 'neutral', 'neutral', '形态时间领先当前判断时间超过30秒，暂停实时方向判断。', null);
+  }
   const elapsedMinutes = Math.max(0, (now.getTime() - event.getTime()) / 60_000);
   const ageMinutes = Math.floor(elapsedMinutes);
   const direction = signalDirection(signal);
