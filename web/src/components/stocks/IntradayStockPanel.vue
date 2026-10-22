@@ -34,7 +34,7 @@ const selected = shallowRef<PatternEvent | null>(null);
 const selectedEvents = shallowRef<PatternEvent[]>([]);
 const { resolvedTheme } = useTheme();
 function clearSelection() { selected.value = null; selectedEvents.value = []; }
-const now = useCurrentTime();
+const now = useCurrentTime(1_000);
 const timezone = computed(() => props.market === 'CN' ? 'Asia/Shanghai' : 'America/New_York');
 const toChartBar = (bar: IntradayBar) => ({ ...bar, turnover: bar.turnover ?? undefined });
 const bars = computed(() => rows.value.filter(bar => bar.confirmed).map(toChartBar));
@@ -105,7 +105,7 @@ const overlays = computed<OverlayCreate[]>(() => {
   >
     <div class="flex flex-wrap items-center justify-between gap-2 text-sm">
       <strong>最近交易日 1 分钟 K 线 · {{ snapshot?.trading_date ?? '加载中' }}</strong>
-      <span class="text-xs text-muted-foreground">{{ market === 'CN' ? '扶摇 · 10秒采样近似K线 · 上海时间' : 'Longbridge · 原生分钟线 · 纽约时间' }}</span>
+      <span class="text-xs text-muted-foreground">{{ market === 'CN' ? '扶摇 · 5秒采样近似K线 · 上海时间' : 'Longbridge · 原生分钟线 · 纽约时间' }}</span>
     </div>
     <ApiErrorAlert
       v-if="error"

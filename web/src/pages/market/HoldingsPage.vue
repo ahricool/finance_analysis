@@ -39,7 +39,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 
 const market = ref<'CN' | 'US'>('CN');
 const { portfolio: livePortfolio, status: realtimeStatus, getQuote } = useRealtimeQuotes(() => ({ scope: 'holdings', market: market.value }));
-const currentTime = useCurrentTime();
+const currentTime = useCurrentTime(1_000);
 const expandedId = ref<number | null>(null);
 const loading = ref(false);
 const error = ref<ParsedApiError | null>(null);

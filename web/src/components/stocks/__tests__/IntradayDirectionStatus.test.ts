@@ -75,4 +75,20 @@ describe('IntradayDirectionStatus', () => {
     const wrapper = mount(IntradayDirectionStatus, { props: { quote: quote(), marketType: 'HK', now: NOW } });
     expect(wrapper.text()).toBe('—');
   });
+
+  it.each([
+    ['行情超前', 31_000, undefined, '领先'],
+    ['行情延迟', -31_000, undefined, '落后'],
+    ['趋势更新延迟', 0, -181_000, '180秒'],
+    ['时间异常', null, undefined, '可靠'],
+  ] as const)('renders %s with a distinct explanation', async (expected, offset, trendOffset, explanation) => {
+    const value = quote();
+    value.event_time = offset === null ? undefined : new Date(NOW.getTime() + offset).toISOString();
+    if (trendOffset !== undefined) value.trend_1m!.bar_time = new Date(NOW.getTime() + trendOffset).toISOString();
+    const wrapper = mount(IntradayDirectionStatus, { attachTo: document.body, props: { quote: value, marketType: 'US', now: NOW } });
+    expect(wrapper.text()).toBe(expected);
+    await wrapper.get('[tabindex="0"]').trigger('focus');
+    expect(document.body.querySelector('[role="tooltip"]')?.textContent).toContain(explanation);
+    wrapper.unmount();
+  });
 });

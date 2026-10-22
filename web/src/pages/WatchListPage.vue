@@ -91,7 +91,7 @@ const filters = computed(() => ({
   ungrouped: selectedTag.value === 'UNGROUPED',
 }));
 const { status: realtimeStatus, getQuote } = useRealtimeQuotes(() => ({ scope: 'watch-list', ...filters.value }));
-const currentTime = useCurrentTime();
+const currentTime = useCurrentTime(1_000);
 
 const marketOptions: { value: MarketType; label: string }[] = [
   { value: 'CN', label: 'A股' },

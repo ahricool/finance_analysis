@@ -4,7 +4,8 @@ for (const scope of ['watch-list', 'holdings'] as const) {
   for (const width of [390, 768, 1024, 1280, 1440, 1920]) {
     test(`${scope} inline intraday chart and detail at ${width}px`, async ({ page }, testInfo) => {
       await page.setViewportSize({ width, height: 1100 });
-      await page.clock.setFixedTime(new Date('2026-10-21T02:30:00Z'));
+      if (width === 1280) await page.clock.install({ time: new Date('2026-10-21T02:30:00Z') });
+      else await page.clock.setFixedTime(new Date('2026-10-21T02:30:00Z'));
       await page.addInitScript(dark => localStorage.setItem('theme', dark ? 'dark' : 'light'), width % 2 === 0 && width < 1280);
       await page.addInitScript(() => {
         const original = CanvasRenderingContext2D.prototype.fillText;
@@ -34,8 +35,10 @@ for (const scope of ['watch-list', 'holdings'] as const) {
       ];
       const quote = { code: '600519.SH', symbol: '600519.SH', market_type: 'CN', available: true, source: 'fuyao', last_price: 110, change_pct: 2.5, event_time: '2026-10-21T02:30:00Z', received_at: '2026-10-21T02:30:00Z', market_open: true, session_close: '2026-10-21T07:00:00Z', trend_1m: { timeframe: '1m', state: 'above', target_period: 20, effective_period: 20, minimum_period: 5, streak: 8, bar_time: '2026-10-21T02:29:00Z', confirmed: true }, pattern_1m: { timeframe: '1m', status: 'active', signal } };
       const bars = Array.from({ length: 61 }, (_, index) => ({ timestamp: Date.parse('2026-10-21T01:30:00Z') + index * 60_000, open: 100 + index * 0.15, high: 101 + index * 0.15, low: 99.5 + index * 0.15, close: 100.5 + index * 0.15, volume: 1000 + index * 10, turnover: null, confirmed: index < 60, sampled: true, sample_count: 6, partial: false }));
+      let pushQuote: () => void;
       await page.routeWebSocket('**/api/v1/market-data/ws*', socket => {
-        socket.send(JSON.stringify({ type: 'quotes', generated_at: '2026-10-21T02:30:00Z', quotes: [quote] }));
+        pushQuote = () => socket.send(JSON.stringify({ type: 'quotes', generated_at: quote.received_at, quotes: [quote] }));
+        pushQuote();
       });
       let intradayRequests = 0;
       await page.route('**/api/v1/**', route => {
@@ -59,7 +62,7 @@ for (const scope of ['watch-list', 'holdings'] as const) {
       await expect(panel).toBeVisible();
       await expect(panel.getByRole('img', { name: /1m K线/ })).toBeVisible();
       await expect(panel).toContainText('多头确认');
-      await expect(panel).toContainText('10秒采样近似K线');
+      await expect(panel).toContainText('5秒采样近似K线');
       await expect(panel).not.toContainText('突破后回踩守住参考位');
       const detail = panel.getByTestId('intraday-pattern-evidence');
       await expect(detail).toHaveCount(0);
@@ -82,6 +85,20 @@ for (const scope of ['watch-list', 'holdings'] as const) {
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
       await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
       await page.screenshot({ path: testInfo.outputPath(`${scope}-intraday-${width}.png`), fullPage: true });
+      if (width === 1280) {
+        await page.clock.pauseAt(new Date('2026-10-21T02:30:10Z'));
+        await page.clock.runFor(20_000);
+        await expect(row).toContainText('多头确认');
+        await expect(panel).toContainText('多头确认');
+        await page.clock.runFor(1_000);
+        await expect(row).toContainText('行情延迟');
+        await expect(panel).toContainText('行情延迟');
+        quote.event_time = quote.received_at = '2026-10-21T02:30:31Z';
+        pushQuote!();
+        await page.clock.runFor(5_000);
+        await expect(row).toContainText('多头确认');
+        await expect(panel).toContainText('多头确认');
+      }
       await row.getByRole('button', { name: /贵州茅台/ }).first().click();
       await expect(page.getByRole('dialog', { name: /600519/ })).toBeVisible();
       expect(errors).toEqual([]);

@@ -43,14 +43,15 @@ def test_samples_use_sample_extremes_and_cumulative_deltas_without_double_counti
     assert not sampler.advance(AT + timedelta(minutes=1))
 
 
-def test_next_minute_can_be_complete_and_gaps_reset_indicator_history():
+@pytest.mark.parametrize("interval_seconds", [5, 10])
+def test_next_minute_can_be_complete_and_gaps_reset_indicator_history(interval_seconds):
     sampler = MinuteSampler()
-    for second in range(0, 120, 10):
+    for second in range(0, 120, interval_seconds):
         at = AT + timedelta(seconds=second)
         sampler.advance(at)
         sampler.observe(quote(at, volume=1000 + second), at)
     bar = sampler.advance(AT + timedelta(minutes=2))[0]
-    assert not bar.partial and bar.volume == 60 and bar.sample_count == 6
+    assert not bar.partial and bar.volume == 60 and bar.sample_count == 60 // interval_seconds
     bars = [replace(bar, bar_time=AT + timedelta(minutes=i), partial=False) for i in range(5)]
     bars.append(replace(bar, bar_time=AT + timedelta(minutes=7)))
     assert len(indicator_tail(bars, "CN")) == 1
