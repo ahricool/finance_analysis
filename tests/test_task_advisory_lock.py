@@ -260,6 +260,8 @@ def test_lock_ids_are_stable_and_readable() -> None:
         "TRADE_ENGINE_US": 12,
         "OPTIONS_INTELLIGENCE": 13,
         "INDUSTRY_REFERENCE_SYNC": 14,
+        "STOCK_STRATEGIES_CN": 15,
+        "STOCK_STRATEGIES_US": 16,
     }
 
 

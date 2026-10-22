@@ -13,6 +13,7 @@ describe('main navigation', () => {
       '市场',
       '时间线',
       '研究',
+      '策略',
       '加密货币',
       '任务中心',
     ]);
@@ -61,6 +62,7 @@ describe('main navigation', () => {
       'market-sentiment',
       'macro',
       'quant',
+      'strategies',
       'crypto-btc',
       'scheduled',
       'runs',

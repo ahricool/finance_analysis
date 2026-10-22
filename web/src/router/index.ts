@@ -57,6 +57,8 @@ const router = createRouter({
       path: '/',
       component: Shell,
       children: [
+        { path: 'strategies', name: 'strategies', component: () => import('@/pages/StockStrategiesPage.vue'), meta: { title: '策略模拟' } },
+        { path: 'strategies/:strategyKey', name: 'strategy-detail', component: () => import('@/pages/StockStrategiesPage.vue'), meta: { title: '策略详情' } },
         { path: 'notifications', name: 'notifications', component: () => import('@/pages/NotificationsPage.vue'), meta: { title: '消息中心' } },
         { path: '', redirect: { name: 'dashboard' } },
         {

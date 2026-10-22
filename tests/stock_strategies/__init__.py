@@ -1,0 +1,1 @@
+"""Stock strategy simulation verification."""

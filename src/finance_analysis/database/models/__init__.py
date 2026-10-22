@@ -143,3 +143,7 @@ __all__.extend(["OptionContract", "OptionQuoteSnapshot", "OptionDailyMetrics", "
 from .intraday_confirmation import IntradayConfirmationSnapshot
 
 __all__.append("IntradayConfirmationSnapshot")
+
+from .stock_strategies import StockStrategyDay, StockStrategyLaunch, StockStrategyRun, StockStrategyState
+
+__all__.extend(["StockStrategyDay", "StockStrategyLaunch", "StockStrategyRun", "StockStrategyState"])
