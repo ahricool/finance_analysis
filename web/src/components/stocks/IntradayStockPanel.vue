@@ -105,7 +105,7 @@ const overlays = computed<OverlayCreate[]>(() => {
   >
     <div class="flex flex-wrap items-center justify-between gap-2 text-sm">
       <strong>最近交易日 1 分钟 K 线 · {{ snapshot?.trading_date ?? '加载中' }}</strong>
-      <span class="text-xs text-muted-foreground">{{ market === 'CN' ? '扶摇 · 10秒采样近似K线 · 上海时间' : 'Longbridge · 原生分钟线 · 纽约时间' }}</span>
+      <span class="text-xs text-muted-foreground">{{ market === 'CN' ? '扶摇 · 5秒采样近似K线 · 上海时间' : 'Longbridge · 原生分钟线 · 纽约时间' }}</span>
     </div>
     <ApiErrorAlert
       v-if="error"

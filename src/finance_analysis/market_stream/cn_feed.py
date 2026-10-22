@@ -65,7 +65,7 @@ class CnQuoteFeed:
                 self.healthy = False
                 logger.warning("CN 批量行情采集失败", exc_info=True)
             elapsed = asyncio.get_running_loop().time() - started
-            await asyncio.sleep(max(1, 10 - elapsed))
+            await asyncio.sleep(max(1, 5 - elapsed))
 
     async def tick(self):
         now = utc_now()

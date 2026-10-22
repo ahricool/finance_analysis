@@ -62,7 +62,7 @@ for (const scope of ['watch-list', 'holdings'] as const) {
       await expect(panel).toBeVisible();
       await expect(panel.getByRole('img', { name: /1m K线/ })).toBeVisible();
       await expect(panel).toContainText('多头确认');
-      await expect(panel).toContainText('10秒采样近似K线');
+      await expect(panel).toContainText('5秒采样近似K线');
       await expect(panel).not.toContainText('突破后回踩守住参考位');
       const detail = panel.getByTestId('intraday-pattern-evidence');
       await expect(detail).toHaveCount(0);

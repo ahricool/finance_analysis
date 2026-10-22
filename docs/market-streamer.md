@@ -9,7 +9,7 @@
   SDK 的 1min K 线订阅／历史接口只接受单证券，保留这些必要的单证券调用。
   批量订阅前先注册标的归属，重连沿用 connection / symbol generation 防旧事件污染。
   历史预热限定最近交易日的常规交易时段。
-- CN：交易日常规时段每 10 秒经 MarketDataService 请求整个采集池，限定 Fuyao Provider。
+- CN：交易日常规时段以 5 秒为目标周期，经 MarketDataService 请求整个采集池，限定 Fuyao Provider；扣除本轮耗时，至少等待1秒，不并发重叠请求。
   股票、指数按 100 只分批，ETF 保留接口要求的单标的请求；轮询不叠加未完成轮次。
   没有浏览器连接也继续采集；午休、假期和收盘后不生成新分钟。
   Longbridge 重连不阻塞 CN 采集池更新和轮询，心跳另外报告 CN 健康状态。
