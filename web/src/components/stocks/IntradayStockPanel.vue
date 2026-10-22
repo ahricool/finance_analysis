@@ -5,12 +5,13 @@ import { fetchIntradayMarket, type IntradayBar, type IntradaySnapshot, type Patt
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import ApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
 import MarketKLineChart from '@/components/market-data/MarketKLineChart.vue';
-import { ensureTradeMarkerOverlay } from '@/components/market-data/tradeMarkerOverlay';
+import { intradayPatternOverlays } from './intradayPatternOverlay';
 import { Button } from '@/components/ui/button';
 import TrendStatus from './TrendStatus.vue';
 import PatternStatus from './PatternStatus.vue';
 import IntradayDirectionStatus from './IntradayDirectionStatus.vue';
 import { useCurrentTime } from '@/composables/useCurrentTime';
+import { useTheme } from '@/composables/useTheme';
 
 const props = defineProps<{ symbol: string; market: 'CN' | 'US' }>();
 const panel = ref<HTMLElement>();
@@ -30,6 +31,9 @@ const rows = shallowRef<IntradayBar[]>([]);
 const error = shallowRef<ParsedApiError | null>(null);
 const loading = ref(true);
 const selected = shallowRef<PatternEvent | null>(null);
+const selectedEvents = shallowRef<PatternEvent[]>([]);
+const { resolvedTheme } = useTheme();
+function clearSelection() { selected.value = null; selectedEvents.value = []; }
 const now = useCurrentTime();
 const timezone = computed(() => props.market === 'CN' ? 'Asia/Shanghai' : 'America/New_York');
 const toChartBar = (bar: IntradayBar) => ({ ...bar, turnover: bar.turnover ?? undefined });
@@ -58,7 +62,7 @@ async function load() {
     for (const row of value.items) merged.set(row.timestamp, row);
     rows.value = [...merged.values()].sort((a, b) => a.timestamp - b.timestamp);
     snapshot.value = value;
-    if (value.reset) selected.value = null;
+    if (value.reset) clearSelection();
     error.value = null;
   } catch (reason) {
     if (!stopped && generation === owned && !controller.signal.aborted) error.value = getParsedApiError(reason);
@@ -73,32 +77,23 @@ async function load() {
 watch(() => [props.symbol, props.market], () => {
   generation++;
   request?.abort(); request = null; clearTimeout(timer);
-  snapshot.value = null; rows.value = []; selected.value = null; error.value = null; loading.value = true;
+  snapshot.value = null; rows.value = []; clearSelection(); error.value = null; loading.value = true;
   void load();
 }, { immediate: true });
 onBeforeUnmount(() => { stopped = true; generation++; request?.abort(); clearTimeout(timer); resizeObserver?.disconnect(); });
 
 const overlays = computed<OverlayCreate[]>(() => {
-  ensureTradeMarkerOverlay();
-  const result: OverlayCreate[] = [];
-  for (const [index, event] of (snapshot.value?.events ?? []).entries()) {
-    // Plot when the detector actually observed the event, never at an earlier structural pivot.
-    const at = Date.parse(event.observed_at);
-    const bar = [...rows.value].reverse().find(row => row.timestamp <= at);
-    if (!bar || at - bar.timestamp > 120_000) continue;
-    result.push({ name: 'tradeBst', id: `intraday-pattern-${index}`, groupId: 'intraday-patterns', lock: true,
-      points: [{ timestamp: bar.timestamp, value: bar.high }],
-      extendData: { label: `${event.pattern_name}·${event.stage === 'confirmed' ? '确认' : '观察'}`, kind: event.direction.startsWith('bullish') || event.direction === 'bearish_to_bullish' ? 'B' : 'S' },
-      onClick: () => { selected.value = event; return true; } });
-  }
-  const evidence = selected.value ?? quote.value?.pattern_1m?.signal;
+  const result = intradayPatternOverlays(snapshot.value?.events ?? [], rows.value, resolvedTheme.value === 'dark', events => {
+    selectedEvents.value = events;
+    selected.value = events[0] ?? null;
+  });
+  const evidence = selected.value;
   for (const [label, value] of [['参考位', evidence?.reference_level], ['失效位', evidence?.invalidation_price]] as const) {
     if (value != null) result.push({ name: 'priceLine', id: `intraday-${label}`, groupId: 'intraday-levels', lock: true,
       points: [{ timestamp: rows.value.at(-1)?.timestamp ?? 0, value }], extendData: label });
   }
   return result;
 });
-const evidence = computed(() => selected.value ?? quote.value?.pattern_1m?.signal);
 </script>
 
 <template>
@@ -148,6 +143,57 @@ const evidence = computed(() => selected.value ?? quote.value?.pattern_1m?.signa
         >
           采样可能遗漏分钟内价格极值；成交量为累计量差分估算，缺口与部分分钟不参与正式形态确认。
         </p>
+        <p
+          v-if="rows.length"
+          class="mt-2 text-xs text-muted-foreground"
+        >
+          <span class="text-market-up">▴ 多</span> · <span class="text-market-down">▾ 空</span> · ◇ 中性；同一分钟显示最新事件方向，点击标记查看详情与关键价位。
+        </p>
+        <div
+          v-if="selected"
+          class="mt-3 space-y-2 rounded border p-3 text-sm"
+          data-testid="intraday-pattern-evidence"
+          aria-live="polite"
+        >
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <strong>{{ selected.pattern_name }} · {{ selected.stage === 'confirmed' ? '已确认' : selected.stage === 'forming' ? '形成中' : '观察中' }}</strong>
+            <Button
+              size="sm"
+              variant="ghost"
+              @click="clearSelection"
+            >
+              收起详情
+            </Button>
+          </div>
+          <div
+            v-if="selectedEvents.length > 1"
+            class="flex flex-wrap gap-1"
+            role="group"
+            aria-label="同一分钟的形态事件"
+          >
+            <Button
+              v-for="(event, index) in selectedEvents"
+              :key="index"
+              size="sm"
+              :variant="selected === event ? 'secondary' : 'ghost'"
+              :aria-pressed="selected === event"
+              @click="selected = event"
+            >
+              {{ event.pattern_name }} · {{ event.stage === 'confirmed' ? '已确认' : event.stage === 'forming' ? '形成中' : '观察中' }}
+            </Button>
+          </div>
+          <p class="text-xs text-muted-foreground">
+            首次观测：{{ time(selected.observed_at) }} · Quality {{ selected.quality_score }}
+          </p>
+          <p>参考位 {{ fmt(selected.reference_level) }} / 失效位 {{ fmt(selected.invalidation_price) }}</p>
+          <p
+            v-for="reason in selected.reasons"
+            :key="reason"
+            class="text-xs text-muted-foreground"
+          >
+            {{ reason }}
+          </p>
+        </div>
       </div>
       <aside class="space-y-4 text-sm">
         <div>
@@ -176,35 +222,6 @@ const evidence = computed(() => selected.value ?? quote.value?.pattern_1m?.signa
         </div>
         <div class="text-xs text-muted-foreground">
           <p>行情：{{ time(quote?.event_time) }}</p><p>接收：{{ time(quote?.received_at) }}</p><p>已采集 {{ rows.length }} 根 · 部分分钟 {{ rows.filter(row => row.partial).length }} 根</p>
-        </div>
-        <div
-          v-if="evidence"
-          class="space-y-1 border-t pt-3"
-          data-testid="intraday-pattern-evidence"
-        >
-          <strong>{{ evidence.pattern_name }} · {{ evidence.stage === 'confirmed' ? '已确认' : '观察中' }}</strong>
-          <p
-            v-if="selected"
-            class="text-xs"
-          >
-            首次观测：{{ time(selected.observed_at) }}
-          </p>
-          <p>参考位 {{ fmt(evidence.reference_level) }} / 失效位 {{ fmt(evidence.invalidation_price) }}</p>
-          <p
-            v-for="reason in evidence.reasons"
-            :key="reason"
-            class="text-xs text-muted-foreground"
-          >
-            {{ reason }}
-          </p>
-          <Button
-            v-if="selected"
-            size="sm"
-            variant="ghost"
-            @click="selected = null"
-          >
-            返回最近形态
-          </Button>
         </div>
       </aside>
     </div>
