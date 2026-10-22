@@ -126,6 +126,7 @@ LLM 调用统一进入 `llm/LLMClient`，显式配置 `LLM_FALLBACK_CHAIN=agy,co
 - US 日线维护使用 `MarketDataService(daily_sync=True)`：Alpaca SIP `adjustment=all` 优先，yfinance 降级。
   凭据为 `ALPACA_API_KEY` / `ALPACA_SECRET_KEY`；普通查询和实时路由不变。详见 `docs/market-data-providers.md`。
 - `get_daily_bars()` 查询不写库。只有 `tasks/celery/jobs/market_data_sync` 等维护任务能写日线。
+- 个股详情 `/market-data/daily-bars/{symbol}` 在历史日线后按需请求当天报价生成临时日 K，按交易日期去重拼接，只读不落库；不依赖 Streamer 采集池或 Redis 报价是否存在。实时表格／分钟图继续只读 Streamer 缓存。
 - `db_only` 只读数据库；`db_first` 本地有任何历史就使用，否则远程；`db_fresh` 比较最新日期并批量补尾部到内存；`remote_only` 绕过 DB。
 - Provider 顺序来自 `integrations/market_data/config.py::provider_order()`，不要在调用方硬编码 fallback。
 - Query 返回的远程数据是计算期临时数据；需要持久化时必须进入显式同步任务并保留完整失败语义。
