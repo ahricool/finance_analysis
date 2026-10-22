@@ -10,6 +10,7 @@ from typing import Literal, Optional
 from celery.schedules import crontab
 
 from .constants import (
+    JOB_STOCK_STRATEGIES,
     JOB_SIGNAL_CENTER_CN,
     JOB_SIGNAL_CENTER_US,
     JOB_DRAGON_TIGER_FLOW_CN,
@@ -111,6 +112,19 @@ class ScheduledTaskDefinition:
 
 
 SCHEDULED_TASK_DEFINITIONS = (
+    ScheduledTaskDefinition(
+        job_id=JOB_STOCK_STRATEGIES, name="股票策略模拟", task_type="scheduled_stock_strategies",
+        description="一个任务运行全部策略；DB-only盘后结算、准备下一交易日计划，单策略失败隔离",
+        celery_task_name=celery_task_name(JOB_STOCK_STRATEGIES),
+        schedules=(
+            CronSchedule(minute="*/10", hour="19-23", day_of_week="mon-fri"),
+            CronSchedule(minute="*/10", hour="22-23", day_of_week="mon-fri", timezone=US_TIMEZONE),
+            CronSchedule(minute="*/10", hour="7-8"),
+            CronSchedule(minute="*/10", hour="7-8", timezone=US_TIMEZONE),
+        ),
+        schedule_text="A股19:00–23:50、美股22:00–23:50每10分钟检查；各市场次晨07:00–08:50补算",
+        timezone=SCHEDULE_TIMEZONE, queue=QUEUE_ANALYSIS, expires=600,
+    ),
     ScheduledTaskDefinition(
         job_id="options_intelligence_intraday", name="期权异常盘中扫描 US",
         description="Nasdaq-100+美股自选；Yahoo主链、Alpaca回退，盘中预演仅写Redis",

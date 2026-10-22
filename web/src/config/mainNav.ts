@@ -16,6 +16,7 @@ import {
   LayoutDashboard,
   RefreshCcw,
   Sigma,
+  FlaskConical,
   Star,
   Target,
   TrendingUp,
@@ -99,6 +100,7 @@ export const mainNavItems: MainNavItem[] = [
     activePathPrefix: '/research/',
     children: researchNavItems,
   },
+  { key: 'strategies', label: '策略', to: '/strategies', icon: FlaskConical, activePathPrefix: '/strategies' },
   {
     key: 'crypto',
     label: '加密货币',

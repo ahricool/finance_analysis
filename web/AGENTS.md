@@ -329,3 +329,10 @@ BTC 多策略以 `strategy_key + symbol` 隔离，代码注册表当前仅 `btc_
 市场自选与持仓表复用 `IntradayStockPanel`，点名称保留详情、点普通单元格展开。最近交易日分钟图仅展开时增量读取 `/market-data/intraday/{symbol}`，所有报价只读 Redis，无外部取价回退。CN5秒采样、US原生分钟线共用 `intradayDirection.ts`，显示日内方向状态，不再显示0DTE/CALL/PUT。
 分钟图用 `intradayPatternOverlay.ts` 仅画 ▴ 多／▾ 空／◇ 中性，同一分钟取最新观测事件；点击后才在图下显示完整证据及关键价位线，同分钟其他事件可切换查看。
 自选／持仓表与展开分钟图的日内方向时钟使用 `useCurrentTime(1_000)`；报价／接收时间相对判断时间均允许 ±30 秒（含边界），超出分别显示行情延迟／行情超前，缺失或无效显示时间异常。已完成分钟趋势按起始时间单独使用180秒窗口，超出显示趋势更新延迟。
+
+## 股票策略模拟
+
+一级“策略”位于“研究”后，`/strategies?market=CN|US`为列表，`/strategies/:strategyKey`为详情，跳转保留市场。
+复用市场开关、表格、ECharts和StockLink；详情显示规则适配、净值/回撤、模拟持仓、下一开盘计划和分页每日账本。
+失败/等待显示对应日期和原因，同时保留最后成功结算日；历史补算计划不能当作当前待执行计划。
+字段转换须保留`positions`/`exits`里的canonical证券代码键。见`../docs/stock-strategies.md`。

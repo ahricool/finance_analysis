@@ -408,3 +408,11 @@ API/页面支持 preview/official 与正式日期选择；正式读取关联日�
 
 Streamer 页面行情只读 Redis；CN/US 共用日内方向状态，分钟线与形态事件仅保留最近交易日，跨周末/长假 TTL 由交易日历确定。自选与持仓表点行展开分钟图、点名称打开详情。ETF扶摇批量参数已实测不支持，保留单证券接口。见 `docs/market-streamer.md`。
 个股详情日 K 独立于 Streamer 采集池：后端按需请求该股当天报价生成临时日 K，与多日历史按交易日期去重拼接返回，不写数据库或 Redis。自选股／投资组合实时表格和展开分钟图继续只读 Streamer 缓存。
+
+## Stock Strategies
+
+`stock_strategies/` 是共享股票/ETF研究模拟，独立于真实portfolio。八个策略族按原生CN/US市场注册，
+`scheduled.stock_strategies` 单任务在盘后读取DB日线与同日正式Trend/ETF状态，逐策略事务隔离失败。
+统一启动日空仓、每账户100万本币、收盘信号/次开盘成交、零费用；每日指标和计划持久化，GET不回算。
+首次运行冻结Universe，US广度为标普500成分；细节及适配差异见`docs/stock-strategies.md`。
+迁移`0076_stock_strategies`，页面`/strategies`，离线测试`tests/stock_strategies/`。

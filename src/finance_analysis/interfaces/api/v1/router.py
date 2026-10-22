@@ -106,3 +106,7 @@ router.include_router(signal_center.router, prefix="/signal-center", tags=["Sign
 
 from .endpoints import options_intelligence
 router.include_router(options_intelligence.router, prefix="/options-intelligence", tags=["Options Intelligence"])
+
+from .endpoints import stock_strategies
+
+router.include_router(stock_strategies.router, prefix="/stock-strategies", tags=["Stock Strategies"])
