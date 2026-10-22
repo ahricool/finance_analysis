@@ -184,7 +184,7 @@ def daily_bars(symbol: str, start_date: date | None = None, end_date: date | Non
         raise HTTPException(status_code=503, detail="日 K 数据暂时不可用，请稍后重试")
     by_date = {bar.trade_date: bar for bar in bars}
     try:
-        today_bar = service.get_intraday_daily_bar(code, start, end, now=now, cached_only=True)
+        today_bar = service.get_intraday_daily_bar(code, start, end, now=now)
         if today_bar is not None:
             by_date[today_bar.trade_date] = today_bar
     except Exception:

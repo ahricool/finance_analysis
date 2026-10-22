@@ -521,13 +521,13 @@ class MarketDataService:
         return self.router.route_quotes(QuoteRequest(self._canonical_symbols(symbols)), providers)
 
     def get_cached_quotes(self, symbols: Iterable[str]) -> BatchQuoteResult:
-        """Interactive quotes are served exclusively from the shared streamer cache."""
+        """Read shared streamer quotes for streaming-backed display consumers."""
         from .realtime_state.cached import read_cached_quotes
 
         return read_cached_quotes(self._canonical_symbols(symbols))
 
     def get_intraday_daily_bar(
-        self, symbol: str, start_date: date, end_date: date, *, now: datetime | None = None, cached_only=False
+        self, symbol: str, start_date: date, end_date: date, *, now: datetime | None = None
     ) -> MarketBar | None:
         """Read-only chart overlay; invalid or unavailable quotes fall through per provider."""
         from finance_analysis.market_review.trading_calendar import get_trading_days_between
@@ -559,10 +559,9 @@ class MarketDataService:
             logger.warning("Intraday daily calendar unavailable: %s", code, exc_info=True)
             return None
         # Route separately so chart-specific freshness/OHLC rejection also falls back.
-        for provider in (("cached",) if cached_only else providers):
+        for provider in providers:
             try:
-                quote = (self.get_cached_quotes([code]) if cached_only
-                         else self.get_realtime_quotes([code], providers=(provider,))).data.get(code)
+                quote = self.get_realtime_quotes([code], providers=(provider,)).data.get(code)
                 if quote is None or quote.quote_time is None:
                     continue
                 if (

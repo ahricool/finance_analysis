@@ -139,24 +139,31 @@ def test_recovered_data_ignores_sticky_errors_and_excludes_future(setup_api):
 @pytest.fixture
 def realtime_api(setup_api, monkeypatch):
     from finance_analysis.integrations.market_data.models import BatchQuoteResult
+    from finance_analysis.integrations.market_data.registry import REALTIME_QUOTES
 
     client, stocks, daily = setup_api
     service = market_data.MarketDataService()
-    service.get_cached_quotes = Mock(return_value=BatchQuoteResult())
-    service.get_realtime_quotes = Mock(side_effect=AssertionError("interactive quote must be cache-only"))
+    service.get_cached_quotes = Mock(side_effect=AssertionError("daily charts must not depend on streamer quotes"))
+    providers = {name: Mock() for name in ("fuyao", "yfinance", "longbridge")}
+    for name, provider in providers.items():
+        provider.fetch_quotes.return_value = BatchQuoteResult()
+        service.registry.register(name, provider, capabilities={REALTIME_QUOTES})
+    monkeypatch.setattr(
+        market_data, "_load_tracked_stocks", Mock(side_effect=AssertionError("not a subscription query"))
+    )
     now = datetime(2026, 9, 21, 15, tzinfo=timezone.utc)
     monkeypatch.setattr(market_data, "utc_now", lambda: now)
     monkeypatch.setattr(market_service, "utc_now", lambda: now)
-    return client, stocks, daily, service.get_cached_quotes
+    return client, stocks, daily, providers
 
 
-def realtime_quote(code, **changes):
+def realtime_quote(code, provider="fuyao", **changes):
     from finance_analysis.integrations.market_data.models import BatchQuoteResult, MarketQuote
 
     fields = dict(
         symbol=code,
         market=Market.US if code.endswith(".US") else Market.CN,
-        provider="streaming",
+        provider=provider,
         currency="USD" if code.endswith(".US") else "CNY",
         open_price=103,
         high=110,
@@ -170,18 +177,40 @@ def realtime_quote(code, **changes):
     return BatchQuoteResult(data={code: MarketQuote(**fields)})
 
 
-@pytest.mark.parametrize("code", ["600519.SH", "AAPL.US"])
-def test_intraday_overlay_uses_only_cached_quote(realtime_api, code):
-    client, stocks, daily, cached = realtime_api
+@pytest.mark.parametrize("code,primary", [("600519.SH", "fuyao"), ("AAPL.US", "yfinance")])
+@pytest.mark.parametrize("failure", [None, "exception", "missing", "stale", "invalid", "preopen"])
+def test_intraday_overlay_fetches_remote_quote_and_falls_back(realtime_api, code, primary, failure):
+    from finance_analysis.integrations.market_data.models import BatchQuoteResult
+
+    client, stocks, daily, providers = realtime_api
     daily.fetch_daily_bars.return_value = BatchBarResult(data={code: [bar(code)]})
-    cached.return_value = realtime_quote(code)
+    providers[primary].fetch_quotes.return_value = realtime_quote(code, primary)
+    if failure == "exception":
+        providers[primary].fetch_quotes.side_effect = RuntimeError("provider unavailable")
+    elif failure == "missing":
+        providers[primary].fetch_quotes.return_value = BatchQuoteResult()
+    elif failure == "stale":
+        providers[primary].fetch_quotes.return_value = realtime_quote(
+            code, primary, quote_time=datetime(2026, 9, 18, 15, tzinfo=timezone.utc)
+        )
+    elif failure == "invalid":
+        providers[primary].fetch_quotes.return_value = realtime_quote(code, primary, high=101)
+    elif failure == "preopen":
+        hour = 1 if primary == "fuyao" else 13
+        providers[primary].fetch_quotes.return_value = realtime_quote(
+            code, primary, quote_time=datetime(2026, 9, 21, hour, 29, 59, tzinfo=timezone.utc)
+        )
+    providers["longbridge"].fetch_quotes.return_value = realtime_quote(code, "longbridge")
     response = client.get(f"/api/v1/market-data/daily-bars/{code}?end_date=2026-09-21")
     assert response.status_code == 200
     assert [row["trade_date"] for row in response.json()["items"]] == ["2026-09-18", "2026-09-21"]
     assert response.json()["items"][-1] == dict(
         trade_date="2026-09-21", open=103, high=110, low=100, close=108, volume=123, amount=13284
     )
-    cached.assert_called_once_with([code])
+    providers[primary].fetch_quotes.assert_called_once()
+    assert providers[primary].fetch_quotes.call_args.args[0].symbols == (code,)
+    assert providers["longbridge"].fetch_quotes.call_count == (1 if failure else 0)
+    providers["yfinance" if primary == "fuyao" else "fuyao"].fetch_quotes.assert_not_called()
     stocks.upsert_daily.assert_not_called()
 
 
@@ -200,25 +229,29 @@ def test_intraday_overlay_uses_only_cached_quote(realtime_api, code):
         {"quote_time": datetime(2026, 9, 21, 1, 29, 59, tzinfo=timezone.utc)},
     ],
 )
-def test_unusable_cached_quotes_do_not_create_today(realtime_api, changes):
-    client, _, daily, cached = realtime_api
+def test_unusable_quotes_do_not_create_today(realtime_api, changes):
+    client, _, daily, providers = realtime_api
     code = "600519.SH"
     daily.fetch_daily_bars.return_value = BatchBarResult(data={code: [bar(code)]})
-    cached.return_value = realtime_quote(code, **changes)
+    for name in ("fuyao", "longbridge"):
+        providers[name].fetch_quotes.return_value = realtime_quote(code, name, **changes)
     response = client.get(f"/api/v1/market-data/daily-bars/{code}?end_date=2026-09-21")
     assert response.status_code == 200
     assert [row["trade_date"] for row in response.json()["items"]] == ["2026-09-18"]
 
 
 @pytest.mark.parametrize("failure", ["missing", "exception"])
-def test_cache_miss_does_not_launch_external_quote_fallback(realtime_api, failure):
-    client, _, daily, cached = realtime_api
+def test_unavailable_quote_providers_preserve_history(realtime_api, failure):
+    client, stocks, daily, providers = realtime_api
     daily.fetch_daily_bars.return_value = BatchBarResult(data={"AAPL.US": [bar("AAPL.US")]})
-    if failure == "exception":
-        cached.side_effect = RuntimeError("Redis unavailable")
+    for name in ("yfinance", "longbridge"):
+        if failure == "exception":
+            providers[name].fetch_quotes.side_effect = RuntimeError("provider unavailable")
     response = client.get("/api/v1/market-data/daily-bars/AAPL.US?end_date=2026-09-21")
     assert response.status_code == 200 and len(response.json()["items"]) == 1
-    cached.assert_called_once()
+    providers["yfinance"].fetch_quotes.assert_called_once()
+    providers["longbridge"].fetch_quotes.assert_called_once()
+    stocks.upsert_daily.assert_not_called()
 
 
 @pytest.mark.parametrize(
@@ -233,13 +266,14 @@ def test_cache_miss_does_not_launch_external_quote_fallback(realtime_api, failur
         ("00700.HK", "2026-09-21T03:00:00+00:00", ""),
     ],
 )
-def test_outside_today_or_nontrading_day_skips_cached_overlay(realtime_api, monkeypatch, code, now, query):
-    client, _, daily, cached = realtime_api
+def test_outside_today_or_nontrading_day_skips_quotes(realtime_api, monkeypatch, code, now, query):
+    client, _, daily, providers = realtime_api
     monkeypatch.setattr(market_data, "utc_now", lambda: datetime.fromisoformat(now))
     daily.fetch_daily_bars.return_value = BatchBarResult()
     response = client.get(f"/api/v1/market-data/daily-bars/{code}{query}")
     assert response.status_code == 200 and response.json()["items"] == []
-    cached.assert_not_called()
+    for provider in providers.values():
+        provider.fetch_quotes.assert_not_called()
 
 
 @pytest.mark.parametrize(
@@ -251,17 +285,45 @@ def test_outside_today_or_nontrading_day_skips_cached_overlay(realtime_api, monk
         ("AAPL.US", "2026-09-21T13:30:00+00:00"),
     ],
 )
-def test_market_date_and_database_history_preserved_with_cached_overlay(realtime_api, monkeypatch, code, now):
-    client, stocks, daily, cached = realtime_api
+def test_market_date_and_existing_today_replaced_once(realtime_api, monkeypatch, code, now):
+    client, stocks, daily, providers = realtime_api
     now = datetime.fromisoformat(now)
     monkeypatch.setattr(market_data, "utc_now", lambda: now)
     daily.fetch_daily_bars.return_value = BatchBarResult(data={code: [bar(code, date(2026, 9, 21)), bar(code)]})
-    cached.return_value = realtime_quote(code, quote_time=now)
+    primary = "yfinance" if code.endswith(".US") else "fuyao"
+    providers[primary].fetch_quotes.return_value = realtime_quote(code, primary, quote_time=now)
     response = client.get(f"/api/v1/market-data/daily-bars/{code}")
     assert response.status_code == 200
     rows = response.json()["items"]
     assert [row["trade_date"] for row in rows] == ["2026-09-18", "2026-09-21"]
     assert rows[-1]["close"] == 108
+    stocks.upsert_daily.assert_not_called()
+
+
+def test_today_quote_is_appended_to_stored_history_without_sync_or_streamer(realtime_api):
+    client, stocks, daily, providers = realtime_api
+    row = SimpleNamespace(
+        instrument=SimpleNamespace(code="AAPL.US", market="US"),
+        date=date(2026, 9, 18),
+        open=100,
+        high=105,
+        low=98,
+        close=103,
+        volume=123456,
+        amount=None,
+    )
+    stocks.has_daily_data.return_value = True
+    stocks.get_range.return_value = [row]
+    stocks.get_daily_ranges.return_value = {"AAPL.US": [row]}
+    providers["yfinance"].fetch_quotes.return_value = realtime_quote("AAPL.US", "yfinance")
+    response = client.get("/api/v1/market-data/daily-bars/AAPL.US?start_date=2026-09-01")
+    assert response.status_code == 200
+    value = response.json()
+    assert value["source"] == "database"
+    assert [item["trade_date"] for item in value["items"]] == ["2026-09-18", "2026-09-21"]
+    assert [item["close"] for item in value["items"]] == [103, 108]
+    daily.fetch_daily_bars.assert_not_called()
+    providers["yfinance"].fetch_quotes.assert_called_once()
     stocks.upsert_daily.assert_not_called()
 
 
