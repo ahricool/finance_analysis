@@ -326,3 +326,4 @@ BTC 多策略以 `strategy_key + symbol` 隔离，代码注册表当前仅 `btc_
 统一证券弹窗的行情和期权面板按需加载，避免各研究页首屏引入完整图表依赖。
 
 市场自选与持仓表复用 `IntradayStockPanel`，点名称保留详情、点普通单元格展开。最近交易日分钟图仅展开时增量读取 `/market-data/intraday/{symbol}`，所有报价只读 Redis，无外部取价回退。CN10秒采样、US原生分钟线共用 `intradayDirection.ts`，显示日内方向状态，不再显示0DTE/CALL/PUT。
+分钟图用 `intradayPatternOverlay.ts` 仅画 ▴ 多／▾ 空／◇ 中性，同一分钟取最新观测事件；点击后才在图下显示完整证据及关键价位线，同分钟其他事件可切换查看。
