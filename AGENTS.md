@@ -119,6 +119,8 @@ static/                    Web 构建产物，由 `web/vite.config.ts` 生成
 - 证券代码在边界处规范为 `ticker.region`，如 `600519.SH`、`AAPL.US`。
 - 日线唯一标准是前复权。`db_only`、`db_first`、`db_fresh`、`remote_only` 决定读取策略；远程结果不会由查询接口自动持久化。
 - 只有显式维护任务写 `instrument`、`stock_daily` 及 Universe。主数据/指数成分同步与日线同步是分离任务。
+- `database/core_index_etf.py` 为CN/US核心指数ETF维护直接日线同步成员，不扩大ETF/Trend策略池；
+  迁移`0077_core_index_etf_sync`，见`docs/core-index-etf-sync.md`。
 - Streamer 的 Redis 实时状态可被分析流水线和 `/api/v1/market-data/ws` 读取；缺失时按 Provider 链降级。
 
 ### 周期任务
