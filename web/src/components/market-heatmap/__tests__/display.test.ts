@@ -5,35 +5,47 @@ import { areaWeights, changeColor, colorScale, filterStocks, heatmapGroups } fro
 const stock = (i: number, cap = 2e9): HeatmapStock => ({ code: `${i}.US`, name: `Stock ${i}`, marketCap: cap,
   price: 10, changePct: 1, groupCode: 'tech', groupName: '科技', quoteTime: null });
 describe('market heatmap area and colors', () => {
-  it('increases capitalization contrast, bounds tile size, and preserves real capitalization', () => {
+  it('keeps all stocks including the long tail as individual tiles', () => {
     const rows = Array.from({ length: 100 }, (_, i) => stock(i, i === 0 ? 5e12 : 2e9));
-    const weights = areaWeights(rows);
-    expect(weights.reduce((a, b) => a + b, 0)).toBeCloseTo(1);
-    expect(weights[0]).toBeGreaterThan(weights[1]!);
-    const tree = heatmapGroups(rows, 5);
-    expect(tree).toHaveLength(1);
-    expect(tree[0]!.tiles[0]).toMatchObject({ stock: { marketCap: 5e12 }, columnSpan: 3, rowSpan: 3 });
-    expect(tree[0]!.tiles.at(-1)).toMatchObject({ columnSpan: 1, rowSpan: 1 });
-    const varied = Array.from({ length: 1000 }, (_, i) => stock(i, i === 0 ? 2e11 : 2e9));
-    const contrast = areaWeights(varied);
-    expect(contrast[0]! / contrast[1]!).toBeGreaterThan(Math.sqrt(100));
+    const group = heatmapGroups(rows, 600)[0]!;
+    expect(group.totalCount).toBe(100);
+    expect(group.tiles).toHaveLength(100);
+    expect(group.tiles[0]!.stock.marketCap).toBe(5e12);
+    expect(group.marketCap).toBe(5e12 + 99 * 2e9);
+    expect(group.tiles.some(tile => !tile.showLabel)).toBe(true);
   });
-  it('handles sparse pools and gives each stock one leaf', () => {
+  it('keeps all rectangles non-overlapping and inside the panel across widths', () => {
+    const rows = Array.from({ length: 100 }, (_, i) => stock(i, 5e12 / (i + 1)));
+    for (const width of [280, 350, 500, 700, 1200]) {
+      const group = heatmapGroups(rows, width)[0]!;
+      expect(group.tiles).toHaveLength(rows.length);
+      let area = 0;
+      for (const tile of group.tiles) {
+        expect(tile.width).toBeGreaterThan(2);
+        expect(tile.height).toBeGreaterThan(2);
+        expect(tile.x + tile.width).toBeLessThanOrEqual(width + 0.001);
+        expect(tile.y + tile.height).toBeLessThanOrEqual(group.height + 0.001);
+        area += tile.width * tile.height;
+        for (const other of group.tiles) {
+          if (tile === other) continue;
+          const overlapX = Math.min(tile.x + tile.width, other.x + other.width) - Math.max(tile.x, other.x);
+          const overlapY = Math.min(tile.y + tile.height, other.y + other.height) - Math.max(tile.y, other.y);
+          expect(Math.min(overlapX, overlapY)).toBeLessThan(0.001);
+        }
+      }
+      expect(area).toBeCloseTo(width * group.height);
+    }
+  });
+  it('searches the whole snapshot and filters industries', () => {
+    const rows = Array.from({ length: 40 }, (_, i) => stock(i, 2e12 / (i + 1)));
+    expect(heatmapGroups(rows, 600)[0]!.tiles.some(t => t.stock.code === '39.US')).toBe(true);
+    expect(heatmapGroups(rows, 600, '39.US')[0]!.tiles.map(t => t.stock.code)).toEqual(['39.US']);
+    expect(filterStocks(rows, '  1.US  ').map(row => row.code)).toEqual(['1.US', '11.US', '21.US', '31.US']);
+    expect(heatmapGroups(rows, 600, 'missing')).toEqual([]);
+    expect(heatmapGroups(rows, 600, '', 'banks')).toEqual([]);
+    expect(heatmapGroups([], 600)).toEqual([]);
     expect(areaWeights([])).toEqual([]);
     expect(areaWeights([stock(0)])).toEqual([1]);
-    const tree = heatmapGroups([stock(0), { ...stock(1), groupCode: 'banks', groupName: '银行' }], 2);
-    expect(tree).toHaveLength(2);
-    expect(tree.reduce((sum, row) => sum + row.tiles.length, 0)).toBe(2);
-    expect(tree.every(group => group.tiles.every(tile => tile.columnSpan <= 2 && tile.rowSpan <= 2))).toBe(true);
-  });
-  it('filters name, canonical code and industry while preserving a stock size', () => {
-    const rows = [stock(0, 5e12), stock(1), { ...stock(2), groupCode: 'banks', groupName: '银行' }];
-    const all = heatmapGroups(rows, 5);
-    const filtered = heatmapGroups(rows, 5, 'stock 0');
-    expect(filtered[0]!.tiles[0]).toEqual(all[0]!.tiles[0]);
-    expect(filterStocks(rows, '  1.US  ').map(row => row.code)).toEqual(['1.US']);
-    expect(filterStocks(rows, '', 'banks').map(row => row.code)).toEqual(['2.US']);
-    expect(heatmapGroups(rows, 5, 'missing')).toEqual([]);
   });
   it('uses red for gains, green for losses and distinct gray for missing data', () => {
     expect(changeColor(5)).toBe('#e0273d');

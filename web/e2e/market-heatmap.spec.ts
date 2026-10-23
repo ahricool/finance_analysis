@@ -61,6 +61,7 @@ for (const width of [390, 768, 1024, 1280, 1440, 1920]) {
       await expect(page.getByRole('dialog')).toHaveCount(0);
       await page.getByRole('combobox', { name: '筛选热力图行业' }).click();
       await page.getByRole('option', { name: '科技', exact: true }).click();
+      await expect(page.getByTestId('heatmap-group')).toHaveCount(1);
       await expect(page.getByTestId('heatmap-stock')).toHaveCount(20);
       await page.getByTestId('heatmap-stock').last().scrollIntoViewIfNeeded();
       await page.getByRole('textbox', { name: '搜索热力图股票' }).fill('STOCK0.US');

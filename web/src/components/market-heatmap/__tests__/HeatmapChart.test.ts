@@ -12,17 +12,17 @@ const snapshot: HeatmapSnapshot = {
     groupCode: 'banks', groupName: '银行', quoteTime: null }],
 };
 describe('readable heatmap', () => {
-  it('renders full names, canonical codes and changes as accessible stock buttons', async () => {
+  it('renders concise symbols with full accessible names and detail interactions', async () => {
     const wrapper = mount(HeatmapChart, { props: { snapshot } });
     expect(wrapper.findAll('[data-testid="heatmap-stock"]')).toHaveLength(2);
     const apple = wrapper.get('[data-code="AAPL.US"]');
-    expect(apple.text()).toContain(snapshot.items[0]!.name);
-    expect(apple.text()).toContain('AAPL.US');
+    expect(apple.attributes('aria-label')).toContain(snapshot.items[0]!.name);
+    expect(apple.text()).toContain('AAPL');
     expect(apple.text()).toContain('+1.23%');
     expect(apple.attributes('type')).toBe('button');
     await apple.trigger('click');
     expect(wrapper.emitted('select')).toEqual([[snapshot.items[0]]]);
-    expect(wrapper.get('[data-code="JPM.US"]').text()).toContain('涨跌幅暂缺');
+    expect(wrapper.get('[data-code="JPM.US"]').attributes('aria-label')).toContain('涨跌幅暂缺');
     wrapper.unmount();
   });
   it('filters visible industries and stocks without fetching more data', async () => {

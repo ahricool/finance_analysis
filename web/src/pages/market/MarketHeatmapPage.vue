@@ -174,7 +174,7 @@ function switchMarket(value: HeatmapMarket) { void router.replace({ query: { ...
             :style="{ backgroundColor: step.color }"
           >{{ step.label }}</span>
         </div>
-        <p>按行业向下浏览 · 点击股票查看详情</p>
+        <p>全部股票 · 小方块悬浮查看 · 按行业向下浏览</p>
       </div>
       <p
         v-if="result?.status === 'stale'"
@@ -203,7 +203,7 @@ function switchMarket(value: HeatmapMarket) { void router.replace({ query: { ...
         没有匹配的股票，试试其他名称、代码或行业。
       </p>
       <p class="text-xs leading-relaxed text-muted-foreground">
-        方块大小体现相对市值，并为名称保留阅读空间；灰色为平盘或涨跌幅暂缺。数据源：{{ market === 'CN' ? '腾讯行情' : 'Yahoo Finance' }}。
+        展示快照中的全部股票，小方块隐藏文字，悬浮可查看详情；灰色为平盘或涨跌幅暂缺。数据源：{{ market === 'CN' ? '腾讯行情' : 'Yahoo Finance' }}。
         {{ snapshot.unclassifiedCount ? `${snapshot.unclassifiedCount} 只股票暂未分类。` : '' }}行业观测：{{ formatDateTime(snapshot.classificationObservedAt) }}。
       </p>
     </template>
