@@ -95,7 +95,7 @@ def advance(spec, previous, data, start_date):
     paused = state["pause_remaining"] > 0
     if paused:
         state["pause_remaining"] -= 1
-    if state["stopped"] and not paused and not positions and spec.risk_engine == "20261021":
+    if state["stopped"] and not paused and not positions and spec.risk_engine in {"20261021", "20261023"}:
         state["stopped"] = False
         state["cycle_peak"] = state["cash"]
     traded = set()
@@ -140,7 +140,9 @@ def advance(spec, previous, data, start_date):
         )
         can_buy = not paused
         if state["stopped"]:
-            can_buy = can_buy and not positions
+            # October 23 research resumes only when already flat at the open.
+            # A delayed liquidation after cooldown must wait until the next open.
+            can_buy = can_buy and not positions and spec.risk_engine != "20261023"
         if can_buy:
             for candidate in plan["candidates"]:
                 if len(positions) >= spec.slots:

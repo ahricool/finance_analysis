@@ -6,7 +6,7 @@ import pytest
 
 from finance_analysis.stock_strategies.engine import advance, executable, initial_state
 from finance_analysis.stock_strategies.features import DataNotReady, indicators, wilder
-from finance_analysis.stock_strategies.registry import STRATEGIES, parameters
+from finance_analysis.stock_strategies.registry import STRATEGIES, definition, parameters
 from finance_analysis.stock_strategies.signals import decide
 from .helpers import inputs
 
@@ -116,7 +116,7 @@ def test_monthly_momentum_and_regression_have_different_entry_schedules():
 
 def test_breadth_is_qualified_ma50_fraction_and_two_close_exit():
     data = inputs()
-    spec = parameters(STRATEGIES[-1], "US")
+    spec = parameters(definition("breadth", "US"), "US")
     for f in data.features.values():
         f["ma50"] = 101
     state = initial_state()
@@ -262,8 +262,8 @@ def test_hybrid_breakout_filters_original_top40_without_replenishing():
 
 
 def test_breadth_native_parent_parameters_are_separate():
-    cn = parameters(STRATEGIES[-1], "CN")
-    us = parameters(STRATEGIES[-1], "US")
+    cn = parameters(definition("breadth", "US"), "CN")
+    us = parameters(definition("breadth", "US"), "US")
     assert (cn.family, cn.atr, cn.account_dd, cn.cooldown) == ("hybrid", 3, 0, 0)
     assert (us.family, us.atr, us.account_dd, us.cooldown) == ("regression", 0, 0.2, 20)
     assert cn.source_id("CN") != us.source_id("US")

@@ -134,13 +134,18 @@ class StockStrategyService:
         days = get_trading_days_between(market.lower(), launch, end)
         if not days:
             return []
-        for spec in specs:
-            self.repo.initialize(spec, market, days[0])
         progress, results = {}, []
+        eligible_specs = []
         for spec in specs:
+            strategy_days = [d for d in days if spec.observation_start is None or d >= spec.observation_start]
+            if not strategy_days:
+                continue
+            eligible_specs.append(spec)
+            self.repo.initialize(spec, market, strategy_days[0])
             row = self.repo.state(spec, market)
-            remaining = [d for d in days if row["last_date"] is None or d > row["last_date"]]
+            remaining = [d for d in strategy_days if row["last_date"] is None or d > row["last_date"]]
             progress[spec.key] = dict(row=row, days=remaining[:MAX_CATCHUP_DAYS], failed=False)
+        specs = eligible_specs
         for day in sorted({d for p in progress.values() for d in p["days"]}):
             active = [s for s in specs if day in progress[s.key]["days"] and not progress[s.key]["failed"]]
             if not active:

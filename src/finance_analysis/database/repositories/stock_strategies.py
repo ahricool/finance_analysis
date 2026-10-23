@@ -247,12 +247,19 @@ class StockStrategyRepository:
                 )
             )
             trend60 = {
-                r.code: dict(trend_score=r.trend_score, rs_score=r.rs_score)
+                r.code: dict(
+                    trend_score=r.trend_score,
+                    rs_score=r.rs_score,
+                    path_score=r.path_score,
+                    trend_candidate=r.trend_candidate,
+                )
                 for r in session.execute(
                     select(
                         TrendFollowingSnapshot.code,
                         TrendFollowingSnapshot.trend_score,
                         TrendFollowingSnapshot.rs_score,
+                        TrendFollowingSnapshot.features["path_score"].label("path_score"),
+                        TrendFollowingSnapshot.features["trend_candidate"].label("trend_candidate"),
                     ).where(
                         TrendFollowingSnapshot.market == market,
                         TrendFollowingSnapshot.trade_date == day,

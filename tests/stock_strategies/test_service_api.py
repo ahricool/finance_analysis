@@ -77,7 +77,7 @@ def test_views_validate_contract_and_get_never_initializes_ledger(repository):
     with TestClient(app) as client:
         response = client.get("/strategies?market=US")
         assert response.status_code == 200
-        assert len(response.json()["items"]) == 6
+        assert len(response.json()["items"]) == 7
         assert response.json()["items"][0]["status"] == "not_started"
         assert repository.state(STRATEGIES[0], "US") is None
         assert client.get("/strategies/ma_dd30?market=CN").status_code == 404
