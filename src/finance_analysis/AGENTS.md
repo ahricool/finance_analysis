@@ -205,7 +205,7 @@ Trade Engine 定时入口使用独立 `TRADE_ENGINE_CN` / `TRADE_ENGINE_US` 非�
 流程：
 
 1. 获取 Redis leader lock，防止多个实例同时写。
-2. 从 PostgreSQL 读取全部用户 CN/HK/US 自选股与未清仓持仓并集；CN 每5秒经 MarketDataService 批量扶摇报价采样分钟线，US/HK Longbridge 订阅。 <!-- pragma: allowlist secret -->
+2. 从 PostgreSQL 读取全部用户 CN/HK/US 自选股与未清仓持仓并集；CN 报价每5秒经 MarketDataService 批量扶摇，原生1min独立每15秒新浪→腾讯（每源1QPS，单一fallback），US/HK Longbridge 订阅。 <!-- pragma: allowlist secret -->
 3. Longbridge 连接按 symbol generation/connection generation 防旧事件污染。
 4. 从 Redis 或 Longbridge 历史预热 1 分钟 Bar；预热期实时事件先缓冲再合并。
 5. Quote、确认/预览 K 线、MA 趋势、形态、订阅状态与 heartbeat 写 Redis。

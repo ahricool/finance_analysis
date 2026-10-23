@@ -13,7 +13,13 @@ from finance_analysis.core.time import utc_now  # pragma: allowlist secret
 from finance_analysis.database.repositories.stock import InstrumentRepository, StockRepository  # pragma: allowlist secret
 from finance_analysis.market_review.trading_calendar import get_completed_trading_days, get_market_now  # pragma: allowlist secret
 
-from .config import DataProviderConfig, US_DAILY_SYNC_PROVIDERS, get_data_provider_config, provider_order
+from .config import (
+    CN_STREAM_MINUTE_PROVIDERS,
+    DataProviderConfig,
+    US_DAILY_SYNC_PROVIDERS,
+    get_data_provider_config,
+    provider_order,
+)
 from .models import (
     Adjustment,
     BatchBarResult,
@@ -178,6 +184,7 @@ def build_default_registry(
     from .providers.tickflow import TickFlowFreeProvider
     from .providers.yfinance import YFinanceProvider
     from .providers.sina_minute import SinaMinuteProvider
+    from .providers.cn_intraday import CnIntradayProvider
 
     resolved_config = config or get_data_provider_config()
     registry = ProviderRegistry()
@@ -229,6 +236,8 @@ def build_default_registry(
         SinaMinuteProvider(),
         capabilities={MINUTE_BARS},
     )
+    for source in CN_STREAM_MINUTE_PROVIDERS:
+        registry.register(source, CnIntradayProvider(source), capabilities={MINUTE_BARS})
     from .providers.longbridge.market import LongbridgeProvider
 
     registry.register(
@@ -499,6 +508,8 @@ class MarketDataService:
         interval: str = "1m",
         providers: Iterable[str] | None = None,
         period: str | None = None,
+        include_incomplete: bool = False,
+        minimum_latest_bar_time: datetime | None = None,
     ) -> BatchBarResult:
         request = MinuteBarsRequest(
             self._canonical_symbols(symbols),
@@ -506,7 +517,12 @@ class MarketDataService:
             end_time,
             interval,
             period=period,
+            include_incomplete=include_incomplete,
+            minimum_latest_bar_time=minimum_latest_bar_time,
         )
+        if interval == "1m" and infer_market(request.symbols[0]) is Market.CN:
+            with request_budget(max(15, min(90, len(request.symbols) * 3 + 12))):
+                return self.router.route_minute(request, providers)
         return self.router.route_minute(request, providers)
 
     def get_option_chain(self, symbol: str, *, now=None):

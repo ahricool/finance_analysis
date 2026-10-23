@@ -118,6 +118,8 @@ class MarketStreamConfig:
     subscription_state_ttl_seconds: int = 60
     removed_symbol_cache_ttl_seconds: int = 2 * 3600
     event_queue_size: int = 10_000
+    cn_minute_poll_seconds: int = 15
+    cn_minute_batch_size: int = 20
 
     @property
     def heartbeat_ttl_seconds(self) -> int:
@@ -134,6 +136,8 @@ class MarketStreamConfig:
             raise ValueError("unconfirmed_candle_merge_interval_ms must be positive")
         if self.pattern_preview_interval_seconds <= 0:
             raise ValueError("pattern_preview_interval_seconds must be positive")
+        if self.cn_minute_poll_seconds < 1 or self.cn_minute_batch_size < 1:
+            raise ValueError("CN minute polling settings must be positive")
 
     @classmethod
     def from_env(cls) -> "MarketStreamConfig":

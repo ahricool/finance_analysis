@@ -232,7 +232,7 @@ def test_default_orders_are_explicit_and_not_integer_priorities():
     assert provider_order(Market.US, DAILY_BARS)[0] == "yfinance"
     assert "longbridge" not in provider_order(Market.US, DAILY_BARS)
     assert "fuyao" not in provider_order(Market.US, DAILY_BARS)
-    assert provider_order(Market.CN, MINUTE_BARS) == ("streaming", "longbridge")
+    assert provider_order(Market.CN, MINUTE_BARS) == ("streaming", "sina_intraday", "tencent_intraday")
     assert "sina_minute" not in provider_order(Market.CN, MINUTE_BARS)
     from finance_analysis.integrations.market_data.config import portfolio_risk_minute_providers  # pragma: allowlist secret
 

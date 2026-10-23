@@ -23,6 +23,21 @@ export function intradayPatternOverlays(
   onSelect: (events: PatternEvent[]) => void,
 ): OverlayCreate[] {
   if (!registered) {
+    registerOverlay<{ dark: boolean }>({
+      name: 'intradayBaseline', totalStep: 1,
+      needDefaultPointFigure: false, needDefaultXAxisFigure: false, needDefaultYAxisFigure: false,
+      createPointFigures: ({ coordinates, bounding, overlay }) => {
+        const point = coordinates[0];
+        if (!point) return [];
+        const color = overlay.extendData.dark ? '#a1a1aa' : '#71717a';
+        return [
+          { type: 'line', ignoreEvent: true, attrs: { coordinates: [{ x: 0, y: point.y }, { x: bounding.width, y: point.y }] },
+            styles: { color, style: 'dashed', size: 1 } },
+          { type: 'text', ignoreEvent: true, attrs: { x: 8, y: point.y - 4, text: '昨收 · 0%', baseline: 'bottom' },
+            styles: { color, size: 11, backgroundColor: 'transparent', borderColor: 'transparent', borderSize: 0 } },
+        ];
+      },
+    });
     registerOverlay<MarkerData>({
       name: 'intradayPattern', totalStep: 1,
       needDefaultPointFigure: false, needDefaultXAxisFigure: false, needDefaultYAxisFigure: false,

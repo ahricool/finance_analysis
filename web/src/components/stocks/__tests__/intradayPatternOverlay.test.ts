@@ -19,7 +19,7 @@ function event(direction: PatternDirection, seconds = 10): PatternEvent {
 describe('compact intraday pattern markers', () => {
   it('renders all seven directions as three small symbols with theme colors and bounded positions', () => {
     intradayPatternOverlays([], [], false, vi.fn());
-    const draw = register.mock.calls[0]![0].createPointFigures as OverlayCreateFiguresCallback<{ event: PatternEvent; dark: boolean }>;
+    const draw = register.mock.calls.find(([overlay]) => overlay.name === 'intradayPattern')![0].createPointFigures as OverlayCreateFiguresCallback<{ event: PatternEvent; dark: boolean }>;
     const cases: Array<[PatternDirection, string, string, number]> = [
       ['bullish_continuation', '▴', '#dc2626', bar.low], ['bullish_breakout', '▴', '#dc2626', bar.low],
       ['bearish_to_bullish', '▴', '#dc2626', bar.low], ['bearish_continuation', '▾', '#16854e', bar.high],

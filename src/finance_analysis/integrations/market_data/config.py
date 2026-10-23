@@ -33,6 +33,7 @@ FIVE_YEAR_HISTORY_DAYS = 5 * 365
 
 # Maintenance-only ordering; interactive/history/preview reads keep their existing routing.
 US_DAILY_SYNC_PROVIDERS = ("alpaca", "yfinance")
+CN_STREAM_MINUTE_PROVIDERS = ("sina_intraday", "tencent_intraday")
 
 DEFAULT_PROVIDER_ORDER: dict[tuple[Market, str], tuple[str, ...]] = {
     (Market.CN, DRAGON_TIGER_BOARD): ("fuyao",),
@@ -47,7 +48,7 @@ DEFAULT_PROVIDER_ORDER: dict[tuple[Market, str], tuple[str, ...]] = {
     (Market.CN, DAILY_BARS): ("tickflow", "fuyao", "yfinance"),
     (Market.US, DAILY_BARS): ("yfinance", "tickflow"),
     (Market.HK, DAILY_BARS): ("longbridge", "yfinance"),
-    (Market.CN, MINUTE_BARS): ("streaming", "longbridge"),
+    (Market.CN, MINUTE_BARS): ("streaming", *CN_STREAM_MINUTE_PROVIDERS),
     (Market.US, MINUTE_BARS): ("streaming", "longbridge", "yfinance"),
     (Market.HK, MINUTE_BARS): ("streaming", "longbridge"),
     (Market.CN, REALTIME_QUOTES): ("fuyao", "streaming", "longbridge"),

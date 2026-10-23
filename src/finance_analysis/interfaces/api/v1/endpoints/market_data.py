@@ -80,9 +80,13 @@ async def intraday_bars(symbol: str, request: Request, since: datetime | None = 
     try:
         now = utc_now()
         day = _display_trading_date(market, now)
-        bars, current, snapshot, events = await asyncio.gather(
-            repository.get_recent_bars(code, 420),
-            repository.get_current_candle(code),
+        async def read_candles():
+            if market == "CN":
+                return await repository.get_intraday_snapshot(code)
+            return await asyncio.gather(repository.get_recent_bars(code, 420), repository.get_current_candle(code))
+
+        (bars, current), snapshot, events = await asyncio.gather(
+            read_candles(),
             _build_snapshot(uid, repository, stocks=[TrackedStock(code, market, code)]),
             repository.get_pattern_events(code, day),
         )
@@ -103,13 +107,14 @@ async def intraday_bars(symbol: str, request: Request, since: datetime | None = 
                 "sampled": bar.sampled,
                 "sample_count": bar.sample_count,
                 "partial": bar.partial,
+                "source": bar.source,
             }
             for bar in sorted(by_time.values(), key=lambda b: b.bar_time)
             if market_trading_date(bar.bar_time, market) == day
             and bar.is_valid()
             and is_regular_session_minute(bar.bar_time, market)
             and bar.bar_time <= now
-            and (reset or bar.bar_time >= since)
+            and (market == "CN" or reset or bar.bar_time >= since)
         ]
         return {
             "symbol": code,
@@ -117,6 +122,7 @@ async def intraday_bars(symbol: str, request: Request, since: datetime | None = 
             "trading_date": day,
             "generated_at": now,
             "reset": reset,
+            "full_snapshot": market == "CN",
             "items": items,
             "quote": snapshot["quotes"][0],
             "events": events,

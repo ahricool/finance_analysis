@@ -67,6 +67,8 @@ class MinuteBarsRequest:
     end_time: datetime
     interval: str = "1m"
     period: str | None = None
+    include_incomplete: bool = False
+    minimum_latest_bar_time: datetime | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "symbols", _symbols(self.symbols))
@@ -80,6 +82,10 @@ class MinuteBarsRequest:
             raise ValueError(f"Unsupported minute interval: {self.interval}")
         if self.period is not None:
             object.__setattr__(self, "period", str(self.period).strip() or None)
+        if self.minimum_latest_bar_time is not None:
+            if self.minimum_latest_bar_time.tzinfo is None:
+                raise ValueError("minimum_latest_bar_time must be timezone-aware")
+            object.__setattr__(self, "minimum_latest_bar_time", self.minimum_latest_bar_time.astimezone(timezone.utc))
 
 
 @dataclass(frozen=True, slots=True)

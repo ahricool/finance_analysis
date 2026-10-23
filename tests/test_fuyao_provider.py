@@ -127,7 +127,7 @@ def provider(handler):
 def test_registry_exact_external_inventory_internal_readers_and_order():
     registry = build_default_registry(DataProviderConfig())
     assert set(registry.names()) == {
-        "alpaca", "tickflow", "yfinance", "longbridge", "fuyao", "easyquotation", "sina_minute",
+        "alpaca", "tickflow", "yfinance", "longbridge", "fuyao", "easyquotation", "sina_minute", "sina_intraday", "tencent_intraday",
     }
     assert set(registry.names(include_internal=True)) - set(registry.names()) == {"database", "streaming"}
     assert registry.capabilities("fuyao") == {
@@ -145,7 +145,7 @@ def test_registry_exact_external_inventory_internal_readers_and_order():
     with pytest.raises(ProviderConfigurationError, match="do not support"):
         registry.resolve(["fuyao"], MINUTE_BARS)
     assert provider_order("CN", DAILY_BARS) == ("tickflow", "fuyao", "yfinance")
-    assert provider_order("CN", MINUTE_BARS) == ("streaming", "longbridge")
+    assert provider_order("CN", MINUTE_BARS) == ("streaming", "sina_intraday", "tencent_intraday")
     assert provider_order("CN", REALTIME_QUOTES) == ("fuyao", "streaming", "longbridge")
     assert provider_order("CN", LATEST_MARKET_SNAPSHOT) == ("fuyao", "easyquotation")
     for capability in (MARKET_INDICES, MARKET_STATS, SECTOR_RANKINGS):
