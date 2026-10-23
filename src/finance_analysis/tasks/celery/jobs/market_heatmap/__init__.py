@@ -1,0 +1,1 @@
+"""Periodic shared heatmap generation."""

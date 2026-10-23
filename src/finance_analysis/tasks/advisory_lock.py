@@ -34,6 +34,8 @@ class TaskAdvisoryLockId(IntEnum):
     INDUSTRY_REFERENCE_SYNC = 14
     STOCK_STRATEGIES_CN = 15
     STOCK_STRATEGIES_US = 16
+    MARKET_HEATMAP_CN = 17
+    MARKET_HEATMAP_US = 18
 
 
 @dataclass

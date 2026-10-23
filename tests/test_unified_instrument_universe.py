@@ -1,6 +1,7 @@
 from contextlib import contextmanager
 from datetime import date
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 from sqlalchemy import create_engine, event
@@ -268,6 +269,7 @@ def test_reference_data_sync_routes_seven_universes_and_preserves_us_on_failure(
 
     universes = Universes()
     service = ReferenceDataSyncService(
+        classification_sync=Mock(run=Mock(return_value={"saved": 1})),
         instrument_repository=Instruments(),
         universe_repository=universes,
         instrument_primary=object(),

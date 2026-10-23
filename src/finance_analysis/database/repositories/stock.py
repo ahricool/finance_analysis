@@ -209,6 +209,10 @@ class InstrumentRepository:
                 for field in explicit_fields:
                     column_name = "metadata" if field == "instrument_metadata" else field
                     excluded = getattr(stmt.excluded, column_name)
+                    if field == "instrument_metadata":
+                        # Independent reference owners (directory, classification) share metadata.
+                        excluded = (func.json_patch(Instrument.instrument_metadata, excluded) if sqlite else
+                                    Instrument.instrument_metadata.op("||")(excluded))
                     if field == "source":
                         excluded = case(
                             (
@@ -225,6 +229,29 @@ class InstrumentRepository:
                 )
                 session.execute(stmt.on_conflict_do_update(**conflict, set_=update_values))
         return len(records)
+
+    def save_us_classifications(self, classifications: dict[str, dict], observed_at: datetime) -> int:
+        """Publish a complete Yahoo generation atomically without creating securities."""
+        if not classifications:
+            raise ValueError("Empty classification generation")
+        with self.db.session_scope() as session:
+            rows = session.execute(select(Instrument).where(
+                Instrument.market == "US", Instrument.instrument_type == "STOCK",
+                Instrument.listing_status == "ACTIVE",
+            ).with_for_update()).scalars().all()
+            previous = sum(bool((row.instrument_metadata or {}).get("classification")) for row in rows)
+            matched = sum(row.code in classifications for row in rows)
+            if not matched or matched < previous * 0.8:
+                raise ValueError("US industry coverage dropped; previous generation retained")
+            for row in rows:
+                metadata = dict(row.instrument_metadata or {})
+                metadata.pop("classification", None)
+                if row.code in classifications:
+                    metadata["classification"] = {
+                        **classifications[row.code], "observed_at": observed_at.isoformat(),
+                    }
+                row.instrument_metadata = metadata
+            return matched
 
     def mark_missing_delisted(self, market: str, active_codes: Iterable[str]) -> int:
         """Mark missing listings only after a complete primary-provider directory fetch."""

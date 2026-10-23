@@ -53,6 +53,18 @@ def test_classification_unknown_stock(client):
     universes.list_index_memberships.assert_not_called()
 
 
+def test_us_industry_is_read_from_weekly_instrument_metadata(client):
+    http, instruments, universes = client
+    instruments.get_by_code.return_value = SimpleNamespace(code="AAPL.US", market="US", instrument_metadata={
+        "classification": {"sector": "Technology", "industry": "Consumer Electronics", "source": "yfinance",
+                           "observed_at": "2026-10-18T00:00:00Z"},
+    })
+    universes.list_index_memberships.return_value = []
+    response = http.get("/api/v1/stocks/AAPL.US/classification")
+    assert response.status_code == 200
+    assert response.json()["memberships"]["industries"][0]["name"] == "Technology / Consumer Electronics"
+
+
 def test_classification_invalid_code_matches_stock_info(client):
     http, instruments, _ = client
     response = http.get("/api/v1/stocks/INVALID.SH/classification")

@@ -210,7 +210,7 @@ function movementClass(value: number | null | undefined): string {
         </DialogTitle>
         <DialogDescription>查看同一股票或 ETF 的行情、持仓与研究详情；各页签保留各自的数据日期与口径。</DialogDescription>
         <StockIndustryTags
-          v-if="stock?.market_type === 'CN' && isOpen"
+          v-if="stock && ['CN', 'US'].includes(stock.market_type) && isOpen"
           :key="stock.code"
           :code="stock.code"
         />

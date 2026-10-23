@@ -39,6 +39,7 @@ def test_default_reference_routes_do_not_register_wikipedia_as_market_data(monke
     from finance_analysis.integrations.market_data.providers.akshare_index_constituents import AkShareIndexConstituentProvider
     monkeypatch.setattr(AkShareIndexConstituentProvider, "fetch_index_members", fetch)
     service = ReferenceDataSyncService(
+        classification_sync=Mock(run=Mock(return_value={"saved": 1})),
         instrument_repository=object(), universe_repository=object(),
         instrument_primary=object(), instrument_fallback=object(),
     )
@@ -84,6 +85,7 @@ def test_each_us_index_failure_preserves_only_its_members(failed_index, failure)
     provider = Mock()
     provider.fetch_index_members.side_effect = fetch
     service = ReferenceDataSyncService(
+        classification_sync=Mock(run=Mock(return_value={"saved": 1})),
         instrument_repository=instruments, universe_repository=repository,
         instrument_primary=object(), instrument_fallback=object(),
         index_providers={"AKSHARE": provider, "WIKIPEDIA": provider},

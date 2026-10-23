@@ -9,6 +9,7 @@ async function mountMarket(path: string) {
     routes: [
       { path: '/market/watch-list', component: { template: '<div>自选内容</div>' } },
       { path: '/market/holdings', component: { template: '<div>持仓内容</div>' } },
+      { path: '/market/heatmap', component: { template: '<div>热力图内容</div>' } },
     ],
   });
   await router.push(path);
@@ -22,7 +23,7 @@ describe('MarketPage', () => {
 
     expect(wrapper.text()).not.toContain('管理自选股，并维护数据库中的实际持仓。');
     expect(wrapper.get('[data-testid="module-tabs"]').attributes('aria-label')).toBe('市场页面导航');
-    expect(wrapper.get('[data-testid="module-tabs"]').findAll('a')).toHaveLength(2);
+    expect(wrapper.get('[data-testid="module-tabs"]').findAll('a')).toHaveLength(3);
     expect(wrapper.findAll('a[href="/market/watch-list"]')).toHaveLength(1);
     const holdingLinks = wrapper.findAll('a[href="/market/holdings"]');
     expect(holdingLinks).toHaveLength(1);

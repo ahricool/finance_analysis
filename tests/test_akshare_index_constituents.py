@@ -30,6 +30,7 @@ def test_cn_failure_does_not_replace_existing_members(monkeypatch, failure):
     monkeypatch.setattr("akshare.index_stock_cons_csindex", fetch)
     universe = Mock()
     service = ReferenceDataSyncService(
+        classification_sync=Mock(run=Mock(return_value={"saved": 1})),
         instrument_repository=object(), universe_repository=universe,
         instrument_primary=object(), instrument_fallback=object(),
         index_providers={"AKSHARE": AkShareIndexConstituentProvider(), "WIKIPEDIA": Mock()},

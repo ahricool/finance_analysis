@@ -411,6 +411,13 @@ API/页面支持 preview/official 与正式日期选择；正式读取关联日�
 Streamer 页面行情只读 Redis；CN/US 共用日内方向状态，分钟线与形态事件仅保留最近交易日，跨周末/长假 TTL 由交易日历确定。自选与持仓表点行展开分钟图、点名称打开详情。ETF扶摇批量参数已实测不支持，保留单证券接口。见 `docs/market-streamer.md`。
 个股详情日 K 独立于 Streamer 采集池：后端按需请求该股当天报价生成临时日 K，与多日历史按交易日期去重拼接返回，不写数据库或 Redis。自选股／投资组合实时表格和展开分钟图继续只读 Streamer 缓存。
 
+## Market Heatmap
+
+`market_heatmap/` 在 ingestion 队列每15分钟刷新 CN easyquotation / US yfinance 快照，GET仅读Redis。
+页面 `/market/heatmap`，小市值过滤、平方根面积压缩及全景单股3%上限；行业单一归属避免重复。
+美股 Yahoo sector/industry 由现有 `reference_data_sync` 周同步保存到 `instrument.metadata.classification`，
+行情刷新不采集行业、不写日线。口径、首次初始化与失败保留见 `docs/market-heatmap.md`。
+
 ## Stock Strategies
 
 `stock_strategies/` 是共享股票/ETF研究模拟，独立于真实portfolio。八个策略族按原生CN/US市场注册，

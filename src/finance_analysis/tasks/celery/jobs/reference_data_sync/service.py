@@ -41,8 +41,10 @@ class ReferenceDataSyncService:
         instrument_primary: Any = None,
         instrument_fallback: Any = None,
         index_providers: dict[str, Any] | None = None,
+        classification_sync: Any = None,
     ) -> None:
         self.instruments = instrument_repository or InstrumentRepository()
+        self.classification_sync = classification_sync
         self.universes = universe_repository or UniverseRepository()
         self.instrument_sync = InstrumentSyncService(
             instrument_primary or TickFlowFreeProvider(),
@@ -90,8 +92,20 @@ class ReferenceDataSyncService:
             except Exception as exc:
                 failed_universes[key] = str(exc)
 
+        classification_result = None
+        classification_error = None
+        try:
+            from finance_analysis.stocks.classification_sync import USClassificationSyncService
+
+            sync = self.classification_sync or USClassificationSyncService(repository=self.instruments)
+            classification_result = sync.run()
+        except Exception as exc:
+            classification_error = str(exc)
+
         return {
-            "sync_status": "success" if not failed_markets and not failed_universes else "partial",
+            "sync_status": "success" if not failed_markets and not failed_universes and not classification_error else "partial",
+            "us_classifications": classification_result,
+            "classification_error": classification_error,
             "instrument_fetched": fetched,
             "instrument_inserted": inserted,
             "instrument_updated": updated,

@@ -223,12 +223,14 @@ class MarketDataRouter:
         return result
 
     def route_market_snapshot(self, market: Market, providers: Iterable[str] | None = None,
-                              *, include_names=True) -> BatchQuoteResult:
+                              *, include_names=True, min_market_cap=None) -> BatchQuoteResult:
         registrations = self._providers(market=market, capability=LATEST_MARKET_SNAPSHOT, providers=providers)
         errors = []
         for registration in registrations:
             try:
                 kwargs = {} if include_names else {"include_names": False}
+                if min_market_cap is not None and registration.name == "yfinance":
+                    kwargs["min_market_cap"] = min_market_cap
                 result = registration.provider.fetch_market_snapshot(market, **kwargs)
                 if market.value in result.failed_symbols:
                     errors.append(f"{registration.name}: {result.failed_symbols[market.value]}")

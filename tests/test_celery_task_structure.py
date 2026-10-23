@@ -11,6 +11,8 @@ from finance_analysis.tasks.celery.schedule import get_scheduled_task_definition
 from finance_analysis.tasks.lifecycle import is_tracked_callable  # pragma: allowlist secret
 
 EXPECTED_CUSTOM_TASKS = {
+    "scheduled.market_heatmap_cn",
+    "scheduled.market_heatmap_us",
     "scheduled.stock_strategies",
     "scheduled.industry_reference_sync",
     "options.request",
@@ -76,8 +78,8 @@ def test_worker_registers_exactly_the_expected_custom_tasks():
 
 
 def test_each_task_package_has_one_explicit_tasks_module_and_expected_tasks():
-    assert len(TASK_PACKAGES) == 28
-    assert len(TASK_MODULES) == 28
+    assert len(TASK_PACKAGES) == 29
+    assert len(TASK_MODULES) == 29
     for package, module_name in zip(TASK_PACKAGES, TASK_MODULES):
         assert module_name == f"{package}.tasks"
         module = importlib.import_module(module_name)
@@ -94,6 +96,7 @@ def test_each_task_package_has_one_explicit_tasks_module_and_expected_tasks():
                 "confluence",
                 "intraday_confirmation",
                 "signal_center",
+                "market_heatmap",
             )
         ):
             expected_count = 2
@@ -110,7 +113,7 @@ def test_all_custom_task_names_and_job_ids_are_unique():
     celery_names.extend(item.celery_task_name for item in scheduled)
     job_ids = [item.job_id for item in scheduled]
 
-    assert len(celery_names) == len(set(celery_names)) == 47
+    assert len(celery_names) == len(set(celery_names)) == 49
     assert len(job_ids) == len(set(job_ids))
 
 

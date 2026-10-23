@@ -124,12 +124,19 @@ def get_stock_classification(stock_code: str) -> StockClassificationResponse:
     instrument = InstrumentRepository().get_by_code(code)
     if instrument is None:
         raise HTTPException(status_code=404, detail=f"未找到股票 {code} 的静态信息")
+    industries = IndustryStrengthRepository().stock_memberships(code) if instrument.market == "CN" else []
+    if instrument.market == "US":
+        classification = (getattr(instrument, "instrument_metadata", None) or {}).get("classification", {})
+        if classification.get("industry") and classification.get("observed_at"):
+            industries = [{"code": f"yahoo:{classification['industry']}",
+                           "name": f"{classification['sector']} / {classification['industry']}",
+                           "members_observed_at": classification["observed_at"]}]
     return StockClassificationResponse(
         code=instrument.code,
         market=instrument.market,
         memberships=StockMemberships(
             indices=UniverseRepository().list_index_memberships(code),
-            industries=IndustryStrengthRepository().stock_memberships(code) if instrument.market == "CN" else [],
+            industries=industries,
         ),
     )
 

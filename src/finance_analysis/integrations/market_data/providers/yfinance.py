@@ -6,6 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta, timezone
 from functools import partial
 import ast
+import re
 import logging
 import threading
 from typing import Any
@@ -27,6 +28,7 @@ from finance_analysis.integrations.market_data.models import (  # pragma: allowl
     Market,
     MarketBar,
     MarketIndex,
+    MarketQuote,
     MinuteBarsRequest,
     QuoteRequest,
 )
@@ -62,6 +64,103 @@ _QUOTE_EXECUTOR = ThreadPoolExecutor(max_workers=QUOTE_WORKERS, thread_name_pref
 
 class YFinanceProvider:
     name = "yfinance"
+
+    # Listed US exchanges; OTC securities are outside the market heatmap.
+    SNAPSHOT_EXCHANGES = ("NMS", "NYQ", "NGM", "NCM", "ASE", "PCX", "BTS")
+
+    @staticmethod
+    def from_yfinance_symbol(symbol):
+        # Yahoo uses BRK-B / BF-B, while the canonical master uses BRK.B / BF.B.
+        return canonical_symbol(re.sub(r"-([A-Z])$", r".\1", symbol.upper()), "US")
+
+    @staticmethod
+    def _screen_rows(query):
+        """Read every page or fail the generation; never publish a truncated screener."""
+        import yfinance as yf
+
+        rows, seen, total = [], set(), None
+        for offset in range(0, 50000, 250):
+            payload = retry_call(lambda: yf.screen(query, size=250, offset=offset,
+                                                  sortField="ticker", sortAsc=True))
+            current_total = int(payload["total"])
+            page = payload["quotes"]
+            if total is not None and current_total != total:
+                raise ValueError("Yahoo screener size changed during pagination")
+            total = current_total
+            if payload.get("start") != offset or not isinstance(page, list):
+                raise ValueError("Yahoo screener returned an unexpected page")
+            for row in page:
+                symbol = row.get("symbol")
+                if not symbol or symbol in seen:
+                    raise ValueError("Yahoo screener returned duplicate or missing symbols")
+                seen.add(symbol)
+                rows.append(row)
+            if len(rows) == total:
+                return rows
+            if not page or len(rows) > total:
+                raise ValueError("Yahoo screener returned incomplete pagination")
+        raise ValueError("Yahoo screener exceeded page bound")
+
+    def fetch_market_snapshot(self, market: Market, *, include_names=True, min_market_cap=0) -> BatchQuoteResult:
+        import yfinance as yf
+
+        if market != Market.US:
+            raise ValueError("Yahoo full-market snapshots support US only")
+        query = yf.EquityQuery("AND", [
+            yf.EquityQuery("EQ", ["region", "us"]),
+            yf.EquityQuery("IS-IN", ["exchange", *self.SNAPSHOT_EXCHANGES]),
+            yf.EquityQuery("GTE", ["intradaymarketcap", max(1, min_market_cap)]),
+        ])
+        result = BatchQuoteResult()
+        for row in self._screen_rows(query):
+            # Yahoo can return funds despite an EquityQuery. Check each result.
+            if row.get("quoteType") != "EQUITY" or row.get("exchange") not in self.SNAPSHOT_EXCHANGES:
+                continue
+            symbol = self.from_yfinance_symbol(row["symbol"])
+            try:
+                stamp = row.get("regularMarketTime")
+                quote = MarketQuote(
+                    symbol=symbol, market=market, provider=self.name, currency=str(row.get("currency") or "USD"),
+                    name=str(row.get("longName") or row.get("shortName") or "") if include_names else "",
+                    price=row.get("regularMarketPrice"), change_pct=row.get("regularMarketChangePercent"),
+                    pre_close=row.get("regularMarketPreviousClose"), volume=row.get("regularMarketVolume"),
+                    open_price=row.get("regularMarketOpen"), high=row.get("regularMarketDayHigh"),
+                    low=row.get("regularMarketDayLow"), total_mv=row.get("marketCap"),
+                    quote_time=datetime.fromtimestamp(stamp, timezone.utc) if stamp else None,
+                )
+                from ..validator import validate_quote
+
+                result.data[symbol] = validate_quote(quote)
+                result.providers_used[symbol] = self.name
+            except (TypeError, ValueError, OverflowError) as exc:
+                result.failed_symbols[symbol] = str(exc)
+        return result
+
+    def fetch_stock_classifications(self, market: Market) -> dict[str, dict]:
+        """Bulk industry membership from explicit Yahoo industry screens, weekly only."""
+        import yfinance as yf
+
+        if market != Market.US:
+            raise ValueError("Yahoo stock classifications support US only")
+        industries = yf.EquityQuery("EQ", ["region", "us"]).valid_values["industry"]
+        result = {}
+        for sector, names in industries.items():
+            for industry in sorted(names):
+                query = yf.EquityQuery("AND", [
+                    yf.EquityQuery("EQ", ["region", "us"]),
+                    yf.EquityQuery("EQ", ["industry", industry]),
+                ])
+                for row in self._screen_rows(query):
+                    if row.get("quoteType") != "EQUITY":
+                        continue
+                    code = self.from_yfinance_symbol(row["symbol"])
+                    classification = {"sector": sector, "industry": industry, "source": "yfinance"}
+                    if code in result and result[code] != classification:
+                        raise ValueError("Conflicting Yahoo industry classifications")
+                    result[code] = classification
+        if not result:
+            raise ValueError("Yahoo returned no industry classifications")
+        return result
 
     def __init__(self, *, batch_size: int = 100, max_workers: int = 3, max_retries: int = 3) -> None:
         if batch_size < 1:
