@@ -74,8 +74,10 @@ class YFinanceProvider:
         return canonical_symbol(re.sub(r"-([A-Z])$", r".\1", symbol.upper()), "US")
 
     @staticmethod
-    def _screen_rows(query):
-        """Read every page or fail the generation; never publish a truncated screener."""
+    def _screen_rows(query, *, best_effort=False):
+        """Strict reference-data pagination by default; live snapshots may opt into partial results."""
+        if best_effort:
+            return YFinanceProvider._best_effort_screen_rows(query)
         import yfinance as yf
 
         rows, seen, total = [], set(), None
@@ -101,6 +103,62 @@ class YFinanceProvider:
                 raise ValueError("Yahoo screener returned incomplete pagination")
         raise ValueError("Yahoo screener exceeded page bound")
 
+    @staticmethod
+    def _best_effort_screen_rows(query):
+        """A live screen is not an atomic snapshot; retain usable pages and deduplicate."""
+        import yfinance as yf
+
+        logger = logging.getLogger(__name__)
+        rows, total, stalled, failures = {}, None, 0, 0
+        for offset in range(0, 50000, 250):
+            try:
+                payload = retry_call(lambda: yf.screen(query, size=250, offset=offset,
+                                                      sortField="ticker", sortAsc=True))
+                if not isinstance(payload, dict) or not isinstance(payload.get("quotes"), list):
+                    raise ValueError("Yahoo screener returned an invalid page")
+            except Exception as exc:
+                if not rows:
+                    raise
+                failures += 1
+                logger.warning("Yahoo snapshot page unavailable offset=%s collected=%s error_type=%s",
+                               offset, len(rows), type(exc).__name__)
+                # Skip an isolated bad page when later pages are known to exist.
+                if failures < 2 and total is not None and offset + 250 < total:
+                    continue
+                return list(rows.values())
+            failures = 0
+            try:
+                current_total = int(payload["total"])
+            except (KeyError, TypeError, ValueError, OverflowError):
+                current_total = None
+            if current_total != total or payload.get("start") != offset:
+                logger.info("Yahoo snapshot pagination offset=%s start=%s previous_total=%s total=%s collected=%s",
+                            offset, payload.get("start"), total, current_total, len(rows))
+            total = current_total
+            page = payload["quotes"]
+            before, duplicates, invalid = len(rows), 0, 0
+            for row in page:
+                symbol = row.get("symbol") if isinstance(row, dict) else None
+                if not isinstance(symbol, str) or not symbol.strip():
+                    invalid += 1
+                    continue
+                if symbol in rows:
+                    duplicates += 1
+                    continue
+                rows[symbol] = row
+            if duplicates or invalid:
+                logger.info("Yahoo snapshot page offset=%s duplicates=%s invalid=%s collected=%s",
+                            offset, duplicates, invalid, len(rows))
+            stalled = stalled + 1 if len(rows) == before else 0
+            if not page or (len(page) < 250 and (total is None or offset + len(page) >= total)):
+                return list(rows.values())
+            if stalled >= 2:
+                logger.warning("Yahoo snapshot pagination stopped without progress offset=%s collected=%s",
+                               offset, len(rows))
+                return list(rows.values())
+        logger.warning("Yahoo snapshot pagination reached page bound collected=%s", len(rows))
+        return list(rows.values())
+
     def fetch_market_snapshot(self, market: Market, *, include_names=True, min_market_cap=0) -> BatchQuoteResult:
         import yfinance as yf
 
@@ -112,12 +170,13 @@ class YFinanceProvider:
             yf.EquityQuery("GTE", ["intradaymarketcap", max(1, min_market_cap)]),
         ])
         result = BatchQuoteResult()
-        for row in self._screen_rows(query):
+        for row in self._screen_rows(query, best_effort=True):
             # Yahoo can return funds despite an EquityQuery. Check each result.
             if row.get("quoteType") != "EQUITY" or row.get("exchange") not in self.SNAPSHOT_EXCHANGES:
                 continue
-            symbol = self.from_yfinance_symbol(row["symbol"])
+            symbol = row["symbol"]
             try:
+                symbol = self.from_yfinance_symbol(symbol)
                 stamp = row.get("regularMarketTime")
                 quote = MarketQuote(
                     symbol=symbol, market=market, provider=self.name, currency=str(row.get("currency") or "USD"),
