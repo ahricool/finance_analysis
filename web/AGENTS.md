@@ -122,7 +122,7 @@ layout（Shell / PageHeader / ModuleLayout）+ ui/app 组件
 
 ## 统一证券详情
 
-市场热力图按行业纵向显示原生股票块，名称可换行，不能恢复固定高度压缩全市场的布局。
+市场热力图按行业纵向浏览紧密矩形块，宽屏可两列行业；显示快照内全部股票，小块可隐藏文字但保留方块；密集行业向下扩展。块内名称/代码与涨跌幅按尺寸显示，完整信息放悬浮提示。
 详情使用 `App.vue` 的唯一 `StockDetailHost`；页面只调用 `useStockDetail().open()`，不要重复挂 Host。
 
 `components/stocks/StockDetailDialog.vue` 是股票/ETF 唯一详情弹窗壳，顶部页签在行情、持仓、期权、趋势、ETF 轮动、共振、盘中确认、量化与龙虎榜之间切换。各研究页仍保留列表与筛选；证券名称/代码入口统一打开首位「行情」；点击行或卡片其余区域保留原研究页签。以 `initialTab` 和 `StockDetailContext` 传来源日期、official/preview、账户/持仓及龙虎榜筛选。量化旧详情 URL 只作同一弹窗的兼容入口。
