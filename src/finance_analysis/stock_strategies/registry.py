@@ -1,6 +1,7 @@
 """Frozen discovery identities; changing an economic rule requires a new version."""
 
 from dataclasses import asdict, dataclass
+from datetime import date
 
 INITIAL_CAPITAL = 1_000_000.0
 VERSION = "1"
@@ -20,6 +21,7 @@ class StrategyDefinition:
     breadth: bool = False
     breakout: bool = False
     version: str = VERSION
+    observation_start: date | None = None
 
     def source_id(self, market):
         return SOURCE_IDS[(self.key, market)]
@@ -40,7 +42,16 @@ class StrategyDefinition:
                 "启动时冻结成分，后续保持范围以便连续比较。股票20日平均成交额门槛：美股500万美元/A股5000万元；成交额缺失使用价格×成交量代理。",
             ),
         ]
-        if regression:
+        if self.family == "trend_quality":
+            rules += [
+                (
+                    "入场与排序",
+                    "仅股票：Trend60≥55、RS60≥45、Path60≥65，且收盘>MA30、MA30>MA60、"
+                    "30日收益>0、60日加权回归斜率>0四项至少三项成立；按Trend60降序，同分按代码。",
+                ),
+                ("市场开关与退出", "20日市场分数≥60才新增；<35清仓；收盘<MA20退出。无ETF补位。"),
+            ]
+        elif regression:
             rules += [
                 (
                     "入场与排序",
@@ -78,6 +89,17 @@ class StrategyDefinition:
                 ("入场与排序", "收盘>MA20>MA50、收盘>MA200且126日收益>0，按MA20/MA50−1降序。"),
                 ("退出", "收盘<MA20退出，无固定持有期限。"),
             ]
+        if self.family == "ma_market":
+            rules.append(
+                (
+                    "市场开关",
+                    "20日市场分数≥65才新增；<40清仓；40≤分数<65只持有，不新增。股票与ETF共同排名，排除CTVA.US。",
+                )
+            )
+        if self.observation_start:
+            rules.append(
+                ("观察起点", f"不早于{self.observation_start.isoformat()}首个交易日空仓启动，次开盘执行首批计划。")
+            )
         if self.breakout:
             rules.append(("突破确认", "股票原始前40候选再筛收盘>昨日最高价，列表外不递补；ETF分支不变。"))
         if self.breadth:
@@ -121,6 +143,15 @@ class StrategyDefinition:
                 "MA/动量族允许股票及ETF，沿用统一流动性过滤和原研究CTVA排除规则。A股股票采用开盘涨跌幅限制代理，ETF不猜测涨跌幅类别（非实盘可成交证明）；前复权尺度变化按持仓估值桥接换算。",
             ),
         ]
+        if self.observation_start:
+            rules[-1] = (
+                "上线适配与限制",
+                f"不早于{self.observation_start.isoformat()}首个交易日空仓启动，历史日线仅作预热；沿用系统冻结Universe。"
+                "只读当日正式Trend20市场分数；A股另读正式Trend60的Trend、RS、Path和趋势条件。"
+                "不依赖ETF市场开关，不请求外部API；缺少依赖则等待。"
+                "当前正式评分横截面、四位小数精度与研究冻结池可能有差异，不沿用历史CAGR。"
+                "最多270交易日预热，复权桥接与开盘成交限制沿用系统规则。",
+            )
         return dict(asdict(self), source_id=self.source_id(market), rules=[dict(label=k, text=v) for k, v in rules])
 
 
@@ -155,8 +186,27 @@ STRATEGIES = (
     StrategyDefinition(
         "breadth", "股票ETF/回归系统＋广度过滤", ("CN", "US"), "breadth", slots=5, risk_engine="20261020", breadth=True
     ),
+    StrategyDefinition(
+        "trend_quality35",
+        "趋势质量筛选／市场分数低于35退出",
+        ("CN",),
+        "trend_quality",
+        observation_start=date(2026, 10, 23),
+    ),
+    StrategyDefinition(
+        "ma_market_dd30",
+        "均线趋势＋市场开关／DD30暂停3日",
+        ("US",),
+        "ma_market",
+        account_dd=0.30,
+        cooldown=3,
+        risk_engine="20261023",
+        observation_start=date(2026, 10, 23),
+    ),
 )
 SOURCE_IDS = {
+    ("trend_quality35", "CN"): "local60_t55_r45_p65_e60_x35_ma20_n1_a0",
+    ("ma_market_dd30", "US"): "US_MA_p0_market_on_confirm0_dd0.3_c3_n1",
     ("ma_dd30", "US"): "US_local_f20_s50_long_n1_a0_dd0.3_c7",
     ("regression_dd20", "US"): "US_overlay_p60_ETFnotOFF_both_OFF_c2_a0.0_accountDD0.2_cool20",
     ("ma_atr3", "US"): "US_MARibbon_20_long_native_none_n1_a3",

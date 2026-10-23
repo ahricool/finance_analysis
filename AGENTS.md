@@ -420,8 +420,10 @@ Streamer 页面行情只读 Redis；CN/US 共用日内方向状态，分钟线�
 
 ## Stock Strategies
 
-`stock_strategies/` 是共享股票/ETF研究模拟，独立于真实portfolio。八个策略族按原生CN/US市场注册，
+`stock_strategies/` 是共享股票/ETF研究模拟，独立于真实portfolio。十个策略族按原生CN/US市场注册，
 `scheduled.stock_strategies` 单任务在盘后读取DB日线与同日正式Trend/ETF状态，逐策略事务隔离失败。
 统一启动日空仓、每账户100万本币、收盘信号/次开盘成交、零费用；每日指标和计划持久化，GET不回算。
 首次运行冻结Universe，US广度为标普500成分；细节及适配差异见`docs/stock-strategies.md`。
 迁移`0076_stock_strategies`，页面`/strategies`，离线测试`tests/stock_strategies/`。
+10/23新增CN趋势质量/市场35退出与US均线市场开关/DD30暂停3交易日；独立观察起点不早于2026-10-23，
+只读同日正式Trend20及CN Trend60 Path/趋势条件，不请求外部API。
