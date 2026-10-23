@@ -101,6 +101,7 @@ layout（Shell / PageHeader / ModuleLayout）+ ui/app 组件
 | `/crypto/btc` | `crypto-btc` | BTC 交易 |
 | `/market/watch-list` | `market-watch-list` | 自选股 |
 | `/market/holdings` | `market-holdings` | 投资组合 |
+| `/market/heatmap` | `market-heatmap` | A股/美股行业热力图，后端每15分钟刷新共享缓存 |
 | `/profile/info` `/password` `/notification` | `profile-*` | 个人中心（同一页） |
 | `/tasks` `/scheduled` `/runs` | `tasks*` | 任务中心（同一页） |
 

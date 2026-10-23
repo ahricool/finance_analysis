@@ -13,7 +13,7 @@ from finance_analysis.core.time import utc_now  # pragma: allowlist secret
 from finance_analysis.database.repositories.stock import InstrumentRepository, StockRepository  # pragma: allowlist secret
 from finance_analysis.market_review.trading_calendar import get_completed_trading_days, get_market_now  # pragma: allowlist secret
 
-from .config import DataProviderConfig, US_DAILY_SYNC_PROVIDERS, get_data_provider_config
+from .config import DataProviderConfig, US_DAILY_SYNC_PROVIDERS, get_data_provider_config, provider_order
 from .models import (
     Adjustment,
     BatchBarResult,
@@ -47,6 +47,7 @@ from .registry import (
     DAILY_BARS,
     INSTRUMENT_INFO,
     LATEST_MARKET_SNAPSHOT,
+    STOCK_CLASSIFICATIONS,
     MARKET_INDICES,
     MARKET_STATS,
     MINUTE_BARS,
@@ -220,7 +221,8 @@ def build_default_registry(
             max_workers=resolved_config.market_data_yfinance_max_concurrency,
             max_retries=resolved_config.market_data_yfinance_max_retries,
         ),
-        capabilities={DAILY_BARS, MINUTE_BARS, REALTIME_QUOTES, MARKET_INDICES, INSTRUMENT_INFO},
+        capabilities={DAILY_BARS, MINUTE_BARS, REALTIME_QUOTES, MARKET_INDICES, INSTRUMENT_INFO,
+                      LATEST_MARKET_SNAPSHOT, STOCK_CLASSIFICATIONS},
     )
     registry.register(
         "sina_minute",
@@ -596,9 +598,18 @@ class MarketDataService:
         return None
 
     def get_market_snapshot(self, market: Market | str, *, providers: Iterable[str] | None = None,
-                            include_names: bool = True) -> BatchQuoteResult:
+                            include_names: bool = True, min_market_cap: float | None = None) -> BatchQuoteResult:
         """Full-market prices; callers with known names can skip remote name enrichment."""
-        return self.router.route_market_snapshot(market_from_value(market), providers, include_names=include_names)
+        return self.router.route_market_snapshot(market_from_value(market), providers, include_names=include_names,
+                                                min_market_cap=min_market_cap)
+
+    def get_stock_classifications(self, market: Market | str = Market.US) -> dict[str, dict]:
+        """Explicit weekly reference maintenance; never called by snapshot reads."""
+        market = market_from_value(market)
+        registration = self.router.registry.resolve(
+            provider_order(market, STOCK_CLASSIFICATIONS), STOCK_CLASSIFICATIONS,
+        )[0]
+        return registration.provider.fetch_stock_classifications(market)
 
     def get_market_indices(self, market: Market | str, *, providers: Iterable[str] | None = None) -> list[MarketIndex]:
         return self.router.route_indices(market_from_value(market), providers)

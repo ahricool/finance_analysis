@@ -22,7 +22,7 @@ ReferenceDataSyncService 独立路由这两类来源。请求失败或返回空�
 | DAILY_BARS | tickflow → fuyao → yfinance | yfinance → tickflow | longbridge → yfinance |
 | MINUTE_BARS | streaming → longbridge | streaming → longbridge → yfinance | streaming → longbridge |
 | REALTIME_QUOTES | fuyao → streaming → longbridge | longbridge → streaming → yfinance | streaming → longbridge → yfinance |
-| LATEST_MARKET_SNAPSHOT | fuyao → easyquotation（腾讯） | — | — |
+| LATEST_MARKET_SNAPSHOT | fuyao → easyquotation（腾讯） | yfinance Screener | — |
 | MARKET_INDICES | fuyao | longbridge → yfinance | longbridge → yfinance |
 | MARKET_STATS / SECTOR_RANKINGS | fuyao | — | — |
 | INSTRUMENT_INFO | database → tickflow → longbridge → fuyao → yfinance | database → tickflow → longbridge → yfinance | database → tickflow → longbridge → yfinance |
@@ -31,6 +31,11 @@ ReferenceDataSyncService 独立路由这两类来源。请求失败或返回空�
 easyquotation 用于 Tencent CN Trend Following / ETF Rotation Preview，
 并作为 CN 全市场快照的备用来源；不参与逐股 Quote、指数或板块排行 fallback。
 TickFlow → Longbridge 的证券主数据同步顺序不变。
+
+美股 Screener 快照按 ticker 稳定排序完整分页，支持市值门槛，保留名称、市值、涨跌幅与行情时间；
+ETF/OTC 不参与热力图。腾讯快照的总市值/流通市值转换为元。新 `stock_classifications:US`
+能力通过 Yahoo 行业筛选批量读取分类，仅由周维护任务写 `instrument.metadata.classification`；
+15分钟热力图刷新只读这些分类。详见 `docs/market-heatmap.md`。
 
 ## Alpaca 美股日线同步
 

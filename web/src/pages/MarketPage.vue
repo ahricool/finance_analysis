@@ -4,11 +4,12 @@ import { RouterView, useRoute } from 'vue-router';
 import ModuleLayout from '@/components/layout/ModuleLayout.vue';
 import { marketNavItems } from '@/config/mainNav';
 
-type MarketTab = 'watch-list' | 'holdings';
+type MarketTab = 'watch-list' | 'holdings' | 'heatmap';
 
 const route = useRoute();
 
 const activeTab = computed<MarketTab>(() => {
+  if (route.path.endsWith('/heatmap')) return 'heatmap';
   if (route.path.endsWith('/holdings')) return 'holdings';
   return 'watch-list';
 });

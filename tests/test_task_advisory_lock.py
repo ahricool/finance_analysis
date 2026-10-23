@@ -262,6 +262,8 @@ def test_lock_ids_are_stable_and_readable() -> None:
         "INDUSTRY_REFERENCE_SYNC": 14,
         "STOCK_STRATEGIES_CN": 15,
         "STOCK_STRATEGIES_US": 16,
+        "MARKET_HEATMAP_CN": 17,
+        "MARKET_HEATMAP_US": 18,
     }
 
 
@@ -282,6 +284,8 @@ def test_lock_declarations_are_exactly_nine_nonblocking_scheduled_and_one_blocki
             )
 
     assert locked == {
+        "market_heatmap_cn": (TaskAdvisoryLockId.MARKET_HEATMAP_CN, False),
+        "market_heatmap_us": (TaskAdvisoryLockId.MARKET_HEATMAP_US, False),
         "options_intelligence_intraday": (TaskAdvisoryLockId.OPTIONS_INTELLIGENCE, False),
         "options_intelligence_daily": (TaskAdvisoryLockId.OPTIONS_INTELLIGENCE, False),
         "trade_engine_cn": (TaskAdvisoryLockId.TRADE_ENGINE_CN, False),

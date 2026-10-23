@@ -98,6 +98,9 @@ def quote_from_tencent_row(raw_code: str, row: Mapping[str, Any]) -> MarketQuote
         pre_close=_number(row.get("close")),
         volume=None if volume is None else int(volume),
         amount=amount,
+        # Tencent reports market capitalization in CNY 100 million; canonical values are CNY.
+        total_mv=None if _number(row.get("总市值")) is None else _number(row.get("总市值")) * 100_000_000,
+        circ_mv=None if _number(row.get("流通市值")) is None else _number(row.get("流通市值")) * 100_000_000,
         quote_time=_quote_time(row),
     )
 

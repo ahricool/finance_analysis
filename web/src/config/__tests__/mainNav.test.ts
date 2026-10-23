@@ -50,6 +50,7 @@ describe('main navigation', () => {
       'dashboard',
       'watch-list',
       'holdings',
+      'heatmap',
       'timeline',
       'options-intelligence',
       'intraday-confirmation',

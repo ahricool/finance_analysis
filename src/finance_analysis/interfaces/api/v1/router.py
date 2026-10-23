@@ -108,5 +108,8 @@ from .endpoints import options_intelligence
 router.include_router(options_intelligence.router, prefix="/options-intelligence", tags=["Options Intelligence"])
 
 from .endpoints import stock_strategies
+from .endpoints import market_heatmap
+
+router.include_router(market_heatmap.router, prefix="/market-heatmap", tags=["Market Heatmap"])
 
 router.include_router(stock_strategies.router, prefix="/stock-strategies", tags=["Stock Strategies"])

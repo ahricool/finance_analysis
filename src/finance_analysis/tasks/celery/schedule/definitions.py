@@ -113,6 +113,20 @@ class ScheduledTaskDefinition:
 
 SCHEDULED_TASK_DEFINITIONS = (
     ScheduledTaskDefinition(
+        job_id="market_heatmap_cn", name="市场热力图 CN", task_type="scheduled_market_heatmap_cn",
+        description="腾讯 A 股快照与数据库行业分组，原子刷新共享热力图缓存",
+        celery_task_name=celery_task_name("market_heatmap_cn"),
+        schedules=(CronSchedule(minute="*/15"),), schedule_text="每15分钟",
+        timezone=SCHEDULE_TIMEZONE, queue=QUEUE_INGESTION, expires=14 * 60,
+    ),
+    ScheduledTaskDefinition(
+        job_id="market_heatmap_us", name="市场热力图 US", task_type="scheduled_market_heatmap_us",
+        description="Yahoo 美股分页快照与数据库板块分类，原子刷新共享热力图缓存",
+        celery_task_name=celery_task_name("market_heatmap_us"),
+        schedules=(CronSchedule(minute="*/15", timezone=US_TIMEZONE),), schedule_text="每15分钟",
+        timezone=US_TIMEZONE, queue=QUEUE_INGESTION, expires=14 * 60,
+    ),
+    ScheduledTaskDefinition(
         job_id=JOB_STOCK_STRATEGIES, name="股票策略模拟", task_type="scheduled_stock_strategies",
         description="一个任务运行全部策略；DB-only盘后结算、准备下一交易日计划，单策略失败隔离",
         celery_task_name=celery_task_name(JOB_STOCK_STRATEGIES),
@@ -280,7 +294,7 @@ SCHEDULED_TASK_DEFINITIONS = (
     ScheduledTaskDefinition(
         job_id=JOB_REFERENCE_DATA_SYNC,
         name="证券主数据与指数成分同步",
-        description="每周同步 CN/US/HK 证券目录及 CSI300/500/1000/2000、S&P 500、Nasdaq 100 当前成分",
+        description="每周同步 CN/US/HK 证券目录、指数成分及 Yahoo 美股板块与行业分类",
         task_type="scheduled_reference_data_sync",
         celery_task_name=celery_task_name(JOB_REFERENCE_DATA_SYNC),
         schedules=(CronSchedule(minute="0", hour="8", day_of_week="sun"),),
