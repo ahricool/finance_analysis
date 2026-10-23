@@ -414,7 +414,7 @@ Streamer 页面行情只读 Redis；CN/US 共用日内方向状态，分钟线�
 ## Market Heatmap
 
 `market_heatmap/` 在 ingestion 队列每15分钟刷新 CN easyquotation / US yfinance 快照，GET仅读Redis。
-页面 `/market/heatmap`，小市值过滤、平方根面积压缩及全景单股3%上限；行业单一归属避免重复。
+页面 `/market/heatmap`，小市值过滤、0.75次幂市值权重与阅读尺寸下限，按行业纵向展示；行业单一归属避免重复。
 美股 Yahoo sector/industry 由现有 `reference_data_sync` 周同步保存到 `instrument.metadata.classification`，
 行情刷新不采集行业、不写日线。口径、首次初始化与失败保留见 `docs/market-heatmap.md`。
 
