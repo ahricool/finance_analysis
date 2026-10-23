@@ -1,13 +1,13 @@
 import type { HeatmapStock } from '@/api/marketHeatmap';
 
 export const colorScale = [
-  { label: '≤−3%', color: '#126644' }, { label: '−2%', color: '#238657' },
-  { label: '−1%', color: '#4b966b' }, { label: '0%', color: '#555b65' },
+  { label: '≤−3%', color: '#126644' }, { label: '−2%', color: '#1e774d' },
+  { label: '−1%', color: '#3b7e58' }, { label: '0%', color: '#555b65' },
   { label: '+1%', color: '#b35c62' }, { label: '+2%', color: '#c83c48' },
   { label: '≥+3%', color: '#e0273d' },
 ];
 export function changeColor(change: number | null): string {
-  if (change === null) return '#737780';
+  if (change === null) return '#676c75';
   const index = change <= -3 ? 0 : change <= -2 ? 1 : change < -0.05 ? 2 : change < 0.05 ? 3 : change < 2 ? 4 : change < 3 ? 5 : 6;
   return colorScale[index]!.color;
 }
@@ -21,38 +21,52 @@ export function formatCap(value: number, market: string): string {
 
 export function areaWeights(items: HeatmapStock[]): number[] {
   if (!items.length) return [];
-  const raw = items.map(row => Math.sqrt(row.marketCap));
-  const weights = raw.map(() => 0);
-  const limit = Math.max(0.03, 1 / items.length);
-  let active = raw.map((_, index) => index);
-  let remaining = 1;
-  while (active.length) {
-    const total = active.reduce((sum, index) => sum + raw[index]!, 0);
-    const capped = active.filter(index => raw[index]! / total * remaining > limit + 1e-12);
-    if (!capped.length) {
-      for (const index of active) weights[index] = raw[index]! / total * remaining;
-      break;
-    }
-    for (const index of capped) { weights[index] = limit; remaining -= limit; }
-    const frozen = new Set(capped);
-    active = active.filter(index => !frozen.has(index));
-  }
-  return weights;
+  const raw = items.map(row => row.marketCap ** 0.75);
+  const total = raw.reduce((sum, value) => sum + value, 0);
+  return raw.map(value => value / total);
 }
 
-export function heatmapTree(items: HeatmapStock[]) {
+export interface HeatmapTile {
+  stock: HeatmapStock;
+  columnSpan: number;
+  rowSpan: number;
+  prominent: boolean;
+}
+export interface HeatmapGroup {
+  code: string;
+  name: string;
+  marketCap: number;
+  tiles: HeatmapTile[];
+}
+
+export function filterStocks(items: HeatmapStock[], search = '', group = ''): HeatmapStock[] {
+  const needle = search.trim().toLocaleLowerCase();
+  return items.filter(stock => (!group || stock.groupCode === group)
+    && (!needle || `${stock.name} ${stock.code}`.toLocaleLowerCase().includes(needle)));
+}
+
+// Reading-sized cells keep all three labels visible. Larger caps occupy several cells.
+// Compute sizes from the full snapshot so filtering preserves relative prominence.
+export function heatmapGroups(items: HeatmapStock[], columns: number, search = '', selectedGroup = ''): HeatmapGroup[] {
+  const count = Math.max(1, Math.floor(columns));
   const weights = areaWeights(items);
-  const groups = new Map<string, { id: string; name: string; value: number; children: object[] }>();
+  const largest = Math.max(0, ...weights) || 1;
+  const visible = new Set(filterStocks(items, search, selectedGroup).map(stock => stock.code));
+  const groups = new Map<string, HeatmapGroup>();
   items.forEach((stock, index) => {
+    if (!visible.has(stock.code)) return;
     let group = groups.get(stock.groupCode);
     if (!group) {
-      group = { id: stock.groupCode, name: stock.groupName, value: 0, children: [] };
+      group = { code: stock.groupCode, name: stock.groupName, marketCap: 0, tiles: [] };
       groups.set(stock.groupCode, group);
     }
-    const value = weights[index]! * 1e6;
-    group.value += value;
-    group.children.push({ id: stock.code, name: stock.name, value, stock,
-      itemStyle: { color: changeColor(stock.changePct) } });
+    const cells = 1 + 8 * weights[index]! / largest;
+    const [targetColumns, targetRows]: [number, number] = cells >= 8 ? [3, 3] : cells >= 5 ? [3, 2] : cells >= 3 ? [2, 2] : cells >= 1.7 ? [2, 1] : [1, 1];
+    const columnSpan = Math.min(count, targetColumns);
+    const rowSpan = Math.min(count < 3 ? 2 : 3, Math.ceil(targetColumns * targetRows / columnSpan));
+    group.marketCap += stock.marketCap;
+    group.tiles.push({ stock, columnSpan, rowSpan, prominent: cells >= 5 });
   });
-  return [...groups.values()].sort((a, b) => b.value - a.value);
+  for (const group of groups.values()) group.tiles.sort((a, b) => b.stock.marketCap - a.stock.marketCap || a.stock.code.localeCompare(b.stock.code));
+  return [...groups.values()].sort((a, b) => b.marketCap - a.marketCap || a.code.localeCompare(b.code));
 }
