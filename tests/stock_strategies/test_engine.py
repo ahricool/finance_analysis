@@ -293,3 +293,34 @@ def test_20261020_exact_20percent_dd_uses_nav_threshold_without_subtraction_roun
     assert state["nav"] == 800000
     assert state["stopped"] and state["pause_remaining"] == 20
     assert "账户回撤触发清仓与暂停" in snapshot["payload"]["plan"]["exits"]["A.US"]
+
+
+def test_indicator_derived_state_and_snapshot_use_native_scalars():
+    import json
+    import numpy as np
+    from types import SimpleNamespace
+    from finance_analysis.stock_strategies.inputs import InputLoader
+    from .test_inputs import Repository, universe
+
+    loader = InputLoader(repository=Repository(), resolver=SimpleNamespace())
+    state = initial_state()
+
+    def check(value):
+        assert not isinstance(value, np.generic)
+        if isinstance(value, dict):
+            for item in value.values():
+                check(item)
+        elif isinstance(value, list):
+            for item in value:
+                check(item)
+
+    for day in (DAY, DAY + timedelta(days=1)):
+        data = loader.load("US", day, universe())
+        assert isinstance(data.features["SPY.US"]["close"], np.generic)
+        state, snapshot = advance(MA, state, data, DAY)
+        check(state)
+        check(snapshot)
+        json.dumps(state, allow_nan=False)
+        json.dumps(snapshot, allow_nan=False)
+    assert state["positions"]
+    assert snapshot["benchmark_return"] != 0

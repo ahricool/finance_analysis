@@ -125,3 +125,14 @@ Trend/RS与JSON中的Path、trend_candidate，不逐股加载完整features；�
 A股该候选回顾性CAGR116.2873%、最大回撤37.7862%；美股指定市场开关候选CAGR166.0192%、最大回撤55.7686%。
 美股报告全局最高243.0977%是已有DD25/暂停5日、无市场开关策略，不是此次新增身份。
 这些研究值仅用于确认来源，不导入观察收益，也不标成未来收益预期。
+
+### NumPy 数值的持久化边界
+
+日线指标来自Pandas/NumPy，基准收益从第二个结算日起、持仓账户的净值/回撤/成交金额等
+可能为`np.float64`。NumPy 2的标量repr不能直接交给psycopg2适配（会产生
+`schema "np" does not exist`）。每日引擎返回前递归将状态与快照中的NumPy标量转换为
+Python原生类型，保持原数值，不注册进程级数据库adapter，不修改交易规则。
+
+失败结算由原事务整体回滚，修复发布后复用原任务从最后成功日期继续，无需删除或覆盖历史。
+`test_postgres_two_days_with_real_pandas_indicator_scalars`使用真实指标计算链分别检查空仓及持仓
+连续两日保存；仅使用手写Python浮点输入的测试无法覆盖这一故障。

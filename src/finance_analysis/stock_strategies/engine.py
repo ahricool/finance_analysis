@@ -3,9 +3,22 @@
 from copy import deepcopy
 from math import isfinite
 
+import numpy as np
+
 from finance_analysis.stock_strategies.features import DataNotReady, finite
 from finance_analysis.stock_strategies.registry import INITIAL_CAPITAL
 from finance_analysis.stock_strategies.signals import decide
+
+
+def native_scalars(value):
+    """Keep NumPy reprs out of SQL parameters and JSON state/payloads."""
+    if isinstance(value, np.generic):
+        return value.item()
+    if isinstance(value, dict):
+        return {key: native_scalars(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [native_scalars(item) for item in value]
+    return value
 
 
 def initial_state():
@@ -289,4 +302,4 @@ def advance(spec, previous, data, start_date):
         benchmark_return=state["benchmark_value"] - 1,
         payload=deepcopy(payload),
     )
-    return state, snapshot
+    return native_scalars(state), native_scalars(snapshot)
