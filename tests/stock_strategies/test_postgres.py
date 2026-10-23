@@ -115,3 +115,28 @@ def test_postgres_migration_creates_jsonb_and_downgrades(postgres):
         assert isinstance(columns["payload"]["type"], JSONB)
         migration.downgrade()
         assert inspect(connection).get_table_names(schema=schema) == []
+
+
+@pytest.mark.parametrize("allow_entry", [False, True])
+def test_postgres_two_days_with_real_pandas_indicator_scalars(postgres, allow_entry):
+    """Production failed on day two even while flat; handwritten floats hid it."""
+    from types import SimpleNamespace
+    from finance_analysis.stock_strategies.inputs import InputLoader
+    from .test_inputs import Repository, universe
+
+    spec, first, second = STRATEGIES[0], date(2026, 10, 19), date(2026, 10, 20)
+    loader = InputLoader(repository=Repository(), resolver=SimpleNamespace())
+    postgres.initialize(spec, "US", first)
+    for day, previous in ((first, None), (second, first)):
+        data = loader.load("US", day, universe())
+        if not allow_entry:
+            for features in data.features.values():
+                features["ma20"] = features["close"] + 1
+        result = postgres.settle(spec, "US", day, previous, lambda state: advance(spec, state, data, first))
+        assert result["nav"] > 0
+    state = postgres.state(spec, "US")
+    assert state["last_date"] == second
+    assert bool(state["payload"]["positions"]) == allow_entry
+    assert len(postgres.curve(spec, "US")) == 2
+    assert postgres.latest(spec, "US")[1]["status"] == "success"
+    assert postgres.settle(spec, "US", second, first, lambda _: pytest.fail("duplicate settlement")) is None
