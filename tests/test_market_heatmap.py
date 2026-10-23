@@ -232,7 +232,7 @@ def test_yahoo_snapshot_keeps_market_cap_time_and_excludes_etfs(monkeypatch):
     monkeypatch.setattr(
         provider,
         "_screen_rows",
-        lambda q: [
+        lambda q, **kwargs: [
             {
                 "symbol": "AAPL",
                 "quoteType": "EQUITY",
