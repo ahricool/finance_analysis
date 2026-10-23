@@ -21,9 +21,10 @@ def test_upgrade_downgrade_models_and_single_head():
     cfg = Config()
     cfg.set_main_option("script_location", str(root / "alembic"))
     script = ScriptDirectory.from_config(cfg)
-    assert script.get_heads() == ["0076_stock_strategies"]
+    assert script.get_heads() == ["0077_core_index_etf_sync"]
     assert [r.revision for r in script.iterate_revisions("head", "0071_user_avatar")] == [
-        "0076_stock_strategies", "0075_watch_list_tags", "0074_industry_reference", "0073_intraday_confirmation", "0072_trend_periods",
+        "0077_core_index_etf_sync", "0076_stock_strategies", "0075_watch_list_tags",
+        "0074_industry_reference", "0073_intraday_confirmation", "0072_trend_periods",
     ]
     assert not (root / "alembic/versions/0072_intraday_confirmation.py").exists()
     ddl = str(CreateTable(Snapshot.__table__).compile(dialect=postgresql.dialect()))
