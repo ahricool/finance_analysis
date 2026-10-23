@@ -1,11 +1,12 @@
 """Read-only views and one bounded daily runner for every registered strategy."""
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from time import monotonic
 
 from finance_analysis.core.secret_redact import redact_secrets
 from finance_analysis.market_review.trading_calendar import (
+    get_completed_trading_days,
     get_effective_trading_date,
     get_market_now,
     get_market_session_bounds,
@@ -97,11 +98,14 @@ class StockStrategyService:
         deadline = monotonic() + RUN_BUDGET_SECONDS
         for target in markets:
             local = get_market_now(target.lower(), now)
-            # Polling windows include the following morning for delayed sources/catch-up.
+            # Before today's settlement window, recover only earlier closed sessions.
+            # Manual runs must not be blocked after delayed inputs become available.
             hour = 19 if target == "CN" else 22
-            if 9 <= local.hour < hour:
-                continue
-            day = get_effective_trading_date(target.lower(), current_time=now)
+            if local.hour < hour:
+                cutoff = local.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(microseconds=1)
+                day = get_completed_trading_days(target.lower(), 1, cutoff)[-1]
+            else:
+                day = get_effective_trading_date(target.lower(), current_time=now)
             with self._lock(target) as lock:
                 if not lock.acquired:
                     results.append(dict(market=target, status="busy"))
