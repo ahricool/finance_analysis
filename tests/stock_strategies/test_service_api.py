@@ -111,3 +111,40 @@ def test_run_requires_admin_and_dispatches_only_the_single_task(repository, monk
         )
     assert recorded[0]["kwargs"]["strategy_key"] == "ma_dd30"
     assert recorded[0]["queue"] == "analysis"
+
+
+def test_daytime_recovery_settles_waiting_day_without_advancing_to_today(repository):
+    loader = Loader()
+    healthy_load = loader.load
+    loader.load = lambda *a, **kw: (_ for _ in ()).throw(DataNotReady("waiting daily"))
+    service = StockStrategyService(repository, loader, (STRATEGIES[0],), lock)
+    assert service.run("US", now=NOW)["waiting"] == 1
+    loader.load = healthy_load
+    daytime = datetime(2026, 10, 20, 14, tzinfo=timezone.utc)
+    result = service.run("US", now=daytime)
+    assert result["success"] == 1 and result["waiting"] == 0
+    latest, attempt, _, _ = repository.latest(STRATEGIES[0], "US")
+    assert latest["trade_date"].isoformat() == "2026-10-19"
+    assert attempt["status"] == "success"
+    assert latest["payload"]["next_is_historical"] is True
+    assert latest["payload"]["computed_at"] == daytime.isoformat()
+    assert service.run("US", now=daytime)["results"] == []
+
+
+def test_catchup_date_respects_market_window_weekends_and_holidays(repository, monkeypatch):
+    cases = [
+        ("CN", "2026-10-23T04:00:00+00:00", "2026-10-22"),
+        ("CN", "2026-10-23T08:00:00+00:00", "2026-10-22"),
+        ("CN", "2026-10-23T11:00:00+00:00", "2026-10-23"),
+        ("CN", "2026-10-26T04:00:00+00:00", "2026-10-23"),
+        ("CN", "2026-10-01T04:00:00+00:00", "2026-09-30"),
+        ("US", "2026-10-23T16:00:00+00:00", "2026-10-22"),
+        ("US", "2026-10-23T21:00:00+00:00", "2026-10-22"),
+        ("US", "2026-10-24T02:00:00+00:00", "2026-10-23"),
+    ]
+    service = StockStrategyService(repository, Loader(), lock_factory=lock)
+    observed = []
+    monkeypatch.setattr(service, "_market", lambda market, day, *args: observed.append(day.isoformat()) or [])
+    for market, now, expected in cases:
+        service.run(market, now=datetime.fromisoformat(now))
+        assert observed[-1] == expected, (market, now)
