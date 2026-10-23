@@ -1,4 +1,4 @@
-"""Do not bridge missing sampled minutes when calculating confirmed indicators."""
+"""Do not bridge missing CN minutes when calculating confirmed indicators."""
 
 from datetime import timedelta
 
@@ -6,7 +6,7 @@ from finance_analysis.market_stream.config import completed_regular_minutes
 
 
 def indicator_tail(bars, market):
-    if not any(bar.sampled for bar in bars):
+    if market != "CN" and not any(bar.sampled for bar in bars):
         return bars
     tail = []
     previous = None

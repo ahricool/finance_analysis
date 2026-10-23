@@ -40,6 +40,17 @@ const toChartBar = (bar: IntradayBar) => ({ ...bar, turnover: bar.turnover ?? un
 const bars = computed(() => rows.value.filter(bar => bar.confirmed).map(toChartBar));
 const current = computed(() => { const bar = rows.value.find(bar => !bar.confirmed); return bar ? toChartBar(bar) : null; });
 const quote = computed(() => snapshot.value?.quote);
+const minuteSource = computed(() => rows.value.at(-1)?.source === 'tencent_intraday' ? '腾讯' : '新浪');
+const referencePrice = computed(() => {
+  const price = props.market === 'CN' ? quote.value?.pre_close : null;
+  return price != null && Number.isFinite(price) && price > 0 ? price : undefined;
+});
+const session = computed(() => {
+  const day = snapshot.value?.trading_date;
+  if (props.market !== 'CN' || !day) return undefined;
+  return { open: Date.parse(`${day}T09:30:00+08:00`), close: Date.parse(`${day}T15:00:00+08:00`),
+    breakStart: Date.parse(`${day}T11:30:00+08:00`), breakEnd: Date.parse(`${day}T13:00:00+08:00`) };
+});
 let request: AbortController | null = null;
 let timer: ReturnType<typeof setTimeout> | undefined;
 let generation = 0;
@@ -58,7 +69,7 @@ async function load() {
     const since = rows.value.at(-1)?.timestamp;
     const value = await fetchIntradayMarket(props.symbol, since == null ? undefined : new Date(since).toISOString(), controller.signal);
     if (stopped || generation !== owned) return;
-    const merged = new Map((value.reset ? [] : rows.value).map(row => [row.timestamp, row]));
+    const merged = new Map((value.reset || value.full_snapshot ? [] : rows.value).map(row => [row.timestamp, row]));
     for (const row of value.items) merged.set(row.timestamp, row);
     rows.value = [...merged.values()].sort((a, b) => a.timestamp - b.timestamp);
     snapshot.value = value;
@@ -87,6 +98,11 @@ const overlays = computed<OverlayCreate[]>(() => {
     selectedEvents.value = events;
     selected.value = events[0] ?? null;
   });
+  if (referencePrice.value != null) result.push({
+    name: 'intradayBaseline', id: 'intraday-baseline', groupId: 'intraday-baseline', lock: true,
+    points: [{ timestamp: rows.value[0]?.timestamp ?? 0, value: referencePrice.value }],
+    extendData: { dark: resolvedTheme.value === 'dark' },
+  });
   const evidence = selected.value;
   for (const [label, value] of [['参考位', evidence?.reference_level], ['失效位', evidence?.invalidation_price]] as const) {
     if (value != null) result.push({ name: 'priceLine', id: `intraday-${label}`, groupId: 'intraday-levels', lock: true,
@@ -105,7 +121,7 @@ const overlays = computed<OverlayCreate[]>(() => {
   >
     <div class="flex flex-wrap items-center justify-between gap-2 text-sm">
       <strong>最近交易日 1 分钟 K 线 · {{ snapshot?.trading_date ?? '加载中' }}</strong>
-      <span class="text-xs text-muted-foreground">{{ market === 'CN' ? '扶摇 · 5秒采样近似K线 · 上海时间' : 'Longbridge · 原生分钟线 · 纽约时间' }}</span>
+      <span class="text-xs text-muted-foreground">{{ market === 'CN' ? `${minuteSource} · 原生分钟线 · 上海时间` : 'Longbridge · 原生分钟线 · 纽约时间' }}</span>
     </div>
     <ApiErrorAlert
       v-if="error"
@@ -130,6 +146,8 @@ const overlays = computed<OverlayCreate[]>(() => {
           :current="current"
           :overlays="overlays"
           :timezone="timezone"
+          :reference-price="referencePrice"
+          :session="session"
         />
         <p
           v-else
@@ -141,7 +159,7 @@ const overlays = computed<OverlayCreate[]>(() => {
           v-if="market === 'CN'"
           class="mt-2 text-xs text-muted-foreground"
         >
-          采样可能遗漏分钟内价格极值；成交量为累计量差分估算，缺口与部分分钟不参与正式形态确认。
+          分钟线来自上游 OHLC；缺失分钟不会补造，缺口会中断正式指标的连续窗口。
         </p>
         <p
           v-if="rows.length"

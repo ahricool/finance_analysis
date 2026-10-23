@@ -124,6 +124,6 @@ async def test_cn_feed_batches_targets_without_a_longbridge_connection(monkeypat
     await app.cn_feed.tick()
     assert calls == [(["000001.SZ", "600519.SH"], ("fuyao",))]
     assert set(app.quotes) == set(targets)
-    assert all(bar.sampled for bar in app.current_candles.values())
+    assert not app.current_candles  # Quotes no longer synthesize minute OHLC.
     await app.cn_feed.reconcile({})
     assert not app.quotes and not app.cn_feed.states

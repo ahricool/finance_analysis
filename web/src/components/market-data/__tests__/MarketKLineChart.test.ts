@@ -9,9 +9,12 @@ const chart = vi.hoisted(() => ({
   setStyles: vi.fn(), setSymbol: vi.fn(), setPeriod: vi.fn(), setDataLoader: vi.fn(),
   getSize: vi.fn(() => ({ width: 1000 })), convertToPixel: vi.fn(() => ({ x: 995 })), scrollByDistance: vi.fn(),
   scrollToTimestamp: vi.fn(), scrollToRealTime: vi.fn(), createIndicator: vi.fn(), resetData: vi.fn(), resize: vi.fn(),
+  overrideYAxis: vi.fn(), overrideXAxis: vi.fn(), setBarSpace: vi.fn(), setOffsetRightDistance: vi.fn(),
+  setScrollEnabled: vi.fn(), setZoomEnabled: vi.fn(),
 }));
 const lifecycle = vi.hoisted(() => ({ dispose: vi.fn(), init: vi.fn() }));
-vi.mock('klinecharts', () => ({ init: lifecycle.init, dispose: lifecycle.dispose }));
+vi.mock('klinecharts', () => ({ init: lifecycle.init, dispose: lifecycle.dispose,
+  utils: { formatDate: vi.fn(() => 'formatted') } }));
 const bar: KLineData = { timestamp: 1000, open: 1, high: 3, low: 1, close: 2, volume: 5 };
 function loader() { return chart.setDataLoader.mock.lastCall![0] as DataLoader; }
 const context = { symbol: { ticker: 'AAPL.US', pricePrecision: 2, volumePrecision: 0 }, period: { type: 'day' as const, span: 1 } };
@@ -107,6 +110,34 @@ describe('MarketKLineChart v10 lifecycle', () => {
     }
     wrapper.unmount();
   });
+});
+
+it('keeps the previous close visible through a gap open and labels the full CN session without fake bars', async () => {
+  lifecycle.init.mockReturnValue(chart);
+  const open = Date.parse('2026-10-23T09:30:00+08:00');
+  const session = { open, close: open + 330 * 60_000, breakStart: open + 120 * 60_000, breakEnd: open + 210 * 60_000 };
+  const candles = [{ ...bar, timestamp: open, open: 110, high: 112, low: 109, close: 111 }];
+  const wrapper = mount(MarketKLineChart, { props: { symbol: '600000.SH', period: '1m', bars: candles,
+    referencePrice: 100, session, timezone: 'Asia/Shanghai' } });
+  const createRange = chart.overrideYAxis.mock.lastCall![0].createRange;
+  const range = createRange({ defaultRange: { from: 109, to: 112 } });
+  expect(range.from).toBeLessThan(100);
+  expect(range.to).toBeGreaterThan(112);
+  const ticks = chart.overrideXAxis.mock.lastCall![0].createTicks({ bounding: { width: 1000 } });
+  expect(ticks.map((tick: { text: string }) => tick.text)).toEqual(['09:30', '11:30 / 13:00', '15:00']);
+  const callback = vi.fn();
+  loader().getBars({ ...context, type: 'init', timestamp: null, callback });
+  expect(callback).toHaveBeenLastCalledWith(candles, false);
+  expect(chart.setZoomEnabled).toHaveBeenLastCalledWith(false);
+  const dateFormatter = lifecycle.init.mock.lastCall![1].formatter.formatDate;
+  expect(dateFormatter({ type: 'crosshair', timestamp: open + 180 * 60_000 })).toBe('');
+  expect(dateFormatter({ type: 'crosshair', timestamp: open })).toBe('formatted');
+  const candle = chart.setStyles.mock.lastCall![0].candle;
+  const template = candle.tooltip.legend.template as CandleTooltipLegendsCustomCallback;
+  const tooltip = template({ prev: { ...bar, close: 110 }, current: candles[0]!, next: null },
+    { ...candle, tooltip: { ...candle.tooltip, legend: { ...candle.tooltip.legend, color: 'neutral' } } } as CandleStyle);
+  expect(tooltip.find(row => row.title === '涨跌')?.value).toMatchObject({ text: '+11.00%' });
+  wrapper.unmount();
 });
 
 it('replaces only owned overlays across independent groups and clears removed props', async () => {

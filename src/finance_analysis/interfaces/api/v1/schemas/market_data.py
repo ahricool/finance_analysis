@@ -57,6 +57,7 @@ class IntradayBarItem(BaseModel):
     sampled: bool
     sample_count: int
     partial: bool
+    source: str = ""
 
 
 class IntradayBarsResponse(BaseModel):
@@ -65,6 +66,7 @@ class IntradayBarsResponse(BaseModel):
     trading_date: date
     generated_at: datetime
     reset: bool
+    full_snapshot: bool = False
     items: list[IntradayBarItem]
     quote: dict[str, Any]
     events: list[dict[str, Any]]

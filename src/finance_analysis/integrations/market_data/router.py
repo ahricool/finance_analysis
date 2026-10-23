@@ -95,7 +95,8 @@ class MarketDataRouter:
         return self._route_bars(request, DAILY_BARS, "fetch_daily_bars", providers, complete_fallback=complete_fallback)
 
     def route_minute(self, request: MinuteBarsRequest, providers: Iterable[str] | None = None) -> BatchBarResult:
-        return self._route_bars(request, MINUTE_BARS, "fetch_minute_bars", providers)
+        return self._route_bars(request, MINUTE_BARS, "fetch_minute_bars", providers,
+                                complete_fallback=request.minimum_latest_bar_time is not None)
 
     def _route_bars(self, request, capability: str, method_name: str, providers, *, complete_fallback=False) -> BatchBarResult:
         market = self._market_for_symbols(request.symbols)
@@ -125,6 +126,11 @@ class MarketDataRouter:
                     result.request_errors[symbol] = f"{registration.name}: {failure}"
                 try:
                     bars = validate_bars(provider_result.data.get(symbol, []))
+                    if capability == MINUTE_BARS and request.minimum_latest_bar_time is not None:
+                        closed = [bar for bar in bars if bar.bar_end is not None and bar.bar_end <= request.end_time]
+                        latest = max((bar.bar_start or bar.bar_time for bar in closed), default=None)
+                        if latest is None or latest < request.minimum_latest_bar_time:
+                            raise ValueError("minute history is stale or has no closed bars")
                     if capability == DAILY_BARS and any(bar.adjustment is not request.adjustment for bar in bars):
                         raise ValueError(
                             f"provider returned {bars[0].adjustment.value} bars for "

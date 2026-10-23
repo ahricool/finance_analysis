@@ -49,7 +49,7 @@ def test_default_reference_routes_do_not_register_wikipedia_as_market_data(monke
     fetch.assert_called_once_with("000300")
     registry = build_default_registry()
     assert set(registry.names()) == {
-        "alpaca", "tickflow", "yfinance", "longbridge", "fuyao", "easyquotation", "sina_minute",
+        "alpaca", "tickflow", "yfinance", "longbridge", "fuyao", "easyquotation", "sina_minute", "sina_intraday", "tencent_intraday",
     }
     assert "wikipedia" not in registry.names(include_internal=True)
 

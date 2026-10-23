@@ -337,3 +337,5 @@ BTC 多策略以 `strategy_key + symbol` 隔离，代码注册表当前仅 `btc_
 复用市场开关、表格、ECharts和StockLink；详情显示规则适配、净值/回撤、模拟持仓、下一开盘计划和分页每日账本。
 失败/等待显示对应日期和原因，同时保留最后成功结算日；历史补算计划不能当作当前待执行计划。
 字段转换须保留`positions`/`exits`里的canonical证券代码键。见`../docs/stock-strategies.md`。
+
+CN 自选/持仓展开分钟图使用完整原生当日窗口（full_snapshot），更新时替换而非跨源拼接。以 quote.pre_close 绘制昨收0%线，时间轴固定显示09:30/15:00及午休边界，不填未来OHLC；日线与US/HK图不使用此固定时段。见 docs/cn-minute-sources.md（仓库根）。

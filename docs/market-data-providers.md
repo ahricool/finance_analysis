@@ -1,7 +1,7 @@
 # 股票 Market Data Provider
 
 外部 Provider 有 `alpaca`、`tickflow`、`yfinance`、`longbridge`、`fuyao`、
-`easyquotation` 和 `sina_minute`。`ProviderRegistry.names()` 返回外部列表；数据库和 Streamer Redis
+`easyquotation`、`sina_minute`、`sina_intraday` 与 `tencent_intraday`。`ProviderRegistry.names()` 返回外部列表；数据库和 Streamer Redis
 读取器是内部来源，`names(include_internal=True)` 可用于检查完整路由。
 
 `USIndexConstituentProvider` 是独立 Reference Data Source，不属于 Market Data Provider，
@@ -20,7 +20,7 @@ ReferenceDataSyncService 独立路由这两类来源。请求失败或返回空�
 | Capability | CN | US | HK |
 | --- | --- | --- | --- |
 | DAILY_BARS | tickflow → fuyao → yfinance | yfinance → tickflow | longbridge → yfinance |
-| MINUTE_BARS | streaming → longbridge | streaming → longbridge → yfinance | streaming → longbridge |
+| MINUTE_BARS | streaming → sina_intraday → tencent_intraday | streaming → longbridge → yfinance | streaming → longbridge |
 | REALTIME_QUOTES | fuyao → streaming → longbridge | longbridge → streaming → yfinance | streaming → longbridge → yfinance |
 | LATEST_MARKET_SNAPSHOT | fuyao → easyquotation（腾讯） | yfinance Screener | — |
 | MARKET_INDICES | fuyao | longbridge → yfinance | longbridge → yfinance |
@@ -156,7 +156,7 @@ Router 拒绝带 `failed_symbols[market]` 的全市场 Snapshot，即使其中 d
 
 ## 因来源收敛取消的能力
 
-- 原国内分钟行情 fallback：仅保留 Streamer / Longbridge，Fuyao 不提供原生分钟 K；Streamer 的 CN 分钟线由 5 秒报价采样生成，带 sampled/partial 标记，见 docs/market-streamer.md。
+- CN 1min：默认 Streamer 缓存 → 新浪免费原生分钟 → 腾讯 m1；Streamer 绕过自身缓存，直接使用新浪 → 腾讯。Fuyao 仅提供报价，不再拟合分钟 K。既有 `sina_minute` 5min 保持独立。见 [cn-minute-sources.md](cn-minute-sources.md)。
 - 业绩预告、业绩快报、机构持仓变化、十大股东持仓变化。
 - 筹码分布、个股所属行业/概念板块反查。
 - 个股和板块主力资金流：官方页面明确尚未开放外部调用。

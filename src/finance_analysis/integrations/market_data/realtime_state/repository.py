@@ -112,11 +112,33 @@ class RealtimeStateRepository:
         )
 
     async def clear_intraday(self, symbol):
-        """Discard legacy CN native bars when switching the acquisition source."""
+        """Discard incompatible CN bars and indicators when changing acquisition semantics."""
         await self.redis.delete(
             keys.current_candle_key(symbol), keys.bars_index_key(symbol), keys.bars_data_key(symbol),
             keys.trend_key(symbol), keys.pattern_key(symbol), keys.pattern_events_key(symbol),
         )
+
+    async def replace_intraday_bars(self, symbol, bars):
+        """Atomically publish a complete native CN window, retaining observed pattern events."""
+        values = [bar for bar in bars if bar.symbol == symbol and bar.is_valid()]
+        if not symbol.endswith((".SH", ".SZ", ".BJ")) or not values:
+            raise ValueError("CN minute replacement requires valid CN candles")
+        values = sorted(values, key=lambda bar: bar.bar_time)[-self.bar_limit:]
+        pipe = self.redis.pipeline(transaction=True)
+        index_key, data_key = keys.bars_index_key(symbol), keys.bars_data_key(symbol)
+        pipe.delete(index_key, data_key, keys.current_candle_key(symbol))
+        for bar in values:
+            if bar.confirmed:
+                field = self._bar_field(bar)
+                pipe.zadd(index_key, {field: bar.bar_time.timestamp()})
+                pipe.hset(data_key, field, _candle_json(bar))
+        pipe.hset(keys.current_candle_key(symbol), mapping=_mapping(values[-1]))
+        from finance_analysis.market_stream.config import market_trading_date
+
+        ttl = self._ttl(symbol, market_trading_date(values[-1].bar_time, "CN"), self.bars_ttl_seconds)
+        for key in (index_key, data_key, keys.current_candle_key(symbol)):
+            pipe.expire(key, ttl)
+        await pipe.execute()
 
     @classmethod
     def from_url(cls, url: str, **kwargs: Any) -> "RealtimeStateRepository":
@@ -246,6 +268,16 @@ class RealtimeStateRepository:
     async def get_current_candle(self, symbol: str) -> CandleState | None:
         raw = await self.redis.hgetall(keys.current_candle_key(symbol))
         return CandleState.from_mapping(raw) if raw else None
+
+    async def get_intraday_snapshot(self, symbol):
+        """Read CN history and current candle from the same published source generation."""
+        pipe = self.redis.pipeline(transaction=True)
+        pipe.hgetall(keys.bars_data_key(symbol))
+        pipe.hgetall(keys.current_candle_key(symbol))
+        history, current = await pipe.execute()
+        bars = sorted((CandleState.from_mapping(json.loads(raw)) for raw in history.values()),
+                      key=lambda bar: bar.bar_time)[-self.bar_limit:]
+        return bars, CandleState.from_mapping(current) if current else None
 
     async def upsert_bars(self, symbol: str, bars: Iterable[CandleState]) -> None:
         await self.upsert_bars_batch({symbol: bars})

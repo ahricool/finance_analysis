@@ -87,7 +87,7 @@ def test_unified_provider_identity_and_existing_routes_unchanged():
     from finance_analysis.integrations.market_data.service import build_default_registry
     registry = build_default_registry()
     assert set(registry.names()) == {
-        "alpaca", "tickflow", "yfinance", "longbridge", "fuyao", "easyquotation", "sina_minute",
+        "alpaca", "tickflow", "yfinance", "longbridge", "fuyao", "easyquotation", "sina_minute", "sina_intraday", "tencent_intraday",
     }
     assert type(registry.get("fuyao").provider) is FuyaoProvider
     from finance_analysis.integrations.market_data.models import Market

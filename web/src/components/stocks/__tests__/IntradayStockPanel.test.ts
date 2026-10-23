@@ -21,6 +21,25 @@ beforeEach(() => { vi.useFakeTimers(); mocks.fetch.mockReset(); });
 afterEach(() => { vi.useRealTimers(); });
 
 describe('inline intraday ownership and incremental updates', () => {
+  it('uses the real previous close for CN zero percent and replaces revised source windows', async () => {
+    const initial = { ...snapshot('600000.SH'), market: 'CN' as const, full_snapshot: true };
+    initial.quote.pre_close = 97;
+    const next = { ...initial, reset: false, items: [{ ...initial.items[0]!, timestamp: at + 60_000 }] };
+    mocks.fetch.mockResolvedValueOnce(initial).mockResolvedValue(next);
+    const panel = mount(IntradayStockPanel, { props: { symbol: '600000.SH', market: 'CN' },
+      global: { stubs: { MarketKLineChart: true } } });
+    await flushPromises();
+    const chart = () => panel.findComponent({ name: 'MarketKLineChart' });
+    expect(chart().props('referencePrice')).toBe(97);
+    expect(chart().props('session')).toMatchObject({ open: Date.parse('2026-10-21T09:30:00+08:00'),
+      close: Date.parse('2026-10-21T15:00:00+08:00') });
+    expect(chart().props('overlays')).toMatchObject([{ name: 'intradayBaseline', points: [{ value: 97 }] }]);
+    await vi.advanceTimersByTimeAsync(5_000);
+    await flushPromises();
+    expect(panel.text()).toContain('已采集 1 根');
+    expect(chart().props('current').timestamp).toBe(at + 60_000);
+    panel.unmount();
+  });
   it('judges live updates every second and detects a stopped feed just after the 30-second tolerance', async () => {
     vi.setSystemTime(at);
     const initial = snapshot();

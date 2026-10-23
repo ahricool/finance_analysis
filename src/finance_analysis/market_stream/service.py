@@ -180,6 +180,7 @@ class MarketStreamService:
                     asyncio.create_task(self.manager.start(), name="market-stream-connect"),
                     asyncio.create_task(self._poll_watchlist(), name="market-stream-watchlist"),
                     asyncio.create_task(self.cn_feed.run(), name="market-stream-cn"),
+                    asyncio.create_task(self.cn_feed.run_minutes(), name="market-stream-cn-minutes"),
                     asyncio.create_task(self._check_connection(), name="market-stream-health"),
                 ]
             )
@@ -909,7 +910,7 @@ class MarketStreamService:
                     {
                         "instance_id": self.instance_id,
                         "status": status,
-                        "cn_status": "READY" if self.cn_feed.healthy else "DISCONNECTED",
+                        "cn_status": "READY" if self.cn_feed.healthy and self.cn_feed.minute_healthy else "DISCONNECTED",
                         "connection_generation": self.manager.connection_generation,
                         "desired_symbols": ",".join(
                             sorted(set(self.manager.desired_targets) | set(self.cn_feed.targets))
