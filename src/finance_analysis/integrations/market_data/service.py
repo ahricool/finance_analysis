@@ -392,6 +392,8 @@ class MarketDataService:
         result = BatchBarResult()
         missing: list[str] = []
         now = utc_now()
+        expected_by_code: dict[str, date] = {}
+        range_start = request.start_date
         for code in request.symbols:
             market = infer_market(code).value.lower()
             market_now = get_market_now(market, now)
@@ -399,9 +401,14 @@ class MarketDataService:
             # requests are capped at now so an unfinished session is not required.
             cutoff = min(market_now, datetime.combine(request.end_date, time.max, tzinfo=market_now.tzinfo))
             expected = get_completed_trading_days(market, 1, cutoff)[-1]
+            expected_by_code[code] = expected
             # Also probe expected when the requested window starts on a weekend
             # or after now. Never include that extra probe date in the response.
-            rows = stocks.get_range(code, min(request.start_date, expected), request.end_date)
+            range_start = min(range_start, expected)
+        histories = stocks.get_daily_ranges(request.symbols, range_start, request.end_date)
+        for code in request.symbols:
+            expected = expected_by_code[code]
+            rows = histories.get(code, [])
             if not {expected, *request.required_dates}.issubset(row.date for row in rows):
                 missing.append(code)
                 continue
@@ -483,15 +490,17 @@ class MarketDataService:
 
     def _load_persisted_daily(self, request: DailyBarsRequest) -> tuple[BatchBarResult, list[str]]:
         instruments, stocks = self._repositories()
+        identities = instruments.get_by_codes(request.symbols)
+        latest_dates = stocks.latest_daily_dates(instrument.id for instrument in identities.values())
+        histories = stocks.get_daily_ranges(request.symbols, request.start_date, request.end_date)
         result = BatchBarResult()
         missing: list[str] = []
         for code in request.symbols:
-            instrument = instruments.get_by_code(code)
-            if instrument is None or not stocks.has_daily_data(instrument.id):
+            instrument = identities.get(code)
+            if instrument is None or instrument.id not in latest_dates:
                 missing.append(code)
                 continue
-            rows = stocks.get_range(code, request.start_date, request.end_date)
-            bars = [self._stored_bar(row) for row in rows]
+            bars = [self._stored_bar(row) for row in histories.get(code, [])]
             if bars:
                 result.data[code] = bars
                 result.providers_used[code] = "database"

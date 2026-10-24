@@ -157,6 +157,9 @@ class _PolicyInstrumentRepository:
     def get_by_code(self, code):
         return self.instrument if code == self.instrument.code else None
 
+    def get_by_codes(self, codes):
+        return {code: self.instrument for code in codes if code == self.instrument.code}
+
 
 class _PolicyStockRepository:
     def __init__(self, rows=()):

@@ -6,6 +6,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from datetime import date, datetime
+from types import SimpleNamespace
 from typing import Any, Iterable, Optional, Sequence
 
 from sqlalchemy import and_, case, delete, desc, func, literal_column, or_, select, update
@@ -391,31 +392,49 @@ class StockRepository:
                 .all()
             )
 
-    def get_daily_ranges(self, codes: Iterable[str], start_date: date, end_date: date) -> dict[str, list[StockDaily]]:
-        """Read requested histories together, including their eagerly loaded Instrument."""
+    def get_daily_ranges(self, codes: Iterable[str], start_date: date, end_date: date) -> dict[str, list[Any]]:
+        """Read requested histories together as scalar OHLCV rows, not ORM graphs."""
         canonical_codes = sorted({self._canonical_code(code) for code in codes})
         if not canonical_codes:
             return {}
-        with self.db.get_session() as session:
-            rows = (
-                session.execute(
-                    select(StockDaily)
-                    .join(Instrument)
-                    .where(
-                        Instrument.code.in_(canonical_codes),
-                        StockDaily.date >= start_date,
-                        StockDaily.date <= end_date,
-                    )
-                    .order_by(StockDaily.instrument_id, StockDaily.date)
-                )
-                .scalars()
-                .unique()
-                .all()
+        query = (
+            select(
+                Instrument.code,
+                Instrument.market,
+                StockDaily.date,
+                StockDaily.open,
+                StockDaily.high,
+                StockDaily.low,
+                StockDaily.close,
+                StockDaily.volume,
+                StockDaily.amount,
             )
-            histories: dict[str, list[StockDaily]] = {}
-            for row in rows:
-                histories.setdefault(row.instrument.code, []).append(row)
-            return histories
+            .join(Instrument)
+            .where(
+                Instrument.code.in_(canonical_codes),
+                StockDaily.date >= start_date,
+                StockDaily.date <= end_date,
+            )
+            .order_by(StockDaily.instrument_id, StockDaily.date)
+            .execution_options(yield_per=10000)
+        )
+        histories: dict[str, list[Any]] = {}
+        with self.db.get_session() as session:
+            for row in session.execute(query).mappings():
+                code = row["code"]
+                histories.setdefault(code, []).append(
+                    SimpleNamespace(
+                        instrument=SimpleNamespace(code=code, market=row["market"]),
+                        date=row["date"],
+                        open=row["open"],
+                        high=row["high"],
+                        low=row["low"],
+                        close=row["close"],
+                        volume=row["volume"],
+                        amount=row["amount"],
+                    )
+                )
+        return histories
 
     def get_with_warmup(self, code: str, start_date: date, end_date: date, warmup_days: int) -> list[StockDaily]:
         canonical = self._canonical_code(code)

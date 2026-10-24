@@ -86,8 +86,32 @@ def outlook_context(context):
 class ContextCollector:
     def __init__(self, repo, market=None, llm=None):
         self.repo, self.market, self.llm = repo, market or MarketDataService(), llm
+        self._quote_cache = None
+        self._bar_cache = None
+
+    def warm(self, symbols, now):
+        ordered = list(dict.fromkeys(symbol for symbol in symbols if symbol))
+        public_symbols = ["SPY.US", "QQQ.US", *US_POSTMARKET_SECTOR_ETFS]
+        try:
+            self._quote_cache = self.market.get_realtime_quotes(ordered).data if ordered else {}
+        except Exception:
+            self._quote_cache = {}
+        try:
+            self._bar_cache = self.bars(list(dict.fromkeys([*public_symbols, *ordered])), now)
+        except Exception:
+            self._bar_cache = {}
 
     def bars(self, symbols, now):
+        ordered = list(dict.fromkeys(symbols))
+        cached = self._bar_cache
+        if cached is None:
+            return self._load_bars(ordered, now)
+        missing = [symbol for symbol in ordered if symbol not in cached]
+        if missing:
+            cached.update(self._load_bars(missing, now))
+        return {symbol: cached[symbol] for symbol in ordered if symbol in cached}
+
+    def _load_bars(self, symbols, now):
         days = trading_days(now.astimezone(NY).date() - timedelta(days=60), now.astimezone(NY).date())
         complete = [d for d in days if get_market_session_bounds("us", d)[1] <= now][-30:]
         if not complete:
@@ -138,7 +162,11 @@ class ContextCollector:
         missing = list(public.get("missing_data", []))
         quote = None
         try:
-            quote = self.market.get_realtime_quotes([member["symbol"]]).data.get(member["symbol"])
+            cached = getattr(self, "_quote_cache", None)
+            if cached is not None and member["symbol"] in cached:
+                quote = cached.get(member["symbol"])
+            else:
+                quote = self.market.get_realtime_quotes([member["symbol"]]).data.get(member["symbol"])
         except Exception:
             missing.append("最新报价读取失败")
         at = timestamp(quote.quote_time) if quote else None

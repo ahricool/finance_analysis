@@ -122,3 +122,21 @@ def test_auto_explanation_is_once_per_snapshot_session(repository, observation, 
     service.explain = Mock()
     service.run("AAPL", now)
     service.explain.assert_not_called()
+
+
+def test_scan_prefetches_quotes_and_daily_bars_once(repository, observation, now, config):
+    market = Mock()
+
+    def chain(symbol, now=None):
+        row = observation.model_copy(update={"underlying_symbol": symbol})
+        return OptionChain(symbol=symbol, observed_at=now, observations=[row])
+
+    market.get_option_chain.side_effect = chain
+    market.get_realtime_quotes.return_value = SimpleNamespace(data={})
+    market.get_daily_bars.return_value = SimpleNamespace(data={})
+    OptionsIntelligenceService(repository, market, config).scan(["AAPL", "MSFT"], now=now)
+    market.get_realtime_quotes.assert_called_once()
+    assert list(market.get_realtime_quotes.call_args.args[0]) == ["AAPL.US", "MSFT.US"]
+    market.get_daily_bars.assert_called_once()
+    assert list(market.get_daily_bars.call_args.args[0]) == ["AAPL.US", "MSFT.US"]
+    assert market.get_daily_bars.call_args.kwargs["source_policy"] == "db_only"

@@ -44,7 +44,7 @@ def test_fuyao_missing_source_time_stays_missing():
 def test_longbridge_missing_source_time(monkeypatch, code, has_time):
     from unittest.mock import Mock
 
-    from finance_analysis.integrations.market_data.providers.longbridge.market import LongbridgeProvider
+    from finance_analysis.integrations.market_data.providers.longbridge.market import LongbridgeProvider  # pragma: allowlist secret
 
     provider = object.__new__(LongbridgeProvider)
     monkeypatch.setattr(provider, 'is_available_for_request', lambda _: True)
@@ -55,3 +55,32 @@ def test_longbridge_missing_source_time(monkeypatch, code, has_time):
     monkeypatch.setattr(provider, '_compute_volume_ratio', lambda *_: None)
     quote = provider.get_realtime_quote(code)
     assert (quote.quote_time is not None) is has_time
+
+
+def test_longbridge_fetch_quotes_batches_quote_and_static_info(monkeypatch):
+    from unittest.mock import Mock
+
+    from finance_analysis.integrations.market_data.providers.longbridge.market import LongbridgeProvider  # pragma: allowlist secret
+
+    provider = object.__new__(LongbridgeProvider)
+    monkeypatch.setattr(provider, "is_available_for_request", lambda _: True)
+    context = Mock()
+    context.quote.return_value = [
+        SimpleNamespace(
+            symbol="AAPL.US", last_done=103, volume=123, prev_close=100, open=101, high=105, low=99, turnover=1
+        ),
+        SimpleNamespace(
+            symbol="MSFT.US", last_done=200, volume=50, prev_close=198, open=199, high=201, low=197, turnover=1
+        ),
+    ]
+    context.static_info.return_value = [
+        SimpleNamespace(symbol="AAPL.US", name_cn="Apple", circulating_shares=0, total_shares=1, eps_ttm=1, bps=1),
+        SimpleNamespace(symbol="MSFT.US", name_cn="Microsoft", circulating_shares=0, total_shares=1, eps_ttm=1, bps=1),
+    ]
+    monkeypatch.setattr(provider, "_get_ctx", lambda: context)
+    monkeypatch.setattr(provider, "_compute_volume_ratio", lambda *_: None)
+    result = provider.fetch_quotes(QuoteRequest(("AAPL.US", "MSFT.US")))
+    context.quote.assert_called_once_with(["AAPL.US", "MSFT.US"])
+    context.static_info.assert_called_once_with(["AAPL.US", "MSFT.US"])
+    assert set(result.data) == {"AAPL.US", "MSFT.US"}
+    assert result.providers_used == {"AAPL.US": "longbridge", "MSFT.US": "longbridge"}

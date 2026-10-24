@@ -9,7 +9,7 @@ import pytest
 from finance_analysis.integrations.market_data import MarketDataService
 from finance_analysis.integrations.market_data.models import Adjustment, BatchBarResult, Market, MarketBar
 from finance_analysis.integrations.market_data.registry import DAILY_BARS, ProviderRegistry
-from finance_analysis.tasks.celery.jobs.us_postmarket_review.history import load_review_history
+from finance_analysis.tasks.celery.jobs.us_postmarket_review.history import load_review_histories, load_review_history  # pragma: allowlist secret
 
 DAY = date(2026, 6, 23)
 SYMBOL = "TSM.US"
@@ -25,13 +25,15 @@ def bar(day, close):
 
 def market(stored, remote):
     stocks = Mock()
-    stocks.get_range.return_value = [
+    rows = [
         NS(
             instrument=NS(code=SYMBOL, market="US"), date=b.trade_date,
             open=b.open, high=b.high, low=b.low, close=b.close, volume=b.volume, amount=None,
         )
         for b in stored
     ]
+    stocks.get_range.return_value = rows
+    stocks.get_daily_ranges.side_effect = lambda codes, start, end: {code: rows for code in codes}
     provider = NS(fetch_daily_bars=Mock(return_value=BatchBarResult(data={SYMBOL: remote})))
     registry = ProviderRegistry()
     registry.register("yfinance", provider, capabilities={DAILY_BARS})
@@ -45,7 +47,7 @@ def test_fresh_db_is_used_without_provider_requests():
     assert source == "database"
     assert frame.iloc[-1].pct_chg == pytest.approx(10)
     provider.fetch_daily_bars.assert_not_called()
-    assert {call[0] for call in stocks.method_calls} == {"get_range"}
+    assert {call[0] for call in stocks.method_calls} == {"get_daily_ranges"}
 
 
 @pytest.mark.parametrize("stored", [[], [bar(DAY - timedelta(days=1), 1000)], [bar(DAY, 1000)]])
@@ -58,7 +60,7 @@ def test_missing_stale_or_short_db_uses_whole_provider_window_without_writes(sto
     request = provider.fetch_daily_bars.call_args.args[0]
     assert request.symbols == (SYMBOL,) and request.end_date == DAY
     assert request.adjustment == Adjustment.FORWARD
-    assert {call[0] for call in stocks.method_calls} == {"get_range"}
+    assert {call[0] for call in stocks.method_calls} == {"get_daily_ranges"}
 
 
 @pytest.mark.parametrize("remote", [[], [bar(DAY - timedelta(days=1), 100)], [bar(DAY, 110)]])
@@ -119,7 +121,7 @@ def test_partial_primary_falls_back_to_whole_complete_provider_series(primary):
     second_request = second.fetch_daily_bars.call_args.args[0]
     assert second_request == first_request
     assert set(second_request.required_dates) == {DAY - timedelta(days=1), DAY}
-    assert {call[0] for call in stocks.method_calls} == {"get_range"}
+    assert {call[0] for call in stocks.method_calls} == {"get_daily_ranges"}
 
 
 @pytest.mark.parametrize("first_error", [False, True])
@@ -140,7 +142,7 @@ def test_complete_fallback_clears_primary_request_error(first_error):
     assert result.providers_used == {SYMBOL: "tickflow"}
     assert not result.request_errors and not result.failed_symbols and not result.missing_symbols
     second.fetch_daily_bars.assert_called_once()
-    assert {call[0] for call in stocks.method_calls} == {"get_range"}
+    assert {call[0] for call in stocks.method_calls} == {"get_daily_ranges"}
 
 
 @pytest.mark.parametrize("mode", ["incomplete", "exception", "reported_error"])
@@ -157,12 +159,12 @@ def test_no_complete_provider_fails_without_stitching_sources(mode):
     assert "yfinance" in str(exc.value) and "tickflow" in str(exc.value)
     first.fetch_daily_bars.assert_called_once()
     second.fetch_daily_bars.assert_called_once()
-    assert {call[0] for call in stocks.method_calls} == {"get_range"}
+    assert {call[0] for call in stocks.method_calls} == {"get_daily_ranges"}
 
 
 def test_database_error_still_uses_date_aware_provider_fallback():
     service, stocks, first = market([], [bar(DAY - timedelta(days=1), 1000)])
-    stocks.get_range.side_effect = RuntimeError("DB unavailable")
+    stocks.get_daily_ranges.side_effect = RuntimeError("DB unavailable")
     second = add_fallback(service, [bar(DAY - timedelta(days=1), 100), bar(DAY, 110)])
     frame, source = load_review_history(SYMBOL, target_date=DAY, market_data=service)
     assert source == "tickflow" and list(frame.close) == [100, 110]
@@ -232,3 +234,12 @@ def test_required_dates_must_be_inside_requested_window():
         )
     first.fetch_daily_bars.assert_not_called()
     assert not stocks.method_calls
+
+
+def test_review_histories_issue_one_daily_request_for_all_symbols():
+    service, stocks, provider = market([bar(DAY - timedelta(days=1), 100), bar(DAY, 110)], [])
+    loaded = load_review_histories([SYMBOL, "AAPL.US"], target_date=DAY, market_data=service)
+    assert SYMBOL in loaded
+    stocks.get_daily_ranges.assert_called_once()
+    assert list(stocks.get_daily_ranges.call_args.args[0]) == [SYMBOL, "AAPL.US"]
+    provider.fetch_daily_bars.assert_not_called()

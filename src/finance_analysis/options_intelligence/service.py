@@ -76,7 +76,7 @@ class OptionsIntelligenceService:
         self.llm = llm
         self.preview_client = preview_client
 
-    def run(self, symbol, now=None, explain=False, view=None, publish_preview=True):
+    def run(self, symbol, now=None, explain=False, view=None, publish_preview=True, quotes=None, bars=None):
         realtime_run = now is None
         now = now or utc_now()
         symbol = us_symbol(symbol)
@@ -115,10 +115,13 @@ class OptionsIntelligenceService:
             if row.volume is not None and row.volume_date != day:
                 row.limitations.append("volume_session_unknown_or_stale")
         if chain.observations and not any(number(r.underlying_price) for r in chain.observations):
-            quotes = self.market.get_realtime_quotes([symbol])
+            quote_data = getattr(quotes, "data", None)
+            if not isinstance(quote_data, dict):
+                quotes = self.market.get_realtime_quotes([symbol])
+                quote_data = quotes.data
             if realtime_run:
                 now = utc_now()
-            reference = quote_reference(quotes.data.get(symbol), now)
+            reference = quote_reference(quote_data.get(symbol), now)
             if reference:
                 attach_reference(chain.observations, reference)
         if calendar.get_market_now("us", now).date() != day or view == "preview" and now > close:
@@ -149,9 +152,11 @@ class OptionsIntelligenceService:
             if change:
                 changes[(row.symbol, row.data_source, row.feed_type)] = change
         last_closed = calendar.get_effective_trading_date("us", now)
-        bars = self.market.get_daily_bars(
-            [symbol], day - timedelta(days=60), last_closed, adjustment="forward", source_policy="db_only"
-        )
+        bar_data = getattr(bars, "data", None)
+        if not isinstance(bar_data, dict):
+            bars = self.market.get_daily_bars(
+                [symbol], day - timedelta(days=60), last_closed, adjustment="forward", source_policy="db_only"
+            )
         expected = calendar.get_completed_trading_days("us", 21, now)
         by_date = {b.trade_date: b.close for b in bars.data.get(symbol, [])}
         closes = [by_date.get(d) for d in expected]
@@ -218,7 +223,19 @@ class OptionsIntelligenceService:
         if view == "preview" and symbols is None:
             # Rebuild this round; subsequent atomic checkpoints survive a worker hard timeout.
             self._publish_preview([], now, trade_date=day)
-        # Sequential requests plus a process-wide task mutex keep request concurrency at one.
+        selected_codes = [us_symbol(symbol) for symbol in selected]
+        try:
+            quotes = self.market.get_realtime_quotes(selected_codes)
+        except Exception:
+            quotes = None
+        last_closed = calendar.get_effective_trading_date("us", now)
+        try:
+            bars = self.market.get_daily_bars(
+                selected_codes, day - timedelta(days=60), last_closed, adjustment="forward", source_policy="db_only"
+            )
+        except Exception:
+            bars = None
+        # Sequential option-chain requests plus a process-wide task mutex keep chain concurrency at one.
         for symbol in selected:
             if calendar.get_market_now("us", supplied_now or utc_now()).date() != day:
                 break  # Never label a later session's results as this round's trade_date.
@@ -227,7 +244,9 @@ class OptionsIntelligenceService:
             ):
                 break
             try:
-                results.append(self.run(symbol, supplied_now, view=view, publish_preview=False))
+                results.append(
+                    self.run(symbol, supplied_now, view=view, publish_preview=False, quotes=quotes, bars=bars)
+                )
             except SoftTimeLimitExceeded:
                 if view != "preview":
                     raise

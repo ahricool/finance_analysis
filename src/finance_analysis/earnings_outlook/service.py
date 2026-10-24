@@ -84,6 +84,11 @@ class EarningsOutlookService:
         events = [e for e in events if e.calendar_type == "earnings" and e.market == "US"]
         # Most daily scans are no-ops. Collect the shared public context only if
         # an event actually needs a new round, once per batch across threads.
+        pending_symbols = [
+            members[event.symbol]["symbol"]
+            for event in events
+            if getattr(event, "symbol", None) in members
+        ]
         public_context = None
         public_lock = Lock()
 
@@ -91,6 +96,8 @@ class EarningsOutlookService:
             nonlocal public_context
             with public_lock:
                 if public_context is None:
+                    if hasattr(self.collector, "warm"):
+                        self.collector.warm(pending_symbols, self.clock())
                     public_context = self.collector.public(self.clock())
                 return public_context
 

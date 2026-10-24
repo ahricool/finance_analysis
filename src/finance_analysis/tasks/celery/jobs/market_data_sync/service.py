@@ -84,7 +84,15 @@ class MarketDataSyncService:
             self.config.market_data_initial_daily_days,
             self.config.market_data_refresh_daily_days,
         )
-        daily_results = self._sync_daily_batch_groups(symbols, daily_days_by_code, full_days=full_days)
+        daily_results = self._sync_daily_batch_groups(
+            symbols,
+            daily_days_by_code,
+            full_days=full_days,
+            max_batch_size=min(
+                getattr(self.config, "market_data_tickflow_batch_size", 100),
+                getattr(self.config, "market_data_yfinance_batch_size", 100),
+            ),
+        )
         target_date = max(full_days)
         coverage = self._retry_missing_daily(symbols, target_date, daily_days_by_code, full_days, daily_results)
         results = [
