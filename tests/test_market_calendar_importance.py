@@ -70,12 +70,15 @@ class _FakeQuoteFetcher:
         self.calls = []
 
     def get_realtime_quotes(self, symbols):
-        symbol = symbols[0]
-        self.calls.append(symbol)
+        self.calls.append(list(symbols))
         if self.exc is not None:
             raise self.exc
-        value = self.quotes.get(symbol) or self.quotes.get(symbol.removesuffix(".US"))
-        return SimpleNamespace(data={symbol: value} if value else {})
+        data = {}
+        for symbol in symbols:
+            value = self.quotes.get(symbol) or self.quotes.get(symbol.removesuffix(".US"))
+            if value:
+                data[symbol] = value
+        return SimpleNamespace(data=data)
 
 
 class _FakeLightweightContextFetcher:
@@ -84,10 +87,9 @@ class _FakeLightweightContextFetcher:
         self.realtime_calls = []
 
     def get_realtime_quotes(self, symbols):
-        symbol = symbols[0]
-        self.context_calls.append(symbol)
-        quote = SimpleNamespace(name="NVIDIA", total_mv=1000.0, price=10.0)
-        return SimpleNamespace(data={symbol: quote})
+        self.context_calls.extend(symbols)
+        data = {symbol: SimpleNamespace(name="NVIDIA", total_mv=1000.0, price=10.0) for symbol in symbols}
+        return SimpleNamespace(data=data)
 
 
 class _FakeLLMClient:
@@ -206,7 +208,31 @@ def test_market_cap_query_is_cached_by_symbol():
 
     MarketCalendarImportanceService(repo=repo, quote_fetcher=quote_fetcher, llm_client=llm).score_event_ids([1, 2])
 
-    assert quote_fetcher.calls == ["NVDA.US"]
+    assert quote_fetcher.calls == [["NVDA.US"]]
+    assert len(repo.updated) == 2
+
+
+def test_distinct_symbols_are_quoted_in_one_request():
+    events = [_event(event_id=1, symbol="AAA"), _event(event_id=2, symbol="BBB")]
+    repo = _FakeRepo(events)
+    quote_fetcher = _FakeQuoteFetcher(
+        {
+            "AAA": SimpleNamespace(name="AAA", total_mv=100.0, price=1.0),
+            "BBB": SimpleNamespace(name="BBB", total_mv=200.0, price=2.0),
+        }
+    )
+    llm = _FakeLLMClient(
+        [
+            json.dumps(
+                [
+                    {"event_id": 1, "importance_score": 6, "importance_reason": "常规", "confidence": 0.5},
+                    {"event_id": 2, "importance_score": 7, "importance_reason": "关注", "confidence": 0.6},
+                ]
+            )
+        ]
+    )
+    MarketCalendarImportanceService(repo=repo, quote_fetcher=quote_fetcher, llm_client=llm).score_event_ids([1, 2])
+    assert quote_fetcher.calls == [["AAA.US", "BBB.US"]]
     assert len(repo.updated) == 2
 
 

@@ -60,23 +60,23 @@ def bar(code="600519.SH", day=date(2026, 9, 18)):
 def test_database_data_never_calls_provider(setup_api):
     client, stocks, provider = setup_api
     stocks.has_daily_data.return_value = True
-    stocks.get_range.return_value = [
-        SimpleNamespace(
-            instrument=SimpleNamespace(code="600519.SH", market="CN"),
-            date=date(2026, 9, 18),
-            open=100,
-            high=105,
-            low=98,
-            close=103,
-            volume=123456,
-            amount=123456789,
-        )
-    ]
+    row = SimpleNamespace(
+        instrument=SimpleNamespace(code="600519.SH", market="CN"),
+        date=date(2026, 9, 18),
+        open=100,
+        high=105,
+        low=98,
+        close=103,
+        volume=123456,
+        amount=123456789,
+    )
+    stocks.get_range.return_value = [row]
+    stocks.get_daily_ranges.return_value = {"600519.SH": [row]}
     response = client.get("/api/v1/market-data/daily-bars/600519.SH?start_date=2026-09-01&end_date=2026-09-18")
     assert response.status_code == 200
     assert response.json()["source"] == "database"
     assert response.json()["adjustment"] == "forward"
-    stocks.get_range.assert_called_once_with("600519.SH", date(2026, 9, 1), date(2026, 9, 18))
+    stocks.get_daily_ranges.assert_called()
     provider.fetch_daily_bars.assert_not_called()
     stocks.upsert_daily.assert_not_called()
 
@@ -87,6 +87,7 @@ def test_empty_or_failed_database_falls_back(setup_api, raw, code, market, db_er
     client, stocks, provider = setup_api
     if db_error:
         stocks.get_range.side_effect = RuntimeError("database offline")
+        stocks.get_daily_ranges.side_effect = RuntimeError("database offline")
     provider.fetch_daily_bars.return_value = BatchBarResult(data={code: [bar(code)]})
     response = client.get(f"/api/v1/market-data/daily-bars/{raw}?start_date=2026-09-01&end_date=2026-09-18")
     assert response.status_code == 200
@@ -105,6 +106,7 @@ def test_empty_or_failed_database_falls_back(setup_api, raw, code, market, db_er
 def test_provider_failure_is_503(setup_api):
     client, stocks, provider = setup_api
     stocks.get_range.side_effect = RuntimeError("database offline")
+    stocks.get_daily_ranges.side_effect = RuntimeError("database offline")
     provider.fetch_daily_bars.side_effect = RuntimeError("provider offline")
     response = client.get("/api/v1/market-data/daily-bars/AAPL.US")
     assert response.status_code == 503

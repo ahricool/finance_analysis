@@ -51,6 +51,7 @@ class DailyResearchService:
             code: group.rename(columns={"datetime": "date"}).drop(columns="instrument").reset_index(drop=True)
             for code, group in loaded.frame.groupby("instrument")
         }
+        del loaded
         # Only the small, explicit benchmark set may refresh stale tails remotely. Main
         # universe readiness remains DB-only; these bars are never persisted.
         benchmarks = self.market_data.get_daily_bars(

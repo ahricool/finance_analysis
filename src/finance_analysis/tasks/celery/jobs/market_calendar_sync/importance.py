@@ -213,6 +213,7 @@ class MarketCalendarImportanceService:
             return {"requested": len(ids), "scored": 0, "skipped": len(ids), "errors": ["llm_unavailable"]}
 
         events = self.repo.list_events_by_ids(ids)
+        self._prefetch_quotes(events)
         prepared: List[Dict[str, Any]] = []
         skipped = 0
         for event in events:
@@ -244,6 +245,40 @@ class MarketCalendarImportanceService:
                 logger.warning("财经日历重要性评分批次失败: %s", message, exc_info=True)
                 errors.append(message)
         return {"requested": len(ids), "scored": scored, "skipped": skipped, "errors": errors}
+
+    def _prefetch_quotes(self, events: Sequence[FinanceEvent]) -> None:
+        needed: list[str] = []
+        seen: set[str] = set()
+        for event in events:
+            symbol = str(getattr(event, "symbol", "") or "").strip().upper()
+            if not symbol or symbol in self._quote_cache or symbol in seen:
+                continue
+            seen.add(symbol)
+            needed.append(symbol if "." in symbol else f"{symbol}.US")
+        if not needed:
+            return
+        try:
+            quotes = self.quote_fetcher.get_realtime_quotes(needed).data
+        except Exception as exc:
+            logger.warning("批量获取财经日历评分市值上下文失败: error=%s", exc, exc_info=True)
+            quotes = {}
+        for event in events:
+            symbol = str(getattr(event, "symbol", "") or "").strip().upper()
+            if not symbol or symbol in self._quote_cache:
+                continue
+            canonical = symbol if "." in symbol else f"{symbol}.US"
+            quote = quotes.get(canonical)
+            if quote is None:
+                self._quote_cache[symbol] = EventCompanyContext(
+                    symbol=symbol, company_name=getattr(event, "counter_name", None), market_cap=None, current_price=None
+                )
+                continue
+            self._quote_cache[symbol] = EventCompanyContext(
+                symbol=symbol,
+                company_name=(getattr(quote, "name", None) or getattr(event, "counter_name", None)),
+                market_cap=quote.total_mv,
+                current_price=quote.price,
+            )
 
     def _company_context(self, event: FinanceEvent) -> EventCompanyContext:
         symbol = str(getattr(event, "symbol", "") or "").strip().upper()
