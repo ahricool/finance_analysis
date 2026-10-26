@@ -192,7 +192,8 @@ def test_provider_contract_and_no_legacy_cache():
         calls.append(dict(request.url.params))
         return httpx.Response(200, json={"code": 0, "data": source(board=request.url.params["board_type"])})
 
-    provider = FuyaoProvider(api_key="test", transport=httpx.MockTransport(handler))
+    provider = FuyaoProvider(api_key="test", transport=httpx.MockTransport(handler),
+                             instrument_repository=SimpleNamespace(get_by_codes=lambda codes: {c: None for c in codes}))
     provider.cached("dragon_tiger:2026-09-21", 600, lambda: {"stock_items": [{"thscode": "legacy"}]})
     assert provider.get_dragon_tiger_board(DAY)["rows"][0]["net_value"] == "100.01"
     assert provider.get_dragon_tiger_board(DAY, "org")["board"] == "org"
@@ -234,7 +235,8 @@ def test_extended_periods_publish_and_preserve_public_schema(db, monkeypatch):
         groups = [{"name": "席位A", "rows": rows}] if board == "hot_money" else []
         return httpx.Response(200, json={"code": 0, "data": source(rows, board, groups=groups)})
 
-    provider = FuyaoProvider(api_key="test", transport=httpx.MockTransport(handler))
+    provider = FuyaoProvider(api_key="test", transport=httpx.MockTransport(handler),
+                             instrument_repository=SimpleNamespace(get_by_codes=lambda codes: {c: None for c in codes}))
     repo = DragonTigerFlowRepository(db)
     monkeypatch.setattr("finance_analysis.dragon_tiger_flow.service.validate_day", lambda day: None)
     monkeypatch.setattr("finance_analysis.database.repositories.dragon_tiger_flow.sessions_through", lambda d, n: [d])

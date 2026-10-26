@@ -102,13 +102,23 @@ class FuyaoProvider:
         self._instrument_repository = instrument_repository
 
     def get_dragon_tiger_board(self, trade_date, board_type="all"):
-        from ..dragon_tiger import normalize_source
+        from ..dragon_tiger import normalize_source, source_rows, is_bond_code
         if board_type not in {"all", "org", "hot_money"}:
             raise ValueError("Unsupported Dragon Tiger board")
         data = self._get("/api/a-share/special-data/dragon-tiger-list",
                          date=trade_date.isoformat(), board_type=board_type)
         try:
-            return normalize_source(data, trade_date, board_type)
+            rows = source_rows(data, board_type)
+            codes = {r["thscode"] for r in rows if isinstance(r.get("thscode"), str)
+                     and re.fullmatch(r"\d{6}\.(SH|SZ|BJ)", r["thscode"]) and not is_bond_code(r["thscode"])}
+            if codes:
+                if self._instrument_repository is None:
+                    from finance_analysis.database.repositories.stock import InstrumentRepository
+                    self._instrument_repository = InstrumentRepository()
+                allowed = set(self._instrument_repository.get_by_codes(codes))
+            else:
+                allowed = set()
+            return normalize_source(data, trade_date, board_type, allowed_symbols=allowed)
         except (ValueError, TypeError, KeyError):
             raise FuyaoError("Invalid or incomplete Dragon Tiger response") from None
 

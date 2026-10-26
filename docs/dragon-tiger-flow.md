@@ -71,6 +71,25 @@ flowchart LR
 9. “资金构成”中的机构/游资金额来自当前股票样本对应字段，可能重叠。下方正负贡献路径仅表示概念归因，不表示真实账户间划款。
    Top5之外保留“其余股票”节点，完整列表可独立排序。
 
+## Instrument 观察范围（v2）
+
+三类榜单统一只保留 **`thscode` 非空、代码存在于采集时的 Instrument 表、且非可转债** 的记录。
+不使用 `ticker` 补造 `thscode`，不远程查询证券名称或补写 Instrument，也不额外按 ACTIVE 状态过滤。
+CN 的11/12债券代码段明确排除，防止误录为STOCK的可转债进入统计；同样适用于游资明细和10/30日审计记录。
+每个榜单只批量查询一次候选代码；数据库查询失败使采集失败，不当成空成员表发布。
+
+原始 `count` 仍须与返回记录数一致。`stock_count` 使用原始六位ticker核对，缺ticker时只使用已有合法thscode的代码部分；
+身份完全缺失的弃用记录只用于检查计数可能范围，不补造身份。游资明细仍是有限样本，不用顶层count校验明细数。
+范围过滤先于保留记录的金额、周期、概念和冲突校验；保留记录的异常仍失败，不能用过滤掩盖真实缺页。
+
+`source_quality[].sources.*.quality` 保存原始记录数、保留记录数、无法核对原始身份的记录数以及互斥排除计数：
+`missing_thscode` → `bond` → `not_in_instrument` 按该优先级归因。保留数是去重前数量，去重另报。
+过滤后无证券是该观察范围内的有效空结果；原始upstream_count/stock_count保持不变。
+历史回填也使用采集时的当前Instrument范围，不声称恢复历史时点的成员资格。
+
+规则版本为 `dragon-tiger-flow-v2-instrument`。GET不修改已有快照；旧版本批次在missing_only补数时视为需重建，
+管理员补齐最近20交易日或指定单日后才应用新口径。修复不会在部署时自动重跑或重写历史。
+
 ## 发布与任务
 
 - `scheduled.dragon_tiger_flow_cn`：周一至周五 **19:30 Asia/Shanghai**，`analysis` 队列。

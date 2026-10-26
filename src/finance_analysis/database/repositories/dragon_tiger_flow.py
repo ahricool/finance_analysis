@@ -44,7 +44,8 @@ class DragonTigerFlowRepository:
     def has_complete(self, day):
         with self.db.get_session() as session:
             row = session.get(Batch, day)
-            return row is not None and set(row.payload["sources"]) == set(BOARDS) and not row.payload.get("errors")
+            return (row is not None and row.rule_version == VERSION
+                    and set(row.payload["sources"]) == set(BOARDS) and not row.payload.get("errors"))
 
     def publish(self, day, sources, errors, collected_at):
         core = sources.get("all")
