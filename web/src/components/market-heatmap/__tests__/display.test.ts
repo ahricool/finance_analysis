@@ -12,7 +12,7 @@ describe('market heatmap area and colors', () => {
     expect(group.tiles).toHaveLength(100);
     expect(group.tiles[0]!.stock.marketCap).toBe(5e12);
     expect(group.marketCap).toBe(5e12 + 99 * 2e9);
-    expect(group.tiles.some(tile => !tile.showLabel)).toBe(true);
+    expect(group.tiles.some(tile => tile.width < 72 || tile.height < 72)).toBe(true);
   });
   it('keeps all rectangles non-overlapping and inside the panel across widths', () => {
     const rows = Array.from({ length: 100 }, (_, i) => stock(i, 5e12 / (i + 1)));

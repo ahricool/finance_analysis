@@ -44,11 +44,37 @@ for (const width of [390, 768, 1024, 1280, 1440, 1920]) {
       const overflow = await page.getByTestId('heatmap-stock').evaluateAll(tiles => tiles.filter(tile => {
         const box = tile.getBoundingClientRect();
         return [...tile.querySelectorAll('span')].some(label => {
+          if (getComputedStyle(label).visibility === 'hidden' || getComputedStyle(label).display === 'none') return false;
           const rect = label.getBoundingClientRect();
           return label.scrollWidth > label.clientWidth + 1 || rect.left < box.left || rect.right > box.right + 1 || rect.top < box.top || rect.bottom > box.bottom + 1;
         });
       }).map(tile => tile.getAttribute('data-code')));
       expect(overflow).toEqual([]);
+      const labels = page.getByTestId('heatmap-stock-name');
+      await expect(labels).toHaveCount(120);
+      const sizes = await labels.evaluateAll(nodes => nodes.map(node => parseFloat(getComputedStyle(node).fontSize)));
+      expect(sizes.every(size => size >= 5 && size <= 16)).toBe(true);
+      expect(new Set(sizes).size).toBeGreaterThan(1);
+      if (width === 390 && theme === 'light') {
+        const tile = page.getByTestId('heatmap-stock').first();
+        const original = await tile.evaluate(node => {
+          const name = node.querySelector('[data-testid="heatmap-stock-name"]')!;
+          const saved = { style: node.getAttribute('style')!, text: name.textContent! };
+          name.textContent = 'AA';
+          Object.assign((node as HTMLElement).style, { width: '14px', height: '10px' });
+          return saved;
+        });
+        await expect.poll(() => tile.locator('.heatmap-labels').evaluate(node => getComputedStyle(node).fontSize)).toBe('5px');
+        await expect(tile.getByTestId('heatmap-stock-name')).toBeVisible();
+        await expect(tile.getByTestId('heatmap-stock-change')).toBeHidden();
+        await tile.evaluate(node => Object.assign((node as HTMLElement).style, { width: '120px', height: '80px' }));
+        await expect.poll(() => tile.locator('.heatmap-labels').evaluate(node => getComputedStyle(node).fontSize)).toBe('16px');
+        await expect(tile.getByTestId('heatmap-stock-change')).toBeVisible();
+        await tile.evaluate((node, saved) => {
+          node.setAttribute('style', saved.style);
+          node.querySelector('[data-testid="heatmap-stock-name"]')!.textContent = saved.text;
+        }, original);
+      }
       const first = page.getByTestId('heatmap-stock').first();
       await first.click();
       await expect(page.getByRole('dialog')).toHaveCount(1);
