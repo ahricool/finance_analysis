@@ -32,8 +32,6 @@ export interface HeatmapTile {
   y: number;
   width: number;
   height: number;
-  prominent: boolean;
-  showLabel: boolean;
 }
 export interface HeatmapGroup {
   code: string;
@@ -59,7 +57,7 @@ function layout(stocks: HeatmapStock[], width: number, height: number): HeatmapT
   const tiles: HeatmapTile[] = [];
   function split(rows: typeof entries, x: number, y: number, w: number, h: number) {
     if (rows.length === 1) {
-      tiles.push({ stock: rows[0]!.stock, x, y, width: w, height: h, prominent: w >= 110 && h >= 110, showLabel: w >= 72 && h >= 72 });
+      tiles.push({ stock: rows[0]!.stock, x, y, width: w, height: h });
       return;
     }
     const total = rows.reduce((sum, row) => sum + row.weight, 0);

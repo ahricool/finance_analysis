@@ -3,6 +3,7 @@ import { computed, ref } from 'vue';
 import { useElementSize } from '@vueuse/core';
 import type { HeatmapSnapshot, HeatmapStock } from '@/api/marketHeatmap';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { vFitLabel } from './fitLabel';
 import { changeColor, formatCap, formatChange, heatmapGroups } from './display';
 
 const props = withDefaults(defineProps<{ snapshot: HeatmapSnapshot; search?: string; groupCode?: string }>(), {
@@ -51,25 +52,25 @@ const groups = computed(() => heatmapGroups(props.snapshot.items, panelWidth.val
           >
             <TooltipTrigger as-child>
               <button
+                v-fit-label
                 type="button"
                 class="heatmap-tile text-white outline-none hover:brightness-110 focus-visible:z-10 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-foreground"
-                :class="{ 'heatmap-tile-prominent': tile.prominent, 'heatmap-tile-empty': !tile.showLabel }"
                 :style="{ backgroundColor: changeColor(tile.stock.changePct), left: `${tile.x / panelWidth * 100}%`, top: `${tile.y}px`, width: `${tile.width / panelWidth * 100}%`, height: `${tile.height}px` }"
                 :aria-label="`${tile.stock.name} ${tile.stock.code} ${formatChange(tile.stock.changePct)}，总市值 ${formatCap(tile.stock.marketCap, snapshot.market)}，查看详情`"
                 :data-code="tile.stock.code"
                 data-testid="heatmap-stock"
                 @click="emit('select', tile.stock)"
               >
-                <span
-                  v-if="tile.showLabel"
-                  class="heatmap-stock-name"
-                  data-testid="heatmap-stock-name"
-                >{{ snapshot.market === 'US' ? tile.stock.code.replace(/\.US$/, '') : tile.stock.name }}</span>
-                <span
-                  v-if="tile.showLabel"
-                  class="heatmap-stock-change"
-                  data-testid="heatmap-stock-change"
-                >{{ tile.stock.changePct === null ? '—' : formatChange(tile.stock.changePct) }}</span>
+                <span class="heatmap-labels">
+                  <span
+                    class="heatmap-stock-name"
+                    data-testid="heatmap-stock-name"
+                  >{{ snapshot.market === 'US' ? tile.stock.code.replace(/\.US$/, '') : (tile.stock.name?.trim() || tile.stock.code) }}</span>
+                  <span
+                    class="heatmap-stock-change"
+                    data-testid="heatmap-stock-change"
+                  >{{ tile.stock.changePct === null ? '—' : formatChange(tile.stock.changePct) }}</span>
+                </span>
               </button>
             </TooltipTrigger>
             <TooltipContent class="flex-col items-start">
@@ -100,29 +101,24 @@ const groups = computed(() => heatmapGroups(props.snapshot.items, panelWidth.val
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 6px;
+  padding: 1px;
+  overflow: hidden;
   border: 1px solid hsl(var(--background));
   text-align: center;
 }
-.heatmap-tile-empty { padding: 0; }
-.heatmap-stock-name {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  overflow: hidden;
-  max-width: 100%;
-  overflow-wrap: anywhere;
-  font-size: 13px;
+.heatmap-labels {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  width: 100%;
+  min-width: 0;
+  visibility: hidden;
+  white-space: nowrap;
+  font-size: var(--heatmap-font-size, 16px);
   font-weight: 600;
-  line-height: 1.3;
+  line-height: 1.15;
 }
 .heatmap-stock-change {
-  margin-top: 4px;
-  font-size: 12px;
-  font-weight: 600;
-  line-height: 1.3;
   font-variant-numeric: tabular-nums;
 }
-.heatmap-tile-prominent .heatmap-stock-name { font-size: 24px; }
-.heatmap-tile-prominent .heatmap-stock-change { font-size: 17px; }
 </style>
