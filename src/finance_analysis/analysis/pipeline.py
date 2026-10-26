@@ -15,6 +15,7 @@ import logging
 import threading
 import time
 import uuid
+from contextvars import copy_context
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timedelta, timezone
 from typing import List, Dict, Any, Optional, Tuple, Callable
@@ -912,6 +913,7 @@ class StockAnalysisPipeline:
             # 提交任务
             future_to_code = {
                 executor.submit(
+                    copy_context().run,
                     self.process_single_stock,
                     code,
                     skip_analysis=dry_run,

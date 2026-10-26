@@ -32,14 +32,11 @@ def ctx(tmp_path, monkeypatch):
     monkeypatch.setattr(retry, "sleep", wait)
     monkeypatch.setattr(client.time, "sleep", wait)
     config = LLMConfig(
-        fallback_chain="agy,codex,api",
-        timeout=600,
         log_dir=tmp_path,
         cli_ssh_username="u",
         cli_ssh_password="private-ssh",
         api_key="private-api",
         model="openai/api-test",
-        agy_model="agy-test",
         codex_model="codex-test",
     )
     calls = []
@@ -65,9 +62,7 @@ def ctx(tmp_path, monkeypatch):
     return SimpleNamespace(config=config, calls=calls, failures=failures, now=now, waits=waits, db=db)
 
 
-@pytest.mark.parametrize(
-    "success,expected", [("agy", ["agy"]), ("codex", ["agy", "codex"]), ("api", ["agy", "codex", "api"])]
-)
+@pytest.mark.parametrize("success,expected", [("codex", ["codex"]), ("api", ["codex", "api"])])
 def test_order_and_actual_model(ctx, success, expected):
     for name in expected[:-1]:
         ctx.failures[name] = ProviderFailure("quota_exhausted")
@@ -86,11 +81,11 @@ def test_order_and_actual_model(ctx, success, expected):
 
 
 def test_three_retries_per_provider_with_248_backoff(ctx):
-    ctx.failures.update({name: ConnectionError("credential") for name in ("agy", "codex", "api")})
+    ctx.failures.update({name: ConnectionError("credential") for name in ("codex", "api")})
     with pytest.raises(LLMError, match="api:connection_failed"):
         LLMClient(ctx.config).complete_text(LLMRequest("prompt"))
-    assert [c[0] for c in ctx.calls] == ["agy"] * 4 + ["codex"] * 4 + ["api"] * 4
-    assert ctx.waits == [2, 4, 8] * 3
+    assert [c[0] for c in ctx.calls] == ["codex"] * 4 + ["api"] * 4
+    assert ctx.waits == [2, 4, 8] * 2
 
 
 def test_timeout_switches_and_preserves_later_budgets(ctx):
@@ -98,59 +93,20 @@ def test_timeout_switches_and_preserves_later_budgets(ctx):
         ctx.now[0] += request.timeout
         return ProviderFailure("timeout")
 
-    ctx.failures.update(agy=timeout, codex=timeout, api=timeout)
+    ctx.failures.update(codex=timeout, api=timeout)
     with pytest.raises(LLMError, match="api:timeout"):
         LLMClient(ctx.config).complete_text(LLMRequest("prompt"))
-    assert [c[0] for c in ctx.calls] == ["agy", "codex", "api"]
-    assert [c[2].timeout for c in ctx.calls] == [180, 180, 180]
-    assert ctx.now[0] == 540
+    assert [c[0] for c in ctx.calls] == ["codex", "api"]
+    assert [c[2].timeout for c in ctx.calls] == [300, 300]
+    assert ctx.now[0] == 600
     assert ctx.waits == []
 
 
-@pytest.mark.parametrize("total,expected", [(600, 200), (900, 300)])
-def test_longer_global_attempt_limit_still_reserves_fallback_budget(ctx, total, expected):
-    config = replace(ctx.config, timeout=total, attempt_timeout=300)
-
-    def timeout(request):
-        ctx.now[0] += request.timeout
-        return ProviderFailure("timeout")
-
-    ctx.failures.update(agy=timeout, codex=timeout, api=timeout)
-    with pytest.raises(LLMError, match="api:timeout"):
-        LLMClient(config).complete_text(LLMRequest("one earnings event"))
-    assert [call[2].timeout for call in ctx.calls] == [expected] * 3
-    assert ctx.now[0] == total
-
-
-def test_short_override_allocates_budget_to_all_providers(ctx):
-    def timeout(request):
-        ctx.now[0] += request.timeout
-        return TimeoutError()
-
-    ctx.failures.update(agy=timeout, codex=timeout, api=timeout)
-    with pytest.raises(LLMError):
-        LLMClient(ctx.config).complete_text(LLMRequest("prompt", timeout=90))
-    assert [c[2].timeout for c in ctx.calls] == [30, 30, 30]
-    assert ctx.now[0] == 90
-
-
-def test_retry_cannot_consume_fallback_reserve(ctx):
-    def temporary(request):
-        ctx.now[0] += request.timeout
-        return ConnectionError()
-
-    ctx.failures["agy"] = temporary
-    LLMClient(ctx.config).complete_text(LLMRequest("prompt"))
-    assert [c[0] for c in ctx.calls] == ["agy", "agy", "codex"]
-    assert [c[2].timeout for c in ctx.calls] == [180, 58, 180]
-    assert ctx.waits == [2]
-
-
 def test_unconfigured_api_is_audited_without_usage(ctx):
-    ctx.failures.update(agy=TimeoutError(), codex=TimeoutError())
+    ctx.failures.update(codex=TimeoutError())
     with pytest.raises(LLMError, match="api:not_configured"):
         LLMClient(replace(ctx.config, api_key="")).complete_text(LLMRequest("prompt"))
-    assert ctx.db.record_llm_usage.call_count == 2
+    assert ctx.db.record_llm_usage.call_count == 1
     rows = [json.loads(line) for line in next(ctx.config.log_dir.glob("*.log")).read_text().splitlines()]
     assert rows[-1]["status"] == "skipped"
 
@@ -163,7 +119,7 @@ def test_unconfigured_api_is_audited_without_usage(ctx):
     ],
 )
 def test_fatal_failures_do_not_switch(ctx, error):
-    ctx.failures["agy"] = error
+    ctx.failures["codex"] = error
     with pytest.raises(LLMError) as exc:
         LLMClient(ctx.config).complete_text(LLMRequest("prompt"))
     assert len(ctx.calls) == 1
@@ -179,8 +135,8 @@ def test_invalid_output_retries_then_switches(ctx):
             raise ValueError("private invalid result")
 
     result = LLMClient(ctx.config).complete_text(LLMRequest("prompt"), validator=validator)
-    assert result.engine == "codex"
-    assert [c[0] for c in ctx.calls] == ["agy"] * 4 + ["codex"]
+    assert result.backend == "api"
+    assert [c[0] for c in ctx.calls] == ["codex"] * 4 + ["api"]
     assert ctx.waits == [2, 4, 8]
 
 
@@ -203,27 +159,6 @@ def test_error_classification(status, message, code, retryable, fatal):
     assert "private-key" not in str(failure)
 
 
-def test_retry_after_is_bounded_by_stage_budget(ctx):
-    ctx.failures["agy"] = ProviderFailure("rate_limited", retryable=True, retry_after=300)
-    assert LLMClient(ctx.config).complete_text(LLMRequest("prompt")).engine == "codex"
-    assert ctx.waits == []
-
-
-def test_separate_model_settings_and_env(monkeypatch):
-    monkeypatch.setenv("LLM_FALLBACK_CHAIN", "agy,codex,api")
-    monkeypatch.setenv("LLM_AGY_MODEL", "gemini")
-    monkeypatch.setenv("LLM_CODEX_MODEL", "codex")
-    monkeypatch.setenv("LLM_CLI_MODEL", "legacy-must-not-leak")
-    monkeypatch.setenv("LLM_TIMEOUT", "600")
-    get_llm_config.cache_clear()
-    try:
-        config = get_llm_config()
-        assert [c.cli_model for c in config.providers()[:2]] == ["gemini", "codex"]
-        assert config.timeout == 600
-    finally:
-        get_llm_config.cache_clear()
-
-
 def test_validator_programming_error_does_not_retry(ctx):
     def validator(_):
         raise TypeError("programming mistake")
@@ -238,64 +173,25 @@ def test_payment_required_is_not_retried_and_audit_has_budgets(ctx):
     class PaymentRequired(Exception):
         status_code = 402
 
-    ctx.failures.update(agy=ProviderFailure("timeout"), codex=ProviderFailure("timeout"),
-                        api=PaymentRequired("private-api billing details"))
+    ctx.failures.update(codex=ProviderFailure("timeout"), api=PaymentRequired("private-api billing details"))
     with pytest.raises(LLMError, match="api:insufficient_credits"):
         LLMClient(ctx.config).complete_text(LLMRequest("prompt"))
-    assert len(ctx.calls) == 3
+    assert len(ctx.calls) == 2
     assert ctx.waits == []
     content = next(ctx.config.log_dir.glob("*.log")).read_text()
     rows = [json.loads(line) for line in content.splitlines()]
     assert rows[-1]["error"] == "insufficient_credits"
-    assert rows[0]["diagnostics"]["total_budget_ms"] == 600000
-    assert rows[0]["diagnostics"]["attempt_budget_ms"] == 180000
+    assert "total_budget_ms" not in rows[0]["diagnostics"]
+    assert rows[0]["diagnostics"]["attempt_budget_ms"] == 300000
     assert "billing details" not in content
-
-
-def test_diagnostics_are_isolated_across_retry_skipped_provider_and_api(ctx, monkeypatch):
-    providers = ctx.config.providers()
-    providers[1] = replace(providers[1], cli_ssh_username="")
-    monkeypatch.setattr(LLMConfig, "providers", lambda self: providers)
-    requests = []
-
-    def cli(config, request):
-        requests.append(request)
-        assert set(request.diagnostics) == {"total_budget_ms", "remaining_budget_ms", "attempt_budget_ms"}
-        request.diagnostics.update(ssh_ms=12, cli_execution_ms=34, stdout_received=True, stdout_bytes=56)
-        if len(requests) == 1:
-            raise ConnectionError("private transport error")
-        raise ProviderFailure("timeout")
-
-    def complete_api(config, request):
-        requests.append(request)
-        assert set(request.diagnostics) == {"total_budget_ms", "remaining_budget_ms", "attempt_budget_ms"}
-        request.diagnostics["api_ms"] = 78
-        return LLMResult("ok", "api")
-
-    monkeypatch.setattr(remote_cli, "complete", cli)
-    monkeypatch.setattr(api, "complete", complete_api)
-    base = LLMRequest("prompt", diagnostics={"old": 99})
-    assert LLMClient(ctx.config).complete_text(base).text == "ok"
-    rows = [json.loads(line) for line in next(ctx.config.log_dir.glob("*.log")).read_text().splitlines()]
-    assert [row["status"] for row in rows] == ["failed", "failed", "skipped", "success"]
-    assert rows[2]["engine"] == "codex"
-    assert rows[2]["diagnostics"] == {}
-    for row in rows[:2]:
-        assert row["diagnostics"]["ssh_ms"] == 12
-        assert row["diagnostics"]["cli_execution_ms"] == 34
-        assert row["diagnostics"]["stdout_received"] is True
-        assert row["diagnostics"]["stdout_bytes"] == 56
-    assert rows[-1]["diagnostics"]["api_ms"] == 78
-    assert len({id(request.diagnostics) for request in requests}) == 3
-    assert base.diagnostics == {"old": 99}
 
 
 def test_payment_required_falls_back_without_retry(ctx):
     error = RuntimeError("private billing message")
     error.status_code = 402
-    ctx.failures["agy"] = error
-    assert LLMClient(ctx.config).complete_text(LLMRequest("prompt")).engine == "codex"
-    assert [call[0] for call in ctx.calls] == ["agy", "codex"]
+    ctx.failures["codex"] = error
+    assert LLMClient(ctx.config).complete_text(LLMRequest("prompt")).backend == "api"
+    assert [call[0] for call in ctx.calls] == ["codex", "api"]
     assert ctx.waits == []
     content = next(ctx.config.log_dir.glob("*.log")).read_text()
     assert json.loads(content.splitlines()[0])["error"] == "insufficient_credits"

@@ -30,9 +30,27 @@ if TYPE_CHECKING:
     from finance_analysis.analysis.stock_report_analyzer import AnalysisResult
 
 
+def _with_llm_timings(render):
+    from functools import wraps
+    from finance_analysis.llm.timing import timing_markdown
+
+    @wraps(render)
+    def wrapper(self, *args, **kwargs):
+        results = args[0] if args else kwargs.get("results", kwargs.get("result"))
+        content = render(self, *args, **kwargs)
+        if "### LLM 调用耗时" in content:
+            return content
+        items = results if isinstance(results, list) else [results]
+        rows = [row for item in items for row in (getattr(item, "llm_timings", None) or [])]
+        report = timing_markdown(rows=rows)
+        return content + "\n\n" + report if report else content
+    return wrapper
+
+
 class ReportRenderingMixin:
     """Markdown report builders shared by :class:`NotificationService`."""
 
+    @_with_llm_timings
     def generate_daily_report(
         self,
         results: List[AnalysisResult],
@@ -271,6 +289,7 @@ class ReportRenderingMixin:
             self._get_report_language(result),
         )
     
+    @_with_llm_timings
     def generate_dashboard_report(
         self,
         results: List[AnalysisResult],
@@ -551,6 +570,7 @@ class ReportRenderingMixin:
         
         return "\n".join(report_lines)
 
+    @_with_llm_timings
     def generate_brief_report(
         self,
         results: List[AnalysisResult],
@@ -610,6 +630,7 @@ class ReportRenderingMixin:
         lines.append(f"*{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*")
         return "\n".join(lines)
 
+    @_with_llm_timings
     def generate_single_stock_report(self, result: AnalysisResult) -> str:
         """
         生成单只股票的分析报告（用于单股推送模式 #55）

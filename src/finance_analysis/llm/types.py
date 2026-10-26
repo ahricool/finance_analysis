@@ -26,5 +26,7 @@ class LLMResult:
     engine: str | None = None
     model: str | None = None
     usage: dict[str, Any] = field(default_factory=dict)
+    timing: dict[str, Any] = field(default_factory=dict)
+    attempts: list[dict[str, Any]] = field(default_factory=list)
     duration_ms: int = 0
     search_evidence: dict[str, Any] = field(default_factory=dict)

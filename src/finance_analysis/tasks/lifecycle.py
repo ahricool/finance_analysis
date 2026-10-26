@@ -18,6 +18,7 @@ from typing import Any, Callable, Dict, Mapping, Optional, TypeVar
 
 from finance_analysis.core.logging import get_log_base_dir, get_task_log_file, task_logging_context  # pragma: allowlist secret
 from finance_analysis.database.repositories.task_record import TaskRecordRepository  # pragma: allowlist secret
+from finance_analysis.llm.timing import CURRENT_TIMINGS, TimingCollector, timing_rows
 from finance_analysis.core.time import utc_now  # pragma: allowlist secret
 from finance_analysis.tasks.advisory_lock import PostgreSQLAdvisoryLock, TaskAdvisoryLockId  # pragma: allowlist secret
 
@@ -115,6 +116,19 @@ def get_current_task_id() -> Optional[str]:
     """Return the task id bound by ``track_task`` for the current execution context."""
 
     return CURRENT_TASK_ID.get()
+
+
+def _result_with_timings(result):
+    # Business payload keeps its existing limits. Safe timing fields are not
+    # truncated: every attempt must remain inspectable in the final report.
+    summary = _json_summary(result, limit=MAX_RESULT_CHARS)
+    rows = timing_rows()
+    if not rows:
+        return summary
+    value = json.loads(summary) if summary else None
+    value = dict(value) if isinstance(value, dict) else {"value": value}
+    value["llm_timings"] = rows
+    return json.dumps(value, ensure_ascii=False)
 
 
 def _truncate_text(value: str, limit: int) -> str:
@@ -326,7 +340,7 @@ class TaskLifecycleService:
                 status=TaskExecutionStatus.COMPLETED.value,
                 progress=progress,
                 message=message,
-                result=_json_summary(result, limit=MAX_RESULT_CHARS),
+                result=_result_with_timings(result),
                 finished_at=utc_now(),
                 parent_task_id=metadata.parent_task_id,
                 scheduler_job_id=metadata.scheduler_job_id,
@@ -355,7 +369,7 @@ class TaskLifecycleService:
                 progress=100,
                 message=outcome.message,
                 error=_redact_error_text(outcome.message),
-                result=_json_summary(result, limit=MAX_RESULT_CHARS),
+                result=_result_with_timings(result),
                 finished_at=utc_now(),
                 parent_task_id=metadata.parent_task_id,
                 scheduler_job_id=metadata.scheduler_job_id,
@@ -383,7 +397,7 @@ class TaskLifecycleService:
                 status=TaskExecutionStatus.SKIPPED.value,
                 progress=100,
                 message=message,
-                result=_json_summary(result, limit=MAX_RESULT_CHARS),
+                result=_result_with_timings(result),
                 finished_at=utc_now(),
                 parent_task_id=metadata.parent_task_id,
                 scheduler_job_id=metadata.scheduler_job_id,
@@ -442,6 +456,7 @@ class TaskLifecycleService:
                 progress=100,
                 message=message,
                 error=_redact_error_text(error_text),
+                result=_result_with_timings(None),
                 finished_at=utc_now(),
                 parent_task_id=metadata.parent_task_id,
                 scheduler_job_id=metadata.scheduler_job_id,
@@ -569,6 +584,7 @@ def track_task(
             payload = build_payload_from_call(args, kwargs)
             retry_count = _resolve_retry_count()
             service = get_task_lifecycle_service()
+            timing_token = CURRENT_TIMINGS.set(TimingCollector())
             token = CURRENT_TASK_ID.set(task_id)
             with task_logging_context(resolved_task_name, task_id=task_id, celery=celery):
                 service.mark_processing(
@@ -631,6 +647,7 @@ def track_task(
                     if advisory_lock is not None:
                         advisory_lock.release()
                     CURRENT_TASK_ID.reset(token)
+                    CURRENT_TIMINGS.reset(timing_token)
 
         wrapper._finance_tracked_task = True  # type: ignore[attr-defined]
         wrapper._finance_advisory_lock_id = advisory_lock_id  # type: ignore[attr-defined]

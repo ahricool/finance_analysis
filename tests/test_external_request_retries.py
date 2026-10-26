@@ -164,11 +164,11 @@ def test_tickflow_disables_sdk_retries(monkeypatch):
     factory.assert_called_once_with(timeout=30.0, max_retries=0)
 
 
-def test_llm_budget_includes_backoff(monkeypatch, tmp_path, external_retry_waits):
+def test_llm_timeout_does_not_retry(monkeypatch, tmp_path, external_retry_waits):
     from finance_analysis.llm import LLMClient, LLMError, LLMRequest, api
     from finance_analysis.llm.config import LLMConfig
 
-    client = LLMClient(LLMConfig(model="test", api_key="test", timeout=1, log_dir=tmp_path))
+    client = LLMClient(LLMConfig(model="test", api_key="test", attempt_timeout=300, log_dir=tmp_path))
     monkeypatch.setattr(client, "_record", lambda *args, **kwargs: None)
     operation = Mock(side_effect=TimeoutError())
     monkeypatch.setattr(api, "complete", operation)

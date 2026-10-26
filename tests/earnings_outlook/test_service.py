@@ -569,7 +569,7 @@ def test_noop_batch_does_not_collect_public_context(setup, monkeypatch):
     # Execute the real service serially for SQLite's connection affinity.
     @contextmanager
     def inline_pool(**kwargs):
-        yield NS(map=map)
+        yield NS(submit=lambda fn, *args: NS(result=lambda: fn(*args)))
 
     monkeypatch.setattr("finance_analysis.earnings_outlook.service.ThreadPoolExecutor", inline_pool)
     assert service.run("daily")["results"][0]["status"] == "cached"

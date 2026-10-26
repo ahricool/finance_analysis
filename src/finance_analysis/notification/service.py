@@ -47,6 +47,7 @@ from finance_analysis.notification.senders import (  # pragma: allowlist secret
     TelegramSender,
     resolve_ntfy_endpoint,
 )
+from finance_analysis.llm.timing import append_timings, without_timings
 from finance_analysis.reporting.markdown_renderer import ReportRenderingMixin  # pragma: allowlist secret
 
 logger = logging.getLogger(__name__)
@@ -387,6 +388,9 @@ class NotificationService(
         Business callers must use notification_id, never push_sent, to mark a
         message handled. Noise control and image rendering use the actual push body.
         """
+        content = append_timings(content, uid)
+        if push_content is not None:
+            push_content = append_timings(push_content, uid)
         notification_id = self.persist(content, uid=uid, title=title, route_type=route_type, severity=severity)
         self.last_notification_id = notification_id
         result = NotificationResult(notification_id=notification_id)
@@ -450,7 +454,7 @@ class NotificationService(
             logger.info("通知路由 %s 未命中外部渠道，跳过推送", route_type)
             return
         noise_decision = self.evaluate_noise_control(
-            content,
+            without_timings(content),
             route_type=route_type,
             severity=severity,
             dedup_key=dedup_key,

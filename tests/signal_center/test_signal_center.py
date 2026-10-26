@@ -412,10 +412,10 @@ def test_signal_exposes_only_shared_client_safe_failure_chain():
     from finance_analysis.llm import LLMError
     repo, client = Repo(), Client()
     def failed(*args, **kwargs):
-        raise LLMError('LLM failed: agy:quota_exhausted → codex:timeout → api:authentication_failed')
+        raise LLMError('LLM failed: codex:timeout → api:authentication_failed')
     client.complete_text = failed
     with pytest.raises(LLMError):
         SignalCenterService(repo, client, lock).run('CN', DAY, deadline=True)
-    assert repo.run_record['error'].startswith('LLM failed: agy:quota_exhausted')
+    assert repo.run_record['error'].startswith('LLM failed: codex:timeout')
     assert repo.run_record['status'] == 'failed'
     assert repo.run_record.get('decision') is None

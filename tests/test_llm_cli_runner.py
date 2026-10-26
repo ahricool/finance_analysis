@@ -44,41 +44,6 @@ print("secret credentials never forwarded",file=sys.stderr)
     assert not list(tmp_path.glob(".llm-*"))
 
 
-def test_agy_quota_in_private_log_fails_fast(tmp_path):
-    started = time.monotonic()
-    result, receipt = run(
-        tmp_path,
-        """import sys,time
-from pathlib import Path
-p=Path(sys.argv[sys.argv.index('--log-file')+1])
-p.write_text('W cache.go:135] You are not logged into Antigravity.\\n'
-             'I model_config_manager.go:327] label="Gemini Test (High)"\\n'
-             'I run.go:389] Run: attempt 1 failed (RESOURCE_EXHAUSTED (code 429): Individual quota reached. private-secret), retrying in 4s\\n')
-time.sleep(60)
-""",
-        engine="agy",
-        timeout=8,
-    )
-    assert time.monotonic() - started < 4
-    assert receipt == dict(code="quota_exhausted", cleaned=True, model="Gemini Test (High)")
-    assert "private-secret" not in result.stdout + result.stderr
-    assert not list(tmp_path.glob(".llm-*"))
-
-
-def test_startup_auth_warning_does_not_fail_successful_agy(tmp_path):
-    result, receipt = run(
-        tmp_path,
-        """import sys,json,time
-from pathlib import Path
-Path(sys.argv[sys.argv.index('--log-file')+1]).write_text('W cache.go:135] error getting token: You are not logged into Antigravity.\\n')
-time.sleep(.1)
-print(json.dumps({'event':'result','result':{'status':'SUCCESS','response':'quota_exhausted is only answer text'}}))
-""",
-        engine="agy",
-    )
-    assert result.returncode == 0 and receipt["code"] is None
-
-
 def test_timeout_kills_child_and_does_not_touch_unrelated_process(tmp_path):
     unrelated = subprocess.Popen([sys.executable, "-c", "import time;time.sleep(60)"])
     try:
