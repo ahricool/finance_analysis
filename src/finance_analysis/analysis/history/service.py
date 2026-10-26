@@ -503,6 +503,7 @@ class HistoryService:
                 current_price=raw_result.get("current_price"),
                 change_pct=raw_result.get("change_pct"),
                 model_used=raw_result.get("model_used"),
+                llm_timings=raw_result.get("llm_timings"),
             )
         except Exception as e:
             logger.exception(f"Failed to rebuild AnalysisResult: {e}", exc_info=True)

@@ -3,6 +3,7 @@
 import json
 import logging
 import time
+from contextvars import copy_context
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from datetime import timedelta
@@ -102,7 +103,8 @@ class EarningsOutlookService:
                 return dict(event_id=event.id, status="failed", error=str(exc))
 
         with ThreadPoolExecutor(max_workers=self.config.concurrency) as pool:
-            results = list(pool.map(process, events))
+            futures = [pool.submit(copy_context().run, process, event) for event in events]
+            results = [future.result() for future in futures]
         if results and all(r["status"] == "failed" for r in results):
             raise RuntimeError("All earnings outlook events failed; see event state and task logs")
         return dict(stage=stage, results=results)

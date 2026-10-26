@@ -333,6 +333,29 @@ describe('TasksPage', () => {
     wrapper.unmount();
   });
 
+  it('shows each LLM fallback attempt and waiting time in failed task details', async () => {
+    vi.mocked(tasksApi.getTaskRunDetail).mockResolvedValue({
+      ...sampleRun,
+      status: 'failed',
+      result: { llmTimings: [{
+        requestId: 'request123456', callType: 'earnings_research', durationMs: 320000, retryWaitMs: 2000,
+        attempts: [
+          { provider: 'codex', attempt: 1, durationMs: 298000, status: 'timeout' },
+          { provider: 'api', attempt: 1, durationMs: 20000, status: 'insufficient_credits' },
+        ],
+      }] },
+    });
+    const wrapper = await mountPage('/tasks/runs');
+    await wrapper.get('table').findAll('tbody tr')[0].trigger('click');
+    await flushPromises();
+    const timings = document.body.querySelector('[data-testid="llm-timings"]');
+    expect(timings?.textContent).toContain('earnings_research');
+    expect(timings?.textContent).toContain('codex · 第 1 次 · 298.00s · timeout');
+    expect(timings?.textContent).toContain('api · 第 1 次 · 20.00s · insufficient_credits');
+    expect(timings?.textContent).toContain('重试等待 2.00s');
+    wrapper.unmount();
+  });
+
   it('loads unfiltered overview stats separately from the filtered table query', async () => {
     const wrapper = await mountPage('/tasks/runs');
 

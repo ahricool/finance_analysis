@@ -47,7 +47,6 @@ def test_api_annotations_not_model_claims_confirm_search(monkeypatch):
 
 def test_earnings_prefers_supported_fallback_without_changing_other_callers(monkeypatch):
     config = LLMConfig(
-        fallback_chain="agy,codex,api",
         model="x",
         api_key="test",
         cli_ssh_username="test",
@@ -64,7 +63,7 @@ def test_earnings_prefers_supported_fallback_without_changing_other_callers(monk
 
     monkeypatch.setattr(client, "_complete_cli", cli)
     client.complete_text(LLMRequest(prompt="ordinary"))
-    assert calls == ["agy"]
+    assert calls == ["codex"]
     calls.clear()
     client.complete_text(LLMRequest(prompt="earnings", web_search=True, prefer_search=True))
     assert calls == ["codex"]

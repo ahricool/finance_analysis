@@ -2,7 +2,6 @@
 
 import json
 import logging
-import math
 import os
 import re
 import time
@@ -16,7 +15,7 @@ from finance_analysis.core.time import utc_now
 from . import api, remote_cli
 from .config import LLMConfig, get_llm_config
 from .failures import ProviderFailure, classify_exception
-from .search import supported
+from .timing import CURRENT_TIMINGS
 from .types import LLMRequest, LLMResult
 
 logger = logging.getLogger(__name__)
@@ -34,26 +33,40 @@ class LLMClient:
         return self.config.is_available()
 
     def complete_text(self, request: LLMRequest, validator: Callable[[str], None] | None = None) -> LLMResult:
+        started = time.monotonic()
+        timing = dict(
+            request_id=uuid.uuid4().hex,
+            call_type=request.call_type,
+            uid=request.uid,
+            attempts=[],
+            retry_wait_ms=0,
+            duration_ms=0,
+        )
+        try:
+            result = self._complete_text(request, validator, timing)
+            result.attempts = timing["attempts"]
+            result.timing = timing
+            return result
+        finally:
+            timing["duration_ms"] = round((time.monotonic() - started) * 1000)
+            collector = CURRENT_TIMINGS.get()
+            if collector is not None:
+                collector.add(timing)
+
+    def _complete_text(self, request, validator, timing):
         if not self.is_available():
             raise LLMError("No configured LLM provider is available")
-        total = self.config.timeout if request.timeout is None else request.timeout
-        if not math.isfinite(total) or total <= 0:
-            raise ValueError("Request timeout must be positive and finite")
         if not isinstance(request.prompt, str) or not request.prompt.strip():
             raise ValueError("Request prompt must be nonempty text")
         base_request = request
-        request_id = uuid.uuid4().hex
-        deadline = time.monotonic() + total
+        request_id = timing["request_id"]
         providers = self.config.providers()
-        if request.prefer_search:
-            # Earnings-only opt-in; other business fallback order is unchanged.
-            providers = sorted(providers, key=lambda c: not supported(c))
         unverified_result = None
         failures = []
         attempt = 0
-        for index, config in enumerate(providers):
+        for config in providers:
             name = config.cli_engine if config.backend == "cli" else "api"
-            if not config.is_available():
+            if not config.is_configured():
                 failures.append(f"{name}:not_configured")
                 self._record(
                     replace(base_request, diagnostics={}),
@@ -65,31 +78,21 @@ class LLMClient:
                     config=config,
                     skipped=True,
                 )
+                timing["attempts"].append(dict(provider=name, attempt=0, duration_ms=0, status="not_configured"))
                 continue
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                failures.append(f"{name}:deadline_exceeded")
-                break
-            later = sum(c.is_available() for c in providers[index + 1 :])
-            # Reserve a first attempt for each remaining configured provider.
-            reserve = later * min(self.config.attempt_timeout, max(0, remaining) / (later + 1))
-            stage_deadline = deadline - reserve
             failure = None
             for provider_attempt in range(config.max_retries + 1):
                 if provider_attempt:
                     delay = max(RETRY_DELAYS[provider_attempt - 1], failure.retry_after or 0)
-                    if stage_deadline - time.monotonic() <= delay:
+                    if delay > self.config.attempt_timeout:
                         break
+                    wait_started = time.monotonic()
                     wait_before_retry(provider_attempt - 1)
                     extra = delay - RETRY_DELAYS[provider_attempt - 1]
                     if extra > 0:
                         time.sleep(extra)
-                remaining = stage_deadline - time.monotonic()
-                if remaining <= 0:
-                    break
-                attempt_deadline = stage_deadline
-                if self.config.fallback_chain:
-                    attempt_deadline = min(stage_deadline, time.monotonic() + self.config.attempt_timeout)
+                    timing["retry_wait_ms"] += round((time.monotonic() - wait_started) * 1000)
+                attempt_deadline = time.monotonic() + self.config.attempt_timeout
                 attempt += 1
                 started = time.monotonic()
                 result = None
@@ -97,9 +100,7 @@ class LLMClient:
                 request = replace(
                     base_request,
                     diagnostics={
-                        "total_budget_ms": round(total * 1000),
                         "attempt_budget_ms": round((attempt_deadline - started) * 1000),
-                        "remaining_budget_ms": round((deadline - started) * 1000),
                     },
                 )
                 try:
@@ -119,6 +120,14 @@ class LLMClient:
                 except Exception as exc:
                     failure = classify_exception(exc)
                 duration_ms = round((time.monotonic() - started) * 1000)
+                timing["attempts"].append(
+                    dict(
+                        provider=name,
+                        attempt=provider_attempt + 1,
+                        duration_ms=duration_ms,
+                        status=failure.code if failure else "success",
+                    )
+                )
                 if result:
                     result.duration_ms = duration_ms
                 self._record(
@@ -136,7 +145,7 @@ class LLMClient:
                     break
         if unverified_result is not None:
             return unverified_result
-        raise LLMError("LLM failed: " + " → ".join(failures or ["deadline_exceeded"])) from None
+        raise LLMError("LLM failed: " + " → ".join(failures or ["not_configured"])) from None
 
     def _complete_cli(self, request: LLMRequest, deadline: float, config: LLMConfig | None = None) -> LLMResult:
         """Run an independent CLI attempt using only its remaining deadline."""

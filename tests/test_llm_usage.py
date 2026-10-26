@@ -46,7 +46,7 @@ def test_usage_keeps_failed_attempts_and_uid_scope():
         uid=2,
         call_type="generic",
         backend="cli",
-        engine="agy",
+        engine="codex",
         model=None,
         status="failed",
         error="x" * 900,
@@ -59,7 +59,7 @@ def test_usage_keeps_failed_attempts_and_uid_scope():
     assert scoped["by_model"][0]["model"] == "unknown"
     with store.session_scope() as session:
         row = session.scalars(sa.select(LLMUsage).where(LLMUsage.uid == 2)).one()
-        assert row.backend == "cli" and row.engine == "agy" and len(row.error) == 500
+        assert row.backend == "cli" and row.engine == "codex" and len(row.error) == 500
     store.engine.dispose()
 
 

@@ -132,6 +132,7 @@ class AnalysisResult:
     change_pct: Optional[float] = None     # 分析时的涨跌幅(%)
 
     # ========== 模型标记（Issue #528）==========
+    llm_timings: Optional[List[Dict[str, Any]]] = None
     model_used: Optional[str] = None  # 分析使用的 LLM 模型（完整名，如 gemini/gemini-2.0-flash）
 
     # ========== 历史对比（Report Engine P0）==========
@@ -170,6 +171,7 @@ class AnalysisResult:
             'current_price': self.current_price,
             'change_pct': self.change_pct,
             'model_used': self.model_used,
+            'llm_timings': self.llm_timings,
         }
 
     def get_core_conclusion(self) -> str:
@@ -565,6 +567,7 @@ class StockReportAnalyzer:
             result.raw_response = response.text
             result.market_snapshot = self._build_market_snapshot(context)
             result.model_used = response.model
+            result.llm_timings = [{k: v for k, v in response.timing.items() if k != "uid"}] if response.timing else []
             result.report_language = report_language
             if config.report_integrity_enabled:
                 _, missing_fields = self._check_content_integrity(result)

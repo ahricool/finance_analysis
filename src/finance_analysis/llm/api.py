@@ -30,7 +30,7 @@ def complete(config: LLMConfig, request: LLMRequest) -> LLMResult:
         api_key=config.api_key,
         messages=messages,
         temperature=temperature,
-        timeout=request.timeout or config.timeout,
+        timeout=request.timeout or config.attempt_timeout,
         num_retries=0,
     )
     if config.base_url:
