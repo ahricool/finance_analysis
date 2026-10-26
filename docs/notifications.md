@@ -51,3 +51,12 @@ Alembic `0049_notification_center` 接在 `0048_trend_duration_days` 后：创�
 上线需一起更新应用和 Worker，避免旧进程继续写 Timeline 或访问已删除列。生产库升级会清空旧 Timeline 报告；迁移测试在独立测试库验证。
 
 通用 `notification/noise_control.py` 保持原实现；dedup、cooldown、quiet hours、severity 和 in-flight reservation 没有迁移到 Redis/PostgreSQL，也没有重设计。
+
+
+### 文本推送统一分段
+
+外部发送前复用 ntfy 的 UTF-8 字节分段算法：每段最多4096字节（含 `[i/N]` 序号），
+优先换行切分，超长单行继续拆分，原文不丢失。启用 ntfy 时同时计入 topic/title 与 JSON 转义后的8192字节限制。
+Telegram 与 ntfy 接收同一组文本分段，Telegram Markdown失败时以同段原文回退纯文本。
+某渠道分段失败后停止该渠道后续发送，渠道结果为失败，另一渠道仍独立发送；不自动重发已成功的前段。
+站内消息仍保存完整正文，降噪与去重按整条消息处理，图片推送路径保持原有行为。

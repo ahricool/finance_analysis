@@ -475,16 +475,32 @@ class NotificationService(
                     image_bytes = markdown_to_image(content, max_chars=self._markdown_to_image_max_chars)
                 except Exception:
                     logger.exception("Markdown image conversion failed; falling back to text")
+            from finance_analysis.notification.chunking import split_message
+            from finance_analysis.notification.senders.ntfy import split_ntfy_message
+            from datetime import datetime
+
+            # Apply ntfy's complete wire limits once before dispatching either channel.
+            title = f"📈 Finance Analysis 报告 - {datetime.now():%Y-%m-%d}"
+            _, topic = self._resolve_ntfy_endpoint()
+            if NotificationChannel.NTFY in target_channels and topic:
+                try:
+                    parts = split_ntfy_message(topic, title, content)
+                except ValueError:
+                    # Invalid ntfy metadata must not block Telegram delivery.
+                    parts = split_message(content)
+            else:
+                parts = split_message(content)
             for channel in target_channels:
                 try:
                     use_image = self._should_use_image_for_channel(channel, image_bytes)
                     result.push_attempted = True
                     if channel == NotificationChannel.TELEGRAM:
-                        push_sent = (
-                            self._send_telegram_photo(image_bytes) if use_image else self.send_to_telegram(content)
-                        )
+                        if use_image:
+                            push_sent = self._send_telegram_photo(image_bytes)
+                        else:
+                            push_sent = all(self.send_to_telegram(part) for part in parts)
                     else:
-                        push_sent = self.send_to_ntfy(content)
+                        push_sent = all(self.send_to_ntfy(part, title=title) for part in parts)
                     result.channel_results[channel.value] = bool(push_sent)
                     result.push_sent = bool(push_sent) or result.push_sent
                     if not push_sent:
