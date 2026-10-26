@@ -311,3 +311,7 @@ context 包含公共快照首次采集/等待；两类LLM阶段耗时包含槽�
 total还包含事件锁连接、资格判断与业务持久化。这些阶段耗时有包含关系，不能直接全部相加。
 结合现有LLM JSONL的attempt、search_evidence、ssh_ms、cli_execution_ms、api_ms定位瓶颈。
 本次保持模型回退和搜索证据要求，不基于模型自述判定搜索成功。实际生产加速幅度需由日志确认。
+
+### 美股盘前分析日 K 回退
+
+盘前个股分析通过 MarketDataService.get_daily_bars 使用 db_latest + required_dates 读取完整60交易日前复权窗口。DB为空、尾部过期或窗口内部缺日时复用 Provider 回退；完整远程窗口只在当前股票的分析上下文中使用，趋势指标与 LLM 输入使用同一数据，不写入日线或改变 Universe。API仍无法提供完整数据时，只将该股票标记失败；其他证券继续执行。任务结果 failures 列出代码与原因，最终汇总消息附带失败说明，全部失败也生成说明。其他分析入口仍使用原有历史数据策略。

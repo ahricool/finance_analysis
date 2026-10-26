@@ -80,6 +80,7 @@ class StockAnalysisPipeline:
         progress_callback: Optional[Callable[[int, str], None]] = None,
         owner_uid: Optional[int] = None,
         realtime_source: Any = None,
+        allow_history_fallback: bool = False,
     ):
         """
         初始化调度器
@@ -88,6 +89,8 @@ class StockAnalysisPipeline:
             config: 配置对象（可选，默认使用全局配置）
             max_workers: 最大并发线程数（可选，默认从配置读取）
         """
+        self.allow_history_fallback = allow_history_fallback
+        self.failures = []
         self.config = config or get_pipeline_config()
         self.max_workers = max_workers or self.config.max_workers
         self.source_message = source_message
@@ -281,9 +284,11 @@ class StockAnalysisPipeline:
                 frozen = get_frozen_target_date()
                 end_date = frozen if frozen else get_market_now(_mkt).date()
                 start_date = end_date - timedelta(days=89)  # ~60 trading days for MA60
-                historical_bars = self.db.get_data_range(code, start_date, end_date)
-                if historical_bars:
-                    df = pd.DataFrame([bar.to_dict() for bar in historical_bars])
+                from finance_analysis.analysis.history.prepared import prepared_history
+                prepared = prepared_history.get()
+                historical_bars = self.db.get_data_range(code, start_date, end_date) if prepared is None else []
+                if prepared is not None or historical_bars:
+                    df = prepared.copy() if prepared is not None else pd.DataFrame([bar.to_dict() for bar in historical_bars])
                     # Issue #234: Augment with realtime for intraday MA calculation
                     if self.config.enable_realtime_quote and realtime_quote:
                         df = self._augment_historical_with_realtime(df, realtime_quote, code)
@@ -295,7 +300,9 @@ class StockAnalysisPipeline:
 
             # Step 5: 获取分析上下文（技术面数据）
             self._emit_progress(58, f"{stock_name}：正在整理分析上下文")
-            context = self.db.get_analysis_context(code)
+            from finance_analysis.analysis.history.prepared import prepared_history, analysis_context
+            prepared = prepared_history.get()
+            context = analysis_context(code, prepared) if prepared is not None else self.db.get_analysis_context(code)
 
             if context is None:
                 logger.warning(f"{stock_name}({code}) 无法获取历史行情数据，将仅基于现有上下文和实时行情分析")
@@ -371,6 +378,9 @@ class StockAnalysisPipeline:
         except Exception as e:
             logger.exception(f"{stock_name}({code}) 分析失败: {e}")
             logger.exception(f"{stock_name}({code}) 详细错误信息:")
+            if getattr(self, "allow_history_fallback", False):
+                return AnalysisResult(code=code, name=stock_name, sentiment_score=0, trend_prediction="",
+                                      operation_advice="", success=False, error_message=str(e))
             return None
     
     def _enhance_context(
@@ -775,12 +785,16 @@ class StockAnalysisPipeline:
         from finance_analysis.analysis.history.loader import set_frozen_target_date, reset_frozen_target_date
         frozen_td = self._resolve_resume_target_date(code, current_time=current_time)
         token = set_frozen_target_date(frozen_td)
+        from finance_analysis.analysis.history.prepared import prepared_history, load_analysis_history
+        history_token = prepared_history.set(None)
         try:
             self._emit_progress(12, f"{code}：正在准备分析任务")
-            # Step 1: 获取并保存数据
-            success, error = self.fetch_and_save_stock_data(
-                code, current_time=current_time
-            )
+            # Step 1: 准备本次分析所需的历史数据
+            if getattr(self, "allow_history_fallback", False):
+                prepared_history.set(load_analysis_history(self.fetcher_manager, code, frozen_td))
+                success, error = True, None
+            else:
+                success, error = self.fetch_and_save_stock_data(code, current_time=current_time)
             
             if not success:
                 raise RuntimeError(error or f"Historical market data missing for {code}")
@@ -818,8 +832,12 @@ class StockAnalysisPipeline:
         except Exception as e:
             # 捕获所有异常，确保单股失败不影响整体
             logger.exception(f"[{code}] 处理过程发生未知异常: {e}")
+            if getattr(self, "allow_history_fallback", False):
+                return AnalysisResult(code=code, name=code, sentiment_score=0, trend_prediction="",
+                                      operation_advice="", success=False, error_message=str(e))
             return None
         finally:
+            prepared_history.reset(history_token)
             reset_frozen_target_date(token)
     
     def run(
@@ -847,6 +865,7 @@ class StockAnalysisPipeline:
         Returns:
             分析结果列表
         """
+        self.failures = []
         start_time = time.time()
         
         # 从数据库 watch_list 表读取自选股列表（与 WebUI 自选股管理保持一致）
@@ -873,10 +892,12 @@ class StockAnalysisPipeline:
         for code in stock_codes:
             market_batches.setdefault(infer_market(code), []).append(code)
         if len(stock_codes) >= 5:
-            prefetch_count = sum(
-                len(self.fetcher_manager.get_realtime_quotes(codes).data)
-                for codes in market_batches.values()
-            )
+            prefetch_count = 0
+            for codes in market_batches.values():
+                try:
+                    prefetch_count += len(self.fetcher_manager.get_realtime_quotes(codes).data)
+                except Exception:
+                    logger.warning("批量报价预取失败，继续逐股分析", exc_info=True)
             if prefetch_count > 0:
                 logger.info(f"已启用批量预取架构：一次拉取全市场数据，{len(stock_codes)} 只股票共享缓存")
 
@@ -884,7 +905,10 @@ class StockAnalysisPipeline:
         # dry_run 仅做数据拉取，不需要名称预取，避免额外网络开销
         if not dry_run:
             for codes in market_batches.values():
-                self.fetcher_manager.get_instrument_info(codes)
+                try:
+                    self.fetcher_manager.get_instrument_info(codes)
+                except Exception:
+                    logger.warning("批量证券名称预取失败，继续逐股分析", exc_info=True)
 
         # 单股推送模式（#55）：从配置读取
         single_stock_notify = getattr(self.config, 'single_stock_notify', False)
@@ -938,7 +962,11 @@ class StockAnalysisPipeline:
                                 report_type=report_type,
                                 fallback_code=code,
                             )
-                    elif result and not result.success:
+                    elif not dry_run:
+                        self.failures.append({"code": code, "reason": (
+                            result.error_message if result else "分析未返回有效报告，请查看任务日志"
+                        ) or "未知分析错误"})
+                    if result and not result.success:
                         logger.warning(
                             f"[{code}] 分析结果标记为失败，不计入汇总: "
                             f"{result.error_message or '未知原因'}"
@@ -954,8 +982,11 @@ class StockAnalysisPipeline:
                         time.sleep(analysis_delay)
 
                 except Exception as e:
+                    self.failures.append({"code": code, "reason": str(e)})
                     logger.exception(f"[{code}] 任务执行失败: {e}")
         
+        self.failures.sort(key=lambda item: item["code"])
+
         # 统计
         elapsed_time = time.time() - start_time
         
@@ -981,8 +1012,10 @@ class StockAnalysisPipeline:
         logger.info(f"成功: {success_count}, 失败: {fail_count}, 耗时: {elapsed_time:.2f} 秒")
         
         # A single-report mode stores each report; aggregate mode stores only the aggregate.
-        if results and not dry_run:
-            if single_stock_notify and send_notification:
+        if (results or self.failures) and not dry_run:
+            if self.failures:
+                self._send_notifications(results, report_type, push=send_notification and not merge_notification)
+            elif single_stock_notify and send_notification:
                 self._send_notifications(results, report_type, skip_push=True)
             elif merge_notification and send_notification:
                 self._send_notifications(results, report_type, skip_push=True)
@@ -1039,8 +1072,13 @@ class StockAnalysisPipeline:
         if skip_push:
             return
         try:
-            report = self._generate_aggregate_report(results, report_type)
-            codes = ",".join(sorted(str(result.code) for result in results))
+            report = self._generate_aggregate_report(results, report_type) if results else "# 股票分析结果"
+            failures = getattr(self, "failures", [])
+            if failures:
+                report += "\n\n## 分析失败\n" + "\n".join(
+                    f"- {item['code']}：{item['reason']}" for item in failures
+                )
+            codes = ",".join(sorted({str(result.code) for result in results} | {item["code"] for item in failures}))
             key = f"report:aggregate:{report_type.value}:{codes}"
             self.notifier.send(
                 report, uid=getattr(self, "notification_uid", None), route_type="report", severity="info",
