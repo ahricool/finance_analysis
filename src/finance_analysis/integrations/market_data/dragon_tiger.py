@@ -35,9 +35,54 @@ def amount(value):
     return str(number.quantize(Decimal("0.01")))
 
 
+def source_rows(data, board):
+    """Read raw records without inventing identities for absent thscode values."""
+    if not isinstance(data, dict):
+        raise ValueError("Invalid Dragon Tiger response")
+    stocks, groups = data.get("stock_items"), data.get("hot_money_items")
+    if not isinstance(stocks, list) or not isinstance(groups, list):
+        raise ValueError("Invalid Dragon Tiger rows")
+    if (board == "hot_money" and stocks) or (board != "hot_money" and groups):
+        raise ValueError("Unexpected Dragon Tiger board structure")
+    if board != "hot_money":
+        rows = stocks
+    else:
+        rows = []
+        for group in groups:
+            if not isinstance(group, dict) or not isinstance(group.get("name"), str) or not group["name"].strip():
+                raise ValueError("Invalid Dragon Tiger hot-money group")
+            if not isinstance(group.get("rows"), list):
+                raise ValueError("Invalid Dragon Tiger hot-money rows")
+            rows.extend(group["rows"])
+    if any(not isinstance(row, dict) for row in rows):
+        raise ValueError("Invalid Dragon Tiger row")
+    return rows
+
+
+def source_identity(row):
+    # Upstream stock_count counts raw ticker identities, including instruments
+    # without a resolved thscode. This identity is ONLY for count validation.
+    ticker = row.get("ticker")
+    if isinstance(ticker, str) and re.fullmatch(r"\d{6}", ticker):
+        return ticker
+    symbol = row.get("thscode")
+    if isinstance(symbol, str) and re.fullmatch(r"\d{6}\.(SH|SZ|BJ)", symbol):
+        return symbol.split(".")[0]
+    return None
+
+
+def is_bond_code(symbol):
+    # CN 11/12 bond-code families must not enter equity research even if a
+    # mistaken security-master row classifies the instrument as a stock.
+    return isinstance(symbol, str) and bool(re.fullmatch(r"1[12]\d{4}\.(SH|SZ|BJ)", symbol))
+
+
 def normalize_row(row):
     if not isinstance(row, dict) or not re.fullmatch(r"\d{6}\.(SH|SZ|BJ)", str(row.get("thscode", ""))):
         raise ValueError("Invalid Dragon Tiger stock code")
+    ticker = row.get("ticker")
+    if isinstance(ticker, str) and re.fullmatch(r"\d{6}", ticker) and ticker != row["thscode"].split(".")[0]:
+        raise ValueError("Dragon Tiger ticker/code mismatch")
     if type(row.get("range_days")) is not int or row["range_days"] not in OBSERVATION_PERIODS + AUDIT_ONLY_PERIODS:
         raise ValueError("Invalid Dragon Tiger period")
     concepts = row.get("concept_list") or []
@@ -55,25 +100,42 @@ def normalize_row(row):
     }
 
 
-def normalize_source(data, day: date, board: str):
+def normalize_source(data, day: date, board: str, *, allowed_symbols=None):
     if not isinstance(data, dict) or data.get("trade_date") != day.isoformat() or data.get("board_type") != board:
         raise ValueError("Dragon Tiger response date/board mismatch")
     for key in ("count", "stock_count"):
         if type(data.get(key)) is not int or data[key] < 0:
             raise ValueError("Invalid Dragon Tiger count")
-    stocks, groups = data.get("stock_items"), data.get("hot_money_items")
-    if not isinstance(stocks, list) or not isinstance(groups, list):
-        raise ValueError("Invalid Dragon Tiger rows")
-    if (board == "hot_money" and stocks) or (board != "hot_money" and groups):
-        raise ValueError("Unexpected Dragon Tiger board structure")
+    raw_rows = source_rows(data, board)
+    stocks, groups = data["stock_items"], data["hot_money_items"]
+    discarded = {"missing_thscode": 0, "bond": 0, "not_in_instrument": 0}
+
+    def keep(raw):
+        symbol = raw.get("thscode")
+        if symbol is None or (isinstance(symbol, str) and not symbol.strip()):
+            discarded["missing_thscode"] += 1
+            return False
+        if is_bond_code(symbol):
+            discarded["bond"] += 1
+            return False
+        if allowed_symbols is not None and (not isinstance(symbol, str) or symbol not in allowed_symbols):
+            discarded["not_in_instrument"] += 1
+            return False
+        return True
+
     rows, details, duplicates = {}, {}, 0
     if board != "hot_money":
+        identities = [source_identity(raw) for raw in stocks]
+        known = {identity for identity in identities if identity is not None}
+        unknown = identities.count(None)
         if (
             len(stocks) != data["count"]
-            or len({r.get("thscode") for r in stocks if isinstance(r, dict)}) != data["stock_count"]
+            or not max(len(known), bool(stocks)) <= data["stock_count"] <= len(known) + unknown
         ):
             raise ValueError("Incomplete Dragon Tiger stock board")
         for raw in stocks:
+            if not keep(raw):
+                continue
             row = normalize_row(raw)
             key = (row["symbol"], row["range_days"])
             if key in rows:
@@ -89,6 +151,8 @@ def normalize_source(data, day: date, board: str):
             if not isinstance(group.get("rows"), list):
                 raise ValueError("Invalid Dragon Tiger hot-money rows")
             for raw in group["rows"]:
+                if not keep(raw):
+                    continue
                 row = normalize_row(raw)
                 row["hot_money_name"] = group["name"].strip()
                 key = (row["hot_money_name"], row["symbol"], row["range_days"])
@@ -100,8 +164,8 @@ def normalize_source(data, day: date, board: str):
     timestamp = data.get("timestamp")
     if not isinstance(timestamp, (int, float)) or isinstance(timestamp, bool) or not math.isfinite(timestamp):
         raise ValueError("Invalid Dragon Tiger source timestamp")
-    # Partition only after validating counts, fields and duplicate conflicts for
-    # the complete response. Keep excluded evidence in the persisted source.
+    # Partition retained instruments after raw count and retained-field checks.
+    # Extended-period evidence stays separate from 1/3-day observations.
     excluded_rows = [r for r in rows.values() if r["range_days"] in AUDIT_ONLY_PERIODS]
     excluded_details = [r for r in details.values() if r["range_days"] in AUDIT_ONLY_PERIODS]
     excluded = excluded_details if board == "hot_money" else excluded_rows
@@ -117,6 +181,11 @@ def normalize_source(data, day: date, board: str):
             "excluded_rows": excluded_rows,
             "excluded_details": excluded_details,
             "quality": {
+                "input_row_count": len(raw_rows),
+                "discarded_counts": discarded,
+                "retained_row_count": len(raw_rows) - sum(discarded.values()),
+                "unresolved_source_identity_count": unknown if board != "hot_money" else None,
+                "instrument_scope": "current_instrument" if allowed_symbols is not None else "unfiltered",
                 "duplicates_removed": duplicates,
                 "conflicts": 0,
                 "detail_scope": "limited_named_groups" if board == "hot_money" else "stock_board",
