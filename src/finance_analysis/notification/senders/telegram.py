@@ -66,15 +66,15 @@ class TelegramSender:
             # Telegram API 端点
             api_url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
             
-            # Telegram 消息最大长度 4096 字符
+            # 统一使用 ntfy 的 4096 UTF-8 字节上限，覆盖纯文本回退。
             max_length = 4096
             
-            if len(content) <= max_length:
+            if len(content.encode("utf-8")) <= max_length:
                 # 单条消息发送
                 return self._send_telegram_message(api_url, chat_id, content, message_thread_id, timeout_seconds=timeout_seconds)
             else:
                 # 分段发送长消息
-                return self._send_telegram_chunked(api_url, chat_id, content, max_length, message_thread_id, timeout_seconds=timeout_seconds)
+                return self._send_telegram_chunked(api_url, chat_id, content, message_thread_id, timeout_seconds=timeout_seconds)
                 
         except Exception as e:
             logger.exception(f"发送 Telegram 消息失败: {e}")
@@ -188,47 +188,20 @@ class TelegramSender:
         api_url: str,
         chat_id: str,
         content: str,
-        max_length: int,
         message_thread_id: Optional[str] = None,
         *,
         timeout_seconds: Optional[float] = None,
     ) -> bool:
         """分段发送长 Telegram 消息"""
-        # 按段落分割
-        sections = content.split("\n---\n")
-        
-        current_chunk = []
-        current_length = 0
-        all_success = True
-        chunk_index = 1
-        
-        for section in sections:
-            section_length = len(section) + 5  # +5 for "\n---\n"
-            
-            if current_length + section_length > max_length:
-                # 发送当前块
-                if current_chunk:
-                    chunk_content = "\n---\n".join(current_chunk)
-                    logger.info(f"发送 Telegram 消息块 {chunk_index}...")
-                    if not self._send_telegram_message(api_url, chat_id, chunk_content, message_thread_id, timeout_seconds=timeout_seconds):
-                        all_success = False
-                    chunk_index += 1
-                
-                # 重置
-                current_chunk = [section]
-                current_length = section_length
-            else:
-                current_chunk.append(section)
-                current_length += section_length
-        
-        # 发送最后一块
-        if current_chunk:
-            chunk_content = "\n---\n".join(current_chunk)
-            logger.info(f"发送 Telegram 消息块 {chunk_index}...")
-            if not self._send_telegram_message(api_url, chat_id, chunk_content, message_thread_id, timeout_seconds=timeout_seconds):
-                all_success = False
-                
-        return all_success
+        from finance_analysis.notification.chunking import split_message
+
+        for index, part in enumerate(split_message(content), 1):
+            logger.info("发送 Telegram 消息块 %s...", index)
+            if not self._send_telegram_message(
+                api_url, chat_id, part, message_thread_id, timeout_seconds=timeout_seconds,
+            ):
+                return False
+        return True
 
     def _send_telegram_photo(self, image_bytes: bytes) -> bool:
         """Send image via Telegram sendPhoto API (Issue #289)."""
