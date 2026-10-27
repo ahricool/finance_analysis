@@ -11,23 +11,23 @@ function pattern(
   return {
     timeframe: '1m',
     status: 'active',
-    trading_date: '2026-07-22',
-    bar_time: '2026-07-22T14:36:00Z',
+    tradingDate: '2026-07-22',
+    barTime: '2026-07-22T14:36:00Z',
     signal: {
       timeframe: '1m',
-      pattern_type: 'failed_breakout_reclaim',
-      pattern_name: '假突破前高回收',
+      patternType: 'failed_breakout_reclaim',
+      patternName: '假突破前高回收',
       direction: 'bullish_to_bearish',
       stage: 'confirmed',
-      quality_score: 84,
-      occurred_at: '2026-07-22T14:20:00Z',
-      confirmed_at: '2026-07-22T14:33:00Z',
-      trading_date: '2026-07-22',
-      trade_session: 'Intraday',
-      bars_ago: 2,
-      session_minutes_ago: 2,
-      reference_level: 132.5,
-      invalidation_price: 132.7,
+      qualityScore: 84,
+      occurredAt: '2026-07-22T14:20:00Z',
+      confirmedAt: '2026-07-22T14:33:00Z',
+      tradingDate: '2026-07-22',
+      tradeSession: 'Intraday',
+      barsAgo: 2,
+      sessionMinutesAgo: 2,
+      referenceLevel: 132.5,
+      invalidationPrice: 132.7,
       reasons: ['突破前高后快速收回', '跌破回收结构低点'],
       confirmed: true,
       ...overrides,
@@ -37,20 +37,20 @@ function pattern(
 
 function withPreview(
   formal: RealtimePatternState = pattern(),
-  overrides: Partial<NonNullable<RealtimePatternState['preview_signal']>> = {},
+  overrides: Partial<NonNullable<RealtimePatternState['previewSignal']>> = {},
 ): RealtimePatternState {
   const source = pattern().signal!;
   return {
     ...formal,
-    preview_status: 'active',
-    preview_bar_time: '2026-07-22T14:36:00Z',
-    preview_price: 133.25,
-    preview_updated_at: '2026-07-22T14:36:20Z',
-    preview_signal: {
+    previewStatus: 'active',
+    previewBarTime: '2026-07-22T14:36:00Z',
+    previewPrice: 133.25,
+    previewUpdatedAt: '2026-07-22T14:36:20Z',
+    previewSignal: {
       ...source,
       stage: 'warning',
       confirmed: false,
-      confirmed_at: null,
+      confirmedAt: null,
       reasons: [...source.reasons, '实时预览：当前一分钟K线尚未收盘，信号可能变化'],
       ...overrides,
     },
@@ -79,12 +79,12 @@ describe('PatternStatus', () => {
 
   it('displays the backend quality score directly without recalculation', () => {
     const wrapper = mount(PatternStatus, {
-      props: { pattern: pattern({ quality_score: 80, direction: 'neutral_wait' }), now: NOW },
+      props: { pattern: pattern({ qualityScore: 80, direction: 'neutral_wait' }), now: NOW },
     });
     expect(wrapper.text()).toContain('80分');
   });
 
-  it('uses confirmed_at for a confirmed signal', () => {
+  it('uses confirmedAt for a confirmed signal', () => {
     const wrapper = mount(PatternStatus, { props: { pattern: pattern(), now: NOW } });
     expect(wrapper.text()).toContain('已确认 · 84分 · 3分钟前');
     expect(wrapper.text()).not.toContain('16分钟前');
@@ -93,14 +93,14 @@ describe('PatternStatus', () => {
   it.each([
     ['warning', '观察'],
     ['forming', '形成中'],
-  ] as const)('uses occurred_at for a %s signal', (stage, stageLabel) => {
+  ] as const)('uses occurredAt for a %s signal', (stage, stageLabel) => {
     const wrapper = mount(PatternStatus, {
       props: {
         pattern: pattern({
           stage,
           confirmed: false,
-          occurred_at: '2026-07-22T14:28:00Z',
-          confirmed_at: '2026-07-22T14:35:00Z',
+          occurredAt: '2026-07-22T14:28:00Z',
+          confirmedAt: '2026-07-22T14:35:00Z',
         }),
         now: NOW,
       },
@@ -108,9 +108,9 @@ describe('PatternStatus', () => {
     expect(wrapper.text()).toContain(`${stageLabel} · 84分 · 8分钟前`);
   });
 
-  it('does not turn bars_ago into wall-clock minutes after the market stops producing bars', () => {
+  it('does not turn barsAgo into wall-clock minutes after the market stops producing bars', () => {
     const wrapper = mount(PatternStatus, {
-      props: { pattern: pattern({ bars_ago: 1 }), now: new Date('2026-07-22T22:36:00Z') },
+      props: { pattern: pattern({ barsAgo: 1 }), now: new Date('2026-07-22T22:36:00Z') },
     });
     expect(wrapper.text()).toContain('8小时前');
     expect(wrapper.text()).not.toContain('1分钟前');
@@ -126,7 +126,7 @@ describe('PatternStatus', () => {
   it('shows the invalidation line only when a valid price exists', () => {
     const withPrice = mount(PatternStatus, { props: { pattern: pattern(), now: NOW } });
     const withoutPrice = mount(PatternStatus, {
-      props: { pattern: pattern({ invalidation_price: null }), now: NOW },
+      props: { pattern: pattern({ invalidationPrice: null }), now: NOW },
     });
     expect(withPrice.text()).toContain('失效：132.70');
     expect(withoutPrice.text()).not.toContain('失效：');
@@ -136,12 +136,12 @@ describe('PatternStatus', () => {
     const wrapper = mount(PatternStatus, {
       props: {
         pattern: pattern({
-          pattern_type: 'compression_expansion',
-          pattern_name: '波动压缩',
+          patternType: 'compression_expansion',
+          patternName: '波动压缩',
           direction: 'neutral_wait',
           stage: 'forming',
           confirmed: false,
-          occurred_at: '2026-07-22T14:35:30Z',
+          occurredAt: '2026-07-22T14:35:30Z',
         }),
         now: NOW,
       },

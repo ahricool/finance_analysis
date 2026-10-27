@@ -43,7 +43,7 @@ describe('confluence controls and detail', () => {
     await flushPromises();
     const dialog = wrapper.getComponent(StockDetailDialog);
     expect(dialog.props('open')).toBe(true);
-    expect(dialog.props('stock')).toMatchObject({ code: '600001.SH', market_type: 'CN' });
+    expect(dialog.props('stock')).toMatchObject({ code: '600001.SH', marketType: 'CN' });
     expect(dialog.props('initialTab')).toBe('overview');
   await wrapper.get('tbody tr').trigger('click');
   expect(dialog.props('initialTab')).toBe('confluence');

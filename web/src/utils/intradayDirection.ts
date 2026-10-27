@@ -83,7 +83,7 @@ function signalDirection(signal: RealtimePatternSignal): IntradayDirectionResult
 }
 
 function signalEventTime(signal: RealtimePatternSignal): Date | null {
-  const value = signal.stage === 'confirmed' && signal.confirmed_at ? signal.confirmed_at : signal.occurred_at;
+  const value = signal.stage === 'confirmed' && signal.confirmedAt ? signal.confirmedAt : signal.occurredAt;
   const event = new Date(value);
   return Number.isNaN(event.getTime()) ? null : event;
 }
@@ -118,25 +118,25 @@ export function calculateIntradayDirection(
   now = new Date(),
 ): IntradayDirectionResult | null {
   if (Number.isNaN(now.getTime())) return null;
-  if (!['CN', 'US'].includes(marketType) || !quote?.available || !finite(quote.last_price)) return null;
+  if (!['CN', 'US'].includes(marketType) || !quote?.available || !finite(quote.lastPrice)) return null;
 
-  const trend = quote.trend_1m;
-  const pattern = quote.pattern_1m;
-  if (!trend || !pattern || trend.state === 'insufficient' || trend.effective_period < trend.minimum_period) return null;
+  const trend = quote.trend1m;
+  const pattern = quote.pattern1m;
+  if (!trend || !pattern || trend.state === 'insufficient' || trend.effectivePeriod < trend.minimumPeriod) return null;
 
   const nowParts = marketParts(now, marketType);
   const minutesAfterMidnight = Number(nowParts.hour) * 60 + Number(nowParts.minute);
   const closeMinutes = marketType === 'CN' ? 15 * 60 : 16 * 60;
-  const closed = quote.session_close ? now.getTime() >= Date.parse(quote.session_close) : minutesAfterMidnight >= closeMinutes;
+  const closed = quote.sessionClose ? now.getTime() >= Date.parse(quote.sessionClose) : minutesAfterMidnight >= closeMinutes;
   if (closed) return result('当日已收盘', 'neutral', 'closed', '最近交易日已收盘，仅展示历史结构。', null);
-  if (quote.market_open === false || minutesAfterMidnight < 9 * 60 + 30
+  if (quote.marketOpen === false || minutesAfterMidnight < 9 * 60 + 30
     || (marketType === 'CN' && minutesAfterMidnight >= 11 * 60 + 30 && minutesAfterMidnight < 13 * 60)) {
     return result('休市等待', 'neutral', 'neutral', '当前不在常规交易时段。', null);
   }
-  const observed = Date.parse(quote.event_time || '');
-  const received = Date.parse(quote.received_at || '');
+  const observed = Date.parse(quote.eventTime || '');
+  const received = Date.parse(quote.receivedAt || '');
   const nowMs = now.getTime();
-  if (quote.timestamp_kind === 'received' || ![observed, received].every(Number.isFinite)) {
+  if (quote.timestampKind === 'received' || ![observed, received].every(Number.isFinite)) {
     return result('时间异常', 'neutral', 'neutral', '缺少可靠的行情时间或接收时间，暂停实时方向判断。', null);
   }
   if (observed - nowMs > INTRADAY_TIME_TOLERANCE_MS || received - nowMs > INTRADAY_TIME_TOLERANCE_MS) {
@@ -145,8 +145,8 @@ export function calculateIntradayDirection(
   if (nowMs - observed > INTRADAY_TIME_TOLERANCE_MS || nowMs - received > INTRADAY_TIME_TOLERANCE_MS) {
     return result('行情延迟', 'neutral', 'neutral', '行情时间或接收时间落后当前判断时间超过30秒，暂停实时方向判断。', null);
   }
-  if (trend.bar_time) {
-    const trendTime = Date.parse(trend.bar_time);
+  if (trend.barTime) {
+    const trendTime = Date.parse(trend.barTime);
     if (!Number.isFinite(trendTime) || trendTime - nowMs > INTRADAY_TIME_TOLERANCE_MS) {
       return result('时间异常', 'neutral', 'neutral', '分钟趋势时间无效或领先当前判断时间超过30秒，暂停实时方向判断。', null);
     }
@@ -161,7 +161,7 @@ export function calculateIntradayDirection(
 
   const signal = pattern.signal;
   const event = signalEventTime(signal);
-  if (!event || !isValidTradingDate(signal.trading_date) || Number.isNaN(now.getTime())) return null;
+  if (!event || !isValidTradingDate(signal.tradingDate) || Number.isNaN(now.getTime())) return null;
 
   if (event.getTime() - nowMs > INTRADAY_TIME_TOLERANCE_MS) {
     return result('时间异常', 'neutral', 'neutral', '形态时间领先当前判断时间超过30秒，暂停实时方向判断。', null);
@@ -171,14 +171,14 @@ export function calculateIntradayDirection(
   const direction = signalDirection(signal);
   const currentTradingDate = dateKey(nowParts);
 
-  if (signal.trading_date < currentTradingDate) {
+  if (signal.tradingDate < currentTradingDate) {
     return result('上个交易日信号', direction, 'expired', '该形态不属于当前市场交易日期，仅作为历史结构参考。', ageMinutes);
   }
-  if (signal.trading_date > currentTradingDate) return null;
+  if (signal.tradingDate > currentTradingDate) return null;
 
-  if (finite(signal.invalidation_price)) {
-    const bullishInvalid = direction === 'call' && quote.last_price < signal.invalidation_price;
-    const bearishInvalid = direction === 'put' && quote.last_price > signal.invalidation_price;
+  if (finite(signal.invalidationPrice)) {
+    const bullishInvalid = direction === 'call' && quote.lastPrice < signal.invalidationPrice;
+    const bearishInvalid = direction === 'put' && quote.lastPrice > signal.invalidationPrice;
     if (bullishInvalid || bearishInvalid) {
       return result('已经失效', direction, 'invalid', '最新价已经突破形态失效位，原有方向结构不再成立。', ageMinutes);
     }

@@ -96,11 +96,11 @@ export const stocksApi = {
       volume?: number | null; amount?: number | null; updateTime?: string | null;
     }>(data);
     return {
-      code: quote.stockCode, symbol: quote.stockCode, market_type: market,
+      code: quote.stockCode, symbol: quote.stockCode, marketType: market,
       available: Number.isFinite(quote.currentPrice) && quote.currentPrice > 0,
-      last_price: quote.currentPrice, change_amount: quote.change, change_pct: quote.changePercent,
-      open: quote.open, high: quote.high, low: quote.low, pre_close: quote.prevClose,
-      volume: quote.volume, turnover: quote.amount, event_time: quote.updateTime,
+      lastPrice: quote.currentPrice, changeAmount: quote.change, changePct: quote.changePercent,
+      open: quote.open, high: quote.high, low: quote.low, preClose: quote.prevClose,
+      volume: quote.volume, turnover: quote.amount, eventTime: quote.updateTime,
     };
   },
   async classification(code: string, signal?: AbortSignal): Promise<StockClassification> {

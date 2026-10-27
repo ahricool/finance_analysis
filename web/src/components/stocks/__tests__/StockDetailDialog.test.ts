@@ -11,8 +11,8 @@ vi.mock('../detail/IntradayDetailPanel.vue', () => ({ __esModule: true, default:
 vi.mock('../detail/DragonTigerDetailPanel.vue', () => ({ __esModule: true, default: { name: 'DragonTigerDetailPanel', props: ['symbol', 'market', 'context'], template: '<div data-testid="dragon-panel">{{ symbol }}</div>' } }));
 vi.mock('../detail/QuantDetailPanel.vue', () => ({ __esModule: true, default: { name: 'QuantDetailPanel', props: ['symbol', 'market', 'context'], template: '<div data-testid="quant-panel">{{ symbol }}</div>' } }));
 vi.mock('@/api/stocks', () => ({ stocksApi: { quote: vi.fn(), classification: vi.fn().mockResolvedValue({ memberships: { industries: [] } }) } }));
-beforeEach(() => { vi.mocked(stocksApi.quote).mockReset().mockResolvedValue({ code: 'AAPL.US', symbol: 'AAPL.US', market_type: 'US', available: false }); });
-const stock = { code: 'AAPL.US', name: 'Apple', market_type: 'US' as const };
+beforeEach(() => { vi.mocked(stocksApi.quote).mockReset().mockResolvedValue({ code: 'AAPL.US', symbol: 'AAPL.US', marketType: 'US', available: false }); });
+const stock = { code: 'AAPL.US', name: 'Apple', marketType: 'US' as const };
 const slots = { template: '<div><slot /></div>' };
 const stubs = { Dialog: { props: ['open'], template: '<div v-if="open"><slot /></div>' }, DialogContent: slots, DialogHeader: slots, DialogTitle: slots, DialogDescription: slots, ResearchEvidence: true, DailyKLineCard: true, OptionsPanel: { name: 'OptionsPanel', props: ['symbol', 'initialView', 'initialDate'], template: '<div />' } };
 function render(initialTab: StockDetailTab = 'overview') {
@@ -77,11 +77,11 @@ describe('unified StockDetailDialog', () => {
   });
   it('does not keep unsupported US tabs when switching markets', async () => {
     const wrapper = render('options'); await flushPromises();
-    await wrapper.setProps({ stock: { code: '600519.SH', name: '贵州茅台', market_type: 'CN' } }); await flushPromises();
+    await wrapper.setProps({ stock: { code: '600519.SH', name: '贵州茅台', marketType: 'CN' } }); await flushPromises();
     expect(wrapper.findComponent({ name: 'OptionsPanel' }).exists()).toBe(false);
     expect(wrapper.findAll('[role="tab"]').map(item => item.text())).toContain('龙虎榜');
     await tab(wrapper, '龙虎榜'); expect(wrapper.get('[data-testid="dragon-panel"]').text()).toBe('600519.SH');
-    await wrapper.setProps({ stock: { code: '00700.HK', name: '腾讯控股', market_type: 'HK' } }); await flushPromises();
+    await wrapper.setProps({ stock: { code: '00700.HK', name: '腾讯控股', marketType: 'HK' } }); await flushPromises();
     expect(wrapper.findAll('[role="tab"]').map(item => item.text())).toEqual(['行情', '持仓']);
     wrapper.unmount();
   });
@@ -96,7 +96,7 @@ describe('unified StockDetailDialog', () => {
     expect(stocksApi.quote).not.toHaveBeenCalled();
     await tab(wrapper, '行情');
     expect(stocksApi.quote).toHaveBeenCalledWith('AAPL.US', 'US', expect.any(AbortSignal));
-    await wrapper.setProps({ quote: { code: 'AAPL.US', symbol: 'AAPL.US', market_type: 'US', available: true, last_price: 222 } });
+    await wrapper.setProps({ quote: { code: 'AAPL.US', symbol: 'AAPL.US', marketType: 'US', available: true, lastPrice: 222 } });
     expect(wrapper.text()).toContain('222');
     await tab(wrapper, '持仓'); await tab(wrapper, '行情');
     expect(stocksApi.quote).toHaveBeenCalledTimes(1); wrapper.unmount();
@@ -106,10 +106,10 @@ describe('unified StockDetailDialog', () => {
     vi.mocked(stocksApi.quote).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
     const wrapper = render();
     const firstSignal = vi.mocked(stocksApi.quote).mock.calls[0]![2]!;
-    vi.mocked(stocksApi.quote).mockResolvedValue({ code: 'MSFT.US', symbol: 'MSFT.US', market_type: 'US', available: true, last_price: 333 });
-    await wrapper.setProps({ stock: { ...stock, code: 'MSFT.US', name: 'Microsoft' }, quote: { code: 'AAPL.US', symbol: 'AAPL.US', market_type: 'US', available: true, last_price: 111 } }); await flushPromises();
+    vi.mocked(stocksApi.quote).mockResolvedValue({ code: 'MSFT.US', symbol: 'MSFT.US', marketType: 'US', available: true, lastPrice: 333 });
+    await wrapper.setProps({ stock: { ...stock, code: 'MSFT.US', name: 'Microsoft' }, quote: { code: 'AAPL.US', symbol: 'AAPL.US', marketType: 'US', available: true, lastPrice: 111 } }); await flushPromises();
     expect(firstSignal.aborted).toBe(true);
-    finish({ code: 'AAPL.US', symbol: 'AAPL.US', market_type: 'US', available: true, last_price: 111 }); await flushPromises();
+    finish({ code: 'AAPL.US', symbol: 'AAPL.US', marketType: 'US', available: true, lastPrice: 111 }); await flushPromises();
     expect(wrapper.text()).toContain('333'); expect(wrapper.text()).not.toContain('111');
     const currentSignal = vi.mocked(stocksApi.quote).mock.calls.at(-1)![2]!;
     await wrapper.setProps({ open: false });
@@ -123,7 +123,7 @@ describe('unified StockDetailDialog', () => {
     await wrapper.findAll('button').find(button => button.text() === '刷新行情')!.trigger('click'); await flushPromises();
     expect(wrapper.text()).toContain('重试行情');
     expect(wrapper.text()).not.toContain('暂无该股票的实时行情');
-    vi.mocked(stocksApi.quote).mockResolvedValueOnce({ code: 'AAPL.US', symbol: 'AAPL.US', market_type: 'US', available: true, last_price: 444 });
+    vi.mocked(stocksApi.quote).mockResolvedValueOnce({ code: 'AAPL.US', symbol: 'AAPL.US', marketType: 'US', available: true, lastPrice: 444 });
     await wrapper.findAll('button').find(button => button.text() === '重试行情')!.trigger('click'); await flushPromises();
     expect(wrapper.text()).toContain('444'); wrapper.unmount();
   });
@@ -139,7 +139,7 @@ describe('unified StockDetailDialog', () => {
 
   it('retains merged watch-scoped hints in the shared overview', async () => {
     const wrapper = render();
-    await wrapper.setProps({ kind: 'holding', stock: { ...stock, quantity: '10', avg_cost: '100' }, quote: { code: 'AAPL.US', symbol: 'AAPL.US', market_type: 'US', available: true, last_price: 222 } });
+    await wrapper.setProps({ kind: 'holding', stock: { ...stock, quantity: '10', avgCost: '100' }, quote: { code: 'AAPL.US', symbol: 'AAPL.US', marketType: 'US', available: true, lastPrice: 222 } });
     await flushPromises();
     const hints = wrapper.findAllComponents({ name: 'IndicatorHelpLabel' });
     for (const label of ['最新价', '成交量 (Volume)', '平均成本', '持仓收益率']) {

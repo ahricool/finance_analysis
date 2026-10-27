@@ -6,17 +6,17 @@ import type { RealtimeTrend } from '@/api/realtimeMarket';
 function trend(overrides: Partial<RealtimeTrend> = {}): RealtimeTrend {
   return {
     timeframe: '1m',
-    target_period: 20,
-    effective_period: 20,
-    minimum_period: 5,
+    targetPeriod: 20,
+    effectivePeriod: 20,
+    minimumPeriod: 5,
     state: 'above',
     streak: 3,
-    ma_value: 132.48,
+    maValue: 132.48,
     close: 132.96,
-    distance_pct: 0.36,
-    bar_time: '2026-07-16T14:31:00Z',
-    trading_date: '2026-07-16',
-    trade_session: 'regular',
+    distancePct: 0.36,
+    barTime: '2026-07-16T14:31:00Z',
+    tradingDate: '2026-07-16',
+    tradeSession: 'regular',
     confirmed: true,
     ...overrides,
   };
@@ -54,11 +54,11 @@ describe('TrendStatus', () => {
       attachTo: document.body,
       props: {
         trend: trend({
-          effective_period: 8,
-          ma_value: Number.NaN,
+          effectivePeriod: 8,
+          maValue: Number.NaN,
           close: null,
-          distance_pct: undefined,
-          bar_time: 'not-a-date',
+          distancePct: undefined,
+          barTime: 'not-a-date',
         }),
       },
     });

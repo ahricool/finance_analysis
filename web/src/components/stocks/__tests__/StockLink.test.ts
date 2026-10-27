@@ -15,7 +15,7 @@ describe('stock identity entry', () => {
     expect(identity.get('strong').classes()).toContain('font-bold');
     await wrapper.get(target).trigger('click');
     expect(parent).not.toHaveBeenCalled();
-    expect(useStockDetail().selection.value).toEqual({ stock: { code: 'AAPL.US', name: 'Apple', market_type: 'US' }, context: { tradeDate: '2026-10-12', view: 'preview' } });
+    expect(useStockDetail().selection.value).toEqual({ stock: { code: 'AAPL.US', name: 'Apple', marketType: 'US' }, context: { tradeDate: '2026-10-12', view: 'preview' } });
     expect(stocksApi.searchInstruments).not.toHaveBeenCalled();
     wrapper.unmount();
   });

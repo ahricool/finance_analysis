@@ -8,37 +8,37 @@ const NOW = new Date('2026-07-22T15:00:00Z');
 function quote(): RealtimeQuote {
   return {
     code: 'AAPL',
-    market_type: 'US',
+    marketType: 'US',
     symbol: 'AAPL.US',
     available: true,
-    event_time: NOW.toISOString(),
-    received_at: NOW.toISOString(),
-    last_price: 101,
-    trend_1m: {
+    eventTime: NOW.toISOString(),
+    receivedAt: NOW.toISOString(),
+    lastPrice: 101,
+    trend1m: {
       timeframe: '1m',
-      target_period: 20,
-      effective_period: 20,
-      minimum_period: 5,
+      targetPeriod: 20,
+      effectivePeriod: 20,
+      minimumPeriod: 5,
       state: 'above',
       streak: 3,
       confirmed: true,
     },
-    pattern_1m: {
+    pattern1m: {
       timeframe: '1m',
       status: 'active',
       signal: {
         timeframe: '1m',
-        pattern_type: 'vwap_reclaim_breakdown',
-        pattern_name: 'VWAP收复',
+        patternType: 'vwap_reclaim_breakdown',
+        patternName: 'VWAP收复',
         direction: 'bullish_continuation',
         stage: 'confirmed',
-        quality_score: 80,
-        occurred_at: '2026-07-22T14:40:00Z',
-        confirmed_at: '2026-07-22T14:45:00Z',
-        trading_date: '2026-07-22',
-        bars_ago: 1,
-        session_minutes_ago: 1,
-        invalidation_price: 100,
+        qualityScore: 80,
+        occurredAt: '2026-07-22T14:40:00Z',
+        confirmedAt: '2026-07-22T14:45:00Z',
+        tradingDate: '2026-07-22',
+        barsAgo: 1,
+        sessionMinutesAgo: 1,
+        invalidationPrice: 100,
         reasons: ['VWAP上方企稳'],
         confirmed: true,
       },
@@ -83,8 +83,8 @@ describe('IntradayDirectionStatus', () => {
     ['时间异常', null, undefined, '可靠'],
   ] as const)('renders %s with a distinct explanation', async (expected, offset, trendOffset, explanation) => {
     const value = quote();
-    value.event_time = offset === null ? undefined : new Date(NOW.getTime() + offset).toISOString();
-    if (trendOffset !== undefined) value.trend_1m!.bar_time = new Date(NOW.getTime() + trendOffset).toISOString();
+    value.eventTime = offset === null ? undefined : new Date(NOW.getTime() + offset).toISOString();
+    if (trendOffset !== undefined) value.trend1m!.barTime = new Date(NOW.getTime() + trendOffset).toISOString();
     const wrapper = mount(IntradayDirectionStatus, { attachTo: document.body, props: { quote: value, marketType: 'US', now: NOW } });
     expect(wrapper.text()).toBe(expected);
     await wrapper.get('[tabindex="0"]').trigger('focus');

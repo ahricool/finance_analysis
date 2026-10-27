@@ -50,7 +50,7 @@ describe('Macro dashboard', () => {
     expect(wrapper.find('[data-testid="asset-detail"]').exists()).toBe(false);
     await wrapper.get('[aria-label="查看 TLT.US Long Treasury 详情"]').trigger('click'); await flushPromises();
     let detail = wrapper.findComponent({ name: 'StockDetailDialog' });
-    expect(detail.props()).toMatchObject({ stock: { code: 'TLT.US', market_type: 'US' }, initialTab: 'overview', context: { tradeDate: metrics.tradeDate, view: 'official' } });
+    expect(detail.props()).toMatchObject({ stock: { code: 'TLT.US', marketType: 'US' }, initialTab: 'overview', context: { tradeDate: metrics.tradeDate, view: 'official' } });
     detail.vm.$emit('update:open', false); await flushPromises();
     expect(wrapper.find('[data-testid="asset-detail"]').exists()).toBe(false);
     await wrapper.get('[aria-label="查看 VIX.US VIX 详情"]').trigger('click'); await flushPromises();

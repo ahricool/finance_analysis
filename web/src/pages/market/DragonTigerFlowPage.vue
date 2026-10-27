@@ -644,7 +644,7 @@ function openStock(row: { symbol: string; name: string | null }, tab: 'overview'
     </template>
     <StockDetailDialog
       :open="Boolean(stock)"
-      :stock="stock ? { code: stock, name: stockName, market_type: 'CN' } : null"
+      :stock="stock ? { code: stock, name: stockName, marketType: 'CN' } : null"
       kind="research"
       :initial-tab="detailInitialTab"
       :context="{ tradeDate: data?.tradeDate || undefined, view: 'official', dragonTiger: { ...filters, endDate: data?.tradeDate || filters.endDate }, dragonTigerConceptId: selected }"

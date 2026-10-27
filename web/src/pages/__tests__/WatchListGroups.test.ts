@@ -21,8 +21,8 @@ vi.mock('@/composables/useRealtimeQuotes', async () => {
 });
 const tags: WatchListTag[] = [{ id: 1, name: '科技' }, { id: 2, name: '长期' }, { id: 3, name: '空标签' }];
 const item = (id: number, market: 'CN' | 'US', labels: WatchListTag[] = []): WatchListItem => ({
-  id, code: market === 'CN' ? `60000${id}.SH` : `US${id}.US`, name: `股票${id}`, market_type: market,
-  tags: labels, notes: '备注', is_favorite: id === 2, created_at: `${id}`, updated_at: `${id}`,
+  id, code: market === 'CN' ? `60000${id}.SH` : `US${id}.US`, name: `股票${id}`, marketType: market,
+  tags: labels, notes: '备注', isFavorite: id === 2, createdAt: `${id}`, updatedAt: `${id}`,
 });
 let rows: WatchListItem[];
 const stubs = {
@@ -49,11 +49,11 @@ beforeEach(() => {
   rows = [item(1, 'CN', [tags[0]!]), item(2, 'CN'), item(3, 'US', [tags[0]!, tags[1]!])];
   mocks.listTags.mockResolvedValue(tags);
   mocks.list.mockImplementation(async (filters: WatchListFilters) => {
-    const all = rows.filter(row => row.market_type === filters.market);
+    const all = rows.filter(row => row.marketType === filters.market);
     return { total: all.length, items: all.filter(row => filters.ungrouped ? !row.tags.length
       : filters.tagId !== undefined ? row.tags.some(tag => tag.id === filters.tagId) : true) };
   });
-  mocks.update.mockImplementation(async (id: number, body: { tags?: { id?: number; name?: string }[]; notes?: string; is_favorite?: boolean }) => {
+  mocks.update.mockImplementation(async (id: number, body: { tags?: { id?: number; name?: string }[]; notes?: string; isFavorite?: boolean }) => {
     const row = rows.find(row => row.id === id)!;
     const saved = { ...row, ...body, tags: body.tags?.map(tag => tag.id ? tags.find(t => t.id === tag.id)! : { id: 4, name: tag.name! }) ?? row.tags };
     rows = rows.map(row => row.id === id ? saved : row);

@@ -47,7 +47,7 @@ watch([search, groupCode], async () => {
 useVisiblePolling(() => { void load(); }, 15 * 60 * 1000);
 onBeforeUnmount(() => { sequence++; });
 function select(stock: HeatmapStock) {
-  detail.open({ code: stock.code, name: stock.name, market_type: market.value });
+  detail.open({ code: stock.code, name: stock.name, marketType: market.value });
 }
 function switchMarket(value: HeatmapMarket) { void router.replace({ query: { ...route.query, market: value } }); }
 </script>

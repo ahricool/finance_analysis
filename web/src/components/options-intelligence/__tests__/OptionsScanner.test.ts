@@ -155,7 +155,7 @@ describe('Options scanner stock names', () => {
     const stockButton = wrapper.findAll('button').find(button => button.text().includes('NVDA.US'))!;
     await stockButton.trigger('click');
     expect(wrapper.findComponent({ name: 'StockDetailDialog' }).props('stock')).toMatchObject({
-      code: 'NVDA.US', name: 'NVIDIA Corporation', market_type: 'US',
+      code: 'NVDA.US', name: 'NVIDIA Corporation', marketType: 'US',
     });
 
     await wrapper.get('#options-search').setValue('苹果');

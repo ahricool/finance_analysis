@@ -9,10 +9,10 @@ vi.mock('@/api/intradayMarket', () => ({ fetchIntradayMarket: mocks.fetch }));
 vi.mock('klinecharts', () => ({ registerOverlay: vi.fn() }));
 const at = Date.parse('2026-10-21T15:00:00Z');
 function snapshot(symbol = 'AAPL.US', timestamp = at, price = 100): IntradaySnapshot {
-  return { symbol, market: 'US', trading_date: '2026-10-21', generated_at: new Date(at).toISOString(), reset: true,
+  return { symbol, market: 'US', tradingDate: '2026-10-21', generatedAt: new Date(at).toISOString(), reset: true,
     items: [{ timestamp, open: price, high: price + 1, low: price - 1, close: price, volume: 10,
-      turnover: null, confirmed: false, sampled: false, sample_count: 0, partial: false }],
-    quote: { code: symbol, symbol, market_type: 'US', available: true, last_price: price }, events: [] };
+      turnover: null, confirmed: false, sampled: false, sampleCount: 0, partial: false }],
+    quote: { code: symbol, symbol, marketType: 'US', available: true, lastPrice: price }, events: [] };
 }
 function mountPanel() {
   return mount(IntradayStockPanel, { props: { symbol: 'AAPL.US', market: 'US' }, global: { stubs: { MarketKLineChart: true } } });
@@ -22,8 +22,8 @@ afterEach(() => { vi.useRealTimers(); });
 
 describe('inline intraday ownership and incremental updates', () => {
   it('uses the real previous close for CN zero percent and replaces revised source windows', async () => {
-    const initial = { ...snapshot('600000.SH'), market: 'CN' as const, full_snapshot: true };
-    initial.quote.pre_close = 97;
+    const initial = { ...snapshot('600000.SH'), market: 'CN' as const, fullSnapshot: true };
+    initial.quote.preClose = 97;
     const next = { ...initial, reset: false, items: [{ ...initial.items[0]!, timestamp: at + 60_000 }] };
     mocks.fetch.mockResolvedValueOnce(initial).mockResolvedValue(next);
     const panel = mount(IntradayStockPanel, { props: { symbol: '600000.SH', market: 'CN' },
@@ -43,11 +43,11 @@ describe('inline intraday ownership and incremental updates', () => {
   it('judges live updates every second and detects a stopped feed just after the 30-second tolerance', async () => {
     vi.setSystemTime(at);
     const initial = snapshot();
-    initial.quote.trend_1m = { timeframe: '1m', target_period: 20, effective_period: 20, minimum_period: 5,
-      state: 'above', streak: 5, confirmed: true, bar_time: new Date(at - 60_000).toISOString() };
-    initial.quote.pattern_1m = { timeframe: '1m', status: 'none', signal: null };
+    initial.quote.trend1m = { timeframe: '1m', targetPeriod: 20, effectivePeriod: 20, minimumPeriod: 5,
+      state: 'above', streak: 5, confirmed: true, barTime: new Date(at - 60_000).toISOString() };
+    initial.quote.pattern1m = { timeframe: '1m', status: 'none', signal: null };
     const fresh = () => ({ ...initial, reset: false, quote: { ...initial.quote,
-      event_time: new Date().toISOString(), received_at: new Date().toISOString() } });
+      eventTime: new Date().toISOString(), receivedAt: new Date().toISOString() } });
     mocks.fetch.mockImplementation(async () => fresh());
     const panel = mountPanel();
     await flushPromises();
@@ -69,13 +69,13 @@ describe('inline intraday ownership and incremental updates', () => {
 
   it('opens evidence and levels only after a marker click, preserves grouped events and clears selection on reset', async () => {
     const initial = snapshot();
-    const signal: PatternEvent = { timeframe: '1m', pattern_type: 'breakout_retest_continuation', pattern_name: '突破回踩延续',
-      direction: 'bullish_continuation', stage: 'confirmed', quality_score: 83, occurred_at: new Date(at - 600_000).toISOString(),
-      observed_at: new Date(at + 20_000).toISOString(), bars_ago: 0, session_minutes_ago: 0,
-      reference_level: 100, invalidation_price: 98, reasons: ['突破后回踩守住参考位'], confirmed: true };
-    initial.events = [{ ...signal, observed_at: new Date(at + 10_000).toISOString(), pattern_name: '压缩观察',
+    const signal: PatternEvent = { timeframe: '1m', patternType: 'breakout_retest_continuation', patternName: '突破回踩延续',
+      direction: 'bullish_continuation', stage: 'confirmed', qualityScore: 83, occurredAt: new Date(at - 600_000).toISOString(),
+      observedAt: new Date(at + 20_000).toISOString(), barsAgo: 0, sessionMinutesAgo: 0,
+      referenceLevel: 100, invalidationPrice: 98, reasons: ['突破后回踩守住参考位'], confirmed: true };
+    initial.events = [{ ...signal, observedAt: new Date(at + 10_000).toISOString(), patternName: '压缩观察',
       direction: 'neutral_wait', stage: 'forming', confirmed: false }, signal];
-    initial.quote.pattern_1m = { timeframe: '1m', status: 'active', signal };
+    initial.quote.pattern1m = { timeframe: '1m', status: 'active', signal };
     mocks.fetch.mockResolvedValueOnce(initial).mockResolvedValueOnce({ ...initial, reset: false }).mockResolvedValue(initial);
     const panel = mountPanel();
     await flushPromises();

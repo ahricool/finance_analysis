@@ -44,16 +44,16 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 type TagFilter = 'ALL' | 'UNGROUPED' | number;
 type SortDirection = 'asc' | 'desc';
 type WatchListSortKey =
-  | 'is_favorite'
+  | 'isFavorite'
   | 'code'
-  | 'market_type'
+  | 'marketType'
   | 'name'
-  | 'last_price'
-  | 'change_amount'
-  | 'change_pct'
+  | 'lastPrice'
+  | 'changeAmount'
+  | 'changePct'
   | 'trend'
   | 'pattern'
-  | 'intraday_direction';
+  | 'intradayDirection';
 
 // ── State ─────────────────────────────────────────────────────────────────────
 const items = ref<WatchListItem[]>([]);
@@ -98,7 +98,7 @@ const marketOptions: { value: MarketType; label: string }[] = [
   { value: 'US', label: '美股' },
   { value: 'HK', label: '港股' },
 ];
-const sortKey = ref<WatchListSortKey | null>('is_favorite');
+const sortKey = ref<WatchListSortKey | null>('isFavorite');
 const sortDirection = ref<SortDirection>('desc');
 
 const visibleItems = computed(() => {
@@ -143,15 +143,15 @@ function sortValue(
   item: WatchListItem,
   key: WatchListSortKey,
 ): string | number | boolean | null | undefined {
-  const quote = getQuote(item.code, item.market_type);
-  if (key === 'last_price') return quote?.last_price;
-  if (key === 'change_amount') return quote?.change_amount;
-  if (key === 'change_pct') return quote?.change_pct;
-  if (key === 'trend') return trendSortValue(quote?.trend_1m);
-  if (key === 'pattern') return patternSortValue(quote?.pattern_1m);
-  if (key === 'intraday_direction') {
+  const quote = getQuote(item.code, item.marketType);
+  if (key === 'lastPrice') return quote?.lastPrice;
+  if (key === 'changeAmount') return quote?.changeAmount;
+  if (key === 'changePct') return quote?.changePct;
+  if (key === 'trend') return trendSortValue(quote?.trend1m);
+  if (key === 'pattern') return patternSortValue(quote?.pattern1m);
+  if (key === 'intradayDirection') {
     return intradayDirectionSortValue(
-      calculateIntradayDirection(quote, item.market_type, currentTime.value),
+      calculateIntradayDirection(quote, item.marketType, currentTime.value),
     );
   }
   return item[key];
@@ -175,7 +175,7 @@ function patternSortValue(pattern: RealtimePatternState | null | undefined): num
     : ['bearish_continuation', 'bullish_to_bearish', 'bearish_breakout'].includes(signal.direction)
       ? -1
       : 0;
-  return stage * 1000 + signal.quality_score * 10 + direction;
+  return stage * 1000 + signal.qualityScore * 10 + direction;
 }
 
 function normalizeSortValue(value: string | number | boolean | null | undefined): string | number {
@@ -303,7 +303,7 @@ async function save() {
         code,
         name: formName.value.trim() || undefined,
         notes: formNotes.value.trim() || undefined,
-        market_type: selectedMarket.value,
+        marketType: selectedMarket.value,
         tags: savedTags,
       };
       const created = await watchListApi.create(body);
@@ -353,7 +353,7 @@ function openEdit(item: WatchListItem) {
   formStockQuery.value = formatStockQuery(item.code, item.name);
   formNotes.value = item.notes ?? '';
   formTags.value = item.tags.map(tag => ({ ...tag }));
-  formMarketType.value = item.market_type;
+  formMarketType.value = item.marketType;
   formError.value = null;
   showDialog.value = true;
 }
@@ -393,14 +393,14 @@ function openDelete(item: WatchListItem) {
 async function toggleFavorite(item: WatchListItem) {
   if (togglingFavoriteId.value !== null) return;
   togglingFavoriteId.value = item.id;
-  const next = !item.is_favorite;
+  const next = !item.isFavorite;
   try {
-    const updated = await watchListApi.update(item.id, { is_favorite: next });
+    const updated = await watchListApi.update(item.id, { isFavorite: next });
     const idx = items.value.findIndex((i) => i.id === item.id);
     if (idx !== -1) items.value[idx] = updated;
     items.value.sort((a, b) => {
-      if (a.is_favorite !== b.is_favorite) return a.is_favorite ? -1 : 1;
-      return a.created_at.localeCompare(b.created_at);
+      if (a.isFavorite !== b.isFavorite) return a.isFavorite ? -1 : 1;
+      return a.createdAt.localeCompare(b.createdAt);
     });
   } catch (e) {
     error.value = getParsedApiError(e);
@@ -562,9 +562,9 @@ onMounted(() => {
                 <SortableTableHeader
                   scope="watch"
                   label="关注"
-                  :active="sortKey === 'is_favorite'"
+                  :active="sortKey === 'isFavorite'"
                   :direction="sortDirection"
-                  @sort="toggleSort('is_favorite')"
+                  @sort="toggleSort('isFavorite')"
                 />
                 <SortableTableHeader
                   scope="watch"
@@ -576,33 +576,33 @@ onMounted(() => {
                 <SortableTableHeader
                   scope="watch"
                   label="市场"
-                  :active="sortKey === 'market_type'"
+                  :active="sortKey === 'marketType'"
                   :direction="sortDirection"
-                  @sort="toggleSort('market_type')"
+                  @sort="toggleSort('marketType')"
                 />
                 <SortableTableHeader
                   scope="watch"
                   label="最新价"
                   align="right"
-                  :active="sortKey === 'last_price'"
+                  :active="sortKey === 'lastPrice'"
                   :direction="sortDirection"
-                  @sort="toggleSort('last_price')"
+                  @sort="toggleSort('lastPrice')"
                 />
                 <SortableTableHeader
                   scope="watch"
                   label="今日涨跌额"
                   align="right"
-                  :active="sortKey === 'change_amount'"
+                  :active="sortKey === 'changeAmount'"
                   :direction="sortDirection"
-                  @sort="toggleSort('change_amount')"
+                  @sort="toggleSort('changeAmount')"
                 />
                 <SortableTableHeader
                   scope="watch"
                   label="今日涨跌幅"
                   align="right"
-                  :active="sortKey === 'change_pct'"
+                  :active="sortKey === 'changePct'"
                   :direction="sortDirection"
-                  @sort="toggleSort('change_pct')"
+                  @sort="toggleSort('changePct')"
                 />
                 <SortableTableHeader
                   scope="watch"
@@ -621,9 +621,9 @@ onMounted(() => {
                 <SortableTableHeader
                   scope="watch"
                   label="日内方向状态"
-                  :active="sortKey === 'intraday_direction'"
+                  :active="sortKey === 'intradayDirection'"
                   :direction="sortDirection"
-                  @sort="toggleSort('intraday_direction')"
+                  @sort="toggleSort('intradayDirection')"
                 />
                 <TableHead class="whitespace-nowrap px-4 py-3 text-right font-medium">
                   操作
@@ -658,18 +658,18 @@ onMounted(() => {
                         type="button"
                         class="rounded-lg p-1.5 transition-colors disabled:opacity-50"
                         :class="
-                          item.is_favorite
+                          item.isFavorite
                             ? 'text-brand hover:text-brand/90'
                             : 'text-muted-foreground hover:text-brand'
                         "
                         :disabled="togglingFavoriteId === item.id"
-                        :aria-label="item.is_favorite ? '取消特别关注' : '标记为特别关注'"
-                        :aria-pressed="item.is_favorite"
+                        :aria-label="item.isFavorite ? '取消特别关注' : '标记为特别关注'"
+                        :aria-pressed="item.isFavorite"
                         @click.stop="toggleFavorite(item)"
                       >
                         <Heart
                           class="h-4 w-4"
-                          :class="{ 'fill-current': item.is_favorite }"
+                          :class="{ 'fill-current': item.isFavorite }"
                         />
                       </button>
                     </TableCell>
@@ -712,47 +712,47 @@ onMounted(() => {
                       <span
                         class="rounded-lg border border-border/60 bg-background px-2 py-0.5 text-xs font-medium text-muted-foreground"
                       >
-                        {{ marketLabel(item.market_type) }}
+                        {{ marketLabel(item.marketType) }}
                       </span>
                     </TableCell>
                     <TableCell
                       class="whitespace-nowrap px-4 py-3 text-right font-medium tabular-nums text-foreground"
                     >
-                      {{ formatQuoteNumber(getQuote(item.code, item.market_type)?.last_price) }}
+                      {{ formatQuoteNumber(getQuote(item.code, item.marketType)?.lastPrice) }}
                       <span
-                        v-if="getQuote(item.code, item.market_type)?.quote_status === 'delayed'"
+                        v-if="getQuote(item.code, item.marketType)?.quoteStatus === 'delayed'"
                         class="ml-1 text-xs text-warning"
                       >延迟</span>
                     </TableCell>
                     <TableCell
                       class="whitespace-nowrap px-4 py-3 text-right font-medium tabular-nums"
-                      :class="movementClass(getQuote(item.code, item.market_type)?.change_amount)"
+                      :class="movementClass(getQuote(item.code, item.marketType)?.changeAmount)"
                     >
                       {{
-                        formatSignedQuoteNumber(getQuote(item.code, item.market_type)?.change_amount)
+                        formatSignedQuoteNumber(getQuote(item.code, item.marketType)?.changeAmount)
                       }}
                     </TableCell>
                     <TableCell
                       class="whitespace-nowrap px-4 py-3 text-right font-medium tabular-nums"
-                      :class="movementClass(getQuote(item.code, item.market_type)?.change_pct)"
+                      :class="movementClass(getQuote(item.code, item.marketType)?.changePct)"
                     >
                       {{
-                        formatSignedQuoteNumber(getQuote(item.code, item.market_type)?.change_pct, '%')
+                        formatSignedQuoteNumber(getQuote(item.code, item.marketType)?.changePct, '%')
                       }}
                     </TableCell>
                     <TableCell class="px-4 py-3">
-                      <TrendStatus :trend="getQuote(item.code, item.market_type)?.trend_1m" />
+                      <TrendStatus :trend="getQuote(item.code, item.marketType)?.trend1m" />
                     </TableCell>
                     <TableCell class="px-4 py-3">
                       <PatternStatus
-                        :pattern="getQuote(item.code, item.market_type)?.pattern_1m"
+                        :pattern="getQuote(item.code, item.marketType)?.pattern1m"
                         :now="currentTime"
                       />
                     </TableCell>
                     <TableCell class="px-4 py-3">
                       <IntradayDirectionStatus
-                        :quote="getQuote(item.code, item.market_type)"
-                        :market-type="item.market_type"
+                        :quote="getQuote(item.code, item.marketType)"
+                        :market-type="item.marketType"
                         :now="currentTime"
                       />
                     </TableCell>
@@ -801,7 +801,7 @@ onMounted(() => {
 
     <StockDetailDialog
       :stock="detailItem"
-      :quote="detailItem ? getQuote(detailItem.code, detailItem.market_type) : undefined"
+      :quote="detailItem ? getQuote(detailItem.code, detailItem.marketType) : undefined"
       kind="watchlist"
       @update:open="detailItem = null"
     />

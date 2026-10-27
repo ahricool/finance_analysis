@@ -89,7 +89,7 @@ onBeforeUnmount(() => { sequence++; });
     </template>
     <StockDetailDialog
       v-if="selected"
-      :stock="{ code: selected.code, name: selected.name, market_type: 'US' }"
+      :stock="{ code: selected.code, name: selected.name, marketType: 'US' }"
       kind="research"
       initial-tab="overview"
       :context="{ tradeDate: selected.tradeDate ?? undefined, view: 'official' }"

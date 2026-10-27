@@ -1,5 +1,6 @@
 import { marketQuoteKey } from '@/api/realtimeMarket';
 import * as marketApi from '@/api/realtimeMarket';
+import type { HoldingsSummary } from '@/api/holdings';
 import { useRealtimeQuotes } from '@/composables/useRealtimeQuotes';
 /* eslint-disable vue/one-component-per-file -- Each anonymous component is an isolated composable test host. */
 import { mount } from '@vue/test-utils';
@@ -101,7 +102,7 @@ describe('useRealtimeQuotes', () => {
     });
 
     expect(state!.status.value).toBe('connected');
-    expect(state!.quotes.value[marketQuoteKey('aapl', 'US')].change_pct).toBe(2);
+    expect(state!.quotes.value[marketQuoteKey('aapl', 'US')].changePct).toBe(2);
 
     first.disconnect();
     expect(state!.status.value).toBe('reconnecting');
@@ -164,7 +165,7 @@ describe('useRealtimeQuotes', () => {
     let signal!: AbortSignal;
     const sse = vi.spyOn(marketApi, 'readMarketEvents').mockImplementation(async (_options, nextSignal, accept) => {
       signal = nextSignal;
-      accept({ type: 'quotes', generated_at: 'now', quotes: [] });
+      accept({ type: 'quotes', generatedAt: 'now', quotes: [], portfolio: null });
       await new Promise(() => {});
     });
     let state!: ReturnType<typeof useRealtimeQuotes>;
@@ -224,8 +225,8 @@ describe('useRealtimeQuotes', () => {
     await nextTick();
     expect(streams[0]!.signal.aborted).toBe(true);
     expect(sse.mock.calls[1]![0]).toEqual({ scope: 'holdings', market: 'US' });
-    streams[1]!.accept({ type: 'quotes', generated_at: 'US', quotes: [], portfolio: { market: 'US', positions: [], accounts: [] } });
-    streams[0]!.accept({ type: 'quotes', generated_at: 'old CN', quotes: [], portfolio: { market: 'CN', positions: [], accounts: [] } });
+    streams[1]!.accept({ type: 'quotes', generatedAt: 'US', quotes: [], portfolio: { market: 'US', positions: [], accounts: [] } as unknown as HoldingsSummary });
+    streams[0]!.accept({ type: 'quotes', generatedAt: 'old CN', quotes: [], portfolio: { market: 'CN', positions: [], accounts: [] } as unknown as HoldingsSummary });
     expect(state.portfolio.value?.market).toBe('US');
     expect(state.lastUpdatedAt.value).toBe('US');
     expect(MockWebSocket.instances).toHaveLength(2);
@@ -321,7 +322,7 @@ describe('useRealtimeQuotes', () => {
       return new Promise((_resolve, reject) => { fail = reject; });
     });
     await vi.advanceTimersByTimeAsync(30_000);
-    accept({ type: 'quotes', generated_at: 'recovered', quotes: [] });
+    accept({ type: 'quotes', generatedAt: 'recovered', quotes: [], portfolio: null });
     fail(new Error('lost again'));
     await vi.advanceTimersByTimeAsync(4_999);
     expect(sse).toHaveBeenCalledTimes(7);
@@ -373,8 +374,8 @@ describe('useRealtimeQuotes', () => {
     await nextTick();
     expect(streams[0]!.signal.aborted).toBe(true);
     expect(sse.mock.calls[1]![0]).toEqual({ market: 'CN', tagId: 2 });
-    streams[1]!.accept({ type: 'quotes', generated_at: 'group2', quotes: [] });
-    streams[0]!.accept({ type: 'quotes', generated_at: 'old', quotes: [] });
+    streams[1]!.accept({ type: 'quotes', generatedAt: 'group2', quotes: [], portfolio: null });
+    streams[0]!.accept({ type: 'quotes', generatedAt: 'old', quotes: [], portfolio: null });
     expect(state.lastUpdatedAt.value).toBe('group2');
     expect(MockWebSocket.instances).toHaveLength(2);
     page.unmount();
