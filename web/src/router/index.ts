@@ -2,6 +2,7 @@ import { createRouter, createWebHistory, type RouteLocationGeneric, type RouteLo
 import Shell from '@/components/layout/Shell.vue';
 import { formatDocumentTitle } from '@/config/app';
 import { useAuthStore } from '@/stores/authStore';
+import { installChunkReload } from './chunkReload';
 
 declare module 'vue-router' {
   interface RouteMeta {
@@ -232,5 +233,7 @@ router.beforeEach(async (to, from) => {
 router.afterEach((to) => {
   document.title = resolveDocumentTitle(to);
 });
+
+installChunkReload(router);
 
 export default router;
