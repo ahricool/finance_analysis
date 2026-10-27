@@ -280,11 +280,13 @@ onBeforeUnmount(() => { listRequest++; detailRequest++; });
           v-else-if="detailError"
           :error="detailError"
         />
+        <!-- eslint-disable vue/no-v-html -- renderMarkdownToHtml sanitizes with DOMPurify. -->
         <div
           v-else-if="detail"
           class="prose prose-sm min-w-0 max-w-none break-words dark:prose-invert"
           v-html="renderMarkdownToHtml(detail.content)"
         />
+        <!-- eslint-enable vue/no-v-html -->
       </DialogScrollContent>
     </Dialog>
   </div>

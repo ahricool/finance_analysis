@@ -10,13 +10,18 @@ const props = withDefaults(defineProps<{
   en?: string;
   /** Look up enumLabels for business enums (API value unchanged). */
   enumValue?: string | null;
-  /** Table-header compact: Chinese only; English in native title / tooltip. */
+  /** Table-header compact: Chinese only; English stays in aria-label. */
   compact?: boolean;
   /** Stack English under Chinese (default) or inline. */
   inline?: boolean;
   description?: string;
   wrap?: boolean;
 }>(), {
+  label: undefined,
+  zh: undefined,
+  en: undefined,
+  enumValue: undefined,
+  description: undefined,
   compact: false,
   inline: false,
   wrap: false,
@@ -39,7 +44,6 @@ const aria = computed(() => {
   <span
     class="inline-flex min-w-0 items-start gap-1"
     :class="compact ? 'max-w-full' : ''"
-    :title="compact && pair.en ? pair.en : undefined"
     :aria-label="aria"
     data-slot="bilingual-label"
   >

@@ -10,11 +10,12 @@ describe('BilingualLabel', () => {
     expect(wrapper.text()).toContain('Market Regime');
   });
 
-  it('hides English subtitle in compact mode but keeps title', () => {
+  it('hides English subtitle in compact mode but keeps it accessible', () => {
     const wrapper = mount(BilingualLabel, { props: { label: 'universeSize', compact: true } });
     expect(wrapper.text()).toContain('股票池规模');
     expect(wrapper.text()).not.toContain('Universe Size');
-    expect(wrapper.attributes('title')).toBe('Universe Size');
+    expect(wrapper.attributes('title')).toBeUndefined();
+    expect(wrapper.attributes('aria-label')).toBe('股票池规模（Universe Size）');
   });
 });
 
@@ -25,10 +26,11 @@ describe('BilingualEnum', () => {
     expect(wrapper.text()).toContain('RISK_OFF');
   });
 
-  it('uses compact Chinese-only inside badge/chip size with English title', () => {
+  it('uses compact Chinese-only inside badge/chip size with accessible English', () => {
     const wrapper = mount(BilingualEnum, { props: { value: 'HOLD', size: 'badge' } });
     expect(wrapper.text()).toContain('持有');
     expect(wrapper.text()).not.toContain('HOLD');
-    expect(wrapper.attributes('title')).toBe('HOLD');
+    expect(wrapper.attributes('title')).toBeUndefined();
+    expect(wrapper.attributes('aria-label')).toBe('持有（HOLD）');
   });
 });
