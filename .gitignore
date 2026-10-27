@@ -83,4 +83,3 @@ verify_*.py
 static/
 
 # Runtime-generated ETF rotation research reports
-src/finance_analysis/etf_rotation/backtest/report/
