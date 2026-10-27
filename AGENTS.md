@@ -59,7 +59,7 @@ Use them when checking deployment state, logs, runtime files, migrations, or ser
 | 周期调度 | Celery Beat、代码定义的 crontab | `tasks/celery/schedule/definitions.py` |
 | 实时行情 | asyncio、Longbridge、Redis | `finance-analysis-stream` → `market_stream/__main__.py` |
 | 量化 Worker | Python 3.12、Qlib 0.9.7、LightGBM | `qlib_worker.celery_app:celery_app`，仅消费 `qlib` 队列 |
-| 前端 | Vue 3、TypeScript、Vite、Pinia、vue-zustand、Tailwind 4 | `web/index.html` → `web/src/main.ts` → `App.vue` |
+| 前端 | Vue 3、TypeScript、Vite、Pinia、Tailwind 4 | `web/index.html` → `web/src/main.ts` → `App.vue` |
 
 Python 包使用 `src/` layout。主应用 CLI 来自 `pyproject.toml`：
 

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatFixed, formatPercent } from '@/utils/number';
 import StockLink from '@/components/stocks/StockLink.vue';
 import StockDetailDialog from '@/components/stocks/StockDetailDialog.vue';
 import type { StockDetailContext } from '@/components/stocks/detail/types';
@@ -370,10 +371,10 @@ const previewAvailable = computed(() => previewStatus.value != null);
 const showingPreview = computed(() => dataMode.value === 'preview' && !previewLoading.value && isPreviewCompleted(previewPayload.value?.status));
 const showingStrategyBody = computed(() => dataMode.value === 'official' || showingPreview.value);
 
-function score(value: number | null | undefined) { return value == null ? '—' : value.toFixed(1); }
-function scoreDelta(value: number | null | undefined) { return value == null ? '—' : `${value > 0 ? '+' : ''}${value.toFixed(1)}`; }
+function score(value: number | null | undefined) { return formatFixed(value, { digits: 1 }); }
+function scoreDelta(value: number | null | undefined) { return formatFixed(value, { digits: 1, signed: true }); }
 function rankDelta(value: number | null | undefined) { return value == null ? '—' : `${value > 0 ? '+' : ''}${value}`; }
-function pct(value: number | null | undefined) { return value == null ? '—' : `${(value * 100).toFixed(1)}%`; }
+function pct(value: number | null | undefined) { return formatPercent(value); }
 function price(value: number | null | undefined) {
   return value == null ? '—' : formatMarketCurrencyAmount(value, market.value);
 }

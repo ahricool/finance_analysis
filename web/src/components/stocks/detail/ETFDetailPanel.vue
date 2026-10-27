@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatFixed, formatPercent } from '@/utils/number';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import AppApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
@@ -85,8 +86,8 @@ async function loadDetail() {
 }
 watch([() => props.symbol, () => props.market, () => props.context?.tradeDate, () => props.context?.view], loadDetail, { immediate: true });
 onBeforeUnmount(() => { ++generation; ++historyGeneration; });
-function pct(value: number | null | undefined, sign = true) { return value == null ? '—' : `${sign && value >= 0 ? '+' : ''}${(value * 100).toFixed(2)}%`; }
-function score(value: number | null | undefined) { return value == null ? '—' : value.toFixed(1); }
+function pct(value: number | null | undefined, signed = true) { return formatPercent(value, { digits: 2, signed }); }
+function score(value: number | null | undefined) { return formatFixed(value, { digits: 1 }); }
 function decimal(value: number | null | undefined, digits = 3) { return value == null ? '—' : value.toFixed(digits); }
 function price(value: number | null) { return formatMarketCurrencyAmount(value, props.market); }
 function rankChange(value: number | null) { return value == null ? '—' : `${value > 0 ? '+' : ''}${value}`; }

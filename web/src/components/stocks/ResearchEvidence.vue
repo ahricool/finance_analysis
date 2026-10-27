@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatFixed } from '@/utils/number';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { RouterLink } from 'vue-router';
 import { trendFollowingApi } from '@/api/trendFollowing';
@@ -28,7 +29,7 @@ const dates = computed(() => new Set(sources.value.flatMap(source => source.item
 let generation = 0;
 let signalRequest = 0;
 onBeforeUnmount(() => { generation++; signalRequest++; });
-const number = (value: number | null | undefined) => value == null ? '—' : value.toFixed(2);
+const number = (value: number | null | undefined) => formatFixed(value);
 
 async function loadSource(source: Source, version = generation) {
   const { symbol, market } = props;

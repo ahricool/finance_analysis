@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatFixed, formatPercent } from '@/utils/number';
 import StockLink from '@/components/stocks/StockLink.vue';
 import StockDetailDialog from '@/components/stocks/StockDetailDialog.vue';
 import type { StockDetailContext } from '@/components/stocks/detail/types';
@@ -163,9 +164,9 @@ const previewChangeGroups = computed(() => {
   ];
 });
 const previewHasChanges = computed(() => previewChangeGroups.value.some(group => group.items.length));
-function pct(value: number | null | undefined, sign = true) { return value == null ? '—' : `${sign && value >= 0 ? '+' : ''}${(value * 100).toFixed(2)}%`; }
+function pct(value: number | null | undefined, signed = true) { return formatPercent(value, { digits: 2, signed }); }
 function stopPct(value: number | null | undefined) { return value == null ? '—' : `-${(value * 100).toFixed(1)}%`; }
-function score(value: number | null | undefined) { return value == null ? '—' : value.toFixed(1); }
+function score(value: number | null | undefined) { return formatFixed(value, { digits: 1 }); }
 function price(value: number | null) { return formatMarketCurrencyAmount(value, market.value); }
 function rankChange(value: number | null) { return value == null ? '—' : `${value > 0 ? '+' : ''}${value}`; }
 function scoreChange(value: number | null) { return value == null ? '—' : `${value > 0 ? '+' : ''}${value.toFixed(1)}`; }

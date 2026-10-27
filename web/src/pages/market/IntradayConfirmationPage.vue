@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatFixed, formatPercent } from '@/utils/number';
 import StockLink from '@/components/stocks/StockLink.vue';
 import { onBeforeUnmount, onMounted, ref, shallowRef } from 'vue';
 import { intradayConfirmationApi as api, type Snapshot, type Confirmation, type Market, type State, type Source } from '@/api/intradayConfirmation';
@@ -60,8 +61,8 @@ async function run() {
   catch (cause) { if (token === runGeneration) error.value = getParsedApiError(cause); }
   finally { if (token === runGeneration) submitting.value = false; }
 }
-function pct(value: unknown) { return typeof value === 'number' ? `${(value * 100).toFixed(2)}%` : 'unavailable'; }
-function num(value: unknown) { return typeof value === 'number' ? value.toFixed(2) : 'unavailable'; }
+function pct(value: unknown) { return formatPercent(value, { digits: 2, fallback: 'unavailable' }); }
+function num(value: unknown) { return formatFixed(value, { fallback: 'unavailable' }); }
 function stamp(value: unknown) { return typeof value === 'string' ? formatDateTime(value) : 'unavailable'; }
 function show(row: Confirmation) { selected.value = row; dialogOpen.value = true; }
 onMounted(refresh);

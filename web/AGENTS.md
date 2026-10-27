@@ -166,6 +166,7 @@ Cookie 会话，`apiClient` 设了 `withCredentials: true`。
 - 请求路径走 `/api/v1/...`。
 - 后端 snake_case 时，在 API 模块里用 `toCamelCase()` 再交给页面；**不要在 Vue 里散落 `stock_code` 字段访问**。
 - 少数接口（如部分 auth JSON）后端已是 camelCase，保持原样，不要双重转换。
+- 已知例外（待迁移）：`realtimeMarket.ts` 的 WS/SSE 报价、`watchList.ts` 条目及 `StockDetailDialog` 的 `stock` 目标（`market_type`）仍沿用后端 snake_case 线格式。新代码不要扩大该范围；迁移时注意 `trend_1m` 等键与以证券代码为键的对象不能直接 deep camelCase。
 - 行情推送：`useRealtimeQuotes()` 优先 WebSocket，连续两次连接/快照超时失败后固定回落 HTTP SSE；SSE 断开仅重试 SSE。`4401`/`4403` 或 SSE 401/403 视为未授权，停止重连；切市场与卸载取消旧连接。
 
 ## 语言边界
