@@ -3,7 +3,7 @@ import type { MarketType } from './watchList';
 import type { HoldingsSummary } from './holdings';
 import { toCamelCase } from './utils';
 
-export type RealtimeConnectionStatus = 'connecting' | 'connected' | 'reconnecting' | 'unauthorized' | 'sse' | 'sse-reconnecting';
+export type RealtimeConnectionStatus = 'connecting' | 'connected' | 'reconnecting' | 'unauthorized' | 'sse' | 'sse-reconnecting' | 'paused';
 export interface MarketStreamOptions {
   scope?: 'watch-list' | 'holdings'; market?: 'CN' | 'US'; tagId?: number; ungrouped?: boolean;
 }
@@ -136,7 +136,9 @@ export function buildMarketWebSocketUrl(options: MarketStreamOptions = {}): stri
   return url.toString();
 }
 
-export class MarketStreamAuthError extends Error {}
+export class MarketStreamAuthError extends Error {
+  constructor(readonly status: number) { super(`Market stream rejected with ${status}`); }
+}
 
 export function portfolioFromMessage(message: RealtimeQuoteMessage): HoldingsSummary | null {
   if (!message.portfolio || typeof message.portfolio !== 'object') return null;
@@ -151,7 +153,7 @@ export async function readMarketEvents(
   const response = await fetch(marketUrl('events', options), {
     credentials: 'include', headers: { Accept: 'text/event-stream' }, signal,
   });
-  if (response.status === 401 || response.status === 403) throw new MarketStreamAuthError();
+  if (response.status === 401 || response.status === 403) throw new MarketStreamAuthError(response.status);
   if (!response.ok || !response.body) throw new Error('行情连接失败');
   const reader = response.body.getReader();
   const decoder = new TextDecoder();

@@ -86,6 +86,7 @@ export const mrColumns = [
   { key: 'name', label: '股票名称', format: 'text' },
   { key: 'mrState', label: 'mrState', format: 'text', description: trendIndicatorDescriptions.mrState },
   { key: 'mrQuality', label: 'mrQuality', format: 'score', description: trendIndicatorDescriptions.mrQuality },
+  // Backend keeps the legacy `rsi14` key but computes RSI over trend_period; periodText rewrites RSI20.
   { key: 'rsi14', label: 'RSI20', format: 'score', description: trendIndicatorDescriptions.rsi14 },
   { key: 'distanceFromMa20Atr', label: '距 MA20 / ATR', format: 'ratio', description: trendIndicatorDescriptions.distanceFromMa20Atr },
   { key: 'return3D', label: 'return3D', format: 'percent', description: trendIndicatorDescriptions.return },

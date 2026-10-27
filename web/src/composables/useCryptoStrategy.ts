@@ -1,3 +1,4 @@
+import { useVisiblePolling } from './useVisiblePolling';
 import { onMounted, onUnmounted, ref, shallowRef, watch, type Ref } from 'vue';
 import { cryptoApi } from '@/api/crypto';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
@@ -18,7 +19,6 @@ export function useCryptoStrategy(range?: Ref<{ start: string; end: string } | n
   const error = shallowRef<ParsedApiError | null>(null);
   let stopped = false;
   let infoRequest = 0, performanceRequest = 0, markerRequest = 0;
-  let timer: ReturnType<typeof setInterval>;
   async function refresh() {
     const version = ++infoRequest;
     try {
@@ -63,8 +63,8 @@ export function useCryptoStrategy(range?: Ref<{ start: string; end: string } | n
     refreshSelected();
   });
   if (range) watch(() => range.value ? `${range.value.start}/${range.value.end}` : '', () => { markers.value = []; void refreshMarkers(); });
-  onMounted(() => { refreshSelected(); void refreshStrategies();
-    timer = setInterval(() => { refreshSelected(); void refreshStrategies(); }, 60_000); });
-  onUnmounted(() => { stopped = true; clearInterval(timer); });
+  onMounted(() => { refreshSelected(); void refreshStrategies(); });
+  useVisiblePolling(() => { refreshSelected(); void refreshStrategies(); }, 60_000);
+  onUnmounted(() => { stopped = true; });
   return { selectedKey, strategies, strategiesError, refreshStrategies, summaries, overview, signals, loading, error, refresh, performance, performanceError, refreshPerformance, markers, markerError, refreshMarkers };
 }

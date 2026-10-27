@@ -1,3 +1,4 @@
+import { useVisiblePolling } from './useVisiblePolling';
 import { onUnmounted, shallowReactive, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 import { parseDate } from '@internationalized/date';
@@ -62,7 +63,7 @@ export function useMarketDashboard() {
   const { displayTimezone } = storeToRefs(useTimezoneStore());
   watch(displayTimezone, () => { void latest.refresh(); void upcoming.refresh(); }, { immediate: true });
   // Use the existing public overview, without duplicating the BTC socket or loading chart history.
-  const timer = window.setInterval(() => { void btc.refresh(); }, 30_000);
-  onUnmounted(() => { stopped = true; window.clearInterval(timer); });
+  useVisiblePolling(() => { void btc.refresh(); }, 30_000);
+  onUnmounted(() => { stopped = true; });
   return { markets, latest, upcoming, btc };
 }

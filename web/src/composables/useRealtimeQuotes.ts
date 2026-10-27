@@ -4,12 +4,15 @@ import {
   type MarketStreamOptions, type RealtimeConnectionStatus, type RealtimeQuote, type RealtimeQuoteMessage,
 } from '@/api/realtimeMarket';
 import type { HoldingsSummary } from '@/api/holdings';
+import { redirectToLogin } from '@/api';
 import type { MarketType } from '@/api/watchList';
 import { onMounted, onUnmounted, ref, shallowRef, toValue, watch, type MaybeRefOrGetter } from 'vue';
 
 const CONNECTION_TIMEOUT_MS = 20_000;
 const SSE_CONNECTION_TIMEOUT_MS = 60_000;
 const SSE_IDLE_TIMEOUT_MS = 30_000;
+// Brief tab switches keep the stream; longer absences free the server push loop.
+const HIDDEN_DISCONNECT_MS = 60_000;
 
 export function useRealtimeQuotes(options: MaybeRefOrGetter<MarketStreamOptions> = {}) {
   const quotes = shallowRef<Record<string, RealtimeQuote>>({});
@@ -25,6 +28,7 @@ export function useRealtimeQuotes(options: MaybeRefOrGetter<MarketStreamOptions>
   let sseFailures = 0;
   let stopped = false;
   let generation = 0;
+  let hiddenTimer: number | null = null;
 
   function clearTimers() {
     if (reconnectTimer !== null) window.clearTimeout(reconnectTimer);
@@ -69,7 +73,7 @@ export function useRealtimeQuotes(options: MaybeRefOrGetter<MarketStreamOptions>
       if (stopped || generation !== ownedGeneration || controller !== current) return;
       clearTimers();
       controller = null;
-      if (error instanceof MarketStreamAuthError) status.value = 'unauthorized';
+      if (error instanceof MarketStreamAuthError) unauthorized(error.status === 401);
       else { sseFailures += 1; retry(connectSse, true); }
     });
   }
@@ -109,9 +113,15 @@ export function useRealtimeQuotes(options: MaybeRefOrGetter<MarketStreamOptions>
     current.onclose = event => {
       if (socket !== current || stopped) return;
       if (event.code === 4401 || event.code === 4403) {
-        clearTimers(); socket = null; status.value = 'unauthorized';
+        clearTimers(); socket = null; unauthorized(event.code === 4401);
       } else failed();
     };
+  }
+
+  // 4401 / SSE 401 mean the session is gone: recover the same way as an HTTP 401.
+  function unauthorized(sessionExpired: boolean) {
+    status.value = 'unauthorized';
+    if (sessionExpired) redirectToLogin();
   }
 
   function release() {
@@ -124,7 +134,24 @@ export function useRealtimeQuotes(options: MaybeRefOrGetter<MarketStreamOptions>
     controller = null;
   }
 
-  function disconnect() { stopped = true; release(); }
+  function disconnect() { stopped = true; clearHiddenTimer(); release(); }
+  function clearHiddenTimer() {
+    if (hiddenTimer !== null) window.clearTimeout(hiddenTimer);
+    hiddenTimer = null;
+  }
+  function onVisibility() {
+    if (stopped || status.value === 'unauthorized') return;
+    if (document.visibilityState === 'hidden') {
+      if (hiddenTimer === null && status.value !== 'paused') hiddenTimer = window.setTimeout(() => {
+        hiddenTimer = null;
+        release();
+        status.value = 'paused';
+      }, HIDDEN_DISCONNECT_MS);
+      return;
+    }
+    clearHiddenTimer();
+    if (status.value === 'paused') { status.value = 'connecting'; connect(); }
+  }
   function getQuote(code: string, marketType: MarketType): RealtimeQuote | undefined {
     return quotes.value[marketQuoteKey(code, marketType)];
   }
@@ -134,9 +161,9 @@ export function useRealtimeQuotes(options: MaybeRefOrGetter<MarketStreamOptions>
     quotes.value = {}; portfolio.value = null; lastUpdatedAt.value = null;
     sseFailures = 0;
     // Once downgraded, stay on SSE for this page's lifetime, including market switches.
-    if (!stopped) connect();
+    if (!stopped && status.value !== 'paused') connect();
   });
-  onMounted(connect);
-  onUnmounted(disconnect);
+  onMounted(() => { document.addEventListener('visibilitychange', onVisibility); connect(); });
+  onUnmounted(() => { document.removeEventListener('visibilitychange', onVisibility); disconnect(); });
   return { quotes, portfolio, status, lastUpdatedAt, getQuote, connect, disconnect };
 }

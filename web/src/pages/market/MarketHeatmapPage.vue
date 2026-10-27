@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useVisiblePolling } from '@/composables/useVisiblePolling';
 import { computed, nextTick, onBeforeUnmount, ref, shallowRef, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { RefreshCw, Search } from 'lucide-vue-next';
@@ -43,8 +44,8 @@ watch([search, groupCode], async () => {
   const top = Math.max(0, summary.value.getBoundingClientRect().top + window.scrollY - 76);
   if (window.scrollY > top + 1) window.scrollTo({ top, behavior: 'auto' });
 });
-const timer = setInterval(() => { void load(); }, 15 * 60 * 1000);
-onBeforeUnmount(() => { sequence++; clearInterval(timer); });
+useVisiblePolling(() => { void load(); }, 15 * 60 * 1000);
+onBeforeUnmount(() => { sequence++; });
 function select(stock: HeatmapStock) {
   detail.open({ code: stock.code, name: stock.name, market_type: market.value });
 }
