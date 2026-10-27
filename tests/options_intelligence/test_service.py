@@ -122,3 +122,36 @@ def test_auto_explanation_is_once_per_snapshot_session(repository, observation, 
     service.explain = Mock()
     service.run("AAPL", now)
     service.explain.assert_not_called()
+
+
+@pytest.mark.parametrize("missing_price", [False, True])
+def test_scan_batches_daily_bars_and_only_quotes_missing_prices(repository, observation, now, config, missing_price):
+    market = Mock()
+
+    def chain(symbol, now=None):
+        row = observation.model_copy(
+            update={"underlying_symbol": symbol, "underlying_price": None if missing_price else 100}
+        )
+        return OptionChain(symbol=symbol, observed_at=now, observations=[row])
+
+    market.get_option_chain.side_effect = chain
+    market.get_realtime_quotes.return_value = SimpleNamespace(data={})
+    market.get_daily_bars.return_value = SimpleNamespace(data={})
+    OptionsIntelligenceService(repository, market, config).scan(["AAPL", "MSFT"], now=now)
+    if missing_price:
+        assert [call.args[0] for call in market.get_realtime_quotes.call_args_list] == [["AAPL.US"], ["MSFT.US"]]
+    else:
+        market.get_realtime_quotes.assert_not_called()
+    market.get_daily_bars.assert_called_once()
+    assert list(market.get_daily_bars.call_args.args[0]) == ["AAPL.US", "MSFT.US"]
+    assert market.get_daily_bars.call_args.kwargs["source_policy"] == "db_only"
+
+
+def test_scan_preserves_soft_time_limit_during_prefetch(repository, now, config):
+    from billiard.exceptions import SoftTimeLimitExceeded
+
+    market = Mock()
+    market.get_daily_bars.side_effect = SoftTimeLimitExceeded()
+    with pytest.raises(SoftTimeLimitExceeded):
+        OptionsIntelligenceService(repository, market, config).scan(["AAPL"], now=now)
+    market.get_option_chain.assert_not_called()

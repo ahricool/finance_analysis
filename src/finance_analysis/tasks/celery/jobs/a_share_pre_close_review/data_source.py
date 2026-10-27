@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import logging
 from datetime import date, datetime, timedelta, timezone
-from typing import Any, Optional
+from typing import Any, Optional, Sequence
 
 import pandas as pd
 
-from finance_analysis.integrations.market_data.codes import normalize_stock_code
-from finance_analysis.integrations.market_data import MarketDataService
+from finance_analysis.integrations.market_data.codes import normalize_stock_code  # pragma: allowlist secret
+from finance_analysis.integrations.market_data.normalizer import canonical_symbol  # pragma: allowlist secret
+from finance_analysis.integrations.market_data import MarketDataService  # pragma: allowlist secret
 
 from .bars import normalize_bars
 
@@ -53,23 +54,88 @@ class ASharePreCloseDataSource:
             return result.top, result.bottom
         return [], []
 
-    def get_daily_history(self, code: str, *, days: int) -> tuple[pd.DataFrame, str]:
-        normalized = normalize_stock_code(code)
+    def get_daily_histories(self, codes: Sequence[str], *, days: int) -> dict[str, tuple[pd.DataFrame, str]]:
+        ordered = list(dict.fromkeys(str(code).strip() for code in codes if code))
+        if not ordered:
+            return {}
         end = date.today()
         result = self.market_data.get_daily_bars(
-            [normalized],
+            ordered,
             end - timedelta(days=max(days * 2, 30)),
             end,
             adjustment="forward",
         )
-        bars = next(iter(result.data.values()), [])
-        if not bars:
-            return pd.DataFrame(), ""
-        provider = next(iter(result.providers_used.values()))
-        self._record_source(provider)
-        return pd.DataFrame([{"date": bar.trade_date, "open": bar.open, "high": bar.high, "low": bar.low,
-                              "close": bar.close, "volume": bar.volume, "amount": bar.amount}
-                             for bar in bars[-days:]]), provider
+        loaded: dict[str, tuple[pd.DataFrame, str]] = {}
+        for code in ordered:
+            bars, provider = self._result_bars(result, code)
+            if provider:
+                self._record_source(provider)
+            entry = (
+                pd.DataFrame(
+                    [
+                        {
+                            "date": bar.trade_date,
+                            "open": bar.open,
+                            "high": bar.high,
+                            "low": bar.low,
+                            "close": bar.close,
+                            "volume": bar.volume,
+                            "amount": bar.amount,
+                        }
+                        for bar in bars[-days:]
+                    ]
+                )
+                if bars
+                else pd.DataFrame(),
+                provider,
+            )
+            for key in self._aliases(code):
+                loaded[key] = entry
+        return loaded
+
+    def get_daily_history(self, code: str, *, days: int) -> tuple[pd.DataFrame, str]:
+        histories = self.get_daily_histories([code], days=days)
+        return histories.get(code) or histories.get(normalize_stock_code(code), (pd.DataFrame(), ""))
+
+    def get_minute_histories(
+        self,
+        codes: Sequence[str],
+        *,
+        count: int,
+        now: Optional[datetime] = None,
+    ) -> dict[str, list[dict[str, Any]]]:
+        ordered = list(dict.fromkeys(str(code).strip() for code in codes if code))
+        if not ordered:
+            return {}
+        try:
+            end = now or datetime.now(timezone.utc)
+            if end.tzinfo is None:
+                end = end.replace(tzinfo=timezone.utc)
+            result = self.market_data.get_minute_bars(ordered, end - timedelta(minutes=count), end, interval="1m")
+        except Exception as exc:
+            logger.info("fuyao 批量获取分钟K线失败: %s", exc)
+            return {key: [] for code in ordered for key in self._aliases(code)}
+        loaded: dict[str, list[dict[str, Any]]] = {}
+        for code in ordered:
+            bars_result, provider = self._result_bars(result, code)
+            raw = [
+                {
+                    "timestamp": bar.bar_time.isoformat(),
+                    "open": bar.open,
+                    "high": bar.high,
+                    "low": bar.low,
+                    "close": bar.close,
+                    "volume": bar.volume,
+                    "turnover": bar.amount,
+                }
+                for bar in bars_result
+            ]
+            bars = normalize_bars(raw, now=now)
+            if bars and provider:
+                self._record_source(provider)
+            for key in self._aliases(code):
+                loaded[key] = bars
+        return loaded
 
     def get_minute_bars(
         self,
@@ -79,21 +145,29 @@ class ASharePreCloseDataSource:
         now: Optional[datetime] = None,
     ) -> list[dict[str, Any]]:
         try:
-            end = now or datetime.now(timezone.utc)
-            if end.tzinfo is None:
-                end = end.replace(tzinfo=timezone.utc)
-            result = self.market_data.get_minute_bars([normalize_stock_code(code)], end - timedelta(minutes=count), end,
-                                                      interval="1m")
-            bars_result = next(iter(result.data.values()), [])
-            raw = [{"timestamp": bar.bar_time.isoformat(), "open": bar.open, "high": bar.high, "low": bar.low,
-                    "close": bar.close, "volume": bar.volume, "turnover": bar.amount} for bar in bars_result]
-            bars = normalize_bars(raw, now=now)
-            if bars:
-                self._record_source(next(iter(result.providers_used.values())))
-            return bars
+            histories = self.get_minute_histories([code], count=count, now=now)
+            return histories.get(code) or histories.get(normalize_stock_code(code), [])
         except Exception as exc:
             logger.info("fuyao 获取 %s 分钟K线失败: %s", code, exc)
             return []
+
+    @staticmethod
+    def _aliases(code: str) -> list[str]:
+        keys = [code, normalize_stock_code(code)]
+        try:
+            keys.append(canonical_symbol(code))
+        except (ValueError, TypeError):
+            pass
+        return list(dict.fromkeys(keys))
+
+    @staticmethod
+    def _result_bars(result: Any, code: str) -> tuple[list[Any], str]:
+        if code in result.data:
+            return result.data.get(code, []), result.providers_used.get(code, "")
+        for key in ASharePreCloseDataSource._aliases(code):
+            if key in result.data:
+                return result.data.get(key, []), result.providers_used.get(key, "")
+        return [], ""
 
     def _record_source(self, name: str) -> None:
         if name not in self.sources_used:

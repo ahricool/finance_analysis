@@ -28,7 +28,7 @@ def test_existing_facade_handles_complete_stale_empty_and_gapped_db(monkeypatch,
     stored = {"complete": rows, "stale": rows[:-1], "empty": [], "gap": rows[:5] + rows[6:]}[mode]
     service = MarketDataService.__new__(MarketDataService)
     stocks = Mock()
-    stocks.get_range.return_value = stored
+    stocks.get_daily_ranges.return_value = {"TSM.US": stored}
     service._repositories = Mock(return_value=(Mock(), stocks))
     service.router = Mock()
     service.router.route_daily.return_value = BatchBarResult(data={"TSM.US": [bar(d) for d in DAYS]})
@@ -40,7 +40,7 @@ def test_existing_facade_handles_complete_stale_empty_and_gapped_db(monkeypatch,
         request = service.router.route_daily.call_args.args[0]
         assert request.required_dates == tuple(DAYS)
         assert request.adjustment == Adjustment.FORWARD
-    assert all(call[0] == "get_range" for call in stocks.method_calls)
+    assert all(call[0] == "get_daily_ranges" for call in stocks.method_calls)
 
 
 def pipeline():

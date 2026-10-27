@@ -372,6 +372,7 @@ class LongbridgeProvider:
 
     name = "longbridge"
     _HISTORY_PAGE_SIZE = 1000
+    _QUOTE_BATCH_SIZE = 100
 
     _CONNECTION_ERRORS = ("client is closed", "context closed", "connection closed")
 
@@ -443,18 +444,68 @@ class LongbridgeProvider:
 
     def fetch_quotes(self, request: QuoteRequest) -> BatchQuoteResult:
         result = BatchQuoteResult()
-        for value in request.symbols:
-            symbol = canonical_symbol(value)
+        ordered = [canonical_symbol(value) for value in request.symbols]
+        if not ordered:
+            return result
+        if not self.is_available_for_request("realtime_quote"):
+            result.missing_symbols.extend(ordered)
+            return result
+        ctx = self._get_ctx()
+        if ctx is None:
+            result.missing_symbols.extend(ordered)
+            return result
+        canonical_by_lb: Dict[str, list[str]] = {}
+        lb_symbols: list[str] = []
+        for symbol in ordered:
+            lb = _to_longbridge_symbol(symbol)
+            if lb is None:
+                result.missing_symbols.append(symbol)
+                continue
+            if lb not in canonical_by_lb:
+                canonical_by_lb[lb] = []
+                lb_symbols.append(lb)
+            canonical_by_lb[lb].append(symbol)
+        snapshots: Dict[str, Any] = {}
+        for offset in range(0, len(lb_symbols), self._QUOTE_BATCH_SIZE):
+            batch = lb_symbols[offset : offset + self._QUOTE_BATCH_SIZE]
+            api_start = time.time()
             try:
-                raw = self.get_realtime_quote(symbol)
-                quote = quote_from_value(raw.to_dict() if raw is not None else None, symbol=symbol, provider=self.name)
-                if quote is None:
-                    result.missing_symbols.append(symbol)
-                else:
-                    result.data[symbol] = quote
-                    result.providers_used[symbol] = self.name
+                for raw in retry_call(lambda symbols=batch: ctx.quote(symbols)):
+                    snapshots[str(getattr(raw, "symbol", "") or "")] = raw
+            except Exception as exc:
+                log_external_call_exception(
+                    logger,
+                    provider="longbridge",
+                    operation="quote",
+                    exc=exc,
+                    symbol=",".join(batch),
+                    params={"symbols": batch},
+                    elapsed=time.time() - api_start,
+                )
+                if self._is_connection_error(exc):
+                    self._mark_connection_cooldown(exc)
+                for lb in batch:
+                    for symbol in canonical_by_lb[lb]:
+                        result.failed_symbols[symbol] = str(exc)
+        self._prefetch_static_info([lb for lb in lb_symbols if lb in snapshots])
+        fetched_at = datetime.now(timezone.utc)
+        for symbol in ordered:
+            if symbol in result.failed_symbols or symbol in result.missing_symbols:
+                continue
+            lb = _to_longbridge_symbol(symbol)
+            try:
+                unified = self._unified_from_snapshot(symbol, lb, snapshots.get(lb or ""), fetched_at)
+                quote = quote_from_value(
+                    unified.to_dict() if unified is not None else None, symbol=symbol, provider=self.name
+                )
             except Exception as exc:
                 result.failed_symbols[symbol] = str(exc)
+                continue
+            if quote is None:
+                result.missing_symbols.append(symbol)
+            else:
+                result.data[symbol] = quote
+                result.providers_used[symbol] = self.name
         return result
 
     def get_instrument_info(self, request: InstrumentRequest) -> BatchInstrumentResult:
@@ -818,6 +869,55 @@ class LongbridgeProvider:
     # static_info with cache
     # ------------------------------------------------------------------
 
+    def _prefetch_static_info(self, lb_symbols: List[str]) -> None:
+        """Fill the static-info cache with one request per 100 symbols."""
+        if not hasattr(self, "_static_cache"):
+            self._static_cache = {}
+            self._static_cache_lock = threading.Lock()
+        ttl = _static_info_ttl_seconds()
+        if ttl <= 0:
+            return
+        unique = list(dict.fromkeys(symbol for symbol in lb_symbols if symbol))
+        if not unique:
+            return
+        now = time.time()
+        missing: list[str] = []
+        with self._static_cache_lock:
+            for symbol in unique:
+                cached = self._static_cache.get(symbol)
+                if not cached or (now - cached[1]) >= ttl:
+                    missing.append(symbol)
+        if not missing:
+            return
+        ctx = self._get_ctx()
+        if ctx is None:
+            return
+        for offset in range(0, len(missing), self._QUOTE_BATCH_SIZE):
+            batch = missing[offset : offset + self._QUOTE_BATCH_SIZE]
+            api_start = time.time()
+            try:
+                infos = retry_call(lambda symbols=batch: ctx.static_info(symbols)) or []
+            except Exception as exc:
+                log_external_call_exception(
+                    logger,
+                    provider="longbridge",
+                    operation="static_info",
+                    exc=exc,
+                    symbol=",".join(batch),
+                    params={"symbols": batch},
+                    elapsed=time.time() - api_start,
+                )
+                if self._is_connection_error(exc):
+                    self._mark_connection_cooldown(exc)
+                continue
+            with self._static_cache_lock:
+                for index, info in enumerate(infos):
+                    symbol = str(getattr(info, "symbol", "") or "")
+                    if not symbol and index < len(batch):
+                        symbol = batch[index]
+                    if symbol:
+                        self._static_cache[symbol] = (info, now)
+
     def _get_static_info(self, symbol: str) -> Optional[Any]:
         """Fetch static info (shares, EPS, BPS, name) with optional in-process TTL cache."""
         ttl = _static_info_ttl_seconds()
@@ -1125,6 +1225,13 @@ class LongbridgeProvider:
                 self._mark_connection_cooldown(e)
             return None
 
+        return self._unified_from_snapshot(stock_code, symbol, q, fetched_at)
+
+    def _unified_from_snapshot(
+        self, stock_code: str, symbol: str | None, q: Any, fetched_at: datetime
+    ) -> Optional[UnifiedRealtimeQuote]:
+        if q is None or not symbol:
+            return None
         price = safe_float(getattr(q, "last_done", None))
         if price is None or price <= 0:
             return None

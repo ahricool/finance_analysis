@@ -33,9 +33,14 @@ class PreCloseSecurityAnalyzer:
         self.benchmark_change = benchmark_change
 
     def load_market_trends(self) -> list[dict[str, Any]]:
+        histories = {}
+        if hasattr(self.data_source, "get_daily_histories"):
+            histories = self.data_source.get_daily_histories(list(MARKET_TREND_PROXIES), days=self.limits.history_days)
         trends = []
         for code, name in MARKET_TREND_PROXIES.items():
-            frame, source = self.data_source.get_daily_history(code, days=self.limits.history_days)
+            frame, source = histories.get(normalize_stock_code(code)) or self.data_source.get_daily_history(
+                code, days=self.limits.history_days
+            )
             trend = daily_trend(frame)
             if trend == "insufficient":
                 self.quality.issues.append(f"{name} 近期趋势数据不足")
@@ -48,9 +53,15 @@ class PreCloseSecurityAnalyzer:
         quote_by_code: dict[str, dict[str, Any]],
         sector_changes: dict[str, float],
     ) -> list[SecurityReview]:
+        codes = [normalize_stock_code(str(self._field(holding, "code") or "")) for holding in holdings]
+        daily = {}
+        minutes = {}
+        if hasattr(self.data_source, "get_daily_histories"):
+            daily = self.data_source.get_daily_histories(codes, days=self.limits.history_days)
+        if hasattr(self.data_source, "get_minute_histories"):
+            minutes = self.data_source.get_minute_histories(codes, count=self.limits.minute_bar_count, now=self.now)
         reviews = []
-        for holding in holdings:
-            code = normalize_stock_code(str(self._field(holding, "code") or ""))
+        for holding, code in zip(holdings, codes):
             quote = quote_by_code.get(code, {})
             if quote:
                 self.quality.holding_coverage += 1
@@ -62,6 +73,8 @@ class PreCloseSecurityAnalyzer:
                     sector_changes=sector_changes,
                     source="holding",
                     avg_cost=safe_float(self._field(holding, "avg_cost")),
+                    daily=daily.get(code),
+                    minutes=minutes.get(code),
                 )
             )
         return reviews
@@ -76,15 +89,19 @@ class PreCloseSecurityAnalyzer:
         source: str,
         avg_cost: Optional[float] = None,
         sector: Optional[str] = None,
+        daily: tuple[Any, str] | None = None,
+        minutes: list[dict[str, Any]] | None = None,
     ) -> SecurityReview:
-        frame, _ = self.data_source.get_daily_history(code, days=self.limits.history_days)
+        frame, _ = daily if daily is not None else self.data_source.get_daily_history(code, days=self.limits.history_days)
         trend = daily_trend(frame)
         if trend != "insufficient":
             self.quality.history_coverage += 1
         elif source == "holding":
             self.quality.issues.append(f"持仓 {code} 日线数据不足")
 
-        bars = self.data_source.get_minute_bars(code, count=self.limits.minute_bar_count, now=self.now)
+        bars = minutes if minutes is not None else self.data_source.get_minute_bars(
+            code, count=self.limits.minute_bar_count, now=self.now
+        )
         intraday = intraday_trend(bars, minimum_bars=self.limits.minimum_minute_bars)
         if intraday != "insufficient":
             self.quality.minute_coverage += 1

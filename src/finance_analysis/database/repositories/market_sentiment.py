@@ -98,20 +98,31 @@ class MarketSentimentRepository:
                     )
                 )
             session.flush()
+            lookback = sessions_through(day, config.history_days + 2)
+            lookback_start = lookback[0] if lookback else day
             all_sources = list(
-                session.scalars(select(Source).where(Source.source_kind == "limit_up").order_by(Source.trade_date))
+                session.scalars(
+                    select(Source)
+                    .where(Source.source_kind == "limit_up", Source.trade_date >= lookback_start)
+                    .order_by(Source.trade_date)
+                )
             )
             row_map = {r.trade_date: r.payload["items"] for r in all_sources}
-            calculated = {}
+            calculated = {
+                r.trade_date: r.payload
+                for r in session.scalars(
+                    select(Snapshot).where(Snapshot.trade_date >= lookback_start, Snapshot.trade_date < day)
+                )
+            }
             now = utc_now()
-            # Recompute every dependent day chronologically in the SAME transaction.
-            # No network and no partially published generations, including historical repairs.
+            # Rebuild from the published day forward in the SAME transaction.
+            # Earlier days are seeded from existing snapshots so daily runs stay bounded.
             for source in all_sources:
                 d = source.trade_date
-                result = calculate(d, row_map[d], row_map, calculated, sessions_through(d, 21), config)
-                calculated[d] = result
                 if d < day:
                     continue
+                result = calculate(d, row_map[d], row_map, calculated, sessions_through(d, 21), config)
+                calculated[d] = result
                 supplements = {
                     r.source_kind: {
                         "total": r.total,

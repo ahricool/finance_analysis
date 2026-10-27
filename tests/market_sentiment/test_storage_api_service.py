@@ -126,6 +126,18 @@ def test_backfill_rebuilds_future_promotion_heat_and_state(repo):
     assert repo.overview(DAY)["heat_score"] is not None
 
 
+def test_daily_publish_does_not_reload_unrelated_older_sources(repo):
+    days = sessions_through(DAY, 40)
+    for d in days:
+        repo.publish(d, {"limit_up": source(d)}, {})
+    with repo.db.get_session() as session:
+        older = session.scalar(select(func.count()).select_from(Source).where(Source.trade_date < days[-22]))
+    assert older > 0
+    repo.publish(DAY, {"limit_up": source(DAY, count=3)}, {})
+    assert repo.overview(DAY)["limit_up_count"] == 3
+    assert repo.overview(days[0])["limit_up_count"] == 1
+
+
 def test_service_core_failure_optional_failure_and_partial_retry(repo, monkeypatch):
     monkeypatch.setattr("finance_analysis.market_sentiment.service.expected_date", lambda: DAY)
 

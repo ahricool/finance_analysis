@@ -54,6 +54,29 @@ def test_loader_returns_stored_forward_adjusted_prices_without_second_adjustment
     assert "forward_adjustment_factor" not in result.frame.columns
 
 
+def test_source_revision_matches_stable_csv_hash() -> None:
+    import hashlib
+
+    day = date(2026, 7, 17)
+    result = DailyBarLoader(BarRepository([_row("AAPL.US", day, 50.0)])).load("US", {"AAPL.US"}, day, day)
+    stable = result.frame.reindex(
+        columns=[
+            "instrument",
+            "datetime",
+            "open",
+            "high",
+            "low",
+            "close",
+            "volume",
+            "amount",
+            "vwap",
+            "daily_data_source",
+        ]
+    ).assign(datetime=pd.to_datetime(result.frame["datetime"]).dt.strftime("%Y-%m-%d"))
+    payload = stable.to_csv(index=False, lineterminator="\n", na_rep="<null>", float_format="%.17g")
+    assert result.source_revision == hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
 class ExportRepository(BarRepository):
     def __init__(self, rows: list[dict]):
         super().__init__(rows)

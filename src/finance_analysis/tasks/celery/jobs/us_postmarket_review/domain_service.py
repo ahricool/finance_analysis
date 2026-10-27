@@ -59,12 +59,14 @@ class USPostmarketReviewService:
         db: Optional[DatabaseManager] = None,
     ) -> None:
         self.config = config or self._load_config()
+        self._history_market_data = None
         if history_loader is None:
             from finance_analysis.integrations.market_data import MarketDataService
             from .history import load_review_history
 
             if market_data_service is None:
                 market_data_service = MarketDataService()
+            self._history_market_data = market_data_service
             history_loader = partial(load_review_history, market_data=market_data_service)
         self.history_loader = history_loader
         self.llm_client = llm_client
@@ -143,6 +145,12 @@ class USPostmarketReviewService:
         warnings: List[str] = []
         # Share results (including failures) only within this context build.
         performance_cache: _PerformanceCache = {}
+        watch_symbols = self._load_watch_symbols()
+        self._preload_histories(
+            list(US_POSTMARKET_BENCHMARKS) + list(US_POSTMARKET_SECTOR_ETFS) + watch_symbols,
+            trading_date,
+            performance_cache,
+        )
         benchmarks = self._load_performance_group(
             US_POSTMARKET_BENCHMARKS,
             trading_date,
@@ -165,7 +173,6 @@ class USPostmarketReviewService:
         style_bias = self._determine_style_bias(sectors)
         market_regime = self._determine_market_regime(benchmarks, sectors, style_bias)
 
-        watch_symbols = self._load_watch_symbols()
         validation_failures = list(getattr(self, "_watch_list_validation_failures", []))
         warnings.extend(f"自选股校验失败 #{item['watch_list_id']}: {item['error']}" for item in validation_failures)
         watchlist_summary = self._build_watchlist_summary(
@@ -229,6 +236,28 @@ class USPostmarketReviewService:
         # Names and relative returns belong to each report section, not the cache.
         return replace(value, name=name)
 
+    def _preload_histories(
+        self,
+        symbols: Sequence[str],
+        trading_date: date,
+        cache: _PerformanceCache,
+    ) -> None:
+        ordered = list(dict.fromkeys(symbol for symbol in symbols if symbol))
+        if not ordered or self._history_market_data is None:
+            return
+        from .history import load_review_histories
+
+        loaded = load_review_histories(ordered, target_date=trading_date, days=35, market_data=self._history_market_data)
+        for symbol, value in loaded.items():
+            key = (symbol, trading_date)
+            if isinstance(value, Exception):
+                cache[key] = value
+                continue
+            try:
+                cache[key] = self._performance_from_frame(symbol, symbol, *value, trading_date)
+            except Exception as exc:
+                cache[key] = exc
+
     def _fetch_daily_performance(
         self,
         symbol: str,
@@ -236,7 +265,16 @@ class USPostmarketReviewService:
         trading_date: date,
     ) -> InstrumentPerformance:
         df, source = self.history_loader(symbol, target_date=trading_date, days=35)
+        return self._performance_from_frame(symbol, name, df, source, trading_date)
 
+    def _performance_from_frame(
+        self,
+        symbol: str,
+        name: str,
+        df: Any,
+        source: str,
+        trading_date: date,
+    ) -> InstrumentPerformance:
         rows = self._rows_until_trading_date(df, trading_date)
         if len(rows) < 2 or self._coerce_row_date(rows[-1].get("date")) != trading_date:
             raise RuntimeError("复盘需要目标交易日与前一条日线数据")

@@ -53,18 +53,18 @@ class DailyBarLoader:
 
     @staticmethod
     def _with_vwap(frame: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, int | float]]:
-        result = frame.copy()
-        total = len(result)
-        if result.empty:
-            return result, DailyBarLoader._vwap_report(0, 0, 0)
-        low = pd.to_numeric(result["low"], errors="coerce")
-        high = pd.to_numeric(result["high"], errors="coerce")
-        close = pd.to_numeric(result["close"], errors="coerce")
+        total = len(frame)
+        if frame.empty:
+            frame = frame.copy()
+            frame["vwap"] = pd.Series(dtype=float)
+            return frame, DailyBarLoader._vwap_report(0, 0, 0)
+        low = pd.to_numeric(frame["low"], errors="coerce")
+        high = pd.to_numeric(frame["high"], errors="coerce")
+        close = pd.to_numeric(frame["close"], errors="coerce")
         typical = (high + low + close) / 3.0
-        result["vwap"] = typical
-        result["vwap"] = result["vwap"].where(np.isfinite(result["vwap"]) & (result["vwap"] > 0))
-        valid = result["vwap"].notna()
-        return result, DailyBarLoader._vwap_report(
+        frame["vwap"] = typical.where(np.isfinite(typical) & (typical > 0))
+        valid = frame["vwap"].notna()
+        return frame, DailyBarLoader._vwap_report(
             total,
             int(valid.sum()),
             int((~valid).sum()),
@@ -97,11 +97,20 @@ class DailyBarLoader:
             "vwap",
             "daily_data_source",
         ]
-        stable = frame.reindex(columns=columns).copy()
+        stable = frame.reindex(columns=columns)
         if not stable.empty:
-            stable["datetime"] = pd.to_datetime(stable["datetime"]).dt.strftime("%Y-%m-%d")
-        payload = stable.to_csv(index=False, lineterminator="\n", na_rep="<null>", float_format="%.17g")
-        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+            stable = stable.assign(datetime=pd.to_datetime(stable["datetime"]).dt.strftime("%Y-%m-%d"))
+        hasher = hashlib.sha256()
+
+        class _Writer:
+            def write(self, data):
+                if isinstance(data, str):
+                    data = data.encode("utf-8")
+                hasher.update(data)
+                return len(data)
+
+        stable.to_csv(_Writer(), index=False, lineterminator="\n", na_rep="<null>", float_format="%.17g")
+        return hasher.hexdigest()
 
 
 __all__ = ["DailyBarLoadResult", "DailyBarLoader"]
