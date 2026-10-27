@@ -3,7 +3,7 @@ import { createPinia } from 'pinia';
 import { describe, expect, it, vi } from 'vitest';
 import EarningsOutlookSummary from '../EarningsOutlookSummary.vue';
 import EarningsOutlookDetail from '../EarningsOutlookDetail.vue';
-import type { EarningsOutlook } from '@/api/timeline';
+import type { EarningsOutlook, EarningsDetail } from '@/api/timeline';
 import { timelineApi } from '@/api/timeline';
 
 vi.mock('@/api/timeline', () => ({ timelineApi: { earningsDetail: vi.fn(), refreshEarnings: vi.fn() } }));
@@ -66,6 +66,54 @@ describe('Earnings confidence presentation', () => {
     expect(timelineApi.earningsDetail).toHaveBeenCalledWith(123);
     expect(wrapper.text()).toContain('暂无前瞻数据');
     expect(wrapper.text()).not.toContain('异步刷新前瞻');
+    wrapper.unmount();
+  });
+});
+
+
+describe('Price-only earnings review', () => {
+  function detail(): EarningsDetail {
+    return {
+      status: 'frozen', error: null, summary: outlook,
+      actual: {
+        status: 'completed', reviewKind: 'price_v1', predictionId: 1, dailyReturnPct: 10,
+        actualReturnPct: -1, closeError: -1, directionCorrect: false, rangeCovered: true,
+        actual: { targetTradingDate: '2026-10-05', previousClose: 90,
+          ohlc: { date: '2026-10-05', open: 100, high: 102, low: 95, close: 99 } },
+      },
+      versions: [{
+        id: 1, stage: 'final', applicability: 'frozen', generatedAt: '2026-10-02T20:10:00Z',
+        dataCutoff: '2026-10-02T20:10:00Z', releaseCutoff: '2026-10-05T12:00:00Z',
+        model: 'test', backend: 'test', promptVersion: 'test', prediction: outlook,
+        searchEvidence: { status: 'confirmed', requested: true, configuredSupport: true },
+        research: { sources: [] },
+      }],
+    };
+  }
+  it('shows daily return separately from the frozen-reference prediction comparison', async () => {
+    vi.mocked(timelineApi.earningsDetail).mockResolvedValue(detail());
+    const wrapper = mount(EarningsOutlookDetail, { props: { eventId: 123 }, global: { plugins: [createPinia()] } });
+    await flushPromises();
+    const review = wrapper.get('[data-testid="earnings-price-review"]');
+    expect(review.text()).toContain('已更新');
+    expect(review.get('.text-market-up').text()).toBe('10.00%');
+    expect(review.text()).toContain('相对原预测参考价涨跌 -1.00%');
+    expect(review.text()).toContain('预测方向命中 否');
+    expect(review.text()).not.toContain('EPS');
+    expect(review.text()).not.toContain('营收');
+    wrapper.unmount();
+  });
+  it('shows waiting for prices without fabricating returns or a successful match', async () => {
+    const data = detail();
+    data.actual = { status: 'pending', reviewKind: 'price_v1', predictionId: 1,
+      actual: { ohlc: null, missingReason: '等待目标交易日收盘' } };
+    vi.mocked(timelineApi.earningsDetail).mockResolvedValue(data);
+    const wrapper = mount(EarningsOutlookDetail, { props: { eventId: 123 }, global: { plugins: [createPinia()] } });
+    await flushPromises();
+    const review = wrapper.get('[data-testid="earnings-price-review"]');
+    expect(review.text()).toContain('等待收盘或日线');
+    expect(review.text()).toContain('预测方向命中 —');
+    expect(review.text()).not.toContain('已更新');
     wrapper.unmount();
   });
 });

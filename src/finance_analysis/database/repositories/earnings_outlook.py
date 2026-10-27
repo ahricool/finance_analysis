@@ -6,7 +6,13 @@ from finance_analysis.core.time import utc_now
 from finance_analysis.database.models.market_calendar import FinanceEvent
 from finance_analysis.database.models.earnings_outlook import EarningsResearch, EarningsPrediction, EarningsOutlookState
 from finance_analysis.database.session import DatabaseManager
-from finance_analysis.earnings_outlook.rules import timestamp, matches_schedule, completed_stages
+from finance_analysis.earnings_outlook.rules import (
+    timestamp,
+    matches_schedule,
+    completed_stages,
+    review_prediction,
+    PRICE_REVIEW_KIND,
+)
 from finance_analysis.earnings_outlook.facts import has_actual
 from finance_analysis.tasks.advisory_lock import PostgreSQLAdvisoryLock
 
@@ -220,10 +226,28 @@ class EarningsOutlookRepository:
                 else {}
             )
             state = s.get(EarningsOutlookState, event_id)
+            actual = state.actual if state else None
+            if actual and actual.get("review_kind") != PRICE_REVIEW_KIND:
+                version = next((v for v in versions if v.id == actual.get("prediction_id")), None)
+                actual = (
+                    dict(
+                        review_prediction(
+                            version.prediction,
+                            {
+                                "ohlc": (actual.get("actual") or {}).get("ohlc"),
+                                "target_trading_date": str(version.target_trading_date),
+                            },
+                            version.context,
+                        ),
+                        prediction_id=version.id,
+                        reviewed_at=actual.get("reviewed_at"),
+                    )
+                    if version else None
+                )
             return dict(
                 status=state.status if state else "pending",
                 error=state.error if state else None,
-                actual=state.actual if state else None,
+                actual=actual,
                 versions=[
                     dict(
                         id=v.id,

@@ -30,6 +30,7 @@ from .rules import (
     research_quarter,
     matches_schedule,
     review_prediction,
+    PRICE_REVIEW_KIND,
     trading_days,
 )
 from .universe import resolve_members
@@ -55,11 +56,18 @@ class ResearchBusy(Exception):
 class EarningsOutlookService:
     def __init__(self, repo=None, llm=None, collector=None, resolver=None, config=None, clock=utc_now):
         self.repo = repo or EarningsOutlookRepository()
-        self.llm = llm or LLMClient()
-        self.collector = collector or ContextCollector(self.repo, llm=self.llm)
+        self._llm = llm
+        self.collector = collector or ContextCollector(self.repo)
         self.resolver = resolver
         self.config = config or OutlookConfig.from_env()
         self.clock = clock
+
+    @property
+    def llm(self):
+        # Price reviews never construct or invoke an LLM client.
+        if self._llm is None:
+            self._llm = LLMClient()
+        return self._llm
 
     def run(self, stage="daily", event_id=None):
         if stage not in {"daily", "final", "manual"}:
@@ -111,7 +119,7 @@ class EarningsOutlookService:
 
     @contextmanager
     def research_slot(self):
-        # Shared by forecasts and actual-only research, including manual requests.
+        # Shared by forecast research and outlook calls, including manual requests.
         for n in range(self.config.concurrency):
             slot = self.repo.slot(n)
             if slot.acquire():
@@ -388,16 +396,9 @@ class EarningsOutlookService:
             state = self.repo.state(event.id)
             previous = state.actual if state else None
             same_version = previous and previous.get("prediction_id") == version.id
-            if same_version and previous.get("status") == "completed":
+            if same_version and previous.get("review_kind") == PRICE_REVIEW_KIND and previous.get("status") == "completed":
                 return None
-            with self.research_slot() as acquired:
-                if not acquired:
-                    return None
-                actual = self.collector.actual(event, version, now, previous=previous if same_version else None)
-            if same_version:
-                for metric in ("eps", "revenue", "ohlc"):
-                    if actual.get(metric) is None:
-                        actual[metric] = previous.get("actual", {}).get(metric)
+            actual = self.collector.actual(event, version, now)
             review = review_prediction(version.prediction, actual, version.context)
             review.update(prediction_id=version.id, reviewed_at=now.isoformat())
             self.repo.mark(event.id, "frozen", actual=json_value(review))

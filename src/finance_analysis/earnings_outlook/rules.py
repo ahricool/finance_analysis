@@ -239,6 +239,11 @@ def comparable(estimate, quarter, metric):
     )
 
 
+def price_direction(close, reference):
+    # Compare prices, not a divided percentage that can round 1% into 1.0000000000000009%.
+    return "up" if close > reference * 1.01 else "down" if close < reference * 0.99 else "flat"
+
+
 def normalize_prediction(raw, context, config=None):
     """Downgrade only unsupported sections; derive return and beats using a single policy."""
     config = config or OutlookConfig()
@@ -288,7 +293,7 @@ def normalize_prediction(raw, context, config=None):
     if context["provisional"] or context.get("evidence_limited") or context.get("price_stale"):
         reaction_confidence = min(reaction_confidence, 6)
     pct = (close / price - 1) * 100 if valid_price else None
-    direction = "uncertain" if pct is None else "up" if pct > 1 else "down" if pct < -1 else "flat"
+    direction = "uncertain" if pct is None else price_direction(close, price)
     scenarios = []
     for name in ("optimistic", "base", "pessimistic"):
         s = next((s for s in (raw.get("scenarios") or []) if isinstance(s, dict) and s.get("name") == name), {})
@@ -336,32 +341,44 @@ def normalize_prediction(raw, context, config=None):
     )
 
 
-def review_prediction(prediction, actual, context, config=None):
-    if config is None:
-        fields = OutlookConfig.__dataclass_fields__
-        config = OutlookConfig(**{k: v for k, v in prediction.get("tolerance", {}).items() if k in fields})
-    result = {"status": "pending", "eps": "unknown", "revenue": "unknown", "actual": actual}
-    for metric in ("eps", "revenue"):
-        estimate = prediction[metric].get("consensus")
-        observed = actual.get(metric)
-        if (
-            comparable(estimate, context["event"]["reporting_period"], metric)
-            and observed
-            and all(observed.get(k) == estimate.get(k) for k in ("quarter", "currency", "unit", "basis"))
-        ):
-            result[metric] = compare(observed.get("value"), estimate["value"], metric, estimate["currency"], config)
-    bar = actual.get("ohlc")
-    if bar and prediction.get("expected_close") and context.get("reference_price"):
-        ref = context["reference_price"]
-        pct = (bar["close"] / ref - 1) * 100
-        direction = "up" if pct > 1 else "down" if pct < -1 else "flat"
-        result.update(
-            close_error=prediction["expected_close"] - bar["close"],
-            close_error_pct=(prediction["expected_close"] / bar["close"] - 1) * 100,
-            actual_return_pct=pct,
-            direction_correct=direction == prediction["response_direction"],
-            range_covered=prediction["intraday_low"] <= bar["low"] and prediction["intraday_high"] >= bar["high"],
-        )
-    if bar and all(result[m] != "unknown" for m in ("eps", "revenue")):
-        result["status"] = "completed"
+PRICE_REVIEW_KIND = "price_v1"
+
+
+def review_prediction(prediction, actual, context):
+    """Evaluate prices independently of earnings facts; never mutate the frozen forecast."""
+    # Whitelist fields so legacy EPS/revenue/research evidence is never exposed as a price review.
+    prices = {
+        key: actual.get(key)
+        for key in ("ohlc", "previous_close", "target_trading_date", "previous_trading_date", "missing_reason")
+    }
+    result = dict(status="pending", review_kind=PRICE_REVIEW_KIND, actual=prices)
+    bar = prices["ohlc"]
+    previous = number(prices["previous_close"])
+    if not bar or previous is None or previous <= 0:
+        prices["missing_reason"] = prices["missing_reason"] or "等待目标交易日及前一交易日完整数据库日线"
+        return result
+    values = {key: number(bar.get(key)) for key in ("open", "high", "low", "close")}
+    if any(value is None for value in values.values()) or not (
+        0 < values["low"] <= min(values["open"], values["close"]) <= max(values["open"], values["close"]) <= values["high"]
+    ):
+        prices["missing_reason"] = "目标交易日日线无效"
+        return result
+    close = values["close"]
+    result.update(status="completed", daily_return_pct=(close / previous - 1) * 100)
+    prices["missing_reason"] = None
+    ref = number(context.get("reference_price"))
+    expected = number(prediction.get("expected_close"))
+    low, high = number(prediction.get("intraday_low")), number(prediction.get("intraday_high"))
+    if ref is not None and ref > 0:
+        pct = (close / ref - 1) * 100
+        direction = price_direction(close, ref)
+        result.update(actual_return_pct=pct, actual_direction=direction, reference_price=ref)
+        if prediction.get("response_direction") in {"up", "down", "flat"}:
+            result["direction_correct"] = direction == prediction["response_direction"]
+    if expected is not None and expected > 0:
+        result.update(close_error=expected - close, close_error_pct=(expected / close - 1) * 100)
+    if low is not None and high is not None and 0 < low <= high:
+        result["range_covered"] = low <= values["low"] and high >= values["high"]
+    if any(key not in result for key in ("direction_correct", "close_error", "range_covered")):
+        result["comparison_note"] = "原预测价格或方向不完整，相应项目无法比较；实际首日涨跌已更新"
     return result
