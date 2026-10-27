@@ -215,18 +215,29 @@ function when(value: string | null | undefined) { return value ? formatDateTimeI
       </div>
       <div
         v-if="data?.actual && data.actual.predictionId === version.id"
+        data-testid="earnings-price-review"
         class="space-y-1 rounded-lg bg-muted/50 p-3 text-sm"
       >
         <h4 class="font-medium">
-          预测与实际对照 · {{ data.actual.status === 'pending' ? '数据待齐全' : '已完成' }}
+          财报后首日股价验证 · {{ data.actual.status === 'pending' ? '等待收盘或日线' : '已更新' }}
         </h4>
-        <p>EPS {{ data.actual.actual.eps?.value ?? '—' }}（{{ data.actual.eps }}） · 营收 {{ data.actual.actual.revenue?.value ?? '—' }}（{{ data.actual.revenue }}）</p>
+        <p>
+          {{ data.actual.actual.targetTradingDate || prediction.targetTradingDate }} · 首日涨跌
+          <span :class="data.actual.dailyReturnPct == null ? '' : data.actual.dailyReturnPct > 0 ? 'text-market-up' : data.actual.dailyReturnPct < 0 ? 'text-market-down' : ''">
+            {{ data.actual.dailyReturnPct?.toFixed(2) ?? '—' }}%
+          </span>
+          （相对前一交易日收盘 {{ price(data.actual.actual.previousClose) }}）
+        </p>
+        <p>相对原预测参考价涨跌 {{ data.actual.actualReturnPct?.toFixed(2) ?? '—' }}% · 预计 {{ prediction.expectedReturnPct?.toFixed(2) ?? '—' }}%</p>
         <p v-if="data.actual.actual.ohlc">
           正常时段 OHLC：{{ price(data.actual.actual.ohlc.open) }} / {{ price(data.actual.actual.ohlc.high) }} / {{ price(data.actual.actual.ohlc.low) }} / {{ price(data.actual.actual.ohlc.close) }}
         </p>
-        <p>收盘误差 {{ data.actual.closeError?.toFixed(2) ?? '—' }} · 方向正确 {{ data.actual.directionCorrect == null ? '—' : data.actual.directionCorrect ? '是' : '否' }} · 区间覆盖 {{ data.actual.rangeCovered == null ? '—' : data.actual.rangeCovered ? '是' : '否' }}</p>
+        <p>收盘误差 {{ data.actual.closeError?.toFixed(2) ?? '—' }} · 预测方向命中 {{ data.actual.directionCorrect == null ? '—' : data.actual.directionCorrect ? '是' : '否' }} · 区间覆盖 {{ data.actual.rangeCovered == null ? '—' : data.actual.rangeCovered ? '是' : '否' }}</p>
         <p class="text-xs text-muted-foreground">
-          {{ data.actual.actual.missingReason }}
+          方向按原预测参考价计算：超过 +1% 为上涨，低于 -1% 为下跌，其余为持平。收盘误差为预测减实际，区间覆盖要求包含实际最高与最低价。
+        </p>
+        <p class="text-xs text-muted-foreground">
+          {{ data.actual.comparisonNote || data.actual.actual.missingReason }}
         </p>
       </div>
     </template>

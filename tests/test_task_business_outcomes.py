@@ -108,3 +108,13 @@ def test_long_earnings_errors_keep_full_counts_and_bounded_json(failed, error):
     assert all(item["api_key"] == "***" for item in retained)
     assert result["results"] is items and len(items) == failed + 1
     assert items[0]["error"] == error  # Only persisted detail is cropped; the Celery return is untouched.
+
+
+def test_price_review_pending_is_not_reported_as_all_completed():
+    from finance_analysis.tasks.outcomes import earnings_review_outcome
+
+    result = summarize_earnings_result({"results": [{"status": "pending"}, {"status": "completed"}]})
+    outcome = earnings_review_outcome(result)
+    assert outcome.status == TaskExecutionStatus.PARTIAL
+    assert "1" in outcome.message
+    assert earnings_review_outcome(summarize_earnings_result({"results": [{"status": "completed"}]})) is None

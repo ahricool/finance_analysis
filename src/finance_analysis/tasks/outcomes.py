@@ -33,6 +33,16 @@ def earnings_batch_outcome(result: dict[str, Any]) -> TaskOutcome | None:
     return TaskOutcome(status, f"财报处理失败 {failed}/{result['total_count']}；详见事件状态和任务日志")
 
 
+def earnings_review_outcome(result: dict[str, Any]) -> TaskOutcome | None:
+    failed = earnings_batch_outcome(result)
+    if failed:
+        return failed
+    pending = result["status_counts"].get("pending", 0)
+    if pending:
+        return TaskOutcome(TaskExecutionStatus.PARTIAL, f"首日股价待更新 {pending} 项；等待收盘或数据库日线")
+    return None
+
+
 def market_sync_outcome(result: dict[str, Any]) -> TaskOutcome | None:
     if result["sync_status"] != "partial":
         return None

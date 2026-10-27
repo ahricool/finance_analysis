@@ -6,7 +6,7 @@ from finance_analysis.tasks.celery.app import celery_app
 from finance_analysis.tasks.celery.metadata import EARNINGS_OUTLOOK_TASK
 from finance_analysis.tasks.celery.schedule import require_scheduled_task_definition
 from finance_analysis.tasks.lifecycle import TaskSkipped, track_task
-from finance_analysis.tasks.outcomes import earnings_batch_outcome, summarize_earnings_result
+from finance_analysis.tasks.outcomes import earnings_batch_outcome, earnings_review_outcome, summarize_earnings_result
 
 
 def _run_outlook(stage, event_id=None):
@@ -74,7 +74,7 @@ def earnings_outlook_final(**kwargs):
     trigger_source="scheduler",
     scheduler_job_id=REVIEW.job_id,
     record_result=True,
-    outcome_getter=earnings_batch_outcome,
+    outcome_getter=earnings_review_outcome,
     strip_lifecycle_kwargs=True,
 )
 def earnings_outlook_review(**kwargs):

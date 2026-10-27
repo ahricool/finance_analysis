@@ -47,10 +47,12 @@ export interface EarningsOutlook {
 }
 export interface EarningsDetail {
   status: string; error: string | null; summary: EarningsOutlook | null;
-  actual: { status: string; predictionId: number; eps: string; revenue: string; closeError?: number;
-    closeErrorPct?: number; directionCorrect?: boolean; rangeCovered?: boolean;
-    actual: { eps?: {value: number; basis?: string} | null; revenue?: {value: number} | null;
-      ohlc?: {open: number; high: number; low: number; close: number} | null; missingReason?: string } } | null;
+  actual: { status: 'pending' | 'completed'; reviewKind: string; predictionId: number;
+    dailyReturnPct?: number; actualReturnPct?: number; referencePrice?: number; comparisonNote?: string;
+    closeError?: number; closeErrorPct?: number; directionCorrect?: boolean; rangeCovered?: boolean;
+    actual: { ohlc?: { date: string; open: number; high: number; low: number; close: number } | null;
+      previousClose?: number | null; targetTradingDate?: string; previousTradingDate?: string;
+      missingReason?: string | null } } | null;
   versions: { id: number; stage: string; applicability: string; generatedAt: string; dataCutoff: string;
     releaseCutoff: string; model: string; backend: string; promptVersion: string; prediction: EarningsOutlook;
     searchEvidence: {status: string; requested: boolean; configuredSupport: boolean; citations?: {url: string; title: string}[]};
