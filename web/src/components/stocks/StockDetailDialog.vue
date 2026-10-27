@@ -41,14 +41,14 @@ export interface StockDetailRecord {
   id?: number;
   code: string;
   name: string | null;
-  market_type: MarketType;
+  marketType: MarketType;
   notes?: string | null;
-  is_favorite?: boolean;
+  isFavorite?: boolean;
   quantity?: string;
-  avg_cost?: string | null;
-  opened_at?: string | null;
-  created_at?: string;
-  updated_at?: string;
+  avgCost?: string | null;
+  openedAt?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 const props = withDefaults(defineProps<{
@@ -67,16 +67,16 @@ const isOpen = computed(() => props.open ?? Boolean(props.stock));
 const tabs = computed<Array<{ value: StockDetailTab; label: string }>>(() => [
   { value: 'overview', label: '行情' },
   { value: 'holdings', label: '持仓' },
-  ...(props.stock?.market_type === 'US' ? [{ value: 'options' as const, label: '期权' }] : []),
-  ...(props.stock?.market_type !== 'HK' ? [
+  ...(props.stock?.marketType === 'US' ? [{ value: 'options' as const, label: '期权' }] : []),
+  ...(props.stock?.marketType !== 'HK' ? [
     { value: 'trend' as const, label: '趋势' },
     { value: 'etf' as const, label: 'ETF 轮动' },
     { value: 'confluence' as const, label: '共振' },
     { value: 'intraday' as const, label: '盘中确认' },
     { value: 'quant' as const, label: '量化' },
   ] : []),
-  ...(props.stock?.market_type === 'CN' ? [{ value: 'dragon-tiger' as const, label: '龙虎榜' }] : []),
-  ...(props.stock?.market_type !== 'HK' ? [{ value: 'evidence' as const, label: '研究概览' }] : []),
+  ...(props.stock?.marketType === 'CN' ? [{ value: 'dragon-tiger' as const, label: '龙虎榜' }] : []),
+  ...(props.stock?.marketType !== 'HK' ? [{ value: 'evidence' as const, label: '研究概览' }] : []),
 ]);
 const activeTab = ref<StockDetailTab>('overview');
 const detailContext = computed<StockDetailContext>(() => ({
@@ -85,11 +85,11 @@ const detailContext = computed<StockDetailContext>(() => ({
   tradeDate: props.context?.tradeDate ?? props.optionsDate,
 }));
 const contextKey = computed(() => JSON.stringify(detailContext.value));
-const panelKey = computed(() => `${props.stock?.market_type}:${props.stock?.code}:${contextKey.value}:${activeTab.value}`);
+const panelKey = computed(() => `${props.stock?.marketType}:${props.stock?.code}:${contextKey.value}:${activeTab.value}`);
 const activePanel = computed(() => activeTab.value in detailPanels
   ? detailPanels[activeTab.value as keyof typeof detailPanels] : null);
 watch(
-  [() => isOpen.value, () => props.stock?.code, () => props.stock?.market_type, () => props.initialTab, () => contextKey.value, () => props.optionsView, () => props.optionsDate],
+  [() => isOpen.value, () => props.stock?.code, () => props.stock?.marketType, () => props.initialTab, () => contextKey.value, () => props.optionsView, () => props.optionsDate],
   () => { activeTab.value = tabs.value.some(tab => tab.value === props.initialTab) ? props.initialTab! : 'overview'; },
   { immediate: true },
 );
@@ -98,7 +98,7 @@ const fetchedQuote = ref<RealtimeQuote>();
 const quoteLoading = ref(false);
 const quoteError = ref<ParsedApiError | null>(null);
 const suppliedQuote = computed(() => props.stock && props.quote
-  && props.quote.market_type === props.stock.market_type
+  && props.quote.marketType === props.stock.marketType
   && [props.quote.code, props.quote.symbol].some(code => code.trim().toUpperCase() === props.stock!.code.trim().toUpperCase())
   ? props.quote : undefined);
 const displayQuote = computed(() => suppliedQuote.value ?? fetchedQuote.value);
@@ -109,7 +109,7 @@ async function loadQuote() {
   quoteController?.abort();
   fetchedQuote.value = undefined; quoteError.value = null; quoteLoading.value = false;
   if (!isOpen.value || activeTab.value !== 'overview' || !props.stock || suppliedQuote.value) return;
-  const { code, market_type: market } = props.stock;
+  const { code, marketType: market } = props.stock;
   const controller = new AbortController();
   quoteController = controller; quoteLoading.value = true;
   try {
@@ -125,17 +125,17 @@ async function loadQuote() {
     if (request === quoteRequest) quoteLoading.value = false;
   }
 }
-watch([isOpen, activeTab, () => props.stock?.code, () => props.stock?.market_type, suppliedQuote], loadQuote, { immediate: true });
+watch([isOpen, activeTab, () => props.stock?.code, () => props.stock?.marketType, suppliedQuote], loadQuote, { immediate: true });
 onBeforeUnmount(() => { quoteRequest++; quoteController?.abort(); });
 
 const marketName = computed(
-  () => ({ CN: 'A 股', HK: '港股', US: '美股' })[props.stock?.market_type ?? 'CN'],
+  () => ({ CN: 'A 股', HK: '港股', US: '美股' })[props.stock?.marketType ?? 'CN'],
 );
-const currencyCode = computed(() => getMarketCurrencyCode(props.stock?.market_type));
+const currencyCode = computed(() => getMarketCurrencyCode(props.stock?.marketType));
 const holdingMarketValue = computed(() => {
   if (props.kind !== 'holding' || !displayQuote.value?.available) return null;
   const quantity = Number(props.stock?.quantity);
-  const lastPrice = displayQuote.value!.last_price;
+  const lastPrice = displayQuote.value!.lastPrice;
   return Number.isFinite(quantity) &&
     lastPrice !== null &&
     lastPrice !== undefined &&
@@ -144,16 +144,16 @@ const holdingMarketValue = computed(() => {
     : null;
 });
 const holdingProfitAmount = computed(() => {
-  if (holdingMarketValue.value === null || !props.stock?.avg_cost) return null;
+  if (holdingMarketValue.value === null || !props.stock?.avgCost) return null;
   const quantity = Number(props.stock.quantity);
-  const averageCost = Number(props.stock.avg_cost);
+  const averageCost = Number(props.stock.avgCost);
   return Number.isFinite(quantity) && Number.isFinite(averageCost)
     ? holdingMarketValue.value - quantity * averageCost
     : null;
 });
 const holdingProfitPct = computed(() => {
-  const averageCost = Number(props.stock?.avg_cost);
-  const lastPrice = displayQuote.value?.last_price;
+  const averageCost = Number(props.stock?.avgCost);
+  const lastPrice = displayQuote.value?.lastPrice;
   if (
     !Number.isFinite(averageCost) ||
     averageCost <= 0 ||
@@ -179,7 +179,7 @@ function formatSigned(value: number | null | undefined, suffix = ''): string {
 function formatSignedMarketAmount(value: number | null | undefined): string {
   if (value === null || value === undefined || !Number.isFinite(value)) return '—';
   const sign = value > 0 ? '+' : value < 0 ? '-' : '';
-  return `${sign}${getMarketCurrencySymbol(props.stock?.market_type)}${Math.abs(
+  return `${sign}${getMarketCurrencySymbol(props.stock?.marketType)}${Math.abs(
     value,
   ).toLocaleString(undefined, {
     minimumFractionDigits: 2,
@@ -210,7 +210,7 @@ function movementClass(value: number | null | undefined): string {
         </DialogTitle>
         <DialogDescription>查看同一股票或 ETF 的行情、持仓与研究详情；各页签保留各自的数据日期与口径。</DialogDescription>
         <StockIndustryTags
-          v-if="stock && ['CN', 'US'].includes(stock.market_type) && isOpen"
+          v-if="stock && ['CN', 'US'].includes(stock.marketType) && isOpen"
           :key="stock.code"
           :code="stock.code"
         />
@@ -244,7 +244,7 @@ function movementClass(value: number | null | undefined): string {
           <HoldingsDetailPanel
             v-if="activeTab === 'holdings'"
             :symbol="stock.code"
-            :market="stock.market_type"
+            :market="stock.marketType"
             :context="detailContext"
             class="p-4 sm:p-6"
             @updated="emit('holdings-updated')"
@@ -253,18 +253,18 @@ function movementClass(value: number | null | undefined): string {
             :is="activePanel"
             v-else-if="activePanel"
             :symbol="stock.code"
-            :market="stock.market_type"
+            :market="stock.marketType"
             :context="detailContext"
             class="p-4 sm:p-6"
           />
           <ResearchEvidence
             v-else-if="activeTab === 'evidence'"
             :symbol="stock.code"
-            :market="stock.market_type"
+            :market="stock.marketType"
             class="p-4 sm:p-6"
           />
           <OptionsPanel
-            v-else-if="activeTab === 'options' && stock.market_type === 'US'"
+            v-else-if="activeTab === 'options' && stock.marketType === 'US'"
             :key="stock.code"
             :symbol="stock.code"
             :initial-view="optionsView ?? context?.view"
@@ -298,10 +298,10 @@ function movementClass(value: number | null | undefined): string {
               >
                 <div
                   v-for="metric in [
-                    { label: '最新价', value: formatNumber(displayQuote.last_price, 4) },
-                    { label: '今日涨跌额', value: formatSigned(displayQuote.change_amount), color: movementClass(displayQuote.change_amount) },
-                    { label: '今日涨跌幅', value: formatSigned(displayQuote.change_pct, '%'), color: movementClass(displayQuote.change_pct) },
-                    { label: '交易时段', value: displayQuote.trade_session || '—' },
+                    { label: '最新价', value: formatNumber(displayQuote.lastPrice, 4) },
+                    { label: '今日涨跌额', value: formatSigned(displayQuote.changeAmount), color: movementClass(displayQuote.changeAmount) },
+                    { label: '今日涨跌幅', value: formatSigned(displayQuote.changePct, '%'), color: movementClass(displayQuote.changePct) },
+                    { label: '交易时段', value: displayQuote.tradeSession || '—' },
                   ]"
                   :key="metric.label"
                   class="min-w-0 rounded-xl border border-border/60 bg-background p-3"
@@ -349,11 +349,11 @@ function movementClass(value: number | null | undefined): string {
                       ['开盘', formatNumber(displayQuote?.open, 4)],
                       ['最高', formatNumber(displayQuote?.high, 4)],
                       ['最低', formatNumber(displayQuote?.low, 4)],
-                      ['昨收', formatNumber(displayQuote?.pre_close, 4)],
+                      ['昨收', formatNumber(displayQuote?.preClose, 4)],
                       ['成交量 (Volume)', formatNumber(displayQuote?.volume, 0)],
                       ['成交额', formatNumber(displayQuote?.turnover, 2)],
-                      ['行情时间', formatDateTimeInDisplayTimezone(displayQuote?.event_time)],
-                      ['接收时间', formatDateTimeInDisplayTimezone(displayQuote?.received_at)],
+                      ['行情时间', formatDateTimeInDisplayTimezone(displayQuote?.eventTime)],
+                      ['接收时间', formatDateTimeInDisplayTimezone(displayQuote?.receivedAt)],
                     ]"
                     :key="entry[0]"
                     class="min-w-0 border-b border-border/50 p-4"
@@ -449,7 +449,7 @@ function movementClass(value: number | null | undefined): string {
                       />
                     </dt>
                     <dd class="mt-1 text-sm text-foreground">
-                      {{ formatMarketCurrencyAmount(stock.avg_cost, stock.market_type) }}
+                      {{ formatMarketCurrencyAmount(stock.avgCost, stock.marketType) }}
                     </dd>
                   </div>
                   <div>
@@ -461,7 +461,7 @@ function movementClass(value: number | null | undefined): string {
                       />
                     </dt>
                     <dd class="mt-1 text-sm text-foreground">
-                      {{ formatHoldingCostAmount(stock.quantity, stock.avg_cost, stock.market_type) }}
+                      {{ formatHoldingCostAmount(stock.quantity, stock.avgCost, stock.marketType) }}
                     </dd>
                   </div>
                   <div>
@@ -473,7 +473,7 @@ function movementClass(value: number | null | undefined): string {
                       />
                     </dt>
                     <dd class="mt-1 text-sm text-foreground">
-                      {{ formatMarketCurrencyAmount(holdingMarketValue, stock.market_type) }}
+                      {{ formatMarketCurrencyAmount(holdingMarketValue, stock.marketType) }}
                     </dd>
                   </div>
                   <div>
@@ -515,7 +515,7 @@ function movementClass(value: number | null | undefined): string {
                       />
                     </dt>
                     <dd class="mt-1 text-sm text-foreground">
-                      {{ formatDateTimeInDisplayTimezone(stock.opened_at) }}
+                      {{ formatDateTimeInDisplayTimezone(stock.openedAt) }}
                     </dd>
                   </div>
                 </template>
@@ -528,7 +528,7 @@ function movementClass(value: number | null | undefined): string {
                     />
                   </dt>
                   <dd class="mt-1 text-sm text-foreground">
-                    {{ stock.is_favorite ? '是' : '否' }}
+                    {{ stock.isFavorite ? '是' : '否' }}
                   </dd>
                 </div>
                 <div class="col-span-2">
@@ -564,7 +564,7 @@ function movementClass(value: number | null | undefined): string {
                     />
                   </dt>
                   <dd class="mt-1 text-sm text-foreground">
-                    {{ formatDateTimeInDisplayTimezone(stock.created_at) }}
+                    {{ formatDateTimeInDisplayTimezone(stock.createdAt) }}
                   </dd>
                 </div>
                 <div>
@@ -576,7 +576,7 @@ function movementClass(value: number | null | undefined): string {
                     />
                   </dt>
                   <dd class="mt-1 text-sm text-foreground">
-                    {{ formatDateTimeInDisplayTimezone(stock.updated_at) }}
+                    {{ formatDateTimeInDisplayTimezone(stock.updatedAt) }}
                   </dd>
                 </div>
               </dl>

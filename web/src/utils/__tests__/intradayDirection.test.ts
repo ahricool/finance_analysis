@@ -20,39 +20,39 @@ function quote(options: QuoteOptions = {}): RealtimeQuote {
   const eventTime = new Date(NOW.getTime() - (options.ageMinutes ?? 5) * 60_000).toISOString();
   return {
     code: 'AAPL',
-    market_type: 'US',
+    marketType: 'US',
     symbol: 'AAPL.US',
     available: true,
-    event_time: NOW.toISOString(),
-    received_at: NOW.toISOString(),
-    last_price: options.lastPrice ?? 101,
-    trend_1m: {
+    eventTime: NOW.toISOString(),
+    receivedAt: NOW.toISOString(),
+    lastPrice: options.lastPrice ?? 101,
+    trend1m: {
       timeframe: '1m',
-      target_period: 20,
-      effective_period: 20,
-      minimum_period: 5,
+      targetPeriod: 20,
+      effectivePeriod: 20,
+      minimumPeriod: 5,
       state: options.trendState ?? 'above',
       streak: options.streak ?? 2,
       confirmed: true,
     },
-    pattern_1m: {
+    pattern1m: {
       timeframe: '1m',
       status: 'active',
-      trading_date: options.tradingDate ?? '2026-07-22',
+      tradingDate: options.tradingDate ?? '2026-07-22',
       signal: {
         timeframe: '1m',
-        pattern_type: 'vwap_reclaim_breakdown',
-        pattern_name: 'VWAP收复',
+        patternType: 'vwap_reclaim_breakdown',
+        patternName: 'VWAP收复',
         direction: options.direction ?? 'bullish_continuation',
         stage,
-        quality_score: 80,
-        occurred_at: eventTime,
-        confirmed_at: stage === 'confirmed' ? eventTime : null,
-        trading_date: options.tradingDate ?? '2026-07-22',
-        trade_session: 'Regular',
-        bars_ago: 1,
-        session_minutes_ago: 1,
-        invalidation_price: options.invalidationPrice === undefined ? 100 : options.invalidationPrice,
+        qualityScore: 80,
+        occurredAt: eventTime,
+        confirmedAt: stage === 'confirmed' ? eventTime : null,
+        tradingDate: options.tradingDate ?? '2026-07-22',
+        tradeSession: 'Regular',
+        barsAgo: 1,
+        sessionMinutesAgo: 1,
+        invalidationPrice: options.invalidationPrice === undefined ? 100 : options.invalidationPrice,
         reasons: ['结构成立'],
         confirmed: stage === 'confirmed',
       },
@@ -64,14 +64,14 @@ describe('calculateIntradayDirection', () => {
   it('shares the direction calculation with A shares and respects the lunch break', () => {
     const at = new Date('2026-07-22T02:00:00Z');
     const value = quote();
-    value.market_type = 'CN';
-    value.event_time = value.received_at = at.toISOString();
-    value.pattern_1m!.signal!.confirmed_at = '2026-07-22T01:55:00Z';
+    value.marketType = 'CN';
+    value.eventTime = value.receivedAt = at.toISOString();
+    value.pattern1m!.signal!.confirmedAt = '2026-07-22T01:55:00Z';
     expect(calculateIntradayDirection(value, 'CN', at)?.status).toBe('多头确认');
     expect(calculateIntradayDirection(value, 'CN', new Date('2026-07-22T04:00:00Z'))?.status).toBe('休市等待');
   });
 
-  it.each(['event_time', 'received_at'] as const)('accepts ±30 seconds inclusively and distinguishes stale/future %s', field => {
+  it.each(['eventTime', 'receivedAt'] as const)('accepts ±30 seconds inclusively and distinguishes stale/future %s', field => {
     for (const offset of [-31_000, -30_000, -10_000, 0, 10_000, 30_000, 31_000]) {
       const value = { ...quote(), [field]: new Date(NOW.getTime() + offset).toISOString() };
       const status = calculateIntradayDirection(value, 'US', NOW);
@@ -81,8 +81,8 @@ describe('calculateIntradayDirection', () => {
   });
 
   it('distinguishes missing, malformed and receipt-only timestamps from stale quotes', () => {
-    for (const changes of [{ event_time: undefined }, { received_at: undefined }, { event_time: 'invalid' },
-      { received_at: 'invalid' }, { timestamp_kind: 'received' }]) {
+    for (const changes of [{ eventTime: undefined }, { receivedAt: undefined }, { eventTime: 'invalid' },
+      { receivedAt: 'invalid' }, { timestampKind: 'received' }]) {
       expect(calculateIntradayDirection({ ...quote(), ...changes }, 'US', NOW)?.status).toBe('时间异常');
     }
     expect(calculateIntradayDirection(quote(), 'US', new Date('invalid'))).toBeNull();
@@ -90,32 +90,32 @@ describe('calculateIntradayDirection', () => {
 
   it('uses calendar-provided early close and prioritizes close even without a pattern', () => {
     const value = quote();
-    value.session_close = '2026-07-22T15:00:00Z';
-    value.pattern_1m = { timeframe: '1m', status: 'none' };
+    value.sessionClose = '2026-07-22T15:00:00Z';
+    value.pattern1m = { timeframe: '1m', status: 'none' };
     expect(calculateIntradayDirection(value, 'US', NOW)?.status).toBe('当日已收盘');
   });
 
   it('does not confirm a stale minute trend using a fresh quote', () => {
     const value = quote();
-    value.trend_1m!.bar_time = new Date(NOW.getTime() - 181_000).toISOString();
+    value.trend1m!.barTime = new Date(NOW.getTime() - 181_000).toISOString();
     expect(calculateIntradayDirection(value, 'US', NOW)?.status).toBe('趋势更新延迟');
-    value.trend_1m!.bar_time = new Date(NOW.getTime() - 180_000).toISOString();
+    value.trend1m!.barTime = new Date(NOW.getTime() - 180_000).toISOString();
     expect(calculateIntradayDirection(value, 'US', NOW)?.status).toBe('多头确认');
   });
 
   it('applies the same future tolerance to trend and signal times without expiring completed minute bars at 30 seconds', () => {
     const value = quote();
-    value.trend_1m!.bar_time = new Date(NOW.getTime() - 60_000).toISOString();
+    value.trend1m!.barTime = new Date(NOW.getTime() - 60_000).toISOString();
     expect(calculateIntradayDirection(value, 'US', NOW)?.status).toBe('多头确认');
     for (const offset of [30_000, 31_000]) {
       const timestamp = new Date(NOW.getTime() + offset).toISOString();
-      value.trend_1m!.bar_time = timestamp;
-      value.pattern_1m!.signal!.confirmed_at = timestamp;
+      value.trend1m!.barTime = timestamp;
+      value.pattern1m!.signal!.confirmedAt = timestamp;
       expect(calculateIntradayDirection(value, 'US', NOW)?.status).toBe(offset === 30_000 ? '多头确认' : '时间异常');
-      value.trend_1m!.bar_time = NOW.toISOString();
+      value.trend1m!.barTime = NOW.toISOString();
       expect(calculateIntradayDirection(value, 'US', NOW)?.status).toBe(offset === 30_000 ? '多头确认' : '时间异常');
     }
-    value.trend_1m!.bar_time = 'invalid';
+    value.trend1m!.barTime = 'invalid';
     expect(calculateIntradayDirection(value, 'US', NOW)?.status).toBe('时间异常');
   });
   it.each([
@@ -179,17 +179,17 @@ describe('calculateIntradayDirection', () => {
   });
 
   it('returns null rather than throwing when trend or pattern data is missing', () => {
-    expect(calculateIntradayDirection({ ...quote(), trend_1m: undefined }, 'US', NOW)).toBeNull();
-    expect(calculateIntradayDirection({ ...quote(), pattern_1m: undefined }, 'US', NOW)).toBeNull();
+    expect(calculateIntradayDirection({ ...quote(), trend1m: undefined }, 'US', NOW)).toBeNull();
+    expect(calculateIntradayDirection({ ...quote(), pattern1m: undefined }, 'US', NOW)).toBeNull();
   });
 
   it('returns null for insufficient trend history or invalid required event time', () => {
     const insufficient = quote();
-    insufficient.trend_1m = { ...insufficient.trend_1m!, effective_period: 4, minimum_period: 5 };
+    insufficient.trend1m = { ...insufficient.trend1m!, effectivePeriod: 4, minimumPeriod: 5 };
     expect(calculateIntradayDirection(insufficient, 'US', NOW)).toBeNull();
 
     const invalidTime = quote();
-    invalidTime.pattern_1m!.signal!.confirmed_at = 'invalid';
+    invalidTime.pattern1m!.signal!.confirmedAt = 'invalid';
     expect(calculateIntradayDirection(invalidTime, 'US', NOW)).toBeNull();
   });
 
@@ -201,13 +201,13 @@ describe('calculateIntradayDirection', () => {
     const value = quote({ ageMinutes: 5 });
     expect(calculateIntradayDirection(value, 'US', NOW)?.status).toBe('多头确认');
     const later = new Date(NOW.getTime() + 6 * 60_000);
-    value.event_time = value.received_at = later.toISOString();
+    value.eventTime = value.receivedAt = later.toISOString();
     expect(calculateIntradayDirection(value, 'US', later)?.status).toBe('多头延续');
   });
 
   it('returns consolidation waiting when complete data has no active signal', () => {
     const value = quote();
-    value.pattern_1m = { timeframe: '1m', status: 'none' };
+    value.pattern1m = { timeframe: '1m', status: 'none' };
     expect(calculateIntradayDirection(value, 'US', NOW)?.status).toBe('震荡等待');
   });
 });

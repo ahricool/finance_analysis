@@ -1,6 +1,5 @@
 import {
-  buildMarketWebSocketUrl, isRealtimeQuoteMessage, marketQuoteKey, MarketStreamAuthError,
-  portfolioFromMessage, readMarketEvents,
+  buildMarketWebSocketUrl, marketQuoteKey, MarketStreamAuthError, parseRealtimeQuoteMessage, readMarketEvents,
   type MarketStreamOptions, type RealtimeConnectionStatus, type RealtimeQuote, type RealtimeQuoteMessage,
 } from '@/api/realtimeMarket';
 import type { HoldingsSummary } from '@/api/holdings';
@@ -42,9 +41,9 @@ export function useRealtimeQuotes(options: MaybeRefOrGetter<MarketStreamOptions>
   }
 
   function accept(message: RealtimeQuoteMessage) {
-    quotes.value = Object.fromEntries(message.quotes.map(q => [marketQuoteKey(q.code, q.market_type), q]));
-    portfolio.value = portfolioFromMessage(message);
-    lastUpdatedAt.value = message.generated_at;
+    quotes.value = Object.fromEntries(message.quotes.map(q => [marketQuoteKey(q.code, q.marketType), q]));
+    portfolio.value = message.portfolio;
+    lastUpdatedAt.value = message.generatedAt;
   }
 
   function retry(callback: () => void, sse = false) {
@@ -101,9 +100,10 @@ export function useRealtimeQuotes(options: MaybeRefOrGetter<MarketStreamOptions>
     };
     current.onmessage = event => {
       if (socket !== current || stopped) return;
-      let message: unknown;
-      try { message = JSON.parse(String(event.data)); } catch { return; }
-      if (!isRealtimeQuoteMessage(message)) return;
+      let payload: unknown;
+      try { payload = JSON.parse(String(event.data)); } catch { return; }
+      const message = parseRealtimeQuoteMessage(payload);
+      if (!message) return;
       failures = 0;
       accept(message);
       status.value = 'connected';

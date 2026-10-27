@@ -40,21 +40,21 @@ const tooltip = computed(() => {
   if (!trend) return '1分钟滚动均线\n数据不足';
   const lines = [
     '1分钟滚动均线',
-    `当前周期：${trend.effective_period} / 目标周期：${trend.target_period}`,
+    `当前周期：${trend.effectivePeriod} / 目标周期：${trend.targetPeriod}`,
   ];
-  if (finite(trend.ma_value)) lines.push(`均线：${trend.ma_value.toFixed(2)}`);
+  if (finite(trend.maValue)) lines.push(`均线：${trend.maValue.toFixed(2)}`);
   if (finite(trend.close)) lines.push(`收盘价：${trend.close.toFixed(2)}`);
-  if (finite(trend.distance_pct)) {
-    lines.push(`偏离：${trend.distance_pct > 0 ? '+' : ''}${trend.distance_pct.toFixed(2)}%`);
+  if (finite(trend.distancePct)) {
+    lines.push(`偏离：${trend.distancePct > 0 ? '+' : ''}${trend.distancePct.toFixed(2)}%`);
   }
   lines.push(`方向：${directionText[trend.state]}`);
   if (trend.state !== 'insufficient') lines.push(`连续：${trend.streak}`);
-  if (trend.bar_time) {
-    const formatted = formatDateTimeInDisplayTimezone(trend.bar_time);
-    if (formatted !== '—' && formatted !== trend.bar_time) lines.push(`K线时间：${formatted}`);
+  if (trend.barTime) {
+    const formatted = formatDateTimeInDisplayTimezone(trend.barTime);
+    if (formatted !== '—' && formatted !== trend.barTime) lines.push(`K线时间：${formatted}`);
   }
-  if (trend.trading_date) lines.push(`交易日：${trend.trading_date}`);
-  if (trend.trade_session) lines.push(`交易时段：${trend.trade_session}`);
+  if (trend.tradingDate) lines.push(`交易日：${trend.tradingDate}`);
+  if (trend.tradeSession) lines.push(`交易时段：${trend.tradeSession}`);
   return lines.join('\n');
 });
 </script>

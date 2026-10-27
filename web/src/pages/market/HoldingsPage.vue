@@ -534,8 +534,8 @@ function closeDetail() {
                   <span class="block font-medium">{{ signed(row.unrealizedPnlPct, '%') }}</span>
                   <span class="block text-xs">{{ signed(row.unrealizedPnl) }}</span>
                 </TableCell>
-                <TableCell><TrendStatus :trend="getQuote(row.symbol, market)?.trend_1m" /></TableCell>
-                <TableCell><PatternStatus :pattern="getQuote(row.symbol, market)?.pattern_1m" /></TableCell>
+                <TableCell><TrendStatus :trend="getQuote(row.symbol, market)?.trend1m" /></TableCell>
+                <TableCell><PatternStatus :pattern="getQuote(row.symbol, market)?.pattern1m" /></TableCell>
                 <TableCell>
                   <IntradayDirectionStatus
                     :quote="getQuote(row.symbol, market)"
@@ -665,7 +665,7 @@ function closeDetail() {
     </Dialog>
 
     <StockDetailDialog
-      :stock="detail ? { code: detail.symbol, name: detail.name ?? null, market_type: market } : null"
+      :stock="detail ? { code: detail.symbol, name: detail.name ?? null, marketType: market } : null"
       kind="research"
       initial-tab="overview"
       :context="detail ? { accountId: detail.accountId, positionId: detail.id } : undefined"

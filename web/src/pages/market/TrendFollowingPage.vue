@@ -93,7 +93,7 @@ const previewInfo = computed(() => previewPayload.value ?? previewStatus.value);
 const officialLatest = shallowRef<{ tradeDate: string; generatedAt: string | null } | null>(null);
 const officialSelected = shallowRef<TrendRankingResponse | null>(null);
 const detailOpen = ref(false);
-const detailStock = ref<{ code: string; name: string; market_type: TrendMarket } | null>(null);
+const detailStock = ref<{ code: string; name: string; marketType: TrendMarket } | null>(null);
 const detailContext = ref<StockDetailContext>({});
 const rankingDetailTrigger = ref<{ code: string; el: HTMLElement | null } | null>(null);
 let generation = 0;
@@ -388,7 +388,7 @@ function openDetail(item: Pick<TrendSnapshot, 'code'> & { name?: string; tradeDa
   detailInitialTab.value = initialTab;
   const row = items.value.find(row => row.code === item.code);
   const view = item.preview === undefined ? dataMode.value : item.preview ? 'preview' : 'official';
-  detailStock.value = { code: item.code, name: item.name ?? row?.name ?? '', market_type: market.value };
+  detailStock.value = { code: item.code, name: item.name ?? row?.name ?? '', marketType: market.value };
   detailContext.value = {
     view,
     trendPeriod: trendPeriod.value,

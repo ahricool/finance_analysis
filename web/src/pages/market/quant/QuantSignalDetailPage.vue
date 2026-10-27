@@ -6,7 +6,7 @@ import StockDetailDialog from '@/components/stocks/StockDetailDialog.vue';
 const route = useRoute();
 const router = useRouter();
 const { market, marketQuery, tradeDate } = useQuantMarket();
-const stock = computed(() => ({ code: String(route.params.code || ''), name: '', market_type: market.value }));
+const stock = computed(() => ({ code: String(route.params.code || ''), name: '', marketType: market.value }));
 function close(open: boolean) {
   if (open) return;
   // Direct and external entry must never send the user out of the app.

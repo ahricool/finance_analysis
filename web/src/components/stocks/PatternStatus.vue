@@ -18,7 +18,7 @@ const signal = computed<RealtimePatternSignal | null>(() =>
   props.pattern?.status === 'active' ? (props.pattern.signal ?? null) : null,
 );
 const previewSignal = computed<RealtimePatternSignal | null>(() =>
-  props.pattern?.preview_status === 'active' ? (props.pattern.preview_signal ?? null) : null,
+  props.pattern?.previewStatus === 'active' ? (props.pattern.previewSignal ?? null) : null,
 );
 
 const directionMeaning: Record<PatternDirection, string> = {
@@ -82,7 +82,7 @@ function previousDateKey(parts: Record<string, string>): string {
 
 function eventTime(value: RealtimePatternSignal): Date | null {
   const raw =
-    value.stage === 'confirmed' && value.confirmed_at ? value.confirmed_at : value.occurred_at;
+    value.stage === 'confirmed' && value.confirmedAt ? value.confirmedAt : value.occurredAt;
   const parsed = new Date(raw);
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
@@ -113,13 +113,13 @@ const emptyTitle = computed(() => {
 
 const detail = computed(() =>
   signal.value
-    ? `${stageText[signal.value.stage]} · ${signal.value.quality_score}分 · ${ageText(signal.value)}`
+    ? `${stageText[signal.value.stage]} · ${signal.value.qualityScore}分 · ${ageText(signal.value)}`
     : '',
 );
 
 const invalidationText = computed(() =>
-  finite(signal.value?.invalidation_price)
-    ? `失效：${signal.value.invalidation_price.toFixed(2)}`
+  finite(signal.value?.invalidationPrice)
+    ? `失效：${signal.value.invalidationPrice.toFixed(2)}`
     : '',
 );
 
@@ -152,23 +152,23 @@ const tooltip = computed(() => {
   if (formal) {
     lines.push('【正式形态】');
     lines.push(
-      `形态名称：${formal.pattern_name}`,
+      `形态名称：${formal.patternName}`,
       `方向含义：${directionMeaning[formal.direction]}`,
       `当前阶段：${stageText[formal.stage]}`,
-      `形态质量分：${formal.quality_score} / 100`,
+      `形态质量分：${formal.qualityScore} / 100`,
       '判断理由：',
       ...formal.reasons.map((reason) => `- ${reason}`),
     );
-    if (finite(formal.reference_level))
-      lines.push(`参考价位：${formal.reference_level.toFixed(2)}`);
-    if (finite(formal.invalidation_price))
-      lines.push(`失效价位：${formal.invalidation_price.toFixed(2)}`);
-    lines.push(`形态开始时间：${formatTime(formal.occurred_at)}`);
-    lines.push(`确认时间：${formatTime(formal.confirmed_at)}`);
-    lines.push(`K线数量差：${formal.bars_ago} 根`);
-    lines.push(`交易时段分钟差：${formal.session_minutes_ago} 分钟`);
-    if (formal.trading_date) lines.push(`交易日：${formal.trading_date}`);
-    if (formal.trade_session) lines.push(`交易时段：${formal.trade_session}`);
+    if (finite(formal.referenceLevel))
+      lines.push(`参考价位：${formal.referenceLevel.toFixed(2)}`);
+    if (finite(formal.invalidationPrice))
+      lines.push(`失效价位：${formal.invalidationPrice.toFixed(2)}`);
+    lines.push(`形态开始时间：${formatTime(formal.occurredAt)}`);
+    lines.push(`确认时间：${formatTime(formal.confirmedAt)}`);
+    lines.push(`K线数量差：${formal.barsAgo} 根`);
+    lines.push(`交易时段分钟差：${formal.sessionMinutesAgo} 分钟`);
+    if (formal.tradingDate) lines.push(`交易日：${formal.tradingDate}`);
+    if (formal.tradeSession) lines.push(`交易时段：${formal.tradeSession}`);
   } else {
     lines.push('【正式形态】', props.pattern?.status === 'none' ? '暂无近期形态' : '数据不足');
   }
@@ -176,21 +176,21 @@ const tooltip = computed(() => {
     if (lines.length) lines.push('');
     lines.push(
       '【实时预览 · 当前一分钟K线未收盘】',
-      `形态名称：${preview.pattern_name}`,
+      `形态名称：${preview.patternName}`,
       `方向含义：${directionMeaning[preview.direction]}`,
       `当前阶段：${stageText[preview.stage]}`,
-      `形态质量分：${preview.quality_score} / 100`,
+      `形态质量分：${preview.qualityScore} / 100`,
       '判断理由：',
       ...preview.reasons.map((reason) => `- ${reason}`),
     );
-    if (finite(preview.reference_level))
-      lines.push(`参考价位：${preview.reference_level.toFixed(2)}`);
-    if (finite(preview.invalidation_price))
-      lines.push(`失效价位：${preview.invalidation_price.toFixed(2)}`);
-    if (finite(props.pattern?.preview_price))
-      lines.push(`当前预览价格：${props.pattern.preview_price.toFixed(2)}`);
-    lines.push(`当前K线时间：${formatTime(props.pattern?.preview_bar_time)}`);
-    lines.push(`预览更新时间：${formatTime(props.pattern?.preview_updated_at)}`);
+    if (finite(preview.referenceLevel))
+      lines.push(`参考价位：${preview.referenceLevel.toFixed(2)}`);
+    if (finite(preview.invalidationPrice))
+      lines.push(`失效价位：${preview.invalidationPrice.toFixed(2)}`);
+    if (finite(props.pattern?.previewPrice))
+      lines.push(`当前预览价格：${props.pattern.previewPrice.toFixed(2)}`);
+    lines.push(`当前K线时间：${formatTime(props.pattern?.previewBarTime)}`);
+    lines.push(`预览更新时间：${formatTime(props.pattern?.previewUpdatedAt)}`);
     lines.push('说明：一分钟K线尚未收盘，信号可能变化，不作为正式确认信号');
   }
   return lines.join('\n');
@@ -229,7 +229,7 @@ const tooltip = computed(() => {
           <span
             v-if="previewSignal && !signal"
             class="whitespace-nowrap text-xs text-warning"
-          >{{ stageText[previewSignal.stage] }} · {{ previewSignal.quality_score }}分 · 可能变化</span>
+          >{{ stageText[previewSignal.stage] }} · {{ previewSignal.qualityScore }}分 · 可能变化</span>
           <span
             v-if="emptyTitle"
             class="whitespace-nowrap font-semibold text-muted-foreground"

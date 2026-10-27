@@ -63,7 +63,7 @@ export function intradayPatternOverlays(
   const newestBars = [...bars].reverse();
   for (const event of events) {
     // Use the actual observation time, never an earlier pivot or occurrence time.
-    const observedAt = Date.parse(event.observed_at);
+    const observedAt = Date.parse(event.observedAt);
     const bar = newestBars.find(row => row.timestamp <= observedAt);
     if (!bar || observedAt - bar.timestamp > 120_000) continue;
     const group = grouped.get(bar.timestamp) ?? { bar, events: [] };
@@ -72,7 +72,7 @@ export function intradayPatternOverlays(
   }
   return [...grouped.values()].map(({ bar, events }) => {
     // One marker per minute, showing its latest observation; retain every event for inspection.
-    const sorted = [...events].sort((a, b) => Date.parse(b.observed_at) - Date.parse(a.observed_at) || b.quality_score - a.quality_score);
+    const sorted = [...events].sort((a, b) => Date.parse(b.observedAt) - Date.parse(a.observedAt) || b.qualityScore - a.qualityScore);
     const event = sorted[0]!;
     return {
       name: 'intradayPattern', id: `intraday-pattern-${bar.timestamp}`, groupId: 'intraday-patterns', lock: true,

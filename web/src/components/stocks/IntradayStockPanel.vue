@@ -42,11 +42,11 @@ const current = computed(() => { const bar = rows.value.find(bar => !bar.confirm
 const quote = computed(() => snapshot.value?.quote);
 const minuteSource = computed(() => rows.value.at(-1)?.source === 'tencent_intraday' ? '腾讯' : '新浪');
 const referencePrice = computed(() => {
-  const price = props.market === 'CN' ? quote.value?.pre_close : null;
+  const price = props.market === 'CN' ? quote.value?.preClose : null;
   return price != null && Number.isFinite(price) && price > 0 ? price : undefined;
 });
 const session = computed(() => {
-  const day = snapshot.value?.trading_date;
+  const day = snapshot.value?.tradingDate;
   if (props.market !== 'CN' || !day) return undefined;
   return { open: Date.parse(`${day}T09:30:00+08:00`), close: Date.parse(`${day}T15:00:00+08:00`),
     breakStart: Date.parse(`${day}T11:30:00+08:00`), breakEnd: Date.parse(`${day}T13:00:00+08:00`) };
@@ -69,7 +69,7 @@ async function load() {
     const since = rows.value.at(-1)?.timestamp;
     const value = await fetchIntradayMarket(props.symbol, since == null ? undefined : new Date(since).toISOString(), controller.signal);
     if (stopped || generation !== owned) return;
-    const merged = new Map((value.reset || value.full_snapshot ? [] : rows.value).map(row => [row.timestamp, row]));
+    const merged = new Map((value.reset || value.fullSnapshot ? [] : rows.value).map(row => [row.timestamp, row]));
     for (const row of value.items) merged.set(row.timestamp, row);
     rows.value = [...merged.values()].sort((a, b) => a.timestamp - b.timestamp);
     snapshot.value = value;
@@ -104,7 +104,7 @@ const overlays = computed<OverlayCreate[]>(() => {
     extendData: { dark: resolvedTheme.value === 'dark' },
   });
   const evidence = selected.value;
-  for (const [label, value] of [['参考位', evidence?.reference_level], ['失效位', evidence?.invalidation_price]] as const) {
+  for (const [label, value] of [['参考位', evidence?.referenceLevel], ['失效位', evidence?.invalidationPrice]] as const) {
     if (value != null) result.push({ name: 'priceLine', id: `intraday-${label}`, groupId: 'intraday-levels', lock: true,
       points: [{ timestamp: rows.value.at(-1)?.timestamp ?? 0, value }], extendData: label });
   }
@@ -120,7 +120,7 @@ const overlays = computed<OverlayCreate[]>(() => {
     data-testid="intraday-panel"
   >
     <div class="flex flex-wrap items-center justify-between gap-2 text-sm">
-      <strong>最近交易日 1 分钟 K 线 · {{ snapshot?.trading_date ?? '加载中' }}</strong>
+      <strong>最近交易日 1 分钟 K 线 · {{ snapshot?.tradingDate ?? '加载中' }}</strong>
       <span class="text-xs text-muted-foreground">{{ market === 'CN' ? `${minuteSource} · 原生分钟线 · 上海时间` : 'Longbridge · 原生分钟线 · 纽约时间' }}</span>
     </div>
     <ApiErrorAlert
@@ -174,7 +174,7 @@ const overlays = computed<OverlayCreate[]>(() => {
           aria-live="polite"
         >
           <div class="flex flex-wrap items-center justify-between gap-2">
-            <strong>{{ selected.pattern_name }} · {{ selected.stage === 'confirmed' ? '已确认' : selected.stage === 'forming' ? '形成中' : '观察中' }}</strong>
+            <strong>{{ selected.patternName }} · {{ selected.stage === 'confirmed' ? '已确认' : selected.stage === 'forming' ? '形成中' : '观察中' }}</strong>
             <Button
               size="sm"
               variant="ghost"
@@ -197,13 +197,13 @@ const overlays = computed<OverlayCreate[]>(() => {
               :aria-pressed="selected === event"
               @click="selected = event"
             >
-              {{ event.pattern_name }} · {{ event.stage === 'confirmed' ? '已确认' : event.stage === 'forming' ? '形成中' : '观察中' }}
+              {{ event.patternName }} · {{ event.stage === 'confirmed' ? '已确认' : event.stage === 'forming' ? '形成中' : '观察中' }}
             </Button>
           </div>
           <p class="text-xs text-muted-foreground">
-            首次观测：{{ time(selected.observed_at) }} · Quality {{ selected.quality_score }}
+            首次观测：{{ time(selected.observedAt) }} · Quality {{ selected.qualityScore }}
           </p>
-          <p>参考位 {{ fmt(selected.reference_level) }} / 失效位 {{ fmt(selected.invalidation_price) }}</p>
+          <p>参考位 {{ fmt(selected.referenceLevel) }} / 失效位 {{ fmt(selected.invalidationPrice) }}</p>
           <p
             v-for="reason in selected.reasons"
             :key="reason"
@@ -217,17 +217,17 @@ const overlays = computed<OverlayCreate[]>(() => {
         <div>
           <p class="text-xs text-muted-foreground">
             最新价 / 当日涨跌幅
-          </p><p>{{ fmt(quote?.last_price) }} / {{ fmt(quote?.change_pct) }}%</p>
+          </p><p>{{ fmt(quote?.lastPrice) }} / {{ fmt(quote?.changePct) }}%</p>
         </div>
         <div>
           <p class="mb-1 text-xs text-muted-foreground">
             趋势持续
-          </p><TrendStatus :trend="quote?.trend_1m" />
+          </p><TrendStatus :trend="quote?.trend1m" />
         </div>
         <div>
           <p class="mb-1 text-xs text-muted-foreground">
             最近形态
-          </p><PatternStatus :pattern="quote?.pattern_1m" />
+          </p><PatternStatus :pattern="quote?.pattern1m" />
         </div>
         <div>
           <p class="mb-1 text-xs text-muted-foreground">
@@ -239,7 +239,7 @@ const overlays = computed<OverlayCreate[]>(() => {
           />
         </div>
         <div class="text-xs text-muted-foreground">
-          <p>行情：{{ time(quote?.event_time) }}</p><p>接收：{{ time(quote?.received_at) }}</p><p>已采集 {{ rows.length }} 根 · 部分分钟 {{ rows.filter(row => row.partial).length }} 根</p>
+          <p>行情：{{ time(quote?.eventTime) }}</p><p>接收：{{ time(quote?.receivedAt) }}</p><p>已采集 {{ rows.length }} 根 · 部分分钟 {{ rows.filter(row => row.partial).length }} 根</p>
         </div>
       </aside>
     </div>

@@ -8,12 +8,12 @@ const register = vi.hoisted(() => vi.fn());
 vi.mock('klinecharts', () => ({ registerOverlay: register }));
 const at = Date.parse('2026-10-21T15:00:00Z');
 const bar: IntradayBar = { timestamp: at, open: 100, high: 102, low: 98, close: 101,
-  volume: 10, turnover: null, confirmed: true, sampled: false, sample_count: 0, partial: false };
+  volume: 10, turnover: null, confirmed: true, sampled: false, sampleCount: 0, partial: false };
 function event(direction: PatternDirection, seconds = 10): PatternEvent {
-  return { timeframe: '1m', pattern_type: 'breakout_retest_continuation', pattern_name: '突破回踩延续',
-    direction, stage: 'confirmed', quality_score: 83, occurred_at: new Date(at - 600_000).toISOString(),
-    observed_at: new Date(at + seconds * 1000).toISOString(), bars_ago: 0, session_minutes_ago: 0,
-    reference_level: 100, invalidation_price: 98, reasons: ['保存的原始证据'], confirmed: true };
+  return { timeframe: '1m', patternType: 'breakout_retest_continuation', patternName: '突破回踩延续',
+    direction, stage: 'confirmed', qualityScore: 83, occurredAt: new Date(at - 600_000).toISOString(),
+    observedAt: new Date(at + seconds * 1000).toISOString(), barsAgo: 0, sessionMinutesAgo: 0,
+    referenceLevel: 100, invalidationPrice: 98, reasons: ['保存的原始证据'], confirmed: true };
 }
 
 describe('compact intraday pattern markers', () => {
@@ -37,7 +37,7 @@ describe('compact intraday pattern markers', () => {
       expect(figures).toHaveLength(1);
       expect(figures[0]).toMatchObject({ attrs: { text: symbol, y: value === bar.low ? 270 : 10 },
         styles: { color, weight: 'bold', backgroundColor: 'transparent' } });
-      expect(JSON.stringify(figures)).not.toContain(observation.pattern_name);
+      expect(JSON.stringify(figures)).not.toContain(observation.patternName);
     }
     const preview = { ...event('bullish_breakout'), stage: 'forming' as const, confirmed: false };
     const overlay = intradayPatternOverlays([preview], [bar], true, vi.fn())[0]!;
@@ -62,7 +62,7 @@ describe('compact intraday pattern markers', () => {
     expect(onSelect).toHaveBeenCalledWith([latest, first]);
     expect(overlays[1]!.points![0]!.timestamp).toBe(at + 60_000);
     expect(intradayPatternOverlays([event('bullish_breakout', -1), event('bullish_breakout', 121),
-      { ...first, observed_at: 'invalid' }], [bar], false, onSelect)).toEqual([]);
+      { ...first, observedAt: 'invalid' }], [bar], false, onSelect)).toEqual([]);
     expect(intradayPatternOverlays([first], [], false, onSelect)).toEqual([]);
   });
 });

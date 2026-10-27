@@ -32,7 +32,7 @@ it('keeps direct quant links compatible and closes to the ranking with market an
   await router.isReady();
   const wrapper = mount(QuantSignalDetailPage, { global: { plugins: [router], stubs: { StockDetailDialog: true } } });
   const dialog = wrapper.getComponent(StockDetailDialog);
-  expect(dialog.props('stock')).toMatchObject({ code: '600001.SH', market_type: 'CN' });
+  expect(dialog.props('stock')).toMatchObject({ code: '600001.SH', marketType: 'CN' });
   expect(dialog.props('initialTab')).toBe('quant');
   expect(dialog.props('context')).toEqual({ tradeDate: '2026-08-21', view: 'official' });
   dialog.vm.$emit('update:open', false);

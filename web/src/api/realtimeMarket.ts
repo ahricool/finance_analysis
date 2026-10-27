@@ -32,35 +32,35 @@ export type PatternStateStatus = 'insufficient' | 'none' | 'active';
 
 export interface RealtimeTrend {
   timeframe: '1m';
-  target_period: number;
-  effective_period: number;
-  minimum_period: number;
+  targetPeriod: number;
+  effectivePeriod: number;
+  minimumPeriod: number;
   state: TrendDirection;
   streak: number;
-  ma_value?: number | null;
+  maValue?: number | null;
   close?: number | null;
-  distance_pct?: number | null;
-  bar_time?: string | null;
-  trading_date?: string | null;
-  trade_session?: string | null;
+  distancePct?: number | null;
+  barTime?: string | null;
+  tradingDate?: string | null;
+  tradeSession?: string | null;
   confirmed: boolean;
 }
 
 export interface RealtimePatternSignal {
   timeframe: '1m';
-  pattern_type: PatternType;
-  pattern_name: string;
+  patternType: PatternType;
+  patternName: string;
   direction: PatternDirection;
   stage: PatternStage;
-  quality_score: number;
-  occurred_at: string;
-  confirmed_at?: string | null;
-  trading_date?: string | null;
-  trade_session?: string | null;
-  bars_ago: number;
-  session_minutes_ago: number;
-  reference_level?: number | null;
-  invalidation_price?: number | null;
+  qualityScore: number;
+  occurredAt: string;
+  confirmedAt?: string | null;
+  tradingDate?: string | null;
+  tradeSession?: string | null;
+  barsAgo: number;
+  sessionMinutesAgo: number;
+  referenceLevel?: number | null;
+  invalidationPrice?: number | null;
   reasons: string[];
   confirmed: boolean;
 }
@@ -68,49 +68,61 @@ export interface RealtimePatternSignal {
 export interface RealtimePatternState {
   timeframe: '1m';
   status: PatternStateStatus;
-  trading_date?: string | null;
-  bar_time?: string | null;
+  tradingDate?: string | null;
+  barTime?: string | null;
   signal?: RealtimePatternSignal | null;
-  preview_status?: PatternStateStatus;
-  preview_signal?: RealtimePatternSignal | null;
-  preview_bar_time?: string | null;
-  preview_price?: number | null;
-  preview_updated_at?: string | null;
+  previewStatus?: PatternStateStatus;
+  previewSignal?: RealtimePatternSignal | null;
+  previewBarTime?: string | null;
+  previewPrice?: number | null;
+  previewUpdatedAt?: string | null;
 }
 
 export interface RealtimeQuote {
   code: string;
-  market_type: MarketType;
+  marketType: MarketType;
   symbol: string;
   available: boolean;
   source?: string;
-  timestamp_kind?: string;
-  session_open?: string | null;
-  session_close?: string | null;
-  market_open?: boolean;
-  quote_status?: 'current' | 'delayed' | 'unavailable';
-  trading_date?: string | null;
-  last_price?: number | null;
-  change_amount?: number | null;
-  change_pct?: number | null;
+  timestampKind?: string;
+  sessionOpen?: string | null;
+  sessionClose?: string | null;
+  marketOpen?: boolean;
+  quoteStatus?: 'current' | 'delayed' | 'unavailable';
+  tradingDate?: string | null;
+  lastPrice?: number | null;
+  changeAmount?: number | null;
+  changePct?: number | null;
   open?: number | null;
   high?: number | null;
   low?: number | null;
-  pre_close?: number | null;
+  preClose?: number | null;
   volume?: number | null;
   turnover?: number | null;
-  trade_session?: string | null;
-  event_time?: string | null;
-  received_at?: string | null;
-  trend_1m?: RealtimeTrend | null;
-  pattern_1m?: RealtimePatternState | null;
+  tradeSession?: string | null;
+  eventTime?: string | null;
+  receivedAt?: string | null;
+  trend1m?: RealtimeTrend | null;
+  pattern1m?: RealtimePatternState | null;
 }
 
 export interface RealtimeQuoteMessage {
   type: 'quotes';
-  generated_at: string;
+  generatedAt: string;
   quotes: RealtimeQuote[];
-  portfolio?: unknown;
+  portfolio: HoldingsSummary | null;
+}
+
+/** Backend wire quote: snake_case, with `_1m` keys that deep camelCase would turn into `1M`. */
+export type RawRealtimeQuote = Record<string, unknown> & { trend_1m?: unknown; pattern_1m?: unknown };
+
+export function toRealtimeQuote(raw: RawRealtimeQuote): RealtimeQuote {
+  const { trend_1m: trend, pattern_1m: pattern, ...rest } = raw;
+  return {
+    ...toCamelCase<Omit<RealtimeQuote, 'trend1m' | 'pattern1m'>>(rest),
+    trend1m: toCamelCase<RealtimeTrend | null | undefined>(trend),
+    pattern1m: toCamelCase<RealtimePatternState | null | undefined>(pattern),
+  };
 }
 
 export function marketQuoteKey(code: string, marketType: MarketType): string {
@@ -140,9 +152,9 @@ export class MarketStreamAuthError extends Error {
   constructor(readonly status: number) { super(`Market stream rejected with ${status}`); }
 }
 
-export function portfolioFromMessage(message: RealtimeQuoteMessage): HoldingsSummary | null {
-  if (!message.portfolio || typeof message.portfolio !== 'object') return null;
-  const portfolio = toCamelCase<HoldingsSummary>(message.portfolio);
+function portfolioFromWire(value: unknown): HoldingsSummary | null {
+  if (!value || typeof value !== 'object') return null;
+  const portfolio = toCamelCase<HoldingsSummary>(value);
   return Array.isArray(portfolio.positions) && Array.isArray(portfolio.accounts) ? portfolio : null;
 }
 
@@ -171,9 +183,10 @@ export async function readMarketEvents(
         const data = frame.split(/\r?\n/).filter(line => line.startsWith('data:'))
           .map(line => line.slice(5).trimStart()).join('\n');
         if (!data) continue;
-        let message: unknown;
-        try { message = JSON.parse(data); } catch { continue; }
-        if (isRealtimeQuoteMessage(message)) onMessage(message);
+        let payload: unknown;
+        try { payload = JSON.parse(data); } catch { continue; }
+        const message = parseRealtimeQuoteMessage(payload);
+        if (message) onMessage(message);
       }
     }
   } finally {
@@ -182,8 +195,15 @@ export async function readMarketEvents(
   }
 }
 
-export function isRealtimeQuoteMessage(value: unknown): value is RealtimeQuoteMessage {
-  if (!value || typeof value !== 'object') return false;
-  const message = value as Partial<RealtimeQuoteMessage>;
-  return message.type === 'quotes' && Array.isArray(message.quotes);
+/** Validates a WS/SSE wire frame and converts it to the camelCase message shape. */
+export function parseRealtimeQuoteMessage(value: unknown): RealtimeQuoteMessage | null {
+  if (!value || typeof value !== 'object') return null;
+  const message = value as { type?: unknown; generated_at?: unknown; quotes?: unknown; portfolio?: unknown };
+  if (message.type !== 'quotes' || !Array.isArray(message.quotes)) return null;
+  return {
+    type: 'quotes',
+    generatedAt: String(message.generated_at ?? ''),
+    quotes: (message.quotes as RawRealtimeQuote[]).map(toRealtimeQuote),
+    portfolio: portfolioFromWire(message.portfolio),
+  };
 }

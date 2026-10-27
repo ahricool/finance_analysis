@@ -34,24 +34,24 @@ const watchItem = {
   id: 11,
   code: 'AAPL',
   name: 'Apple',
-  market_type: 'US' as const,
+  marketType: 'US' as const,
   notes: '等待财报确认',
   tags: [],
-  is_favorite: true,
-  created_at: '2026-06-01T01:00:00Z',
-  updated_at: '2026-06-02T02:00:00Z',
+  isFavorite: true,
+  createdAt: '2026-06-01T01:00:00Z',
+  updatedAt: '2026-06-02T02:00:00Z',
 };
 
 const quote = {
   code: 'AAPL',
-  market_type: 'US' as const,
+  marketType: 'US' as const,
   symbol: 'AAPL.US',
   available: true,
-  last_price: 12,
-  change_amount: 0.5,
-  change_pct: 4.35,
-  trend_1m: { timeframe: '1m' as const, target_period: 20, effective_period: 8, minimum_period: 5, state: 'above' as const, streak: 2, confirmed: true },
-  pattern_1m: { timeframe: '1m' as const, status: 'none' as const, signal: null },
+  lastPrice: 12,
+  changeAmount: 0.5,
+  changePct: 4.35,
+  trend1m: { timeframe: '1m' as const, targetPeriod: 20, effectivePeriod: 8, minimumPeriod: 5, state: 'above' as const, streak: 2, confirmed: true },
+  pattern1m: { timeframe: '1m' as const, status: 'none' as const, signal: null },
 };
 
 async function mountPage() {
@@ -90,13 +90,13 @@ describe('watch-list table details', () => {
   });
 
   it('keeps realtime quote columns and favorite action working', async () => {
-    mocks.updateWatchItem.mockResolvedValue({ ...watchItem, is_favorite: false });
+    mocks.updateWatchItem.mockResolvedValue({ ...watchItem, isFavorite: false });
     const page = await mountPage();
     expect(page.text()).toContain('12.00');
     expect(page.text()).toContain('多 2');
     await page.get('button[aria-label="取消特别关注"]').trigger('click');
     await flushPromises();
-    expect(mocks.updateWatchItem).toHaveBeenCalledWith(11, { is_favorite: false });
+    expect(mocks.updateWatchItem).toHaveBeenCalledWith(11, { isFavorite: false });
   });
 
   it('combines code and name without a separate name column', async () => {

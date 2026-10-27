@@ -1,4 +1,5 @@
 import apiClient from './index';
+import { toCamelCase } from './utils';
 
 export type MarketType = 'CN' | 'US' | 'HK';
 
@@ -12,11 +13,11 @@ export interface WatchListItem {
   code: string;
   name: string | null;
   notes: string | null;
-  market_type: MarketType;
-  is_favorite: boolean;
-  created_at: string;
-  updated_at: string;
-  validation_error?: string | null;
+  marketType: MarketType;
+  isFavorite: boolean;
+  createdAt: string;
+  updatedAt: string;
+  validationError?: string | null;
   tags: WatchListTag[];
 }
 
@@ -29,17 +30,21 @@ export interface WatchListItemCreate {
   code: string;
   name?: string;
   notes?: string;
-  market_type?: MarketType;
-  is_favorite?: boolean;
+  marketType?: MarketType;
+  isFavorite?: boolean;
   tags?: WatchListTagInput[];
 }
 
 export interface WatchListItemUpdate {
   name?: string;
   notes?: string;
-  market_type?: MarketType;
-  is_favorite?: boolean;
+  marketType?: MarketType;
+  isFavorite?: boolean;
   tags?: WatchListTagInput[];
+}
+
+function toWireBody({ marketType, isFavorite, ...rest }: WatchListItemCreate | WatchListItemUpdate) {
+  return { ...rest, market_type: marketType, is_favorite: isFavorite };
 }
 
 export const watchListApi = {
@@ -59,17 +64,17 @@ export const watchListApi = {
     const res = await apiClient.get('/api/v1/watch-list', {
       params: { market: filters.market, tag_id: filters.tagId, ungrouped: filters.ungrouped || undefined }, signal,
     });
-    return res.data as WatchListResponse;
+    return toCamelCase<WatchListResponse>(res.data);
   },
 
   async create(body: WatchListItemCreate): Promise<WatchListItem> {
-    const res = await apiClient.post('/api/v1/watch-list', body);
-    return res.data as WatchListItem;
+    const res = await apiClient.post('/api/v1/watch-list', toWireBody(body));
+    return toCamelCase<WatchListItem>(res.data);
   },
 
   async update(id: number, body: WatchListItemUpdate): Promise<WatchListItem> {
-    const res = await apiClient.put(`/api/v1/watch-list/${id}`, body);
-    return res.data as WatchListItem;
+    const res = await apiClient.put(`/api/v1/watch-list/${id}`, toWireBody(body));
+    return toCamelCase<WatchListItem>(res.data);
   },
 
   async remove(id: number): Promise<void> {

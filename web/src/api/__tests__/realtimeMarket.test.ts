@@ -1,8 +1,35 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { MarketStreamAuthError, readMarketEvents } from '../realtimeMarket';
+import { MarketStreamAuthError, parseRealtimeQuoteMessage, readMarketEvents } from '../realtimeMarket';
 
 const encoder = new TextEncoder();
 afterEach(() => vi.unstubAllGlobals());
+
+describe('realtime quote wire mapping', () => {
+  it('maps snake_case quotes to camelCase with explicit 1m keys', () => {
+    const message = parseRealtimeQuoteMessage({
+      type: 'quotes', generated_at: 'now',
+      quotes: [{
+        code: '600519.SH', market_type: 'CN', symbol: '600519.SH', available: true, last_price: 10, pre_close: 9,
+        trend_1m: { timeframe: '1m', target_period: 20, effective_period: 8, minimum_period: 5, state: 'above', streak: 1, confirmed: true },
+        pattern_1m: { timeframe: '1m', status: 'active', preview_status: 'none',
+          signal: { pattern_name: '回踩', quality_score: 80, bars_ago: 1, reasons: ['vwap_reclaim'] } },
+      }],
+    });
+    expect(message?.generatedAt).toBe('now');
+    expect(message?.portfolio).toBeNull();
+    expect(message?.quotes[0]).toMatchObject({
+      marketType: 'CN', lastPrice: 10, preClose: 9,
+      trend1m: { targetPeriod: 20, effectivePeriod: 8, minimumPeriod: 5 },
+      pattern1m: { previewStatus: 'none', signal: { patternName: '回踩', qualityScore: 80, barsAgo: 1, reasons: ['vwap_reclaim'] } },
+    });
+    expect(message?.quotes[0]).not.toHaveProperty('trend1M');
+  });
+
+  it('rejects non-quote frames', () => {
+    expect(parseRealtimeQuoteMessage({ type: 'error' })).toBeNull();
+    expect(parseRealtimeQuoteMessage(null)).toBeNull();
+  });
+});
 
 describe('HTTP market events', () => {
   it('decodes fragmented UTF8 and CRLF frames with cookies and portfolio fields', async () => {
@@ -20,7 +47,10 @@ describe('HTTP market events', () => {
     await readMarketEvents({ scope: 'holdings', market: 'CN' }, controller.signal, value => {
       received.push(value); controller.abort();
     });
-    expect(received).toEqual([message]);
+    expect(received).toEqual([{
+      type: 'quotes', generatedAt: 'now', quotes: [],
+      portfolio: { accounts: [], positions: [], market: 'CN', name: '股票' },
+    }]);
     expect(String(fetcher.mock.calls[0]![0])).toContain('/api/v1/market-data/events?scope=holdings&market=CN');
     expect(fetcher.mock.calls[0]![1]).toMatchObject({ credentials: 'include', signal: controller.signal });
   });

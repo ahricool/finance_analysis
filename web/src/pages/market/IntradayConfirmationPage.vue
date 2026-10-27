@@ -349,7 +349,7 @@ const detailInitialTab = ref<'overview' | 'intraday'>('intraday');
     </template>
     <StockDetailDialog
       v-model:open="dialogOpen"
-      :stock="selected ? { code: selected.code, name: selected.name, market_type: market } : null"
+      :stock="selected ? { code: selected.code, name: selected.name, marketType: market } : null"
       kind="research"
       :initial-tab="detailInitialTab"
       :context="{ tradeDate: result?.tradeDate }"

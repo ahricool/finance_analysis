@@ -21,7 +21,7 @@ const market = computed<MarketType>(() => {
 });
 function open() {
   if (props.onSelect) props.onSelect();
-  else detail.open({ code: props.code, name: resolvedName.value, market_type: market.value }, props.context);
+  else detail.open({ code: props.code, name: resolvedName.value, marketType: market.value }, props.context);
 }
 </script>
 

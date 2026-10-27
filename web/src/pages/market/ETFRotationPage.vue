@@ -66,7 +66,7 @@ const loading = ref(true);
 const refreshing = ref(false);
 const runLoading = ref(false);
 const error = ref<ParsedApiError | null>(null);
-const selected = ref<{ code: string; name: string; market_type: ETFMarket } | null>(null);
+const selected = ref<{ code: string; name: string; marketType: ETFMarket } | null>(null);
 const detailContext = ref<StockDetailContext>({});
 const route = useRoute();
 const market = ref<ETFMarket>(route?.query.market === 'US' ? 'US' : 'CN');
@@ -329,7 +329,7 @@ const detailInitialTab = ref<'overview' | 'etf'>('etf');
 function openDetail(target: Pick<ETFMomentumSnapshot, 'code'> & { name?: string }, initialTab: 'overview' | 'etf' = 'etf') {
   detailInitialTab.value = initialTab;
   const item = items.value.find(row => row.code === target.code);
-  selected.value = { code: target.code, name: target.name ?? item?.name ?? '', market_type: market.value };
+  selected.value = { code: target.code, name: target.name ?? item?.name ?? '', marketType: market.value };
   detailContext.value = {
     view: dataMode.value,
     tradeDate: dataMode.value === 'preview' ? item?.tradeDate ?? previewPayload.value?.tradeDate : selectedDate.value || undefined,

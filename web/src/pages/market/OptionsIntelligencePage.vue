@@ -100,7 +100,7 @@ async function run() {
   catch (e) { error.value = getParsedApiError(e); }
 }
 function open(row: OptionMetrics) {
-  selected.value = { id: 0, code: row.symbol, name: row.name ?? null, market_type: 'US', created_at: '', updated_at: row.observedAt ?? '' };
+  selected.value = { id: 0, code: row.symbol, name: row.name ?? null, marketType: 'US', createdAt: '', updatedAt: row.observedAt ?? '' };
 }
 watch([mode, requestedDate], () => { selected.value = null; void load(); }, { immediate: true });
 onBeforeUnmount(() => { generation++; });
