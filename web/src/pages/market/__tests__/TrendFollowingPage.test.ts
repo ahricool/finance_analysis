@@ -97,7 +97,9 @@ function mockPreview(payload: Record<string, unknown> | null) {
   } : null);
 }
 
-describe('TrendFollowingPage', () => {
+// Several cases mount the full page with hundreds of 60-column rows; jsdom needs more than
+// the default 5s on shared CI runners.
+describe('TrendFollowingPage', { timeout: 30_000 }, () => {
   beforeEach(() => {
     apiMocks.snapshotStatus.mockImplementation(async () => ({ tradeDate: '2026-08-28', generatedAt: '2026-08-28T12:00:00Z' }));
     apiMocks.transitions.mockResolvedValue({ items: [], warnings: [] });
