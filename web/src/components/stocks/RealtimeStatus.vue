@@ -9,6 +9,7 @@ const label = computed(() => {
   if (props.status === 'sse-reconnecting') return '备用行情连接中 · SSE';
   if (props.status === 'unauthorized') return '行情未授权';
   if (props.status === 'reconnecting') return '行情重连中';
+  if (props.status === 'paused') return '页面在后台，行情已暂停';
   return '行情连接中';
 });
 </script>
@@ -22,7 +23,9 @@ const label = computed(() => {
           ? 'bg-success'
           : status === 'unauthorized'
             ? 'bg-destructive'
-            : 'animate-pulse bg-warning'
+            : status === 'paused'
+              ? 'bg-muted-foreground'
+              : 'animate-pulse bg-warning'
       "
     />
     {{ label }}

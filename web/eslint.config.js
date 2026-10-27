@@ -35,6 +35,13 @@ export default [
     },
   },
   {
+    // Playwright fixtures, audit scripts and tool configs run in Node, not the browser.
+    files: ['**/*.{js,mjs,cjs}', 'e2e/**/*.ts', 'scripts/**', '*.config.ts'],
+    languageOptions: {
+      globals: { ...globals.node },
+    },
+  },
+  {
     rules: {
       'vue/multi-word-component-names': 'off',
       'vue/html-self-closing': 'off',

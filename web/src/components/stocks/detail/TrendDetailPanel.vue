@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatFixed, formatPercent } from '@/utils/number';
 import StockIdentity from '@/components/stocks/StockIdentity.vue';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
@@ -139,8 +140,8 @@ function boxStateText(state: unknown) {
   return state === 'BOX_BREAKOUT' ? '刚突破' : state === 'BOX_READY' ? '待突破' : state === 'BOX_FORMING' ? '整理中' : state === 'NONE' ? '无结构机会' : '—';
 }
 const mrText = (value: unknown) => value === 'MR_REBOUND' ? '反弹确认' : value === 'MR_OVERSOLD' ? '超跌观察' : value === 'MR_NONE' ? '无超跌机会' : '—';
-function score(value: number | null | undefined) { return value == null ? '—' : value.toFixed(1); }
-function pct(value: number | null | undefined) { return value == null ? '—' : `${(value * 100).toFixed(1)}%`; }
+function score(value: number | null | undefined) { return formatFixed(value, { digits: 1 }); }
+function pct(value: number | null | undefined) { return formatPercent(value); }
 function price(value: number | null | undefined) {
   return value == null ? '—' : formatMarketCurrencyAmount(value, props.market);
 }

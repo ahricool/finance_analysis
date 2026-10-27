@@ -1,10 +1,11 @@
+import { formatPercent } from '@/utils/number';
 import type { LineSeriesOption } from 'echarts/charts';
 import type { GridComponentOption, LegendComponentOption, TooltipComponentOption } from 'echarts/components';
 import type { ComposeOption } from 'echarts/core';
 import type { TrendBreadthPoint } from '@/types/trendFollowing';
 
 type Option = ComposeOption<LineSeriesOption | GridComponentOption | LegendComponentOption | TooltipComponentOption>;
-export const percent = (value: number | null | undefined) => value == null ? '—' : `${(value * 100).toFixed(1)}%`;
+export const percent = (value: number | null | undefined) => formatPercent(value);
 export function delta5D(points: TrendBreadthPoint[], key: 'trendBreadth' | 'participation' | 'deteriorationBreadth') {
   const latest = points.at(-1)?.[key];
   const previous = points.at(-6)?.[key];

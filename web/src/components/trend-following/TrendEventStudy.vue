@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatPercent } from '@/utils/number';
 import StockLink from '@/components/stocks/StockLink.vue';
 import IndicatorHelpLabel from '@/components/app/IndicatorHelpLabel.vue';
 import { trendPeriodText } from './indicatorDescriptions';
@@ -121,7 +122,7 @@ function toggleSort(key: string) {
 function choose(strategy: StrategyKey) { selected.value = strategy; offset.value = 0; void loadEvents(); }
 function turnPage(value: number) { offset.value = value; void loadEvents(); }
 const chosenGroup = computed(() => groups.value.find(group => group.strategy === selected.value));
-const pct = (v: number | null | undefined) => v == null ? '—' : `${(v * 100).toFixed(1)}%`;
+const pct = (v: number | null | undefined) => formatPercent(v);
 const statusText = (status: EvaluationStatus) => status === 'pending' ? '未到期' : status === 'missing' ? '缺行情' : '—';
 function point(event: StudyEvent, days: number, excess = false) {
   const p = event.horizons.find(item => item.days === days);

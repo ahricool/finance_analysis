@@ -3,8 +3,12 @@ export function dashboardResponse(url: URL): object {
   const market = url.searchParams.get('market') ?? 'CN';
   const name = market === 'CN' ? '中际旭创' : 'NVIDIA';
   const code = market === 'CN' ? '300308.SZ' : 'NVDA.US';
-  const current = { code, name, action: 'BUY', state: 'TRENDING' };
-  const change = { current, previousAction: 'WATCH', previousState: 'CANDIDATE' };
+  // Mirrors the flat ETF change rows built by endpoints/etf_rotation.py.
+  const etfChange = (changeCode: string, changeName: string, action: string, previousAction: string) => ({
+    code: changeCode, name: changeName, current_state: 'TRENDING', current_action: action, current_rank: 1,
+    previous_state: 'CANDIDATE', previous_action: previousAction, previous_rank: 3, rank_change: 2, composite_score_change: 4.5,
+  });
+  const change = etfChange(code, name, 'BUY', 'WATCH');
   const path = url.pathname;
   if (url.pathname === '/api/v1/market-structure') return {
     market: url.searchParams.get('market') || 'CN', trade_date: '2026-09-08', expected_trade_date: '2026-09-08',
@@ -21,7 +25,7 @@ export function dashboardResponse(url: URL): object {
   };
   if (path === '/api/v1/etf-rotation/ranking') return {
     market, trade_date: '2026-09-09', market_snapshot: { regime: 'RISK_ON' }, items: [],
-    changes: { previous_trade_date: '2026-09-08', new_buys: [{ ...change, previousAction: 'HOLD', current: { code: 'ETF1', name: market === 'CN' ? '半导体 ETF' : 'Semiconductor ETF', action: 'BUY' } }], new_exits: [{ ...change, current: { code: 'ETF2', name: market === 'CN' ? '银行 ETF' : 'Bank ETF', action: 'EXIT' } }], rank_movers: [change, change] },
+    changes: { previous_trade_date: '2026-09-08', new_buys: [etfChange('ETF1', market === 'CN' ? '半导体 ETF' : 'Semiconductor ETF', 'BUY', 'HOLD')], new_exits: [etfChange('ETF2', market === 'CN' ? '银行 ETF' : 'Bank ETF', 'EXIT', 'BUY')], rank_movers: [change, change] },
   };
   if (path === '/api/v1/trend-following/dashboard') return {
     market, trade_date: market === 'CN' ? '2026-09-18' : '2026-09-17',

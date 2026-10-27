@@ -1,9 +1,10 @@
+import { formatFixed, formatPercent as formatRatioPercent } from '@/utils/number';
 export function formatScore(value: number | null | undefined, digits = 2): string {
-  return value == null || !Number.isFinite(value) ? '—' : value.toFixed(digits);
+  return formatFixed(value, { digits });
 }
 
 export function formatPercent(value: number | null | undefined, digits = 1): string {
-  return value == null || !Number.isFinite(value) ? '—' : `${(value * 100).toFixed(digits)}%`;
+  return formatRatioPercent(value, { digits });
 }
 
 export function formatPredictedReturn(value: number | null | undefined): string {

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatFixed, formatPercent } from '@/utils/number';
 import { computed, onBeforeUnmount, ref, shallowRef, watch } from 'vue';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import AppApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
@@ -27,8 +28,8 @@ async function load() {
 watch([() => props.symbol, () => props.market, () => props.context?.tradeDate], load, { immediate: true });
 onBeforeUnmount(() => { ++generation; controller?.abort(); });
 function forwardReturn(value: unknown) { return typeof value === 'number' && Number.isFinite(value) ? `${(value * 100).toFixed(2)}%` : ''; }
-function pct(value: unknown) { return typeof value === 'number' ? `${(value * 100).toFixed(2)}%` : 'unavailable'; }
-function num(value: unknown) { return typeof value === 'number' ? value.toFixed(2) : 'unavailable'; }
+function pct(value: unknown) { return formatPercent(value, { digits: 2, fallback: 'unavailable' }); }
+function num(value: unknown) { return formatFixed(value, { fallback: 'unavailable' }); }
 function stamp(value: unknown) { return typeof value === 'string' ? formatDateTime(value) : 'unavailable'; }
 </script>
 <template>

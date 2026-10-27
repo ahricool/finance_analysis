@@ -1,17 +1,23 @@
 <script setup lang="ts">
+import { formatFixed, formatPercent } from '@/utils/number';
 import StockLink from '@/components/stocks/StockLink.vue';
 import StockDetailDialog from '@/components/stocks/StockDetailDialog.vue';
 import type { StockDetailContext } from '@/components/stocks/detail/types';
 import PageHeader from '@/components/layout/PageHeader.vue';
 import TrendEventStudy from '@/components/trend-following/TrendEventStudy.vue';
+import {
+  boxColumns, boxFilters, boxPriority, boxStateText, mrColumns, mrFilters, mrPriority, mrText,
+  stateFilters, trendColumns, type RankingColumn, type SortKey,
+} from '@/components/trend-following/rankingColumns';
+import { createRankingTable, type RankingTableKind } from '@/components/trend-following/rankingTable';
 import { alphaVersionLabel } from '@/utils/trendFollowing';
 import { exportExcel, type ExcelColumn } from '@/utils/excelExport';
-import { forwardReturnColumns, useForwardReturns } from '@/composables/useForwardReturns';
+import { useForwardReturns } from '@/composables/useForwardReturns';
 import { parseDate } from '@internationalized/date';
 import ResearchMarketToggle from '@/components/research/ResearchMarketToggle.vue';
 import { useRoute } from 'vue-router';
 import { useLazyResearchPreview } from '@/composables/useLazyResearchPreview';
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, shallowRef, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
 import { RefreshCcw } from 'lucide-vue-next';
 import { toast } from 'vue-sonner';
 import { trendFollowingApi } from '@/api/trendFollowing';
@@ -90,127 +96,6 @@ const detailOpen = ref(false);
 const detailStock = ref<{ code: string; name: string; market_type: TrendMarket } | null>(null);
 const detailContext = ref<StockDetailContext>({});
 const rankingDetailTrigger = ref<{ code: string; el: HTMLElement | null } | null>(null);
-const trendColumns = [
-  { key: 'rank', label: 'alphaRank', group: 'Core', format: 'number', description: trendIndicatorDescriptions.rank },
-  { key: 'name', label: '股票名称', group: 'Core', format: 'text', description: undefined },
-  { key: 'state', label: 'state', group: 'Core', format: 'text', description: trendIndicatorDescriptions.state },
-  { key: 'alphaScore', label: 'alphaScore', group: 'Core', format: 'score', description: trendIndicatorDescriptions.alpha },
-  { key: 'entryScore', label: 'entryScore', group: 'Core', format: 'score', description: trendIndicatorDescriptions.entry },
-  { key: 'entryType', label: 'entryType', group: 'Core', format: 'text', description: trendIndicatorDescriptions.entry },
-  { key: 'trendScore', label: 'trendScore', group: 'Core', format: 'score', description: trendIndicatorDescriptions.trend },
-  { key: 'rsScore', label: 'rsScore', group: 'Core', format: 'score', description: trendIndicatorDescriptions.relativeStrength },
-  { key: 'setupScore', label: 'setupScore', group: 'Core', format: 'score', description: trendIndicatorDescriptions.breakout },
-  { key: 'pathScore', label: 'pathScore', group: 'Core', format: 'score', description: trendIndicatorDescriptions.path },
-  { key: 'distanceFromMa20', label: 'distanceFromMa20', group: 'Core', format: 'percent', description: trendIndicatorDescriptions.distanceFromMa20 },
-  { key: 'atrPercent', label: 'atrPercent', group: 'Core', format: 'percent', description: trendIndicatorDescriptions.atrPercent },
-  { key: 'fragilityScore', label: 'fragility', group: 'Core', format: 'score', description: trendIndicatorDescriptions.fragility },
-  { key: 'closeLocationValue', label: 'clv', group: 'Core', format: 'ratio', description: trendIndicatorDescriptions.clv },
-  ...forwardReturnColumns,
-  { key: 'trendLifecycle', label: 'lifecycleAge', group: 'Core', format: 'number', description: trendIndicatorDescriptions.lifecycle },
-  { key: 'rankChange5D', label: '排名趋势', group: 'Core', format: 'number', description: trendIndicatorDescriptions.rankChange },
-  { key: 'referencePrice', label: 'referencePrice', group: 'Core', format: 'price', description: trendIndicatorDescriptions.reference },
-  { key: 'alphaTrendContribution', label: 'Trend Contribution', group: 'Alpha', format: 'score', description: trendIndicatorDescriptions.alpha },
-  { key: 'alphaRsContribution', label: 'RS Contribution', group: 'Alpha', format: 'score', description: trendIndicatorDescriptions.alpha },
-  { key: 'alphaSetupContribution', label: 'Setup Contribution', group: 'Alpha', format: 'score', description: trendIndicatorDescriptions.alpha },
-  { key: 'alphaPathContribution', label: 'Path Contribution', group: 'Alpha', format: 'score', description: trendIndicatorDescriptions.alpha },
-  { key: 'weightedSlopePercentile', label: 'Slope Percentile 20D', group: 'Trend', format: 'score', description: trendIndicatorDescriptions.slopePercentile },
-  { key: 'r2Quality', label: 'R² Quality', group: 'Trend', format: 'score', description: trendIndicatorDescriptions.r2Quality },
-  { key: 'momentumQuality', label: 'Momentum Quality', group: 'Trend', format: 'score', description: trendIndicatorDescriptions.momentumQuality },
-  { key: 'return10DQuality', label: 'Return 10D Quality', group: 'Trend', format: 'score', description: trendIndicatorDescriptions.returnQuality },
-  { key: 'return20DQuality', label: 'Return 20D Quality', group: 'Trend', format: 'score', description: trendIndicatorDescriptions.returnQuality },
-  { key: 'drawdownQuality', label: 'Drawdown Quality', group: 'Trend', format: 'score', description: trendIndicatorDescriptions.drawdownQuality },
-  { key: 'rs5DQuality', label: 'RS 5D Quality', group: 'RS', format: 'score', description: trendIndicatorDescriptions.rsQuality },
-  { key: 'rs10DQuality', label: 'RS 10D Quality', group: 'RS', format: 'score', description: trendIndicatorDescriptions.rsQuality },
-  { key: 'rs20DQuality', label: 'RS 20D Quality', group: 'RS', format: 'score', description: trendIndicatorDescriptions.rsQuality },
-  { key: 'breakoutQuality', label: 'Breakout Quality', group: 'Setup', format: 'score', description: trendIndicatorDescriptions.breakout },
-  { key: 'extensionQuality', label: 'Extension Quality', group: 'Setup', format: 'score', description: trendIndicatorDescriptions.breakout },
-  { key: 'volumeQuality', label: 'Volume Quality', group: 'Setup', format: 'score', description: trendIndicatorDescriptions.breakout },
-  { key: 'compressionQuality', label: 'Compression Quality', group: 'Setup', format: 'score', description: trendIndicatorDescriptions.breakout },
-  { key: 'concentrationQuality', label: 'Concentration Quality', group: 'Path', format: 'score', description: trendIndicatorDescriptions.concentration },
-  { key: 'volatilityQuality', label: 'Volatility Quality', group: 'Path', format: 'score', description: trendIndicatorDescriptions.expansion },
-  { key: 'downsideControlQuality', label: 'Downside Control Quality', group: 'Path', format: 'score', description: trendIndicatorDescriptions.downside },
-  { key: 'setup', label: 'Setup', group: 'Signals / Explain', format: 'text', description: trendIndicatorDescriptions.setup },
-  { key: 'trendCandidate', label: 'Trend Candidate', group: 'Signals / Explain', format: 'boolean', description: trendIndicatorDescriptions.candidate },
-  { key: 'priorCompression', label: 'Prior Compression', group: 'Signals / Explain', format: 'boolean', description: trendIndicatorDescriptions.volumeCompression },
-  { key: 'compressionBreakout', label: 'Compression Breakout', group: 'Signals / Explain', format: 'boolean', description: trendIndicatorDescriptions.setup },
-  { key: 'trendResume', label: 'Trend Resume', group: 'Signals / Explain', format: 'boolean', description: trendIndicatorDescriptions.trendResume },
-  { key: 'signedEfficiencyRatio10D', label: 'Signed Efficiency 10D', group: 'Signals / Explain', format: 'score', description: trendIndicatorDescriptions.signedEfficiency },
-  { key: 'rawWeightedSlope', label: 'Weighted Slope 20D', group: 'Signals / Explain', format: 'slope', description: trendIndicatorDescriptions.weightedSlope },
-  { key: 'weightedR2', label: 'Weighted R²', group: 'Signals / Explain', format: 'r2', description: trendIndicatorDescriptions.r2 },
-  { key: 'return5D', label: '5D Return', group: 'Signals / Explain', format: 'percent', description: trendIndicatorDescriptions.return },
-  { key: 'return10D', label: '10D Return', group: 'Signals / Explain', format: 'percent', description: trendIndicatorDescriptions.return },
-  { key: 'return20D', label: '20D Return', group: 'Signals / Explain', format: 'percent', description: trendIndicatorDescriptions.return },
-  { key: 'drawdown20D', label: 'Drawdown 20D', group: 'Signals / Explain', format: 'percent', description: trendIndicatorDescriptions.drawdown },
-  { key: 'rs5D', label: 'RS 5D', group: 'Signals / Explain', format: 'percent', description: trendIndicatorDescriptions.rawRelativeStrength },
-  { key: 'rs10D', label: 'RS 10D', group: 'Signals / Explain', format: 'percent', description: trendIndicatorDescriptions.rawRelativeStrength },
-  { key: 'rs20D', label: 'RS 20D', group: 'Signals / Explain', format: 'percent', description: trendIndicatorDescriptions.rawRelativeStrength },
-  { key: 'volumeRatio', label: 'Volume Ratio', group: 'Signals / Explain', format: 'score', description: trendIndicatorDescriptions.volumeCompression },
-  { key: 'positiveReturnConcentration', label: 'Return Concentration', group: 'Signals / Explain', format: 'percent', description: trendIndicatorDescriptions.concentration },
-  { key: 'atrExpansionRatio', label: 'ATR Expansion', group: 'Signals / Explain', format: 'ratio', description: trendIndicatorDescriptions.expansion },
-  { key: 'downsideUpsideRatio', label: 'Downside / Upside', group: 'Signals / Explain', format: 'ratio', description: trendIndicatorDescriptions.downside },
-  { key: 'ma10', label: 'MA10', group: 'Signals / Explain', format: 'score', description: trendIndicatorDescriptions.movingAverage },
-  { key: 'ma20', label: 'MA20', group: 'Signals / Explain', format: 'score', description: trendIndicatorDescriptions.movingAverage },
-  { key: 'ma10Slope', label: 'MA10 Slope', group: 'Signals / Explain', format: 'percent', description: trendIndicatorDescriptions.maSlope },
-  { key: 'ma20Slope', label: 'MA20 Slope', group: 'Signals / Explain', format: 'percent', description: trendIndicatorDescriptions.maSlope },
-  { key: 'trendAcceleration', label: 'Trend Acceleration', group: 'Risk / Health', format: 'score', description: trendIndicatorDescriptions.trendAcceleration },
-] as const;
-const boxColumns = [
-  { key: 'name', label: '股票名称', format: 'text' },
-  { key: 'boxState', label: '状态', format: 'text', description: trendIndicatorDescriptions.boxState },
-  { key: 'boxQuality', label: 'boxQuality', format: 'score', description: trendIndicatorDescriptions.boxQuality },
-  { key: 'boxWindowDays', label: 'boxDays', format: 'number', description: trendIndicatorDescriptions.boxWindowDays },
-  { key: 'boxWidthPct', label: 'boxWidth', format: 'percent', description: trendIndicatorDescriptions.boxWidthPct },
-  { key: 'distanceToBoxHighPct', label: '距箱顶', format: 'percent', description: trendIndicatorDescriptions.distanceToBoxHighPct },
-  { key: 'boxBreakoutDistanceAtr', label: '突破距离', format: 'ratio', description: trendIndicatorDescriptions.boxBreakoutDistanceAtr },
-  { key: 'boxUpperTouches', label: '上沿测试', format: 'number', description: trendIndicatorDescriptions.boxUpperTouches },
-  { key: 'rsScore', label: 'rsScore', format: 'score', description: trendIndicatorDescriptions.relativeStrength },
-  { key: 'trendScore', label: 'trendScore', format: 'score', description: trendIndicatorDescriptions.trend },
-  { key: 'alphaScore', label: 'alpha', format: 'score', description: trendIndicatorDescriptions.alpha },
-  { key: 'volumeRatio', label: 'volume', format: 'ratio', description: trendIndicatorDescriptions.volumeCompression },
-  ...forwardReturnColumns,
-] as const;
-const mrColumns = [
-  { key: 'name', label: '股票名称', format: 'text' },
-  { key: 'mrState', label: 'mrState', format: 'text', description: trendIndicatorDescriptions.mrState },
-  { key: 'mrQuality', label: 'mrQuality', format: 'score', description: trendIndicatorDescriptions.mrQuality },
-  { key: 'rsi14', label: 'RSI20', format: 'score', description: trendIndicatorDescriptions.rsi14 },
-  { key: 'distanceFromMa20Atr', label: '距 MA20 / ATR', format: 'ratio', description: trendIndicatorDescriptions.distanceFromMa20Atr },
-  { key: 'return3D', label: 'return3D', format: 'percent', description: trendIndicatorDescriptions.return },
-  { key: 'return5D', label: 'return5D', format: 'percent', description: trendIndicatorDescriptions.return },
-  { key: 'closeLocationValue', label: 'clv', format: 'ratio', description: trendIndicatorDescriptions.clv },
-  { key: 'trendScore', label: 'trendScore', format: 'score', description: trendIndicatorDescriptions.trend },
-  { key: 'rsScore', label: 'rsScore', format: 'score', description: trendIndicatorDescriptions.relativeStrength },
-  { key: 'alphaScore', label: 'alpha', format: 'score', description: trendIndicatorDescriptions.alpha },
-  { key: 'state', label: 'state', format: 'text', description: trendIndicatorDescriptions.state },
-] as const;
-const mrFilters = [{ value: 'all', label: '全部超跌机会' }, { value: 'MR_REBOUND', label: '反弹确认' }, { value: 'MR_OVERSOLD', label: '超跌观察' }];
-const mrText = (value: unknown) => value === 'MR_REBOUND' ? '反弹确认' : value === 'MR_OVERSOLD' ? '超跌观察' : value === 'MR_NONE' ? '无超跌机会' : '—';
-const mrPriority = (row: TrendRankingSnapshot) => row.features.mrState === 'MR_REBOUND' ? 0 : row.features.mrState === 'MR_OVERSOLD' ? 1 : 2;
-type ColumnSource = typeof trendColumns[number] | typeof boxColumns[number] | typeof mrColumns[number];
-type RankingColumn = { key: ColumnSource['key']; label: string; format: ColumnSource['format']; group: string; description?: string };
-type SortKey = RankingColumn['key'];
-const boxFilters = [
-  { value: 'opportunities', label: '全部机会' }, { value: 'BOX_BREAKOUT', label: '刚突破' },
-  { value: 'BOX_READY', label: '待突破' }, { value: 'BOX_FORMING', label: '形成中' },
-];
-function boxStateText(state: unknown) {
-  return state === 'BOX_BREAKOUT' ? '刚突破' : state === 'BOX_READY' ? '待突破' : state === 'BOX_FORMING' ? '整理中' : state === 'NONE' ? '无结构机会' : '—';
-}
-const boxPriority = (item: TrendRankingSnapshot) => item.features.boxState === 'BOX_BREAKOUT' ? 0
-  : item.features.boxState === 'BOX_READY' ? 1 : item.features.boxState === 'BOX_FORMING' ? 2 : 3;
-function defaultBoxSort(left: TrendRankingSnapshot, right: TrendRankingSnapshot) {
-  return boxPriority(left) - boxPriority(right)
-    || (right.features.boxQuality ?? -1) - (left.features.boxQuality ?? -1)
-    || right.alphaScore - left.alphaScore || left.code.localeCompare(right.code);
-}
-type StateFilter = 'all' | 'CANDIDATE' | 'TRENDING' | 'WEAKENING' | 'BROKEN';
-const stateFilters: Array<{ value: StateFilter; label: string }> = [
-  { value: 'all', label: '全部' },
-  { value: 'CANDIDATE', label: '趋势候选' },
-  { value: 'TRENDING', label: '趋势健康' },
-  { value: 'WEAKENING', label: '趋势弱化' },
-  { value: 'BROKEN', label: '趋势破坏' },
-];
 let generation = 0;
 const marketOverviewRefreshKey = ref(0);
 const marketOverviewReady = ref(false);
@@ -303,56 +188,8 @@ async function exportRanking(table: typeof tables[number]) {
 
 const { value: forwardReturn, error: forwardError, loading: forwardLoading, retry: retryForward } =
   useForwardReturns(items, market, () => summary.value.tradeDate, dataMode);
-// Each section owns its filters, ordering and scroll viewport. All share the same snapshot and drawer.
-function createTable(kind: 'trend' | 'box' | 'mr', title: string, description: string, columns: readonly RankingColumn[]) {
-  const search = ref('');
-  const filter = ref(kind === 'box' ? 'opportunities' : 'all');
-  const sortKey = ref<SortKey>(kind === 'trend' ? 'rank' : kind === 'box' ? 'boxState' : 'mrState');
-  const sortDirection = ref<'asc' | 'desc'>('asc');
-  const viewport = shallowRef<HTMLElement | null>(null);
-  const scrollTop = ref(0);
-  const searchAll = computed(() => !!search.value.trim()
-    && (kind === 'box' && filter.value === 'opportunities' || kind === 'mr' && filter.value === 'all'));
-  const filteredItems = computed(() => {
-    const query = search.value.trim().toLocaleLowerCase();
-    return items.value.filter(item => {
-      if (kind === 'box') {
-        const state = item.features.boxState;
-        if (!searchAll.value && (filter.value === 'opportunities' ? state !== 'BOX_BREAKOUT' && state !== 'BOX_READY' : state !== filter.value)) return false;
-      } else if (kind === 'mr') {
-        const state = item.features.mrState;
-        if (!searchAll.value && (filter.value === 'all' ? state !== 'MR_REBOUND' && state !== 'MR_OVERSOLD' : state !== filter.value)) return false;
-      } else if (filter.value !== 'all' && item.state !== filter.value) return false;
-      return !query || item.code.toLocaleLowerCase().includes(query) || item.name.toLocaleLowerCase().includes(query);
-    });
-  });
-  const sortedItems = computed(() => [...filteredItems.value].sort((left, right) => {
-    const direction = sortDirection.value === 'asc' ? 1 : -1;
-    if (kind === 'mr' && sortKey.value === 'mrState') return (mrPriority(left) - mrPriority(right)
-      || (right.features.mrQuality ?? -1) - (left.features.mrQuality ?? -1) || left.code.localeCompare(right.code)) * direction;
-    if (kind === 'box' && sortKey.value === 'boxState') return defaultBoxSort(left, right) * direction;
-    const a = sortValue(left, sortKey.value), b = sortValue(right, sortKey.value);
-    if (a == null) return b == null ? left.code.localeCompare(right.code) : 1;
-    if (b == null) return -1;
-    const comparison = typeof a !== 'string' && typeof b !== 'string' ? Number(a) - Number(b) : String(a).localeCompare(String(b));
-    return comparison * direction || left.code.localeCompare(right.code);
-  }));
-  const virtual = computed(() => sortedItems.value.length > 300);
-  const virtualStart = computed(() => virtual.value
-    ? Math.min(Math.max(0, sortedItems.value.length - 28), Math.max(0, Math.floor((scrollTop.value - 80) / 64) - 8)) : 0);
-  const renderedRows = computed(() => virtual.value ? sortedItems.value.slice(virtualStart.value, virtualStart.value + 28) : sortedItems.value);
-  const bottomSpace = computed(() => virtual.value ? Math.max(0, sortedItems.value.length - virtualStart.value - renderedRows.value.length) * 64 : 0);
-  watch(sortedItems, () => { scrollTop.value = 0; if (viewport.value) viewport.value.scrollTop = 0; });
-  function toggleSort(key: SortKey) {
-    sortDirection.value = sortKey.value === key ? sortDirection.value === 'asc' ? 'desc' : 'asc'
-      : ['rank', 'name', 'setup', 'state', 'trendCandidate', 'priorCompression', 'compressionBreakout', 'trendResume'].includes(key) ? 'asc' : 'desc';
-    sortKey.value = key;
-  }
-  return reactive({ kind, title, description, columns, exporting: false, search, filter, sortKey, sortDirection, viewport, scrollTop,
-    searchAll, sortedItems, virtual, virtualStart, renderedRows, bottomSpace, toggleSort,
-    groups: [...new Set(columns.map(c => c.group))].map(label => ({ label, count: columns.filter(c => c.group === label).length })),
-  });
-}
+const createTable = (kind: RankingTableKind, title: string, description: string, columns: readonly RankingColumn[]) =>
+  createRankingTable(items, sortValue, kind, title, description, columns);
 const tables = [
   createTable('trend', '趋势排名', '已形成趋势及趋势候选，按 Alpha/趋势质量研究。', trendColumns),
   createTable('box', '结构机会', '识别正在形成、接近突破或刚突破的横盘结构。', boxColumns.map(c => ({ ...c, group: '箱体结构' }))),
@@ -370,10 +207,10 @@ const previewAvailable = computed(() => previewStatus.value != null);
 const showingPreview = computed(() => dataMode.value === 'preview' && !previewLoading.value && isPreviewCompleted(previewPayload.value?.status));
 const showingStrategyBody = computed(() => dataMode.value === 'official' || showingPreview.value);
 
-function score(value: number | null | undefined) { return value == null ? '—' : value.toFixed(1); }
-function scoreDelta(value: number | null | undefined) { return value == null ? '—' : `${value > 0 ? '+' : ''}${value.toFixed(1)}`; }
+function score(value: number | null | undefined) { return formatFixed(value, { digits: 1 }); }
+function scoreDelta(value: number | null | undefined) { return formatFixed(value, { digits: 1, signed: true }); }
 function rankDelta(value: number | null | undefined) { return value == null ? '—' : `${value > 0 ? '+' : ''}${value}`; }
-function pct(value: number | null | undefined) { return value == null ? '—' : `${(value * 100).toFixed(1)}%`; }
+function pct(value: number | null | undefined) { return formatPercent(value); }
 function price(value: number | null | undefined) {
   return value == null ? '—' : formatMarketCurrencyAmount(value, market.value);
 }
@@ -1001,9 +838,9 @@ onMounted(async () => {
                 </TableHeader>
                 <TableBody>
                   <tr
-                    v-if="table.virtualStart"
+                    v-if="table.range.topSpace"
                     aria-hidden="true"
-                    :style="{ height: `${table.virtualStart * 64}px` }"
+                    :style="{ height: `${table.range.topSpace}px` }"
                   >
                     <td
                       :colspan="table.columns.length"
@@ -1017,10 +854,10 @@ onMounted(async () => {
                     :data-testid="`${table.kind}-row`"
                     :data-code="item.code"
                     tabindex="0"
-                    :aria-rowindex="table.virtualStart + index + 3"
+                    :aria-rowindex="table.range.start + index + 3"
                     :aria-haspopup="'dialog'"
                     :aria-label="`打开 ${item.name} ${item.code} 趋势详情`"
-                    :style="table.virtual ? { height: `${64}px` } : undefined"
+                    :style="table.virtual ? { height: `${table.rowHeight}px` } : undefined"
                     @click="openRankingDetail(item, $event)"
                     @keydown="onRankingRowKeydown(item, $event)"
                   >
@@ -1095,9 +932,9 @@ onMounted(async () => {
                     </TableCell>
                   </TableRow>
                   <tr
-                    v-if="table.bottomSpace"
+                    v-if="table.range.bottomSpace"
                     aria-hidden="true"
-                    :style="{ height: `${table.bottomSpace}px` }"
+                    :style="{ height: `${table.range.bottomSpace}px` }"
                   >
                     <td
                       :colspan="table.columns.length"

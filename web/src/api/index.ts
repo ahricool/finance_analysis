@@ -11,16 +11,22 @@ const apiClient = axios.create({
   },
 });
 
+// Concurrent requests that all expire together must trigger only one full-page redirect;
+// the reload itself discards every in-memory store.
+let redirectingToLogin = false;
+
+export function redirectToLogin() {
+  if (redirectingToLogin) return;
+  const path = window.location.pathname + window.location.search;
+  if (path.startsWith('/login')) return;
+  redirectingToLogin = true;
+  window.location.assign(`/login?redirect=${encodeURIComponent(path)}`);
+}
+
 apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401) {
-      const path = window.location.pathname + window.location.search;
-      if (!path.startsWith('/login')) {
-        const redirect = encodeURIComponent(path);
-        window.location.assign(`/login?redirect=${redirect}`);
-      }
-    }
+    if (error.response?.status === 401) redirectToLogin();
     attachParsedApiError(error);
     return Promise.reject(error);
   }

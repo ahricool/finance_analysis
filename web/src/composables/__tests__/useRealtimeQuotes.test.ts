@@ -5,6 +5,9 @@ import { useRealtimeQuotes } from '@/composables/useRealtimeQuotes';
 import { mount } from '@vue/test-utils';
 import { defineComponent, nextTick, ref } from 'vue';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { redirectToLogin } from '@/api';
+
+vi.mock('@/api', async importOriginal => ({ ...await importOriginal<typeof import('@/api')>(), redirectToLogin: vi.fn() }));
 
 class MockWebSocket {
   static readonly CONNECTING = 0;
@@ -111,7 +114,8 @@ describe('useRealtimeQuotes', () => {
     expect(second.close).toHaveBeenCalledWith(1000, 'Page closed');
   });
 
-  it('does not reconnect after an authentication close', async () => {
+  it('does not reconnect after an authentication close and sends the user to login', async () => {
+    vi.mocked(redirectToLogin).mockClear();
     const wrapper = mount(defineComponent({
       setup() {
         return useRealtimeQuotes();
@@ -122,6 +126,37 @@ describe('useRealtimeQuotes', () => {
     await vi.advanceTimersByTimeAsync(30_000);
 
     expect(MockWebSocket.instances).toHaveLength(1);
+    expect(redirectToLogin).toHaveBeenCalledTimes(1);
+    wrapper.unmount();
+  });
+
+  it('pauses after a long hidden period and reconnects when visible again', async () => {
+    let visibility: DocumentVisibilityState = 'visible';
+    vi.spyOn(document, 'visibilityState', 'get').mockImplementation(() => visibility);
+    const setVisibility = (value: DocumentVisibilityState) => { visibility = value; document.dispatchEvent(new Event('visibilitychange')); };
+    let state!: ReturnType<typeof useRealtimeQuotes>;
+    const wrapper = mount(defineComponent({ setup() { state = useRealtimeQuotes(); return {}; }, template: '<div />' }));
+    const socket = MockWebSocket.instances[0];
+    socket.open();
+    // Keep quotes flowing so the silent-socket watchdog stays out of the picture.
+    const tick = async (ms: number) => {
+      for (let elapsed = 0; elapsed < ms; elapsed += 10_000) {
+        socket.message({ type: 'quotes', generated_at: 'now', quotes: [] });
+        await vi.advanceTimersByTimeAsync(10_000);
+      }
+    };
+    setVisibility('hidden');
+    await tick(30_000);
+    setVisibility('visible');
+    await tick(60_000);
+    expect(socket.close).not.toHaveBeenCalled();
+    setVisibility('hidden');
+    await tick(60_000);
+    expect(socket.close).toHaveBeenCalled();
+    expect(state.status.value).toBe('paused');
+    setVisibility('visible');
+    expect(MockWebSocket.instances).toHaveLength(2);
+    expect(state.status.value).toBe('connecting');
     wrapper.unmount();
   });
 
@@ -147,7 +182,7 @@ describe('useRealtimeQuotes', () => {
   });
 
   it('times out silent sockets and stops all retries on SSE authentication failure', async () => {
-    vi.spyOn(marketApi, 'readMarketEvents').mockRejectedValue(new marketApi.MarketStreamAuthError());
+    vi.spyOn(marketApi, 'readMarketEvents').mockRejectedValue(new marketApi.MarketStreamAuthError(403));
     let state!: ReturnType<typeof useRealtimeQuotes>;
     const wrapper = mount(defineComponent({ setup() { state = useRealtimeQuotes(); return {}; }, template: '<div />' }));
     await vi.advanceTimersByTimeAsync(41_000);

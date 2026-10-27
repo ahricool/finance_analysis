@@ -166,7 +166,8 @@ Cookie 会话，`apiClient` 设了 `withCredentials: true`。
 - 请求路径走 `/api/v1/...`。
 - 后端 snake_case 时，在 API 模块里用 `toCamelCase()` 再交给页面；**不要在 Vue 里散落 `stock_code` 字段访问**。
 - 少数接口（如部分 auth JSON）后端已是 camelCase，保持原样，不要双重转换。
-- 行情推送：`useRealtimeQuotes()` 优先 WebSocket，连续两次连接/快照超时失败后固定回落 HTTP SSE；SSE 断开仅重试 SSE。`4401`/`4403` 或 SSE 401/403 视为未授权，停止重连；切市场与卸载取消旧连接。
+- 已知例外（待迁移）：`realtimeMarket.ts` 的 WS/SSE 报价、`watchList.ts` 条目及 `StockDetailDialog` 的 `stock` 目标（`market_type`）仍沿用后端 snake_case 线格式。新代码不要扩大该范围；迁移时注意 `trend_1m` 等键与以证券代码为键的对象不能直接 deep camelCase。
+- 行情推送：`useRealtimeQuotes()` 优先 WebSocket，连续两次连接/快照超时失败后固定回落 HTTP SSE；SSE 断开仅重试 SSE。`4401`/`4403` 或 SSE 401/403 视为未授权，停止重连，其中 `4401`/SSE 401（会话失效）与 HTTP 401 一样跳转登录；页面在后台超过 60 秒断开并显示暂停，回到前台重连；切市场与卸载取消旧连接。
 
 ## 语言边界
 
@@ -174,7 +175,7 @@ Cookie 会话，`apiClient` 设了 `withCredentials: true`。
 
 - 词汇表与枚举显示：`src/i18n/labels.ts`（`metricLabels` / `enumLabels`）。
 - 复用组件：`BilingualLabel`（指标/区块/表头）、`BilingualEnum`（业务枚举展示；**不改 API 字段**）。
-- 表头空间紧时用 `compact`：只显示中文，英文进 `title` / tooltip。
+- 表头空间紧时用 `compact`：只显示中文，英文只保留在 `aria-label`（禁止原生 `title`）。
 - `BilingualEnum` 的 `size="badge"`（Badge/pill/chip）默认 compact；KPI 大字用 `size="large"` 并保证标签在上、数值在下（`w-full` / block）。
 - `PageHeader`：中文 `title` 为主，可选 `en` 为小号 muted 副标题（永远在中文下方，禁止英文 eyebrow 压在标题上）。
 - 按钮与普通操作文案（刷新、交易日、筛选等）只用中文。
@@ -219,7 +220,7 @@ Cookie 会话，`apiClient` 设了 `withCredentials: true`。
 - 弹层不要改 `document.body` 的 `overflow` / `paddingRight` 造成顶栏位移；冒烟测试会查这一点。
 - 根滚动条使用 `scrollbar-gutter: stable`，路由切换时不要让页面左右跳。
 - WebUI 面向桌面优先，并做基础响应式适配：去掉根 `min-width: 1200px`；`<1024px`（`lg`）顶栏通过点击 Logo 打开左侧抽屉导航，不显示独立汉堡按钮；表格在容器内横向滚动，页面本身不横向溢出；卡片/统计格子可换行；弹窗限制在视口内。验证 390 / 768 / 1024 / 1280 / 1440 / 1920px。
-- 标签语言：中文为主、英文 muted 小号副标题。复用 `BilingualLabel` / `BilingualEnum` 与 `i18n/labels.ts`；表头空间紧时用 `compact`（英文进 tooltip）。按钮与普通操作文案只用中文。业务枚举仅改展示，不改 API 字段。
+- 标签语言：中文为主、英文 muted 小号副标题。复用 `BilingualLabel` / `BilingualEnum` 与 `i18n/labels.ts`；表头空间紧时用 `compact`（英文只保留在 `aria-label`）。按钮与普通操作文案只用中文。业务枚举仅改展示，不改 API 字段。
 - Dashboard 按市场结构、Trend Market Regime、ETF/Trend Changes、Timeline、Quant Signals/BTC overview 排序；市场环境通过 `/trend-following/dashboard` 读取正式 Trend 的 0–100 分数、breakdown、完整变化计数和最多3条变化摘要，不下载 ranking 明细，不请求 Quant Regime 或展示风险敞口。不得读取持仓、自选股、分析历史等私人数据；各模块独立加载和失败。
 
 新增 shadcn 组件：按 `components.json` 生成到 `src/components/ui/`，不要改 aliases，不要另开一套 primitive。

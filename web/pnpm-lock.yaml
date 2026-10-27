@@ -71,15 +71,9 @@ importers:
       vue-sonner:
         specifier: ^2.0.9
         version: 2.0.9
-      vue-zustand:
-        specifier: ^1.1.0
-        version: 1.1.0(vue@3.5.34(typescript@5.9.3))(zustand@5.0.13)
       write-excel-file:
         specifier: ^4.1.1
         version: 4.1.1
-      zustand:
-        specifier: ^5.0.5
-        version: 5.0.13
     devDependencies:
       '@eslint/js':
         specifier: ^9.39.1
@@ -1294,6 +1288,7 @@ packages:
   eslint@9.39.4:
     resolution: {integrity: sha512-XoMjdBOwe/esVgEvLmNsD3IRHkm7fbKIUGvrleloJXUZgDHig2IPWNniv+GwjyJXzuNqVjlr5+4yVUZjycJwfQ==}
     engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
+    deprecated: This version is no longer supported. Please see https://eslint.org/version-support for other options.
     hasBin: true
     peerDependencies:
       jiti: '*'
@@ -2201,12 +2196,6 @@ packages:
     peerDependencies:
       typescript: '>=5.0.0'
 
-  vue-zustand@1.1.0:
-    resolution: {integrity: sha512-rlT6gDBAA9/3j6JzDSG+1hcREVixiDkCBGGibPyery1kMehYrwgL4LA89wXAgz+AHFRhx7jCb+E28YiOxqJiiw==}
-    peerDependencies:
-      vue: ^3.2.0
-      zustand: ^5.0.0
-
   vue@3.5.34:
     resolution: {integrity: sha512-WdLBG9gm02OgJIG9axd5Hpx0TFLdzVgfG2evFFu8Rur5O/IoGc5cMjnjh3tPL6GnRGsYvUhBSKVPYVcxRKpMCA==}
     peerDependencies:
@@ -2274,24 +2263,6 @@ packages:
 
   zrender@5.6.1:
     resolution: {integrity: sha512-OFXkDJKcrlx5su2XbzJvj/34Q3m6PvyCZkVPHGYpcCJ52ek4U/ymZyfuV1nKE23AyBJ51E/6Yr0mhZ7xGTO4ag==}
-
-  zustand@5.0.13:
-    resolution: {integrity: sha512-efI2tVaVQPqtOh114loML/Z80Y4NP3yc+Ff0fYiZJPauNeWZeIp/bRFD7I9bfmCOYBh/PHxlglQ9+wvlwnPikQ==}
-    engines: {node: '>=12.20.0'}
-    peerDependencies:
-      '@types/react': '>=18.0.0'
-      immer: '>=9.0.6'
-      react: '>=18.0.0'
-      use-sync-external-store: '>=1.2.0'
-    peerDependenciesMeta:
-      '@types/react':
-        optional: true
-      immer:
-        optional: true
-      react:
-        optional: true
-      use-sync-external-store:
-        optional: true
 
 snapshots:
 
@@ -4173,12 +4144,6 @@ snapshots:
       '@vue/language-core': 2.2.12(typescript@5.9.3)
       typescript: 5.9.3
 
-  vue-zustand@1.1.0(vue@3.5.34(typescript@5.9.3))(zustand@5.0.13):
-    dependencies:
-      '@vueuse/core': 13.9.0(vue@3.5.34(typescript@5.9.3))
-      vue: 3.5.34(typescript@5.9.3)
-      zustand: 5.0.13
-
   vue@3.5.34(typescript@5.9.3):
     dependencies:
       '@vue/compiler-dom': 3.5.34
@@ -4243,5 +4208,3 @@ snapshots:
   zrender@5.6.1:
     dependencies:
       tslib: 2.3.0
-
-  zustand@5.0.13: {}

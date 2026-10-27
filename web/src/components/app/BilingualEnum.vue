@@ -7,12 +7,14 @@ const props = withDefaults(defineProps<{
   value?: string | null;
   /** large stacked | badge/chip compact | inline both */
   size?: 'large' | 'badge' | 'inline';
-  /** Force Chinese-only; English in title. Badge size is compact by default. */
+  /** Force Chinese-only; English stays in aria-label. Badge size is compact by default. */
   compact?: boolean;
   class?: string;
 }>(), {
+  value: undefined,
   size: 'inline',
   compact: undefined,
+  class: undefined,
 });
 
 const pair = computed(() => enumLabel(props.value));
@@ -23,7 +25,6 @@ const isCompact = computed(() => props.compact ?? props.size === 'badge');
 <template>
   <span
     data-slot="bilingual-enum"
-    :title="isCompact && pair.en ? pair.en : undefined"
     :class="cn(
       'min-w-0',
       isCompact && 'inline-flex max-w-full items-center',

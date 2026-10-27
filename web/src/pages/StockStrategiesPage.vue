@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatPercent } from '@/utils/number';
 import { computed, defineAsyncComponent, onBeforeUnmount, ref, shallowRef, watch } from 'vue';
 import { RouterLink, useRoute, useRouter } from 'vue-router';
 import { ArrowLeft, ArrowUpRight, RefreshCcw } from 'lucide-vue-next';
@@ -26,7 +27,7 @@ const latest = computed(() => detail.value?.latest);
 const nextPlan = computed(() => latest.value?.payload.plan);
 const positions = computed(() => Object.entries(latest.value?.payload.positions ?? {}));
 const statuses = { success: '已结算', waiting: '等待数据', failed: '运行失败', not_started: '尚未启动', catching_up: '等待补算' };
-const pct = (v: number | null | undefined) => v == null ? '—' : `${v > 0 ? '+' : ''}${(v * 100).toFixed(2)}%`;
+const pct = (v: number | null | undefined) => formatPercent(v, { digits: 2, signed: true });
 const number = (v: number | undefined | null, digits = 2) => v == null ? '—' : v.toLocaleString('zh-CN', { maximumFractionDigits: digits });
 const tone = (v: number | undefined | null) => v == null || v === 0 ? '' : v > 0 ? 'text-market-up' : 'text-market-down';
 const metricColumns = [
