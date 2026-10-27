@@ -167,9 +167,6 @@ class ASharePreCloseDataSource:
         for key in ASharePreCloseDataSource._aliases(code):
             if key in result.data:
                 return result.data.get(key, []), result.providers_used.get(key, "")
-        if len(result.data) == 1:
-            symbol, bars = next(iter(result.data.items()))
-            return bars, result.providers_used.get(symbol, "")
         return [], ""
 
     def _record_source(self, name: str) -> None:

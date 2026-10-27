@@ -309,11 +309,16 @@ def test_final_scan_uses_next_exchange_session_and_bmo_priority(setup):
     assert service.run("final")["status"] == "skipped"
 
 
-def test_review_writes_actual_separately_and_keeps_prediction_unchanged(setup):
+def test_review_writes_actual_separately_and_keeps_prediction_unchanged(setup, monkeypatch):
     service, db, repo, llm, members = setup
     service.refresh(1, "daily", members, {})
     before = repo.detail(1)["versions"][0]["prediction"]
     service.clock = lambda: datetime(2026, 7, 6, 22, tzinfo=timezone.utc)
+    service._llm = None
+    monkeypatch.setattr(
+        "finance_analysis.earnings_outlook.service.LLMClient", Mock(side_effect=AssertionError("review invoked LLM"))
+    )
+    repo.slot = Mock(side_effect=AssertionError("review used a research slot"))
     import finance_analysis.database.repositories.earnings_outlook as module
 
     # Query hook only for this fixture's deterministic wall clock.
@@ -324,12 +329,38 @@ def test_review_writes_actual_separately_and_keeps_prediction_unchanged(setup):
             "eps": None,
             "revenue": None,
             "ohlc": {"open": 100, "close": 98, "low": 95, "high": 103},
+            "previous_close": 100,
         }
         result = service.review()
-        assert result["results"][0]["status"] == "pending"
+        assert result["results"][0]["status"] == "completed"
         detail = repo.detail(1)
         assert detail["versions"][0]["prediction"] == before
         assert detail["actual"]["close_error"] == 0 and detail["actual"]["range_covered"]
+        assert detail["actual"]["daily_return_pct"] == pytest.approx(-2)
+        assert "eps" not in detail["actual"]
+        llm.complete_text.reset_mock()
+        service.collector.actual.reset_mock()
+        assert service.review()["results"] == []
+        service.collector.actual.assert_not_called()
+        llm.complete_text.assert_not_called()
+        # Old completed as well as pending financial reviews are recomputed once, without touching forecasts.
+        for status in ("pending", "completed"):
+            repo.mark(
+                1,
+                "frozen",
+                actual=dict(
+                    prediction_id=detail["actual"]["prediction_id"],
+                    status=status,
+                    eps="unknown",
+                    actual={"eps": {"value": 123}, "ohlc": None, "missing_reason": "缺少实际营收"},
+                ),
+            )
+            projected = repo.detail(1)["actual"]
+            assert "eps" not in projected and "eps" not in projected["actual"]
+            assert "营收" not in projected["actual"]["missing_reason"]
+            assert repo.state(1).actual["eps"] == "unknown"  # GET never writes.
+            assert service.review()["results"][0]["status"] == "completed"
+            assert repo.detail(1)["versions"][0]["prediction"] == before
     finally:
         module.utc_now = original
 
@@ -569,7 +600,7 @@ def test_noop_batch_does_not_collect_public_context(setup, monkeypatch):
     # Execute the real service serially for SQLite's connection affinity.
     @contextmanager
     def inline_pool(**kwargs):
-        yield NS(map=map)
+        yield NS(submit=lambda fn, *args: NS(result=lambda: fn(*args)))
 
     monkeypatch.setattr("finance_analysis.earnings_outlook.service.ThreadPoolExecutor", inline_pool)
     assert service.run("daily")["results"][0]["status"] == "cached"

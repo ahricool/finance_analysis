@@ -13,6 +13,7 @@ import requests
 
 
 from finance_analysis.core.retry import retry_call, transient_response
+from finance_analysis.notification.chunking import split_message
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +23,7 @@ MESSAGE_LIMIT_BYTES = 4096
 JSON_LIMIT_BYTES = 2 * MESSAGE_LIMIT_BYTES
 
 
-def _publish_bodies(topic: str, title: str, content: str) -> list[bytes]:
+def split_ntfy_message(topic: str, title: str, content: str) -> list[str]:
     def encode(message: str) -> bytes:
         return json.dumps({"topic": topic, "title": title, "message": message, "markdown": True},
                           ensure_ascii=False, separators=(",", ":")).encode("utf-8")
@@ -30,33 +31,13 @@ def _publish_bodies(topic: str, title: str, content: str) -> list[bytes]:
     def fits(message: str) -> bool:
         return len(message.encode("utf-8")) <= MESSAGE_LIMIT_BYTES and len(encode(message)) <= JSON_LIMIT_BYTES
 
-    if fits(content):
-        return [encode(content)]
-    # The number of parts cannot exceed the number of characters. Reserve the
-    # largest possible numbering prefix, including it in both byte limits.
-    digits = len(str(len(content)))
-    reserved_prefix = f"[{'9' * digits}/{'9' * digits}]\n"
-    if not fits(reserved_prefix):
-        raise ValueError("ntfy metadata leaves no room for multipart messages")
-    chunks = []
-    offset = 0
-    while offset < len(content):
-        low, high = 0, min(len(content) - offset, MESSAGE_LIMIT_BYTES)
-        while low < high:
-            middle = (low + high + 1) // 2
-            if fits(reserved_prefix + content[offset:offset + middle]):
-                low = middle
-            else:
-                high = middle - 1
-        if not low:
-            raise ValueError("ntfy metadata leaves no room for a message character")
-        # Prefer whole lines when possible, retaining the newline and all text.
-        newline = content.rfind("\n", offset, offset + low)
-        if newline >= offset + low // 2:
-            low = newline + 1 - offset
-        chunks.append(content[offset:offset + low])
-        offset += low
-    return [encode(f"[{index}/{len(chunks)}]\n" + chunk) for index, chunk in enumerate(chunks, 1)]
+    return split_message(content, fits=fits)
+
+
+def _publish_bodies(topic: str, title: str, content: str) -> list[bytes]:
+    return [json.dumps({"topic": topic, "title": title, "message": part, "markdown": True},
+                       ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+            for part in split_ntfy_message(topic, title, content)]
 
 
 

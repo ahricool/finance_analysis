@@ -57,7 +57,7 @@ Signal Center 不引入第二套 LLM 并发机制。自身每天每市场复用 
 
 Prompt 强調共振、冲突、追高/过热、生命周期、行业边际变化及市场环境；不联网、不推断股票ETF关系、不做仓位建议。
 新任务版本为 `signal-center-v1.1-rank-buckets`。精简掉重复诊断字段后，CN/US 的真实 CLI dry run 均完成且通过结构校验。
-若 CLI 使用默认模型且 transport 未回传名称，明确保存 `unreported:cli/agy`，不伪造模型名称；
+若 CLI 使用默认模型且 transport 未回传名称，明确保存 `unreported:cli/codex`，不伪造模型名称；
 需要精确模型可复现性时应在现有 LLM 配置中显式指定 `LLM_CLI_MODEL`。API 则使用返回的模型名称。
 
 ## 持久化与迁移

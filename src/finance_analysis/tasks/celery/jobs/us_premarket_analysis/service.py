@@ -23,6 +23,7 @@ class USPremarketAnalysisTaskService:
         logger.info("美股盘前分析任务开始执行 - %s", started_at.strftime("%Y-%m-%d %H:%M:%S"))
         results: List[Any] = []
         total_count = 0
+        failures = []
         validation_failures: list[dict[str, Any]] = []
         try:
             from finance_analysis.analysis.pipeline import StockAnalysisPipeline
@@ -36,8 +37,9 @@ class USPremarketAnalysisTaskService:
                 raise TaskSkipped("未配置美股自选股，本次定时任务已跳过")
             config = get_pipeline_config()
             if stock_codes:
-                pipeline = StockAnalysisPipeline(config=config)
+                pipeline = StockAnalysisPipeline(config=config, allow_history_fallback=True)
                 results = pipeline.run(stock_codes=stock_codes)
+                failures = pipeline.failures
         except TaskSkipped:
             raise
         except Exception as exc:
@@ -51,6 +53,7 @@ class USPremarketAnalysisTaskService:
                 "success_count": len(results),
                 "failed_count": max(0, total_count - len(results)),
                 "validation_failures": validation_failures,
+                "failures": failures,
                 "started_at": started_at.isoformat(),
                 "finished_at": finished_at.isoformat(),
             }

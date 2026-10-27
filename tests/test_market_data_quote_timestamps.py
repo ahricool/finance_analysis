@@ -84,3 +84,25 @@ def test_longbridge_fetch_quotes_batches_quote_and_static_info(monkeypatch):
     context.static_info.assert_called_once_with(["AAPL.US", "MSFT.US"])
     assert set(result.data) == {"AAPL.US", "MSFT.US"}
     assert result.providers_used == {"AAPL.US": "longbridge", "MSFT.US": "longbridge"}
+
+
+def test_longbridge_batch_conversion_failure_preserves_other_quotes(monkeypatch):
+    from unittest.mock import Mock
+    from finance_analysis.integrations.market_data.providers.longbridge.market import LongbridgeProvider
+
+    provider = object.__new__(LongbridgeProvider)
+    monkeypatch.setattr(provider, "is_available_for_request", lambda _: True)
+    context = Mock()
+    context.quote.return_value = [SimpleNamespace(symbol=s) for s in ("AAPL.US", "MSFT.US")]
+    monkeypatch.setattr(provider, "_get_ctx", lambda: context)
+    monkeypatch.setattr(provider, "_prefetch_static_info", lambda _: None)
+
+    def convert(symbol, *args):
+        if symbol == "AAPL.US":
+            raise ValueError("invalid shares")
+        return SimpleNamespace(to_dict=lambda: {"price": 100, "name": "Microsoft"})
+
+    monkeypatch.setattr(provider, "_unified_from_snapshot", convert)
+    result = provider.fetch_quotes(QuoteRequest(("AAPL.US", "MSFT.US")))
+    assert result.failed_symbols == {"AAPL.US": "invalid shares"}
+    assert set(result.data) == {"MSFT.US"}

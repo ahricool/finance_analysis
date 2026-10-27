@@ -346,6 +346,8 @@ class TradeEngineService:
                     strategy_signals=signals,
                     portfolio_risk=facts,
                 )
+                from finance_analysis.llm.timing import append_timings
+                body = append_timings(body, uid)
                 notification_id = self.states.create_notification(session, uid=uid, title=title, content=body)
                 pushes.append((notification_id, title, body))
             for signal in created:

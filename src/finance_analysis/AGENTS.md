@@ -100,7 +100,7 @@ Celery
 历史日线同步已从分析链拆开。`fetch_and_save_stock_data()` 名称为兼容保留，但当前只验证数据库历史，不拉取或保存远程日线。不要在分析请求中恢复隐式写行情。
 
 
-LLM 调用统一进入 `llm/LLMClient`，显式配置 `LLM_FALLBACK_CHAIN=agy,codex,api` 时按 AGY → Codex → API 顺序切换；未配置时保留 `LLM_BACKEND=api|cli` 单渠道。可重试错误每渠道最多重试三次，退避 2 / 4 / 8 秒，受总时间预算和后续渠道预留约束。额度耗尽、认证失败与单次超时直接切换；清理未确认或程序错误终止调用。所有业务使用全局 LLM 预算，不在调用方覆盖 timeout；LLM 任务不设旧实时分析的短 Celery 时限。AGY / Codex CLI attempts may execute concurrently. Each attempt is independently bounded by LLM_ATTEMPT_TIMEOUT and the shared request deadline（链模式；兼容单渠道使用请求剩余预算）。每个 attempt 独立记录 diagnostics，skipped 不继承传输数据。HTTP 402 为 insufficient_credits，分段耗时写 JSONL diagnostics。配置与部署见 `docs/llm.md`。
+LLM 调用统一进入 `llm/LLMClient`，固定 Codex → API。每次尝试由 `LLM_ATTEMPT_TIMEOUT` 限制，默认300秒；没有整链总预算或后续渠道预留。可重试错误每渠道最多重试三次，退避2/4/8秒；额度/认证失败及单次超时直接切换，清理未确认或程序错误终止。LLM任务无固定Celery时限。每次尝试独立记录diagnostics，最终任务结果和报告展示调用、失败、重试及等待耗时。线程池须复制contextvars以传播耗时collector；详见 `docs/llm.md`。
 
 ## 市场数据边界
 
@@ -304,4 +304,15 @@ Fuyao 定向报价和日线批量复用 DB Instrument 类型，未知类型不�
 `dragon_tiger_flow_batch` 每日一个原子代次，日记录保存概念观测，窗口只读派生；新旧来源不混合。
 机构用 `org_net_value`，游资股票级值与游资席位明细分开，禁止重复累计。详见 `../../docs/dragon-tiger-flow.md`。
 
+龙虎榜v2按采集时Instrument成员过滤：丢弃空thscode、表外证券和11/12债券代码段（含可转债），不补造代码，三类榜单一致。
+原始计数先校验，排除数量独立审计；旧版本快照由显式补数重建，GET不重算。
+
 趋势跟踪完整策略支持20/40/60日，默认20日；任务计算三套结果，快照、状态历史与缓存按`trend_period`隔离。指标周期映射及迁移清空后重建见`docs/trend-periods.md`（仓库根）。外部趋势结果消费者固定读20日。
+
+美股盘前分析允许通过 MarketDataService 的 db_latest + required_dates 读取缺失日K窗口，前复权60交易日仅供本轮趋势和上下文计算，不写数据库。逐股失败写入任务 failures 和最终汇总报告，不中断其他证券。其他分析入口仍保持原有 DB-only 边界。
+
+## 财报后首日股价验证
+
+`earnings_outlook_review` 每天纽约23:30只读目标日及前一交易日DB前复权日线，
+不调用LLM、不取实际EPS/营收或外部日历。首日涨跌相对昨收，预测命中相对冻结参考价；
+原预测缺项不阻断股价更新。旧actual记录按price_v1重算，GET只读投影且不展示实际财报比较。

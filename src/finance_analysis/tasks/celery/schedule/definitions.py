@@ -318,8 +318,8 @@ SCHEDULED_TASK_DEFINITIONS = (
     ),
     ScheduledTaskDefinition(
         job_id="earnings_outlook_review",
-        name="美股财报结果复盘",
-        description="读取实际财报和已完成正常交易日OHLC，与公布前预测分别保存",
+        name="美股财报首日股价验证",
+        description="只读DB日线更新财报后首日涨跌及预测命中，不调用LLM或外部财报",
         task_type="scheduled_earnings_outlook_review",
         celery_task_name=celery_task_name("earnings_outlook_review"),
         schedules=(CronSchedule(minute="30", hour="23", timezone=US_TIMEZONE),),

@@ -356,3 +356,25 @@ def test_existing_intraday_task_and_new_task_are_both_registered():
     task = celery_app.tasks["scheduled.analysis_a_share_pre_close_review"]
     assert task.soft_time_limit is None
     assert task.time_limit is None
+
+
+@pytest.mark.parametrize("code", ["510300", "510300.SH"])
+def test_batch_histories_preserve_missing_symbols_and_accept_aliases(code):
+    from unittest.mock import Mock
+
+    bar = SimpleNamespace(
+        trade_date=NOW.date(), bar_time=NOW - timedelta(minutes=1),
+        open=10, high=11, low=9, close=10.5, volume=1000, amount=10500,
+    )
+    result = SimpleNamespace(data={"510300.SH": [bar]}, providers_used={"510300.SH": "database"})
+    market = Mock()
+    market.get_daily_bars.return_value = result
+    market.get_minute_bars.return_value = result
+    source = ASharePreCloseDataSource(market_data_service=market)
+    daily = source.get_daily_histories([code, "510500.SH"], days=30)
+    minutes = source.get_minute_histories([code, "510500.SH"], count=30, now=NOW)
+    assert daily[code][0].iloc[0]["close"] == 10.5
+    assert daily["510500.SH"][0].empty
+    assert daily["510500.SH"][1] == ""
+    assert len(minutes[code]) == 1
+    assert minutes["510500.SH"] == []

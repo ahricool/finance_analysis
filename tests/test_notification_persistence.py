@@ -68,7 +68,7 @@ def test_one_business_message_one_row_before_delivery(repo, service, mode):
     elif mode == "suppressed":
         service._config.notification_min_severity = "critical"
 
-    def delivered(content):
+    def delivered(content, **kwargs):
         assert content == "Short push"
         assert repo.list_messages(uid=1)["total"] == 1
         return True
@@ -163,3 +163,62 @@ def test_channel_exception_is_recorded_without_stopping_other_delivery(repo, ser
     result = service.send("report", uid=1)
     assert result.push_sent
     assert result.channel_results == {"telegram": False, "ntfy": True}
+
+
+@pytest.mark.parametrize("content", ["中文🙂" * 3000, "x" * 14000, ('line\n' * 3000)])
+def test_shared_chunks_preserve_report_and_match_both_channels(service, repo, content):
+    result = service.send(content, uid=1)
+    telegram = [call.args[0] for call in service.send_to_telegram.call_args_list]
+    ntfy = [call.args[0] for call in service.send_to_ntfy.call_args_list]
+    assert telegram == ntfy and len(telegram) > 1
+    assert all(len(part.encode("utf-8")) <= 4096 for part in telegram)
+    assert "".join(part.split("\n", 1)[1] for part in telegram) == content
+    assert result.channel_results == {"telegram": True, "ntfy": True}
+    assert repo.get_message(result.notification_id, uid=1).content == content
+
+
+def test_shared_chunk_failure_stops_channel_but_delivers_other_channel(service):
+    service.send_to_telegram.side_effect = [True, False]
+    result = service.send("汉" * 5000, uid=1)
+    assert result.channel_results == {"telegram": False, "ntfy": True}
+    assert service.send_to_telegram.call_count == 2
+    assert service.send_to_ntfy.call_count > 2
+
+
+def test_long_report_markdown_fallback_and_ntfy_receive_same_bounded_parts(service, monkeypatch):
+    import json
+    from finance_analysis.notification.senders.telegram import TelegramSender
+    from finance_analysis.notification.senders.ntfy import NtfySender
+
+    service.send_to_telegram = TelegramSender.send_to_telegram.__get__(service)
+    service.send_to_ntfy = NtfySender.send_to_ntfy.__get__(service)
+    plain, ntfy = [], []
+
+    def post(url, **kwargs):
+        if "json" in kwargs:
+            payload = kwargs["json"]
+            if "parse_mode" in payload:
+                return Mock(status_code=400, text="Bad Request: can't parse entities")
+            plain.append(payload["text"])
+            assert len(payload["text"].encode("utf-8")) <= 4096
+            return Mock(status_code=200, json=lambda: {"ok": True})
+        assert len(kwargs["data"]) <= 8192
+        ntfy.append(json.loads(kwargs["data"])["message"])
+        return Mock(status_code=200)
+
+    monkeypatch.setattr("requests.post", post)
+    content = "**超长段落🙂" * 2500
+    result = service.send(content, uid=1)
+    assert result.channel_results == {"telegram": True, "ntfy": True}
+    assert plain == ntfy and len(plain) > 1
+    assert "".join(part.split("\n", 1)[1] for part in plain) == content
+
+
+def test_invalid_ntfy_metadata_does_not_block_telegram(service):
+    from finance_analysis.notification.senders.ntfy import NtfySender
+
+    service._ntfy_url = "https://ntfy.example/" + "x" * 9000
+    service.send_to_ntfy = NtfySender.send_to_ntfy.__get__(service)
+    result = service.send("汉" * 2000, uid=1)
+    assert result.channel_results == {"telegram": True, "ntfy": False}
+    assert service.send_to_telegram.call_count > 1

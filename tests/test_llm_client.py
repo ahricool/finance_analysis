@@ -23,43 +23,6 @@ def config(tmp_path, monkeypatch):
     return LLMConfig(model="openai/test", api_key="private-api-secret", log_dir=tmp_path)
 
 
-@pytest.mark.parametrize("backend", ["api", "cli"])
-@pytest.mark.parametrize("failures", [0, 1, 2, 3, 4])
-def test_attempt_budget_and_no_backend_fallback(config, monkeypatch, backend, failures):
-    config = replace(
-        config,
-        backend=backend,
-        cli_ssh_username="test",
-        cli_ssh_password="private-ssh-secret",
-    )
-    result = LLMResult("ok", backend, model="test")
-    call = Mock(side_effect=[ConnectionError("private-api-secret Authorization: Bearer x")] * failures + [result])
-    other = Mock(side_effect=AssertionError("Must not switch backend"))
-    monkeypatch.setattr(api if backend == "api" else remote_cli, "complete", call)
-    monkeypatch.setattr(remote_cli if backend == "api" else api, "complete", other)
-    client = LLMClient(config)
-    request = LLMRequest("quoted '$()' 财经\n{}", system_prompt="system", uid=7)
-    if failures == 4:
-        with pytest.raises(LLMError) as error:
-            client.complete_text(request)
-        assert "private" not in str(error.value)
-    else:
-        assert client.complete_text(request).text == "ok"
-    assert call.call_count == min(failures + 1, 4)
-    other.assert_not_called()
-    log = next(config.log_dir.glob("*.log")).read_text()
-    assert "private-api-secret" not in log
-    rows = [json.loads(line) for line in log.splitlines()]
-    assert [r["attempt"] for r in rows] == list(range(1, len(rows) + 1))
-    assert len({r["request_id"] for r in rows}) == 1
-    assert rows[0]["prompt"] == request.prompt
-    assert rows[0]["backend"] == backend
-    from finance_analysis.database import DatabaseManager
-
-    assert DatabaseManager.get_instance().record_llm_usage.call_count == len(rows)
-    assert DatabaseManager.get_instance().record_llm_usage.call_args.kwargs["uid"] == 7
-
-
 def test_api_conversion_and_sdk_retries_disabled(config, monkeypatch):
     import litellm
 
@@ -90,7 +53,11 @@ def test_json_validation_consumes_same_retry_budget(config, monkeypatch):
     monkeypatch.setattr(api, "complete", call)
     assert LLMClient(config).complete_text(LLMRequest("json"), validator=json.loads).text == "{}"
     assert call.call_count == 2
-    rows = [json.loads(line) for line in next(config.log_dir.glob("*.log")).read_text().splitlines()]
+    rows = [
+        json.loads(line)
+        for line in next(config.log_dir.glob("*.log")).read_text().splitlines()
+        if json.loads(line)["status"] != "skipped"
+    ]
     assert rows[0]["status"] == "failed" and rows[0]["response"] == "invalid"
 
 
@@ -109,54 +76,22 @@ def test_no_retry_after_deadline(config, monkeypatch):
     assert call.call_count == 1
 
 
-@pytest.mark.parametrize("backend", ["api", "cli"])
-def test_env_backend(monkeypatch, backend):
-    monkeypatch.setenv("LLM_BACKEND", backend)
-    get_llm_config.cache_clear()
-    assert get_llm_config().backend == backend
-    get_llm_config.cache_clear()
-
-
 @pytest.mark.parametrize(
     "kwargs",
-    [{"backend": "other"}, {"cli_engine": "other"}, {"max_retries": 4}, {"timeout": 0}],
+    [{"backend": "other"}, {"cli_engine": "other"}, {"max_retries": 4}, {"attempt_timeout": 0}],
 )
 def test_invalid_configuration(kwargs):
     with pytest.raises(ValueError):
         LLMConfig(**kwargs)
 
 
-AGY = json.dumps(
-    dict(
-        event="result",
-        result=dict(
-            status="SUCCESS",
-            response="answer",
-            usage=dict(input_tokens=4, output_tokens=5, total_tokens=9),
-        ),
-    )
+CODEX = "\n".join(
+    json.dumps(e)
+    for e in [
+        dict(type="item.completed", item=dict(type="agent_message", text="answer")),
+        dict(type="turn.completed", usage=dict(input_tokens=4, output_tokens=5)),
+    ]
 )
-
-
-@pytest.mark.parametrize(
-    "stdout",
-    [
-        "",
-        "{}",
-        "{",
-        '{"status":"FAILED","error":"credential"}',
-        '{"status":"SUCCESS","response":""}',
-    ],
-)
-def test_agy_failure(stdout):
-    with pytest.raises(ValueError):
-        remote_cli.parse_agy(stdout)
-
-
-def test_agy_json():
-    result = remote_cli.parse_agy(AGY)
-    assert result.text == "answer" and result.usage["total_tokens"] == 9
-    assert result.model is None
 
 
 def test_codex_jsonl():
@@ -191,7 +126,7 @@ def test_codex_failure(text):
 
 
 class Channel:
-    def __init__(self, output=AGY, status=0, hanging=False):
+    def __init__(self, output=CODEX, status=0, hanging=False):
         self.output = output.encode()
         self.status = status
         self.hanging = hanging
@@ -255,9 +190,9 @@ def test_ssh_stdin_and_command(config, monkeypatch):
     config = replace(config, backend="cli", cli_ssh_username="user", cli_ssh_password="password")
     result = remote_cli.complete(config, LLMRequest(prompt, system_prompt="system"))
     assert result.text == "answer"
-    assert json.loads(bytes(channel.input))["message"]["content"] == "system\n\n---\n\n" + prompt
+    assert bytes(channel.input).decode() == "system\n\n---\n\n" + prompt
     assert prompt not in channel.command
-    assert "stream-json" in channel.command and "--sandbox" in channel.command
+    assert '"exec", "--json"' in channel.command and "--sandbox" in channel.command
     assert "/tmp/finance-analysis-llm" in channel.command
     assert channel.closed
     client.close.assert_called_once()
@@ -303,7 +238,7 @@ def test_retry_disabled_and_log_secrets_redacted(config, monkeypatch):
         LLMClient(config).complete_text(LLMRequest("private-api-secret\nAuthorization: Bearer token\nssh-secret"))
     assert call.call_count == 1
     raw = next(config.log_dir.glob("*.log")).read_text()
-    row = json.loads(raw)
+    row = next(json.loads(line) for line in raw.splitlines() if json.loads(line)["status"] != "skipped")
     assert row["status"] == "failed"
     assert all(secret not in raw for secret in ["private-api-secret", "ssh-secret", "Bearer token"])
 
@@ -320,19 +255,6 @@ def test_audit_and_usage_failure_never_retries_success(config, monkeypatch):
     assert call.call_count == 1
 
 
-def test_agy_failure_envelope_and_missing_tokens():
-    failed = json.dumps(dict(event="result", result=dict(status="ERROR", response="secret diagnostic")))
-    with pytest.raises(ValueError, match="failed status"):
-        remote_cli.parse_agy(failed)
-    empty = json.dumps(dict(event="result", result=dict(status="SUCCESS", response="")))
-    with pytest.raises(ValueError, match="empty"):
-        remote_cli.parse_agy(empty)
-    success = json.dumps(dict(event="result", result=dict(status="SUCCESS", response="ok")))
-    assert remote_cli.parse_agy(success).usage == dict(input_tokens=0, output_tokens=0, total_tokens=0)
-    with pytest.raises(ValueError, match="multiple"):
-        remote_cli.parse_agy(success + "\n" + success)
-
-
 def test_long_unicode_prompt_stays_on_ssh_stdin(config, monkeypatch):
     channel = Channel()
 
@@ -345,7 +267,7 @@ def test_long_unicode_prompt_stays_on_ssh_stdin(config, monkeypatch):
     ssh_client(monkeypatch, channel)
     prompt = ('中文\n"quotes" $() `shell` ' * 10000) + "\n\n"
     remote_cli.complete(config, LLMRequest(prompt, timeout=5))
-    assert json.loads(channel.input)["message"]["content"] == prompt
+    assert channel.input.decode() == prompt
     assert len(channel.command) < 20000
 
 
@@ -362,7 +284,7 @@ def test_stock_analyzer_uses_shared_client_and_preserves_owner(config, monkeypat
     assert analyzer.generate_text("review") is None
 
 
-@pytest.mark.parametrize("engine", ["agy", "codex"])
+@pytest.mark.parametrize("engine", ["codex"])
 def test_cli_direct_call_uses_remaining_deadline_without_database(config, monkeypatch, engine):
     from finance_analysis.database import DatabaseManager
 
@@ -398,9 +320,13 @@ def test_cli_attempts_can_execute_concurrently(config, monkeypatch):
 
     monkeypatch.setattr(remote_cli, "complete", complete)
     with ThreadPoolExecutor(max_workers=2) as pool:
-        futures = [pool.submit(LLMClient(replace(config, cli_engine=engine))._complete_cli,
-                               LLMRequest("prompt"), monotonic() + 180) for engine in ("agy", "codex")]
-        assert [future.result().engine for future in futures] == ["agy", "codex"]
+        futures = [
+            pool.submit(
+                LLMClient(replace(config, cli_engine=engine))._complete_cli, LLMRequest("prompt"), monotonic() + 180
+            )
+            for engine in ("codex", "codex")
+        ]
+        assert [future.result().engine for future in futures] == ["codex", "codex"]
     database.assert_not_called()
 
 
@@ -419,21 +345,28 @@ def test_remote_failure_keeps_safe_partial_output_diagnostics(config, monkeypatc
 
 @pytest.mark.parametrize("backend", ["cli", "api"])
 def test_failed_transport_diagnostics_reach_audit(config, monkeypatch, backend):
-    config = replace(config, backend=backend, max_retries=0,
-                     cli_ssh_username="user", cli_ssh_password="secret")
+    config = replace(
+        config,
+        backend=backend,
+        api_key="" if backend == "cli" else config.api_key,
+        max_retries=0,
+        cli_ssh_username="user" if backend == "cli" else "",
+        cli_ssh_password="secret",
+    )
     if backend == "cli":
         channel = Channel(output='{"type":"started"}\n', status=1)
         ssh_client(monkeypatch, channel)
     else:
         import litellm
+
         monkeypatch.setattr(litellm, "completion", Mock(side_effect=TimeoutError("private provider error")))
     with pytest.raises(LLMError):
         LLMClient(config).complete_text(LLMRequest("prompt"))
     content = next(config.log_dir.glob("*.log")).read_text()
-    row = json.loads(content)
+    row = next(json.loads(line) for line in content.splitlines() if json.loads(line)["status"] != "skipped")
     assert row["status"] == "failed"
     diagnostics = row["diagnostics"]
-    assert {"total_budget_ms", "remaining_budget_ms", "attempt_budget_ms"} <= diagnostics.keys()
+    assert "attempt_budget_ms" in diagnostics
     if backend == "cli":
         assert diagnostics["ssh_ms"] >= 0
         assert diagnostics["cli_execution_ms"] >= 0

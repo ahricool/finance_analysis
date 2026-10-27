@@ -146,18 +146,38 @@ def test_no_future_sources_and_conflicts_preserve_individual_sources():
     assert clean["publication_unknown"] and clean["conflicts"] == bundle["conflicts"]
 
 
-def test_actual_comparison_requires_same_quarter_basis_and_unit():
+def test_price_review_separates_daily_change_and_prediction_reference():
     c = context()
     p = normalize_prediction(raw(), c)
-    actual = {k: {**c["consensus"][k], "value": p[k]["expected_value"]} for k in ("eps", "revenue")}
-    actual["ohlc"] = dict(open=100, high=102, low=95, close=99)
+    actual = dict(ohlc=dict(open=100, high=102, low=95, close=99), previous_close=90,
+                  eps={"value": 999}, revenue={"value": 999}, research={"status": "confirmed"})
     review = review_prediction(p, actual, c)
-    assert review["eps"] == "beat" and review["status"] == "completed"
+    assert review["status"] == "completed"
+    assert review["daily_return_pct"] == pytest.approx(10)
+    assert review["actual_return_pct"] == pytest.approx(-1)
     assert review["range_covered"] and review["close_error"] == -1
-    actual["eps"]["basis"] = "gaap"
-    assert review_prediction(p, actual, c)["eps"] == "unknown"
-    actual["revenue"]["quarter"] = "2026-Q1"
-    assert review_prediction(p, actual, c)["revenue"] == "unknown"
+    assert "eps" not in review and "research" not in review["actual"]
+
+
+@pytest.mark.parametrize("close,expected", [(102, "up"), (101, "flat"), (100, "flat"), (99, "flat"), (98, "down")])
+def test_price_review_direction_uses_the_forecast_threshold(close, expected):
+    c = context()
+    p = normalize_prediction(raw(), c)
+    actual = dict(ohlc=dict(open=100, high=103, low=95, close=close), previous_close=100)
+    review = review_prediction(p, actual, c)
+    assert review["actual_direction"] == expected
+    assert review["direction_correct"] == (expected == p["response_direction"])
+
+
+def test_missing_price_prediction_does_not_leave_actual_prices_pending():
+    c = context()
+    c["reference_price"] = None
+    p = normalize_prediction(raw(), c)
+    actual = dict(ohlc=dict(open=100, high=102, low=95, close=99), previous_close=100)
+    review = review_prediction(p, actual, c)
+    assert review["status"] == "completed" and review["daily_return_pct"] == pytest.approx(-1)
+    assert "direction_correct" not in review and "range_covered" not in review
+    assert "无法比较" in review["comparison_note"]
 
 
 def test_future_consensus_cannot_leak_through_research_into_analysis():

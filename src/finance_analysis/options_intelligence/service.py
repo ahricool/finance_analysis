@@ -76,7 +76,7 @@ class OptionsIntelligenceService:
         self.llm = llm
         self.preview_client = preview_client
 
-    def run(self, symbol, now=None, explain=False, view=None, publish_preview=True, quotes=None, bars=None):
+    def run(self, symbol, now=None, explain=False, view=None, publish_preview=True, bars=None):
         realtime_run = now is None
         now = now or utc_now()
         symbol = us_symbol(symbol)
@@ -115,13 +115,10 @@ class OptionsIntelligenceService:
             if row.volume is not None and row.volume_date != day:
                 row.limitations.append("volume_session_unknown_or_stale")
         if chain.observations and not any(number(r.underlying_price) for r in chain.observations):
-            quote_data = getattr(quotes, "data", None)
-            if not isinstance(quote_data, dict):
-                quotes = self.market.get_realtime_quotes([symbol])
-                quote_data = quotes.data
+            quotes = self.market.get_realtime_quotes([symbol])
             if realtime_run:
                 now = utc_now()
-            reference = quote_reference(quote_data.get(symbol), now)
+            reference = quote_reference(quotes.data.get(symbol), now)
             if reference:
                 attach_reference(chain.observations, reference)
         if calendar.get_market_now("us", now).date() != day or view == "preview" and now > close:
@@ -224,15 +221,13 @@ class OptionsIntelligenceService:
             # Rebuild this round; subsequent atomic checkpoints survive a worker hard timeout.
             self._publish_preview([], now, trade_date=day)
         selected_codes = [us_symbol(symbol) for symbol in selected]
-        try:
-            quotes = self.market.get_realtime_quotes(selected_codes)
-        except Exception:
-            quotes = None
         last_closed = calendar.get_effective_trading_date("us", now)
         try:
             bars = self.market.get_daily_bars(
                 selected_codes, day - timedelta(days=60), last_closed, adjustment="forward", source_policy="db_only"
             )
+        except SoftTimeLimitExceeded:
+            raise
         except Exception:
             bars = None
         # Sequential option-chain requests plus a process-wide task mutex keep chain concurrency at one.
@@ -245,7 +240,7 @@ class OptionsIntelligenceService:
                 break
             try:
                 results.append(
-                    self.run(symbol, supplied_now, view=view, publish_preview=False, quotes=quotes, bars=bars)
+                    self.run(symbol, supplied_now, view=view, publish_preview=False, bars=bars)
                 )
             except SoftTimeLimitExceeded:
                 if view != "preview":

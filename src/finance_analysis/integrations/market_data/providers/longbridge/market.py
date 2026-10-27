@@ -493,8 +493,14 @@ class LongbridgeProvider:
             if symbol in result.failed_symbols or symbol in result.missing_symbols:
                 continue
             lb = _to_longbridge_symbol(symbol)
-            unified = self._unified_from_snapshot(symbol, lb, snapshots.get(lb or ""), fetched_at)
-            quote = quote_from_value(unified.to_dict() if unified is not None else None, symbol=symbol, provider=self.name)
+            try:
+                unified = self._unified_from_snapshot(symbol, lb, snapshots.get(lb or ""), fetched_at)
+                quote = quote_from_value(
+                    unified.to_dict() if unified is not None else None, symbol=symbol, provider=self.name
+                )
+            except Exception as exc:
+                result.failed_symbols[symbol] = str(exc)
+                continue
             if quote is None:
                 result.missing_symbols.append(symbol)
             else:

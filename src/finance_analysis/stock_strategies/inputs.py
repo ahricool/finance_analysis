@@ -53,9 +53,7 @@ class InputLoader:
             if rows:
                 features[code] = indicators(rows, sessions)
                 prices[code] = {r["date"].isoformat(): r["close"] for r in rows if r["date"].isoformat() in anchors}
-                digest.update(code.encode())
-                for row in rows:
-                    digest.update(json.dumps(row, default=str, sort_keys=True).encode())
+                digest.update(json.dumps([code, rows], default=str, sort_keys=True).encode())
         older_anchors = sorted(date.fromisoformat(d) for d in anchors if d and d < start.isoformat())
         if older_anchors:
             for code, anchor_date, close in self.repo.anchor_prices(codes, older_anchors):

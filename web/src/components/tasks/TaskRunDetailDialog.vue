@@ -26,15 +26,30 @@ import {
 import type { TaskRunDetail } from '@/types/tasks';
 import { formatDateTimeInDisplayTimezone } from '@/utils/format';
 import { Copy } from 'lucide-vue-next';
+import { computed } from 'vue';
 import { toast } from 'vue-sonner';
 
-defineProps<{
+const props = defineProps<{
   open: boolean;
   detail: TaskRunDetail | null;
   loading: boolean;
   error: ParsedApiError | null;
   isAdmin: boolean;
 }>();
+
+type LlmTiming = {
+  requestId: string;
+  callType: string;
+  durationMs: number;
+  retryWaitMs: number;
+  attempts: { provider: string; attempt: number; durationMs: number; status: string }[];
+};
+const llmTimings = computed(() => {
+  const result = props.detail?.result;
+  if (!result || typeof result !== 'object' || !('llmTimings' in result)) return [];
+  return Array.isArray(result.llmTimings) ? result.llmTimings as LlmTiming[] : [];
+});
+const seconds = (ms: number) => `${(ms / 1000).toFixed(2)}s`;
 
 const emit = defineEmits<{
   'update:open': [open: boolean];
@@ -171,6 +186,39 @@ async function copyText(value?: string | null) {
             错误信息
           </h3>
           <pre class="max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-md border border-destructive/20 bg-destructive/5 p-3 font-mono text-xs text-destructive">{{ detail.error }}</pre>
+        </section>
+
+        <section
+          v-if="llmTimings.length"
+          class="space-y-3"
+          data-testid="llm-timings"
+        >
+          <h3 class="text-sm font-semibold">
+            LLM 调用耗时
+          </h3>
+          <p class="text-xs text-muted-foreground">
+            含连接与清理；重试等待单列。并发调用耗时之和不等于任务耗时。
+          </p>
+          <div
+            v-for="call in llmTimings"
+            :key="call.requestId"
+            class="rounded-md border p-3 text-sm"
+          >
+            <p class="font-medium">
+              {{ call.callType }} · {{ call.requestId.slice(0, 8) }}
+            </p>
+            <p class="text-muted-foreground">
+              总计 {{ seconds(call.durationMs) }} · 重试等待 {{ seconds(call.retryWaitMs) }}
+            </p>
+            <ul class="mt-2 space-y-1">
+              <li
+                v-for="(attempt, index) in call.attempts"
+                :key="index"
+              >
+                {{ attempt.provider }} · 第 {{ attempt.attempt }} 次 · {{ seconds(attempt.durationMs) }} · {{ attempt.status }}
+              </li>
+            </ul>
+          </div>
         </section>
 
         <TaskJsonBlock
