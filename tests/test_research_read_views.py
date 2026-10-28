@@ -13,7 +13,7 @@ from finance_analysis.trend_following import preview_cache as trend_cache
 from finance_analysis.etf_rotation import preview_cache as etf_cache
 from finance_analysis.trend_following.table import snapshot_item, table_rows
 from finance_analysis.interfaces.api.v1.endpoints import trend_following, etf_rotation, industry_strength
-from tests.preview_redis import MemoryRedis
+from tests.preview_database import preview_repository
 
 
 def payload(period=20):
@@ -48,52 +48,44 @@ def test_columnar_lists_preserve_precision_null_zero_and_false_without_full_diag
     assert len(encode(table)) < len(encode(source))
 
 
-def test_views_read_only_one_hash_field_and_never_download_full_preview():
-    client = MemoryRedis()
-    trend_cache.save_preview("CN", payload(), client=client)
-    client.reads.clear()
-    status = json.loads(trend_cache.load_preview_view("CN", "status", client=client))
-    detail = json.loads(trend_cache.load_preview_view("CN", "stock:600519.SH", client=client))
+def test_views_read_only_requested_rows_and_preserve_diagnostics():
+    client = preview_repository()
+    trend_cache.save_preview("CN", payload(), repository=client)
+    status = json.loads(trend_cache.load_preview_view("CN", "status", repository=client))
+    detail = json.loads(trend_cache.load_preview_view("CN", "stock:600519.SH", repository=client))
     assert status["snapshot_count"] == 1
     assert "snapshots" not in status
     assert detail["latest"]["features"]["risk_sizing"]["stop_price"] == 12.34
     assert "snapshots" not in detail["market_context"]
-    assert [kind for kind, _ in client.reads] == ["hmget", "hmget"]
-    assert set(client.ttls.values()) == {86400}
 
 
 def test_publication_replaces_removed_symbols_failed_results_and_periods():
-    client = MemoryRedis()
+    client = preview_repository()
     for period in (20, 40, 60):
-        trend_cache.save_preview("CN", payload(period), client=client)
+        trend_cache.save_preview("CN", payload(period), repository=client)
     failed = {**payload(40), "status": "failed", "snapshots": [], "warnings": ["not ready"]}
-    trend_cache.save_preview("CN", failed, client=client)
-    assert trend_cache.load_preview_view("CN", "stock:600519.SH", trend_period=40, client=client) is None
-    assert trend_cache.load_preview_view("CN", "stock:600519.SH", trend_period=20, client=client)
-    assert trend_cache.load_preview_view("US", "status", client=client) is None
-    assert json.loads(trend_cache.load_preview_view("CN", "status", trend_period=40, client=client))["status"] == "failed"
+    trend_cache.save_preview("CN", failed, repository=client)
+    assert trend_cache.load_preview_view("CN", "stock:600519.SH", trend_period=40, repository=client) is None
+    assert trend_cache.load_preview_view("CN", "stock:600519.SH", trend_period=20, repository=client)
+    assert trend_cache.load_preview_view("US", "status", repository=client) is None
+    assert json.loads(trend_cache.load_preview_view("CN", "status", trend_period=40, repository=client))["status"] == "failed"
 
 
-def test_legacy_cache_fallback_is_read_only_until_next_publication():
-    client = MemoryRedis()
-    client.values[trend_cache.preview_cache_key("CN")] = encode(payload())
-    original = deepcopy(client.values)
-    result = json.loads(trend_cache.load_preview_view("CN", "ranking", client=client))
-    assert len(result["table"]["rows"]) == 1
-    assert client.values == original
+def test_missing_database_preview_returns_none():
+    assert trend_cache.load_preview_view("CN", "ranking", repository=preview_repository()) is None
 
 
 @pytest.mark.parametrize("endpoint,cache,rows_key", [
     (trend_following, trend_cache, "snapshots"), (etf_rotation, etf_cache, "items"),
 ])
 def test_single_security_api_is_exact_date_scoped_and_preserves_missing_semantics(monkeypatch, endpoint, cache, rows_key):
-    client = MemoryRedis()
+    client = preview_repository()
     data = payload()
     if rows_key == "items":
         data["items"] = data.pop("snapshots")
-    cache.save_preview("CN", data, client=client)
+    cache.save_preview("CN", data, repository=client)
     monkeypatch.setattr(endpoint, "load_preview_view", lambda market, field, **kwargs: cache.load_preview_view(
-        market, field, client=client, **kwargs))
+        market, field, repository=client, **kwargs))
     app = FastAPI()
     app.include_router(endpoint.router)
     app.dependency_overrides[endpoint.require_current_user] = lambda: None
@@ -102,7 +94,6 @@ def test_single_security_api_is_exact_date_scoped_and_preserves_missing_semantic
         assert http.get("/preview/stocks/600519.SH?market=CN&trade_date=2026-10-13").status_code == 404
         assert http.get("/preview/stocks/MISSING.US?market=CN").status_code == 404
         assert http.get("/preview/stocks/600519.SH?market=US").status_code == 404
-    assert all(kind == "hmget" for kind, _ in client.reads if kind != "get")
 
 
 def test_official_table_cache_is_separate_invalidated_and_keeps_all_rows(monkeypatch, cache_client):
@@ -133,7 +124,7 @@ def test_industry_list_excludes_members_and_detail_rejects_another_generation(mo
     from finance_analysis.industry_strength.preview import PreviewCache
     from finance_analysis.market_review import trading_calendar
 
-    client = MemoryRedis()
+    client = preview_repository()
     cache = PreviewCache(client)
     members = {"industry_code": "881101.TI", "items": [{"code": "600519.SH"}]}
     cache.write({"status": "completed", "result": {
@@ -147,7 +138,6 @@ def test_industry_list_excludes_members_and_detail_rejects_another_generation(mo
     with pytest.raises(HTTPException) as error:
         industry_strength.preview_constituents("881101.TI", datetime(2026, 10, 14, 5, tzinfo=timezone.utc))
     assert error.value.status_code == 404
-    assert all(kind == "hmget" for kind, _ in client.reads)
 
 
 def test_legacy_scalar_score_features_survive_a_missing_nested_breakdown():

@@ -15,7 +15,7 @@ Signal Center 主动读取既有 PostgreSQL 正式结果，不由 Trend / Quant 
 
 所有来源只使用 `trade_date == signal_date` 的证据。Quant 若仅有旧结果，记录 `stale`，不纳入。
 行业成分只有最新表，必须与当日行业快照 `updated_at` 完全一致，且属于当前最新正式日期；不能用当前成员解释历史。
-Intraday Confirmation、Trend/ETF Preview 都是 Redis 临时状态，不加入正式每日输入。
+Intraday Confirmation 与 Trend/ETF Preview 均不加入正式每日输入；Preview 保存于独立 PostgreSQL 最新结果表。
 Confluence 自有加权分数不加入此处；龙虎榜暂不进入 Signal Center 的候选与决策。
 
 候选按 canonical symbol 去重，保持字典序，不计算跨模块综合分。

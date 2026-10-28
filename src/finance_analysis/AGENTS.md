@@ -230,13 +230,13 @@ Qlib worker 不可访问 PostgreSQL。主 Worker 不同步等待 Qlib，训练�
 ### ETF Rotation
 
 
-盘中预演 `run_preview()` 复用同一套计算：T-1 及以前仍走 `db_fresh`，Today 用 realtime overlay，结果只写入 Redis `etf_rotation:preview:{market}`，不写 `ETFMarketRotationSnapshot` / `ETFMomentumSnapshot`。CN 对 Universe+benchmark 一次 Tencent `real()`，US 固定 Yahoo 5 分钟 batch 聚合；失败不 fallback。周期任务为 `etf_rotation_preview_cn`（10:00/11:00/13:00/14:00/14:30 Asia/Shanghai）与 `etf_rotation_preview_us`（10:00–15:00 America/New_York，每小时整点），与对应市场 Trend Following Preview 同时触发。API：`GET /api/v1/etf-rotation/preview`。Redis 写入失败必须让 Celery Preview task 失败。
+盘中预演 `run_preview()` 复用同一套计算：T-1 及以前仍走 `db_fresh`，Today 用 realtime overlay，结果写入独立 PostgreSQL 最新 Preview 表，不写 `ETFMarketRotationSnapshot` / `ETFMomentumSnapshot`。CN 对 Universe+benchmark 一次 Tencent `real()`，US 固定 Yahoo 5 分钟 batch 聚合；失败不 fallback。周期任务为 `etf_rotation_preview_cn`（10:00/11:00/13:00/14:00/14:30 Asia/Shanghai）与 `etf_rotation_preview_us`（10:00–15:00 America/New_York，每小时整点），与对应市场 Trend Following Preview 同时触发。API：`GET /api/v1/etf-rotation/preview`。Preview 数据库写入失败必须让 Celery Preview task 失败。
 
 ### Trend Following
 
 `trend_following/service.py` 对固定 CN/US Universe 计算特征、排名和纯趋势状态（IDLE / WATCHING / CANDIDATE / TRENDING / WEAKENING / BROKEN），不维护理论持仓或交易动作。所有股票（包括 CN CSI2000）统一 DB-only；仅 benchmark 可用 `db_fresh` 只读补尾部，远程结果不落库。支持从历史快照向后重建，因此变更规则时要考虑旧日期重算和 invalidate 行为。
 
-盘中预演 `run_preview()` 用当日临时日线复用同一套计算，结果只写入 Redis `trend_following:preview:v3:{market}:{trend_period}`，不写正式 snapshot。CN 固定 `easyquotation` 腾讯全市场快照，US 固定 Yahoo 5 分钟 batch 聚合；失败不 fallback 到其他 realtime provider。周期任务为 `trend_following_preview_cn`（10:00/11:00/13:00/14:00/14:30 Asia/Shanghai）与 `trend_following_preview_us`（10:00–15:00 America/New_York，每小时整点）。API：`GET /api/v1/trend-following/preview`。
+盘中预演 `run_preview()` 用当日临时日线复用同一套计算，结果写入独立 PostgreSQL 最新 Preview 表，按 market/trend_period 事务替换，不写正式 snapshot。CN 固定 `easyquotation` 腾讯全市场快照，US 固定 Yahoo 5 分钟 batch 聚合；失败不 fallback 到其他 realtime provider。周期任务为 `trend_following_preview_cn`（10:00/11:00/13:00/14:00/14:30 Asia/Shanghai）与 `trend_following_preview_us`（10:00–15:00 America/New_York，每小时整点）。API：`GET /api/v1/trend-following/preview`。
 
 ## 报告和通知
 

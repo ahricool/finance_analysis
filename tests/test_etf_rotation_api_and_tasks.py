@@ -350,7 +350,7 @@ def test_rotation_domain_has_no_redis_quant_feature_or_provider_dependency() -> 
     assert "quant.features" not in source
     assert "providers.fuyao" not in source
     cache = (root / "preview_cache.py").read_text(encoding="utf-8")
-    assert "etf_rotation:preview:" in cache
+    assert 'NAMESPACE = "etf_rotation"' in cache
 
 
 def test_migration_creates_only_snapshot_table_with_required_constraints() -> None:

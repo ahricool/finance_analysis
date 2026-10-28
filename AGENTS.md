@@ -321,7 +321,7 @@ BTC 多策略以 `strategy_key + symbol` 隔离，代码注册表当前仅 `btc_
 
 ## Market Structure / Trend Health
 
-`market_structure/` 独立计算 CN/US 收盘市场结构，任务 `market_structure_cn/us` 分别在当地 18:50 / 21:50 读取已存 ETF Ranking 与 DB 日线；API `/api/v1/market-structure` 只读 PostgreSQL snapshot。手动回填复用 `/market-structure/run` 的日期范围任务。Trend lifecycle/fragility 集成现有正式/preview 计算链，分别保存 PostgreSQL/Redis，不改交易规则。范围、公式、缺失数据语义见 `docs/market-structure.md`。
+`market_structure/` 独立计算 CN/US 收盘市场结构，任务 `market_structure_cn/us` 分别在当地 18:50 / 21:50 读取已存 ETF Ranking 与 DB 日线；API `/api/v1/market-structure` 只读 PostgreSQL snapshot。手动回填复用 `/market-structure/run` 的日期范围任务。Trend lifecycle/fragility 集成现有正式/preview 计算链，分别保存正式/Preview PostgreSQL 表，不改交易规则。范围、公式、缺失数据语义见 `docs/market-structure.md`。
 
 ## 信息输入边界
 
@@ -403,7 +403,7 @@ Signal Center 历史 BUY 在 GET 时复用 DB 前复权日线批量计算 1/3/5/
 报价/IV 不跨来源拼接，Indicative 非 NBBO；未知报价时间不实时评分，未知 OI 日期不次日确认。
 三个评分独立，历史预热可 N/A；事件初始证据不可变，次日 OI 与事后股票收益放验证字段。
 扫描范围为数据库当前有效 `us_nasdaq100` 成分股 + 美股自选股，不含默认六标的/持仓补充池。
-Beat `options_intelligence_intraday/daily` 复用 ingestion 与独立任务锁，真实 NYSE 时段检查；intraday 仅写 Redis preview（纽约午夜过期），daily 写 PostgreSQL，GET 只读相应存储。
+Beat `options_intelligence_intraday/daily` 复用 ingestion 与独立任务锁，真实 NYSE 时段检查；intraday 写独立 PostgreSQL preview（纽约午夜过期），daily 写 PostgreSQL，GET 只读相应存储。
 API/页面支持 preview/official 与正式日期选择；正式读取关联日度基线，不回退旧日期或重算历史报价时效。看跌保护初始规则与采集报价流动性研究代理均标注低可信度，不伪装历史分位数或实时 NBBO。
 页面 `/research/options-intelligence` 与现有美股股票详情「期权」Tab。迁移 `0070_options_intelligence`；
 规则、数据能力、OPRA 检查与配置见 `docs/options-intelligence.md`，离线测试 `tests/options_intelligence/`。
@@ -427,3 +427,9 @@ Streamer 页面行情只读 Redis；CN/US 共用日内方向状态，分钟线�
 迁移`0076_stock_strategies`，页面`/strategies`，离线测试`tests/stock_strategies/`。
 10/23新增CN趋势质量/市场35退出与US均线市场开关/DD30暂停3交易日；独立观察起点不早于2026-10-23，
 只读同日正式Trend20及CN Trend60 Path/趋势条件，不请求外部API。
+
+## Research Preview 存储
+
+Trend、ETF、行业和期权研究 preview 使用独立 `research_preview` / `research_preview_item` 表，只保留各范围最新批次。
+事务内范围 DELETE 后替换，不混入正式历史；名称复用 Instrument，共同字段只存一次，GET按需投影。
+迁移 `0078_research_preview`，有效期及失败清除语义见 `docs/preview-storage.md`，测试 `tests/research_preview/`。

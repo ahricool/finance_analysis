@@ -4,7 +4,7 @@
 
 ## 请求链路
 
-下面的 SQL 数量不含公共鉴权、连接池 pre-ping；假定当前和上一交易日都有数据。Preview 读取 Redis。
+下面的 SQL 数量不含公共鉴权、连接池 pre-ping；假定当前和上一交易日都有数据。Preview 当前读取独立 PostgreSQL 最新表，存储及读取边界见 [Preview 存储](preview-storage.md)。本文下方早期 Redis 测量是历史记录。
 
 | 操作 | 修改前 | 修改后 |
 | --- | --- | --- |

@@ -156,7 +156,7 @@ MATURE 仅描述成熟阶段。生命周期为解释字段，不改变 state/set
 - Trend Ranking 保持 12 列：原 duration 单列改成 Lifecycle + 次级 Age，原 Setup 主表位置改为 Fragility；Setup 仍在详情中。Lifecycle/Age 列保持按年龄排序。
 - Trend Detail 展示年龄、阶段、质量、加速度、signed efficiency、脆弱性；六项 breakdown 默认折叠，增加读取历史 snapshot 的小型 Fragility 折线图，null 保留断点。
 - Rotation Velocity 本版放在 Dashboard；ETF 页面重复展示不是必需，未新增独立市场结构页。
-- Preview 走同一个 `_run_single_date(persist=False)`，读取之前的正式历史作为基准，计算相同 lifecycle/fragility，最后仅写已有 Redis preview。正式任务不读取 preview，preview 不反馈下一次正式结果。不新增 lifecycle task。
+- Preview 走同一个 `_run_single_date(persist=False)`，读取之前的正式历史作为基准，计算相同 lifecycle/fragility，最后仅写独立 PostgreSQL 最新 Preview 表。正式任务不读取 preview，preview 不反馈下一次正式结果。不新增 lifecycle task。
 
 ## 查询数、Point-in-time 与回填
 
@@ -261,7 +261,7 @@ Transition 显式 pair 与当前 `state.py::transition_state` 对齐，不按 or
 
 Rank delta = previous rank − current rank，正数表示排名改善。
 
-只有当地当天 completed、同市场且包含 snapshots 的 Redis Preview 可追加，**不占用 30 个正式点**。
+只有当地当天 completed、同市场且包含 snapshots 的数据库 Preview 可追加，**不占用 30 个正式点**。
 Preview 指标同样只计有效 Rank 和六态，使用 payload rankable_count；变化与最近正式 session 比较，
 作为所选 N 个正式 session 变化之外的额外 Preview 变化，然后共同排序、限制最多 20 条。
 当天已有正式 snapshot 时完全忽略同日 Preview。页面以 Preview 标签和空心末尾点标识；不写 DB。

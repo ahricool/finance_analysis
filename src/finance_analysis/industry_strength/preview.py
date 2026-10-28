@@ -1,55 +1,72 @@
-"""Current-session previews, atomically published in Redis; never save official rows."""
+"""Current-session previews in dedicated latest-only database tables."""
 
-import json
-from datetime import time
+from datetime import time, timedelta
 
 from finance_analysis.core.time import utc_now
-from finance_analysis.etf_rotation.preview_cache import _redis_client, json_ready
+from finance_analysis.core.preview_storage import json_ready
+from finance_analysis.database.repositories.research_preview import PreviewRepository
 from finance_analysis.market_review.trading_calendar import get_market_now, is_market_open
 
 from .service import IndustryReadinessError, IndustryStrengthService
 
-KEY = "industry_strength:preview:v1"
 TTL = 86400
 
 
 class PreviewCache:
-    def __init__(self, client=None):
-        self.client = client if client is not None else _redis_client()
+    def __init__(self, repository=None):
+        self.repository = repository or PreviewRepository()
 
-    def read(self, key=KEY):
-        raw = self.client.get(key)
-        return json.loads(raw) if raw else None
-
-    def write(self, payload, key=KEY):
-        from finance_analysis.core.preview_views import encode, publish
-
+    def write(self, payload, *, started_at=None):
         ready = json_ready(payload)
         result = ready.get("result")
-        ranking = {**ready, "result": {**result, "constituents": {}} if result else None}
-        views = {"ranking": ranking, **{
-            f"members:{code}": {"generated_at": result["generated_at"], "trade_date": result["trade_date"],
-                                "constituents": members}
-            for code, members in (result or {}).get("constituents", {}).items()
-        }}
-        publish(self.client, key, encode(ready), views, TTL)
+        items, groups = [], {}
+        if result is not None:
+            result = dict(result)
+            for row in result.pop("items", []):
+                items.append({"kind": "industry", "item_key": row["industry_code"], "summary": row})
+            for code, members in result.pop("constituents", {}).items():
+                groups[code] = {key: value for key, value in members.items() if key != "items"}
+                for row in members.get("items", []):
+                    items.append({"kind": f"members:{code}", "item_key": row["code"], "summary": row})
+            ready["result"] = result
+        stamp = utc_now()
+        self.repository.publish(
+            "industry_strength", "CN", 0,
+            {"payload": ready, "member_groups": groups, "trade_date": (result or {}).get("trade_date")}, items,
+            observed_at=started_at or stamp, expires_at=stamp + timedelta(seconds=TTL),
+        )
+
+    @staticmethod
+    def _payload(stored, *, members=True):
+        if not stored:
+            return None
+        payload = stored["header"]["payload"]
+        result = payload.get("result")
+        if result is None:
+            return payload
+        groups = stored["header"]["member_groups"]
+        constituents = {code: {**info, "items": [
+            row["summary"] for row in stored["items"] if row["kind"] == f"members:{code}"
+        ]} for code, info in groups.items()} if members else {}
+        return {**payload, "result": {**result, "constituents": constituents,
+                "items": [row["summary"] for row in stored["items"] if row["kind"] == "industry"]}}
+
+    def read(self):
+        return self._payload(self.repository.read("industry_strength", "CN"))
 
     def read_view(self, field):
-        from finance_analysis.core.preview_views import read
-
-        def fallback():
-            payload = self.read()
-            if not payload:
-                return None
-            result = payload.get("result")
-            if field == "ranking":
-                return {**payload, "result": {**result, "constituents": {}} if result else None}
-            members = (result or {}).get("constituents", {}).get(field.removeprefix("members:"))
-            return {"generated_at": result["generated_at"], "trade_date": result["trade_date"],
-                    "constituents": members} if members else None
-
-        body = read(self.client, KEY, field, fallback)
-        return json.loads(body) if body else None
+        if field == "ranking":
+            return self._payload(self.repository.read("industry_strength", "CN", kind="industry"), members=False)
+        if not field.startswith("members:"):
+            return None
+        stored = self.repository.read("industry_strength", "CN", kind=field)
+        code = field.removeprefix("members:")
+        if not stored or code not in stored["header"]["member_groups"]:
+            return None
+        result = stored["header"]["payload"]["result"]
+        return {"generated_at": result["generated_at"], "trade_date": result["trade_date"], "constituents": {
+            **stored["header"]["member_groups"][code], "items": [row["summary"] for row in stored["items"]],
+        }}
 
 
 def current_day():
@@ -65,14 +82,15 @@ class IndustryPreviewService(IndustryStrengthService):
         self.cache = cache or PreviewCache()
 
     def run_preview(self):
-        previous = self.cache.read() or {}
-        self.cache.write({**previous, "status": "processing", "error": None})
+        started_at = utc_now()
+        self.cache.write({"status": "processing", "error": None, "result": None}, started_at=started_at)
         try:
             payload = self.build_preview()
-            self.cache.write({"status": "completed", "error": None, "result": payload})
+            self.cache.write({"status": "completed", "error": None, "result": payload}, started_at=started_at)
             return {"status": "completed", "trade_date": payload["trade_date"].isoformat()}
         except Exception as exc:
-            self.cache.write({**previous, "status": "failed", "error": str(exc), "failed_at": utc_now()})
+            self.cache.write({"status": "failed", "error": str(exc), "failed_at": utc_now(), "result": None},
+                             started_at=started_at)
             raise
 
     def build_preview(self):

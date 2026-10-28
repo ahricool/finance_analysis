@@ -25,7 +25,7 @@ from finance_analysis.integrations.market_data.providers.yfinance import YFinanc
 from finance_analysis.tasks.lifecycle import TaskSkipped  # pragma: allowlist secret
 from finance_analysis.trend_following.config import DEFAULT_CONFIG  # pragma: allowlist secret
 from finance_analysis.trend_following.models import DailyBar, UniverseMember  # pragma: allowlist secret
-from finance_analysis.trend_following.preview_cache import PREVIEW_KEY_TEMPLATE, json_ready, load_preview, save_preview  # pragma: allowlist secret
+from finance_analysis.trend_following.preview_cache import json_ready, load_preview, save_preview  # pragma: allowlist secret
 from finance_analysis.trend_following.service import TrendFollowingService  # pragma: allowlist secret
 
 TRADE_DATE = date(2026, 8, 24)
@@ -639,7 +639,7 @@ def test_preview_time_is_recorded_after_quotes_and_strategy(monkeypatch):
     )
     service = TrendFollowingService("CN", repository, market_data=SimpleNamespace())
     result = service.run_preview(TRADE_DATE)
-    assert order == ["collect", "strategy", "now"]
+    assert order == ["now", "collect", "strategy", "now"]
     assert result["preview_time"] == "2026-09-10T06:35:11.000Z"
     assert result["data_as_of"] == "2026-09-10T06:34:57.000Z"
 
@@ -648,7 +648,7 @@ def test_preview_time_is_recorded_after_quotes_and_strategy(monkeypatch):
         TRADE_DATE,
         preview_time=datetime(2026, 9, 10, 6, 40, 0, tzinfo=timezone.utc),
     )
-    assert order == ["collect", "strategy"]
+    assert order == ["now", "collect", "strategy"]
     assert overridden["preview_time"] == "2026-09-10T06:40:00.000Z"
 
 
@@ -682,7 +682,7 @@ def test_failed_preview_time_is_recorded_after_quote_error(monkeypatch):
     service = TrendFollowingService("CN", repository, market_data=SimpleNamespace())
     with pytest.raises(PreviewQuoteError, match="easyquotation tencent snapshot failed"):
         service.run_preview(TRADE_DATE)
-    assert order == ["collect", "now"]
+    assert order == ["now", "collect", "now"]
     assert saved[0]["preview_time"] == "2026-09-10T06:35:11.000Z"
     assert saved[0]["data_as_of"] is None
 
@@ -701,7 +701,7 @@ def test_preview_task_skips_non_trading_days(monkeypatch):
 
 
 def test_preview_cache_round_trip():
-    from tests.preview_redis import MemoryRedis
+    from tests.preview_database import preview_repository
 
     payload = {
         "market": "CN",
@@ -710,11 +710,9 @@ def test_preview_cache_round_trip():
         "status": "completed",
         "snapshots": [{"code": "600519.SH", "trade_date": TRADE_DATE}],
     }
-    client = MemoryRedis()
-    save_preview("CN", payload, client=client)
-    key = PREVIEW_KEY_TEMPLATE.format(market="CN", trend_period=20)
-    assert client.ttls[key] == 24 * 60 * 60
-    loaded = load_preview("CN", client=client)
+    client = preview_repository()
+    save_preview("CN", payload, repository=client)
+    loaded = load_preview("CN", repository=client)
     assert loaded["market"] == "CN"
     assert loaded["trade_date"] == "2026-08-24"
     assert loaded["snapshots"][0]["code"] == "600519.SH"

@@ -142,6 +142,7 @@ class ETFRotationService:
         Each call reloads previous official candidates and historical ranks.
         """
         started = monotonic()
+        run_started_at = utc_now().isoformat()
         effective_date = self.resolve_preview_trade_date(trade_date)
         members = enabled_etfs(self.market)
         universe_codes = {member.code for member in members}
@@ -175,6 +176,7 @@ class ETFRotationService:
                     "market": self.market,
                     "trade_date": effective_date.isoformat(),
                     "preview_time": utc_isoformat(generated_at),
+                    "run_started_at": run_started_at,
                     "data_as_of": utc_isoformat(data_as_of),
                     "provider": provider,
                     "quote_count": quote_count,
@@ -199,6 +201,7 @@ class ETFRotationService:
         payload = {
             **result,
             "preview_time": utc_isoformat(generated_at),
+            "run_started_at": run_started_at,
             "data_as_of": utc_isoformat(data_as_of),
             "provider": provider,
             "quote_count": quote_count,

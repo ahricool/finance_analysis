@@ -41,7 +41,7 @@ def scan_view(metrics):
         result["event_types"] = sorted({e["event_type"] for e in current["events"]})
         result["top_event"] = max(current["events"], key=lambda e: e["severity"], default=None)
     else:
-        # Redis already stores compact summaries; don't discard their anomaly evidence.
+        # Preview storage already exposes compact summaries; don't discard their anomaly evidence.
         result.setdefault("event_types", [])
         result.setdefault("top_event", None)
     return result

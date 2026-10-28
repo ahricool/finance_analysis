@@ -122,7 +122,7 @@ def test_preview_merge_failure_recovery_and_atomic_detail(now):
         save_preview(
             {"trade_date": stamp.date().isoformat(), "items": list(items), "failures": list(failures)},
             now=stamp,
-            client=cache,
+            repository=cache,
             merge=merge,
         )
 
@@ -130,24 +130,22 @@ def test_preview_merge_failure_recovery_and_atomic_detail(now):
     b = {**a, "symbol": "MSFT.US"}
     publish([a, b], [{"symbol": "FAIL.US", "reason": "old failure"}], False)
     publish(failures=[{"symbol": "AAPL.US", "reason": "timeout"}])
-    manifest = load_preview(client=cache, now=now)
-    detail = load_preview(client=cache, now=now, symbol="AAPL.US")
-    summary = next(r for r in manifest["items"] if r["symbol"] == "AAPL.US")
-    assert detail["computed_at"] == summary["computed_at"] == a["computed_at"]
-    assert detail["refresh_status"] == summary["refresh_status"] == "failed"
-    assert detail["refresh_reason"] == "timeout"
+    manifest = load_preview(repository=cache, now=now)
+    detail = load_preview(repository=cache, now=now, symbol="AAPL.US")
+    assert detail is None
+    assert all(r["symbol"] != "AAPL.US" for r in manifest["items"])
     assert {r["symbol"] for r in manifest["failures"]} == {"AAPL.US", "FAIL.US"}
     publish([{**a, "computed_at": (now + timedelta(minutes=1)).isoformat()}])
-    manifest = load_preview(client=cache, now=now)
+    manifest = load_preview(repository=cache, now=now)
     assert [r["symbol"] for r in manifest["failures"]] == ["FAIL.US"]
-    assert "refresh_status" not in load_preview(client=cache, now=now, symbol="AAPL.US")
+    assert "refresh_status" not in load_preview(repository=cache, now=now, symbol="AAPL.US")
     assert next(r for r in manifest["items"] if r["symbol"] == "MSFT.US") == scan_view(b)
     publish([b], [{"symbol": "NEW.US", "reason": "new failure"}], False)
-    assert load_preview(client=cache, now=now)["items"] == [scan_view(b)]
-    assert load_preview(client=cache, now=now, symbol="AAPL.US") is None
+    assert load_preview(repository=cache, now=now)["items"] == [scan_view(b)]
+    assert load_preview(repository=cache, now=now, symbol="AAPL.US") is None
     next_day = now + timedelta(days=1)
     publish([{**a, "computed_at": next_day.isoformat()}], stamp=next_day)
-    manifest = load_preview(client=cache, now=next_day)
+    manifest = load_preview(repository=cache, now=next_day)
     assert manifest["failures"] == [] and [r["symbol"] for r in manifest["items"]] == ["AAPL.US"]
 
 
@@ -169,7 +167,7 @@ def test_serial_100_stock_budget_retains_completed_results(
     repo = Mock()
     repo.monitored_symbols.return_value = [f"TEST{i}.US" for i in range(100)]
     cache = Cache()
-    engine = OptionsIntelligenceService(repo, Mock(), config, preview_client=cache)
+    engine = OptionsIntelligenceService(repo, Mock(), config, preview_repository=cache)
 
     def run(symbol, *args, **kwargs):
         row = {"symbol": symbol, "status": "ready", "computed_at": clock[0].isoformat()}
@@ -182,7 +180,7 @@ def test_serial_100_stock_budget_retains_completed_results(
         result = engine.scan(view="preview")
     assert len(result["results"]) == expected
     assert result["unfinished_count"] == 100 - expected
-    assert len(load_preview(client=cache, now=clock[0])["items"]) == expected
+    assert len(load_preview(repository=cache, now=clock[0])["items"]) == expected
     assert f"success={expected} failed=0 unfinished={100 - expected}" in caplog.text
     assert scan_outcome(result).status == TaskExecutionStatus.PARTIAL
     # The same service can proceed with today's official session, without preview budget restriction.
@@ -202,7 +200,7 @@ def test_soft_budget_publishes_partial_and_limits_worker(repository, observation
     )
     result = engine.scan(["AAPL.US", "MSFT.US"], intraday, view="preview")
     assert result["unfinished_count"] == 1 and result["failed_count"] == 0
-    assert load_preview(client=cache, now=intraday)["items"][0]["symbol"] == "AAPL.US"
+    assert load_preview(repository=cache, now=intraday)["items"][0]["symbol"] == "AAPL.US"
     assert scan_options_intraday.soft_time_limit == 1200
     assert scan_options_intraday.time_limit == 1260
 
@@ -342,14 +340,14 @@ def test_all_failed_scan_is_persisted_as_failed_outcome_and_releases_mutex(
     lock.release.assert_called_once()
 
 
-def test_all_failed_preview_still_reports_redis_publication_error(repository, observation, now, config):
+def test_all_failed_preview_still_reports_database_publication_error(repository, observation, now, config):
     intraday = now.replace(hour=18)
     cache = Mock()
     cache.get.return_value = None
-    cache.pipeline.side_effect = RuntimeError("redis down")
+    cache.publish.side_effect = RuntimeError("database down")
     engine = service(repository, observation, intraday, config, cache)
     engine.market.get_option_chain.return_value = OptionChain(symbol="AAPL.US", observed_at=intraday)
-    with pytest.raises(RuntimeError, match="redis down"):
+    with pytest.raises(RuntimeError, match="database down"):
         engine.scan(["AAPL.US"], intraday, view="preview")
     assert counts(repository) == [0] * 5
 
@@ -387,10 +385,10 @@ def test_100_stock_scan_replays_existing_fixture_offline(now, observation, confi
         )
 
     market.get_option_chain.side_effect = chain
-    result = OptionsIntelligenceService(repo, market, config, preview_client=cache).scan(now=intraday, view="preview")
+    result = OptionsIntelligenceService(repo, market, config, preview_repository=cache).scan(now=intraday, view="preview")
     assert result["total_count"] == len(result["results"]) == 100
     assert result["unfinished_count"] == result["failed_count"] == 0
-    assert len(load_preview(client=cache, now=intraday)["items"]) == 100
+    assert len(load_preview(repository=cache, now=intraday)["items"]) == 100
     repo.save.assert_not_called()
     assert all(call.kwargs["source_policy"] == "db_only" for call in market.get_daily_bars.call_args_list)
 
@@ -407,8 +405,8 @@ def test_preview_checkpoint_survives_abort_of_later_symbol(repository, observati
     )
     with pytest.raises(SystemExit):
         engine.scan(now=intraday, view="preview")
-    assert load_preview(client=cache, now=intraday)["items"][0]["symbol"] == "AAPL.US"
-    assert load_preview(client=cache, now=intraday, symbol="AAPL.US")["status"] == "ready"
+    assert load_preview(repository=cache, now=intraday)["items"][0]["symbol"] == "AAPL.US"
+    assert load_preview(repository=cache, now=intraday, symbol="AAPL.US")["status"] == "ready"
 
 
 def test_official_round_never_moves_into_later_session(monkeypatch, repository, observation, now, config):

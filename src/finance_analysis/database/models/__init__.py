@@ -147,3 +147,7 @@ __all__.append("IntradayConfirmationSnapshot")
 from .stock_strategies import StockStrategyDay, StockStrategyLaunch, StockStrategyRun, StockStrategyState
 
 __all__.extend(["StockStrategyDay", "StockStrategyLaunch", "StockStrategyRun", "StockStrategyState"])
+
+from .research_preview import ResearchPreview, ResearchPreviewItem
+
+__all__.extend(["ResearchPreview", "ResearchPreviewItem"])
