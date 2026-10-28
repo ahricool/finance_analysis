@@ -70,7 +70,6 @@ N+N/4+2 根；RSI 在这个窗口初始化并使用 Wilder 递推。额外日线
 完整诊断通过 `/preview/stocks/{code}?trade_date=YYYY-MM-DD&trend_period=20|40|60`
 按证券读取，日期不匹配返回 404，不回退其他日期。
 
-Preview 发布时同一 Redis 事务写入原始文档及 `:views:v1` hash（元数据、排名、状态和证券详情），
-共享 24 小时 TTL；覆盖时先清理旧 hash，删除离开本轮的证券。原始缓存键保持不变，
-旧工件在下次正常定时发布前通过只读投影兼容，兼容回退不写入预演缓存或运行策略。正式列表缓存仍受提交后的
-market revision 失效保护，并按市场、日期、周期隔离。无需数据库迁移或手动清理 Redis。
+Preview 经迁移 `0078_research_preview` 写入独立 PostgreSQL 最新批次/明细表，按市场、周期事务替换。
+有效期 24 小时；只保存一份完整指标，列表、状态、单股详情按需投影。证券名称关联 Instrument，
+共同参数只存批次。正式列表 Redis 缓存仍受 market revision 失效保护。详见 [Preview 存储](preview-storage.md)。

@@ -82,7 +82,7 @@ Preview High/Low/Close均不进入候选窗口、ATR基准、压缩比或箱体Q
 Preview可从READY变为BREAKOUT，也可撤销盘中突破。
 
 成交量保持原语义：Official真实量比；Preview累计原始量保留但不充当全天估计，UI显示「盘中估算 —」。
-不新增成交量预测或行情请求。Preview仍只写现有Redis缓存，不写正式快照、不改变后续状态链。
+不新增成交量预测或行情请求。Preview写独立PostgreSQL最新预演表，不写正式快照、不改变后续状态链。
 历史重算逐日截至目标交易日，未来追加K线不会改变该日重放结果。
 
 ## API / UI

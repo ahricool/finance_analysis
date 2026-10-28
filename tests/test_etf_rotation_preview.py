@@ -10,7 +10,6 @@ from fastapi import HTTPException
 
 from finance_analysis.etf_rotation.models import DailyBar  # pragma: allowlist secret
 from finance_analysis.etf_rotation.preview_cache import (  # pragma: allowlist secret
-    PREVIEW_KEY_TEMPLATE,
     load_preview,
     save_preview,
 )
@@ -440,9 +439,9 @@ def test_official_run_after_preview_still_persists(monkeypatch):
 
 
 def test_preview_cache_round_trip_and_set_failure():
-    from tests.preview_redis import MemoryRedis
+    from tests.preview_database import preview_repository
 
-    client = MemoryRedis()
+    client = preview_repository()
     payload = {
         "market": "CN",
         "trade_date": TRADE_DATE,
@@ -450,26 +449,25 @@ def test_preview_cache_round_trip_and_set_failure():
         "items": [{"code": "588000.SH", "trade_date": TRADE_DATE, "action": "BUY"}],
         "market_snapshot": {"regime": "RISK_ON"},
     }
-    save_preview("CN", payload, client=client)
-    assert client.ttls[PREVIEW_KEY_TEMPLATE.format(market="CN")] == 24 * 60 * 60
-    loaded = load_preview("CN", client=client)
+    save_preview("CN", payload, repository=client)
+    loaded = load_preview("CN", repository=client)
     assert loaded["items"][0]["code"] == "588000.SH"
     assert loaded["market_snapshot"]["regime"] == "RISK_ON"
 
     class Broken:
-        def pipeline(self, transaction=True):
-            raise ConnectionError("redis unavailable")
+        def publish(self, *args, **kwargs):
+            raise ConnectionError("database unavailable")
 
     with pytest.raises(RuntimeError, match="Failed to save ETF Rotation preview for CN") as exc_info:
-        save_preview("CN", payload, client=Broken())
+        save_preview("CN", payload, repository=Broken())
     assert isinstance(exc_info.value.__cause__, ConnectionError)
 
 
-def test_save_preview_raises_when_redis_client_unavailable(monkeypatch):
+def test_save_preview_raises_when_database_unavailable(monkeypatch):
     import finance_analysis.etf_rotation.preview_cache as cache  # pragma: allowlist secret
 
-    monkeypatch.setattr(cache, "_redis_client", lambda: None)
-    with pytest.raises(RuntimeError, match="Redis unavailable"):
+    monkeypatch.setattr(cache, "PreviewRepository", lambda: (_ for _ in ()).throw(ConnectionError("database down")))
+    with pytest.raises(RuntimeError, match="Failed to save"):
         save_preview("US", {"status": "completed"})
 
 
@@ -598,7 +596,7 @@ def test_preview_time_is_recorded_after_quotes_and_strategy(monkeypatch):
     )
     service = ETFRotationService("CN", repository, market_data=_history_market_data())
     result = service.run_preview(TRADE_DATE)
-    assert order == ["collect", "now"]
+    assert order == ["now", "collect", "now"]
     assert result["preview_time"] == "2026-09-10T06:35:11.000Z"
     assert result["data_as_of"] == "2026-09-10T06:34:57.000Z"
 
@@ -607,7 +605,7 @@ def test_preview_time_is_recorded_after_quotes_and_strategy(monkeypatch):
         TRADE_DATE,
         preview_time=datetime(2026, 9, 10, 6, 40, 0, tzinfo=timezone.utc),
     )
-    assert order == ["collect"]
+    assert order == ["now", "collect"]
     assert overridden["preview_time"] == "2026-09-10T06:40:00.000Z"
     assert overridden["data_as_of"] == "2026-09-10T06:34:57.000Z"
 
@@ -641,6 +639,6 @@ def test_failed_preview_time_is_recorded_after_quote_error(monkeypatch):
     service = ETFRotationService("CN", repository, market_data=SimpleNamespace())
     with pytest.raises(PreviewQuoteError, match="real failed"):
         service.run_preview(TRADE_DATE)
-    assert order == ["collect", "now"]
+    assert order == ["now", "collect", "now"]
     assert saved[0]["preview_time"] == "2026-09-10T06:35:11.000Z"
     assert saved[0]["data_as_of"] is None

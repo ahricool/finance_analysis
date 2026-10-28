@@ -103,7 +103,7 @@ Resume   = .30 ReclaimQuality + .20 PullbackDepthQuality + .15 RSQuality
 - Entry排除缺失的VolumeQuality，重新归一化，不用盘中raw量硬否决。
 - UI标为“盘中估算 —”和“暂定”；该降级并非预测全天成交量。
 
-Preview依旧只读此前official状态，只写现有Redis预演缓存；不写正式快照、不影响后续正式运行。
+Preview依旧只读此前official状态，只写独立PostgreSQL最新预演表；不写正式快照、不影响后续正式运行。
 由于成交量处理不同，即使OHLC一致，Official/Preview的Setup和Alpha也可能不同。
 
 ## 存储、API与兼容

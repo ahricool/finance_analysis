@@ -15,7 +15,7 @@ DAYS = [DAY - timedelta(days=i) for i in range(20, -1, -1)]
 STAMP = datetime.combine(DAY, datetime.min.time(), ZoneInfo("Asia/Shanghai")).replace(hour=11)
 
 
-from tests.preview_redis import MemoryRedis as Redis
+from tests.preview_database import preview_repository
 
 
 def quote(price=150, stamp=STAMP, pre_close=120):
@@ -125,7 +125,7 @@ def test_overlay_replaces_today_and_rebases_adjusted_history():
 
 
 def test_preview_reuses_reference_updates_benchmark_and_only_caches_results():
-    repo, data, cache = Repo(), Data(), PreviewCache(Redis())
+    repo, data, cache = Repo(), Data(), PreviewCache(preview_repository())
     service = IndustryPreviewService(repo, data, cache=cache)
     service.run_preview()
     first = cache.read()["result"]
@@ -147,14 +147,13 @@ def test_preview_reuses_reference_updates_benchmark_and_only_caches_results():
     assert second["items"][0]["rank_change_3d"] == 12
     assert data.history_calls == 42 and len(data.stock_calls) == 2
     assert data.catalog_calls == 0 and data.member_calls == 0
-    assert set(cache.client.values) == {module.KEY, f"{module.KEY}:views:v1"}
     PreviewResponse.model_validate(cache.read())
     data.stale_benchmark = True
     with pytest.raises(ValueError, match="benchmark not ready"):
         service.run_preview()
     failed = cache.read()
     assert failed["status"] == "failed"
-    assert failed["result"] == second
+    assert failed["result"] is None
     assert failed["error"]
     assert repo.saved == []
 
@@ -176,7 +175,7 @@ def test_missing_adjustment_anchor_does_not_invent_ma():
 def test_http_drops_yesterday_and_never_calculates(monkeypatch):
     from finance_analysis.interfaces.api.v1.endpoints.industry_strength import preview
 
-    cache = PreviewCache(Redis())
+    cache = PreviewCache(preview_repository())
     cache.write({"status": "completed", "result": {"trade_date": (DAY - timedelta(days=1)).isoformat()}})
     monkeypatch.setattr(module, "PreviewCache", lambda: cache)
     from finance_analysis.market_review import trading_calendar
@@ -207,7 +206,7 @@ def test_task_center_cannot_submit_preview():
 
 
 def test_next_run_recovers_after_upstream_history_is_repaired():
-    data, cache = Data(), PreviewCache(Redis())
+    data, cache = Data(), PreviewCache(preview_repository())
     service = IndustryPreviewService(Repo(), data, cache=cache)
     data.incomplete_history = True
     with pytest.raises(ValueError, match="benchmark not ready"):
@@ -217,7 +216,6 @@ def test_next_run_recovers_after_upstream_history_is_repaired():
     service.run_preview()
     assert cache.read()["status"] == "completed"
     assert data.history_calls == 22
-    assert set(cache.client.values) == {module.KEY, f"{module.KEY}:views:v1"}
 
 
 @pytest.mark.parametrize("missing_db", [False, True])
@@ -251,7 +249,7 @@ def test_preview_and_formal_calculations_match_for_identical_daily_inputs(missin
 
 
 def test_preview_fallback_is_reloaded_each_run_and_only_results_are_saved():
-    data, cache = Data(), PreviewCache(Redis())
+    data, cache = Data(), PreviewCache(preview_repository())
     data.missing_stock_history = True
     repo = Repo()
     service = IndustryPreviewService(repo, data, cache=cache)
@@ -260,5 +258,4 @@ def test_preview_fallback_is_reloaded_each_run_and_only_results_are_saved():
     assert [call[1]["source_policy"] for call in data.stock_calls] == ["db_only", "remote_only"] * 2
     assert all(call[0] == ["600001.SH"] for call in data.stock_calls)
     assert cache.read()["result"]["items"][0]["above_ma20_ratio"] == 1
-    assert set(cache.client.values) == {module.KEY, f"{module.KEY}:views:v1"}
     assert repo.saved == [] and repo.members is None

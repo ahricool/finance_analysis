@@ -224,7 +224,7 @@ pnpm exec playwright test e2e/industry-strength.spec.ts
 
 页面顶部按钮切换「收盘 / 盘中预览」，默认收盘；历史日期仅用于收盘模式。
 Preview 仅由指定时刻的 Beat 任务生成；页面没有刷新按钮，不提供手动触发 API，任务中心也禁止手动运行。
-`GET /api/v1/industry-strength/preview` 仅读 Redis，不计算、不访问行情。
+`GET /api/v1/industry-strength/preview` 仅读 PostgreSQL 最新 Preview，不计算、不访问行情。
 任务 `industry_strength_preview_cn` 在周一至周五 **10:00 / 11:00 / 13:00 / 14:00 / 14:30 Asia/Shanghai**
 运行，与 A 股 ETF Preview、Trend Following Preview 同时触发，午休不运行。
 复用 `analysis` 队列与任务中心生命周期。
@@ -242,16 +242,16 @@ Preview 仅由指定时刻的 Beat 任务生成；页面没有刷新按钮，不
   无可靠昨收锚点时不拼接跨口径 MA；缺失行情或历史仍遵守正式版95%覆盖门槛，不填零、不冒充今日。
 - **成交脉冲为盘中累计口径**：今日成交额使用截至行情时点的累计值，保留 mean(5)/mean(20) 原公式，
   不线性外推。State 不跳过 EMERGING 的成交确认条件，因此盘中状态可能变化，成交确认可能滞后。
-- 全截面、成分详情、时间和质量整体写入 `industry_strength:preview:v1`（TTL 24小时），
-  失败保留上批结果及原始生成时间并附失败信息。HTTP 屏蔽跨交易日缓存；不把昨日预览显示为今日。
-  此流程不写正式行业快照、正式成分表或股票日线，也不增加表、迁移或 LLM。
+- 全截面、成分详情、时间和质量写入独立 PostgreSQL 最新 Preview（有效期24小时）。
+  新一轮开始删除上轮结果，失败仅保存失败状态。HTTP 屏蔽跨交易日数据。
+  不写正式行业快照、正式成分表或股票日线；新表与迁移见 [Preview 存储](preview-storage.md)。
 - 排行榜、摘要、矩阵、详情及成分均使用页面读取的同一批 Preview；历史热力图和详情历史只显示正式快照，
   不附加今日预览列。Trend Rank 仍来自最新 CN 正式排名，并显示其日期。
 
 正式版和 Preview 共用 `IndustryStrengthService.calculate()` 的数据获取、覆盖率、特征、排名和 State 流程；
-Preview 只额外用最新行情构造今日临时线，并将结果发布到 Redis；正式版使用收盘日线并写正式表。
+Preview 只额外用最新行情构造今日临时线，并将结果发布到独立 Preview 表；正式版使用收盘日线并写正式表。
 指数历史每次请求 API，目录与成分复用周同步 DB；个股历史每次批量读 DB，仅缺目标日时 API 补取，不写入补取行情。
-Redis 仅保存整批预览结果及状态。
+Preview 表仅保存最新一批预览结果及状态。
 行情不是交易所原子快照，页面展示该批有效行情的最早至最晚时间，以及独立的预览生成时间。
 缓存到期、过日或当日尚未成功计算时展示空态；任务失败可在页面及任务中心查看。
 
@@ -260,7 +260,7 @@ Redis 仅保存整批预览结果及状态。
 
 - Fuyao 股票历史接口仅支持单 `thscode`，不支持 batch；现有 TickFlow 日线仍按100只批量请求。扶摇全市场 Parquet 下载不是可直接替代前复权窗口读取的 batch 历史接口，本次不接入。
 - Fuyao 定向报价与股票历史通过一次 `InstrumentRepository.get_by_codes()` 解析 STOCK/ETF/INDEX 类型，不再逐股请求 `/api/meta/tickers/search`。DB 缺失类型明确报告缺失，日线可按既有链降级；不根据交易所后缀猜类型。显式证券主数据同步仍可访问外部 meta API。
-- 股票日线唯一维护入口保持日线同步任务；行业正式任务仅写研究结果和物化观察成分，Preview 仅写 Redis。周同步只写目录/成员 reference。
+- 股票日线唯一维护入口保持日线同步任务；行业正式任务仅写研究结果和物化观察成分，Preview 仅写独立预演表。周同步只写目录/成员 reference。
 - `/stocks/{code}/classification` 返回 `memberships.industries`（code/name/members_observed_at）；仅查询周同步 DB，不依赖当天行业强度计算成功。A 股统一个股详情头部展示所属行业和观测时间。
 - 浏览器对相同代码的 classification 合并进行中的请求、复用成功响应60秒；各消费者独立取消，全部离开才取消网络请求，失败不缓存。列表与详情不会重复下载同一份分类。
 - 日线加载日志记录目标日期、DB命中和远程补取数；计算日志记录 reference、指数、股票历史、报价与计算阶段耗时。
@@ -268,4 +268,4 @@ Redis 仅保存整批预览结果及状态。
 页面预演列表读取 `/industry-strength/preview/ranking`，不包含全行业成分明细。
 打开行业后通过 `/preview/{industry_code}/constituents?generated_at=...` 读取单行业预演成分，
 时间戳固定为列表的 `result.generated_at`；版本已变更或过期时返回 404，需刷新列表。
-列表与成分视图随原始 Preview 在同一 Redis 事务发布，并沿用原始 TTL；旧缓存只读兼容。
+列表与成分由同一数据库批次按需投影，事务替换旧批次并沿用24小时有效期；不回退旧 Redis 缓存。

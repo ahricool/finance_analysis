@@ -17,33 +17,11 @@ from finance_analysis.database.models.options_intelligence import (
 from finance_analysis.integrations.options.models import OptionChain
 from finance_analysis.options_intelligence.engine import analyze
 from finance_analysis.options_intelligence.service import OptionsIntelligenceService
-from finance_analysis.options_intelligence.preview_cache import load_preview, save_preview, PREVIEW_KEY
+from finance_analysis.options_intelligence.preview_cache import load_preview, save_preview
 from finance_analysis.options_intelligence.views import scan_view
 
 
-class Cache:
-    def __init__(self):
-        self.values = {}
-        self.ttl = None
-        self.queued = None
-
-    def get(self, key):
-        return self.values.get(key)
-
-    def set(self, key, value, ex):
-        if self.queued is not None:
-            self.queued.append((key, value, ex))
-            return self
-        self.values[key], self.ttl = value, ex
-        return True
-
-    def pipeline(self, **kwargs):
-        self.queued = []
-        return self
-
-    def execute(self):
-        queued, self.queued = self.queued, None
-        return [self.set(*command) for command in queued]
+from tests.preview_database import preview_repository as Cache
 
 
 def counts(repo):
@@ -64,7 +42,7 @@ def service(repo, row, now, config, cache):
     market = Mock()
     market.get_option_chain.return_value = OptionChain(symbol="AAPL.US", observed_at=now, observations=[row])
     market.get_daily_bars.return_value = SimpleNamespace(data={})
-    return OptionsIntelligenceService(repo, market, config, preview_client=cache)
+    return OptionsIntelligenceService(repo, market, config, preview_repository=cache)
 
 
 def test_preview_never_writes_any_options_table(repository, observation, now, config):
@@ -76,9 +54,9 @@ def test_preview_never_writes_any_options_table(repository, observation, now, co
     result = engine.scan(["AAPL.US"], intraday, view="preview")
     assert result["view"] == "preview" and result["failed_count"] == 0
     assert counts(repository) == before
-    preview = load_preview(client=cache, now=intraday)
+    preview = load_preview(repository=cache, now=intraday)
     assert "contracts" not in preview["items"][0]
-    assert load_preview(client=cache, now=intraday, symbol="AAPL.US")["contracts"][0]["symbol"] == row.symbol
+    assert load_preview(repository=cache, now=intraday, symbol="AAPL.US")["contracts"][0]["symbol"] == row.symbol
     assert preview["trade_date"] == intraday.date().isoformat()
     assert "contracts" not in result["results"][0]  # TaskRecord contains summaries only.
     assert repository.latest("AAPL.US") is None
@@ -87,32 +65,32 @@ def test_preview_never_writes_any_options_table(repository, observation, now, co
 def test_cache_expires_at_local_midnight_and_rejects_other_dates(now):
     cache = Cache()
     payload = {"trade_date": now.date().isoformat(), "items": []}
-    save_preview(payload, client=cache, now=now)
-    assert cache.ttl == 6 * 3600  # 22:00 UTC is 18:00 EDT.
-    assert load_preview(client=cache, now=now) == {**payload, "failures": []}
-    assert load_preview(client=cache, now=now + timedelta(days=1)) is None
+    save_preview(payload, repository=cache, now=now)
+    from finance_analysis.database.models.research_preview import ResearchPreview
+    from finance_analysis.core.time import coerce_aware_utc
+    with cache.db.get_session() as session:
+        batch = session.get(ResearchPreview, ("options_intelligence", "US", 0))
+        assert (coerce_aware_utc(batch.expires_at) - now).total_seconds() == 6 * 3600
+    assert load_preview(repository=cache, now=now) == {**payload, "failures": []}
+    assert load_preview(repository=cache, now=now + timedelta(days=1)) is None
     with pytest.raises(ValueError, match="previous session"):
-        save_preview(payload, client=cache, now=now + timedelta(days=1))
-    cache.values[PREVIEW_KEY] = "broken json"
-    assert load_preview(client=cache, now=now) is None
+        save_preview(payload, repository=cache, now=now + timedelta(days=1))
 
 
 def test_preview_cache_write_failure_fails_task_without_db_writes(repository, observation, now, config):
     intraday = now.replace(hour=18)
     cache = Mock()
-    cache.get.return_value = None
-    cache.pipeline.side_effect = RuntimeError("redis down")
-    with pytest.raises(RuntimeError, match="redis down"):
+    cache.publish.side_effect = RuntimeError("database down")
+    with pytest.raises(RuntimeError, match="database down"):
         service(repository, observation, intraday, config, cache).scan(["AAPL.US"], intraday, view="preview")
     assert counts(repository) == [0] * 5
 
 
-def test_single_refresh_read_failure_cannot_replace_existing_manifest(now):
+def test_single_refresh_write_failure_is_propagated(now):
     cache = Mock()
-    cache.get.side_effect = RuntimeError("redis read failed")
-    with pytest.raises(RuntimeError, match="redis read failed"):
-        save_preview({"trade_date": now.date().isoformat(), "items": []}, client=cache, now=now, merge=True)
-    cache.pipeline.assert_not_called()
+    cache.publish.side_effect = RuntimeError("database write failed")
+    with pytest.raises(RuntimeError, match="database write failed"):
+        save_preview({"trade_date": now.date().isoformat(), "items": []}, repository=cache, now=now, merge=True)
 
 
 def test_failed_preview_preserves_previous_and_single_refresh_merges(repository, observation, now, config):
@@ -120,17 +98,17 @@ def test_failed_preview_preserves_previous_and_single_refresh_merges(repository,
     cache = Cache()
     save_preview(
         {"trade_date": now.date().isoformat(), "items": [{"symbol": "MSFT.US", "status": "ready"}]},
-        client=cache,
+        repository=cache,
         now=intraday,
     )
     engine = service(repository, observation, intraday, config, cache)
     engine.scan(["AAPL.US"], intraday, view="preview")
-    assert {r["symbol"] for r in load_preview(client=cache, now=intraday)["items"]} == {"MSFT.US", "AAPL.US"}
+    assert {r["symbol"] for r in load_preview(repository=cache, now=intraday)["items"]} == {"MSFT.US", "AAPL.US"}
     engine.market.get_option_chain.return_value = OptionChain(symbol="AAPL.US", observed_at=intraday)
     result = engine.scan(["AAPL.US"], intraday, view="preview")
     assert result["failed_count"] == 1
-    assert load_preview(client=cache, now=intraday, symbol="AAPL.US")["refresh_status"] == "failed"
-    assert {r["symbol"] for r in load_preview(client=cache, now=intraday)["items"]} == {"MSFT.US", "AAPL.US"}
+    assert load_preview(repository=cache, now=intraday, symbol="AAPL.US") is None
+    assert {r["symbol"] for r in load_preview(repository=cache, now=intraday)["items"]} == {"MSFT.US"}
 
 
 def test_only_after_close_chains_can_become_official(repository, observation, now, config):

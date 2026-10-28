@@ -120,7 +120,7 @@ mr_shock_5d_scale=.10, mr_quality_weights={oversold:.35,distance:.35,shock:.20,r
 ## Preview
 
 当前机会可以使用临时日线计算Box、MR，但此前部分只使用T−1及之前正式日线和正式MR前态。
-库内T日记录被临时日线替换，不混入未来日线。Preview仍仅写原Redis缓存，不持久化正式研究事件。
+库内T日记录被临时日线替换，不混入未来日线。Preview仅写独立PostgreSQL最新预演表，不持久化正式研究事件。
 Preview 下前三张表继续展示；历史策略研究仅显示 Official 提示，不发送 Event Study 请求。
 
 ## 收益与交易日

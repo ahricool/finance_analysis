@@ -124,8 +124,8 @@ Celery Beat 任务 `scheduled.etf_rotation_cn` / `scheduled.etf_rotation_us` 默
 10:00、11:00、13:00、14:00、14:30 Asia/Shanghai 与 10:00–15:00 America/New_York 每小时整点运行，
 与对应市场 Trend Following Preview 同时触发，A 股午休不运行，美股自动适配夏令时。
 CN 用 Tencent `real(ETF codes)`，US 用 Yahoo 5 分钟 batch。
-结果只写 Redis `etf_rotation:preview:{CN|US}`（TTL 24h），不写正式 snapshot。
-`BUY/HOLD/EXIT` 仍基于上一交易日正式候选。非交易日 `TaskSkipped`。Redis 写入失败则任务失败。
+结果写独立 PostgreSQL 最新 Preview 表（有效期 24h），按市场事务替换，不写正式 snapshot。详见 [Preview 存储](preview-storage.md)。
+`BUY/HOLD/EXIT` 仍基于上一交易日正式候选。非交易日 `TaskSkipped`。Preview 数据库写入失败则任务失败。
 
 管理员可在前端点击“手动运行”，或调用：
 
@@ -166,14 +166,14 @@ Content-Type: application/json
 因此退出 Universe 的历史 ETF 不会重新显示，只有历史成员的 session 仍保留为空点。
 不足 N 个 session 时返回实际数量；旧版本 NULL rank 不补算、不前向填充。
 
-只有市场当地当天、状态为 completed 且有条目的 Redis Preview 可以追加，历史 Preview 不纳入。
+只有市场当地当天、状态为 completed 且有条目的数据库 Preview 可以追加，历史 Preview 不纳入。
 当天存在正式 ETF 快照时整日优先正式数据，即使单只 ETF 的正式 Rank 缺失也不用 Preview 补值。
 Preview 是最多一个额外数据点，不占用 N 个正式 session；以空心点、Tooltip 和页面文字说明标识。
 本图不将排名门槛解释为最终候选区：入场/持有门槛、市场状态候选数量上限和风控筛选含义不同。
 
 ### 个股详情的 Preview 历史图
 
-ETF Rotation 和 Trend Following 详情在 Preview 模式下立即展示当前 Redis item/snapshot，
+ETF Rotation 和 Trend Following 详情在 Preview 模式下立即展示当前数据库 Preview item/snapshot，
 再通过原 detail 路由的 `before_trade_date=Preview tradeDate` 参数读取最近 60 个正式快照。
 此参数与 `trade_date` 互斥，只返回 `{history: [...]}`；SQL 在 limit 之前应用严格 `<` 条件，
 无历史时返回空数组。普通 `trade_date` detail 的精确日期校验与 `<=` 历史截断保持不变。
@@ -184,7 +184,7 @@ ETF Price/MA、Composite、Rank、RS 和 Trend Rank/Fragility 图均通过日期
 并提供单独重试。Heatmap 历史格子继续按格子日期打开 Official detail。
 
 全局 Rank History / State Heatmap 的同日正式优先逻辑不变；显式 Preview 详情则排除同日正式快照，
-保证顶部和图表末点均为用户当前查看的 Preview。不修改 Redis payload，也不写正式历史表。
+保证顶部和图表末点均为用户当前查看的 Preview。不修改 Preview 结果，也不写正式历史表。
 
 ### 历史行情与未来收益率
 

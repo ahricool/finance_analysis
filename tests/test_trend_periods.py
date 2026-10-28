@@ -193,14 +193,14 @@ def test_preview_and_read_caches_are_isolated_by_period():
     from finance_analysis.trend_following.preview_cache import load_preview, save_preview
     from finance_analysis.trend_following.ranking_cache import RankingCache
 
-    from tests.preview_redis import MemoryRedis
+    from tests.preview_database import preview_repository
 
-    client = MemoryRedis()
+    client = preview_repository()
     day = date(2026, 10, 12)
     for period in (20, 40, 60):
-        save_preview('US', {'trend_period': period, 'snapshots': [{'alpha_score': period}]}, client=client)
+        save_preview('US', {'trend_period': period, 'snapshots': [{'code': 'AAPL.US', 'alpha_score': period}]}, repository=client)
     for period in (20, 40, 60):
-        payload = load_preview('US', trend_period=period, client=client)
+        payload = load_preview('US', trend_period=period, repository=client)
         assert payload['trend_period'] == period
         assert payload['snapshots'][0]['alpha_score'] == period
     assert len({RankingCache('US', day, period).key for period in (20, 40, 60)}) == 3

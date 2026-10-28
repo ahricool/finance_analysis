@@ -1,124 +1,61 @@
-"""Redis cache for the latest ETF Rotation intraday preview. Never writes PostgreSQL."""  # pragma: allowlist secret
+"""Latest ETF previews in PostgreSQL, independent of official snapshots."""
 
-from __future__ import annotations
+from datetime import timedelta
 
-import json
-import logging
-import math
-from datetime import date, datetime
-from typing import Any
+from finance_analysis.core.preview_storage import factor_common, json_ready, merge_dict, observed_at
+from finance_analysis.core.preview_views import encode
+from finance_analysis.core.time import utc_now
+from finance_analysis.database.repositories.research_preview import PreviewRepository
+from finance_analysis.etf_rotation.universe import normalize_etf_market
 
-from finance_analysis.core.time import utc_isoformat  # pragma: allowlist secret
-from finance_analysis.etf_rotation.universe import normalize_etf_market  # pragma: allowlist secret
-
-logger = logging.getLogger(__name__)
-
-PREVIEW_KEY_TEMPLATE = "etf_rotation:preview:{market}"
-PREVIEW_TTL_SECONDS = 24 * 60 * 60
+PREVIEW_TTL_SECONDS = 86400
+NAMESPACE = "etf_rotation"
 
 
-def preview_cache_key(market: str) -> str:
-    return PREVIEW_KEY_TEMPLATE.format(market=normalize_etf_market(market))
-
-
-def json_ready(value: Any) -> Any:
-    if value is None or isinstance(value, (str, int, bool)):
-        return value
-    if isinstance(value, float):
-        return None if not math.isfinite(value) else value
-    if isinstance(value, datetime):
-        return utc_isoformat(value)
-    if isinstance(value, date):
-        return value.isoformat()
-    if isinstance(value, dict):
-        return {str(key): json_ready(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [json_ready(item) for item in value]
-    return str(value)
-
-
-def save_preview(market: str, payload: dict[str, Any], *, client: Any | None = None) -> None:
-    from finance_analysis.core.preview_views import encode, publish
-
+def save_preview(market, payload, *, repository=None):
     ready = json_ready(payload)
-    body = encode(ready)
-    redis_client = client if client is not None else _redis_client()
-    if redis_client is None:
-        logger.error("market=%s job=etf_rotation_preview cache_write_failed redis_unavailable", market)
-        raise RuntimeError(f"ETF Rotation preview Redis unavailable for {market}")
+    rows = ready.pop("items", [])
+    shared, rows = factor_common(rows)
+    ready["market"] = normalize_etf_market(market)
+    # Internal count supports status without reading the universe.
+    header = {"payload": ready, "item_count": len(rows), "trade_date": ready.get("trade_date")}
     try:
-        publish(redis_client, preview_cache_key(market), body, preview_views(ready), PREVIEW_TTL_SECONDS)
+        (repository or PreviewRepository()).publish(
+            NAMESPACE, ready["market"], 0, header,
+            [{"kind": "stock", "item_key": row["code"], "summary": row} for row in rows],
+            shared=shared, observed_at=observed_at(ready), expires_at=utc_now() + timedelta(seconds=PREVIEW_TTL_SECONDS),
+        )
     except Exception as exc:
-        logger.exception("market=%s job=etf_rotation_preview cache_write_failed", market)
         raise RuntimeError(f"Failed to save ETF Rotation preview for {market}") from exc
 
 
-def load_preview(market: str, *, client: Any | None = None) -> dict[str, Any] | None:
-    redis_client = client if client is not None else _redis_client()
-    if redis_client is None:
-        return None
-    try:
-        raw = redis_client.get(preview_cache_key(market))
-    except Exception:
-        logger.exception("market=%s job=etf_rotation_preview cache_read_failed", market)
-        return None
-    if not raw:
-        return None
-    if isinstance(raw, bytes):
-        raw = raw.decode("utf-8")
-    payload = json.loads(raw)
-    return payload if isinstance(payload, dict) else None
+def _read(market, repository, **kwargs):
+    return (repository or PreviewRepository()).read(NAMESPACE, normalize_etf_market(market), **kwargs)
 
 
-def preview_views(payload):
+def load_preview(market, *, repository=None):
+    stored = _read(market, repository)
+    return {**stored["header"]["payload"], "items": [
+        merge_dict(stored["shared"], row["summary"]) for row in stored["items"]
+    ]} if stored else None
+
+
+def load_preview_view(market, field, *, repository=None):
     from finance_analysis.core.preview_metadata import preview_metadata
 
-    return {
-        "status": preview_metadata(payload, rows_key="items"),
-        **{f"stock:{row['code']}": {
-            "market": payload["market"], "trade_date": payload["trade_date"],
-            "metadata": row, "latest": row, "history": [], "market_snapshot": payload.get("market_snapshot"),
-        } for row in payload.get("items", []) if payload.get("status") == "completed"},
-    }
-
-
-def load_preview_view(market: str, field: str, *, client=None):
-    from finance_analysis.core.preview_views import read
-
-    redis_client = client if client is not None else _redis_client()
-    if redis_client is None:
+    if field == "status":
+        stored = _read(market, repository, view="header")
+        if not stored:
+            return None
+        result = preview_metadata(stored["header"]["payload"], rows_key="items")
+        result["snapshot_count"] = stored["header"]["item_count"]
+        return encode(result)
+    if not field.startswith("stock:"):
         return None
-
-    def fallback():
-        payload = load_preview(market, client=redis_client)
-        return preview_views(payload).get(field) if payload else None
-
-    try:
-        return read(redis_client, preview_cache_key(market), field, fallback)
-    except Exception:
-        logger.exception("market=%s job=etf_rotation_preview view_read_failed", market)
+    stored = _read(market, repository, kind="stock", item_key=field.removeprefix("stock:"))
+    if not stored or not stored["items"] or stored["header"]["payload"].get("status") != "completed":
         return None
-
-
-def _redis_client() -> Any | None:
-    try:
-        import redis
-
-        from finance_analysis.database.config import get_database_config  # pragma: allowlist secret
-
-        return redis.Redis.from_url(get_database_config().redis_url, decode_responses=True,
-                                   socket_connect_timeout=2, socket_timeout=2)
-    except Exception:
-        logger.exception("job=etf_rotation_preview redis_client_failed")
-        return None
-
-
-__all__ = [
-    "PREVIEW_KEY_TEMPLATE",
-    "PREVIEW_TTL_SECONDS",
-    "json_ready",
-    "load_preview",
-    "load_preview_view",
-    "preview_cache_key",
-    "save_preview",
-]
+    header = stored["header"]["payload"]
+    row = merge_dict(stored["shared"], stored["items"][0]["summary"])
+    return encode({"market": header["market"], "trade_date": header["trade_date"], "metadata": row,
+                   "latest": row, "history": [], "market_snapshot": header.get("market_snapshot")})

@@ -69,12 +69,12 @@ class Explanation(BaseModel):
 
 
 class OptionsIntelligenceService:
-    def __init__(self, repo=None, market_data=None, config=None, llm=None, preview_client=None):
+    def __init__(self, repo=None, market_data=None, config=None, llm=None, preview_repository=None):
         self.repo = repo or OptionsRepository()
         self.market = market_data or MarketDataService()
         self.config = config or get_options_config()
         self.llm = llm
-        self.preview_client = preview_client
+        self.preview_repository = preview_repository
 
     def run(self, symbol, now=None, explain=False, view=None, publish_preview=True, bars=None):
         realtime_run = now is None
@@ -195,7 +195,7 @@ class OptionsIntelligenceService:
                 "items": items,
                 "failures": list(failures),
             },
-            client=self.preview_client,
+            repository=self.preview_repository,
             now=now,
             merge=merge,
         )

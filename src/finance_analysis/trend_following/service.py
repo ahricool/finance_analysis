@@ -166,6 +166,10 @@ class TrendFollowingService:
             self.input_cache.clear()
         started = monotonic()
         effective_date = self.resolve_preview_trade_date(trade_date)
+        generation_key = ("preview_run_started_at", self.market, effective_date)
+        if generation_key not in self.input_cache:
+            self.input_cache[generation_key] = utc_now().isoformat()
+        run_started_at = self.input_cache[generation_key]
         members = get_universe(self.market)
         universe_codes = {member.code for member in members}
         benchmark_code = self.config.benchmark_codes[self.market]
@@ -216,6 +220,7 @@ class TrendFollowingService:
                     "trend_period": self.config.trend_period,
                     "trade_date": effective_date.isoformat(),
                     "preview_time": utc_isoformat(generated_at),
+                    "run_started_at": run_started_at,
                     "data_as_of": utc_isoformat(data_as_of),
                     "provider": provider,
                     "quote_count": quote_count,
@@ -235,6 +240,7 @@ class TrendFollowingService:
         payload = {
             **result,
             "preview_time": utc_isoformat(generated_at),
+            "run_started_at": run_started_at,
             "data_as_of": utc_isoformat(data_as_of),
             "provider": provider,
             "quote_count": quote_count,
