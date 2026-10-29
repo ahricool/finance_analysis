@@ -77,10 +77,11 @@ def percentile_ranks(values: Iterable[float]) -> list[float]:
 
 
 def absolute_trend_passes(checks: Iterable[bool]) -> bool:
+    """Require all four absolute-trend conditions for every supported period."""
     values = [bool(value) for value in checks]
     if len(values) != 4:
         raise ValueError("absolute trend requires exactly four checks")
-    return sum(values) >= 3
+    return all(values)
 
 
 def calculate_features(
