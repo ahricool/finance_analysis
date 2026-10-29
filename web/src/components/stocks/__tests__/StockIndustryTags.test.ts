@@ -52,4 +52,34 @@ describe('StockIndustryTags', () => {
     expect(stocksApi.classification).toHaveBeenCalledTimes(2);
     wrapper.unmount();
   });
+  it('shows ETF names and codes with expandable proxy reasons', async () => {
+    const data = result('汽车整车');
+    data.etfProxies = [{ code: '515030.SH', name: '新能源车ETF', reasons: ['汽车整车：近似替代，观察汽车产业链'] }];
+    data.etfProxyUnavailableReasons = ['其他行业：暂无可用代理'];
+    vi.mocked(stocksApi.classification).mockResolvedValue(data);
+    const wrapper = mount(StockIndustryTags, { props: { code: '600519.SH' } });
+    await flushPromises();
+    const section = wrapper.get('[data-testid="stock-etf-proxies"]');
+    expect(section.text()).toContain('新能源车ETF · 515030.SH');
+    expect(section.text()).toContain('行业代理，非实际持仓');
+    expect(section.find('details').exists()).toBe(true);
+    expect(section.text()).toContain('近似替代');
+    expect(section.text()).toContain('暂无可用代理');
+    wrapper.unmount();
+  });
+
+  it('clears ETF proxies with the old stock and rejects a late response', async () => {
+    let finish!: (data: StockClassification) => void;
+    vi.mocked(stocksApi.classification).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    const wrapper = mount(StockIndustryTags, { props: { code: '600519.SH' } });
+    vi.mocked(stocksApi.classification).mockResolvedValue(result('银行'));
+    await wrapper.setProps({ code: '600000.SH' });
+    await flushPromises();
+    finish({ ...result('旧行业'), etfProxies: [{ code: 'OLD.US', name: '旧ETF', reasons: [] }] });
+    await flushPromises();
+    expect(wrapper.text()).not.toContain('旧ETF');
+    expect(wrapper.text()).toContain('暂无关联 ETF');
+    wrapper.unmount();
+  });
+
 });

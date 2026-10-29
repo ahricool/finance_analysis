@@ -9,12 +9,14 @@ describe('stock classification', () => {
 
   it('normalizes industry observation dates and passes cancellation to the read-only endpoint', async () => {
     vi.mocked(apiClient.get).mockResolvedValue({ data: {
-      code: '600519.SH', market: 'CN', memberships: { indices: [], industries: [
+      code: '600519.SH', market: 'CN', etf_proxies: [{ code: '512690.SH', name: '酒ETF', reasons: ['白酒代理'] }], etf_proxy_unavailable_reasons: [], memberships: { indices: [], industries: [
         { code: '881101.TI', name: '食品饮料', members_observed_at: '2026-10-11T02:00:00Z' },
       ] },
     } });
     const controller = new AbortController();
     const result = await stocksApi.classification('600519.SH', controller.signal);
+    expect(result.etfProxies).toEqual([{ code: '512690.SH', name: '酒ETF', reasons: ['白酒代理'] }]);
+    expect(result.etfProxyUnavailableReasons).toEqual([]);
     expect(apiClient.get).toHaveBeenCalledWith('/api/v1/stocks/600519.SH/classification', { signal: expect.any(AbortSignal) });
     expect(result.memberships.industries?.[0]).toEqual({
       code: '881101.TI', name: '食品饮料', membersObservedAt: '2026-10-11T02:00:00Z',

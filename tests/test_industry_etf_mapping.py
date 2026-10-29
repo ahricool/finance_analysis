@@ -33,16 +33,16 @@ def test_every_target_belongs_to_same_market_rotation_pool():
         ("US", "Consumer Electronics", "Technology", "XLK.US"),
         ("US", "Banks—Regional", "Financial Services", "KRE.US"),
         ("US", "Shell Companies", "Financial Services", None),
-        ("US", "REIT—Mortgage", "Real Estate", None),
-        ("US", "Thermal Coal", "Energy", None),
-        ("US", "Education & Training Services", "Consumer Defensive", None),
+        ("US", "REIT—Mortgage", "Real Estate", "XLF.US"),
+        ("US", "Thermal Coal", "Energy", "XLE.US"),
+        ("US", "Education & Training Services", "Consumer Defensive", "XLY.US"),
         ("US", "Semiconductors", "Healthcare", None),
         ("US", "Unknown new theme", "Technology", None),
         ("CN", "881155.TI", None, "512800.SH"),
         ("CN", "884218.TI", None, "562500.SH"),
-        ("CN", "881171.TI", None, None),  # 自动化设备不等同机器人。
-        ("CN", "881125.TI", None, None),  # 全部整车不等同新能源车。
-        ("CN", "881112.TI", None, None),  # 钢铁不等同有色金属。
+        ("CN", "881171.TI", None, "562500.SH"),  # 自动化用机器人产业链近似代理。
+        ("CN", "881125.TI", None, "515030.SH"),  # 整车用新能源车近似观察汽车景气。
+        ("CN", "881112.TI", None, "512400.SH"),  # 钢铁用金属资源周期近似代理。
         ("CN", "半导体", None, None),  # CN只接受代码，不能按自由文本猜测。
         ("HK", "Semiconductors", "Technology", None),
     ],
@@ -96,3 +96,12 @@ def test_unreviewed_classification_is_reported_without_sector_fallback():
     report = summarize(stocks)
     assert report["unreviewed"] == [("US", "('Technology', 'New industry')")]
     assert report["groups"]["US:ACTIVE"]["covered"] == 0
+
+
+def test_operating_industries_have_proxies_and_approximate_matches_explain_the_gap():
+    assert {key for key, value in US_INDUSTRY_ETF.items() if value.etf_code is None} == {
+        ("Financial Services", "Shell Companies")
+    }
+    assert {key for key, value in CN_INDUSTRY_ETF.items() if value.etf_code is None} == {"881165.TI"}
+    assert "近似替代" in resolve_industry_etf("CN", "881112.TI").reason
+    assert "不是钢铁" in resolve_industry_etf("CN", "881112.TI").reason

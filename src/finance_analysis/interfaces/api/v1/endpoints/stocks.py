@@ -33,6 +33,7 @@ from finance_analysis.interfaces.api.v1.schemas.stocks import (
 from finance_analysis.integrations.market_data import MarketDataService
 from finance_analysis.integrations.market_data.normalizer import canonical_symbol
 from finance_analysis.interfaces.api.v1.schemas.common import ErrorResponse
+from finance_analysis.stocks.industry_etf_service import StockETFProxyService
 from finance_analysis.stocks.service import StockService
 
 logger = logging.getLogger(__name__)
@@ -113,15 +114,16 @@ def get_stock_info(stock_code: str) -> StockInstrumentInfo:
     "/{stock_code}/classification",
     response_model=StockClassificationResponse,
     responses={404: {"description": "股票不存在", "model": ErrorResponse}},
-    summary="获取个股当前所属指数与行业",
-    description="只读取数据库中的 INDEX Universe 和周同步行业成分，不调用外部数据源。",
+    summary="获取个股当前所属指数、行业与关联ETF",
+    description="只读指数、周同步行业与ETF轮动池，按静态映射返回行业代理ETF，不代表真实持仓。",
 )
 def get_stock_classification(stock_code: str) -> StockClassificationResponse:
     try:
         code = canonical_symbol(stock_code)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    instrument = InstrumentRepository().get_by_code(code)
+    instruments = InstrumentRepository()
+    instrument = instruments.get_by_code(code)
     if instrument is None:
         raise HTTPException(status_code=404, detail=f"未找到股票 {code} 的静态信息")
     industries = IndustryStrengthRepository().stock_memberships(code) if instrument.market == "CN" else []
@@ -134,6 +136,7 @@ def get_stock_classification(stock_code: str) -> StockClassificationResponse:
     return StockClassificationResponse(
         code=instrument.code,
         market=instrument.market,
+        **StockETFProxyService(instruments).resolve(instrument, industries),
         memberships=StockMemberships(
             indices=UniverseRepository().list_index_memberships(code),
             industries=industries,
