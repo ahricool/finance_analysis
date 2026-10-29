@@ -3,7 +3,7 @@
 from math import isfinite
 from statistics import fmean
 
-VERSION = "confluence_v2"
+VERSION = "confluence_v2_1"
 WEIGHTS = {
     "macro": 15,
     "etf": 20,
@@ -30,6 +30,7 @@ MODULES = {
 def rules():
     return dict(
         version=VERSION,
+        macro_method="sector_macro_v1",
         weights=WEIGHTS.copy(),
         primary=list(PRIMARY),
         min_signals=2,
@@ -116,8 +117,11 @@ def evaluate(key, facts=None, reason="该日期无可用正式指标"):
     strength = None
     reasons = []
     if key == "macro":
-        strength = clamp(facts.get("risk_score"))
-        reasons = [f"宏观风险偏好 {facts.get('regime', '缺失')}；使用已有宏观看板核心分数"]
+        strength = clamp(facts.get("adaptation_score"))
+        reasons = [
+            facts.get("adaptation_reason", "无行业宏观适配证据"),
+            "整体风险偏好仅作背景；宏观15%使用所属行业适配度，非收益概率",
+        ]
     elif key == "industry":
         rows = facts.get("industries", [facts])
         strength = average(clamp(r.get("strength_score")) for r in rows)
@@ -162,7 +166,7 @@ def evaluate(key, facts=None, reason="该日期无可用正式指标"):
             strength = 100.0 if net > 0 else 0.0 if net < 0 else 50.0
         reasons = ["最近一次龙虎榜净额方向；重叠窗口不累计，机构与游资仅展示"]
     if strength is None:
-        return dict(result, evidence=evidence, reasons=["来源存在，但核心指标缺失，权重不参与分母"])
+        return dict(result, evidence=evidence, reasons=reasons or ["来源存在，但核心指标缺失，权重不参与分母"])
     strength = round(strength, 4)
     return dict(
         result,

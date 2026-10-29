@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import raw from './fixtures/confluenceV2';
+import raw from './fixtures/confluenceV21';
 
 for (const width of [390, 768, 1280, 1440, 1920]) {
   for (const theme of ['light', 'dark']) {
@@ -26,7 +26,7 @@ for (const width of [390, 768, 1280, 1440, 1920]) {
       });
       await page.goto('/research/confluence');
       if (width >= 1024) await expect(page.getByTestId('module-tabs').getByRole('link', { name: '多信号共振' })).toHaveAttribute('data-state', 'active');
-      await expect(page.getByRole('table')).toContainText('85.0');
+      await expect(page.getByRole('table')).toContainText('84.0');
       await expect(page.getByRole('table')).toContainText('4/4');
       await expect(page.getByRole('table')).toContainText('2026-09-21');
       await expect(page.getByRole('table')).toContainText('期权情报');
@@ -36,11 +36,14 @@ for (const width of [390, 768, 1280, 1440, 1920]) {
       await expect(dialog.getByTestId('daily-kline-card').locator('canvas').first()).toBeVisible();
       await dialog.getByRole('tab', { name: '共振', exact: true }).click();
       await expect(dialog.getByTestId('evidence-industry')).toContainText('92');
+      await expect(dialog.getByTestId('macro-adaptation')).toContainText('A股成长风格');
+      await expect(dialog.getByTestId('macro-adaptation')).toContainText('+24.00');
       await dialog.getByTestId('evidence-industry').getByText('评分依据', { exact: true }).click();
       await expect(dialog).toContainText('12 → 4');
       await expect(dialog.getByTestId('evidence-trend')).toContainText('60D');
       await expect(dialog.getByTestId('evidence-options')).toContainText('缺失');
       await expect(dialog).toContainText('Why Confluence');
+      await dialog.getByTestId('evidence-macro').screenshot({ path: testInfo.outputPath(`macro-adaptation-${width}-${theme}.png`) });
       await page.screenshot({ path: testInfo.outputPath(`confluence-detail-${width}-${theme}.png`), fullPage: true });
       await page.keyboard.press('Escape');
       await page.screenshot({ path: testInfo.outputPath(`confluence-${width}-${theme}.png`), fullPage: true });

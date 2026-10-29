@@ -1,4 +1,4 @@
-# Signal Confluence V2
+# Signal Confluence V2.1
 
 正式研究结果的规则聚合与每日精选，面向2–14天观察。没有LLM、行情抓取、策略重算、训练、交易执行或独立通知。
 CN/US沿用现有analysis队列及上海20:30 / 纽约23:30任务。GET只读保存结果。
@@ -7,7 +7,7 @@ CN/US沿用现有analysis队列及上海20:30 / 纽约23:30任务。GET只读保
 
 | 层级 | 家族 | 基础权重 | 参与计算的核心指标 |
 | --- | --- | ---: | --- |
-| 主要 | 宏观 | 15 | 复用US Macro的risk_score；覆盖不足则缺失 |
+| 主要 | 宏观适配 | 15 | 按行业敏感系数计算sector_macro_v1适配度；整体risk_score仅作背景 |
 | 主要 | 行业ETF | 20 | 行业映射关联到当前轮动池的ETF正式composite_score，去重后等权均值 |
 | 主要 | 行业强度 | 15 | 所有可靠归属行业的正式strength_score均值；不挑最高分 |
 | 主要 | 趋势追踪 | 30 | 20/40/60日 × 趋势、突破、超跌反弹三条研究路线，见下文 |
@@ -40,6 +40,64 @@ confluence_score = sum(contribution_i, i in A)
 缺失的strength、normalized_weight、contribution均为null；全缺失时总分null。
 每只股票独立归一，主要/辅助权重随可用范围变化；不会给缺失来源补50分或零分。
 `score`继续保存基础权重下的原始贡献，`contribution`为最终0–100总分的贡献，前端区分两者。
+
+## 行业宏观适配（V2.1）
+
+旧V2将同一risk_score用于所有股票；V2.1保留它作为全市场背景，但宏观维度改为每只股票的行业适配度。
+规则位于`confluence/sector_macro.py`，算法版本`confluence_v2_1`、规则版本`sector_macro_v1`。
+基础权重15、缺失重分摊、至少两项主要正向、综合分70及每日各市场最多10个均保持原样。
+不新增Provider、LLM、日线同步或数据库迁移；不自动修改历史。旧V2的GET仍展示保存的统一风险偏好分，
+页面明确其历史含义；只有显式重跑才生成V2.1。
+
+使用三个已有代理：risk为0–100的全球风险偏好，credit为美国HYG/LQD趋势（HEALTHY/NEUTRAL/WEAK→100/50/0），
+rates为TLT价格趋势（EASING/NEUTRAL/PRESSURE→100/50/0）。rates不是政策利率或收益率曲线，
+不从其单一变化推断银行净息差。risk自身已包含跨资产信号，三个代理并非统计独立因子。
+
+| 档案 | risk敏感系数 | credit敏感系数 | rates敏感系数 |
+| --- | ---: | ---: | ---: |
+| A股成长风格 | +0.80 | — | — |
+| A股周期风格 | +0.60 | — | — |
+| A股防御风格 | -0.40 | — | — |
+| 美股成长风格 | +0.50 | +0.20 | +0.30 |
+| 美股周期风格 | +0.60 | +0.30 | — |
+| 美股防御风格 | -0.35 | — | +0.15 |
+| 美股金融信用敏感 | +0.20 | +0.60 | — |
+| 美股利率敏感 | +0.15 | +0.25 | +0.60 |
+
+系数是人工研究假设，**不是回归beta、胜率或拟合后的历史最优参数**。所有档案系数绝对值和≤1，
+未达到1的档案保留中性缓冲。例如CN防御在全球风险0时是70而非100；相对抗跌不等于绝对上涨。
+CN只使用全球风格代理，不把美国信用/美债直接称作国内宽松或中国经济增长。
+美元与商品仍保留在宏观背景；第一版不单独赋行业方向系数，避免用粗代理替代汇率收入敞口、价格或成本模型。
+
+对档案P的可用因子A，系数c，原始代理x：
+
+```text
+coverage = sum(abs(c_i), i in A) / sum(abs(c_i), i in P)
+coverage < 0.65  →  档案缺失
+term_i = c_i * (x_i - 50) / coverage
+profile_score = 50 + sum(term_i, i in A)
+```
+
+例如同为风险20、信用弱0、美债承压0：美股成长10、防御53、金融14；不机械将弱环境解释为利好银行。
+若美股风险50、信用弱0、美债走强100，成长55、防御57.5，展示各因子的不同作用。
+数值0与中性50均为有效观测，未知状态、NaN及缺字段不填中性。
+
+行业解析复用同一次批量分类读取，ETF关联与宏观使用一致的观测截止；宏观无需等待行业强度或ETF正式快照存在。
+CN使用精确行业代码及已审核的代理分组，US只接受已有审核字典中的精确sector/industry组合，另有
+生物科技→成长、电信运营→防御等细分覆盖。近似ETF本身不等同于宏观敏感性，例如纺织映射消费ETF，
+宏观仍不认作必需消费防御。所有映射有中文注释，未覆盖不按名称猜测。
+
+A股银行缺国内曲线/信用/息差信息，农业缺产品价格/成本/政策信息，均明确留空；美股银行使用信用敏感档案，
+不做风险反向。多层行业归入相同档案时去重，不重复放大；不同档案等权平均。任一可靠归属行业未审核，
+或任一档案因子覆盖不足，则整个宏观维度留空，避免挑选最有利分类。未知分类也不能回退统一风险分。
+
+证据随snapshot保存：背景、分类及观测时间、映射版本、档案、因子覆盖率、敏感系数、每项增减分与缺失原因。
+详情同时显示整体环境与行业适配，分项增减先从50推导档案分，再按宏观实际权重贡献总分。
+
+设计方向参考[MSCI周期/防御行业方法](https://www.msci.com/eqb/methodology/meth_docs/MSCI_Cyclical_and_Defensive_Sectors_Indexes_Methodology_Nov22.pdf)、
+[美联储关于利率与股票价格的说明](https://www.federalreserve.gov/monetarypolicy/monetary-policy-what-are-its-goals-how-does-it-work.htm)、
+[美联储银行利率敏感业务研究](https://www.federalreserve.gov/econres/notes/feds-notes/is-this-time-different-how-are-banks-performing-during-the-rir-increases-compared-to-2004-2006-20240412.html)。
+这些资料不提供或背书本项目的具体系数、CN映射及门槛。
 
 ## 三周期与三种替代研究路线
 
@@ -104,7 +162,7 @@ Signal额外提供可空strength、normalized_weight、contribution；rules支�
 主表显示8家族，主要指标优先，辅助指标保持可见；详情解释归一权重、贡献、矩阵和原始核心值。
 空榜、来源失败、历史版本独立展示。切市场、日期、证券及卸载后旧响应不能覆盖新状态。
 
-## 验证、性能与两轮自我Code Review
+## V2初次发布验证、性能与两轮自我Code Review
 
 2026-10-29只读生产数据库，连接事务显式`SET TRANSACTION READ ONLY`；没有触发线上任务、Provider或写入。
 读取最新正式CN 2026-10-29、US 2026-10-28来源，离线运行同一服务，并在独立临时PostgreSQL验证迁移、
@@ -131,7 +189,7 @@ PYTHONPATH=src uv run python scripts/validate_confluence_snapshot.py \
   /tmp/confluence-sources.json --output /tmp/confluence-validation.json
 ```
 
-输入为`{CN|US: {day, stocks, sources, read_seconds?, errors?}}`，sources对应repository八家族投影。
+输入为`{CN|US: {day, stocks, sources, read_seconds?, errors?}}`，sources对应repository八家族及classification投影。
 工具校验API响应、上限、重复运行稳定性，不连接数据库。原始全量导出不提交。
 
 | 复查 | 问题 | 修正与验证 |
@@ -149,3 +207,40 @@ PYTHONPATH=src uv run python scripts/validate_confluence_snapshot.py \
 最终检查：后端完整门禁3239 passed、51 skipped、2 deselected，92 subtests；包含隔离PostgreSQL迁移/并发测试。
 Web全量999 passed（141文件），build/lint通过；最终Playwright 14 passed（12项布局/交互 + 2项真实数据页面验证）。
 已检查真实CN榜单及详情、US空榜，以及桌面/窄屏深浅色截图。
+
+## V2.1最近一周只读对比
+
+2026-10-29从生产显式READ ONLY事务导出源投影，只在本地内存执行新旧算法；未部署、未修改生产快照。
+基线为已部署的PR443（75d4f13d）。系数先确定再观察结果，没有根据样本数量调参。
+
+| 市场 | 日期 | V2保存数 | V2.1合格候选数 | V2.1保存数 |
+| --- | --- | ---: | ---: | ---: |
+| CN | 2026-10-23 | 0 | 0 | 0 |
+| CN | 2026-10-26 | 0 | 14 | 10 |
+| CN | 2026-10-27 | 0 | 10 | 10 |
+| CN | 2026-10-28 | 0 | 5 | 5 |
+| CN | 2026-10-29 | 10 | 25 | 10 |
+| US | 2026-10-22 | 0 | 0 | 0 |
+| US | 2026-10-23 | 0 | 0 | 0 |
+| US | 2026-10-26 | 0 | 4 | 4 |
+| US | 2026-10-27 | 0 | 4 | 4 |
+| US | 2026-10-28 | 0 | 1 | 1 |
+
+10/26起可用分类：CN5577条、US5921条；可计算适配的CN2935/5889（49.8%）、US5223/12441（42.0%）。
+分母为现有ACTIVE STOCK标签，不等于清洗后的公司股票数。较早日期分类观测晚于目标截止时间，全部留空。
+同一只股票多档案重复计数已避免；规则覆盖率不等于ETF源快照覆盖率。
+
+CN10/29仍为原10只银行，宏观因证据不足留空；分数提高来自去除统一宏观分后其他维度重新分摊，
+不是新增“银行受益”证据。其他日的新增信号也可能来自缺失重分摊，不能将数量变化解释为回测收益改善。
+这份对比只验证行为和数据契约，不是收益回测。
+
+样本读取CN约1.02–1.30秒、US0.42–0.49秒；新规则CPU约CN0.18–0.45秒、US0.03–0.07秒，保持秒级。
+是线上只读+本地CPU观测，不包含Celery排队/生产写入；没有新增外部请求。
+离线复算工具输入sources需额外提供`classification`投影；缺少时宏观及ETF不猜测，历史统一宏观分不会静默回退。
+
+两轮自查：第一轮核对反向系数、65%覆盖、0/缺失、多行业去重与未知分类不回退；第二轮核对分类时间边界、
+分类与ETF快照解耦、V2/V2.1历史语义、保存上限及空日期版本兼容。相关场景有离线及组件测试。
+
+V2.1验证结果：完整后端门禁3254 passed、51 skipped、2 deselected、92 subtests；Web全量1003 passed（141文件），
+改完展示兼容后相关组件10项再次通过；build/lint通过；Playwright深浅色与390/768/1280/1440/1920布局及交互12项通过。
+已检查行业适配卡片的桌面与390px深色截图。

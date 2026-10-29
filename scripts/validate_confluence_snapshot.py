@@ -2,6 +2,7 @@
 
 Input: {market: {day, stocks, sources, read_seconds?, errors?}}. The source rows
 are the public research projections from ConfluenceRepository, not account data.
+V2.1 additionally requires sources.classification for macro adaptation / ETF linkage.
 """
 
 import argparse
@@ -23,7 +24,7 @@ class SnapshotRepository:
     def __getattr__(self, name):
         key = "trend" if name == "trend_v2" else name
         if key in self.record["sources"]:
-            return lambda *_: self.record["sources"][key]
+            return lambda *_, **_kw: self.record["sources"][key]
         raise AttributeError(name)
 
     def instruments(self, *_):

@@ -309,7 +309,7 @@ def test_get_api_only_reads_saved_results_and_validates_filters(repo, monkeypatc
     def forbidden(*args, **kwargs):
         raise AssertionError("GET must not load sources or calculate")
 
-    for name in ("trend", "quant", "industry", "dragon_tiger", "save"):
+    for name in ("classification", "macro", "etf", "trend_v2", "trend", "quant", "industry", "dragon_tiger", "save"):
         monkeypatch.setattr(repo, name, forbidden)
     monkeypatch.setattr(ConfluenceService, "run", forbidden)
     app = FastAPI()
@@ -557,3 +557,44 @@ def test_v2_macro_reuses_pure_calculation_and_bounds_dates_without_provider(repo
 def test_v2_storage_rejects_more_than_ten_even_if_called_directly(repo):
     with pytest.raises(ValueError, match="cannot exceed 10"):
         repo.save("CN", DAY, [{}] * 11, {"algorithm_version": "confluence_v2"})
+
+
+def test_classification_available_without_etf_snapshot_and_respects_observation_cutoff(repo):
+    with repo.db.session_scope() as session:
+        session.add(IndustryCatalog(industry_code="881271.TI", industry_name="软件", members_observed_at=NOW))
+        session.add(IndustryMembership(industry_code="881271.TI", stock_code="600001.SH", stock_name="Stock"))
+    rows = repo.classification("CN", DAY)
+    assert len(rows) == 1 and rows[0]["industries"][0]["industry_code"] == "881271.TI"
+    assert repo.etf("CN", DAY, classifications=rows) == []
+    assert repo.classification("CN", DAY - timedelta(days=1)) == []
+    with repo.db.session_scope() as session:
+        session.add(Instrument(id=2, code="TEST.US", native_code="TEST", name="Test", market="US",
+            instrument_type="STOCK", currency="USD", source="TEST", instrument_metadata={"classification": dict(
+                sector="Technology", industry="Software—Application", observed_at=NOW.isoformat())}))
+    assert repo.classification("US", DAY)[0]["industries"][0]["sector"] == "Technology"
+    assert repo.classification("US", DAY - timedelta(days=1)) == []
+    with repo.db.session_scope() as session:
+        session.get(Instrument, 2).instrument_metadata = {"classification": dict(
+            sector="Technology", industry="Software—Application", observed_at=123)}
+    assert repo.classification("US", DAY) == []
+
+
+def test_new_macro_snapshot_persists_industry_terms_and_get_does_not_recompute(repo, monkeypatch):
+    from finance_analysis.interfaces.api.v1.schemas.confluence import Ranking
+    seed(repo)
+    monkeypatch.setattr(repo, "classification", lambda *_: [dict(code="600001.SH", trade_date=DAY,
+        industries=[dict(industry_code="881271.TI", industry_name="软件")])])
+    monkeypatch.setattr(repo, "macro", lambda *_: [dict(trade_date=DAY, risk_score=90, regime="RISK_ON")])
+    service = ConfluenceService(repo)
+    assert service.run("CN", DAY)["count"] == 1
+    stored = service.ranking("CN", DAY)
+    Ranking.model_validate(stored)
+    signal = stored["items"][0]["signals"]["macro"]
+    assert signal["strength"] == 82 and signal["evidence"]["risk_score"] == 90
+    assert signal["evidence"]["profiles"][0]["terms"][0]["coefficient"] == .8
+    assert stored["algorithm_version"] == "confluence_v2_1"
+    monkeypatch.setattr(repo, "macro", lambda *_: (_ for _ in ()).throw(AssertionError("no recompute")))
+    monkeypatch.setattr(repo, "classification", lambda *_: (_ for _ in ()).throw(AssertionError("no reclassify")))
+    assert service.ranking("CN", DAY)["items"][0]["signals"]["macro"] == signal
+    with pytest.raises(ValueError, match="cannot exceed 10"):
+        repo.save("CN", DAY, [{}] * 11, {"algorithm_version": "confluence_v2_1"})

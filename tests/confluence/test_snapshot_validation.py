@@ -11,7 +11,9 @@ def test_offline_validation_replays_real_shape_and_checks_repeatability():
     sources = {
         key: [] for key in ("macro", "etf", "industry", "trend", "quant", "options", "sentiment", "dragon_tiger")
     }
-    sources["macro"] = [dict(trade_date=day, risk_score=90)]
+    sources["macro"] = [dict(trade_date=day, risk_score=90, states=dict(credit="HEALTHY", rates="EASING"))]
+    sources["classification"] = [dict(code="TEST.US", trade_date=day, industries=[dict(
+        industry_code="Software—Application", sector="Technology")])]
     sources["trend"] = [dict(trade_date=day, instrument_id=1, state="TRENDING", alpha_score=90)]
     result = validate({"US": dict(day=day, stocks=[dict(id=1, code="TEST.US", name="Test")], sources=sources)})
     assert result["US"]["rerun_stable"]

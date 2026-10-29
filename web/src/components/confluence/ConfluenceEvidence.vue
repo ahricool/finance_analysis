@@ -8,10 +8,14 @@ import { primary, secondary, labels, signal, strength, states, tone } from './ev
 const props = defineProps<{ row: ConfluenceItem }>();
 const groups = [{ name: '主要指标', keys: primary }, { name: '辅助指标', keys: secondary }];
 const matrix = computed(() => (props.row.signals.trend?.evidence.matrix ?? []) as Array<{ period: number; routes: Record<string, number | null>; dominant: string | null; state: string; lifecycle: string; fragility: number | null }>);
+interface MacroProfile { key: string; name: string; reason: string; coverage: number; strength: number | null; missingFactors: string[]; industries: Array<{ industryName: string }>; terms: Array<{ key: string; label: string; value: number; coefficient: number; contribution: number | null }> }
+const macro = computed(() => signal(props.row, 'macro').evidence);
+const macroExclusions = computed(() => (macro.value.exclusions ?? []) as Array<{ industry: { industryCode: string; industryName?: string }; reason: string }>);
+const macroProfiles = computed(() => (macro.value.profiles ?? []) as MacroProfile[]);
 const routes = [{ key: 'trend', label: '趋势' }, { key: 'breakout', label: '突破' }, { key: 'rebound', label: '超跌反弹' }];
 function metrics(key: SignalKey): [string, unknown][] {
   const e = signal(props.row, key).evidence;
-  if (key === 'macro') return [['环境', e.regime], ['风险偏好', e.riskScore], ['有效覆盖', typeof e.signalCoverage === 'number' ? `${(e.signalCoverage * 100).toFixed(0)}%` : null]];
+  if (key === 'macro') return [['环境', e.regime], ['整体风险偏好', e.riskScore], ...(e.macroMethod ? [['行业适配度', e.adaptationScore] as [string, unknown]] : []), ['宏观数据覆盖', typeof e.signalCoverage === 'number' ? `${(e.signalCoverage * 100).toFixed(0)}%` : null]];
   if (key === 'industry') return [['行业', e.industryName], ['强度', e.strengthScore], ['状态', e.state]];
   if (key === 'trend') return [['趋势状态', e.state], ['生命周期', e.trendLifecycle], ['脆弱性', e.fragilityScore]];
   if (key === 'quant') return [['原生分', e.finalScore], ['信号', e.signal], ['排名', e.universeRank]];
@@ -57,7 +61,7 @@ function etfs() { return (signal(props.row, 'etf').evidence.etfs ?? []) as Array
           <div class="flex items-start justify-between gap-2">
             <div>
               <h4 class="text-sm font-medium">
-                {{ labels[key] }}
+                {{ key === 'macro' && !macro.macroMethod ? '宏观环境' : labels[key] }}
               </h4><p class="mt-1 text-xs text-muted-foreground">
                 基础权重 {{ signal(row, key).weight }} · 实际 {{ signal(row, key).normalizedWeight?.toFixed(1) ?? '—' }}%
               </p>
@@ -82,7 +86,7 @@ function etfs() { return (signal(props.row, 'etf').evidence.etfs ?? []) as Array
             />
           </div>
           <dl
-            v-if="signal(row, key).status !== 'unavailable' && metrics(key).length"
+            v-if="(signal(row, key).status !== 'unavailable' || (key === 'macro' && macro.macroMethod)) && metrics(key).length"
             class="grid grid-cols-2 gap-2 text-xs"
           >
             <div
@@ -107,6 +111,80 @@ function etfs() { return (signal(props.row, 'etf').evidence.etfs ?? []) as Array
               </dd>
             </div>
           </dl>
+          <div
+            v-if="key === 'macro' && macro.macroMethod"
+            class="mt-3 space-y-3 text-xs"
+            data-testid="macro-adaptation"
+          >
+            <p class="text-muted-foreground">
+              整体环境仅作背景；行业适配参与评分，相对防御不代表绝对上涨。
+            </p>
+            <section
+              v-for="profile in macroProfiles"
+              :key="profile.key"
+              class="space-y-2 rounded-lg bg-muted/40 p-3"
+            >
+              <p class="font-medium">
+                {{ profile.name }} · {{ profile.strength?.toFixed(1) ?? '—' }}
+              </p>
+              <p class="text-muted-foreground">
+                {{ profile.industries.map(i => i.industryName).join(' / ') }}
+              </p>
+              <p class="text-muted-foreground">
+                {{ profile.reason }} · 因子覆盖 {{ (profile.coverage * 100).toFixed(0) }}%
+              </p>
+              <div class="overflow-x-auto">
+                <table class="w-full text-xs">
+                  <thead>
+                    <tr class="text-muted-foreground">
+                      <th class="py-1 text-left font-normal">
+                        因子
+                      </th><th class="text-right font-normal">
+                        值
+                      </th><th class="text-right font-normal">
+                        敏感系数
+                      </th><th class="text-right font-normal">
+                        适配增减
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr
+                      v-for="term in profile.terms"
+                      :key="term.key"
+                      class="border-t"
+                    >
+                      <td class="py-1">
+                        {{ term.label }}
+                      </td><td class="text-right tabular-nums">
+                        {{ term.value.toFixed(1) }}
+                      </td><td class="text-right tabular-nums">
+                        {{ term.coefficient > 0 ? '+' : '' }}{{ term.coefficient }}
+                      </td><td class="text-right tabular-nums">
+                        {{ term.contribution == null ? '—' : `${term.contribution > 0 ? '+' : ''}${term.contribution.toFixed(2)}` }}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <p
+                v-if="profile.missingFactors.length"
+                class="text-muted-foreground"
+              >
+                缺失：{{ profile.missingFactors.join('、') }}
+              </p>
+            </section>
+            <p
+              v-for="item in macroExclusions"
+              :key="item.industry.industryCode"
+              class="text-muted-foreground"
+            >
+              {{ item.industry.industryName ?? item.industry.industryCode }}：{{ item.reason }}
+            </p>
+            <p class="text-muted-foreground">
+              {{ macro.adaptationReason }}
+            </p>
+          </div>
           <div
             v-if="key === 'etf'"
             class="space-y-2 text-xs"
