@@ -3,6 +3,7 @@ import { flushPromises, mount } from '@vue/test-utils';
 import StockDetailDialog from '../StockDetailDialog.vue';
 import { stocksApi } from '@/api/stocks';
 import type { StockDetailTab } from '../detail/types';
+vi.mock('../ResearchEvidence.vue', () => ({ default: { name: 'ResearchEvidence', template: '<div />' } }));
 vi.mock('../detail/HoldingsDetailPanel.vue', () => ({ __esModule: true, default: { name: 'HoldingsDetailPanel', props: ['symbol', 'market', 'context'], emits: ['updated'], template: '<div data-testid="holding-panel">{{ symbol }}<button @click="$emit(\'updated\')">updated</button></div>' } }));
 vi.mock('../detail/TrendDetailPanel.vue', () => ({ __esModule: true, default: { name: 'TrendDetailPanel', props: ['symbol', 'market', 'context'], template: '<div data-testid="trend-panel">{{ symbol }}</div>' } }));
 vi.mock('../detail/ETFDetailPanel.vue', () => ({ __esModule: true, default: { name: 'ETFDetailPanel', props: ['symbol', 'market', 'context'], template: '<div data-testid="etf-panel">{{ symbol }}</div>' } }));

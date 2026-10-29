@@ -343,3 +343,7 @@ BTC 多策略以 `strategy_key + symbol` 隔离，代码注册表当前仅 `btc_
 字段转换须保留`positions`/`exits`里的canonical证券代码键。见`../docs/stock-strategies.md`。
 
 CN 自选/持仓展开分钟图使用完整原生当日窗口（full_snapshot），更新时替换而非跨源拼接。以 quote.pre_close 绘制昨收0%线，时间轴固定显示09:30/15:00及午休边界，不填未来OHLC；日线与US/HK图不使用此固定时段。见 docs/cn-minute-sources.md（仓库根）。
+
+## 多信号共振 V2
+
+研究共振页分主要/辅助8家族，显示缺失及归一权重。每市场每日最多10条，详情复用`components/confluence/ConfluenceEvidence.vue`，显示20/40/60日×趋势/突破/反弹矩阵。V1历史保留原有权重；空榜宏观背景从run manifest读取。不得把期权活跃度展示为看涨信号或将缺失补0。

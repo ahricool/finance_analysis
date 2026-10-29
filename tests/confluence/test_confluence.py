@@ -21,7 +21,12 @@ from finance_analysis.confluence.engine import aggregate, signal
 from finance_analysis.confluence.service import ConfluenceService
 from finance_analysis.database.models.confluence import ConfluenceRun, ConfluenceSnapshot
 from finance_analysis.database.models.stock import Instrument
-from finance_analysis.database.models.universe import Universe
+from finance_analysis.database.models.universe import Universe, UniverseMember
+from finance_analysis.database.models.industry_strength import IndustryCatalog, IndustryMembership
+from finance_analysis.database.models.options_intelligence import OptionDailyMetrics
+from finance_analysis.database.models.market_sentiment import MarketSentimentSnapshot
+from finance_analysis.database.models.stock import StockDaily
+from finance_analysis.database.models.etf_rotation import ETFMomentumSnapshot
 from finance_analysis.database.models.industry_strength import IndustryStrengthSnapshot, IndustryStrengthConstituent
 from finance_analysis.database.models.trend_following import TrendFollowingSnapshot
 from finance_analysis.database.models.quant import ModelSignal
@@ -43,7 +48,8 @@ def repo():
     engine = create_engine("sqlite://", poolclass=StaticPool, connect_args={"check_same_thread": False})
     for model in (
         Instrument,
-        Universe,
+        Universe, UniverseMember, IndustryCatalog, IndustryMembership,
+        StockDaily, ETFMomentumSnapshot, OptionDailyMetrics, MarketSentimentSnapshot,
         ConfluenceRun,
         ConfluenceSnapshot,
         IndustryStrengthSnapshot,
@@ -155,9 +161,9 @@ def seed(repo):
             IndustryStrengthConstituent(industry_code="I1", stock_code="600001.SH", stock_name="Stock", updated_at=NOW)
         )
         for identifier, day, version, score in [
-            (1, DAY, "old", 50),
-            (2, DAY, "new", 90),
-            (3, DAY + timedelta(days=1), "future", 100),
+            (1, DAY, "old", 0.50),
+            (2, DAY, "new", 0.90),
+            (3, DAY + timedelta(days=1), "future", 1.0),
         ]:
             session.add(
                 ModelSignal(
@@ -208,7 +214,7 @@ def test_sources_no_future_and_quant_versions_are_coherent(repo):
     assert trend[0]["trade_date"] == quant[0]["trade_date"] == DAY
     assert trend[0]["previous_rank"] == 9
     assert quant[0]["model_version"] == "new"
-    assert quant[0]["final_score"] == 90
+    assert quant[0]["final_score"] == 0.90
     assert repo.trend("US", DAY) == []
     assert repo.quant("CN", DAY - timedelta(days=1)) == []
 
@@ -223,8 +229,8 @@ def test_future_current_members_cannot_leak_into_historical_industry(repo):
     assert repo.industry("US", DAY) == []
     service = ConfluenceService(repo)
     service.run("CN", DAY)
-    row = repo.read("CN", DAY)["items"][0]
-    assert row["signals"]["industry"]["status"] == row["signals"]["etf"]["status"] == "unavailable"
+    # Trend/Quant alone provide only one primary family: no high-confidence signal is published.
+    assert repo.read("CN", DAY)["items"] == []
     assert service.ranking("CN", DAY)["items"] == []
 
 
@@ -235,7 +241,7 @@ def test_upsert_partial_source_filtering_and_empty_generation(repo, monkeypatch)
     first = repo.read("CN", DAY)["items"][0]
     assert first["eligible"]
     assert service.ranking("CN", DAY, lifecycle="IGNITION", industry="I1", top_industry=True)["total"] == 1
-    assert service.ranking("CN", DAY, strong_only=True)["total"] == 0
+    assert service.ranking("CN", DAY, strong_only=True)["total"] == 1
     with repo.db.get_session() as session:
         old_id = session.scalar(select(ConfluenceSnapshot.id))
     service.run("CN", DAY)
@@ -247,7 +253,7 @@ def test_upsert_partial_source_filtering_and_empty_generation(repo, monkeypatch)
     assert result["source_availability"]["quant"]["status"] == "failed"
     assert result["items"][0]["available_signal_count"] == 2
     assert result["items"][0]["signals"]["quant"]["status"] == "unavailable"
-    assert service.ranking("CN", DAY)["total"] == 0
+    assert service.ranking("CN", DAY)["total"] == 1
     assert service.ranking("CN", DAY, min_signals=2)["total"] == 1
     monkeypatch.setattr(repo, "instruments", lambda *_: [])
     service.run("CN", DAY)
@@ -313,11 +319,11 @@ def test_get_api_only_reads_saved_results_and_validates_filters(repo, monkeypatc
     with TestClient(app) as client:
         ranking = client.get("/confluence/ranking").json()
         assert ranking["total"] == 1
-        assert ranking["items"][0]["available_weight"] == 75
+        assert ranking["items"][0]["available_weight"] == 52
         assert client.get("/confluence/dates").json() == [DAY.isoformat()]
         assert client.get("/confluence/600001.SH").status_code == 200
         assert client.get("/confluence/600002.SH").status_code == 404
-        assert client.get("/confluence/ranking?min_signals=6").status_code == 422
+        assert client.get("/confluence/ranking?min_signals=9").status_code == 422
         assert client.get("/confluence/ranking?market=HK").status_code == 422
         assert client.get("/confluence/ranking?trade_date=2020-01-01").json()["items"] == []
 
@@ -451,15 +457,15 @@ def test_industry_rerun_retains_saved_evidence_after_latest_members_refresh(repo
     assert repo.industry("CN", DAY + timedelta(days=1))[0]["industry_code"] == "I2"
     service.run("CN", DAY)
     result = repo.read("CN", DAY)
-    assert result["items"][0]["signals"]["industry"] == saved
+    assert result["items"][0]["signals"]["industry"]["evidence"] == saved["evidence"]
     assert result["items"][0]["signals"]["quant"]["status"] == "negative"
-    assert result["source_availability"]["industry"]["retained_signal_count"] == 1
-    # Even an industry-only historical row must survive rerunning with no rebuildable sources.
+
+    # An industry-only row no longer qualifies as a high-confidence daily signal.
     with repo.db.session_scope() as session:
         session.execute(delete(ModelSignal))
         session.execute(delete(TrendFollowingSnapshot))
     service.run("CN", DAY)
-    assert repo.read("CN", DAY)["items"][0]["signals"]["industry"] == saved
+    assert repo.read("CN", DAY)["items"] == []
 
 
 def test_industry_requires_exact_formal_generation_not_old_members(repo):
@@ -468,7 +474,7 @@ def test_industry_requires_exact_formal_generation_not_old_members(repo):
         session.scalar(select(IndustryStrengthConstituent)).updated_at = NOW - timedelta(days=1)
     assert repo.industry("CN", DAY) == []
     ConfluenceService(repo).run("CN", DAY)
-    assert repo.read("CN", DAY)["items"][0]["signals"]["industry"]["status"] == "unavailable"
+    assert repo.read("CN", DAY)["items"] == []
 
 
 def test_historical_rules_read_from_saved_generation(repo, monkeypatch):
@@ -486,8 +492,68 @@ def test_historical_rules_read_from_saved_generation(repo, monkeypatch):
     with TestClient(app) as client:
         result = client.get("/confluence/ranking", params={"trade_date": DAY.isoformat()}).json()
         assert result["rules"]["strong_min_score"] == 75
-        assert result["rules"]["min_signals"] == 3
+        assert result["rules"]["min_signals"] == 2
         assert result["total"] == 1
     with repo.db.session_scope() as session:
         session.get(ConfluenceRun, ("CN", DAY)).rules = None
     assert service.ranking("CN", DAY)["rules"]["strong_min_score"] == 80
+
+
+def test_v2_trend_reads_all_periods_same_date_with_compact_core_fields(repo):
+    seed(repo)
+    with repo.db.session_scope() as session:
+        original = session.get(TrendFollowingSnapshot, 2)
+        fields = {c.name: getattr(original, c.name) for c in TrendFollowingSnapshot.__table__.columns}
+        for identifier, period in [(4, 40), (5, 60)]:
+            session.add(TrendFollowingSnapshot(**dict(fields, id=identifier, trend_period=period,
+                features={"entry_type": "BREAKOUT", "entry_score": 80, "unused_large_payload": "x" * 10000})))
+    rows = repo.trend_v2("CN", DAY)
+    assert {r["trend_period"] for r in rows} == {20, 40, 60}
+    assert {r["trade_date"] for r in rows} == {DAY}
+    assert all("unused_large_payload" not in r["features"] for r in rows)
+
+
+def test_v2_options_only_reads_requested_official_date(repo):
+    with repo.db.session_scope() as session:
+        session.add(OptionDailyMetrics(id=1, symbol="A.US", trade_date=DAY, snapshot_id=1,
+            metrics={"scores": {"bearish_demand": {"value": 90}}, "contracts": ["large unused detail"]}))
+        session.add(OptionDailyMetrics(id=2, symbol="B.US", trade_date=DAY + timedelta(days=1), snapshot_id=2,
+            metrics={"scores": {"bearish_demand": {"value": 0}}}))
+    rows = repo.options("US", DAY)
+    assert len(rows) == 1 and rows[0]["code"] == "A.US"
+    assert "contracts" not in rows[0]
+    assert repo.options("CN", DAY) == []
+
+
+def test_v2_macro_reuses_pure_calculation_and_bounds_dates_without_provider(repo, monkeypatch):
+    from finance_analysis.macro.config import MACRO_INSTRUMENTS
+    from finance_analysis.integrations.market_data import MarketDataService
+
+    monkeypatch.setattr(MarketDataService, "__init__", lambda *_a, **_k: (_ for _ in ()).throw(AssertionError("no provider")))
+    expected = []
+    def completed(market, current_time):
+        assert market == "us"
+        expected.append(current_time)
+        return DAY
+    monkeypatch.setattr("finance_analysis.market_review.trading_calendar.get_effective_trading_date", completed)
+    with repo.db.session_scope() as session:
+        session.add(Universe(id=2, key="us_macro", name="Macro", market="US", universe_type="STRATEGY"))
+        for offset, code in enumerate(MACRO_INSTRUMENTS):
+            identifier = 100 + offset
+            session.add(Instrument(id=identifier, code=code, native_code=code.split('.')[0], name=code,
+                                   market="US", currency="USD", instrument_type="ETF", source="TEST"))
+            session.add(UniverseMember(universe_id=2, instrument_id=identifier, source="TEST"))
+            for n in range(22):
+                session.add(StockDaily(id=1000 + offset * 100 + n, instrument_id=identifier, data_source="TEST",
+                    date=DAY - timedelta(days=20) + timedelta(days=n), open=100, high=150, low=90,
+                    close=100+n, volume=1000))
+    # The result excludes the 22nd future bar. All expected members must be fresh on the requested baseline.
+    rows = repo.macro("CN", DAY)
+    assert len(rows) == 1 and rows[0]["trade_date"] == DAY
+    assert rows[0]["signal_coverage"] == 1
+    assert expected[0].hour == 20 and expected[0].tzinfo is not None
+
+
+def test_v2_storage_rejects_more_than_ten_even_if_called_directly(repo):
+    with pytest.raises(ValueError, match="cannot exceed 10"):
+        repo.save("CN", DAY, [{}] * 11, {"algorithm_version": "confluence_v2"})

@@ -26,9 +26,13 @@ class ConfluenceRepository:
     def instruments(self, market):
         with self.db.get_session() as session:
             return [
-                values(row, "id code name")
+                values(row, "id code name instrument_metadata")
                 for row in session.scalars(
-                    select(Instrument).where(Instrument.market == market, Instrument.instrument_type == "STOCK")
+                    select(Instrument).where(
+                        Instrument.market == market,
+                        Instrument.instrument_type == "STOCK",
+                        Instrument.listing_status == "ACTIVE",
+                    )
                 )
             ]
 
@@ -37,7 +41,11 @@ class ConfluenceRepository:
             dates = list(
                 session.scalars(
                     select(TrendFollowingSnapshot.trade_date)
-                    .where(TrendFollowingSnapshot.trend_period == 20, TrendFollowingSnapshot.market == market, TrendFollowingSnapshot.trade_date <= day)
+                    .where(
+                        TrendFollowingSnapshot.trend_period == 20,
+                        TrendFollowingSnapshot.market == market,
+                        TrendFollowingSnapshot.trade_date <= day,
+                    )
                     .distinct()
                     .order_by(TrendFollowingSnapshot.trade_date.desc())
                     .limit(2)
@@ -48,7 +56,9 @@ class ConfluenceRepository:
             rows = list(
                 session.scalars(
                     select(TrendFollowingSnapshot).where(
-                        TrendFollowingSnapshot.trend_period == 20, TrendFollowingSnapshot.market == market, TrendFollowingSnapshot.trade_date.in_(dates)
+                        TrendFollowingSnapshot.trend_period == 20,
+                        TrendFollowingSnapshot.market == market,
+                        TrendFollowingSnapshot.trade_date.in_(dates),
                     )
                 )
             )
@@ -100,8 +110,21 @@ class ConfluenceRepository:
         # Formal Industry save refreshes snapshots and latest-only members atomically
         # with the same updated_at. This proves one generation, not historical membership.
         latest = select(func.max(IndustryStrengthSnapshot.trade_date)).scalar_subquery()
+        from datetime import datetime, time
+        from zoneinfo import ZoneInfo
+
+        cutoff = datetime.combine(day, time(20, 30), ZoneInfo("Asia/Shanghai"))
+        fields = (
+            "id trade_date updated_at industry_code industry_name strength_rank strength_score state "
+            "rank_change_1d rank_change_3d rank_change_5d momentum_acceleration_5d"
+        )
         query = (
-            select(IndustryStrengthSnapshot, IndustryStrengthConstituent)
+            select(
+                *[getattr(IndustryStrengthSnapshot, key) for key in fields.split()],
+                IndustryStrengthConstituent.stock_code.label("code"),
+                IndustryStrengthSnapshot.members_observed_at.label("members_observed_at"),
+                IndustryStrengthConstituent.updated_at.label("membership_generation_at"),
+            )
             .join(
                 IndustryStrengthConstituent,
                 and_(
@@ -113,34 +136,11 @@ class ConfluenceRepository:
                 IndustryStrengthSnapshot.trade_date == latest,
                 IndustryStrengthSnapshot.trade_date == day,
                 IndustryStrengthSnapshot.members_observed_at.is_not(None),
+                IndustryStrengthSnapshot.members_observed_at <= cutoff,
             )
         )
         with self.db.get_session() as session:
-            pairs = session.execute(query).all()
-            result = []
-            for snapshot, member in pairs:
-                row = {column.name: getattr(snapshot, column.name) for column in snapshot.__table__.columns}
-                result.append(
-                    {
-                        k: row[k]
-                        for k in (
-                            "id",
-                            "trade_date",
-                            "updated_at",
-                            "industry_code",
-                            "industry_name",
-                            "strength_rank",
-                            "strength_score",
-                            "state",
-                            "rank_change_1d",
-                            "rank_change_3d",
-                            "rank_change_5d",
-                            "momentum_acceleration_5d",
-                        )
-                    }
-                    | {"code": member.stock_code, "members_observed_at": member.updated_at}
-                )
-            return result
+            return [dict(row) for row in session.execute(query).mappings()]
 
     def dragon_tiger(self, market, day):
         if market != "CN":
@@ -192,7 +192,247 @@ class ConfluenceRepository:
                         stocks[row["symbol"]]["records"].append(record)
             return list(stocks.values())
 
+    def trend_v2(self, market, day):
+        # One bounded query for all three same-date periods; no strategy reruns.
+        feature_keys = ("path_score", "entry_type", "entry_score", "box_state", "box_quality", "mr_state", "mr_quality")
+        query = select(
+            TrendFollowingSnapshot.instrument_id,
+            TrendFollowingSnapshot.code,
+            TrendFollowingSnapshot.trade_date,
+            TrendFollowingSnapshot.generated_at,
+            TrendFollowingSnapshot.trend_period,
+            TrendFollowingSnapshot.state,
+            TrendFollowingSnapshot.trend_lifecycle,
+            TrendFollowingSnapshot.alpha_score,
+            TrendFollowingSnapshot.trend_score,
+            TrendFollowingSnapshot.fragility_score,
+            TrendFollowingSnapshot.rank,
+            *[TrendFollowingSnapshot.features[key].label(key) for key in feature_keys],
+        ).where(TrendFollowingSnapshot.market == market, TrendFollowingSnapshot.trade_date == day)
+        with self.db.get_session() as session:
+            result = []
+            for row in session.execute(query).mappings():
+                item = dict(row)
+                item["features"] = {key: item.pop(key) for key in feature_keys}
+                result.append(item)
+            return result
+
+    def etf(self, market, day):
+        from finance_analysis.database.models.etf_rotation import ETFMomentumSnapshot as ETF
+        from finance_analysis.database.models.industry_strength import IndustryCatalog, IndustryMembership
+        from finance_analysis.database.models.universe import Universe, UniverseMember
+        from finance_analysis.stocks.industry_etf import resolve_industry_etf, MAPPING_VERSION
+        from datetime import datetime, time, timezone
+        from zoneinfo import ZoneInfo
+
+        cutoff = datetime.combine(
+            day,
+            time(20, 30) if market == "CN" else time(23, 30),
+            ZoneInfo("Asia/Shanghai" if market == "CN" else "America/New_York"),
+        )
+        # The catalog is latest-only: never apply observations published after the target cutoff.
+        memberships = {}
+        with self.db.get_session() as session:
+            if market == "CN":
+                for code, industry, name in session.execute(
+                    select(IndustryMembership.stock_code, IndustryCatalog.industry_code, IndustryCatalog.industry_name)
+                    .join(IndustryCatalog, IndustryCatalog.industry_code == IndustryMembership.industry_code)
+                    .where(IndustryCatalog.members_observed_at <= cutoff)
+                ):
+                    proxy = resolve_industry_etf("CN", industry)
+                    if proxy.etf_code:
+                        memberships.setdefault(code, {}).setdefault(proxy.etf_code, []).append(
+                            f"{name}：{proxy.reason}"
+                        )
+            else:
+                for code, metadata in session.execute(
+                    select(Instrument.code, Instrument.instrument_metadata).where(
+                        Instrument.market == market,
+                        Instrument.instrument_type == "STOCK",
+                        Instrument.listing_status == "ACTIVE",
+                    )
+                ):
+                    classification = (metadata or {}).get("classification") or {}
+                    observed = classification.get("observed_at")
+                    try:
+                        when = datetime.fromisoformat(observed.replace("Z", "+00:00")) if observed else None
+                    except (ValueError, TypeError):
+                        when = None
+                    if not when or when.tzinfo is None or when.astimezone(timezone.utc) > cutoff:
+                        continue
+                    proxy = resolve_industry_etf(
+                        "US", classification.get("industry", ""), sector=classification.get("sector")
+                    )
+                    if proxy.etf_code:
+                        memberships[code] = {proxy.etf_code: [proxy.reason]}
+            rows = (
+                session.execute(
+                    select(
+                        Instrument.code,
+                        Instrument.name,
+                        ETF.id,
+                        ETF.trade_date,
+                        ETF.generated_at,
+                        ETF.composite_score,
+                        ETF.state,
+                        ETF.rank,
+                        ETF.entry_score,
+                    )
+                    .join(Instrument, Instrument.id == ETF.instrument_id)
+                    .join(UniverseMember, UniverseMember.instrument_id == ETF.instrument_id)
+                    .join(Universe, Universe.id == UniverseMember.universe_id)
+                    .where(
+                        ETF.market == market,
+                        ETF.trade_date == day,
+                        Universe.key == f"{market.lower()}_index_etf",
+                        Universe.enabled.is_(True),
+                        Instrument.instrument_type == "ETF",
+                        Instrument.listing_status == "ACTIVE",
+                    )
+                )
+                .mappings()
+                .all()
+            )
+            etfs = {row["code"]: dict(row) for row in rows}
+        result = []
+        for code, linked in memberships.items():
+            matched = [
+                dict(etfs[key], mapping_reasons=reasons) for key, reasons in sorted(linked.items()) if key in etfs
+            ]
+            if matched:
+                result.append(
+                    dict(
+                        code=code,
+                        trade_date=day,
+                        generated_at=max(r["generated_at"] for r in matched),
+                        mapping_version=MAPPING_VERSION,
+                        etfs=matched,
+                    )
+                )
+        return result
+
+    def macro(self, market, day):
+        from datetime import datetime, time
+        from zoneinfo import ZoneInfo
+        from finance_analysis.database.models.stock import StockDaily
+        from finance_analysis.database.models.universe import Universe, UniverseMember
+        from finance_analysis.macro.config import MACRO_INSTRUMENTS
+        from finance_analysis.macro.models import MacroContext
+        from finance_analysis.macro.service import MacroService
+        from finance_analysis.market_review.trading_calendar import get_effective_trading_date
+
+        cutoff = datetime.combine(
+            day,
+            time(20, 30) if market == "CN" else time(23, 30),
+            ZoneInfo("Asia/Shanghai" if market == "CN" else "America/New_York"),
+        )
+        expected = get_effective_trading_date("us", current_time=cutoff)
+        with self.db.get_session() as session:
+            members = session.execute(
+                select(Instrument.id, Instrument.code, Instrument.name)
+                .join(UniverseMember, UniverseMember.instrument_id == Instrument.id)
+                .join(Universe, Universe.id == UniverseMember.universe_id)
+                .where(Universe.key == "us_macro", Universe.enabled.is_(True), Instrument.code.in_(MACRO_INSTRUMENTS))
+            ).all()
+            if not members:
+                return []
+            ranked = (
+                select(
+                    StockDaily.instrument_id,
+                    StockDaily.date,
+                    StockDaily.close,
+                    func.row_number()
+                    .over(partition_by=StockDaily.instrument_id, order_by=StockDaily.date.desc())
+                    .label("rn"),
+                )
+                .where(
+                    StockDaily.instrument_id.in_([r.id for r in members]),
+                    StockDaily.date <= expected,
+                    StockDaily.close > 0,
+                    StockDaily.close < float("inf"),
+                )
+                .subquery()
+            )
+            rows = session.execute(select(ranked).where(ranked.c.rn <= 21)).mappings().all()
+        histories = {r.code: {} for r in members}
+        by_id = {r.id: r.code for r in members}
+        for r in rows:
+            histories[by_id[r["instrument_id"]]][r["date"]] = float(r["close"])
+        latest = {code: max(history) for code, history in histories.items() if history}
+        # Never move the baseline back when the entire macro universe is stale.
+        context = MacroContext(
+            {r.code: r.name for r in members},
+            latest,
+            expected,
+            min((d for h in histories.values() for d in h), default=expected),
+        )
+        result = MacroService.calculate_dashboard(context, histories)
+        if result.risk_score is None:
+            return []
+        return [
+            dict(
+                trade_date=expected,
+                generated_at=result.generated_at,
+                risk_score=result.risk_score,
+                regime=result.regime,
+                states=result.states.model_dump(),
+                signal_coverage=result.signal_coverage,
+                signals=[r.model_dump() for r in result.signals],
+                cutoff=cutoff.isoformat(),
+            )
+        ]
+
+    def options(self, market, day):
+        if market != "US":
+            return []
+        from finance_analysis.database.models.options_intelligence import OptionDailyMetrics as O
+
+        with self.db.get_session() as session:
+            return [
+                dict(row)
+                for row in session.execute(
+                    select(
+                        O.symbol.label("code"),
+                        O.trade_date,
+                        O.created_at.label("generated_at"),
+                        O.metrics["scores"].label("scores"),
+                        O.metrics["confidence"].label("confidence"),
+                        O.metrics["evidence_grade"].label("evidence_grade"),
+                    ).where(O.trade_date == day)
+                ).mappings()
+            ]
+
+    def sentiment(self, market, day):
+        if market != "CN":
+            return []
+        from finance_analysis.database.models.market_sentiment import MarketSentimentSnapshot as S
+
+        with self.db.get_session() as session:
+            row = session.get(S, day)
+            if row is None:
+                return []
+            payload = row.payload
+            return [
+                dict(
+                    trade_date=day,
+                    generated_at=row.generated_at,
+                    state=row.state,
+                    **{
+                        key: payload.get(key)
+                        for key in (
+                            "heat_score",
+                            "limit_up_count",
+                            "multi_board_count",
+                            "highest_board",
+                            "state_reasons",
+                        )
+                    },
+                )
+            ]
+
     def save(self, market, day, rows, manifest):
+        if manifest.get("algorithm_version") == "confluence_v2" and len(rows) > 10:
+            raise ValueError("V2 daily shortlist cannot exceed 10 signals per market")
         with self.db.session_scope() as session:
             if session.bind.dialect.name == "postgresql":
                 session.execute(

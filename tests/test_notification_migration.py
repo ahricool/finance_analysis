@@ -74,4 +74,4 @@ def test_cleanup_postgresql(monkeypatch):
 
 def test_single_head():
     script = ScriptDirectory.from_config(Config("alembic.ini"))
-    assert script.get_heads() == ["0078_research_preview"]
+    assert script.get_heads() == ["0079_confluence_v2"]

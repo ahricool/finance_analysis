@@ -1,11 +1,11 @@
-// Sources: confluence/{config,engine,service}.py. Snapshot rules remain the authority for thresholds.
+// Sources: confluence/{v2,service}.py. Snapshot rules remain the authority for thresholds.
 export const confluenceHints: Record<string, string> = {
-  strongConfluence: '整日快照中满足强共振规则的股票数，不随当前列表搜索筛选改变。当前规则要求至少4个有效维度、至少3个正向维度、共振分数至少75；页面下方同时展示该快照保存的阈值。强共振是启发式证据归纳，不是上涨概率。',
-  ignitionTopIndustry: '整日快照中，达到最低有效维度要求、趋势生命周期为IGNITION（点火），且行业维度为正向的股票数量。行业正向要求行业排名前10且状态不是WEAK或COOLING。',
-  topIndustryConfluence: '整日快照中，达到最低有效维度要求，且所在行业强度排名前10的股票数量。该计数只检查排名，不额外要求行业状态为正向。',
-  snapshotTradeDate: '这批共振快照的目标交易日期。每个维度采用截至目标日可获取的正式结果，来源日期可能更早；生成时间是本次汇总时间，不代表行情实时更新。',
-  confluence: '0–100分：各可用维度贡献之和÷可用权重之和×100。行业/趋势/量化/ETF/龙虎榜权重为25/30/20/15/10。positive（正向）得完整权重，neutral（中性）得一半，negative（负向）得0；unavailable（无数据）不计分也不计入分母。应结合有效维度数阅读，分数不等于胜率。',
-  signals: '显示“正向维度数/有效维度数”，最多5个维度：行业、趋势、量化、ETF、龙虎榜。有效包括positive（正向）、neutral（中性）、negative（负向），unavailable（无数据）不算有效。数量越少，证据覆盖越有限。',
+  strongConfluence: 'V2主要指标至少2个可用且至少2个正向，综合分≥75；每个市场每日最多10条。V1历史仍按保存的旧规则阅读。不是上涨概率。',
+  ignitionTopIndustry: '所选正式快照中行业正向且20日趋势为IGNITION的数量。',
+  topIndustryConfluence: '所选正式快照中行业排名前10的数量。',
+  snapshotTradeDate: '目标交易日。V2股票指标只取同日正式结果；宏观按中美时点取已完成美股日，龙虎榜使用最近3个CN交易日。',
+  confluence: 'V2主要权重：宏观15、行业ETF20、行业强度15、趋势30；辅助：Quant7、期权5、情绪4、龙虎榜4。缺失留空，不计分母，其他权重按比例归一。各核心支持度为0–100。V1历史保持原始规则。',
+  signals: '正向/有效维度，V2最多8个家族。趋势20/40/60及三种替代路线属于同一家族，不作为9个独立信号重复计数。',
   industry: '该股票关联行业的正式行业快照及强度排名，1最强。行业证据是背景，不是个股自身的收益或交易指令；日期以来源卡片为准。',
   lifecycle: '趋势生命周期共有IGNITION（点火）、EMERGING（萌芽）、EXPANSION（扩张）、MATURE（成熟）、EXHAUSTION（衰竭）、BROKEN（破坏）。阶段由趋势与历史状态计算，不表示固定天数后必然进入下一阶段；缺失表示无法判断。',
   lifecycleFragility: '同时展示趋势生命周期和0–100脆弱性分数。阶段为IGNITION（点火）、EMERGING（萌芽）、EXPANSION（扩张）、MATURE（成熟）、EXHAUSTION（衰竭）、BROKEN（破坏）；脆弱性越高表示近期内部恶化证据越多。缺失不等于0或稳定。',

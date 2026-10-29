@@ -96,6 +96,11 @@ class MacroService:
 
     def dashboard(self, as_of: date | None = None) -> MacroDashboard:
         context, histories = self._load(as_of, 21)
+        return self.calculate_dashboard(context, histories)
+
+    @staticmethod
+    def calculate_dashboard(context, histories) -> MacroDashboard:
+        """Pure reuse for bounded offline consumers that already loaded persisted bars."""
         instruments = []
         all_metrics = {}
         history_lengths = {}
@@ -132,7 +137,7 @@ class MacroService:
                     name=config.name,
                     value=history.get(metric.trade_date),
                     **metric.model_dump(),
-                    signal=self._regime_for_trend(metric.trend) if eligible(key) else None,
+                    signal=MacroService._regime_for_trend(metric.trend) if eligible(key) else None,
                     partial=not fresh or len(history) < 21 or numerator.keys() != denominator.keys(),
                 )
             )

@@ -4,12 +4,10 @@ import logging
 from datetime import date, datetime
 
 from finance_analysis.confluence import config as c
-from finance_analysis.confluence.engine import aggregate, signal
 from finance_analysis.core.time import utc_now
 from finance_analysis.database.repositories.confluence import ConfluenceRepository
 
 logger = logging.getLogger(__name__)
-MISSING_ETF = "现有 ETF theme 元数据没有可靠的股票关联键，未进行名称或 LLM 映射"
 
 
 def json_safe(value):
@@ -27,94 +25,113 @@ class ConfluenceService:
         self.repo = repository if repository is not None else ConfluenceRepository()
 
     def run(self, market, day):
+        from time import perf_counter
+        from finance_analysis.confluence import v2
+
+        started = perf_counter()
         now = utc_now()
-        rules = c.current_rules()
-        previous = {
-            row["instrument_id"]: row["signals"]["industry"]
-            for row in self.repo.read(market, day)["items"]
-            if row["signals"]["industry"]["status"] != "unavailable"
-        }
-        retained_industry = 0
+        policy = v2.rules()
         sources, availability = {}, {}
-        for key in ("trend", "quant", "industry", "dragon_tiger"):
+        for key in v2.WEIGHTS:
             try:
-                rows = getattr(self.repo, key)(market, day)
+                rows = getattr(self.repo, "trend_v2" if key == "trend" else key)(market, day)
+                # Stock/ETF/Quant/Options/Sentiment use only the requested formal date.
+                if key not in {"macro", "dragon_tiger"}:
+                    rows = [r for r in rows if str(r["trade_date"])[:10] == day.isoformat()]
                 sources[key] = rows
                 availability[key] = dict(
                     status="available" if rows else "unavailable",
                     count=len(rows),
                     trade_date=max((r["trade_date"] for r in rows), default=None),
                 )
+                if key in {"macro", "sentiment"} and rows:
+                    availability[key]["evidence"] = json_safe(rows[0])
             except Exception:
                 logger.exception("Confluence source %s failed for %s %s", key, market, day)
                 sources[key] = []
                 availability[key] = dict(
-                    status="failed", count=0, trade_date=None, reason="读取正式结果失败；本次未参与评分"
+                    status="failed", count=0, trade_date=None, reason="读取失败；该维度留空并重新分摊权重"
                 )
-        availability["etf"] = dict(status="unavailable", count=0, trade_date=None, reason=MISSING_ETF)
-        if market == "US":
-            availability["dragon_tiger"]["reason"] = "US 不适用龙虎榜"
-        trend = {r["instrument_id"]: r for r in sources["trend"]}
-        quant = {r["instrument_id"]: r for r in sources["quant"]}
-        flows = {r["code"]: r for r in sources["dragon_tiger"]}
-        industries = {}
-        for row in sources["industry"]:
-            industries.setdefault(row["code"], []).append(row)
-        result = []
+        index = {}
+        for key in ("industry", "trend", "etf", "quant", "options", "dragon_tiger"):
+            index[key] = {}
+            for row in sources[key]:
+                identity = row.get("instrument_id") if key in {"trend", "quant"} else row.get("code")
+                index[key].setdefault(identity, []).append(row)
+        # Only retain immutable same-day industry evidence when latest-only memberships cannot be reconstructed.
+        previous = self.repo.read(market, day)["items"]
+        retained = {
+            r["instrument_id"]: r["signals"]["industry"].get("evidence", {})
+            for r in previous
+            if r["signals"].get("industry", {}).get("status") != "unavailable"
+        }
+        candidates = []
+        retained_count = 0
         for stock in self.repo.instruments(market):
-            member_rows = industries.get(stock["code"], [])
-            # Ambiguous memberships are not cherry-picked for the highest score.
-            industry = member_rows[0] if len(member_rows) == 1 else None
-            facts = {
-                "industry": industry,
-                "trend": trend.get(stock["id"]),
-                "quant": quant.get(stock["id"]),
-                "dragon_tiger": flows.get(stock["code"]),
-            }
-            if not any(facts.values()) and stock["id"] not in previous:
+            identity, code = stock["id"], stock["code"]
+            trend_rows = index["trend"].get(identity, [])
+            industry_rows = sorted(index["industry"].get(code, []), key=lambda row: row.get("industry_code", ""))
+            inputs = {}
+            if trend_rows:
+                anchor = next((r for r in trend_rows if r.get("trend_period", 20) == 20), trend_rows[0])
+                inputs["trend"] = dict(anchor, periods=trend_rows)
+            if industry_rows:
+                inputs["industry"] = dict(industry_rows[0], industries=industry_rows)
+            elif identity in retained:
+                inputs["industry"] = retained[identity]
+                retained_count += 1
+            for key in ("etf", "quant", "options", "dragon_tiger"):
+                rows = index[key].get(identity if key == "quant" else code, [])
+                inputs[key] = rows[0] if rows else None
+            if not any(inputs.values()):
                 continue
+            inputs["macro"] = sources["macro"][0] if sources["macro"] else None
+            inputs["sentiment"] = sources["sentiment"][0] if sources["sentiment"] else None
             signals = {
-                key: signal(
+                key: v2.evaluate(
                     key,
-                    json_safe(value),
-                    availability[key].get("reason")
-                    or ("无对应正式代次的行业成分或存在多个行业" if key == "industry" else "截至目标日期无正式数据"),
+                    json_safe(inputs.get(key)),
+                    availability[key].get("reason", "本股票或市场在该日期无对应核心指标"),
                 )
-                for key, value in facts.items()
+                for key in v2.WEIGHTS
             }
-            if signals["industry"]["status"] == "unavailable" and stock["id"] in previous:
-                signals["industry"] = previous[stock["id"]]
-                retained_industry += 1
-            for key in ("etf",):
-                signals[key] = signal(key, unavailable_reason=availability[key]["reason"])
-            result.append(
-                dict(
-                    instrument_id=stock["id"],
-                    **aggregate(signals, rules),
-                    algorithm_version=c.ALGORITHM_VERSION,
-                    generated_at=now,
+            result = v2.aggregate(signals, policy)
+            if result["eligible"]:
+                candidates.append(
+                    dict(instrument_id=identity, code=code, **result, algorithm_version=v2.VERSION, generated_at=now)
                 )
-            )
-        if retained_industry:
-            availability["industry"]["retained_signal_count"] = retained_industry
-            availability["industry"]["reason"] = "无法重建的行业维度保留该日期已保存的正式证据"
+        if retained_count:
+            availability["industry"]["retained_signal_count"] = retained_count
+            availability["industry"]["reason"] = "当前行业成分无法重建，保留该日已保存的正式行业证据"
+        candidates.sort(key=v2.confidence_key)
+        selected = candidates[: policy["max_signals"]]
+        rows = [{k: v for k, v in row.items() if k != "code"} for row in selected]
+        availability["selection"] = dict(
+            candidate_count=len(candidates),
+            selected_count=len(rows),
+            max_signals=policy["max_signals"],
+            elapsed_seconds=round(perf_counter() - started, 4),
+            order="主要维度正向一致性→主要维度数→综合分→代码",
+        )
         published = self.repo.save(
             market,
             day,
-            result,
+            rows,
             dict(
                 generated_at=now,
-                algorithm_version=c.ALGORITHM_VERSION,
+                algorithm_version=v2.VERSION,
                 source_availability=json_safe(availability),
-                rules=rules,
+                rules=policy,
             ),
         )
         return dict(
             status="completed" if published else "superseded",
             market=market,
             trade_date=day.isoformat(),
-            count=len(result),
-            eligible_count=sum(r["eligible"] for r in result),
+            count=len(rows),
+            eligible_count=len(rows),
+            candidate_count=len(candidates),
+            elapsed_seconds=round(perf_counter() - started, 4),
             source_availability=json_safe(availability),
         )
 
@@ -138,11 +155,17 @@ class ConfluenceService:
             min_signals = response["rules"]["min_signals"]
 
         def industry_top(row):
-            rank = row["signals"]["industry"]["evidence"].get("strength_rank")
-            return rank is not None and rank <= c.TOP_INDUSTRY
+            evidence = row["signals"]["industry"]["evidence"]
+            return any(
+                r.get("strength_rank") is not None and r["strength_rank"] <= c.TOP_INDUSTRY
+                for r in evidence.get("industries", [evidence])
+            )
 
         response["summary"] = dict(
             total=len(rows),
+            candidate_count=response.get("source_availability", {})
+            .get("selection", {})
+            .get("candidate_count", len(rows)),
             eligible=sum(r["eligible"] for r in rows),
             strong_confluence=sum(r["strong_confluence"] for r in rows),
             ignition_industry_strong=sum(
@@ -161,7 +184,12 @@ class ConfluenceService:
                 continue
             if row["confluence_score"] < min_score or (strong_only and not row["strong_confluence"]):
                 continue
-            if industry and industry not in {industry_facts.get("industry_code"), industry_facts.get("industry_name")}:
+            industry_names = {
+                value
+                for item in industry_facts.get("industries", [industry_facts])
+                for value in (item.get("industry_code"), item.get("industry_name"))
+            }
+            if industry and industry not in industry_names:
                 continue
             if lifecycle and lifecycle != phase or early_only and phase not in c.EARLY_LIFECYCLES:
                 continue
@@ -177,6 +205,10 @@ class ConfluenceService:
                 row["code"],
             )
         )
+        if response.get("algorithm_version") == "confluence_v2":
+            from finance_analysis.confluence.v2 import confidence_key
+
+            selected.sort(key=confidence_key)
         response["total"] = len(selected)
         response["items"] = selected[:limit]
         return response

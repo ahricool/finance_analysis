@@ -27,12 +27,12 @@ from finance_analysis.tasks.celery.jobs.reference_data_sync.service import Refer
 
 def test_removed_domains_are_absent_from_current_schema_and_api():
     current_tables = set(Instrument.metadata.tables)
+    # Holdings and options were reintroduced as maintained domains, not legacy tables.
+    assert {"portfolio_account", "option_contract"} <= current_tables
     assert current_tables.isdisjoint(
         {
-            "portfolio_account",
             "account_cash_balance",
             "position",
-            "option_contract",
             "market_data_symbol",
             "quant_universe",
             "quant_universe_member",
@@ -672,6 +672,9 @@ def test_daily_trend_and_market_structure_scopes_are_independent(setup, monkeypa
         sync = object.__new__(MarketDataSyncService)
         sync.market, sync.universe_resolver = market, resolver
         sync_codes = {codes[key] for key in expected[f"{prefix}_daily_sync"]}
+        if setup == "seed":
+            from finance_analysis.database.core_index_etf import CORE_INDEX_ETFS
+            sync_codes |= set(CORE_INDEX_ETFS[market])
         if setup == "seed" and market == "US":
             from finance_analysis.market_review.us_postmarket_symbols import (
                 US_POSTMARKET_BENCHMARKS, US_POSTMARKET_SECTOR_ETFS,

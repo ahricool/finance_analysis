@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import StockLink from '@/components/stocks/StockLink.vue';
+import BilingualEnum from '@/components/app/BilingualEnum.vue';
 import PageHeader from '@/components/layout/PageHeader.vue';
 import { onBeforeUnmount, onMounted, ref, shallowRef } from 'vue';
-import { confluenceApi as api, type ConfluenceRanking, type ConfluenceItem, type Market, type SignalKey } from '@/api/confluence';
+import { confluenceApi as api, type ConfluenceRanking, type ConfluenceItem, type Market } from '@/api/confluence';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import { useAuth } from '@/composables/useAuth';
 import AppApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
@@ -14,7 +15,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableHeader, TableHead, TableBody, TableRow, TableCell } from '@/components/ui/table';
-import IndicatorHelpLabel from '@/components/app/IndicatorHelpLabel.vue';
+import { primary, secondary, labels, weights, signal, strength, agreement, tone } from '@/components/confluence/evidence';
 import { formatDateTime } from '@/utils/format';
 
 const { currentUser } = useAuth();
@@ -24,9 +25,6 @@ const earlyOnly = ref(false); const topIndustry = ref(false); const strongOnly =
 const result = shallowRef<ConfluenceRanking | null>(null); const selected = shallowRef<ConfluenceItem | null>(null);
 const error = shallowRef<ParsedApiError | null>(null); const loading = ref(false); const submitting = ref(false);
 const taskId = ref(''); const dialogOpen = ref(false);
-const keys: SignalKey[] = ['industry', 'trend', 'quant', 'etf', 'dragonTiger'];
-const labels: Record<SignalKey, string> = { industry: '行业', trend: '趋势', quant: 'Quant', etf: 'ETF', dragonTiger: '龙虎榜资金' };
-const states = { positive: '正向', neutral: '中性', negative: '负向', unavailable: '无数据' };
 let generation = 0;
 async function load(reset = false) {
   const token = ++generation; loading.value = true; error.value = null; result.value = null;
@@ -62,7 +60,10 @@ async function run() {
   catch (cause) { error.value = getParsedApiError(cause); }
   finally { submitting.value = false; }
 }
-function evidence(row: ConfluenceItem, key: SignalKey, field: string) { return row.signals[key].evidence[field] ?? '—'; }
+function configuredWeight(key: keyof typeof weights) {
+  return result.value?.rules.weights?.[key] ?? result.value?.items[0]?.signals[key]?.weight ?? (result.value?.algorithmVersion === 'confluence_v2' ? weights[key] : null);
+}
+function frameworkTotal(keys: Array<keyof typeof weights>) { return keys.reduce((sum, key) => sum + (configuredWeight(key) ?? 0), 0); }
 onMounted(() => { void load(); });
 onBeforeUnmount(() => { ++generation; });
 const detailInitialTab = ref<'overview' | 'confluence'>('confluence');
@@ -70,14 +71,14 @@ const detailInitialTab = ref<'overview' | 'confluence'>('confluence');
 
 <template>
   <div
-    class="min-w-0 space-y-4"
+    class="min-w-0 space-y-6"
     data-testid="confluence-page"
   >
     <PageHeader
       variant="section"
       title="多信号共振"
-      en="Signal Confluence"
-      description="面向 2–14 天的正式结果交叉确认。先看证据与覆盖，再看分数。"
+      en="SIGNAL CONFLUENCE"
+      description="主要证据驱动，辅助指标交叉验证。每个市场每日精选不超过 10 个信号。"
     >
       <template #actions>
         <ResearchMarketToggle
@@ -85,316 +86,325 @@ const detailInitialTab = ref<'overview' | 'confluence'>('confluence');
           data-testid="confluence-market-switcher"
           @update:model-value="setMarket"
         />
-        <AppDatePicker
-          :model-value="tradeDate || result?.tradeDate || ''"
-          label="快照日期"
-          placeholder="最新快照"
-          :available-dates="dates"
-          :disabled="loading || !dates.length"
-          disable-weekends
-          class="w-56"
-          data-testid="confluence-date"
-          @update:model-value="selectDate"
-        />
         <Button
           variant="outline"
-          class="h-10"
           :disabled="loading"
+          aria-label="刷新共振"
           @click="load()"
         >
-          <RefreshCcw class="size-4" />刷新
+          <RefreshCcw class="mr-2 size-4" />刷新
         </Button>
         <Button
           v-if="currentUser?.role === 'admin'"
-          class="h-10"
           :disabled="submitting"
           @click="run"
         >
-          生成快照
+          {{ submitting ? '提交中…' : '生成信号' }}
         </Button>
       </template>
     </PageHeader>
-    <AppApiErrorAlert
-      v-if="error"
-      :error="error"
-    />
+    <div class="flex flex-wrap items-center gap-3 rounded-xl border bg-card px-4 py-3">
+      <label
+        for="confluence-date-picker"
+        class="text-xs font-medium text-muted-foreground"
+      >快照日期</label>
+      <AppDatePicker
+        id="confluence-date-picker"
+        :model-value="tradeDate || result?.tradeDate || ''"
+        :available-dates="dates"
+        disable-weekends
+        data-testid="confluence-date"
+        @update:model-value="selectDate"
+      />
+      <span class="ml-auto text-xs text-muted-foreground">{{ result?.generatedAt ? `更新于 ${formatDateTime(result.generatedAt)}` : '等待正式结果' }}</span>
+      <Badge
+        v-if="result?.algorithmVersion"
+        variant="outline"
+      >
+        {{ result.algorithmVersion }}
+      </Badge>
+    </div>
     <p
       v-if="taskId"
       class="text-sm text-muted-foreground"
-    >
-      任务已提交：{{ taskId }}。完成后刷新查看。
-    </p>
-    <div class="flex flex-wrap items-end gap-3 rounded-lg border p-4">
-      <label class="grid gap-1 text-sm">最低有效维度<Input
-        v-model="minSignals"
-        aria-label="最低有效维度"
-        class="h-10 w-28"
-        type="number"
-        min="1"
-        max="5"
-      /></label>
-      <label class="grid gap-1 text-sm">最低分数<Input
-        v-model="minScore"
-        aria-label="最低分数"
-        class="h-10 w-24"
-        type="number"
-        min="0"
-        max="100"
-      /></label>
-      <label class="grid gap-1 text-sm">行业<Input
-        v-model="industry"
-        aria-label="行业"
-        class="h-10 w-32"
-        placeholder="名称或代码"
-      /></label>
-      <label class="grid gap-1 text-sm"><IndicatorHelpLabel
-        scope="confluence"
-        label="lifecycle"
-        compact
-      /><select
-        v-model="lifecycle"
-        aria-label="生命周期"
-        class="block h-10 rounded-md border bg-background px-3"
-      ><option value="">全部</option><option
-        v-for="phase in ['IGNITION', 'EMERGING', 'EXPANSION', 'MATURE', 'EXHAUSTION', 'BROKEN']"
-        :key="phase"
-        :value="phase"
-      >{{ phase }}</option></select></label>
-      <label class="flex items-center gap-2 text-sm"><input
-        v-model="earlyOnly"
-        type="checkbox"
-      >仅点火 / 萌芽</label>
-      <label class="flex items-center gap-2 text-sm"><input
-        v-model="topIndustry"
-        type="checkbox"
-      >行业 Top10</label>
-      <label class="flex items-center gap-2 text-sm"><input
-        v-model="strongOnly"
-        type="checkbox"
-      >仅强共振</label>
-      <Button
-        :disabled="loading"
-        @click="load()"
-      >
-        筛选
-      </Button>
-    </div>
-    <p class="text-sm text-muted-foreground">
-      正向贡献全权重，中性贡献一半，负向为 0；无数据不参与分母。至少 {{ result?.rules.minSignals ?? '—' }} 个有效维度进入默认榜单。V1 启发式规则，未经回测验证。
-    </p>
-    <p
-      v-if="loading"
       role="status"
     >
-      正在读取正式快照…
+      任务已提交：{{ taskId }}，完成后刷新查看。
     </p>
-    <template v-if="result">
-      <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <div class="rounded-lg border p-4">
-          <p class="text-sm text-muted-foreground">
-            <IndicatorHelpLabel
-              scope="confluence"
-              label="strongConfluence"
-            />
-          </p><p class="text-2xl font-semibold">
+    <AppApiErrorAlert
+      v-if="error"
+      :error="error"
+      action-label="重试"
+      @action="load()"
+    />
+    <div
+      v-if="loading"
+      class="rounded-xl border p-10 text-center text-sm text-muted-foreground"
+      role="status"
+    >
+      正在读取正式共振快照…
+    </div>
+    <template v-else-if="result">
+      <section
+        class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"
+        aria-label="当日研究概况"
+      >
+        <div class="rounded-xl border border-foreground/15 bg-gradient-to-br from-muted/60 to-card p-5">
+          <p class="text-xs text-muted-foreground">
+            当日精选
+          </p><p class="mt-2 text-3xl font-semibold tabular-nums">
+            {{ result.summary.total }}<span class="ml-2 text-sm font-normal text-muted-foreground">{{ result.rules.maxSignals ? `/ ${result.rules.maxSignals}` : '历史快照' }}</span>
+          </p><p class="mt-2 text-xs text-muted-foreground">
+            按证据一致性排序 · 不凑名额
+          </p>
+        </div>
+        <div class="rounded-xl border bg-card p-5">
+          <p class="text-xs text-muted-foreground">
+            高共振
+          </p><p class="mt-2 text-3xl font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">
             {{ result.summary.strongConfluence }}
-          </p><p class="text-xs text-muted-foreground">
-            至少 {{ result.rules.strongMinSignals }} 维 / {{ result.rules.strongMinPositive }} 正向 / {{ result.rules.strongMinScore }} 分
+          </p><p class="mt-2 text-xs text-muted-foreground">
+            {{ result.algorithmVersion === 'confluence_v2' ? `分数 ≥ ${result.rules.strongMinScore} · 主要证据一致偏强` : '按历史保存的强共振规则' }}
           </p>
         </div>
-        <div class="rounded-lg border p-4">
-          <p class="text-sm text-muted-foreground">
-            <IndicatorHelpLabel
-              scope="confluence"
-              label="ignitionTopIndustry"
+        <div class="rounded-xl border bg-card p-5">
+          <p class="text-xs text-muted-foreground">
+            合格候选
+          </p><p class="mt-2 text-3xl font-semibold tabular-nums">
+            {{ result.summary.candidateCount ?? result.summary.eligible }}
+          </p><p class="mt-2 text-xs text-muted-foreground">
+            筛选后仅保留每日最高优先级
+          </p>
+        </div>
+        <div class="rounded-xl border bg-card p-5">
+          <p class="text-xs text-muted-foreground">
+            宏观背景
+          </p><p class="mt-2 text-2xl font-semibold">
+            <BilingualEnum
+              :value="String(result.sourceAvailability.macro?.evidence?.regime ?? result.items[0]?.signals.macro?.evidence.regime ?? '—')"
+              size="large"
             />
-          </p><p class="text-2xl font-semibold">
-            {{ result.summary.ignitionIndustryStrong }}
+          </p><p class="mt-2 text-xs text-muted-foreground">
+            {{ result.sourceAvailability.macro?.tradeDate ?? result.items[0]?.signals.macro?.tradeDate ?? '无可用指标，权重自动分摊' }}
           </p>
         </div>
-        <div class="rounded-lg border p-4">
-          <p class="text-sm text-muted-foreground">
-            <IndicatorHelpLabel
-              scope="confluence"
-              label="topIndustryConfluence"
-            />
-          </p><p class="text-2xl font-semibold">
-            {{ result.summary.topIndustryConfluence }}
-          </p>
-        </div>
-        <div class="rounded-lg border p-4">
-          <p class="text-sm text-muted-foreground">
-            <IndicatorHelpLabel
-              scope="confluence"
-              label="snapshotTradeDate"
-            />
-          </p><p class="text-xl font-semibold">
-            {{ result.tradeDate ?? '暂无快照' }}
-          </p><p class="text-xs text-muted-foreground">
-            生成 {{ result.generatedAt ? formatDateTime(result.generatedAt) : '—' }}
-          </p>
-        </div>
-      </div>
-      <div class="rounded-lg border p-4 text-sm space-y-2">
-        <p class="font-medium">
-          来源覆盖 · 各维度日期独立，可能早于目标日期
-        </p>
-        <p
-          v-for="(source, key) in result.sourceAvailability"
-          :key="key"
-        >
-          <span class="font-medium">{{ labels[key] }}</span> · {{ source.tradeDate ?? '无正式日期' }} · {{ source.count }} 条 · {{ source.status === 'available' ? '可用' : source.status === 'failed' ? '读取失败' : '不可用' }}<span v-if="source.reason"> · {{ source.reason }}</span>
-        </p>
-        <p
-          v-if="market === 'US'"
-          class="text-muted-foreground"
-        >
-          US 当前可能仅有趋势与 Quant 两个维度。可将最低维度设为 2 查看有限证据，不能因此认定为高共振。
-        </p>
-      </div>
-      <p class="text-sm text-muted-foreground">
-        匹配 {{ result.total }} 只，显示前 {{ result.items.length }} 只；摘要为整日统计。Signals = 正向 / 有效维度（共 5 维）。
+      </section>
+      <p
+        v-if="result.algorithmVersion !== 'confluence_v2'"
+        class="text-xs text-muted-foreground"
+      >
+        历史版本：保留原始评分与权重；新增指标留空。
       </p>
-      <div class="rounded-lg border overflow-x-auto">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>
-                <IndicatorHelpLabel
-                  scope="confluence"
-                  label="股票"
-                  compact
-                />
-              </TableHead>
-              <TableHead>
-                <IndicatorHelpLabel
-                  scope="confluence"
-                  label="confluence"
-                  compact
-                />
-              </TableHead>
-              <TableHead>
-                <IndicatorHelpLabel
-                  scope="confluence"
-                  label="signals"
-                  compact
-                />
-              </TableHead>
-              <TableHead>
-                <IndicatorHelpLabel
-                  scope="confluence"
-                  label="industry"
-                  compact
-                />
-              </TableHead>
-              <TableHead>
-                <IndicatorHelpLabel
-                  scope="confluence"
-                  label="lifecycleFragility"
-                  compact
-                />
-              </TableHead>
-              <TableHead>
-                <IndicatorHelpLabel
-                  scope="confluence"
-                  label="quantRank"
-                  compact
-                />
-              </TableHead>
-              <TableHead>
-                <IndicatorHelpLabel
-                  scope="confluence"
-                  label="etfRank"
-                  compact
-                />
-              </TableHead>
-              <TableHead>
-                <IndicatorHelpLabel
-                  scope="confluence"
-                  label="龙虎榜资金"
-                  compact
-                />
-              </TableHead>
-              <TableHead>
-                <IndicatorHelpLabel
-                  scope="confluence"
-                  label="whyConfluence"
-                  compact
-                />
-              </TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            <TableRow
-              v-for="row in result.items"
-              :key="row.code"
-              class="cursor-pointer"
-              tabindex="0"
-              @click="detailInitialTab = 'confluence'; show(row)"
-              @keydown.enter.self="detailInitialTab = 'confluence'; show(row)"
-              @keydown.space.self.prevent="detailInitialTab = 'confluence'; show(row)"
-            >
-              <TableCell>
-                <StockLink
-                  :code="row.code"
-                  :name="row.name"
-                  :market="market"
-                  @select="detailInitialTab = 'overview'; show(row)"
-                />
-              </TableCell>
-              <TableCell>
-                <strong>{{ row.confluenceScore?.toFixed(1) ?? '—' }}</strong><p class="text-xs text-muted-foreground">
-                  权重 {{ row.availableWeight }}/100
-                </p><Badge
-                  v-if="!row.eligible"
-                  variant="outline"
-                >
-                  证据不足
-                </Badge>
-              </TableCell>
-              <TableCell>{{ row.positiveSignalCount }}/{{ row.availableSignalCount }}</TableCell>
-              <TableCell>
-                {{ evidence(row, 'industry', 'industryName') }}<p class="text-xs">
-                  Rank {{ evidence(row, 'industry', 'strengthRank') }}
-                </p>
-              </TableCell>
-              <TableCell>
-                {{ evidence(row, 'trend', 'trendLifecycle') }}<p class="text-xs">
-                  脆弱性 {{ evidence(row, 'trend', 'fragilityScore') }}
-                </p>
-              </TableCell>
-              <TableCell>{{ evidence(row, 'quant', 'universeRank') }}</TableCell><TableCell>{{ evidence(row, 'etf', 'rank') }}</TableCell>
-              <TableCell>{{ row.signals.dragonTiger.status === 'unavailable' ? '无数据' : evidence(row, 'dragonTiger', 'netInflow') }}</TableCell>
-              <TableCell class="max-w-80 whitespace-normal">
-                <div class="flex flex-wrap gap-1 mb-2">
-                  <Badge
-                    v-for="key in keys"
-                    :key="key"
-                    variant="outline"
-                    :class="{ 'text-market-up': row.signals[key].status === 'positive', 'text-market-down': row.signals[key].status === 'negative', 'text-muted-foreground': row.signals[key].status === 'unavailable' }"
-                  >
-                    {{ labels[key] }} {{ states[row.signals[key].status] }} {{ row.signals[key].score ?? '—' }}
-                  </Badge>
-                </div><p
-                  v-for="key in keys.filter(k => row.signals[k].status !== 'unavailable')"
-                  :key="key"
-                  class="text-xs"
-                >
-                  {{ row.signals[key].reasons[0] }} · {{ row.signals[key].tradeDate }}
-                </p>
-              </TableCell>
-            </TableRow>
-            <TableRow v-if="!result.items.length">
-              <TableCell
-                :colspan="9"
-                class="py-10 text-center text-muted-foreground"
+      <section
+        class="overflow-hidden rounded-xl border bg-card"
+        aria-label="评分框架"
+      >
+        <div class="grid lg:grid-cols-[1fr_1fr]">
+          <div class="p-4 lg:border-r">
+            <div class="mb-3 flex items-center justify-between">
+              <h2 class="text-sm font-semibold">
+                主要指标
+              </h2><span class="text-xs text-muted-foreground">基础权重 {{ frameworkTotal(primary) }}%</span>
+            </div><div class="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              <div
+                v-for="key in primary"
+                :key="key"
+                class="rounded-lg bg-muted/50 px-3 py-2"
               >
-                {{ result.generatedAt ? '没有满足当前条件的股票；缺失信号不会被补为零分。' : '暂无正式共振快照，等待任务生成。' }}
-              </TableCell>
-            </TableRow>
-          </TableBody>
-        </Table>
-      </div>
+                <p class="text-xs">
+                  {{ labels[key] }}
+                </p><p class="mt-1 text-sm font-medium tabular-nums">
+                  {{ configuredWeight(key) ?? '—' }}<span class="text-xs text-muted-foreground">%</span>
+                </p>
+              </div>
+            </div>
+          </div>
+          <div class="p-4">
+            <div class="mb-3 flex items-center justify-between">
+              <h2 class="text-sm font-semibold">
+                辅助指标
+              </h2><span class="text-xs text-muted-foreground">基础权重 {{ frameworkTotal(secondary) }}%</span>
+            </div><div class="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              <div
+                v-for="key in secondary"
+                :key="key"
+                class="rounded-lg bg-muted/30 px-3 py-2"
+              >
+                <p class="text-xs text-muted-foreground">
+                  {{ labels[key] }}
+                </p><p class="mt-1 text-sm font-medium tabular-nums">
+                  {{ configuredWeight(key) ?? '—' }}<span class="text-xs text-muted-foreground">%</span>
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="border-t bg-muted/20 px-4 py-2.5 text-xs text-muted-foreground">
+          缺失留空，可用指标按基础权重比例重新归一。趋势包含 20 / 40 / 60 日的趋势、突破与超跌反弹；同周期替代形态不叠加。
+        </p>
+      </section>
+      <section class="space-y-3">
+        <div class="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h2 class="text-base font-semibold">
+              精选信号
+            </h2><p class="mt-1 text-xs text-muted-foreground">
+              点击股票查看行情，点击行查看完整共振证据。
+            </p>
+          </div><div class="flex flex-wrap items-center gap-2">
+            <label class="grid gap-1 text-xs text-muted-foreground"><span>最低共振分</span>            <Input
+              v-model.number="minScore"
+              type="number"
+              min="0"
+              max="100"
+              class="w-28"
+              aria-label="最低分数"
+              placeholder="最低分"
+            />
+            </label><label class="grid gap-1 text-xs text-muted-foreground"><span>有效维度</span>            <Input
+              v-model.number="minSignals"
+              type="number"
+              min="1"
+              max="8"
+              class="w-28"
+              aria-label="最低有效维度"
+              placeholder="有效维度"
+            />
+            </label>            <Button
+              variant="outline"
+              @click="load()"
+            >
+              筛选
+            </Button>
+          </div>
+        </div>
+        <div class="overflow-x-auto rounded-xl border bg-card">
+          <Table class="min-w-[1080px]">
+            <TableHeader>
+              <TableRow class="bg-muted/35 hover:bg-muted/35">
+                <TableHead class="w-44">
+                  证券 / 证据一致性
+                </TableHead><TableHead class="w-28">
+                  共振分
+                </TableHead><TableHead
+                  v-for="key in primary"
+                  :key="key"
+                  class="w-24"
+                >
+                  {{ labels[key] }}
+                </TableHead><TableHead class="w-60">
+                  辅助证据
+                </TableHead><TableHead class="w-24 text-right">
+                  有效权重
+                </TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              <TableRow
+                v-for="(row, index) in result.items"
+                :key="row.code"
+                class="cursor-pointer"
+                tabindex="0"
+                @click="detailInitialTab = 'confluence'; show(row)"
+                @keydown.enter.self="detailInitialTab = 'confluence'; show(row)"
+                @keydown.space.self.prevent="detailInitialTab = 'confluence'; show(row)"
+              >
+                <TableCell class="py-5">
+                  <div class="flex items-start gap-3">
+                    <span class="mt-1 font-mono text-xs text-muted-foreground">{{ String(index + 1).padStart(2, '0') }}</span><div>
+                      <StockLink
+                        :code="row.code"
+                        :name="row.name"
+                        :market="market"
+                        @select="detailInitialTab = 'overview'; show(row)"
+                      /><p class="mt-2 text-xs text-muted-foreground">
+                        主要证据正向 {{ agreement(row) }}
+                      </p>
+                    </div>
+                  </div>
+                </TableCell>
+                <TableCell>
+                  <p class="text-2xl font-semibold tabular-nums tracking-tight">
+                    {{ row.confluenceScore?.toFixed(1) ?? '—' }}
+                  </p><Badge
+                    v-if="row.strongConfluence"
+                    variant="secondary"
+                    class="mt-1 text-emerald-700 dark:text-emerald-300"
+                  >
+                    高共振
+                  </Badge>
+                </TableCell>
+                <TableCell
+                  v-for="key in primary"
+                  :key="key"
+                >
+                  <p
+                    class="text-base font-semibold tabular-nums"
+                    :class="tone(signal(row, key).status)"
+                  >
+                    {{ strength(row, key)?.toFixed(0) ?? '—' }}
+                  </p><p class="mt-1 text-[10px] text-muted-foreground">
+                    {{ signal(row, key).tradeDate ?? '无数据' }}
+                  </p>
+                </TableCell>
+                <TableCell>
+                  <div class="grid grid-cols-2 gap-x-4 gap-y-2">
+                    <div
+                      v-for="key in secondary"
+                      :key="key"
+                      class="flex items-center justify-between gap-2 text-xs"
+                    >
+                      <span class="text-muted-foreground">{{ labels[key] }}</span><span
+                        class="font-medium tabular-nums"
+                        :class="tone(signal(row, key).status)"
+                      >{{ strength(row, key)?.toFixed(0) ?? '—' }}</span>
+                    </div>
+                  </div>
+                </TableCell>
+                <TableCell class="text-right">
+                  <p class="font-medium tabular-nums">
+                    {{ row.availableWeight }}<span class="text-xs text-muted-foreground">/100</span>
+                  </p><p class="mt-1 text-xs text-muted-foreground">
+                    {{ row.availableSignalCount }} 个维度
+                  </p>
+                </TableCell>
+              </TableRow>
+              <TableRow v-if="!result.items.length">
+                <TableCell
+                  :colspan="8"
+                  class="py-14 text-center"
+                >
+                  <p class="font-medium">
+                    {{ result.generatedAt ? '暂无符合条件的高一致性信号' : '暂无正式共振快照' }}
+                  </p><p class="mt-2 text-xs text-muted-foreground">
+                    缺少核心证据时留空；每日上限是 10 个，不是必须产出 10 个。
+                  </p>
+                </TableCell>
+              </TableRow>
+            </TableBody>
+          </Table>
+        </div>
+      </section>
+      <details class="rounded-xl border bg-card px-4 py-3 text-xs">
+        <summary class="cursor-pointer font-medium">
+          数据来源与评分说明
+        </summary><div class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div
+            v-for="key in [...primary, ...secondary]"
+            :key="key"
+          >
+            <p class="font-medium">
+              {{ labels[key] }}
+            </p><p class="mt-1 text-muted-foreground">
+              {{ result.sourceAvailability[key]?.status ?? 'unavailable' }} · {{ result.sourceAvailability[key]?.tradeDate ?? '—' }}
+            </p><p class="mt-1 text-muted-foreground">
+              {{ result.sourceAvailability[key]?.reason ?? '仅使用已保存的正式核心指标' }}
+            </p>
+          </div>
+        </div><p class="mt-4 border-t pt-3 text-muted-foreground">
+          分数表示规则下的证据支持度，不是上涨概率。来源失败和不适用均保持缺失；历史快照保留当时版本。
+        </p>
+      </details>
     </template>
     <StockDetailDialog
       v-model:open="dialogOpen"

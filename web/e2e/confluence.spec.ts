@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
-import raw from './fixtures/confluence';
+import raw from './fixtures/confluenceV2';
 
-for (const width of [1280, 1440, 1920]) {
+for (const width of [390, 768, 1280, 1440, 1920]) {
   for (const theme of ['light', 'dark']) {
     test(`Confluence evidence ${width}px ${theme}`, async ({ page }, testInfo) => {
       await page.setViewportSize({ width, height: 1080 });
@@ -18,26 +18,28 @@ for (const width of [1280, 1440, 1920]) {
             close: 10.3 + index * .1, volume: 10000 + index * 100, amount: null,
           })),
         } });
+        if (url.pathname.endsWith('/classification')) return route.fulfill({ json: { code: '600001.SH', market: 'CN', memberships: { indices: [], industries: [] }, etf_proxies: [] } });
         if (url.pathname.endsWith('/dates')) return route.fulfill({ json: ['2026-09-22'] });
         if (url.pathname.endsWith('/ranking')) return route.fulfill({ json: raw });
         if (url.pathname.startsWith('/api/v1/confluence/')) return route.fulfill({ json: { market: raw.market, trade_date: raw.trade_date, algorithm_version: raw.algorithm_version, item: raw.items[0] } });
         return route.fulfill({ json: {} });
       });
       await page.goto('/research/confluence');
-      await expect(page.getByTestId('module-tabs').getByRole('link', { name: '多信号共振' })).toHaveAttribute('data-state', 'active');
-      await expect(page.getByRole('table')).toContainText('88.2');
-      await expect(page.getByRole('table')).toContainText('3/4');
+      if (width >= 1024) await expect(page.getByTestId('module-tabs').getByRole('link', { name: '多信号共振' })).toHaveAttribute('data-state', 'active');
+      await expect(page.getByRole('table')).toContainText('85.0');
+      await expect(page.getByRole('table')).toContainText('4/4');
       await expect(page.getByRole('table')).toContainText('2026-09-21');
-      await expect(page.getByRole('table')).toContainText('ETF 无数据');
+      await expect(page.getByRole('table')).toContainText('期权情报');
       await page.getByRole('button', { name: /测试股票/ }).click();
       const dialog = page.getByRole('dialog');
       await expect(dialog.getByTestId('daily-kline-card')).toBeVisible();
       await expect(dialog.getByTestId('daily-kline-card').locator('canvas').first()).toBeVisible();
       await dialog.getByRole('tab', { name: '共振', exact: true }).click();
-      await expect(dialog).toContainText('25/25');
+      await expect(dialog.getByTestId('evidence-industry')).toContainText('92');
+      await dialog.getByTestId('evidence-industry').getByText('评分依据', { exact: true }).click();
       await expect(dialog).toContainText('12 → 4');
-      await expect(dialog).toContainText('10/20');
-      await expect(dialog).toContainText('游资 缺失');
+      await expect(dialog.getByTestId('evidence-trend')).toContainText('60D');
+      await expect(dialog.getByTestId('evidence-options')).toContainText('缺失');
       await expect(dialog).toContainText('Why Confluence');
       await page.screenshot({ path: testInfo.outputPath(`confluence-detail-${width}-${theme}.png`), fullPage: true });
       await page.keyboard.press('Escape');
@@ -64,16 +66,14 @@ test('filters, partial US coverage and failed request clear old data', async ({ 
   await expect(page.getByRole('table')).toContainText('测试股票');
   await page.getByLabel('最低有效维度', { exact: true }).fill('4');
   await page.getByLabel('最低分数', { exact: true }).fill('80');
-  await page.getByLabel('仅 IGNITION / EMERGING').check();
   await page.getByRole('button', { name: '筛选', exact: true }).click();
   await expect.poll(() => params.at(-1)?.get('min_signals')).toBe('4');
   expect(params.at(-1)?.get('min_score')).toBe('80');
-  expect(params.at(-1)?.get('early_only')).toBe('true');
   await page.getByTestId('confluence-market-switcher').getByRole('radio', { name: '美股' }).click();
-  await expect(page.getByRole('table')).toContainText('没有满足当前条件');
-  await expect(page.getByText(/US 当前可能仅有/)).toBeVisible();
+  await expect(page.getByRole('table')).toContainText('暂无符合条件');
+  await expect(page.getByText('缺少核心证据时留空；每日上限是 10 个，不是必须产出 10 个。')).toBeVisible();
   fail = true;
-  await page.getByRole('button', { name: '刷新', exact: true }).click();
+  await page.getByRole('button', { name: '刷新共振', exact: true }).click();
   await expect(page.getByRole('table')).toHaveCount(0);
 });
 

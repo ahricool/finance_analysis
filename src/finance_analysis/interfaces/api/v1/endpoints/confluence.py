@@ -18,7 +18,7 @@ def ranking(
     market: Market = "CN",
     trade_date: date | None = None,
     min_score: float = Query(0, ge=0, le=100),
-    min_signals: int | None = Query(None, ge=1, le=5),
+    min_signals: int | None = Query(None, ge=1, le=8),
     industry: str | None = None,
     lifecycle: str | None = None,
     early_only: bool = False,

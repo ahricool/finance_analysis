@@ -373,10 +373,11 @@ Beat `dragon_tiger_flow_cn` 上海19:30，经 `MarketDataService` 的 CN `dragon
 
 ## Signal Confluence
 
-`confluence/` 是正式结果聚合层，`confluence_cn/us` 在上海20:30 / 纽约23:30 读取既有 Industry、Trend、Quant、龙虎榜结果。
-GET `/api/v1/confluence/*` 只读快照，管理员 `/run` 异步生成；页面 `/research/confluence`。
-缺失不参与分母，默认至少3维；股票→ETF 无可靠映射保持 unavailable，行业最新成分不能泄漏到历史日期。
-规则集中 `confluence/config.py`，证据日期、来源与贡献必须可解释。详见 `docs/confluence.md`。
+`confluence/` V2只读正式DB结果并执行规则评分，不调用LLM/Provider或重算上游。
+主要宏观15/行业ETF20/行业强度15/Trend30，辅助Quant7/期权5/情绪4/龙虎榜4；缺失不入分母，其他指标按比例分摊。
+Trend读取同日20/40/60，分别比较趋势/突破/超跌反弹替代路线后聚合。行业ETF复用静态映射并校验当前轮动池。
+CN/US当地20:30/23:30各自每日最多10条，不凑数；按主要证据一致性、覆盖及分数排序，同日重跑替换。
+GET只读历史与冻结证据，V1不重算；迁移`0079_confluence_v2`扩计数上限至8。详见`docs/confluence.md`。
 
 ## Intraday Confirmation
 
