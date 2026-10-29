@@ -142,7 +142,15 @@ class StockMemberships(BaseModel):
     industries: list[StockIndustryMembership] = Field(default_factory=list)
 
 
+class StockETFProxy(BaseModel):
+    code: str
+    name: str
+    reasons: list[str] = Field(default_factory=list, description="行业关联理由，近似替代明确标注")
+
+
 class StockClassificationResponse(BaseModel):
     code: str
     market: str
     memberships: StockMemberships
+    etf_proxies: list[StockETFProxy] = Field(default_factory=list, description="轮动池行业代理，非实际持仓")
+    etf_proxy_unavailable_reasons: list[str] = Field(default_factory=list)

@@ -231,6 +231,29 @@ class InstrumentRepository:
                 session.execute(stmt.on_conflict_do_update(**conflict, set_=update_values))
         return len(records)
 
+    def rotation_etf_names(self, market: str, codes: Sequence[str]) -> dict[str, str]:
+        """Resolve all requested names in one query, restricted to the enabled Rotation pool."""
+        from finance_analysis.database.models.universe import Universe, UniverseMember
+
+        if not codes or market not in {"CN", "US"}:
+            return {}
+        query = (
+            select(Instrument.code, Instrument.name)
+            .join(UniverseMember, UniverseMember.instrument_id == Instrument.id)
+            .join(Universe, Universe.id == UniverseMember.universe_id)
+            .where(
+                Universe.key == f"{market.lower()}_index_etf",
+                Universe.market == market,
+                Universe.enabled.is_(True),
+                Instrument.market == market,
+                Instrument.instrument_type == "ETF",
+                Instrument.listing_status == "ACTIVE",
+                Instrument.code.in_(codes),
+            )
+        )
+        with self.db.get_session() as session:
+            return dict(session.execute(query).all())
+
     def save_us_classifications(self, classifications: dict[str, dict], observed_at: datetime) -> int:
         """Publish a complete Yahoo generation atomically without creating securities."""
         if not classifications:

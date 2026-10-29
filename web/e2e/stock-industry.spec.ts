@@ -23,7 +23,10 @@ for (const width of [390, 768, 1024, 1280, 1440, 1920]) {
         if (path.endsWith('/quote')) return route.fulfill({ status: 404, json: { detail: 'No quote' } });
         if (path.endsWith('/classification')) {
           classifications++;
-          return route.fulfill({ json: { code: '600519.SH', market: 'CN', memberships: { indices: [], industries: [
+          return route.fulfill({ json: { code: '600519.SH', market: 'CN', etf_proxies: [
+            { code: '159928.SZ', name: '消费ETF', reasons: ['食品饮料：消费行业宽口径代理'] },
+            { code: '512690.SH', name: '酒ETF', reasons: ['白酒：酒类行业代理'] },
+          ], etf_proxy_unavailable_reasons: [], memberships: { indices: [], industries: [
             { code: '881101.TI', name: '食品饮料', members_observed_at: '2026-10-11T02:00:00Z' },
             { code: '881102.TI', name: '白酒', members_observed_at: '2026-10-11T02:00:00Z' },
           ] } } });
@@ -47,6 +50,13 @@ for (const width of [390, 768, 1024, 1280, 1440, 1920]) {
       await expect(industries).toContainText('食品饮料');
       await expect(industries).toContainText('白酒');
       await expect(industries).toContainText('每周同步');
+      const etfs = dialog.getByTestId('stock-etf-proxies');
+      await expect(etfs).toContainText('消费ETF · 159928.SZ');
+      await expect(etfs).toContainText('酒ETF · 512690.SH');
+      await expect(etfs).toContainText('行业代理，非实际持仓');
+      await etfs.locator('summary').click();
+      await expect(etfs.locator('details')).toHaveAttribute('open', '');
+      await expect(etfs).toContainText('消费行业宽口径代理');
       const box = await dialog.boundingBox();
       expect(box!.width).toBeLessThanOrEqual(width);
       expect(box!.height).toBeLessThanOrEqual(968);

@@ -22,10 +22,18 @@ export type StockIndexMembership = {
   source: string;
 };
 
+export type StockETFProxy = {
+  code: string;
+  name: string;
+  reasons: string[];
+};
+
 export type StockClassification = {
   code: string;
   market: string;
   memberships: { indices: StockIndexMembership[]; industries?: StockIndustryMembership[] };
+  etfProxies?: StockETFProxy[];
+  etfProxyUnavailableReasons?: string[];
 };
 
 export type StockIndustryMembership = {
