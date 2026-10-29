@@ -218,4 +218,15 @@ describe('intraday frozen baseline and history changes', () => {
     const lastSignal = vi.mocked(intradayConfirmationApi.detail).mock.calls.at(-1)![3]!;
     wrapper.unmount(); expect(lastSignal.aborted).toBe(true);
   });
+  it('labels below-threshold research observations without presenting a formal selected signal', async () => {
+    vi.mocked(confluenceApi.detail).mockResolvedValue({ market: 'CN', tradeDate: '2026-09-22', algorithmVersion: 'confluence_v2_2',
+      rules: { ...ranking.rules, minimumScore: 60 }, item: { ...ranking.items[0]!, confluenceScore: 59.99, eligible: false, strongConfluence: false } });
+    const wrapper = mount(ConfluenceDetailPanel, { props: { symbol: '600001.SH', market: 'CN' }, global: { stubs } });
+    await flushPromises();
+    const status = wrapper.get('[data-testid="confluence-selection-status"]');
+    expect(status.text()).toContain('研究观察项'); expect(status.text()).toContain('不进入正式候选');
+    expect(status.text()).toContain('低于60分'); expect(status.text()).not.toContain('当日精选信号');
+    wrapper.unmount();
+  });
+
 });

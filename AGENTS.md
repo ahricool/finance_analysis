@@ -377,12 +377,13 @@ Beat `dragon_tiger_flow_cn` 上海19:30，经 `MarketDataService` 的 CN `dragon
 主要宏观15/行业ETF20/行业强度15/Trend30，辅助Quant7/期权5/情绪4/龙虎榜4；缺失不入分母，其他指标按比例分摊。
 Trend读取同日20/40/60，分别比较趋势/突破/超跌反弹替代路线后聚合。行业ETF复用静态映射并校验当前轮动池，
 目标ETF资格以池配置为准，不依赖Instrument类型；目录粗标STOCK不能切断关联。见`docs/industry-etf-mapping.md`。
-CN/US当地20:30/23:30各自每日最多10条，不凑数；按主要证据一致性、覆盖及分数排序，同日重跑替换。
+CN/US当地20:30/23:30共用60分精选门槛，每日各最多10个；同批次最多50行研究排行，非精选eligible/strong均false，
+不得作为共振来源进入盘中确认。精选优先，其余按综合分排列；前端每页10行，低于60标注观察，同日重跑替换。
 GET只读历史与冻结证据，V1不重算；迁移`0079_confluence_v2`扩计数上限至8。详见`docs/confluence.md`。
 
 Signal Confluence V2.1宏观15%使用`confluence/sector_macro.py`行业适配，整体风险偏好仅作背景；
 分类与ETF共用观测截止，未审核/因子覆盖不足留空，不反转银行农业。CN不将美国利率信用当国内政策。
-`confluence_v2`历史仍保留统一分；新任务为`confluence_v2_1`，无自动回填或schema变更。见`docs/confluence.md`。
+`confluence_v2`历史仍保留统一分；新任务为`confluence_v2_2`，无自动回填或schema变更。见`docs/confluence.md`。
 
 ## Intraday Confirmation
 

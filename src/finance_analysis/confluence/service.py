@@ -26,6 +26,7 @@ class ConfluenceService:
 
     def run(self, market, day):
         from time import perf_counter
+        from bisect import insort
         from finance_analysis.confluence import v2
         from finance_analysis.confluence.sector_macro import adapt
 
@@ -71,7 +72,8 @@ class ConfluenceService:
             for r in previous
             if r["signals"].get("industry", {}).get("status") != "unavailable"
         }
-        candidates = []
+        candidates, research = [], []
+        candidate_count = research_count = 0
         retained_count = 0
         for stock in self.repo.instruments(market):
             identity, code = stock["id"], stock["code"]
@@ -107,22 +109,56 @@ class ConfluenceService:
                 for key in v2.WEIGHTS
             }
             result = v2.aggregate(signals, policy)
+            row = dict(instrument_id=identity, code=code, **result, algorithm_version=v2.VERSION, generated_at=now)
             if result["eligible"]:
-                candidates.append(
-                    dict(instrument_id=identity, code=code, **result, algorithm_version=v2.VERSION, generated_at=now)
-                )
+                candidate_count += 1
+                insort(candidates, row, key=v2.confidence_key)
+                if len(candidates) > policy["max_signals"]:
+                    candidates.pop()
+            if (
+                result["confluence_score"] is not None
+                and result["available_signal_count"] >= policy["min_signals"]
+                and v2.has_stock_evidence(signals)
+            ):
+                research_count += 1
+                insort(research, row, key=v2.observation_key)
+                if len(research) > policy["ranking_limit"]:
+                    research.pop()
         if retained_count:
             availability["industry"]["retained_signal_count"] = retained_count
             availability["industry"]["reason"] = "当前行业成分无法重建，保留该日已保存的正式行业证据"
         candidates.sort(key=v2.confidence_key)
         selected = candidates[: policy["max_signals"]]
-        rows = [{k: v for k, v in row.items() if k != "code"} for row in selected]
+        selected_ids = {row["instrument_id"] for row in selected}
+        # Bounded buffers retain at most 50 observation scores plus 10 picks.
+        # A selected stock must remain visible even when its score is outside the observation top fifty.
+        retained_rows = {row["instrument_id"]: row for row in research}
+        retained_rows.update({row["instrument_id"]: row for row in selected})
+        research = list(retained_rows.values())
+        for row in research:
+            qualified = row["eligible"]
+            row["eligible"] = row["instrument_id"] in selected_ids
+            row["strong_confluence"] = row["eligible"] and row["strong_confluence"]
+            if row["eligible"]:
+                reason = f"已入选当日精选；综合分门槛{policy['minimum_score']}，每市场最多{policy['max_signals']}个"
+            elif qualified:
+                reason = "达到精选条件，受每日名额限制，作为观察项展示"
+            elif row["confluence_score"] < policy["minimum_score"]:
+                reason = f"仅供观察：综合分低于{policy['minimum_score']}分精选门槛"
+            else:
+                reason = "仅供观察：主要指标正向证据未满足精选条件"
+            row["reasons"] = [*row["reasons"], reason]
+        research.sort(key=v2.research_key)
+        rows = [{k: v for k, v in row.items() if k != "code"} for row in research[: policy["ranking_limit"]]]
         availability["selection"] = dict(
-            candidate_count=len(candidates),
-            selected_count=len(rows),
+            candidate_count=candidate_count,
+            selected_count=len(selected),
+            ranked_count=len(rows),
+            research_count=research_count,
             max_signals=policy["max_signals"],
             elapsed_seconds=round(perf_counter() - started, 4),
             order="主要维度正向一致性→主要维度数→综合分→代码",
+            research_order="精选优先，其余综合分→有效维度→正向维度→代码",
         )
         published = self.repo.save(
             market,
@@ -139,9 +175,10 @@ class ConfluenceService:
             status="completed" if published else "superseded",
             market=market,
             trade_date=day.isoformat(),
-            count=len(rows),
-            eligible_count=len(rows),
-            candidate_count=len(candidates),
+            count=len(selected),
+            eligible_count=len(selected),
+            ranked_count=len(rows),
+            candidate_count=candidate_count,
             elapsed_seconds=round(perf_counter() - started, 4),
             source_availability=json_safe(availability),
         )
@@ -219,7 +256,12 @@ class ConfluenceService:
         if (response.get("algorithm_version") or "").startswith("confluence_v2"):
             from finance_analysis.confluence.v2 import confidence_key
 
-            selected.sort(key=confidence_key)
+            if response["rules"].get("ranking_limit"):
+                from finance_analysis.confluence.v2 import research_key
+
+                selected.sort(key=research_key)
+            else:
+                selected.sort(key=confidence_key)
         response["total"] = len(selected)
         response["items"] = selected[:limit]
         return response

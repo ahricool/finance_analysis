@@ -49,6 +49,7 @@ class Ranking(BaseModel):
 
 
 class Detail(BaseModel):
+    rules: dict[str, Any] | None = None
     market: Market
     trade_date: date
     algorithm_version: str

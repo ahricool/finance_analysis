@@ -2,7 +2,7 @@
 import StockLink from '@/components/stocks/StockLink.vue';
 import BilingualEnum from '@/components/app/BilingualEnum.vue';
 import PageHeader from '@/components/layout/PageHeader.vue';
-import { onBeforeUnmount, onMounted, ref, shallowRef } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, shallowRef } from 'vue';
 import { confluenceApi as api, type ConfluenceRanking, type ConfluenceItem, type Market } from '@/api/confluence';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import { useAuth } from '@/composables/useAuth';
@@ -25,16 +25,23 @@ const earlyOnly = ref(false); const topIndustry = ref(false); const strongOnly =
 const result = shallowRef<ConfluenceRanking | null>(null); const selected = shallowRef<ConfluenceItem | null>(null);
 const error = shallowRef<ParsedApiError | null>(null); const loading = ref(false); const submitting = ref(false);
 const taskId = ref(''); const dialogOpen = ref(false);
+const page = ref(1);
+const pageSize = 10;
+const rankedItems = computed(() => result.value?.items.slice(0, 50) ?? []);
+const pageCount = computed(() => Math.max(1, Math.ceil(rankedItems.value.length / pageSize)));
+const pageItems = computed(() => rankedItems.value.slice((page.value - 1) * pageSize, page.value * pageSize));
+const minimumScore = computed(() => result.value?.rules.minimumScore ?? 60);
+const sectorMacro = computed(() => Boolean(result.value?.rules.macroMethod || result.value?.items.some(row => row.signals.macro?.evidence.macroMethod)));
 let generation = 0;
 async function load(reset = false) {
   const token = ++generation; loading.value = true; error.value = null; result.value = null;
-  selected.value = null; dialogOpen.value = false;
+  selected.value = null; dialogOpen.value = false; page.value = 1;
   if (reset) { tradeDate.value = ''; dates.value = []; minSignals.value = undefined; }
   try {
     const [ranking, availableDates] = await Promise.all([
       api.ranking({ market: market.value, trade_date: tradeDate.value || undefined, min_score: Number(minScore.value),
         min_signals: minSignals.value === undefined ? undefined : Number(minSignals.value), industry: industry.value || undefined, lifecycle: lifecycle.value || undefined,
-        early_only: earlyOnly.value, top_industry: topIndustry.value, strong_only: strongOnly.value, limit: 200 }),
+        early_only: earlyOnly.value, top_industry: topIndustry.value, strong_only: strongOnly.value, limit: 50 }),
       api.dates(market.value),
     ]);
     if (token !== generation) return;
@@ -63,7 +70,7 @@ async function run() {
 function configuredWeight(key: keyof typeof weights) {
   return result.value?.rules.weights?.[key] ?? result.value?.items[0]?.signals[key]?.weight ?? (result.value?.algorithmVersion?.startsWith('confluence_v2') ? weights[key] : null);
 }
-function configuredLabel(key: keyof typeof weights) { return key === 'macro' && result.value?.algorithmVersion !== 'confluence_v2_1' ? '宏观环境' : labels[key]; }
+function configuredLabel(key: keyof typeof weights) { return key === 'macro' && !sectorMacro.value ? '宏观环境' : labels[key]; }
 function frameworkTotal(keys: Array<keyof typeof weights>) { return keys.reduce((sum, key) => sum + (configuredWeight(key) ?? 0), 0); }
 onMounted(() => { void load(); });
 onBeforeUnmount(() => { ++generation; });
@@ -79,7 +86,7 @@ const detailInitialTab = ref<'overview' | 'confluence'>('confluence');
       variant="section"
       title="多信号共振"
       en="SIGNAL CONFLUENCE"
-      description="主要证据驱动，辅助指标交叉验证。每个市场每日精选不超过 10 个信号。"
+      description="展示前50条研究排行，每页10条；每个市场每日精选最多10个，其余仅供观察。"
     >
       <template #actions>
         <ResearchMarketToggle
@@ -153,8 +160,11 @@ const detailInitialTab = ref<'overview' | 'confluence'>('confluence');
         <div class="rounded-xl border border-foreground/15 bg-gradient-to-br from-muted/60 to-card p-5">
           <p class="text-xs text-muted-foreground">
             当日精选
-          </p><p class="mt-2 text-3xl font-semibold tabular-nums">
-            {{ result.summary.total }}<span class="ml-2 text-sm font-normal text-muted-foreground">{{ result.rules.maxSignals ? `/ ${result.rules.maxSignals}` : '历史快照' }}</span>
+          </p><p
+            class="mt-2 text-3xl font-semibold tabular-nums"
+            data-testid="selected-count"
+          >
+            {{ result.summary.eligible }}<span class="ml-2 text-sm font-normal text-muted-foreground">{{ result.rules.maxSignals ? `/ ${result.rules.maxSignals}` : '历史快照' }}</span>
           </p><p class="mt-2 text-xs text-muted-foreground">
             按证据一致性排序 · 不凑名额
           </p>
@@ -174,7 +184,7 @@ const detailInitialTab = ref<'overview' | 'confluence'>('confluence');
           </p><p class="mt-2 text-3xl font-semibold tabular-nums">
             {{ result.summary.candidateCount ?? result.summary.eligible }}
           </p><p class="mt-2 text-xs text-muted-foreground">
-            筛选后仅保留每日最高优先级
+            满足精选门槛与主要证据要求，最多入选10个
           </p>
         </div>
         <div class="rounded-xl border bg-card p-5">
@@ -188,7 +198,7 @@ const detailInitialTab = ref<'overview' | 'confluence'>('confluence');
           </p><p class="mt-2 text-xs text-muted-foreground">
             {{ result.sourceAvailability.macro?.tradeDate ?? result.items[0]?.signals.macro?.tradeDate ?? '无可用指标，权重自动分摊' }}
             <span
-              v-if="result.algorithmVersion === 'confluence_v2_1'"
+              v-if="sectorMacro"
               class="mt-1 block"
             >个股使用所属行业宏观适配度评分</span>
           </p>
@@ -258,7 +268,7 @@ const detailInitialTab = ref<'overview' | 'confluence'>('confluence');
         <div class="flex flex-wrap items-end justify-between gap-3">
           <div>
             <h2 class="text-base font-semibold">
-              精选信号
+              研究排行与精选
             </h2><p class="mt-1 text-xs text-muted-foreground">
               点击股票查看行情，点击行查看完整共振证据。
             </p>
@@ -289,6 +299,12 @@ const detailInitialTab = ref<'overview' | 'confluence'>('confluence');
             </Button>
           </div>
         </div>
+        <div class="mb-3 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+          <p class="font-medium text-foreground">
+            前50条研究排行
+          </p>
+          <p>精选优先，其余按综合分排列 · 精选门槛 {{ minimumScore }} 分 · 观察项不属于正式信号</p>
+        </div>
         <div class="overflow-x-auto rounded-xl border bg-card">
           <Table class="min-w-[1080px]">
             <TableHeader>
@@ -312,7 +328,7 @@ const detailInitialTab = ref<'overview' | 'confluence'>('confluence');
             </TableHeader>
             <TableBody>
               <TableRow
-                v-for="(row, index) in result.items"
+                v-for="(row, index) in pageItems"
                 :key="row.code"
                 class="cursor-pointer"
                 tabindex="0"
@@ -322,7 +338,7 @@ const detailInitialTab = ref<'overview' | 'confluence'>('confluence');
               >
                 <TableCell class="py-5">
                   <div class="flex items-start gap-3">
-                    <span class="mt-1 font-mono text-xs text-muted-foreground">{{ String(index + 1).padStart(2, '0') }}</span><div>
+                    <span class="mt-1 font-mono text-xs text-muted-foreground">{{ String((page - 1) * pageSize + index + 1).padStart(2, '0') }}</span><div>
                       <StockLink
                         :code="row.code"
                         :name="row.name"
@@ -336,8 +352,31 @@ const detailInitialTab = ref<'overview' | 'confluence'>('confluence');
                 </TableCell>
                 <TableCell>
                   <p class="text-2xl font-semibold tabular-nums tracking-tight">
-                    {{ row.confluenceScore?.toFixed(1) ?? '—' }}
-                  </p><Badge
+                    {{ row.confluenceScore?.toFixed(2) ?? '—' }}
+                  </p>
+                  <Badge
+                    v-if="row.eligible"
+                    variant="secondary"
+                    class="mt-1"
+                  >
+                    精选
+                  </Badge>
+                  <Badge
+                    v-else
+                    variant="outline"
+                    class="mt-1 text-muted-foreground"
+                  >
+                    观察项
+                  </Badge>
+                  <Badge
+                    v-if="row.confluenceScore !== null && row.confluenceScore < minimumScore"
+                    variant="outline"
+                    class="mt-1 border-amber-500/40 text-amber-700 dark:text-amber-300"
+                    data-testid="below-threshold"
+                  >
+                    低于{{ minimumScore }}分
+                  </Badge>
+                  <Badge
                     v-if="row.strongConfluence"
                     variant="secondary"
                     class="mt-1 text-emerald-700 dark:text-emerald-300"
@@ -395,6 +434,32 @@ const detailInitialTab = ref<'overview' | 'confluence'>('confluence');
             </TableBody>
           </Table>
         </div>
+        <nav
+          v-if="rankedItems.length"
+          aria-label="研究排行分页"
+          data-testid="confluence-pagination"
+          class="mt-3 flex flex-wrap items-center justify-between gap-3 text-xs text-muted-foreground"
+        >
+          <p>第 {{ page }} / {{ pageCount }} 页 · 每页 {{ pageSize }} 条 · 当前 {{ rankedItems.length }} 条</p>
+          <div class="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              :disabled="page === 1"
+              @click="page--"
+            >
+              上一页
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              :disabled="page >= pageCount"
+              @click="page++"
+            >
+              下一页
+            </Button>
+          </div>
+        </nav>
       </section>
       <details class="rounded-xl border bg-card px-4 py-3 text-xs">
         <summary class="cursor-pointer font-medium">
