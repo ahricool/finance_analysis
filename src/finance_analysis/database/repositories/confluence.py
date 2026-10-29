@@ -217,34 +217,42 @@ class ConfluenceRepository:
                 result.append(item)
             return result
 
-    def etf(self, market, day):
-        from finance_analysis.database.models.etf_rotation import ETFMomentumSnapshot as ETF
-        from finance_analysis.database.models.industry_strength import IndustryCatalog, IndustryMembership
-        from finance_analysis.database.models.universe import Universe, UniverseMember
-        from finance_analysis.stocks.industry_etf import resolve_industry_etf, MAPPING_VERSION
+    def classification(self, market, day):
+        """Latest-only classifications observed no later than the formal target cutoff."""
         from datetime import datetime, time, timezone
         from zoneinfo import ZoneInfo
+        from finance_analysis.database.models.industry_strength import IndustryCatalog, IndustryMembership
+        from finance_analysis.stocks.industry_etf import resolve_industry_etf
 
         cutoff = datetime.combine(
             day,
             time(20, 30) if market == "CN" else time(23, 30),
             ZoneInfo("Asia/Shanghai" if market == "CN" else "America/New_York"),
         )
-        # The catalog is latest-only: never apply observations published after the target cutoff.
-        memberships = {}
+        grouped = {}
         with self.db.get_session() as session:
             if market == "CN":
-                for code, industry, name in session.execute(
-                    select(IndustryMembership.stock_code, IndustryCatalog.industry_code, IndustryCatalog.industry_name)
+                for code, key, name, observed in session.execute(
+                    select(
+                        IndustryMembership.stock_code,
+                        IndustryCatalog.industry_code,
+                        IndustryCatalog.industry_name,
+                        IndustryCatalog.members_observed_at,
+                    )
                     .join(IndustryCatalog, IndustryCatalog.industry_code == IndustryMembership.industry_code)
                     .where(IndustryCatalog.members_observed_at <= cutoff)
                 ):
-                    proxy = resolve_industry_etf("CN", industry)
-                    if proxy.etf_code:
-                        memberships.setdefault(code, {}).setdefault(proxy.etf_code, []).append(
-                            f"{name}：{proxy.reason}"
+                    proxy = resolve_industry_etf(market, key)
+                    grouped.setdefault(code, []).append(
+                        dict(
+                            industry_code=key,
+                            industry_name=name,
+                            observed_at=observed,
+                            proxy_code=proxy.etf_code,
+                            proxy_reason=proxy.reason,
                         )
-            else:
+                    )
+            elif market == "US":
                 for code, metadata in session.execute(
                     select(Instrument.code, Instrument.instrument_metadata).where(
                         Instrument.market == market,
@@ -256,15 +264,43 @@ class ConfluenceRepository:
                     observed = classification.get("observed_at")
                     try:
                         when = datetime.fromisoformat(observed.replace("Z", "+00:00")) if observed else None
-                    except (ValueError, TypeError):
+                    except (ValueError, TypeError, AttributeError):
                         when = None
                     if not when or when.tzinfo is None or when.astimezone(timezone.utc) > cutoff:
                         continue
-                    proxy = resolve_industry_etf(
-                        "US", classification.get("industry", ""), sector=classification.get("sector")
+                    key, sector = classification.get("industry", ""), classification.get("sector")
+                    if not key:
+                        continue
+                    proxy = resolve_industry_etf(market, key, sector=sector)
+                    grouped[code] = [
+                        dict(
+                            industry_code=key,
+                            industry_name=key,
+                            sector=sector,
+                            observed_at=when,
+                            proxy_code=proxy.etf_code,
+                            proxy_reason=proxy.reason,
+                        )
+                    ]
+        return [
+            dict(code=code, trade_date=day, industries=sorted(rows, key=lambda r: r["industry_code"]))
+            for code, rows in sorted(grouped.items())
+        ]
+
+    def etf(self, market, day, *, classifications=None):
+        from finance_analysis.database.models.etf_rotation import ETFMomentumSnapshot as ETF
+        from finance_analysis.database.models.universe import Universe, UniverseMember
+        from finance_analysis.stocks.industry_etf import MAPPING_VERSION
+
+        classifications = self.classification(market, day) if classifications is None else classifications
+        memberships = {}
+        for row in classifications:
+            for industry in row["industries"]:
+                if industry["proxy_code"]:
+                    memberships.setdefault(row["code"], {}).setdefault(industry["proxy_code"], []).append(
+                        f"{industry['industry_name']}：{industry['proxy_reason']}"
                     )
-                    if proxy.etf_code:
-                        memberships[code] = {proxy.etf_code: [proxy.reason]}
+        with self.db.get_session() as session:
             rows = (
                 session.execute(
                     select(
@@ -431,7 +467,7 @@ class ConfluenceRepository:
             ]
 
     def save(self, market, day, rows, manifest):
-        if manifest.get("algorithm_version") == "confluence_v2" and len(rows) > 10:
+        if (manifest.get("algorithm_version") or "").startswith("confluence_v2") and len(rows) > 10:
             raise ValueError("V2 daily shortlist cannot exceed 10 signals per market")
         with self.db.session_scope() as session:
             if session.bind.dialect.name == "postgresql":

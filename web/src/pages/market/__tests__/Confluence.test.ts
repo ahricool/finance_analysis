@@ -6,6 +6,8 @@ import AppDatePicker from '@/components/app/AppDatePicker.vue';
 import StockDetailDialog from '@/components/stocks/StockDetailDialog.vue';
 import { confluenceApi as api, type ConfluenceRanking } from '@/api/confluence';
 import { toCamelCase } from '@/api/utils';
+import adapted from '../../../../e2e/fixtures/confluenceV21';
+import v2 from '../../../../e2e/fixtures/confluenceV2';
 import raw from '../../../../e2e/fixtures/confluence';
 
 vi.mock('@/api/confluence', () => ({ confluenceApi: { ranking: vi.fn(), dates: vi.fn(), run: vi.fn() } }));
@@ -67,6 +69,23 @@ describe('confluence controls and detail', () => {
     expect(wrapper.text()).toContain('历史版本');
     expect(wrapper.text()).toContain('基础权重 70%');
     expect(wrapper.text()).toContain('基础权重 30%');
+    wrapper.unmount();
+  });
+
+  it('labels V2 historical macro semantics without reinterpreting its scores', async () => {
+    vi.mocked(api.ranking).mockResolvedValue(toCamelCase<ConfluenceRanking>(v2));
+    const wrapper = mountPage(); await flushPromises();
+    expect(wrapper.text()).toContain('统一风险偏好分');
+    expect(wrapper.text()).not.toContain('个股使用所属行业宏观适配度评分');
+    wrapper.unmount();
+  });
+  it('recognizes V2.1 as current and distinguishes global context from per-stock fit', async () => {
+    vi.mocked(api.ranking).mockResolvedValue(toCamelCase<ConfluenceRanking>(adapted));
+    const wrapper = mountPage(); await flushPromises();
+    expect(wrapper.text()).toContain('个股使用所属行业宏观适配度评分');
+    expect(wrapper.text()).toContain('宏观适配');
+    expect(wrapper.text()).not.toContain('历史版本');
+    expect(wrapper.text()).not.toContain('统一风险偏好分');
     wrapper.unmount();
   });
 

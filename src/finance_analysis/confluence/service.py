@@ -27,14 +27,20 @@ class ConfluenceService:
     def run(self, market, day):
         from time import perf_counter
         from finance_analysis.confluence import v2
+        from finance_analysis.confluence.sector_macro import adapt
 
         started = perf_counter()
         now = utc_now()
         policy = v2.rules()
         sources, availability = {}, {}
-        for key in v2.WEIGHTS:
+        for key in ("classification", *v2.WEIGHTS):
             try:
-                rows = getattr(self.repo, "trend_v2" if key == "trend" else key)(market, day)
+                getter = getattr(self.repo, "trend_v2" if key == "trend" else key)
+                rows = (
+                    getter(market, day, classifications=sources["classification"])
+                    if key == "etf"
+                    else getter(market, day)
+                )
                 # Stock/ETF/Quant/Options/Sentiment use only the requested formal date.
                 if key not in {"macro", "dragon_tiger"}:
                     rows = [r for r in rows if str(r["trade_date"])[:10] == day.isoformat()]
@@ -53,7 +59,7 @@ class ConfluenceService:
                     status="failed", count=0, trade_date=None, reason="读取失败；该维度留空并重新分摊权重"
                 )
         index = {}
-        for key in ("industry", "trend", "etf", "quant", "options", "dragon_tiger"):
+        for key in ("classification", "industry", "trend", "etf", "quant", "options", "dragon_tiger"):
             index[key] = {}
             for row in sources[key]:
                 identity = row.get("instrument_id") if key in {"trend", "quant"} else row.get("code")
@@ -85,7 +91,12 @@ class ConfluenceService:
                 inputs[key] = rows[0] if rows else None
             if not any(inputs.values()):
                 continue
-            inputs["macro"] = sources["macro"][0] if sources["macro"] else None
+            classification = index["classification"].get(code, [])
+            inputs["macro"] = adapt(
+                sources["macro"][0] if sources["macro"] else None,
+                classification[0] if classification else None,
+                market,
+            )
             inputs["sentiment"] = sources["sentiment"][0] if sources["sentiment"] else None
             signals = {
                 key: v2.evaluate(
@@ -205,7 +216,7 @@ class ConfluenceService:
                 row["code"],
             )
         )
-        if response.get("algorithm_version") == "confluence_v2":
+        if (response.get("algorithm_version") or "").startswith("confluence_v2"):
             from finance_analysis.confluence.v2 import confidence_key
 
             selected.sort(key=confidence_key)

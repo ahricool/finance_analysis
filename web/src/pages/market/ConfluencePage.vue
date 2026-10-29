@@ -61,8 +61,9 @@ async function run() {
   finally { submitting.value = false; }
 }
 function configuredWeight(key: keyof typeof weights) {
-  return result.value?.rules.weights?.[key] ?? result.value?.items[0]?.signals[key]?.weight ?? (result.value?.algorithmVersion === 'confluence_v2' ? weights[key] : null);
+  return result.value?.rules.weights?.[key] ?? result.value?.items[0]?.signals[key]?.weight ?? (result.value?.algorithmVersion?.startsWith('confluence_v2') ? weights[key] : null);
 }
+function configuredLabel(key: keyof typeof weights) { return key === 'macro' && result.value?.algorithmVersion !== 'confluence_v2_1' ? '宏观环境' : labels[key]; }
 function frameworkTotal(keys: Array<keyof typeof weights>) { return keys.reduce((sum, key) => sum + (configuredWeight(key) ?? 0), 0); }
 onMounted(() => { void load(); });
 onBeforeUnmount(() => { ++generation; });
@@ -164,7 +165,7 @@ const detailInitialTab = ref<'overview' | 'confluence'>('confluence');
           </p><p class="mt-2 text-3xl font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">
             {{ result.summary.strongConfluence }}
           </p><p class="mt-2 text-xs text-muted-foreground">
-            {{ result.algorithmVersion === 'confluence_v2' ? `分数 ≥ ${result.rules.strongMinScore} · 主要证据一致偏强` : '按历史保存的强共振规则' }}
+            {{ result.algorithmVersion?.startsWith('confluence_v2') ? `分数 ≥ ${result.rules.strongMinScore} · 主要证据一致偏强` : '按历史保存的强共振规则' }}
           </p>
         </div>
         <div class="rounded-xl border bg-card p-5">
@@ -178,7 +179,7 @@ const detailInitialTab = ref<'overview' | 'confluence'>('confluence');
         </div>
         <div class="rounded-xl border bg-card p-5">
           <p class="text-xs text-muted-foreground">
-            宏观背景
+            宏观背景 · 全市场
           </p><p class="mt-2 text-2xl font-semibold">
             <BilingualEnum
               :value="String(result.sourceAvailability.macro?.evidence?.regime ?? result.items[0]?.signals.macro?.evidence.regime ?? '—')"
@@ -186,14 +187,24 @@ const detailInitialTab = ref<'overview' | 'confluence'>('confluence');
             />
           </p><p class="mt-2 text-xs text-muted-foreground">
             {{ result.sourceAvailability.macro?.tradeDate ?? result.items[0]?.signals.macro?.tradeDate ?? '无可用指标，权重自动分摊' }}
+            <span
+              v-if="result.algorithmVersion === 'confluence_v2_1'"
+              class="mt-1 block"
+            >个股使用所属行业宏观适配度评分</span>
           </p>
         </div>
       </section>
       <p
-        v-if="result.algorithmVersion !== 'confluence_v2'"
+        v-if="!result.algorithmVersion?.startsWith('confluence_v2')"
         class="text-xs text-muted-foreground"
       >
         历史版本：保留原始评分与权重；新增指标留空。
+      </p>
+      <p
+        v-if="result.algorithmVersion === 'confluence_v2'"
+        class="text-xs text-muted-foreground"
+      >
+        该历史版本宏观维度使用统一风险偏好分，尚未应用行业适配。
       </p>
       <section
         class="overflow-hidden rounded-xl border bg-card"
@@ -212,7 +223,7 @@ const detailInitialTab = ref<'overview' | 'confluence'>('confluence');
                 class="rounded-lg bg-muted/50 px-3 py-2"
               >
                 <p class="text-xs">
-                  {{ labels[key] }}
+                  {{ configuredLabel(key) }}
                 </p><p class="mt-1 text-sm font-medium tabular-nums">
                   {{ configuredWeight(key) ?? '—' }}<span class="text-xs text-muted-foreground">%</span>
                 </p>
@@ -231,7 +242,7 @@ const detailInitialTab = ref<'overview' | 'confluence'>('confluence');
                 class="rounded-lg bg-muted/30 px-3 py-2"
               >
                 <p class="text-xs text-muted-foreground">
-                  {{ labels[key] }}
+                  {{ configuredLabel(key) }}
                 </p><p class="mt-1 text-sm font-medium tabular-nums">
                   {{ configuredWeight(key) ?? '—' }}<span class="text-xs text-muted-foreground">%</span>
                 </p>
@@ -291,7 +302,7 @@ const detailInitialTab = ref<'overview' | 'confluence'>('confluence');
                   :key="key"
                   class="w-24"
                 >
-                  {{ labels[key] }}
+                  {{ configuredLabel(key) }}
                 </TableHead><TableHead class="w-60">
                   辅助证据
                 </TableHead><TableHead class="w-24 text-right">
@@ -354,7 +365,7 @@ const detailInitialTab = ref<'overview' | 'confluence'>('confluence');
                       :key="key"
                       class="flex items-center justify-between gap-2 text-xs"
                     >
-                      <span class="text-muted-foreground">{{ labels[key] }}</span><span
+                      <span class="text-muted-foreground">{{ configuredLabel(key) }}</span><span
                         class="font-medium tabular-nums"
                         :class="tone(signal(row, key).status)"
                       >{{ strength(row, key)?.toFixed(0) ?? '—' }}</span>
@@ -394,7 +405,7 @@ const detailInitialTab = ref<'overview' | 'confluence'>('confluence');
             :key="key"
           >
             <p class="font-medium">
-              {{ labels[key] }}
+              {{ configuredLabel(key) }}
             </p><p class="mt-1 text-muted-foreground">
               {{ result.sourceAvailability[key]?.status ?? 'unavailable' }} · {{ result.sourceAvailability[key]?.tradeDate ?? '—' }}
             </p><p class="mt-1 text-muted-foreground">

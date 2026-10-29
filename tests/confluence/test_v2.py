@@ -18,7 +18,7 @@ DAY = date(2026, 10, 28)
 
 def inputs():
     return dict(
-        macro=dict(risk_score=80, regime="RISK_ON"),
+        macro=dict(adaptation_score=80, risk_score=80, regime="RISK_ON"),
         etf=dict(etfs=[dict(composite_score=80)]),
         industry=dict(strength_score=80, industry_name="行业"),
         trend=dict(trend_score=80, state="TRENDING", features={}),
@@ -54,10 +54,10 @@ def test_missing_core_values_are_not_neutral_and_zero_is_real_evidence():
     assert v2.evaluate("industry", dict(strength_rank=1))["strength"] is None
     assert v2.evaluate("etf", dict(etfs=[dict(rank=1)]))["strength"] is None
     assert v2.evaluate("quant", dict(final_score=90))["strength"] is None
-    assert v2.evaluate("macro", dict(risk_score=float("nan")))["strength"] is None
-    assert v2.evaluate("macro", dict(risk_score=0))["strength"] == 0
+    assert v2.evaluate("macro", dict(adaptation_score=float("nan")))["strength"] is None
+    assert v2.evaluate("macro", dict(adaptation_score=0))["strength"] == 0
     assert v2.evaluate("dragon_tiger", dict(net_inflow=0))["strength"] == 50
-    assert not score(dict(macro=dict(risk_score=100), sentiment=dict(heat_score=100)))["eligible"]
+    assert not score(dict(macro=dict(adaptation_score=100), sentiment=dict(heat_score=100)))["eligible"]
     assert not score(dict(trend=dict(trend_score=100, state="TRENDING")))["eligible"]
     contexts = inputs()
     assert not score({key: contexts[key] for key in ("macro", "industry", "etf")})["eligible"]
@@ -112,10 +112,15 @@ class MemoryRepository:
             for s in reversed(self.stocks)
         ]
 
-    def macro(self, market, day):
-        return [dict(trade_date=day, risk_score=90)]
+    def classification(self, market, day):
+        industry = dict(industry_code="881271.TI") if market == "CN" else dict(
+            industry_code="Software—Application", sector="Technology")
+        return [dict(code=s["code"], trade_date=day, industries=[industry]) for s in self.stocks]
 
-    def etf(self, market, day):
+    def macro(self, market, day):
+        return [dict(trade_date=day, risk_score=90, states=dict(credit="HEALTHY", rates="EASING"))]
+
+    def etf(self, market, day, **kwargs):
         return [dict(code=s["code"], trade_date=day, etfs=[dict(composite_score=85)]) for s in self.stocks]
 
     def industry(self, *args):
@@ -147,7 +152,7 @@ def test_shortlist_is_deterministic_per_market_and_rerun_never_accumulates():
 
 def test_future_or_failed_sources_stay_missing_and_no_padding():
     repo = MemoryRepository(3)
-    repo.etf = lambda *args: [dict(code="000001.SH", trade_date=date(2099, 1, 1), etfs=[dict(composite_score=100)])]
+    repo.etf = lambda *args, **kwargs: [dict(code="000001.SH", trade_date=date(2099, 1, 1), etfs=[dict(composite_score=100)])]
     assert ConfluenceService(repo).run("CN", DAY)["count"] == 3  # macro + trend still qualify.
     assert repo.saved["CN", DAY]["rows"][0]["signals"]["etf"]["status"] == "unavailable"
     repo.macro = lambda *args: (_ for _ in ()).throw(RuntimeError("offline"))
