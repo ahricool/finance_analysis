@@ -90,3 +90,16 @@ def test_trend_duration_is_not_truncated_by_strategy_history_bars() -> None:
     assert truncated <= 40
     assert full > 40
     assert full == len(history) - DEFAULT_CONFIG.minimum_history_bars + 1
+
+
+def test_trend_duration_resets_on_one_failed_condition_and_restarts() -> None:
+    closes = [100.0 + index for index in range(23)]
+    assert _duration(closes) == 3
+    closes.append(116.0)  # Below MA10; the other three trend checks still pass.
+    features = calculate_features(_bars(closes))
+    assert features is not None
+    assert features["absolute_trend_count"] == 3
+    assert features["trend_candidate"] is False
+    assert _duration(closes) == 0
+    assert _duration(closes + [124.0]) == 1
+    assert _duration(closes + [124.0, 125.0]) == 2

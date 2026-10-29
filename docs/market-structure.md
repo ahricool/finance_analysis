@@ -137,7 +137,7 @@ Fragility 不使用 trend_score 或 alpha_score 的补数。稳定的 90 分趋�
 
 ### Lifecycle 最终规则（按优先级）
 
-1. `trend_candidate=False` → BROKEN。复用现有四条件至少三项通过的绝对趋势定义；它与六态 state 的 BROKEN 判断独立。
+1. `trend_candidate=False` → BROKEN。复用现有四条件全部通过的绝对趋势定义；它与六态 state 的 BROKEN 判断独立。
 2. 当前没有可用 feature/duration（包括仅携带旧状态的标的）→ null。
 3. 至少两项 Fragility 分量 ≥ 50 → EXHAUSTION；candidate 此时仍成立。
 4. duration ≤ 3，acceleration > 0，quality ≥ 50 → IGNITION。

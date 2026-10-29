@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import date, timedelta
+from itertools import product
 
 import pytest
 
+from finance_analysis.trend_following.config import DEFAULT_CONFIG
 from finance_analysis.trend_following.state import transition_state
 from finance_analysis.trend_following.features import (  # pragma: allowlist secret
     absolute_trend_passes,
@@ -100,7 +103,7 @@ def test_cross_section_scores_and_rs_vs_market():
         assert 0 <= row["alpha_score"] <= 100
 
 
-def test_short_horizon_score_weights_and_absolute_trend_three_of_four():
+def test_short_horizon_score_weights():
     trend, trend_components = calculate_trend_score(
         {
             "weighted_slope_percentile": 80.0,
@@ -130,8 +133,32 @@ def test_short_horizon_score_weights_and_absolute_trend_three_of_four():
     )
     assert rs == pytest.approx(61.8517)
     assert set(rs_components["qualities"]) == {"rs_5d", "rs_10d", "rs_20d"}
-    assert absolute_trend_passes([True, True, True, False]) is True
-    assert absolute_trend_passes([True, True, False, False]) is False
+
+
+@pytest.mark.parametrize("checks", list(product([False, True], repeat=4)))
+def test_absolute_trend_requires_all_four_conditions(checks):
+    assert absolute_trend_passes(checks) is (sum(checks) == 4)
+
+
+@pytest.mark.parametrize("checks", [[], [True] * 3, [True] * 5])
+def test_absolute_trend_rejects_incorrect_condition_count(checks):
+    with pytest.raises(ValueError, match="exactly four checks"):
+        absolute_trend_passes(checks)
+
+
+@pytest.mark.parametrize("period", [20, 40, 60])
+def test_close_at_or_below_short_ma_fails_candidate_despite_other_three_conditions(period):
+    config = replace(DEFAULT_CONFIG, trend_period=period)
+    features = calculate_features(bars(count=period + 4, final=100.0 + period * 0.8), config=config)
+    assert features is not None
+    assert features["absolute_trend_checks"] == {
+        "close_above_ma10": False,
+        "ma10_above_ma20": True,
+        "return_10d_positive": True,
+        "weighted_slope_positive": True,
+    }
+    assert features["absolute_trend_count"] == 3
+    assert features["trend_candidate"] is False
 
 
 def test_short_breakout_and_trend_resume_setups():
