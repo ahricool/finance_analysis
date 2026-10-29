@@ -3,7 +3,7 @@
 from math import isfinite
 from statistics import fmean
 
-VERSION = "confluence_v2_1"
+VERSION = "confluence_v2_2"
 WEIGHTS = {
     "macro": 15,
     "etf": 20,
@@ -37,7 +37,8 @@ def rules():
         strong_min_signals=2,
         strong_min_positive=2,
         strong_min_score=75,
-        minimum_score=70,
+        minimum_score=60,
+        ranking_limit=50,
         minimum_primary=2,
         max_signals=10,
         trend_method="mean_of_period_best_route",
@@ -192,7 +193,7 @@ def aggregate(signals, policy=None):
     positive = sum(s["status"] == "positive" for s in available)
     primary_positive = sum(s["status"] == "positive" for s in core)
     # Shared macro/sentiment alone cannot create thousands of identical stock signals.
-    specific = any(signals[k]["strength"] is not None for k in ("trend", "quant", "options", "dragon_tiger"))
+    specific = has_stock_evidence(signals)
     eligible = (
         specific
         and len(core) >= policy["minimum_primary"]
@@ -219,3 +220,21 @@ def confidence_key(row):
     core = [row["signals"][k] for k in PRIMARY if row["signals"][k]["strength"] is not None]
     agreement = sum(s["status"] == "positive" for s in core) / len(core) if core else 0
     return (-agreement, -len(core), -(row["confluence_score"] or 0), row.get("code", str(row["instrument_id"])))
+
+
+def has_stock_evidence(signals):
+    return any(signals[k]["strength"] is not None for k in ("trend", "quant", "options", "dragon_tiger"))
+
+
+def observation_key(row):
+    return (
+        -(row["confluence_score"] or 0),
+        -row["available_signal_count"],
+        -row["positive_signal_count"],
+        row.get("code", str(row["instrument_id"])),
+    )
+
+
+def research_key(row):
+    """Keep formal picks first; remaining observations use score and coverage."""
+    return (0, *confidence_key(row)) if row["eligible"] else (1, *observation_key(row))

@@ -6,6 +6,7 @@ import AppDatePicker from '@/components/app/AppDatePicker.vue';
 import StockDetailDialog from '@/components/stocks/StockDetailDialog.vue';
 import { confluenceApi as api, type ConfluenceRanking } from '@/api/confluence';
 import { toCamelCase } from '@/api/utils';
+import research from '../../../../e2e/fixtures/confluenceV22';
 import adapted from '../../../../e2e/fixtures/confluenceV21';
 import v2 from '../../../../e2e/fixtures/confluenceV2';
 import raw from '../../../../e2e/fixtures/confluence';
@@ -86,6 +87,34 @@ describe('confluence controls and detail', () => {
     expect(wrapper.text()).toContain('宏观适配');
     expect(wrapper.text()).not.toContain('历史版本');
     expect(wrapper.text()).not.toContain('统一风险偏好分');
+    wrapper.unmount();
+  });
+
+  it('paginates fifty research rows, labels below-threshold observations and keeps selected count separate', async () => {
+    vi.mocked(api.ranking).mockResolvedValue(toCamelCase<ConfluenceRanking>(research));
+    const wrapper = mountPage(); await flushPromises();
+    expect(api.ranking).toHaveBeenLastCalledWith(expect.objectContaining({ limit: 50, min_score: 0 }));
+    expect(wrapper.findAll('tbody tr')).toHaveLength(10);
+    expect(wrapper.get('[data-testid="selected-count"]').text().replace(/\s/g, '')).toBe('10/10');
+    expect(wrapper.get('[data-testid="confluence-pagination"]').text()).toContain('第 1 / 5 页');
+    const buttons = () => wrapper.get('[data-testid="confluence-pagination"]').findAll('button');
+    expect(buttons()[0]!.attributes('disabled')).toBeDefined();
+    await buttons()[1]!.trigger('click');
+    expect(wrapper.find('tbody tr').text()).toContain('观察股票11');
+    expect(wrapper.find('tbody tr').text()).toContain('11');
+    await buttons()[1]!.trigger('click');
+    expect(wrapper.get('[data-testid="confluence-pagination"]').text()).toContain('第 3 / 5 页');
+    expect(wrapper.findAll('[data-testid="below-threshold"]')).toHaveLength(10);
+    expect(wrapper.find('tbody tr').text()).toContain('低于60分');
+    expect(wrapper.find('tbody tr').text()).toContain('59.99');
+    await wrapper.get('tbody tr').trigger('click');
+    expect(wrapper.getComponent(StockDetailDialog).props('stock')?.code).toBe('600021.SH');
+    wrapper.getComponent(StockDetailDialog).vm.$emit('update:open', false);
+    await buttons()[1]!.trigger('click'); await buttons()[1]!.trigger('click');
+    expect(wrapper.get('[data-testid="confluence-pagination"]').text()).toContain('第 5 / 5 页');
+    expect(buttons()[1]!.attributes('disabled')).toBeDefined();
+    wrapper.getComponent(AppDatePicker).vm.$emit('update:modelValue', '2026-09-21'); await flushPromises();
+    expect(wrapper.get('[data-testid="confluence-pagination"]').text()).toContain('第 1 / 5 页');
     wrapper.unmount();
   });
 

@@ -469,8 +469,15 @@ class ConfluenceRepository:
             ]
 
     def save(self, market, day, rows, manifest):
-        if (manifest.get("algorithm_version") or "").startswith("confluence_v2") and len(rows) > 10:
-            raise ValueError("V2 daily shortlist cannot exceed 10 signals per market")
+        if (manifest.get("algorithm_version") or "").startswith("confluence_v2"):
+            rules = manifest.get("rules") or {}
+            limit = 50 if rules.get("ranking_limit") == 50 else 10
+            if len(rows) > limit:
+                raise ValueError(f"V2 research ranking cannot exceed {limit} rows per market")
+            if sum(bool(row.get("eligible")) for row in rows) > 10:
+                raise ValueError("V2 daily shortlist cannot exceed 10 signals per market")
+            if any(row.get("strong_confluence") and not row.get("eligible") for row in rows):
+                raise ValueError("Observation rows cannot be formal strong confluence signals")
         with self.db.session_scope() as session:
             if session.bind.dialect.name == "postgresql":
                 session.execute(

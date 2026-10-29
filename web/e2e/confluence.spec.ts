@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import raw from './fixtures/confluenceV21';
+import raw from './fixtures/confluenceV22';
 
 for (const width of [390, 768, 1280, 1440, 1920]) {
   for (const theme of ['light', 'dark']) {
@@ -21,7 +21,7 @@ for (const width of [390, 768, 1280, 1440, 1920]) {
         if (url.pathname.endsWith('/classification')) return route.fulfill({ json: { code: '600001.SH', market: 'CN', memberships: { indices: [], industries: [] }, etf_proxies: [] } });
         if (url.pathname.endsWith('/dates')) return route.fulfill({ json: ['2026-09-22'] });
         if (url.pathname.endsWith('/ranking')) return route.fulfill({ json: raw });
-        if (url.pathname.startsWith('/api/v1/confluence/')) return route.fulfill({ json: { market: raw.market, trade_date: raw.trade_date, algorithm_version: raw.algorithm_version, item: raw.items[0] } });
+        if (url.pathname.startsWith('/api/v1/confluence/')) return route.fulfill({ json: { market: raw.market, trade_date: raw.trade_date, algorithm_version: raw.algorithm_version, rules: raw.rules, item: raw.items.find(r => r.code === decodeURIComponent(url.pathname.split('/').at(-1)!)) ?? raw.items[0] } });
         return route.fulfill({ json: {} });
       });
       await page.goto('/research/confluence');
@@ -116,3 +116,43 @@ test('snapshot changes restore saved default signal count while manual filters r
   expect(requests.at(-1)?.get('market')).toBe('US');
   expect(requests.at(-1)?.has('min_signals')).toBe(false);
 });
+
+
+for (const width of [390, 1440]) {
+test(`research top fifty pagination and observation detail ${width}px`, async ({ page }, testInfo) => {
+  await page.setViewportSize({ width, height: 1000 });
+  await page.addInitScript(t => localStorage.setItem('theme', t), width === 390 ? 'dark' : 'light');
+  await page.route('**/api/v1/**', route => {
+    const url = new URL(route.request().url());
+    if (url.pathname.endsWith('/auth/status')) return route.fulfill({ json: { loggedIn: true, user: { uid: 1, username: 'Tester', role: 'user', extra: {} } } });
+    if (url.pathname.endsWith('/dates')) return route.fulfill({ json: ['2026-09-22'] });
+    if (url.pathname.endsWith('/ranking')) return route.fulfill({ json: raw });
+    if (url.pathname.startsWith('/api/v1/confluence/')) return route.fulfill({ json: { market: raw.market, trade_date: raw.trade_date, algorithm_version: raw.algorithm_version, rules: raw.rules,
+      item: raw.items.find(r => r.code === decodeURIComponent(url.pathname.split('/').at(-1)!)) } });
+    if (url.pathname.endsWith('/classification')) return route.fulfill({ json: { code: '600021.SH', market: 'CN', memberships: { indices: [], industries: [] }, etf_proxies: [] } });
+    return route.fulfill({ json: {} });
+  });
+  await page.goto('/research/confluence');
+  const pagination = page.getByTestId('confluence-pagination');
+  await expect(page.locator('tbody tr')).toHaveCount(10);
+  await expect(page.getByTestId('selected-count')).toContainText('10');
+  await expect(pagination).toContainText('第 1 / 5 页');
+  await pagination.getByRole('button', { name: '下一页' }).click();
+  await pagination.getByRole('button', { name: '下一页' }).click();
+  await expect(pagination).toContainText('第 3 / 5 页');
+  await expect(page.getByTestId('below-threshold')).toHaveCount(10);
+  await page.screenshot({ path: testInfo.outputPath('research-observations-page3.png'), fullPage: true });
+  await page.locator('tbody tr').first().click();
+  await expect(page.getByTestId('confluence-selection-status')).toContainText('研究观察项');
+  await expect(page.getByTestId('confluence-selection-status')).toContainText('低于60分');
+  await expect(page.getByTestId('confluence-selection-status')).not.toContainText('当日精选信号');
+  await page.keyboard.press('Escape');
+  await pagination.getByRole('button', { name: '下一页' }).click();
+  await pagination.getByRole('button', { name: '下一页' }).click();
+  await expect(pagination).toContainText('第 5 / 5 页');
+  await expect(pagination.getByRole('button', { name: '下一页' })).toBeDisabled();
+  await page.getByRole('button', { name: '刷新共振' }).click();
+  await expect(pagination).toContainText('第 1 / 5 页');
+});
+
+}

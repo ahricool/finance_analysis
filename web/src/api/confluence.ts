@@ -19,7 +19,7 @@ export interface ConfluenceRanking {
   market: Market; tradeDate: string | null; generatedAt: string | null; algorithmVersion: string | null;
   sourceAvailability: Partial<Record<SignalKey, { status: string; count: number; tradeDate: string | null; reason?: string; evidence?: Record<string, unknown> }>>;
   summary: { candidateCount?: number; total: number; eligible: number; strongConfluence: number; ignitionIndustryStrong: number; topIndustryConfluence: number };
-  rules: { maxSignals?: number; weights?: Partial<Record<SignalKey, number>>; minSignals: number; strongMinSignals: number; strongMinPositive: number; strongMinScore: number };
+  rules: { minimumScore?: number; rankingLimit?: number; macroMethod?: string; maxSignals?: number; weights?: Partial<Record<SignalKey, number>>; minSignals: number; strongMinSignals: number; strongMinPositive: number; strongMinScore: number };
   total: number; items: ConfluenceItem[];
 }
 export interface RankingParams {
@@ -32,7 +32,7 @@ export const confluenceApi = {
     return toCamelCase((await apiClient.get(`${base}/ranking`, { params })).data);
   },
   async dates(market: Market): Promise<string[]> { return (await apiClient.get(`${base}/dates`, { params: { market } })).data; },
-  async detail(code: string, market: Market, tradeDate: string): Promise<{ market: Market; tradeDate: string; algorithmVersion: string; item: ConfluenceItem }> {
+  async detail(code: string, market: Market, tradeDate: string): Promise<{ market: Market; tradeDate: string; algorithmVersion: string; rules?: ConfluenceRanking['rules'] | null; item: ConfluenceItem }> {
     return toCamelCase((await apiClient.get(`${base}/${encodeURIComponent(code)}`, { params: { market, trade_date: tradeDate } })).data);
   },
   async run(market: Market, tradeDate?: string): Promise<{ taskId: string }> {

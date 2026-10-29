@@ -229,9 +229,10 @@ def test_future_current_members_cannot_leak_into_historical_industry(repo):
     assert repo.industry("US", DAY) == []
     service = ConfluenceService(repo)
     service.run("CN", DAY)
-    # Trend/Quant alone provide only one primary family: no high-confidence signal is published.
-    assert repo.read("CN", DAY)["items"] == []
-    assert service.ranking("CN", DAY)["items"] == []
+    # Trend/Quant remain visible for observation, with unavailable industry and no formal signal.
+    rows=service.ranking("CN", DAY)["items"]
+    assert len(rows)==1 and not rows[0]["eligible"] and not rows[0]["strong_confluence"]
+    assert rows[0]["signals"]["industry"]["status"]=="unavailable"
 
 
 def test_upsert_partial_source_filtering_and_empty_generation(repo, monkeypatch):
@@ -474,7 +475,9 @@ def test_industry_requires_exact_formal_generation_not_old_members(repo):
         session.scalar(select(IndustryStrengthConstituent)).updated_at = NOW - timedelta(days=1)
     assert repo.industry("CN", DAY) == []
     ConfluenceService(repo).run("CN", DAY)
-    assert repo.read("CN", DAY)["items"] == []
+    rows=repo.read("CN", DAY)["items"]
+    assert len(rows)==1 and not rows[0]["eligible"]
+    assert rows[0]["signals"]["industry"]["status"]=="unavailable"
 
 
 def test_historical_rules_read_from_saved_generation(repo, monkeypatch):
@@ -583,7 +586,7 @@ def test_new_macro_snapshot_persists_industry_terms_and_get_does_not_recompute(r
     from finance_analysis.interfaces.api.v1.schemas.confluence import Ranking
     seed(repo)
     monkeypatch.setattr(repo, "classification", lambda *_: [dict(code="600001.SH", trade_date=DAY,
-        industries=[dict(industry_code="881271.TI", industry_name="软件")])])
+        industries=[dict(industry_code="881271.TI", industry_name="软件", proxy_code=None, proxy_reason="测试")])])
     monkeypatch.setattr(repo, "macro", lambda *_: [dict(trade_date=DAY, risk_score=90, regime="RISK_ON")])
     service = ConfluenceService(repo)
     assert service.run("CN", DAY)["count"] == 1
@@ -592,7 +595,7 @@ def test_new_macro_snapshot_persists_industry_terms_and_get_does_not_recompute(r
     signal = stored["items"][0]["signals"]["macro"]
     assert signal["strength"] == 82 and signal["evidence"]["risk_score"] == 90
     assert signal["evidence"]["profiles"][0]["terms"][0]["coefficient"] == .8
-    assert stored["algorithm_version"] == "confluence_v2_1"
+    assert stored["algorithm_version"] == "confluence_v2_2"
     monkeypatch.setattr(repo, "macro", lambda *_: (_ for _ in ()).throw(AssertionError("no recompute")))
     monkeypatch.setattr(repo, "classification", lambda *_: (_ for _ in ()).throw(AssertionError("no reclassify")))
     assert service.ranking("CN", DAY)["items"][0]["signals"]["macro"] == signal
@@ -696,3 +699,42 @@ def test_lmt_binding_and_formal_etf_evidence_survive_coarse_directory_type_refre
         s.get(ETFMomentumSnapshot, 1).trade_date = DAY
         s.execute(text("DELETE FROM universe_member WHERE universe_id=2"))
     assert stocks.rotation_etf_names("US", ["XAR.US"]) == {} and repo.etf("US", DAY) == []
+
+
+def test_research_storage_caps_fifty_rows_and_ten_selected_and_blocks_strong_observations(repo):
+    manifest=dict(algorithm_version="confluence_v2_2",rules=dict(ranking_limit=50))
+    with pytest.raises(ValueError,match="cannot exceed 50"):
+        repo.save("CN",DAY,[dict(eligible=False)]*51,manifest)
+    with pytest.raises(ValueError,match="cannot exceed 10"):
+        repo.save("US",DAY,[dict(eligible=True)]*11,manifest)
+    with pytest.raises(ValueError,match="Observation rows"):
+        repo.save("CN",DAY,[dict(eligible=False,strong_confluence=True)],manifest)
+
+
+def test_observations_never_enter_intraday_formal_confluence_candidates(repo, monkeypatch):
+    from finance_analysis.confluence import v2
+    from finance_analysis.core.time import utc_now
+    from finance_analysis.database.repositories.intraday_confirmation import CandidateRepository
+
+    with repo.db.session_scope() as s:
+        s.add(Instrument(id=2,code="600002.SH",native_code="600002",name="Observation",market="CN",
+                         instrument_type="STOCK",currency="CNY",source="TEST"))
+    original=v2.rules
+    monkeypatch.setattr(v2,"rules",lambda:dict(original(),max_signals=1))
+    for source in ("classification","macro","industry","quant","options","sentiment","dragon_tiger"):
+        monkeypatch.setattr(repo,source,lambda *_: [])
+    monkeypatch.setattr(repo,"etf",lambda *_,**_kw:[dict(code=code,trade_date=DAY,
+        etfs=[dict(composite_score=90)]) for code in ("600001.SH","600002.SH")])
+    monkeypatch.setattr(repo,"trend_v2",lambda *_:[dict(instrument_id=i,trade_date=DAY,trend_period=20,
+        state="TRENDING",alpha_score=90) for i in (1,2)])
+    service=ConfluenceService(repo)
+    assert service.run("CN",DAY)["count"]==1
+    result=service.ranking("CN",DAY)
+    assert len(result["items"])==2 and result["summary"]["eligible"]==1
+    assert result["items"][0]["eligible"] and result["items"][0]["strong_confluence"]
+    assert not result["items"][1]["eligible"] and not result["items"][1]["strong_confluence"]
+    assert len(service.ranking("CN",DAY,strong_only=True)["items"])==1
+    frozen=CandidateRepository(repo.db).candidates("CN",DAY,utc_now()+timedelta(minutes=1))
+    assert [row["code"] for row in frozen]==["600001.SH"] and frozen[0]["candidate_source"]=="confluence"
+    monkeypatch.setattr(v2,"rules",lambda:dict(original(),minimum_score=70))
+    assert service.ranking("CN",DAY)["rules"]["minimum_score"]==60

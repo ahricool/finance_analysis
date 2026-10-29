@@ -4,13 +4,14 @@ import { computed, onBeforeUnmount, ref, shallowRef, watch } from 'vue';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import AppApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
 import type { StockDetailPanelProps } from './types';
-import { confluenceApi as api, type ConfluenceItem } from '@/api/confluence';
+import { confluenceApi as api, type ConfluenceItem, type ConfluenceRanking } from '@/api/confluence';
 const props = defineProps<StockDetailPanelProps>();
 const selected = shallowRef<ConfluenceItem | null>(null);
-const result = shallowRef<{ tradeDate: string; algorithmVersion: string } | null>(null);
+const result = shallowRef<{ tradeDate: string; algorithmVersion: string; rules?: ConfluenceRanking['rules'] | null } | null>(null);
 const loading = ref(false);
 const error = shallowRef<ParsedApiError | null>(null);
 const supported = computed(() => props.market === 'CN' || props.market === 'US');
+const minimumScore = computed(() => result.value?.rules?.minimumScore ?? 60);
 let generation = 0;
 async function load() {
   const token = ++generation;
@@ -62,7 +63,7 @@ onBeforeUnmount(() => { ++generation; });
           <p class="text-xs text-muted-foreground">
             综合共振分
           </p><p class="mt-1 text-4xl font-semibold tracking-tight tabular-nums">
-            {{ selected.confluenceScore?.toFixed(1) ?? '—' }}<span class="ml-1 text-sm font-normal text-muted-foreground">/100</span>
+            {{ selected.confluenceScore?.toFixed(2) ?? '—' }}<span class="ml-1 text-sm font-normal text-muted-foreground">/100</span>
           </p>
         </div><div class="text-right text-xs text-muted-foreground">
           <p>{{ selected.positiveSignalCount }} 个正向 · {{ selected.availableSignalCount }} 个有效维度</p><p class="mt-1">
@@ -70,6 +71,17 @@ onBeforeUnmount(() => { ++generation; });
           </p>
         </div>
       </div>
+      <p
+        class="rounded-lg border p-3 text-sm"
+        :class="selected.eligible ? 'text-emerald-700 dark:text-emerald-300' : 'text-muted-foreground'"
+        data-testid="confluence-selection-status"
+      >
+        {{ selected.eligible ? '当日精选信号' : '研究观察项，未入选当日精选，不进入正式候选' }}
+        <span
+          v-if="selected.confluenceScore !== null && selected.confluenceScore < minimumScore"
+          class="ml-2 text-amber-700 dark:text-amber-300"
+        >低于{{ minimumScore }}分</span>
+      </p>
       <ConfluenceEvidence :row="selected" />
       <section class="border-t pt-4">
         <h3 class="mb-2 text-sm font-semibold">

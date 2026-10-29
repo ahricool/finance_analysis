@@ -72,4 +72,10 @@ def detail(
     row = next((r for r in result["items"] if r["code"] == code.upper()), None)
     if row is None:
         raise HTTPException(404, "该股票在所选日期没有共振结果")
-    return dict(market=market, trade_date=result["trade_date"], algorithm_version=result["algorithm_version"], item=row)
+    return dict(
+        market=market,
+        trade_date=result["trade_date"],
+        algorithm_version=result["algorithm_version"],
+        rules=result.get("rules"),
+        item=row,
+    )
