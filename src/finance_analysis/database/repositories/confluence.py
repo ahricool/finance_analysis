@@ -321,8 +321,10 @@ class ConfluenceRepository:
                         ETF.market == market,
                         ETF.trade_date == day,
                         Universe.key == f"{market.lower()}_index_etf",
+                        Universe.market == market,
                         Universe.enabled.is_(True),
-                        Instrument.instrument_type == "ETF",
+                        # The configured Rotation pool defines eligibility; provider directory types may be coarse.
+                        Instrument.market == market,
                         Instrument.listing_status == "ACTIVE",
                     )
                 )

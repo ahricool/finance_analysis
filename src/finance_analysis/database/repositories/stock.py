@@ -232,7 +232,7 @@ class InstrumentRepository:
         return len(records)
 
     def rotation_etf_names(self, market: str, codes: Sequence[str]) -> dict[str, str]:
-        """Resolve all requested names in one query, restricted to the enabled Rotation pool."""
+        """The enabled Rotation pool owns membership; coarse provider types are not a binding gate."""
         from finance_analysis.database.models.universe import Universe, UniverseMember
 
         if not codes or market not in {"CN", "US"}:
@@ -246,7 +246,6 @@ class InstrumentRepository:
                 Universe.market == market,
                 Universe.enabled.is_(True),
                 Instrument.market == market,
-                Instrument.instrument_type == "ETF",
                 Instrument.listing_status == "ACTIVE",
                 Instrument.code.in_(codes),
             )

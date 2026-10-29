@@ -6,8 +6,8 @@
 
 这是行业表现代理，不表示ETF真实持仓、指数成分资格或个股业务收入占比。个股详情弹窗在行业下方
 展示关联ETF的名称和代码，可展开查看中文关联理由。分类API返回`etf_proxies`及
-`etf_proxy_unavailable_reasons`；仍未启用Confluence ETF评分或改变五维门槛。
-ETF有映射也不等于指定日期已经有有效正式指标，后续接入时仍需检查池成员及快照日期。
+`etf_proxy_unavailable_reasons`；Confluence已使用行业ETF正式指标，评分规则见`docs/confluence.md`。
+ETF有映射不等于指定日期已有有效正式指标，仍需检查池成员及快照日期。
 
 ## 查找与审核规则
 
@@ -76,7 +76,8 @@ resolve_industry_etf("CN", "881155.TI")  # 银行 → 512800.SH
 
 `GET /api/v1/stocks/{code}/classification`保留已有行业与指数，额外返回关联ETF及未关联原因。
 领域服务先按dict解析候选，再用一条批量SQL查当前启用的轮动Universe成员与Instrument名称，
-只接受同市场、ACTIVE、ETF类型的池成员；移除或停用的ETF不显示，返回明确不可用原因。
+只接受同市场、ACTIVE且属于启用轮动池的成员；移除或停用的ETF不显示，返回明确不可用原因。
+ETF资格以配置的轮动池为准，不将Instrument.instrument_type作为关联门槛；上游目录的粗类型不能切断绑定。
 ETF自身不进行股票行业映射。不调用Provider、不计算排名、不访问Preview或行情，也不写库。
 
 详情复用已有分类请求及取消/缓存机制，切股和关闭时同时清除行业及ETF旧结果。
@@ -103,3 +104,38 @@ PYTHONPATH=src uv run python scripts/report_industry_etf_coverage.py \
 
 维护映射时，新增或移除ETF须核对 `database/index_etf.py` 与生产实际池，更新版本、中文理由及本审计。
 本PR验证包含池内目标约束、误关联边界、未知行业处理、覆盖去重及缺分类/退市分母测试。
+
+## ETF身份与关联资格的边界（2026-10-30排查）
+
+LMT的Yahoo行业为Industrials / Aerospace & Defense，既有映射目标为XAR.US，XAR在启用的美股轮动池内，
+并有10/26–10/28正式ETF指标。此前未显示绑定的原因是关联查询额外要求Instrument类型为ETF。
+生产美股轮动池49个成员中43个被上游目录标为STOCK，因此被重复校验过滤。
+
+更新责任链：Celery Beat每周日上海08:00的`reference_data_sync`（ingestion队列）→
+`ReferenceDataSyncService`→`InstrumentSyncService.sync_instruments_detailed`→TickFlow主目录→
+`InstrumentRepository.upsert_symbols`。10/25 08:00任务及Instrument.updated_at一致，XAR/XLK/IGV/XLC
+原始metadata.provider_type均为stock。独立的Yahoo行业同步只更新classification，不负责证券类型。
+部分核心/宏观ETF在既有种子维护中被恢复为ETF，因而表面上只有某些关联缺失。
+
+关联资格现在由人工行业映射和实际启用的轮动池共同决定；详情查询仍限制同市场、ACTIVE，
+共振还要求同日正式ETF快照及核心分数。没有放开到任意市场ETF，不调用LLM或实时Provider。
+Instrument的证券类型仍由原主数据流程维护，本改动不手工改写类型或新增yfinance写回逻辑。
+因此即使后续目录再次返回STOCK，绑定及ETF证据读取也不会退化；池移除/停用、退市或缺正式数据仍不可用。
+
+一次性只读Yahoo抽查：XAR、XLK、IGV、XLC、XLU的quoteType均为ETF，LMT为EQUITY。
+这仅确认排查样本，不成为在线关联依赖，也不声称已核验全市场类型。
+
+读取生产正式源，在本地复算9个已存日期（未写生产）：
+- 10/26–10/28美股有效ETF证据742→5634；标普500与纳指100并集518只中，覆盖96→517；剩余VYLR为Shell Companies，按既有规则保持未关联。
+- 新PR原样repository代码在READ ONLY事务中再次验证：LMT→XAR和五个受影响代理的详情名称均恢复。
+- A股同周所有精选名单与分数一致。美股10/23仍0；10/26由4→10、10/27由4→1、10/28由1→4。
+  缺失证据恢复后有加分也有扣分，数量增加不代表收益改善，不为了纳入科技权重股改评分门槛。
+- 原周入选并非全是小盘：CRL/WAT/WST/MTD属于当前SP500池；NWE属于SP400池。
+  权重股未入选还涉及实际Trend20/40/60和ETF强度，修复关联不等于保证其入选。
+
+回归测试模拟XAR类型连续STOCK→ETF→STOCK→STOCK更新，验证详情绑定和共振指标持续可用；
+并覆盖停用轮动池、退市、移出池、未来快照不可用。类型校验移除只发生在目标ETF关联读取，
+股票候选范围和其他模块类型策略保持原有逻辑。部署后需显式重算历史共振，GET不会重算保存的旧结果。
+
+验证：完整后端门禁3255 passed、51 skipped、2 deselected、92 subtests；原样PR repository在生产只读事务中验证。
+两轮自查分别核对池作为资格来源与类型反复变化、市场/在市/启用/成员/正式日期边界。前端源码未改。

@@ -598,3 +598,101 @@ def test_new_macro_snapshot_persists_industry_terms_and_get_does_not_recompute(r
     assert service.ranking("CN", DAY)["items"][0]["signals"]["macro"] == signal
     with pytest.raises(ValueError, match="cannot exceed 10"):
         repo.save("CN", DAY, [{}] * 11, {"algorithm_version": "confluence_v2_1"})
+
+
+def test_lmt_binding_and_formal_etf_evidence_survive_coarse_directory_type_refresh(repo):
+    from finance_analysis.database.repositories.stock import InstrumentRepository
+    from finance_analysis.stocks.industry_etf_service import StockETFProxyService
+
+    with repo.db.session_scope() as s:
+        s.add(Universe(id=2, key="us_index_etf", market="US", name="US ETF", universe_type="STRATEGY"))
+        s.add(
+            Instrument(
+                id=2,
+                code="XAR.US",
+                native_code="XAR",
+                name="Defense ETF",
+                market="US",
+                instrument_type="STOCK",
+                currency="USD",
+                source="TICKFLOW",
+            )
+        )
+        s.add(
+            Instrument(
+                id=3,
+                code="LMT.US",
+                native_code="LMT",
+                name="Lockheed",
+                market="US",
+                instrument_type="STOCK",
+                currency="USD",
+                source="TICKFLOW",
+                instrument_metadata={
+                    "classification": dict(
+                        sector="Industrials", industry="Aerospace & Defense", observed_at=NOW.isoformat()
+                    )
+                },
+            )
+        )
+        s.add(UniverseMember(universe_id=2, instrument_id=2, source="CURATED"))
+        required = {
+            c.name: 1
+            for c in ETFMomentumSnapshot.__table__.columns
+            if not c.nullable and not c.primary_key and c.default is None
+        }
+        s.add(
+            ETFMomentumSnapshot(
+                **dict(
+                    required,
+                    id=1,
+                    instrument_id=2,
+                    market="US",
+                    trade_date=DAY,
+                    state="TRENDING",
+                    composite_score=85,
+                    rank=1,
+                    generated_at=NOW,
+                )
+            )
+        )
+    stocks = InstrumentRepository(repo.db)
+    for kind in ("STOCK", "ETF", "STOCK", "STOCK"):
+        stocks.upsert_symbols(
+            [
+                dict(
+                    code="XAR.US",
+                    market="US",
+                    instrument_type=kind,
+                    source="TICKFLOW",
+                    metadata={"provider_type": kind.lower()},
+                )
+            ]
+        )
+        assert stocks.get_by_code("XAR.US").instrument_type == kind  # ownership stays with reference sync
+        assert stocks.rotation_etf_names("US", ["XAR.US"]) == {"XAR.US": "Defense ETF"}
+        rows = repo.etf("US", DAY)
+        assert len(rows) == 1 and rows[0]["code"] == "LMT.US"
+        assert rows[0]["etfs"][0]["code"] == "XAR.US" and rows[0]["etfs"][0]["composite_score"] == 85
+        proxy = StockETFProxyService(stocks).resolve(
+            stocks.get_by_code("LMT.US"), [dict(code="Aerospace & Defense", name="国防工业")]
+        )
+        assert proxy["etf_proxies"][0]["code"] == "XAR.US"
+    # Membership and listing status remain actual gates; never invent ETF indicator data.
+    with repo.db.session_scope() as s:
+        s.get(Universe, 2).enabled = False
+    assert stocks.rotation_etf_names("US", ["XAR.US"]) == {} and repo.etf("US", DAY) == []
+    with repo.db.session_scope() as s:
+        s.get(Universe, 2).enabled = True
+        s.get(Instrument, 2).listing_status = "DELISTED"
+    assert stocks.rotation_etf_names("US", ["XAR.US"]) == {} and repo.etf("US", DAY) == []
+
+    with repo.db.session_scope() as s:
+        s.get(Instrument, 2).listing_status = "ACTIVE"
+        s.get(ETFMomentumSnapshot, 1).trade_date = DAY + timedelta(days=1)
+    assert stocks.rotation_etf_names("US", ["XAR.US"]) == {"XAR.US": "Defense ETF"}
+    assert repo.etf("US", DAY) == []  # Binding does not fabricate a same-day indicator.
+    with repo.db.session_scope() as s:
+        s.get(ETFMomentumSnapshot, 1).trade_date = DAY
+        s.execute(text("DELETE FROM universe_member WHERE universe_id=2"))
+    assert stocks.rotation_etf_names("US", ["XAR.US"]) == {} and repo.etf("US", DAY) == []

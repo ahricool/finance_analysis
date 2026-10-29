@@ -22,7 +22,7 @@ def test_etf_and_unsupported_market_do_not_get_stock_proxies():
     repository.rotation_etf_names.assert_not_called()
 
 
-def test_rotation_names_are_one_query_and_exclude_other_pools_or_disabled_assets():
+def test_rotation_names_use_pool_membership_not_coarse_types_and_exclude_other_pools_or_disabled_assets():
     engine = create_engine("sqlite://")
     for table in [Instrument.__table__, Universe.__table__, UniverseMember.__table__]:
         table.create(engine)
@@ -54,7 +54,7 @@ def test_rotation_names_are_one_query_and_exclude_other_pools_or_disabled_assets
                 ("SMH.US", "ETF", "ACTIVE"),
                 ("SPY.US", "ETF", "ACTIVE"),
                 ("OLD.US", "ETF", "DELISTED"),
-                ("NVDA.US", "STOCK", "ACTIVE"),
+                ("XAR.US", "STOCK", "ACTIVE"),
             ]
         ]
         session.add_all(assets)
@@ -65,7 +65,10 @@ def test_rotation_names_are_one_query_and_exclude_other_pools_or_disabled_assets
     queries = []
     event.listen(engine, "before_cursor_execute", lambda *args: queries.append(args[2]))
     repository = InstrumentRepository(DB())
-    assert repository.rotation_etf_names("US", ["SMH.US", "SPY.US", "OLD.US", "NVDA.US"]) == {"SMH.US": "SMH.US"}
+    assert repository.rotation_etf_names("US", ["SMH.US", "SPY.US", "OLD.US", "XAR.US", "NVDA.US"]) == {
+        "SMH.US": "SMH.US",
+        "XAR.US": "XAR.US",
+    }
     assert len(queries) == 1
     assert repository.rotation_etf_names("US", []) == {}
     assert len(queries) == 1
