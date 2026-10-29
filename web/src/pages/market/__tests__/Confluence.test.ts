@@ -53,4 +53,21 @@ describe('confluence controls and detail', () => {
     expect(dialog.props('open')).toBe(false);
     wrapper.unmount();
   });
+  it('keeps macro context visible even when no daily signal qualifies', async () => {
+    vi.mocked(api.ranking).mockResolvedValue({ ...ranking, algorithmVersion: 'confluence_v2', items: [], total: 0,
+      sourceAvailability: { macro: { status: 'available', count: 1, tradeDate: '2026-09-21', evidence: { regime: 'RISK_ON' } } },
+      summary: { ...ranking.summary, total: 0, eligible: 0, strongConfluence: 0 } });
+    const wrapper = mountPage(); await flushPromises();
+    expect(wrapper.text()).toContain('RISK_ON');
+    expect(wrapper.text()).toContain('暂无符合条件的高一致性信号');
+    wrapper.unmount();
+  });
+  it('labels historical snapshots and uses their saved weights', async () => {
+    const wrapper = mountPage(); await flushPromises();
+    expect(wrapper.text()).toContain('历史版本');
+    expect(wrapper.text()).toContain('基础权重 70%');
+    expect(wrapper.text()).toContain('基础权重 30%');
+    wrapper.unmount();
+  });
+
 });

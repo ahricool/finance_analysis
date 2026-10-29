@@ -41,7 +41,7 @@ class ConfluenceSnapshot(Base):
         CheckConstraint("market IN ('CN','US')", name="ck_confluence_market"),
         CheckConstraint("confluence_score IS NULL OR confluence_score BETWEEN 0 AND 100", name="ck_confluence_score"),
         CheckConstraint(
-            "positive_signal_count <= available_signal_count AND available_signal_count BETWEEN 0 AND 5",
+            "positive_signal_count <= available_signal_count AND available_signal_count BETWEEN 0 AND 8",
             name="ck_confluence_counts",
         ),
     )

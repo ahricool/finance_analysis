@@ -2,9 +2,10 @@ import apiClient from './index';
 import { toCamelCase } from './utils';
 
 export type Market = 'CN' | 'US';
-export type SignalKey = 'industry' | 'trend' | 'quant' | 'etf' | 'dragonTiger';
+export type SignalKey = 'macro' | 'industry' | 'trend' | 'quant' | 'etf' | 'options' | 'sentiment' | 'dragonTiger';
 export interface ConfluenceSignal {
   sourceModule: string; status: 'positive' | 'neutral' | 'negative' | 'unavailable';
+  strength?: number | null; normalizedWeight?: number | null; contribution?: number | null;
   weight: number; score: number | null; tradeDate: string | null; sourceGeneratedAt: string | null;
   evidence: Record<string, unknown>; reasons: string[];
 }
@@ -16,9 +17,9 @@ export interface ConfluenceItem {
 }
 export interface ConfluenceRanking {
   market: Market; tradeDate: string | null; generatedAt: string | null; algorithmVersion: string | null;
-  sourceAvailability: Record<SignalKey, { status: string; count: number; tradeDate: string | null; reason?: string }>;
-  summary: { total: number; eligible: number; strongConfluence: number; ignitionIndustryStrong: number; topIndustryConfluence: number };
-  rules: { minSignals: number; strongMinSignals: number; strongMinPositive: number; strongMinScore: number };
+  sourceAvailability: Partial<Record<SignalKey, { status: string; count: number; tradeDate: string | null; reason?: string; evidence?: Record<string, unknown> }>>;
+  summary: { candidateCount?: number; total: number; eligible: number; strongConfluence: number; ignitionIndustryStrong: number; topIndustryConfluence: number };
+  rules: { maxSignals?: number; weights?: Partial<Record<SignalKey, number>>; minSignals: number; strongMinSignals: number; strongMinPositive: number; strongMinScore: number };
   total: number; items: ConfluenceItem[];
 }
 export interface RankingParams {

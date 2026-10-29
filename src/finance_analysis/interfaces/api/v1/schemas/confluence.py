@@ -10,6 +10,9 @@ Market = Literal["CN", "US"]
 class Signal(BaseModel):
     source_module: str
     status: Literal["positive", "neutral", "negative", "unavailable"]
+    strength: float | None = None
+    normalized_weight: float | None = None
+    contribution: float | None = None
     weight: int
     score: float | None
     trade_date: date | None
@@ -40,7 +43,7 @@ class Ranking(BaseModel):
     algorithm_version: str | None
     source_availability: dict[str, Any]
     summary: dict[str, int]
-    rules: dict[str, int]
+    rules: dict[str, Any]
     total: int
     items: list[ConfluenceItem]
 
