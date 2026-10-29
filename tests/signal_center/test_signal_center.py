@@ -9,7 +9,7 @@ from types import SimpleNamespace
 import pytest
 
 from finance_analysis.signal_center.prompt import parse_decision, parse_screen
-from finance_analysis.signal_center.service import SignalCenterService
+from finance_analysis.signal_center.legacy import SignalCenterService
 from finance_analysis.signal_center.snapshot import collect, ready, sufficient
 
 DAY = date(2026, 9, 22)

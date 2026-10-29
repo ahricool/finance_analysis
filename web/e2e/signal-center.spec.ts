@@ -38,6 +38,7 @@ for (const width of [1280, 1440, 1920]) {
       await page.screenshot({ path: testInfo.outputPath('signals.png'), fullPage: true });
       await page.getByRole('button', { name: '查看 2026-09-22 CN 信号' }).click();
       await expect(page.getByRole('dialog')).toContainText(buy.analysis.thesis);
+      await page.getByRole('dialog').getByText('查看信号后的价格表现').click();
       await expect(page.getByRole('dialog')).toContainText('2026-09-23 开盘 100.00');
       await expect(page.getByRole('dialog')).toContainText('收盘最大回撤');
       await page.screenshot({ path: testInfo.outputPath('history.png'), fullPage: true });

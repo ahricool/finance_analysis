@@ -38,7 +38,7 @@ def test_tasks_check_readiness_then_deadline_and_use_market_local_date(monkeypat
     calls = []
     service = SimpleNamespace(run=lambda m, d, **kw: calls.append((m, d, kw)) or {"status": "completed"})
     monkeypatch.setattr(tasks, "SignalCenterService", lambda: service)
-    for minute, expected in [(40, False), (50, True)]:
+    for minute, expected in [(40, False), (50, market == "CN")]:
         monkeypatch.setattr(
             tasks, "get_market_now", lambda *_: datetime(2026, 9, 22, hour, minute, tzinfo=ZoneInfo(zone))
         )
@@ -102,3 +102,14 @@ def test_history_includes_separate_typed_evaluation_without_mutating_analysis(mo
     assert result["evaluation"]["entry_date"] == "2026-09-21"
     assert result["evaluation"]["horizons"][0]["value"] == pytest.approx(0.1)
     assert result["evaluation"]["horizons"][1]["status"] == "pending"
+
+
+def test_us_midnight_continuation_preserves_friday_session_and_deadline(monkeypatch):
+    calls = []
+    monkeypatch.setattr(tasks, "SignalCenterService", lambda: SimpleNamespace(
+        run=lambda m, d, **kw: calls.append((m, d, kw)) or {"status": "completed"}))
+    for minute, deadline in [(0, False), (20, False), (30, True)]:
+        monkeypatch.setattr(tasks, "get_market_now", lambda *_: datetime(
+            2026, 9, 26, 0, minute, tzinfo=ZoneInfo("America/New_York")))
+        tasks._run("US")
+        assert calls[-1] == ("US", date(2026, 9, 25), {"deadline": deadline})

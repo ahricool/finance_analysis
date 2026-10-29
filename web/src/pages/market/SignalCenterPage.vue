@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import { computed } from 'vue';
+import { RefreshCw, Layers3 } from 'lucide-vue-next';
+import { signalPicks } from '@/components/signal-center/picks';
 import StockLink from '@/components/stocks/StockLink.vue';
 import { onBeforeUnmount, onMounted, ref, shallowRef } from 'vue';
 import { signalCenterApi as api, type DailySignals, type SignalSummary, type SignalDetail, type SignalMarket } from '@/api/signalCenter';
@@ -20,6 +23,7 @@ const date = ref(''); const loading = ref(false); const offset = ref(0);
 const daily = shallowRef<DailySignals | null>(null); const history = shallowRef<SignalSummary[]>([]);
 const selected = shallowRef<SignalDetail | null>(null); const open = ref(false); const detailLoading = ref(false);
 const error = shallowRef<ParsedApiError | null>(null); const detailError = shallowRef<ParsedApiError | null>(null);
+const pickCount = computed(() => daily.value?.items.reduce((count, s) => count + signalPicks(s).length, 0) || 0);
 let generation = 0; let detailGeneration = 0;
 async function load() {
   const token = ++generation; ++detailGeneration;
@@ -51,7 +55,7 @@ onBeforeUnmount(() => { ++generation; ++detailGeneration; });
       variant="section"
       title="信号中心"
       en="Signal Center"
-      description="每日跨信号综合判断。每个市场最多一只主信号，也可以不交易。"
+      description="汇聚趋势、ETF、行业与正式共振，逐层审查证据。每个市场精选 0–3 个信号。"
     >
       <template #actions>
         <label
@@ -64,12 +68,12 @@ onBeforeUnmount(() => { ++generation; ++detailGeneration; });
           disable-weekends
           :clearable="false"
           class="w-44"
-          @update:model-value="load"
+          @update:model-value="offset = 0; load()"
         />
         <Button
           variant="outline"
           :disabled="loading"
-          @click="date = ''; load()"
+          @click="date = ''; offset = 0; load()"
         >
           各市场今天
         </Button>
@@ -78,12 +82,28 @@ onBeforeUnmount(() => { ++generation; ++detailGeneration; });
           :disabled="loading"
           @click="load"
         >
-          刷新
+          <RefreshCw class="mr-1.5 size-3.5" />刷新
         </Button>
-        <span class="text-xs text-muted-foreground">今天按各市场当地日期显示；历史分析保持不变，收益随已入库日线更新。</span>
       </template>
     </PageHeader>
 
+    <div class="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-muted/20 px-5 py-4">
+      <div class="flex items-center gap-3">
+        <Layers3 class="size-5 text-muted-foreground" /><div>
+          <p class="text-sm font-medium">
+            每日研究精选
+          </p><p class="mt-1 text-xs text-muted-foreground">
+            5 桶初筛 → 最终审查 · 股票与 ETF · 宁缺毋滥
+          </p>
+        </div>
+      </div>
+      <div class="flex items-baseline gap-1.5">
+        <span class="text-2xl font-semibold tabular-nums">{{ pickCount }}</span><span class="text-xs text-muted-foreground">/ 6 个信号</span>
+      </div>
+    </div>
+    <p class="text-xs text-muted-foreground">
+      今天按各市场当地日期显示；历史分析保持不变，收益随已入库日线更新。
+    </p>
     <AppApiErrorAlert
       v-if="error"
       :error="error"
@@ -96,14 +116,14 @@ onBeforeUnmount(() => { ++generation; ++detailGeneration; });
     </p>
     <div
       v-if="daily"
-      class="grid grid-cols-1 gap-5 md:grid-cols-2"
+      class="grid min-w-0 grid-cols-1 items-start gap-5"
     >
       <section
         v-for="market in markets"
         :key="market"
-        class="rounded-xl border bg-card p-5 space-y-4"
+        class="min-w-0 rounded-2xl border bg-card p-5 space-y-5 sm:p-6"
       >
-        <h2 class="text-lg font-semibold">
+        <h2 class="border-b pb-4 text-lg font-semibold">
           {{ names[market] }} · {{ daily.requestedDates[market] }}
         </h2>
         <SignalCard
@@ -119,9 +139,9 @@ onBeforeUnmount(() => { ++generation; ++detailGeneration; });
         </p>
       </section>
     </div>
-    <section class="space-y-3">
+    <section class="min-w-0 space-y-3 rounded-2xl border bg-card p-4 sm:p-6">
       <h2 class="text-lg font-semibold">
-        历史 Signal
+        历史研究记录
       </h2>
       <p class="text-xs text-muted-foreground">
         收益以信号发布后首个交易日开盘为基准，第1日为买入日收盘。未到期与行情缺失分别标注，详情含前10日波动与回撤。
@@ -180,44 +200,54 @@ onBeforeUnmount(() => { ++generation; ++detailGeneration; });
           </TableRow>
         </TableHeader>
         <TableBody>
-          <TableRow
+          <template
             v-for="row in history"
             :key="`${row.market}-${row.signalDate}`"
           >
-            <TableCell>{{ row.signalDate }}</TableCell><TableCell>{{ names[row.market] }}</TableCell><TableCell>
-              <StockLink
-                v-if="row.selectedSymbol"
-                :code="row.selectedSymbol"
-                :name="row.selectedName"
-                :market="row.market"
-                :context="{ tradeDate: row.signalDate }"
-              /><span v-else>—</span>
-            </TableCell>
-            <TableCell>
-              <BilingualEnum
-                v-if="row.decision"
-                :value="row.decision"
-                size="badge"
-              />
-              <span v-else>{{ ({ pending: '分析中', failed: '失败', skipped: '跳过', completed: '已完成' } as Record<string, string>)[row.status] }}</span>
-            </TableCell><TableCell>{{ row.confidence || '—' }}</TableCell>
-            <TableCell
-              v-for="days in [1, 3, 5, 10]"
-              :key="days"
-              :class="returnClass(row.evaluation?.horizons.find(h => h.days === days)?.value)"
+            <TableRow
+              v-for="(pick, pickIndex) in (signalPicks(row).length ? signalPicks(row) : [null])"
+              :key="pick?.symbol || 'empty'"
             >
-              {{ horizonText(row.evaluation, days) }}
-            </TableCell>
-            <TableCell>
-              <Button
-                variant="ghost"
-                :aria-label="`查看 ${row.signalDate} ${row.market} 信号`"
-                @click="show(row)"
+              <TableCell class="whitespace-nowrap">
+                {{ row.signalDate }}
+              </TableCell>
+              <TableCell>{{ names[row.market] }}</TableCell>
+              <TableCell>
+                <StockLink
+                  v-if="pick"
+                  :code="pick.symbol"
+                  :name="pick.name"
+                  :market="row.market"
+                  :context="{ tradeDate: row.signalDate }"
+                />
+                <span v-else>—</span>
+              </TableCell>
+              <TableCell>
+                <BilingualEnum
+                  v-if="row.decision"
+                  :value="row.decision"
+                  size="badge"
+                /><span v-else>{{ ({ pending: '分析中', failed: '失败', skipped: '跳过', completed: '已完成' } as Record<string, string>)[row.status] }}</span>
+              </TableCell>
+              <TableCell>{{ ({ high: '高', medium: '中', low: '低' } as Record<string, string>)[pick?.confidence || ''] || '—' }}</TableCell>
+              <TableCell
+                v-for="days in [1, 3, 5, 10]"
+                :key="days"
+                :class="returnClass(pick?.evaluation?.horizons.find(h => h.days === days)?.value)"
               >
-                查看分析
-              </Button>
-            </TableCell>
-          </TableRow>
+                {{ pick ? horizonText(pick.evaluation, days) : '—' }}
+              </TableCell>
+              <TableCell>
+                <Button
+                  variant="ghost"
+                  :aria-label="`查看 ${row.signalDate} ${row.market} 信号${pickIndex ? ` ${pick?.symbol}` : ''}`"
+                  @click="show(row)"
+                >
+                  查看分析
+                </Button>
+              </TableCell>
+            </TableRow>
+          </template>
         </TableBody>
       </Table>
       <p

@@ -326,7 +326,7 @@ BTC 多策略以 `strategy_key + symbol` 隔离，代码注册表当前仅 `btc_
 ## 信息输入边界
 
 个股分析使用行情、技术、基本面，大盘复盘只使用市场结构化数据。
-系统不负责通用互联网检索。`earnings_outlook/` 是唯一财报研究例外，仅对 Nasdaq-100 当前有效股票成员
+系统不负责通用互联网检索；`signal_center/`另允许通过LLMClient联网核查候选的公告/事件/风险并保存检索证据，见`docs/signal-center.md`。`earnings_outlook/` 是财报研究例外，仅对 Nasdaq-100 当前有效股票成员
 通过 LLMClient 执行有传输证据的搜索；不改变其他模块边界，详见 `docs/investment-timeline.md`。Longbridge 是唯一的外部新闻消息源，用于美股盘前新闻与盘中分析；
 美股收盘复盘只读已持久化新闻，空新闻不阻断报告或通知。新闻存储与调用方见
 `docs/investment-timeline.md` 的“新闻数据边界”。
@@ -394,13 +394,13 @@ Signal Confluence V2.1宏观15%使用`confluence/sector_macro.py`行业适配，
 
 ## Unified Signal Center
 
-`signal_center/` 主动读取同日正式 Trend/Quant/Industry/ETF 结果，Trend前5%与显著上升补充池按rank升序轮流进入固定5桶，分别经LLM初筛，
-Quant仅Top3；CN/US各自最多一个BUY或NO_TRADE。输入不足为skipped，不伪装NO_TRADE。
-复用LLMClient与advisory lock；`signal_center_run`按market+signal_date冻结输入并保存初筛/最终调用证据，成功结果不覆盖。
-Beat复用analysis队列，CN20:40–21:50、US23:10–23:50每10分钟主动检查；不由生产者推送。
-页面`/research/signal-center`，历史GET只读已存快照。详见`docs/signal-center.md`。
-
-Signal Center 历史 BUY 在 GET 时复用 DB 前复权日线批量计算 1/3/5/10D、前10日 MFE/MAE 与收盘回撤；基准是实际生成后首个可用交易日开盘。交易日精确对齐，缺日不顺延，评价与不可变分析分开，不新增任务/迁移。见 `docs/signal-center.md`。
+`signal_center/` 主动读取同日正式Trend20前30、Trend40/60各前10、ETF前10（ETF可推荐）、原行业候选与前端可见的完整正式Confluence批次（当前最多10只）。
+不直接读Quant候选/明细；共振保持上游整体含义，可能含Quant贡献，禁止把重复底层事实当独立共振。
+所有来源合并去重后固定5桶，每桶LLM选0–3，最终从0–15个中选0–3；CN/US每日合计最多6个，宁缺毋滥。
+复用LLMClient联网与transport检索证据；BUY结构化引用冻结字段/数值/日期，NO_TRADE有明确原因。
+正式结果与全局notification同事务保存，随后复用report路由push_existing。GET只读，逐只使用DB日线计算后续价格表现。
+CN20:40–21:50，US23:40至次日00:30每10分钟检查并等待共振，午夜仍归属前交易日。复用analysis队列与advisory lock。
+迁移`0080_signal_center_v2`，旧历史与未完成旧任务保持原版本。页面`/research/signal-center`。详见`docs/signal-center.md`。
 
 ## Options Intelligence
 

@@ -2,8 +2,9 @@
 
 from datetime import date, datetime
 from typing import Any, Literal
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, Field, model_validator
 from finance_analysis.signal_center.prompt import Decision
+from finance_analysis.signal_center.decision import Decision as MultiDecision, Evidence, ExternalSource
 
 Market = Literal["CN", "US"]
 
@@ -31,6 +32,20 @@ class SignalEvaluation(BaseModel):
     evaluated_at: datetime
 
 
+class SignalPick(BaseModel):
+    symbol: str
+    name: str | None = None
+    instrument_type: str = "STOCK"
+    confidence: Literal["low", "medium", "high"] | None = None
+    thesis: str = ""
+    positive_signals: list[str] = Field(default_factory=list)
+    risks: list[str] = Field(default_factory=list)
+    invalidations: list[str] = Field(default_factory=list)
+    evidence: list[Evidence] = Field(default_factory=list)
+    external_sources: list[ExternalSource] = Field(default_factory=list)
+    evaluation: SignalEvaluation | None = None
+
+
 class SignalSummary(BaseModel):
     market: Market
     signal_date: date
@@ -42,6 +57,7 @@ class SignalSummary(BaseModel):
     created_at: datetime
     completed_at: datetime | None = None
     evaluation: SignalEvaluation
+    recommendations: list[SignalPick] = Field(default_factory=list)
 
     @model_validator(mode="before")
     @classmethod
@@ -55,7 +71,8 @@ class SignalSummary(BaseModel):
 
 
 class SignalDetail(SignalSummary):
-    analysis: Decision | None = None
+    analysis: Decision | MultiDecision | None = None
+    search_evidence: dict[str, Any] | None = None
     candidate_snapshot: dict[str, Any]
     model: str | None = None
     backend: str | None = None

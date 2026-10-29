@@ -1,6 +1,6 @@
 """One immutable input and at most one final decision per market session."""
 
-from sqlalchemy import Column, String, Date, DateTime, Text, JSON, CheckConstraint
+from sqlalchemy import Column, String, Date, DateTime, Text, JSON, CheckConstraint, Integer, ForeignKey
 from sqlalchemy.dialects.postgresql import JSONB
 from finance_analysis.database.base import Base
 from finance_analysis.core.time import utc_now
@@ -21,6 +21,11 @@ class SignalCenterRun(Base):
     prompt_version = Column(String(32), nullable=False)
     system_prompt = Column(Text, nullable=False)
     prompt = Column(Text, nullable=False)
+    recommendations = Column(JSONB().with_variant(JSON(), "sqlite"))
+    search_evidence = Column(JSONB().with_variant(JSON(), "sqlite"))
+    notification_id = Column(
+        Integer, ForeignKey("notification.id", ondelete="SET NULL", name="fk_signal_center_notification")
+    )
     screening = Column(JSONB().with_variant(JSON(), "sqlite"))
     final_prompt = Column(Text)
     raw_response = Column(Text)

@@ -60,6 +60,13 @@ def repo():
             conn.execute(text(f'SET LOCAL search_path TO "{schema}"'))
             migration.op = Operations(MigrationContext.configure(conn))
             migration.upgrade()
+            spec2 = importlib.util.spec_from_file_location(
+                "v2_migration", Path(__file__).parents[2] / "alembic/versions/0080_signal_center_v2.py"
+            )
+            v2_migration = importlib.util.module_from_spec(spec2)
+            spec2.loader.exec_module(v2_migration)
+            v2_migration.op = migration.op
+            v2_migration.upgrade()
             assert {c["name"] for c in inspect(conn).get_columns("signal_center_run", schema=schema)} == set(
                 SignalCenterRun.__table__.c.keys()
             )
@@ -67,6 +74,8 @@ def repo():
         with engine.begin() as conn:
             conn.execute(text(f'SET LOCAL search_path TO "{schema}"'))
             migration.op = Operations(MigrationContext.configure(conn))
+            v2_migration.op = migration.op
+            v2_migration.downgrade()
             migration.downgrade()
             assert not inspect(conn).has_table("signal_center_run", schema=schema)
     finally:
@@ -197,3 +206,48 @@ def test_evaluation_query_reads_only_requested_symbol_dates(repo):
     assert len(rows) == 1
     assert rows[0]["code"] == "TEST.US" and rows[0]["date"] == day and rows[0]["open"] == 100
     assert repo.load_evaluation_bars(set()) == []
+
+
+def test_period_queries_and_etf_instruments_are_independent(repo):
+    day = date(2026, 9, 22)
+    with repo.db.session_scope() as session:
+        for identity, code, kind in [(1, "600000.SH", "STOCK"), (2, "510300.SH", "ETF")]:
+            session.add(
+                Instrument(
+                    id=identity,
+                    market="CN",
+                    code=code,
+                    name=code,
+                    native_code=code.split(".")[0],
+                    instrument_type=kind,
+                    currency="CNY",
+                    source="test",
+                )
+            )
+        session.flush()
+        for period in (20, 40, 60):
+            session.add(
+                TrendFollowingSnapshot(
+                    market="CN",
+                    trade_date=day,
+                    code="600000.SH",
+                    instrument_id=1,
+                    trend_period=period,
+                    universe_key="CN",
+                    market_regime="NEUTRAL",
+                    market_score=50,
+                    rank=period,
+                    trend_score=80,
+                    rs_score=80,
+                    breakout_score=80,
+                    alpha_score=80,
+                    setup="BREAKOUT",
+                    state="TRENDING",
+                    reference_price=10,
+                    atr=1,
+                )
+            )
+    assert {r["instrument_type"] for r in repo.instruments("CN")} == {"STOCK", "ETF"}
+    for period in (20, 40, 60):
+        rows = repo.trend_period("CN", day, period)
+        assert len(rows) == 1 and rows[0]["rank"] == period and rows[0]["trend_period"] == period

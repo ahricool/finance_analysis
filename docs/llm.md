@@ -80,3 +80,5 @@ uv run pytest tests/test_llm_client.py tests/test_llm_fallback.py tests/test_llm
 ```
 
 历史迁移0052保留：旧usage标为api/success且duration_ms=0，未知模型和engine可空；不回写历史耗时。
+
+Signal Center v2同样使用`web_search=True, prefer_search=True`；初筛/最终分别保存transport evidence，外部引用必须有检索执行证据。未确认搜索仍可依据正式快照判断，但不能宣称外部来源已被检索。见[信号中心](signal-center.md)。
