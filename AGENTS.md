@@ -375,7 +375,8 @@ Beat `dragon_tiger_flow_cn` 上海19:30，经 `MarketDataService` 的 CN `dragon
 
 `confluence/` V2只读正式DB结果并执行规则评分，不调用LLM/Provider或重算上游。
 主要宏观15/行业ETF20/行业强度15/Trend30，辅助Quant7/期权5/情绪4/龙虎榜4；缺失不入分母，其他指标按比例分摊。
-Trend读取同日20/40/60，分别比较趋势/突破/超跌反弹替代路线后聚合。行业ETF复用静态映射并校验当前轮动池。
+Trend读取同日20/40/60，分别比较趋势/突破/超跌反弹替代路线后聚合。行业ETF复用静态映射并校验当前轮动池，
+目标ETF资格以池配置为准，不依赖Instrument类型；目录粗标STOCK不能切断关联。见`docs/industry-etf-mapping.md`。
 CN/US当地20:30/23:30各自每日最多10条，不凑数；按主要证据一致性、覆盖及分数排序，同日重跑替换。
 GET只读历史与冻结证据，V1不重算；迁移`0079_confluence_v2`扩计数上限至8。详见`docs/confluence.md`。
 
