@@ -59,3 +59,28 @@ describe('Signal Center page', () => {
     wrapper.unmount();
   });
 });
+
+it('renders all three picks including ETF with separate evidence and returns', async () => {
+  const recommendations = ['600000.SH', '510300.SH', '600001.SH'].map((symbol, index) => ({
+    symbol, name: ['浦发银行', '沪深300ETF', '测试股票'][index], instrumentType: index === 1 ? 'ETF' : 'STOCK',
+    confidence: 'medium', thesis: `推荐依据${index}`, positiveSignals: ['趋势改善'], risks: ['价格波动'],
+    invalidations: ['跌破结构'], evidence: [{ field: `${symbol}.trends.20.rank`, value: index + 1, dataAsOf: signal.signalDate, interpretation: '趋势排名靠前' }],
+    externalSources: [{ url: 'https://example.com/announcement', title: '公司公告', publishedDate: signal.signalDate, excerpt: '公告原始信息' }],
+    evaluation: { method: 'next_session_open_v1', status: 'partial' as const, reason: null, entryDate: '2026-09-23', entryPrice: 100,
+      asOf: '2026-09-23', observedSessions: 1, missingDates: [], horizons: [{ days: 1, targetDate: '2026-09-23', status: 'available' as const, value: [.1, -.05, .02][index]! }],
+      mfe: .1, mae: -.05, maxDrawdownClose: -.03, evaluatedAt: '2026-09-23T12:00:00Z' },
+  }));
+  const multi: SignalDetail = { ...signal, decision: 'BUY', selectedSymbol: '600000.SH', recommendations, searchEvidence: { status: 'confirmed' } };
+  vi.mocked(api.daily).mockResolvedValue({ items: [multi], requestedDates: { CN: signal.signalDate, US: signal.signalDate } });
+  vi.mocked(api.history).mockResolvedValue([multi]);
+  const wrapper = mount(SignalCenterPage, { global: { plugins: [createPinia()] } });
+  await flushPromises();
+  expect(wrapper.findAll('[data-testid="signal-pick"]')).toHaveLength(3);
+  expect(wrapper.text()).toContain('沪深300ETF');
+  expect(wrapper.text()).toContain('3 个精选信号');
+  expect(wrapper.text()).toContain('核验证据');
+  const rows = wrapper.get('tbody').text();
+  expect(rows).toContain('+10.00%'); expect(rows).toContain('-5.00%'); expect(rows).toContain('+2.00%');
+  expect(wrapper.find('a[href="https://example.com/announcement"]').attributes('rel')).toBe('noopener noreferrer');
+  wrapper.unmount();
+});

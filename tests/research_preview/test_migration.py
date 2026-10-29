@@ -22,7 +22,7 @@ def test_migration_matches_models_and_reverses():
     root = Path(__file__).resolve().parents[2]
     cfg = Config(str(root / 'alembic.ini'))
     cfg.set_main_option('script_location', str(root / 'alembic'))
-    assert ScriptDirectory.from_config(cfg).get_current_head() == '0079_confluence_v2'
+    assert ScriptDirectory.from_config(cfg).get_current_head() == '0080_signal_center_v2'
     module = migration()
     with create_engine('sqlite://').begin() as connection:
         module.op = Operations(MigrationContext.configure(connection))

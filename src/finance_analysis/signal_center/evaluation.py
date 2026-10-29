@@ -92,24 +92,54 @@ def calculate(plan, bars, now):
 
 
 def with_evaluations(repo, signals, now=None):
-    """One batched OHLC read per response, at most ten exact dates per BUY signal."""
+    """One batched OHLC read for all picks, with legacy first-pick fields retained."""
     now = now or utc_now()
-    results, plans, pairs = [], {}, set()
+    results, plans, pairs = [], [], set()
     for signal in signals:
         row = dict(signal)
         results.append(row)
-        if row["status"] != "completed" or row["decision"] != "BUY" or not row["selected_symbol"]:
-            row["evaluation"] = empty_evaluation("not_applicable")
+        candidates = {c["symbol"]: c for c in (row.get("candidate_snapshot") or {}).get("candidates", [])}
+        picks = row.get("recommendations")
+        if picks is None:
+            picks = []
+            if row.get("selected_symbol") and row.get("decision") == "BUY":
+                analysis = row.get("analysis") or {}
+                picks = [
+                    dict(
+                        symbol=row["selected_symbol"],
+                        confidence=row.get("confidence"),
+                        **{
+                            key: analysis.get(key, [] if key != "thesis" else "")
+                            for key in ("thesis", "positive_signals", "risks", "invalidations")
+                        },
+                    )
+                ]
+        row["recommendations"] = [
+            dict(
+                pick,
+                name=candidates.get(pick["symbol"], {}).get("name"),
+                instrument_type=candidates.get(pick["symbol"], {}).get("instrument_type", "STOCK"),
+            )
+            for pick in picks
+        ]
+        row["evaluation"] = empty_evaluation("not_applicable")
+        if row["status"] != "completed" or row["decision"] != "BUY":
             continue
         try:
             plan = session_plan(row)
         except Exception:
-            row["evaluation"] = empty_evaluation("unavailable", "calendar_or_completion_unavailable")
+            for pick in row["recommendations"]:
+                pick["evaluation"] = empty_evaluation("unavailable", "calendar_or_completion_unavailable")
+            if row["recommendations"]:
+                row["evaluation"] = row["recommendations"][0]["evaluation"]
             continue
-        plans[len(results) - 1] = plan
-        pairs.update((row["selected_symbol"], day) for day, close in plan if close <= now)
+        for pick in row["recommendations"]:
+            plans.append((pick, plan))
+            pairs.update((pick["symbol"], day) for day, close in plan if close <= now)
     bars = {(r["code"], r["date"]): r for r in repo.load_evaluation_bars(pairs)} if pairs else {}
-    for index, plan in plans.items():
-        row = results[index]
-        row["evaluation"] = calculate(plan, {d: bars.get((row["selected_symbol"], d)) for d, _ in plan}, now)
+    for pick, plan in plans:
+        pick["evaluation"] = calculate(plan, {d: bars.get((pick["symbol"], d)) for d, _ in plan}, now)
+    for row in results:
+        if row["recommendations"] and "evaluation" in row["recommendations"][0]:
+            row["evaluation"] = row["recommendations"][0]["evaluation"]
     return results

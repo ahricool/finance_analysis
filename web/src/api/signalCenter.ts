@@ -11,17 +11,28 @@ export interface SignalEvaluation {
   observedSessions: number; missingDates: string[]; horizons: ReturnHorizon[];
   mfe: number | null; mae: number | null; maxDrawdownClose: number | null; evaluatedAt: string;
 }
+export interface SignalEvidence { field: string; value: unknown; dataAsOf: string; interpretation: string; supports?: string[] }
+export interface SignalExternalSource { url: string; title: string; publishedDate: string | null; excerpt: string }
+export interface SignalPick {
+  symbol: string; name?: string | null; instrumentType: string; confidence: string | null;
+  thesis: string; positiveSignals: string[]; risks: string[]; invalidations: string[];
+  evidence: SignalEvidence[]; externalSources: SignalExternalSource[]; evaluation?: SignalEvaluation;
+}
 export interface SignalSummary {
   market: SignalMarket; signalDate: string; status: 'pending' | 'completed' | 'failed' | 'skipped';
   selectedSymbol: string | null; selectedName?: string | null; decision: 'BUY' | 'NO_TRADE' | null; confidence: string | null;
+  recommendations?: SignalPick[];
   createdAt: string; completedAt: string | null; evaluation?: SignalEvaluation;
 }
 export interface SignalDetail extends SignalSummary {
-  analysis: { thesis: string; positiveSignals: string[]; risks: string[]; invalidations: string[] } | null;
+  analysis: { thesis: string; positiveSignals?: string[]; risks?: string[]; invalidations?: string[];
+    noTradeReason?: string | null; evidence?: SignalEvidence[] } | null;
+  searchEvidence?: { status: string; requested?: boolean; citations?: Array<{ url: string; title: string }> } | null;
   candidateSnapshot: {
-    capturedAt: string; candidates: Array<{ symbol: string }>;
+    capturedAt: string; candidates: Array<{ symbol: string; nominatedBy?: string[]; instrumentType?: string }>;
     sourceAvailability: Record<string, { status: string; dataAsOf: string | null; generatedAt: string | null }>;
   };
+  screening?: Array<{ batch: number; searchEvidence?: { status: string }; output: { symbols: string[]; reason: string } }>;
   model: string | null; promptVersion: string; error: string | null;
 }
 export interface DailySignals { items: SignalDetail[]; requestedDates: Record<SignalMarket, string> }

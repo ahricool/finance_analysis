@@ -8,25 +8,45 @@ from finance_analysis.database.models.trend_following import TrendFollowingSnaps
 from finance_analysis.database.models.etf_rotation import ETFMomentumSnapshot, ETFMarketRotationSnapshot
 from finance_analysis.database.models.industry_strength import IndustryStrengthSnapshot, IndustryStrengthConstituent
 from finance_analysis.database.models.task import TaskRecord
+from finance_analysis.database.models.notification import Notification
 from finance_analysis.database.models.stock import Instrument, StockDaily
 from finance_analysis.database.repositories.confluence import ConfluenceRepository, values
 from finance_analysis.confluence.service import json_safe
 
 
 class SignalCenterRepository(ConfluenceRepository):
-    def trend(self, market, day):
+    def instruments(self, market):
+        with self.db.get_session() as session:
+            return [
+                values(row, "id code name instrument_type")
+                for row in session.scalars(
+                    select(Instrument).where(
+                        Instrument.market == market, Instrument.instrument_type.in_(["STOCK", "ETF"])
+                    )
+                )
+            ]
+
+    def confluence(self, market, day):
+        # Reuse the exact persisted generation displayed by the Confluence page, without another top-N filter.
+        return self.read(market, day)
+
+    def trend(self, market, day, period=20):
         with self.db.get_session() as session:
             fields = (
-                "id instrument_id code trade_date generated_at rank state setup alpha_score trend_score "
+                "id instrument_id code trend_period trade_date generated_at rank state setup alpha_score trend_score "
                 "rs_score breakout_score reference_price features trend_lifecycle trend_duration_days fragility_score"
             )
             query = select(*(getattr(TrendFollowingSnapshot, k) for k in fields.split())).where(
-                TrendFollowingSnapshot.trend_period == 20, TrendFollowingSnapshot.market == market, TrendFollowingSnapshot.trade_date == day
+                TrendFollowingSnapshot.trend_period == period,
+                TrendFollowingSnapshot.market == market,
+                TrendFollowingSnapshot.trade_date == day,
             )
             result = [dict(row._mapping) for row in session.execute(query)]
             previous_day = session.scalar(
                 select(func.max(TrendFollowingSnapshot.trade_date)).where(
-                    TrendFollowingSnapshot.trend_period == 20, TrendFollowingSnapshot.market == market, TrendFollowingSnapshot.trade_date < day
+                    TrendFollowingSnapshot.trend_period == period,
+                    TrendFollowingSnapshot.market == market,
+                    TrendFollowingSnapshot.trade_date < day,
                 )
             )
             previous = {
@@ -34,7 +54,11 @@ class SignalCenterRepository(ConfluenceRepository):
                 for r in session.execute(
                     select(
                         TrendFollowingSnapshot.code, TrendFollowingSnapshot.rank, TrendFollowingSnapshot.state
-                    ).where(TrendFollowingSnapshot.trend_period == 20, TrendFollowingSnapshot.market == market, TrendFollowingSnapshot.trade_date == previous_day)
+                    ).where(
+                        TrendFollowingSnapshot.trend_period == period,
+                        TrendFollowingSnapshot.market == market,
+                        TrendFollowingSnapshot.trade_date == previous_day,
+                    )
                 )
             }
             for item in result:
@@ -48,6 +72,9 @@ class SignalCenterRepository(ConfluenceRepository):
                         rank_change=old.rank - item["rank"],
                     )
             return result
+
+    def trend_period(self, market, day, period):
+        return self.trend(market, day, period)
 
     def industry(self, market, day):
         if market != "CN":
@@ -123,7 +150,7 @@ class SignalCenterRepository(ConfluenceRepository):
     def dependencies(self, market, day):
         zone = ZoneInfo("Asia/Shanghai" if market == "CN" else "America/New_York")
         start = datetime.combine(day, time(), zone)
-        names = {key: f"scheduled_{key}_{market.lower()}" for key in ("trend_following", "quant_daily", "etf_rotation")}
+        names = {key: f"scheduled_{key}_{market.lower()}" for key in ("trend_following", "etf_rotation", "confluence")}
         if market == "CN":
             names["industry_strength"] = "scheduled_industry_strength_cn"
         with self.db.get_session() as session:
@@ -165,6 +192,9 @@ class SignalCenterRepository(ConfluenceRepository):
                     "status",
                     "selected_symbol",
                     "candidate_snapshot",
+                    "recommendations",
+                    "analysis",
+                    "prompt_version",
                     "decision",
                     "confidence",
                     "created_at",
@@ -206,6 +236,41 @@ class SignalCenterRepository(ConfluenceRepository):
             session.add(SignalCenterRun(market=market, signal_date=day, **fields))
         return self.get(market, day)
 
+    def complete(self, market, day, *, notification_content, **fields):
+        allowed = {
+            "analysis",
+            "decision",
+            "recommendations",
+            "selected_symbol",
+            "confidence",
+            "search_evidence",
+            "completed_at",
+            "error",
+            "model",
+            "backend",
+            "raw_response",
+        }
+        if fields.keys() - allowed:
+            raise ValueError("Cannot mutate frozen input")
+        with self.db.session_scope() as session:
+            row = session.get(SignalCenterRun, (market, day), with_for_update=True)
+            if row.status in {"completed", "skipped"}:
+                return None
+            message = Notification(
+                uid=None,
+                title=f"信号中心 · {market} · {day}",
+                content=notification_content,
+                route_type="report",
+                severity="info",
+            )
+            session.add(message)
+            session.flush()
+            for key, value in fields.items():
+                setattr(row, key, value)
+            row.status = "completed"
+            row.notification_id = message.id
+            return message.id
+
     def finish(self, market, day, **fields):
         with self.db.session_scope() as session:
             row = session.get(SignalCenterRun, (market, day), with_for_update=True)
@@ -225,6 +290,7 @@ class SignalCenterRepository(ConfluenceRepository):
                     "completed_at",
                     "screening",
                     "final_prompt",
+                    "search_evidence",
                 }:
                     raise ValueError("Cannot mutate frozen input")
                 setattr(row, key, value)
