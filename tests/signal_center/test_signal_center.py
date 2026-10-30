@@ -213,6 +213,7 @@ def test_wait_then_partial_deadline_freezes_input_and_completed_is_idempotent():
     assert repo.run_record == saved
     assert [c.call_type for c in client.calls] == ["signal_center_screen"] * 5 + ["signal_center"]
     assert all(c.web_search is False for c in client.calls)
+    assert all(c.api_first for c in client.calls)
 
 
 def test_failed_final_reuses_frozen_snapshot_and_completed_screening():

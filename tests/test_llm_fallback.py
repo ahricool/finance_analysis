@@ -88,6 +88,41 @@ def test_three_retries_per_provider_with_248_backoff(ctx):
     assert ctx.waits == [2, 4, 8] * 2
 
 
+def test_api_first_retries_then_falls_back_without_changing_next_request(ctx):
+    ctx.failures["api"] = ConnectionError("credential")
+    client = LLMClient(ctx.config)
+    result = client.complete_text(LLMRequest("signal snapshot", api_first=True))
+    assert result.engine == "codex"
+    assert [c[0] for c in ctx.calls] == ["api"] * 4 + ["codex"]
+    assert ctx.waits == [2, 4, 8]
+    ctx.calls.clear()
+    client.complete_text(LLMRequest("ordinary request"))
+    assert [c[0] for c in ctx.calls] == ["codex"]
+
+
+@pytest.mark.parametrize("codex_search", ["confirmed", "unverified", "failed"])
+def test_api_first_search_preserves_verified_fallback_and_first_usable_result(ctx, monkeypatch, codex_search):
+    def api_result(config, request):
+        ctx.calls.append("api")
+        assert request.web_search and request.api_first
+        return LLMResult("api answer", "api", search_evidence={"status": "unverified"})
+
+    def codex_result(config, request):
+        ctx.calls.append("codex")
+        assert request.web_search and request.api_first
+        if codex_search == "failed":
+            raise TimeoutError()
+        return LLMResult("codex answer", "cli", engine="codex", search_evidence={"status": codex_search})
+
+    monkeypatch.setattr(api, "complete", api_result)
+    monkeypatch.setattr(remote_cli, "complete", codex_result)
+    result = LLMClient(ctx.config).complete_text(
+        LLMRequest("signal snapshot", api_first=True, web_search=True, prefer_search=True)
+    )
+    assert ctx.calls == ["api", "codex"]
+    assert result.text == ("codex answer" if codex_search == "confirmed" else "api answer")
+
+
 def test_timeout_switches_and_preserves_later_budgets(ctx):
     def timeout(request):
         ctx.now[0] += request.timeout

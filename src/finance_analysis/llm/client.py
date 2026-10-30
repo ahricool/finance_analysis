@@ -61,6 +61,8 @@ class LLMClient:
         base_request = request
         request_id = timing["request_id"]
         providers = self.config.providers()
+        if request.api_first:
+            providers.sort(key=lambda config: config.backend != "api")
         unverified_result = None
         failures = []
         attempt = 0

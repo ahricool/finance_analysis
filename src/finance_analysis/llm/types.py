@@ -13,6 +13,7 @@ class LLMRequest:
     uid: int | None = None
     web_search: bool = False
     prefer_search: bool = False
+    api_first: bool = False
     # Internal per-attempt measurements, shared by transport copies even on failure.
     diagnostics: dict[str, Any] = field(default_factory=dict, repr=False, compare=False)
 
