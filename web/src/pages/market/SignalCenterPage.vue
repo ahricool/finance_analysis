@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { useMarket } from '@/composables/useMarket';
+import { computed, watch } from 'vue';
 import { RefreshCw, Layers3 } from 'lucide-vue-next';
 import { signalPicks } from '@/components/signal-center/picks';
 import StockLink from '@/components/stocks/StockLink.vue';
-import { onBeforeUnmount, onMounted, ref, shallowRef } from 'vue';
-import { signalCenterApi as api, type DailySignals, type SignalSummary, type SignalDetail, type SignalMarket } from '@/api/signalCenter';
+import { onBeforeUnmount, ref, shallowRef } from 'vue';
+import { signalCenterApi as api, type DailySignals, type SignalSummary, type SignalDetail } from '@/api/signalCenter';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import PageHeader from '@/components/layout/PageHeader.vue';
 import AppApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
@@ -17,7 +18,7 @@ import { Table, TableHeader, TableHead, TableBody, TableRow, TableCell } from '@
 import BilingualEnum from '@/components/app/BilingualEnum.vue';
 import IndicatorHelpLabel from '@/components/app/IndicatorHelpLabel.vue';
 
-const markets: SignalMarket[] = ['CN', 'US'];
+const { market } = useMarket();
 const names = { CN: 'A股', US: '美股' };
 const date = ref(''); const loading = ref(false); const offset = ref(0);
 const daily = shallowRef<DailySignals | null>(null); const history = shallowRef<SignalSummary[]>([]);
@@ -29,7 +30,7 @@ async function load() {
   const token = ++generation; ++detailGeneration;
   loading.value = true; error.value = null; daily.value = null; history.value = []; open.value = false; selected.value = null;
   try {
-    const [today, rows] = await Promise.all([api.daily(date.value || undefined), api.history(offset.value)]);
+    const [today, rows] = await Promise.all([api.daily(date.value || undefined, market.value), api.history(offset.value, market.value)]);
     if (token !== generation) return;
     daily.value = today; history.value = rows;
   } catch (cause) { if (token === generation) error.value = getParsedApiError(cause); }
@@ -42,7 +43,7 @@ async function show(row: SignalSummary) {
   finally { if (token === detailGeneration) detailLoading.value = false; }
 }
 function page(delta: number) { offset.value = Math.max(0, offset.value + delta); void load(); }
-onMounted(() => { void load(); });
+watch(market, () => { date.value = ''; offset.value = 0; void load(); }, { immediate: true });
 onBeforeUnmount(() => { ++generation; ++detailGeneration; });
 </script>
 
@@ -75,7 +76,7 @@ onBeforeUnmount(() => { ++generation; ++detailGeneration; });
           :disabled="loading"
           @click="date = ''; offset = 0; load()"
         >
-          各市场今天
+          当前市场今天
         </Button>
         <Button
           variant="outline"
@@ -98,11 +99,11 @@ onBeforeUnmount(() => { ++generation; ++detailGeneration; });
         </div>
       </div>
       <div class="flex items-baseline gap-1.5">
-        <span class="text-2xl font-semibold tabular-nums">{{ pickCount }}</span><span class="text-xs text-muted-foreground">/ 6 个信号</span>
+        <span class="text-2xl font-semibold tabular-nums">{{ pickCount }}</span><span class="text-xs text-muted-foreground">/ 3 个信号</span>
       </div>
     </div>
     <p class="text-xs text-muted-foreground">
-      今天按各市场当地日期显示；历史分析保持不变，收益随已入库日线更新。
+      今天按当前市场当地日期显示；历史分析保持不变，收益随已入库日线更新。
     </p>
     <AppApiErrorAlert
       v-if="error"
@@ -119,8 +120,6 @@ onBeforeUnmount(() => { ++generation; ++detailGeneration; });
       class="grid min-w-0 grid-cols-1 items-start gap-5"
     >
       <section
-        v-for="market in markets"
-        :key="market"
         class="min-w-0 rounded-2xl border bg-card p-5 space-y-5 sm:p-6"
       >
         <h2 class="border-b pb-4 text-lg font-semibold">

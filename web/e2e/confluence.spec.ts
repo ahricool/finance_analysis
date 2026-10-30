@@ -72,7 +72,7 @@ test('filters, partial US coverage and failed request clear old data', async ({ 
   await page.getByRole('button', { name: '筛选', exact: true }).click();
   await expect.poll(() => params.at(-1)?.get('min_signals')).toBe('4');
   expect(params.at(-1)?.get('min_score')).toBe('80');
-  await page.getByTestId('confluence-market-switcher').getByRole('radio', { name: '美股' }).click();
+  await page.getByTestId('global-market-switch').click();
   await expect(page.getByRole('table')).toContainText('暂无符合条件');
   await expect(page.getByText('缺少核心证据时留空；每日上限是 10 个，不是必须产出 10 个。')).toBeVisible();
   fail = true;
@@ -111,7 +111,7 @@ test('snapshot changes restore saved default signal count while manual filters r
   await expect(page.getByRole('button', { name: '筛选', exact: true })).toBeEnabled();
   await expect(signals).toHaveValue('5');
 
-  await page.getByTestId('confluence-market-switcher').getByRole('radio', { name: '美股' }).click();
+  await page.getByTestId('global-market-switch').click();
   await expect(signals).toHaveValue('4');
   expect(requests.at(-1)?.get('market')).toBe('US');
   expect(requests.at(-1)?.has('min_signals')).toBe(false);
@@ -142,7 +142,7 @@ test(`research top fifty pagination and observation detail ${width}px`, async ({
   await expect(pagination).toContainText('第 3 / 5 页');
   await expect(page.getByTestId('below-threshold')).toHaveCount(10);
   await page.screenshot({ path: testInfo.outputPath('research-observations-page3.png'), fullPage: true });
-  await page.locator('tbody tr').first().click();
+  await page.locator('tbody tr').first().locator('td').nth(2).click();
   await expect(page.getByTestId('confluence-selection-status')).toContainText('研究观察项');
   await expect(page.getByTestId('confluence-selection-status')).toContainText('低于60分');
   await expect(page.getByTestId('confluence-selection-status')).not.toContainText('当日精选信号');

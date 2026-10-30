@@ -88,9 +88,6 @@ describe('public market dashboard', () => {
     expect(regime.text()).toContain('请求失败');
     expect(regime.text()).toContain(market === 'CN' ? '53.2' : '72.4');
     const changes = wrapper.get('[aria-label="策略变化"]');
-    if (market === 'US') {
-      await changes.findAll('button').find(button => button.text() === '美股')!.trigger('click');
-    }
     expect(changes.text()).toContain('请求失败');
     expect(wrapper.get('[aria-label="Model Pulse"]').text()).toContain('NVIDIA');
     expect(wrapper.get('[aria-label="Market Structure"]').text()).toContain('Breadth Divergence');

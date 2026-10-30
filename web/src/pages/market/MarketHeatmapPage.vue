@@ -1,9 +1,9 @@
 <script setup lang="ts">
+import { useMarket } from '@/composables/useMarket';
 import { useVisiblePolling } from '@/composables/useVisiblePolling';
 import { computed, nextTick, onBeforeUnmount, ref, shallowRef, watch } from 'vue';
-import { useRoute, useRouter } from 'vue-router';
 import { RefreshCw, Search } from 'lucide-vue-next';
-import { getMarketHeatmap, type HeatmapMarket, type HeatmapResponse, type HeatmapStock } from '@/api/marketHeatmap';
+import { getMarketHeatmap, type HeatmapResponse, type HeatmapStock } from '@/api/marketHeatmap';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import AppApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
 import PageHeader from '@/components/layout/PageHeader.vue';
@@ -15,9 +15,7 @@ import HeatmapChart from '@/components/market-heatmap/HeatmapChart.vue';
 import { colorScale, filterStocks, formatCap } from '@/components/market-heatmap/display';
 import { useStockDetail } from '@/composables/useStockDetail';
 import { formatDateTime } from '@/utils/format';
-const route = useRoute();
-const router = useRouter();
-const market = computed<HeatmapMarket>(() => route.query.market === 'US' ? 'US' : 'CN');
+const { market } = useMarket();
 const result = shallowRef<HeatmapResponse | null>(null);
 const error = shallowRef<ParsedApiError | null>(null);
 const loading = ref(false);
@@ -49,7 +47,6 @@ onBeforeUnmount(() => { sequence++; });
 function select(stock: HeatmapStock) {
   detail.open({ code: stock.code, name: stock.name, marketType: market.value });
 }
-function switchMarket(value: HeatmapMarket) { void router.replace({ query: { ...route.query, market: value } }); }
 </script>
 
 <template>
@@ -65,22 +62,6 @@ function switchMarket(value: HeatmapMarket) { void router.replace({ query: { ...
     >
       <template #actions>
         <div class="flex flex-wrap items-center gap-2">
-          <div
-            class="flex rounded-lg border p-1"
-            aria-label="热力图市场"
-          >
-            <Button
-              v-for="value in (['CN', 'US'] as const)"
-              :key="value"
-              size="sm"
-              :variant="market === value ? 'default' : 'ghost'"
-              :aria-pressed="market === value"
-              :data-testid="`heatmap-market-${value}`"
-              @click="switchMarket(value)"
-            >
-              {{ value === 'CN' ? 'A 股' : '美股' }}
-            </Button>
-          </div>
           <Button
             variant="outline"
             size="sm"

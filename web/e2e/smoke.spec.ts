@@ -224,15 +224,15 @@ test.describe('web smoke', () => {
   test('timeline filter rows use equal-height controls', async ({ page }) => {
     await mockAuthenticatedSession(page);
     await page.goto('/timeline');
-    await page.getByRole('button', { name: '美股', exact: true }).click();
-    for (const label of ['全部', '财报', '宏观', '新闻', '市场分析']) {
+    await page.getByTestId('global-market-switch').click();
+    for (const label of ['全部', '财报', '宏观', '新闻']) {
       await expect(page.getByRole('button', { name: label, exact: true })).toBeVisible();
     }
     await expect(page.getByRole('button', { name: '笔记', exact: true })).toHaveCount(0);
     await expect(page.getByRole('button', { name: '财经事件', exact: true })).toHaveCount(0);
-    const marketButton = await page.getByRole('button', { name: '美股', exact: true }).boundingBox();
+    const filterButton = await page.getByRole('button', { name: '财报', exact: true }).boundingBox();
     const datePicker = await page.getByTestId('investment-timeline').getByRole('button', { name: /\d{4}年/ }).boundingBox();
-    expect(marketButton?.height).toBe(datePicker?.height);
+    expect(filterButton?.height).toBe(datePicker?.height);
   });
 
   test('settings and theme navigation entries are removed after login', async ({ page }) => {

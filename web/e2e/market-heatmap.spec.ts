@@ -37,8 +37,8 @@ for (const width of [390, 768, 1024, 1280, 1440, 1920]) {
       await expect(page.getByTestId('heatmap-stock')).toHaveCount(120);
       await expect(page.getByTestId('market-heatmap-page')).toContainText('120 只股票');
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-      await page.getByTestId('heatmap-market-US').click();
-      await expect(page.getByTestId('heatmap-market-US')).toHaveAttribute('aria-pressed', 'true');
+      await page.getByTestId('global-market-switch').click();
+      await expect(page.getByTestId('global-market-switch')).toHaveAttribute('aria-checked', 'true');
       await expect(page.getByTestId('market-heatmap-page')).toContainText('Yahoo Finance');
       await expect(page.getByTestId('heatmap-stock')).toHaveCount(120);
       const overflow = await page.getByTestId('heatmap-stock').evaluateAll(tiles => tiles.filter(tile => {

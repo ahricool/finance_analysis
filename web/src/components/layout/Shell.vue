@@ -4,6 +4,7 @@ import { computed, ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 import { Bell, ChevronDown, Clock3, LogOut, Monitor, Moon, Palette, Sun, User, UserRound } from 'lucide-vue-next';
 import { RouterLink, RouterView, useRoute } from 'vue-router';
+import MarketSwitch from './MarketSwitch.vue';
 import AppConfirmDialog from '@/components/app/AppConfirmDialog.vue';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
@@ -157,7 +158,7 @@ watch(
         </RouterLink>
 
         <nav
-          class="ml-4 hidden min-w-0 flex-1 items-center gap-1 lg:flex"
+          class="hidden min-w-0 flex-1 items-center lg:flex xl:ml-4 xl:gap-1"
           aria-label="主导航"
           data-testid="desktop-main-nav"
         >
@@ -223,7 +224,8 @@ watch(
           </template>
         </nav>
 
-        <div class="ml-auto flex items-center gap-1">
+        <div class="ml-auto flex shrink-0 items-center gap-1">
+          <MarketSwitch v-if="currentUser" />
           <DropdownMenu
             v-if="currentUser"
             :modal="false"

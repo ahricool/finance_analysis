@@ -38,13 +38,13 @@ export interface SignalDetail extends SignalSummary {
 export interface DailySignals { items: SignalDetail[]; requestedDates: Record<SignalMarket, string> }
 const base = '/api/v1/signal-center';
 export const signalCenterApi = {
-  async daily(signalDate?: string): Promise<DailySignals> {
-    const { data } = await apiClient.get(`${base}/daily`, { params: { signal_date: signalDate } });
+  async daily(signalDate?: string, market?: SignalMarket): Promise<DailySignals> {
+    const { data } = await apiClient.get(`${base}/daily`, { params: { signal_date: signalDate, market } });
     // Market identifiers are dictionary keys, not snake_case field names.
     return { items: toCamelCase(data.items), requestedDates: data.requested_dates };
   },
-  async history(offset = 0): Promise<SignalSummary[]> {
-    return toCamelCase((await apiClient.get(`${base}/history`, { params: { offset, limit: 50 } })).data);
+  async history(offset = 0, market?: SignalMarket): Promise<SignalSummary[]> {
+    return toCamelCase((await apiClient.get(`${base}/history`, { params: { offset, limit: 50, market } })).data);
   },
   async detail(market: SignalMarket, signalDate: string): Promise<SignalDetail> {
     return toCamelCase((await apiClient.get(`${base}/${market}/${signalDate}`)).data);

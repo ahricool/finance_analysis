@@ -1,16 +1,13 @@
+import { useMarket } from './useMarket';
 import type { QuantMarket } from '@/types/quant';
 import { parseDate } from '@internationalized/date';
 import { computed } from 'vue';
 import { useRoute, useRouter, type LocationQueryRaw } from 'vue-router';
 
-export function normalizeQuantMarket(value: unknown): QuantMarket {
-  return value === 'CN' ? 'CN' : 'US';
-}
-
 export function useQuantMarket() {
   const route = useRoute();
   const router = useRouter();
-  const market = computed<QuantMarket>(() => normalizeQuantMarket(route.query.market));
+  const { market } = useMarket();
   const tradeDate = computed(() => {
     const value = route.query.tradeDate;
     if (typeof value !== 'string') return '';

@@ -1,3 +1,4 @@
+import { useMarketStore } from '@/stores/marketStore';
 import { flushPromises, mount } from '@vue/test-utils';
 import { createPinia } from 'pinia';
 import { createMemoryHistory, createRouter } from 'vue-router';
@@ -66,7 +67,7 @@ async function mountPage() {
     global: { plugins: [createPinia(), router], stubs: { StockAutocomplete: true } },
   });
   await flushPromises();
-  await wrapper.get('[data-testid=market-us]').trigger('click');
+  useMarketStore().market = 'US';
   await flushPromises();
   return wrapper;
 }

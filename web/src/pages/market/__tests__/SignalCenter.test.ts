@@ -1,3 +1,4 @@
+import { useMarketStore } from '@/stores/marketStore';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushPromises, mount } from '@vue/test-utils';
 import { createPinia } from 'pinia';
@@ -16,8 +17,14 @@ describe('Signal Center page', () => {
     const wrapper = mount(SignalCenterPage, { global: { plugins: [createPinia()] } });
     await flushPromises();
     expect(wrapper.text()).toContain('当日不交易');
-    expect(wrapper.text()).toContain('美股 · 2026-09-21');
+    expect(wrapper.text()).not.toContain('美股 · 2026-09-21');
+    useMarketStore().market = 'US';
+    await flushPromises();
+    expect(api.daily).toHaveBeenLastCalledWith(undefined, 'US');
+    expect(api.history).toHaveBeenLastCalledWith(0, 'US');
     expect(wrapper.text()).toContain('当日尚无信号记录');
+    useMarketStore().market = 'CN';
+    await flushPromises();
     expect(wrapper.text()).toContain('冲突明显，不交易');
     await wrapper.get('[aria-label="查看 2026-09-22 CN 信号"]').trigger('click');
     await flushPromises();
@@ -47,7 +54,7 @@ describe('Signal Center page', () => {
     expect(picker.props('disableWeekends')).toBe(true);
     picker.vm.$emit('update:modelValue', '2026-09-25');
     await flushPromises();
-    expect(api.daily).toHaveBeenLastCalledWith('2026-09-25');
+    expect(api.daily).toHaveBeenLastCalledWith('2026-09-25', 'CN');
     wrapper.unmount();
   });
   it('displays failure without presenting it as NO_TRADE', async () => {

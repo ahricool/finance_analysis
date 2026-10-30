@@ -71,7 +71,10 @@ describe('Shell navigation', () => {
     };
     const { wrapper } = await mountShell('/dashboard');
 
-    expect(wrapper.get('button[aria-label="打开用户菜单"]')).toBeTruthy();
+    const avatar = wrapper.get('button[aria-label="打开用户菜单"]');
+    const marketControl = wrapper.get('[data-testid="global-market-control"]');
+    expect(marketControl.element.nextElementSibling).toBe(avatar.element);
+    expect(avatar.element.parentElement?.lastElementChild).toBe(avatar.element);
     expect(wrapper.find('button[aria-label="切换展示时区"]').exists()).toBe(false);
     expect(wrapper.get('header').text()).not.toContain('alice@example.com');
     expect(wrapper.get('header').text()).not.toContain('退出登录');

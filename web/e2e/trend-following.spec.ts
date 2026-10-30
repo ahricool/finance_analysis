@@ -47,6 +47,8 @@ for (const width of [1280, 1440, 1920]) {
         let body: object = {};
         if (pathname === '/api/v1/auth/status') {
           body = { loggedIn: true, user: { uid: 1, username: 'Tester', role: 'user', extra: {} } };
+        } else if (pathname.endsWith('/classification')) {
+          body = { code: snapshot.code, market: 'CN', memberships: { indices: [], industries: [] }, etf_proxies: [] };
         } else if (pathname.endsWith('/market-data/daily-bars/000001.SZ')) {
           expect(new URL(route.request().url()).searchParams.get('end_date')).toBeNull();
           body = { symbol: snapshot.code, items: ['2026-08-28', '2026-08-31'].map(tradeDate => ({
@@ -99,7 +101,7 @@ for (const width of [1280, 1440, 1920]) {
       const downloadPromise = page.waitForEvent('download');
       await page.getByTestId('trend-export-excel').click();
       const download = await downloadPromise;
-      expect(download.suggestedFilename()).toBe(`趋势分析_CN_${snapshot.tradeDate}_official.xlsx`);
+      expect(download.suggestedFilename()).toBe(`趋势分析_CN_20日_${snapshot.tradeDate}_official.xlsx`);
       expect(await download.failure()).toBeNull();
       await download.saveAs(testInfo.outputPath('ranking.xlsx'));
 
@@ -114,9 +116,9 @@ for (const width of [1280, 1440, 1920]) {
       await page.getByTestId('study-strategy-row').filter({ hasText: '箱体突破' }).click();
       await expect(page.getByTestId('study-event-row')).toContainText('历史样本');
       await expect(page.getByTestId('study-event-row')).toContainText('Quality: 88.00');
-      await page.getByRole('radio', { name: '美股', exact: true }).click();
+      await page.getByTestId('global-market-switch').click();
       await expect(page.getByTestId('study-coverage')).toContainText('SPY.US');
-      await page.getByRole('radio', { name: 'A股', exact: true }).click();
+      await page.getByTestId('global-market-switch').click();
       await expect(page.getByTestId('study-coverage')).toContainText('510300.SH');
       for (const kind of ['trend', 'box', 'mr']) {
         await page.getByTestId(`${kind}-section`).screenshot({ path: testInfo.outputPath(`${kind}-section.png`) });
@@ -159,7 +161,7 @@ for (const width of [1280, 1440, 1920]) {
       const canvas = dialog.getByTestId('trend-rank-history').locator('canvas');
       await expect(canvas).toBeVisible();
       await expect(dialog.getByTestId('trend-fragility-history').locator('canvas')).toBeVisible();
-      await expect(dialog.getByText('EXPANSION', { exact: true })).toBeVisible();
+      await expect(dialog.getByText('扩张', { exact: true })).toBeVisible();
       // Wait for the opening scale animation before measuring the centered panel.
       // `left: 50%` follows the content box after scrollbar-gutter, not the visual viewport.
       await expect.poll(async () => {
@@ -177,7 +179,7 @@ for (const width of [1280, 1440, 1920]) {
       expect(headerAfter!.width).toBe(headerBefore!.width);
       await page.screenshot({ path: testInfo.outputPath('trend-dialog.png') });
       await canvas.hover({ position: { x: 90, y: 80 } });
-      await expect(dialog.getByText('Alpha Rank', { exact: true })).toBeVisible();
+      await expect(dialog.getByTestId('trend-rank-history')).toContainText('Alpha Rank');
       await dialog.getByTestId('trend-path-detail').scrollIntoViewIfNeeded();
       await expect(dialog.getByTestId('trend-alpha-contributions')).toContainText('32.0 分');
       await page.screenshot({ path: testInfo.outputPath('trend-alpha-v3.png') });
@@ -241,7 +243,7 @@ test('full universe has no pagination and remains sortable', async ({ page }) =>
   await scroll.evaluate(el => { el.scrollTop = 0; });
   console.log('full-universe render milliseconds', Date.now() - rankingStarted);
   await expect(page.getByRole('button', { name: '下一页' })).toHaveCount(0);
-  await page.getByRole('button', { name: 'Alpha Score', exact: true }).click();
+  await page.getByRole('button', { name: /^Alpha 得分/ }).click();
   await expect(page.getByTestId('trend-row').first()).toContainText('TEST3799');
   await page.getByTestId('trend-ranking-search').fill('test2700');
   await expect(page.getByTestId('trend-row')).toHaveCount(1);

@@ -1,3 +1,4 @@
+import { useMarketStore } from '@/stores/marketStore';
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils';
 import { createPinia } from 'pinia';
 import { createMemoryHistory, createRouter } from 'vue-router';
@@ -226,7 +227,7 @@ describe('holdings request ownership', () => {
     mocks.positions.mockReturnValueOnce(cnEngine.promise).mockResolvedValueOnce([]);
     await mountPage();
     expect(wrapper.get('[data-testid="action-buy"]').attributes('disabled')).toBeDefined();
-    await wrapper.get('[data-testid="market-us"]').trigger('click');
+    useMarketStore().market = 'US';
     await flushPromises();
     cn.resolve(summary); cnEngine.reject(new Error('old market'));
     await flushPromises();
@@ -248,7 +249,7 @@ describe('holdings request ownership', () => {
     await wrapper.get('[data-testid="form-submit"]').trigger('click');
     const us = { ...summary, market: 'US', positions: [], accounts: [{ ...summary.accounts[0]!, id: 2, market: 'US' }] };
     mocks.summary.mockResolvedValue(us);
-    await wrapper.get('[data-testid="market-us"]').trigger('click');
+    useMarketStore().market = 'US';
     await flushPromises();
     await wrapper.get('[data-testid="action-cash"]').trigger('click');
     ops.resolve([{ executedAt: 'old', side: 'BUY', quantity: '99', price: '1' }]); save.resolve({});

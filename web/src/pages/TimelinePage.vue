@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useMarket } from '@/composables/useMarket';
 import { Button } from '@/components/ui/button';
 import PageHeader from '@/components/layout/PageHeader.vue';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
@@ -18,14 +19,13 @@ import { useTimezoneStore } from '@/stores/timezoneStore';
 import { formatDateTimeInDisplayTimezone, getTodayInDisplayTimezone } from '@/utils/format';
 
 const { displayTimezone } = storeToRefs(useTimezoneStore());
-const markets = [{ value: '', label: '全部市场' }, { value: 'CN', label: 'A股' }, { value: 'US', label: '美股' }] as const;
 const tabs = [
   { value: 'all', label: '全部' }, { value: 'earnings', label: '财报' }, { value: 'macro', label: '宏观' },
   { value: 'news', label: '新闻' },
 ] as const;
 const cards = { earnings: TimelineEarningsCard, macro: TimelineMacroCard, news: TimelineNewsCard };
 
-const market = ref('');
+const { market } = useMarket();
 const tab = ref<TimelineTab>('all');
 type DatePreset = 'today' | '7d' | '14d' | '30d' | 'custom';
 const presets = [
@@ -57,12 +57,13 @@ const loading = ref(false);
 const error = ref<ParsedApiError | null>(null);
 const detail = ref<TimelineItem | null>(null);
 const loadMoreTrigger = ref<HTMLElement | null>(null);
+watch(market, () => { detail.value = null; });
 
 const query = computed<TimelineQuery>(() => ({
   ...tabQuery[tab.value],
   ...(highConfidence.value ? { high_confidence: true } : {}),
   end_date: endDate.value,
-  market: market.value || undefined,
+  market: market.value,
   importance: importance.value || undefined,
 }));
 
@@ -141,20 +142,7 @@ function safeUrl(value: unknown) { return typeof value === 'string' && /^https?:
     <div class="mt-4 space-y-3 rounded-xl border border-border bg-card p-3 shadow-sm sm:p-4">
       <div
         class="flex flex-wrap items-center gap-2"
-        aria-label="市场筛选"
       >
-        <Button
-          v-for="option in markets"
-          :key="option.value"
-          type="button"
-          size="lg"
-          class="px-3.5"
-          :variant="market === option.value ? 'default' : 'outline'"
-          :aria-pressed="market === option.value"
-          @click="market = option.value"
-        >
-          {{ option.label }}
-        </Button>
         <label class="flex h-10 items-center gap-2 px-2 text-sm">
           <input
             v-model="highConfidence"

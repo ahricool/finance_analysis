@@ -182,7 +182,7 @@ class SignalCenterRepository(ConfluenceRepository):
     def serialize(row):
         return json_safe({c.name: getattr(row, c.name) for c in row.__table__.columns})
 
-    def history(self, limit=50, offset=0):
+    def history(self, limit=50, offset=0, market=None):
         with self.db.get_session() as session:
             columns = [
                 getattr(SignalCenterRun, key)
@@ -205,6 +205,7 @@ class SignalCenterRepository(ConfluenceRepository):
                 json_safe(dict(row._mapping))
                 for row in session.execute(
                     select(*columns)
+                    .where(SignalCenterRun.market == market if market is not None else True)
                     .order_by(SignalCenterRun.signal_date.desc(), SignalCenterRun.market)
                     .offset(offset)
                     .limit(limit)

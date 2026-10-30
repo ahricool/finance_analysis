@@ -44,22 +44,18 @@ describe('quant market context', () => {
     vi.mocked(quantApi.signals).mockResolvedValue({ tradeDate: null, market: 'US', universe: 'us_sp500', modelVersion: null, marketRegime: null, maxEquityExposure: null, items: [] });
   });
 
-  it('defaults to US and stores CN selection in the route query', async () => {
+  it('uses the shared CN default and reads explicit URL market changes', async () => {
     const { wrapper, router } = await mountMarket('/research/quant');
     await flushPromises();
-    const controls = wrapper.get('[data-testid="quant-market-switcher"]');
-    expect(controls.attributes('role')).toBe('radiogroup');
-    expect(controls.get('button[aria-checked="true"]').text()).toBe('美股');
-    expect(wrapper.get('[data-testid="quant-scope-description"]').text()).toContain('当前范围：美股研究池');
+    expect(wrapper.find('[data-testid="quant-market-switcher"]').exists()).toBe(false);
+    expect(wrapper.get('[data-testid="quant-scope-description"]').text()).toContain('当前范围：A股研究池');
 
-    await controls.findAll('button')[1].trigger('click');
+    await router.push('/research/quant?market=US');
     await flushPromises();
 
-    expect(router.currentRoute.value.query.market).toBe('CN');
-    expect(controls.get('button[aria-checked="true"]').text()).toBe('A股');
-    expect(wrapper.get('[data-testid="quant-scope-description"]').text()).toContain('当前范围：A股研究池');
-    expect(controls.classes()).toContain('rounded-lg');
-    expect(quantApi.signals).toHaveBeenLastCalledWith('CN', undefined);
+    expect(router.currentRoute.value.query.market).toBe('US');
+    expect(wrapper.get('[data-testid="quant-scope-description"]').text()).toContain('当前范围：美股研究池');
+    expect(quantApi.signals).toHaveBeenLastCalledWith('US', undefined);
   });
 
   it('honors market=CN on refresh and never restores a late US ranking', async () => {

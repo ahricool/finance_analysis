@@ -14,7 +14,7 @@ from finance_analysis.tasks.celery.schedule.registry import build_task_routes, r
 
 def test_reads_are_authenticated_paginated_and_never_rebuild_history():
     calls = []
-    repo = SimpleNamespace(get=lambda m, d: calls.append((m, d)), history=lambda limit, offset: [])
+    repo = SimpleNamespace(get=lambda m, d: calls.append((m, d)), history=lambda limit, offset, market=None: [])
     app = FastAPI()
     app.include_router(api.router)
     app.dependency_overrides[api.get_repository] = lambda: repo
@@ -113,3 +113,24 @@ def test_us_midnight_continuation_preserves_friday_session_and_deadline(monkeypa
             2026, 9, 26, 0, minute, tzinfo=ZoneInfo("America/New_York")))
         tasks._run("US")
         assert calls[-1] == ("US", date(2026, 9, 25), {"deadline": deadline})
+
+
+def test_market_filter_limits_daily_reads_and_is_applied_before_history_pagination():
+    calls = []
+    history_calls = []
+    repo = SimpleNamespace(
+        get=lambda m, d: calls.append((m, d)),
+        history=lambda limit, offset, market: history_calls.append((limit, offset, market)) or [],
+    )
+    app = FastAPI()
+    app.include_router(api.router)
+    app.dependency_overrides[api.get_repository] = lambda: repo
+    app.dependency_overrides[require_current_user] = lambda: SimpleNamespace(id=1)
+    client = TestClient(app)
+    result = client.get("/daily?signal_date=2026-10-29&market=US")
+    assert result.status_code == 200
+    assert calls == [("US", date(2026, 10, 29))]
+    assert client.get("/history?market=US&limit=2&offset=5").json() == []
+    assert history_calls == [(2, 5, "US")]
+    assert client.get("/daily?market=HK").status_code == 422
+    assert client.get("/history?market=HK").status_code == 422

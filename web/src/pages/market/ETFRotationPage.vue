@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useMarket } from '@/composables/useMarket';
 import { formatRank } from '@/utils/rank';
 import { formatFixed, formatPercent } from '@/utils/number';
 import StockLink from '@/components/stocks/StockLink.vue';
@@ -8,7 +9,6 @@ import PageHeader from '@/components/layout/PageHeader.vue';
 import { exportExcel, type ExcelColumn } from '@/utils/excelExport';
 import { forwardReturnColumns, useForwardReturns } from '@/composables/useForwardReturns';
 import { parseDate } from '@internationalized/date';
-import ResearchMarketToggle from '@/components/research/ResearchMarketToggle.vue';
 import { useRoute } from 'vue-router';
 import { useLazyResearchPreview } from '@/composables/useLazyResearchPreview';
 import { etfRotationApi } from '@/api/etfRotation';
@@ -70,7 +70,7 @@ const error = ref<ParsedApiError | null>(null);
 const selected = ref<{ code: string; name: string; marketType: ETFMarket } | null>(null);
 const detailContext = ref<StockDetailContext>({});
 const route = useRoute();
-const market = ref<ETFMarket>(route?.query.market === 'US' ? 'US' : 'CN');
+const { market } = useMarket();
 const rankingColumns = [
   { key: 'rank', label: 'rank', description: descriptions.rank },
   { key: 'name', label: 'etf', description: undefined },
@@ -352,10 +352,7 @@ watch(market, () => {
   modeChosenByUser.value = false;
   void load(true, { autoSelectMode: true });
 });
-function setMarket(target: ETFMarket) {
-  if (market.value === target) return;
-  market.value = target;
-}
+
 let entryDisposed = false;
 onBeforeUnmount(() => { entryDisposed = true; });
 onMounted(async () => {
@@ -380,11 +377,6 @@ onMounted(async () => {
       description="比较 ETF 的动量强弱、排名变化与轮动信号，结合市场环境观察策略表现。"
     >
       <template #actions>
-        <ResearchMarketToggle
-          :model-value="market"
-          data-testid="etf-market-switcher"
-          @update:model-value="setMarket"
-        />
         <ResearchDataModeToggle
           :mode="dataMode"
           :preview-available="previewAvailable"

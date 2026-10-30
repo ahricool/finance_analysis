@@ -29,7 +29,7 @@ async function mountQuant(path: string) {
       },
     ],
   });
-  await router.push(path);
+  await router.push(path.includes('market=') ? path : `${path}?market=US`);
   await router.isReady();
   return mount(QuantPage, { global: { plugins: [router] } });
 }
@@ -40,7 +40,7 @@ describe('QuantPage', () => {
     await flushPromises();
 
     expect(wrapper.get('[data-testid="module-tabs"]').attributes('aria-label')).toBe('量化研究导航');
-    expect(wrapper.find('[data-testid="quant-market-switcher"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="quant-market-switcher"]').exists()).toBe(false);
     expect(wrapper.get('[data-testid="quant-scope-description"]').text()).toContain('当前范围');
     expect(wrapper.get('a[href="/research/quant?market=US"]').attributes('data-state')).toBe('active');
     expect(wrapper.find('a[href="/research/quant/datasets?market=US"]').exists()).toBe(false);

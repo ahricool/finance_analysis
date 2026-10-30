@@ -1,3 +1,5 @@
+import { createPinia, setActivePinia } from 'pinia';
+import { useMarketStore } from '@/stores/marketStore';
 import { mount, flushPromises } from '@vue/test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import Page from '../IntradayConfirmationPage.vue';
@@ -6,7 +8,9 @@ import { intradayConfirmationApi as api, type Snapshot } from '@/api/intradayCon
 vi.mock('@/api/intradayConfirmation', () => ({ intradayConfirmationApi: { read: vi.fn(), dates: vi.fn(), run: vi.fn() } }));
 const auth = vi.hoisted(() => ({ currentUser: { role: 'user' } }));
 vi.mock('@/composables/useAuth', () => ({ useAuth: () => auth }));
-beforeEach(() => { vi.resetAllMocks(); auth.currentUser.role = 'user'; vi.mocked(api.dates).mockResolvedValue({ dates: ['2026-09-21', '2026-09-18'] }); });
+beforeEach(() => {
+  localStorage.clear();
+  setActivePinia(createPinia()); vi.resetAllMocks(); auth.currentUser.role = 'user'; vi.mocked(api.dates).mockResolvedValue({ dates: ['2026-09-21', '2026-09-18'] }); });
 function deferred<T>() { let resolve!: (value: T) => void; const promise = new Promise<T>(done => { resolve = done; }); return { promise, resolve }; }
 const snapshot = { market: 'US', tradeDate: '2026-09-21', candidateTradeDate: '2026-09-18', status: 'evaluated',
   generatedAt: '2026-09-21T14:00:00Z', frozenAt: '2026-09-21T13:25:00Z', warnings: [],
@@ -32,12 +36,10 @@ describe('intraday confirmation page', () => {
     await flushPromises();
     expect(api.read).toHaveBeenLastCalledWith('CN', 'FAILED', undefined, undefined, expect.any(AbortSignal));
     expect(wrapper.find('select[aria-label="市场"]').exists()).toBe(false);
-    const buttons = wrapper.findAll('[data-testid="intraday-market-switcher"] [role="radio"]');
-    await buttons[0]!.trigger('click');
+    useMarketStore().market = 'US';
     await flushPromises();
     expect(api.read).toHaveBeenLastCalledWith('US', 'FAILED', undefined, undefined, expect.any(AbortSignal));
-    expect(buttons[0]!.attributes('aria-checked')).toBe('true');
-    await buttons[1]!.trigger('click');
+    useMarketStore().market = 'CN';
     await flushPromises();
     expect(api.read).toHaveBeenLastCalledWith('CN', 'FAILED', undefined, undefined, expect.any(AbortSignal));
     wrapper.unmount();
@@ -113,13 +115,13 @@ describe('intraday history and confirmed-price returns', () => {
     const signal = vi.mocked(api.read).mock.calls.at(-1)![4]!;
     const oldDates = deferred<{ dates: string[] }>();
     vi.mocked(api.dates).mockReturnValueOnce(oldDates.promise);
-    await wrapper.findAll('[data-testid="intraday-market-switcher"] [role="radio"]')[0]!.trigger('click');
+    useMarketStore().market = 'US';
     await flushPromises();
     expect(signal.aborted).toBe(true);
     expect(api.read).toHaveBeenLastCalledWith('US', undefined, undefined, undefined, expect.any(AbortSignal));
     expect((wrapper.get('select[aria-label="交易日"]').element as HTMLSelectElement).value).toBe('');
     const datesSignal = vi.mocked(api.dates).mock.calls.at(-1)![1]!;
-    await wrapper.findAll('[data-testid="intraday-market-switcher"] [role="radio"]')[1]!.trigger('click'); await flushPromises();
+    useMarketStore().market = 'CN'; await flushPromises();
     expect(datesSignal.aborted).toBe(true);
     old.resolve({ ...snapshot, tradeDate: '1999-01-01' } as unknown as Snapshot);
     oldDates.resolve({ dates: ['1999-01-01'] }); await flushPromises();
@@ -148,7 +150,7 @@ describe('intraday history and confirmed-price returns', () => {
     await run.trigger('click'); expect(api.run).not.toHaveBeenCalled();
     await wrapper.get('select[aria-label="交易日"]').setValue(''); await flushPromises();
     await run.trigger('click'); expect(api.run).toHaveBeenCalledWith('CN');
-    await wrapper.findAll('[data-testid="intraday-market-switcher"] [role="radio"]')[0]!.trigger('click'); await flushPromises();
+    useMarketStore().market = 'US'; await flushPromises();
     old.resolve({ taskId: 'stale-cn-task' }); await flushPromises();
     expect(wrapper.text()).not.toContain('stale-cn-task');
     wrapper.unmount();

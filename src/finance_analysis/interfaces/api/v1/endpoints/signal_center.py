@@ -17,10 +17,18 @@ def get_repository():
 
 
 @router.get("/daily", response_model=DailySignals)
-def daily(signal_date: date | None = None, user=Depends(require_current_user), repo=Depends(get_repository)):
+def daily(
+    signal_date: date | None = None,
+    market: Market | None = None,
+    user=Depends(require_current_user),
+    repo=Depends(get_repository),
+):
     dates = {m: signal_date or get_market_now(m.lower()).date() for m in ("CN", "US")}
     return dict(
-        requested_dates=dates, items=with_evaluations(repo, [r for m, d in dates.items() if (r := repo.get(m, d))])
+        requested_dates=dates,
+        items=with_evaluations(
+            repo, [r for m, d in dates.items() if (market is None or m == market) and (r := repo.get(m, d))]
+        ),
     )
 
 
@@ -28,10 +36,11 @@ def daily(signal_date: date | None = None, user=Depends(require_current_user), r
 def history(
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
+    market: Market | None = None,
     user=Depends(require_current_user),
     repo=Depends(get_repository),
 ):
-    return with_evaluations(repo, repo.history(limit, offset))
+    return with_evaluations(repo, repo.history(limit, offset, market))
 
 
 @router.get("/{market}/{signal_date}", response_model=SignalDetail)

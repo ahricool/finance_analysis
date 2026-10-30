@@ -31,7 +31,7 @@ for (const width of [1280, 1440, 1920]) {
       });
       await page.goto('/research/signal-center');
       await expect(page.getByTestId('module-tabs').getByRole('link', { name: '信号中心' })).toHaveAttribute('data-state', 'active');
-      await expect(page.getByRole('heading', { name: '美股 · 2026-09-21' })).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'A股 · 2026-09-22' })).toBeVisible();
       await expect(page.getByTestId('signal-card')).toContainText('当日不交易');
       await expect(page.getByTestId('signal-card')).toContainText('2026-09-22');
       await expect(page.getByText('+10.00%', { exact: true })).toBeVisible();

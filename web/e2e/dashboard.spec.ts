@@ -23,12 +23,12 @@ for (const width of [1280, 1440, 1920]) {
       await expect(page.getByTestId('dashboard-feed-item')).toHaveCount(8);
       await expect(page.getByTestId('dashboard-feed-item').first()).toContainText('ORCL FY27 Q1');
       await expect(page.getByText('114,820', { exact: false })).toBeVisible();
-      const regime = page.getByRole('region', { name: 'Market Regime', exact: true });
+      const regime = page.getByRole('region', { name: '市场环境', exact: true });
       for (const value of ['72.4', '53.2', '趋势 76', '宽度 71', '风险 68', '数据日期 2026-09-18']) {
         await expect(regime).toContainText(value);
       }
       await expect(page.getByTestId('market-dashboard')).not.toContainText('最大风险敞口');
-      const labels = ['Market Structure', 'Market Regime', "What's Changed", 'Latest', "What's Next", 'Model Pulse'];
+      const labels = ['Market Structure', '市场环境', '策略变化', 'Latest', "What's Next", 'Model Pulse'];
       let previousBottom = 0;
       for (const label of labels) {
         const box = await page.getByRole('region', { name: label, exact: true }).boundingBox();
@@ -84,7 +84,7 @@ test('navigation remains usable while homepage summaries are pending', async ({ 
   });
   try {
     await page.goto('/dashboard');
-    await expect(page.getByRole('region', { name: 'Market Regime' }).getByLabel('正在加载')).toHaveCount(2);
+    await expect(page.getByRole('region', { name: '市场环境' }).getByLabel('正在加载')).toHaveCount(2);
     await page.getByTestId('desktop-main-nav').getByRole('link', { name: '时间线', exact: true }).click();
     await expect(page).toHaveURL(/\/timeline$/);
   } finally {
