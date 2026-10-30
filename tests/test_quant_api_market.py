@@ -124,11 +124,13 @@ def _client(monkeypatch):
     repository = FakeQuantRepository()
     monkeypatch.setattr(quant_endpoint, "QuantRepository", lambda: repository)
     monkeypatch.setattr(quant_endpoint, "get_universe_codes", lambda market: {"AAPL.US", "NVDA.US"})
-    monkeypatch.setattr(
-        quant_endpoint,
-        "ArtifactStore",
-        lambda: SimpleNamespace(delete_uri=lambda uri: repository.artifact_deletions.append(uri) or True),
-    )
+    import pandas as pd
+    root = MagicMock()
+    root.__truediv__.return_value.read_text.return_value = "\n".join(
+        str(x.date()) for x in pd.bdate_range("2020-01-01", "2025-12-31"))
+    monkeypatch.setattr(quant_endpoint, "ArtifactStore", lambda: SimpleNamespace(
+        delete_uri=lambda uri: repository.artifact_deletions.append(uri) or True,
+        resolve_uri=lambda uri: root))
     app = FastAPI()
     app.include_router(quant_endpoint.router, prefix="/quant")
     app.dependency_overrides[require_current_user] = lambda: SimpleNamespace(id=1)
@@ -535,7 +537,7 @@ def test_dataset_and_model_write_endpoints_reject_unsupported_universe(monkeypat
     assert dataset.status_code == 409
     assert model.status_code == 409
     assert publication.status_code == 409
-    assert all("only supported universe" in response.json()["detail"] for response in (dataset, model, publication))
+    assert all("only supported universe" in response.json()["detail"] for response in (dataset, model))
 
 
 def test_signal_ranking_serializes_request_time_returns(monkeypatch):

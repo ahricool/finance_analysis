@@ -18,6 +18,8 @@ from finance_analysis.database.models.quant import (
     PortfolioRecommendation,
     PortfolioRecommendationItem,
     QuantDatasetSnapshot,
+    QuantExecution,
+    QuantModelRelease,
 )
 from finance_analysis.database.models.stock import Instrument, StockDaily
 from finance_analysis.database.models.universe import Universe
@@ -324,13 +326,16 @@ class QuantRepository:
             session.expunge(row)
             return row
 
-    def update_model_run(self, run_id: int, **values: Any) -> None:
+    def update_model_run(self, run_id: int, *, expected_statuses: set[str] | None = None, **values: Any) -> bool:
         with self.db.session_scope() as session:
-            run = session.get(ModelRun, run_id)
+            run = session.get(ModelRun, run_id, with_for_update=True)
             if not run:
                 raise ValueError(f"Unknown model run {run_id}")
             self._require_supported_universe_row(session, run.market, run.universe_id)
+            if expected_statuses is not None and run.status not in expected_statuses:
+                return False
             session.execute(update(ModelRun).where(ModelRun.id == run_id).values(**values))
+            return True
 
     def get_model_run(self, run_id: int) -> ModelRun | None:
         with self.db.get_session() as session:
@@ -374,6 +379,10 @@ class QuantRepository:
                 raise ValueError("A draft or training model run cannot be deleted")
             if row.status == "production":
                 raise ValueError("A production model run cannot be deleted")
+            referenced = session.scalar(select(QuantModelRelease.id).where(
+                (QuantModelRelease.cross_section_id == run_id) | (QuantModelRelease.time_series_id == run_id)).limit(1))
+            if referenced is not None:
+                raise ValueError("A model referenced by a release cannot be deleted")
             result = {"id": row.id, "artifact_uri": row.artifact_uri}
             session.execute(delete(ModelPublication).where(ModelPublication.model_run_id == run_id))
             session.delete(row)
@@ -438,10 +447,35 @@ class QuantRepository:
         signals: list[dict[str, Any]],
         portfolio_values: dict[str, Any],
         portfolio_items: list[dict[str, Any]],
+        *,
+        regime_values: dict[str, Any] | None = None,
+        execution_id: str | None = None,
     ) -> PortfolioRecommendation:
         """Atomically publish one daily signal set and its portfolio recommendation."""
         with self.db.session_scope() as session:
+            execution = None
+            if execution_id:
+                execution = session.get(QuantExecution, execution_id, with_for_update=True)
+                if execution is None or execution.status not in {"preparing", "predicting", "complete"}:
+                    raise ValueError("Execution is no longer eligible for publication")
+                if model_version != f"batch-{execution_id}":
+                    raise ValueError("Execution batch version mismatch")
+                if (execution.market, execution.trade_date, execution.universe_id) != (market, trade_date, universe_id):
+                    raise ValueError("Execution scope mismatch")
+                if execution.status == "complete":
+                    row = session.scalar(select(PortfolioRecommendation).where(
+                        PortfolioRecommendation.market == market,
+                        PortfolioRecommendation.model_version == model_version))
+                    session.expunge(row)
+                    return row
+                if (execution.market, execution.trade_date, execution.universe_id) != (market, trade_date, universe_id):
+                    raise ValueError("Execution scope mismatch")
             self._require_supported_universe_row(session, market, universe_id)
+            if regime_values is not None:
+                regime = MarketRegimeSnapshot(**regime_values)
+                session.add(regime)
+                session.flush()
+                portfolio_values = {**portfolio_values, "market_regime_id": regime.id}
             if (
                 portfolio_values["market"] != market
                 or portfolio_values["universe_id"] != universe_id
@@ -482,6 +516,10 @@ class QuantRepository:
             session.add_all(PortfolioRecommendationItem(recommendation_id=row.id, **item) for item in portfolio_items)
             session.flush()
             session.refresh(row)
+            if execution is not None:
+                execution.status = "complete"
+                execution.finished_at = utc_now()
+                execution.summary = {"portfolio_id": row.id}
             session.expunge(row)
             return row
 
@@ -516,7 +554,7 @@ class QuantRepository:
         market: str,
         universe_id: int | None = None,
         code: str | None = None,
-        limit: int = 200,
+        limit: int | None = None,
         model_version: str | None = None,
         trade_date: date | None = None,
     ) -> list[ModelSignal]:
@@ -666,4 +704,96 @@ class QuantRepository:
             return row, items
 
 
-__all__ = ["QuantRepository"]
+
+    def create_execution(self, values):
+        from sqlalchemy.exc import IntegrityError
+        try:
+            with self.db.session_scope() as session:
+                row = QuantExecution(**values)
+                session.add(row)
+                session.flush()
+                session.expunge(row)
+                return row
+        except IntegrityError as exc:
+            raise ValueError("This market/date already has an active quant task") from exc
+
+    def update_execution(self, execution_id, **values):
+        with self.db.session_scope() as session:
+            row = session.get(QuantExecution, execution_id, with_for_update=True)
+            if row is not None and row.status not in {"complete", "failed"}:
+                for key, value in values.items():
+                    setattr(row, key, value)
+
+    def execution(self, execution_id):
+        with self.db.get_session() as session:
+            row = session.get(QuantExecution, execution_id)
+            if row is not None:
+                session.expunge(row)
+            return row
+
+    def executions(self, market, limit=20):
+        with self.db.get_session() as session:
+            return self._detach(session, list(session.scalars(select(QuantExecution).where(
+                QuantExecution.market == market).order_by(QuantExecution.created_at.desc()).limit(limit))))
+
+    def active_release(self, market):
+        with self.db.get_session() as session:
+            row = session.scalar(select(QuantModelRelease).where(
+                QuantModelRelease.market == market, QuantModelRelease.active.is_(True)))
+            if row is not None:
+                session.expunge(row)
+            return row
+
+    def releases(self, market):
+        with self.db.get_session() as session:
+            return self._detach(session, list(session.scalars(select(QuantModelRelease).where(
+                QuantModelRelease.market == market).order_by(QuantModelRelease.id.desc()))))
+
+    def publish_release(self, market, cross_section_id, time_series_id, user_id, reason):
+        from sqlalchemy import text
+        from finance_analysis.quant.targets import stored_target_matches_production
+        with self.db.session_scope() as session:
+            session.execute(text("SELECT pg_advisory_xact_lock(hashtext(:key))"), {"key": f"quant-release:{market}"})
+            runs = [session.get(ModelRun, key, with_for_update=True) for key in (cross_section_id, time_series_id)]
+            for run, key in zip(runs, ("cross_section_lgbm", "time_series_lgbm")):
+                if (run is None or run.market != market or run.model_key != key or
+                        run.status not in {"candidate", "production", "retired"} or not run.artifact_uri):
+                    raise ValueError("A compatible completed pair is required")
+                self._require_supported_universe_row(session, market, run.universe_id)
+                if run.feature_config != {"base": "Alpha158"} or not stored_target_matches_production(key, run.target_config):
+                    raise ValueError("Model feature or target contract is incompatible")
+            if runs[0].universe_id != runs[1].universe_id:
+                raise ValueError("Models must use the same universe")
+            session.execute(update(QuantModelRelease).where(QuantModelRelease.market == market).values(active=False))
+            session.execute(update(ModelRun).where(ModelRun.market == market, ModelRun.status == "production")
+                            .values(status="retired"))
+            session.flush()
+            for run in runs:
+                run.status = "production"
+                session.add(ModelPublication(model_run_id=run.id, published_by=user_id, reason=reason))
+            release = QuantModelRelease(market=market, cross_section_id=cross_section_id,
+                                        time_series_id=time_series_id, reason=reason)
+            session.add(release)
+            session.flush()
+            session.expunge(release)
+            return release
+
+    def create_experiment(self, market, universe_id, uid, version, date_from, date_to):
+        from finance_analysis.quant.targets import production_target_config
+        with self.db.session_scope() as session:
+            runs = []
+            for key in ("cross_section_lgbm", "time_series_lgbm"):
+                definition = session.scalar(select(ModelDefinition).where(ModelDefinition.key == key))
+                if definition is None or not definition.enabled:
+                    raise ValueError("Model definition is unavailable")
+                row = ModelRun(uid=uid, market=market, universe_id=universe_id,
+                               model_definition_id=definition.id, model_key=key, model_version=version,
+                               run_type="walk_forward", status="draft", progress=0,
+                               train_start=date_from, train_end=date_to,
+                               feature_config={"base": "Alpha158"}, target_config=production_target_config(key),
+                               split_config={"train_years": 3, "valid_months": 3, "test_months": 3,
+                                             "retrain_frequency_months": 3, "embargo_days": 2, "prediction_horizon": 5})
+                session.add(row)
+                runs.append(row)
+            session.flush()
+            return [row.id for row in runs]

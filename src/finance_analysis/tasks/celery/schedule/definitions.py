@@ -113,6 +113,12 @@ class ScheduledTaskDefinition:
 
 SCHEDULED_TASK_DEFINITIONS = (
     ScheduledTaskDefinition(
+        job_id="quant_cleanup", name="量化临时输入清理", description="清理已完成或终止任务的临时输入，不删除训练证据",
+        task_type="scheduled_quant_cleanup", celery_task_name="scheduled.quant_cleanup",
+        schedules=(CronSchedule(minute="15", hour="*/6"),), schedule_text="每6小时",
+        timezone=SCHEDULE_TIMEZONE, queue="maintenance", expires=3600,
+    ),
+    ScheduledTaskDefinition(
         job_id="market_heatmap_cn", name="市场热力图 CN", task_type="scheduled_market_heatmap_cn",
         description="腾讯 A 股快照与数据库行业分组，原子刷新共享热力图缓存",
         celery_task_name=celery_task_name("market_heatmap_cn"),

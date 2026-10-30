@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { Button } from '@/components/ui/button';
 import { quantApi } from '@/api/quant';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import AppApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
@@ -7,22 +8,28 @@ import AppDatePicker from '@/components/app/AppDatePicker.vue';
 import PageHeader from '@/components/layout/PageHeader.vue';
 import ModuleTabs from '@/components/layout/ModuleTabs.vue';
 import { useQuantMarket } from '@/composables/useQuantMarket';
-import { BarChart3, Bot, BriefcaseBusiness, Database, LayoutDashboard } from 'lucide-vue-next';
+import { BarChart3, Bot, BriefcaseBusiness, LayoutDashboard } from 'lucide-vue-next';
 import { computed, ref, watch } from 'vue';
+import { useAuthStore } from '@/stores/authStore';
+import type { QuantStatus } from '@/types/quant';
 import { RouterView, useRoute } from 'vue-router';
 
 type QuantTab = 'dashboard' | 'signals' | 'datasets' | 'models' | 'portfolios';
 
 const route = useRoute();
 const { market, setMarket, marketQuery, tradeDate, setTradeDate } = useQuantMarket();
-const scopeDescription = computed(() =>
-  market.value === 'US' ? '当前范围：标普500' : '当前范围：沪深300',
-);
+const auth = useAuthStore();
+const status = ref<QuantStatus | null>(null);
+const statusFailed = ref(false);
+watch(market, async (current, _, onCleanup) => {
+  let stale = false; onCleanup(() => { stale = true; }); status.value = null; statusFailed.value=false;
+  try { const value = await quantApi.status(current); if (!stale) status.value = value; } catch { if(!stale) statusFailed.value=true; }
+}, { immediate: true });
+const scopeDescription = computed(() => status.value ? `当前范围：${status.value.universeName} · ${status.value.memberCount}只` : statusFailed.value ? '研究范围读取失败，请刷新重试' : '正在读取研究范围');
 const baseNavItems = [
   { key: 'dashboard' as const, label: '总览', icon: LayoutDashboard, path: '/research/quant' },
   { key: 'signals' as const, label: '模型选股', icon: BarChart3, path: '/research/quant/signals' },
-  { key: 'datasets' as const, label: '数据集', icon: Database, path: '/research/quant/datasets' },
-  { key: 'models' as const, label: '模型运行', icon: Bot, path: '/research/quant/models' },
+  { key: 'models' as const, label: '模型管理', icon: Bot, path: '/research/quant/models' },
   {
     key: 'portfolios' as const,
     label: '目标组合',
@@ -31,7 +38,7 @@ const baseNavItems = [
   },
 ];
 const navItems = computed(() =>
-  baseNavItems.map((item) => ({
+  baseNavItems.filter(item => item.key !== 'models' || auth.currentUser?.role === 'admin').map((item) => ({
     key: item.key,
     label: item.label,
     icon: item.icon,
@@ -80,7 +87,7 @@ function selectTradeDate(value: string) {
       variant="section"
       title="量化研究"
       en="Quant Research"
-      description="查看市场状态与模型选股，管理研究数据集、模型运行和目标组合。"
+      description="查看正式市场状态、模型选股与目标组合。"
     />
     <div class="flex min-w-0 flex-col gap-3">
       <ModuleTabs
@@ -114,6 +121,14 @@ function selectTradeDate(value: string) {
             class="w-full"
             @update:model-value="selectTradeDate"
           />
+          <Button
+            v-if="tradeDate"
+            variant="ghost"
+            size="sm"
+            @click="setTradeDate('')"
+          >
+            返回最新结果
+          </Button>
         </div>
       </div>
     </div>
@@ -121,6 +136,13 @@ function selectTradeDate(value: string) {
       v-if="datesError"
       :error="datesError"
     />
+    <p
+      v-if="status?.latestAttempt?.error"
+      class="text-sm text-destructive"
+      role="status"
+    >
+      {{ status.latestAttempt.tradeDate }}：{{ status.latestAttempt.error }}；下方保留最后成功结果。
+    </p>
     <section class="min-w-0">
       <RouterView />
     </section>

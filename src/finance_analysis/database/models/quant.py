@@ -250,3 +250,42 @@ QUANT_TABLES = (
     PortfolioRecommendation,
     PortfolioRecommendationItem,
 )
+
+
+class QuantModelRelease(Base):
+    """One atomically published pair; old releases remain reproducible."""
+    __tablename__ = "quant_model_release"
+    id = Column(BigInteger, primary_key=True)
+    market = Column(String(8), nullable=False)
+    cross_section_id = Column(BigInteger, ForeignKey("model_run.id", ondelete="RESTRICT"), nullable=False)
+    time_series_id = Column(BigInteger, ForeignKey("model_run.id", ondelete="RESTRICT"), nullable=False)
+    active = Column(Boolean, nullable=False, default=True)
+    reason = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
+    __table_args__ = (Index("uix_quant_active_release", "market", unique=True,
+                           postgresql_where=text("active = true")),)
+
+
+class QuantExecution(Base):
+    """Small orchestration record; completed rows identify immutable result batches."""
+    __tablename__ = "quant_execution"
+    id = Column(String(36), primary_key=True)
+    market = Column(String(8), nullable=False)
+    trade_date = Column(Date, nullable=False)
+    universe_id = Column(Integer, ForeignKey("universe.id", ondelete="RESTRICT"), nullable=False)
+    release_id = Column(BigInteger, ForeignKey("quant_model_release.id", ondelete="RESTRICT"))
+    task_id = Column(String(64))
+    status = Column(String(16), nullable=False, default="preparing")
+    input_uri = Column(Text)
+    summary = Column(JSONB, nullable=False, default=json_object)
+    error = Column(Text)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
+    finished_at = Column(DateTime(timezone=True))
+    __table_args__ = (
+        CheckConstraint("status IN ('preparing','predicting','complete','failed')", name="ck_quant_execution_status"),
+        Index("uix_quant_execution_active", "market", "trade_date", unique=True,
+              postgresql_where=text("status IN ('preparing','predicting')")),
+        Index("ix_quant_execution_latest", "market", "trade_date", "created_at"),
+    )
+
+QUANT_TABLES = (*QUANT_TABLES, QuantModelRelease, QuantExecution)

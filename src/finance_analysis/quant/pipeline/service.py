@@ -5,6 +5,8 @@ from __future__ import annotations
 from collections import Counter
 from dataclasses import asdict
 from datetime import date
+from uuid import uuid4
+import math
 from typing import Any
 
 from finance_analysis.core.time import utc_now  # pragma: allowlist secret
@@ -13,9 +15,11 @@ from finance_analysis.database.repositories.stock import InstrumentRepository  #
 from finance_analysis.market_review.trading_calendar import get_effective_trading_date  # pragma: allowlist secret
 from finance_analysis.quant.config import get_quant_config  # pragma: allowlist secret
 from finance_analysis.quant.datasets.artifact_store import ArtifactStore  # pragma: allowlist secret
+from finance_analysis.quant.datasets.transient import PredictionInputs
 from finance_analysis.quant.datasets.exporter import QlibDatasetExporter  # pragma: allowlist secret
 from finance_analysis.quant.exceptions import (  # pragma: allowlist secret
     FeatureDataMissingError,
+    TrainingAlreadyStartedError,
     ModelNotPublishedError,
     PredictionFailedError,
     QuantDatasetMissingError,
@@ -63,6 +67,8 @@ class QuantTrainingPipeline:
 
     def prepare(self, run_id: int) -> dict[str, Any]:
         run = self._supported_run(run_id)
+        if run.status != "draft":
+            raise TrainingAlreadyStartedError("Only a draft model can start training")
         dataset = self.repository.get_dataset(run.dataset_snapshot_id) if run.dataset_snapshot_id else None
         if not dataset or dataset.status != "ready" or not dataset.artifact_uri:
             raise QuantDatasetMissingError("A ready dataset snapshot with an artifact is required")
@@ -79,20 +85,26 @@ class QuantTrainingPipeline:
                 f"minimum={minimum_coverage:.2%}"
             )
         (self.artifact_store or ArtifactStore()).resolve_uri(dataset.artifact_uri)
+        from finance_analysis.quant.training import validate_training_dates
+        root = (self.artifact_store or ArtifactStore()).resolve_uri(dataset.artifact_uri)
+        validate_training_dates((root / "calendars/day.txt").read_text().splitlines(), run.split_config)
         split_config = dict(run.split_config or {})
         stored_horizon = split_config.get("prediction_horizon", DEFAULT_PREDICTION_HORIZON)
         if int(stored_horizon) != DEFAULT_PREDICTION_HORIZON:
             raise ValueError("production prediction_horizon must be 5")
         split_config["prediction_horizon"] = DEFAULT_PREDICTION_HORIZON
         target_config = resolve_target_config(run.model_key, run.target_config or {})
-        self.repository.update_model_run(
+        claimed = self.repository.update_model_run(
             run_id,
+            expected_statuses={"draft"},
             status="training",
             progress=10,
             started_at=utc_now(),
             error=None,
             target_config=target_config,
         )
+        if claimed is False:
+            raise TrainingAlreadyStartedError("Model training is already claimed")
         return {
             "schema_version": PROTOCOL_VERSION,
             "model_run_id": run.id,
@@ -108,7 +120,7 @@ class QuantTrainingPipeline:
         }
 
     def mark_dispatched(self, run_id: int, task_id: str) -> None:
-        self.repository.update_model_run(run_id, task_id=task_id, progress=25)
+        self.repository.update_model_run(run_id, expected_statuses={"training"}, task_id=task_id, progress=25)
 
     def finalize(self, run_id: int, result: dict[str, Any]) -> dict[str, Any]:
         if result.get("schema_version") != PROTOCOL_VERSION:
@@ -118,9 +130,16 @@ class QuantTrainingPipeline:
         run = self._supported_run(run_id)
         if result.get("model_key") != run.model_key:
             raise ValueError("Qlib result model_key does not match ModelRun")
+        if run.status in {"candidate", "production", "retired"}:
+            if run.artifact_uri != result.get("artifact_uri"):
+                raise ValueError("Conflicting training callback")
+            return {"model_run_id": run_id, "model_key": run.model_key, "status": run.status}
+        if run.status != "training":
+            raise ValueError("Training run no longer accepts results")
         metrics = result.get("metrics", {})
         self.repository.update_model_run(
             run_id,
+            expected_statuses={"training"},
             status="candidate",
             progress=100,
             metrics=metrics,
@@ -139,6 +158,7 @@ class QuantTrainingPipeline:
         self._supported_run(run_id)
         self.repository.update_model_run(
             run_id,
+            expected_statuses={"draft", "training"},
             status="failed",
             progress=100,
             error=reason[:4000],
@@ -165,6 +185,7 @@ class QuantDailyPipeline:
         market: str = "US",
         universe_key: str | None = None,
         trade_date: date | None = None,
+        task_id: str | None = None,
     ) -> tuple[dict[str, Any], dict[str, Any]]:
         config = get_quant_market_config(market)
         quant_config = get_quant_config()
@@ -172,10 +193,28 @@ class QuantDailyPipeline:
         if trade_date is None:
             trade_date = get_effective_trading_date(config.calendar_market)
         universe_key = validate_universe_for_market(market, universe_key)
-        cross_section, time_series = self._preflight_production_models(market)
+        release = self.repository.active_release(market)
+        if release is None:
+            raise ModelNotPublishedError(f"No published model pair for {market}")
+        cross_section, time_series = self._preflight_production_models(market, release)
         universe = self.repository.get_universe(universe_key)
         if not universe or universe.market != market or not getattr(universe, "enabled", True):
             raise ValueError(f"Supported {market} universe {universe_key} is not available")
+        execution_id = str(uuid4())
+        self.repository.create_execution({
+            "id": execution_id, "market": market, "trade_date": trade_date,
+            "universe_id": universe.id, "release_id": release.id, "task_id": task_id,
+        })
+        try:
+            return self._prepare_input(market, universe_key, universe, trade_date,
+                                       cross_section, time_series, release.id, execution_id, quant_config)
+        except Exception as exc:
+            self.repository.update_execution(execution_id, status="failed", error=str(exc)[:4000], finished_at=utc_now())
+            PredictionInputs(self.artifact_store).remove(f"quant://temporary/{execution_id}")
+            raise
+
+    def _prepare_input(self, market, universe_key, universe, trade_date,
+                       cross_section, time_series, release_id, execution_id, quant_config):
         universe_codes = get_universe_codes(market)
         research = DailyResearchService(
             self.repository,
@@ -184,25 +223,17 @@ class QuantDailyPipeline:
         eligible_codes = set(research["eligible_codes"])
         if not eligible_codes.issubset(universe_codes):
             raise FeatureDataMissingError("Daily research returned codes outside the fixed Quant Universe")
-        available_codes = self.repository.daily_bar_codes(eligible_codes, trade_date)
-        missing_codes = sorted(eligible_codes - available_codes)
-        if missing_codes:
-            raise FeatureDataMissingError(
-                f"Missing rankable universe daily data for trade_date={trade_date}: {missing_codes}"
-            )
         regime = research["market_regime"]
-        prediction_dataset = self.exporter.export(
-            market,
-            universe_key,
-            prediction_dataset_start(market, trade_date),
-            trade_date,
-            candidate_codes=eligible_codes,
+        regime["trade_date"] = str(trade_date)
+        regime["model_version"] = f"batch-{execution_id}"
+        input_uri = PredictionInputs(self.artifact_store).build(
+            execution_id, market, universe_key, research["loaded"], eligible_codes,
+            prediction_dataset_start(market, trade_date), trade_date,
         )
-        if prediction_dataset is None or not prediction_dataset.artifact_uri:
-            raise QuantDatasetMissingError(f"Prediction dataset artifact is unavailable for {trade_date}")
+        self.repository.update_execution(execution_id, status="predicting", input_uri=input_uri)
         payload = {
             "schema_version": PROTOCOL_VERSION,
-            "dataset_uri": prediction_dataset.artifact_uri,
+            "dataset_uri": input_uri,
             "trade_date": str(trade_date),
             "cross_section": {
                 "model_run_id": cross_section.id,
@@ -216,6 +247,7 @@ class QuantDailyPipeline:
             },
         }
         lineage = {
+            "release_id": release_id,
             "cross_section_model_run_id": cross_section.id,
             "cross_section_model_version": cross_section.model_version,
             "time_series_model_run_id": time_series.id,
@@ -224,10 +256,12 @@ class QuantDailyPipeline:
             "fusion_version": quant_config.fusion_version,
             "portfolio_version": quant_config.portfolio_version,
             "feature_version": quant_config.feature_version,
-            "dataset_uri": prediction_dataset.artifact_uri,
-            "dataset_source_revision": getattr(prediction_dataset, "source_revision", None),
+            "dataset_source_revision": research["loaded"].source_revision,
         }
         context = {
+            "execution_id": execution_id,
+            "input_uri": input_uri,
+            "result_version": f"batch-{execution_id}",
             "schema_version": PROTOCOL_VERSION,
             "trade_date": str(trade_date),
             "market": market,
@@ -240,15 +274,13 @@ class QuantDailyPipeline:
             "expected_codes": sorted(eligible_codes),
             "runtime_context": research["runtime_context"],
             "lineage": lineage,
-            "regime": {
-                "id": regime.id,
-                "regime": regime.regime,
-                "market_score": regime.market_score,
-                "max_equity_exposure": regime.max_equity_exposure,
-            },
+            "regime": regime,
             "warnings": research.get("warnings", []),
             "coverage": research.get("coverage", {}),
         }
+        for code, symbol in research["symbols_by_code"].items():
+            if code in context["runtime_context"]:
+                context["runtime_context"][code]["instrument_id"] = symbol.id
         return payload, context
 
     def finalize(self, result: dict[str, Any] | list[dict[str, Any]], context: dict[str, Any]) -> dict[str, Any]:
@@ -284,13 +316,7 @@ class QuantDailyPipeline:
                 expected_model_runs[model_key],
             ):
                 raise ValueError(f"Qlib prediction result model_run_id mismatch for {model_key}")
-        universe_codes = get_universe_codes(market)
-        expected_codes = set(context.get("expected_codes") or universe_codes)
-        if not expected_codes.issubset(universe_codes):
-            raise ValueError(
-                "Daily callback universe membership no longer matches; "
-                f"expected={sorted(expected_codes)} fixed={sorted(universe_codes)}"
-            )
+        expected_codes = set(context["expected_codes"])
         self._validate_prediction_coverage(response, expected_codes, trade_date)
         self._validate_prediction_coverage(time_series_response, expected_codes, trade_date)
         time_series_by_code = {item["code"]: item["normalized_score"] for item in time_series_response["predictions"]}
@@ -300,13 +326,10 @@ class QuantDailyPipeline:
         fusion = SignalFusion()
         public: list[dict[str, Any]] = []
         for prediction in response.get("predictions", []):
-            symbol = self.symbol_repository.get_by_code(prediction["code"])
-            if symbol is None:
-                raise FeatureDataMissingError(f"Prediction code has no canonical symbol: {prediction['code']}")
-            prediction["instrument_id"] = symbol.id
             feature = runtime_context.get(prediction["code"])
             if feature is None:
                 raise FeatureDataMissingError(f"Daily runtime context missing for {prediction['code']} on {trade_date}")
+            prediction["instrument_id"] = feature["instrument_id"]
             required_metadata = (
                 "has_sufficient_data",
                 "liquidity",
@@ -336,10 +359,10 @@ class QuantDailyPipeline:
                 market_score=regime["market_score"],
                 risk_penalty=float(prediction.get("risk_penalty", 0)),
             )
-            score_components = {**fused.score_components, "lineage": lineage}
+            score_components = {}
             item = {**prediction, **asdict(fused), "score_components": score_components}
             public.append(item)
-        public.sort(key=lambda item: item["final_score"], reverse=True)
+        public.sort(key=lambda item: (-item["final_score"], item["code"]))
         for rank, item in enumerate(public, 1):
             item["universe_rank"] = rank
         signal_values = [
@@ -349,7 +372,7 @@ class QuantDailyPipeline:
                 "code": item["code"],
                 "market": market,
                 "universe_id": universe.id,
-                "model_version": context["cross_section_model_version"],
+                "model_version": context["result_version"],
                 "market_score": regime["market_score"],
                 "time_series_score": item["time_series_score"],
                 "cross_section_score": item["normalized_score"],
@@ -369,8 +392,8 @@ class QuantDailyPipeline:
             "trade_date": trade_date,
             "market": market,
             "universe_id": universe.id,
-            "model_version": context["cross_section_model_version"],
-            "market_regime_id": regime["id"],
+            "model_version": context["result_version"],
+            "market_regime_id": None,
             "status": "ready",
             "max_equity_exposure": regime["max_equity_exposure"],
             "target_equity_exposure": portfolio["target_equity_exposure"],
@@ -399,10 +422,12 @@ class QuantDailyPipeline:
             market,
             universe.id,
             trade_date,
-            context["cross_section_model_version"],
+            context["result_version"],
             signal_values,
             portfolio_values,
             portfolio_items,
+            regime_values={**regime, "trade_date": trade_date},
+            execution_id=context["execution_id"],
         )
         return {
             "trade_date": str(trade_date),
@@ -451,11 +476,18 @@ class QuantDailyPipeline:
             )
         return model
 
-    def _preflight_production_models(self, market: str) -> tuple[Any, Any]:
+    def _preflight_production_models(self, market: str, release=None) -> tuple[Any, Any]:
         models = (
-            self._production_model(market, CROSS_SECTION_MODEL_KEY),
-            self._production_model(market, TIME_SERIES_MODEL_KEY),
+            self.repository.get_model_run(release.cross_section_id) if release else self._production_model(market, CROSS_SECTION_MODEL_KEY),
+            self.repository.get_model_run(release.time_series_id) if release else self._production_model(market, TIME_SERIES_MODEL_KEY),
         )
+        for model, key in zip(models, (CROSS_SECTION_MODEL_KEY, TIME_SERIES_MODEL_KEY)):
+            if model is None or not getattr(model, "artifact_uri", None):
+                raise ModelNotPublishedError(f"No production {market} {key} model artifact")
+            if getattr(model, "feature_config", None) != SUPPORTED_QLIB_FEATURE_CONFIG:
+                raise ModelNotPublishedError("retrain and publish an Alpha158-only model")
+            if not stored_target_matches_production(key, getattr(model, "target_config", None)):
+                raise ModelNotPublishedError(f"Unsupported {key} 5-session target contract")
         cs_target = getattr(models[0], "target_config", None) or {}
         ts_target = getattr(models[1], "target_config", None) or {}
         cs_horizon = int(cs_target.get("prediction_horizon") or DEFAULT_PREDICTION_HORIZON)
@@ -493,3 +525,12 @@ class QuantDailyPipeline:
                 f"missing={missing} unexpected={unexpected} duplicates={duplicates} "
                 f"invalid_entries={invalid_count}"
             )
+        for item in predictions:
+            if not isinstance(item, dict):
+                raise PredictionFailedError("Invalid prediction record")
+            for field in ("normalized_score", "raw_prediction", "predicted_return"):
+                value = item.get(field)
+                if not isinstance(value, (int, float)) or not math.isfinite(value):
+                    raise PredictionFailedError(f"Invalid finite prediction {field}")
+            if not 0 <= item["normalized_score"] <= 1:
+                raise PredictionFailedError("Normalized score is outside 0–1")

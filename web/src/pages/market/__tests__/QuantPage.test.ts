@@ -1,3 +1,4 @@
+import { createPinia, setActivePinia } from 'pinia';
 import { flushPromises, mount } from '@vue/test-utils';
 import { createMemoryHistory, createRouter } from 'vue-router';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -5,9 +6,11 @@ import { quantApi } from '@/api/quant';
 import AppDatePicker from '@/components/app/AppDatePicker.vue';
 import QuantPage from '../QuantPage.vue';
 
-vi.mock('@/api/quant', () => ({ quantApi: { dates: vi.fn() } }));
+vi.mock('@/api/quant', () => ({ quantApi: { dates: vi.fn(), status: vi.fn() } }));
 
 beforeEach(() => {
+  setActivePinia(createPinia());
+  vi.mocked(quantApi.status).mockImplementation(async (market) => ({ market, universe: market === "CN" ? "cn_quant" : "us_quant", universeName: market === "CN" ? "A股研究池" : "美股研究池", memberCount: 300, latestAttempt: null }));
   vi.mocked(quantApi.dates).mockReset().mockResolvedValue({ items: ['2026-09-25', '2026-09-23'] });
 });
 
@@ -34,12 +37,13 @@ async function mountQuant(path: string) {
 describe('QuantPage', () => {
   it('keeps tertiary navigation horizontal above the market switcher', async () => {
     const wrapper = await mountQuant('/research/quant');
+    await flushPromises();
 
     expect(wrapper.get('[data-testid="module-tabs"]').attributes('aria-label')).toBe('量化研究导航');
     expect(wrapper.find('[data-testid="quant-market-switcher"]').exists()).toBe(true);
     expect(wrapper.get('[data-testid="quant-scope-description"]').text()).toContain('当前范围');
     expect(wrapper.get('a[href="/research/quant?market=US"]').attributes('data-state')).toBe('active');
-    expect(wrapper.get('a[href="/research/quant/datasets?market=US"]').text()).toBe('数据集');
+    expect(wrapper.find('a[href="/research/quant/datasets?market=US"]').exists()).toBe(false);
     expect(wrapper.text()).toContain('量化总览');
   });
 
@@ -81,6 +85,7 @@ it('scopes detail dates by security and portfolio dates by market', async () => 
 it('disables empty and failed date lists', async () => {
   vi.mocked(quantApi.dates).mockResolvedValueOnce({ items: [] });
   const wrapper = await mountQuant('/research/quant');
+    await flushPromises();
   await flushPromises();
   expect(wrapper.getComponent(AppDatePicker).props('disabled')).toBe(true);
   vi.mocked(quantApi.dates).mockRejectedValueOnce(new Error('dates unavailable'));
@@ -93,6 +98,7 @@ it('clears old dates while loading and ignores stale market responses', async ()
   let resolveOld!: (value: { items: string[] }) => void;
   vi.mocked(quantApi.dates).mockImplementationOnce(() => new Promise(resolve => { resolveOld = resolve; }));
   const wrapper = await mountQuant('/research/quant');
+    await flushPromises();
   expect(wrapper.getComponent(AppDatePicker).props('disabled')).toBe(true);
   await wrapper.vm.$router.push('/research/quant?market=CN');
   await flushPromises();

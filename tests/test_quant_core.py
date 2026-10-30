@@ -33,7 +33,7 @@ def daily_frame(count=90, start="2025-01-01", drift=1.0):
 
 def test_quant_schema_uses_canonical_market_tables_only():
     names = {model.__tablename__ for model in QUANT_TABLES}
-    assert len(names) == 8
+    assert len(names) == 10
     assert not names & {"security_master", "daily_bar", "minute_bar"}
     foreign_keys = {str(fk.target_fullname) for model in QUANT_TABLES for fk in model.__table__.foreign_keys}
     assert "instrument.id" in foreign_keys

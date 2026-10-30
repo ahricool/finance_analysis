@@ -11,6 +11,8 @@ from finance_analysis.tasks.celery.schedule import get_scheduled_task_definition
 from finance_analysis.tasks.lifecycle import is_tracked_callable  # pragma: allowlist secret
 
 EXPECTED_CUSTOM_TASKS = {
+    "quant.experiment.prepare",
+    "scheduled.quant_cleanup",
     "scheduled.market_heatmap_cn",
     "scheduled.market_heatmap_us",
     "scheduled.stock_strategies",
@@ -85,8 +87,10 @@ def test_each_task_package_has_one_explicit_tasks_module_and_expected_tasks():
         module = importlib.import_module(module_name)
         source = Path(module.__file__).read_text(encoding="utf-8")
         if package.endswith("quant_daily"):
+            expected_count = 5
+        elif package.endswith("quant_training"):
             expected_count = 4
-        elif package.endswith(("quant_training", "earnings_outlook", "options_intelligence", "industry_strength")):
+        elif package.endswith(("earnings_outlook", "options_intelligence", "industry_strength")):
             expected_count = 3
         elif package.endswith(
             (
@@ -113,7 +117,7 @@ def test_all_custom_task_names_and_job_ids_are_unique():
     celery_names.extend(item.celery_task_name for item in scheduled)
     job_ids = [item.job_id for item in scheduled]
 
-    assert len(celery_names) == len(set(celery_names)) == 49
+    assert len(celery_names) == len(set(celery_names)) == 51
     assert len(job_ids) == len(set(job_ids))
 
 

@@ -75,12 +75,28 @@ class TargetConfig:
 
 
 def build_target(dataset: Path, manifest: dict[str, Any], config: TargetConfig) -> pd.Series:
-    bars = pd.read_csv(dataset / "source" / "daily.csv", parse_dates=["datetime"]).sort_values(
-        ["instrument", "datetime"]
-    )
-    grouped = {code: frame.set_index("datetime") for code, frame in bars.groupby("instrument")}
+    calendar = pd.DatetimeIndex(pd.to_datetime((dataset / "calendars/day.txt").read_text().splitlines()))
+    source = dataset / "source" / "daily.csv"
+    if source.exists():
+        # Legacy artifacts remain readable. New artifacts use the same canonical
+        # OHLC bins as Alpha158 instead of duplicating the raw history in CSV.
+        bars = pd.read_csv(source, parse_dates=["datetime"]).sort_values(["instrument", "datetime"])
+        grouped = {code: frame.set_index("datetime") for code, frame in bars.groupby("instrument")}
+    else:
+        grouped = {}
+        for line in (dataset / "instruments/all.txt").read_text().splitlines():
+            code = line.split("\t")[0]
+            columns = {}
+            for field in {config.entry_price, config.exit_price}:
+                values = np.fromfile(dataset / "features" / code.lower() / f"{field}.day.bin", dtype="<f4")
+                start = int(values[0])
+                if start < 0 or start + len(values) - 1 > len(calendar):
+                    raise ValueError(f"Invalid Qlib calendar offsets for {code}")
+                columns[field] = pd.Series(values[1:], index=calendar[start:start + len(values) - 1], dtype=float)
+            grouped[code] = pd.DataFrame(columns)
     benchmark_codes = set(manifest["benchmark_codes"])
     market_benchmark = manifest.get("market_benchmark") or next(iter(benchmark_codes), None)
+    grouped = {code: frame.reindex(calendar) for code, frame in grouped.items()}
     rows: list[tuple[pd.Timestamp, str, float]] = []
     for code, frame in grouped.items():
         if code in benchmark_codes:

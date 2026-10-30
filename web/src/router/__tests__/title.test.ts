@@ -14,7 +14,7 @@ describe('router document titles', () => {
     ['/research/quant', '量化研究 - Finance Analysis'],
     ['/research/quant/signals', '模型选股 - Finance Analysis'],
     ['/research/quant/signals/NVDA.US', '选股详情 - Finance Analysis'],
-    ['/research/quant/models', '量化模型 - Finance Analysis'],
+    ['/research/quant/models', '量化模型管理 - Finance Analysis'],
     ['/research/quant/portfolios', '目标组合 - Finance Analysis'],
     ['/research/etf-rotation', 'ETF动量轮动 - Finance Analysis'],
     ['/research/trend-following', '趋势跟踪 - Finance Analysis'],

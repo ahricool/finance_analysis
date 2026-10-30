@@ -51,6 +51,7 @@ EXPECTED_JOBS = {
     "market_data_sync_cn": ("scheduled_market_data_sync_cn", "Asia/Shanghai"),
     "market_data_sync_us": ("scheduled_market_data_sync_us", "America/New_York"),
     "analysis_a_share_pre_close_review": ("scheduled_a_share_pre_close_review", "Asia/Shanghai"),
+    "quant_cleanup": ("scheduled_quant_cleanup", "Asia/Shanghai"),
     "quant_daily_pipeline_us": ("scheduled_quant_daily_us", "America/New_York"),
     "quant_daily_pipeline_cn": ("scheduled_quant_daily_cn", "Asia/Shanghai"),
     "etf_rotation_cn": ("scheduled_etf_rotation_cn", "Asia/Shanghai"),

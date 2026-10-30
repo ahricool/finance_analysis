@@ -43,3 +43,7 @@ class PredictionFailedError(QuantError):
 
 class PortfolioConstraintError(QuantError):
     pass
+
+
+class TrainingAlreadyStartedError(QuantError, ValueError):
+    """Duplicate dispatch must not fail an existing training run."""

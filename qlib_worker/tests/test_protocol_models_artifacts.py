@@ -87,6 +87,8 @@ def test_target_config_changes_horizon_benchmark_and_prices(tmp_path: Path) -> N
                 }
             )
     pd.DataFrame(rows).to_csv(dataset / "source" / "daily.csv", index=False)
+    (dataset / "calendars").mkdir()
+    (dataset / "calendars/day.txt").write_text("\n".join(str(day.date()) for day in dates))
     manifest = {
         "benchmark_codes": ["QQQ.US"],
         "market_benchmark": "QQQ.US",
@@ -132,6 +134,8 @@ def test_target_uses_forward_adjusted_daily_prices_without_reapplying_factor(tmp
             "forward_adjustment_factor": [0.5, 0.5, 1.0],
         }
     ).to_csv(dataset / "source" / "daily.csv", index=False)
+    (dataset / "calendars").mkdir()
+    (dataset / "calendars/day.txt").write_text("\n".join(str(day.date()) for day in dates))
     target = build_target(
         dataset,
         {"benchmark_codes": []},
@@ -243,3 +247,23 @@ def test_daily_predict_payload_requires_both_model_artifacts() -> None:
                 },
             }
         )
+
+
+def test_targets_use_market_sessions_with_missing_stock_rows(tmp_path):
+    from qlib_worker.models.targets import TargetConfig, build_target
+    import numpy as np
+    dates = pd.bdate_range('2026-01-01', periods=10)
+    (tmp_path / 'calendars').mkdir()
+    (tmp_path / 'calendars/day.txt').write_text('\n'.join(dates.strftime('%Y-%m-%d')))
+    (tmp_path / 'instruments').mkdir()
+    (tmp_path / 'instruments/all.txt').write_text('AAPL.US\t2026-01-01\t2026-01-14\n')
+    folder = tmp_path / 'features/aapl.us'
+    folder.mkdir(parents=True)
+    opens = np.full(10, 10., dtype='<f4')
+    closes = np.arange(10, 20, dtype='<f4')
+    opens[1] = np.nan  # Missing next session must not shift entry to the next observed row.
+    for field, values in [('open', opens), ('close', closes)]:
+        np.concatenate((np.array([0], dtype='<f4'), values)).tofile(folder / f'{field}.day.bin')
+    target = build_target(tmp_path, {'benchmark_codes': []}, TargetConfig(excess_return=False, benchmark='none'))
+    assert (dates[0], 'AAPL.US') not in target.index
+    assert target.loc[(dates[1], 'AAPL.US')] == pytest.approx(60.)

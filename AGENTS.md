@@ -129,10 +129,14 @@ static/                    Web 构建产物，由 `web/vite.config.ts` 生成
 
 ### 量化
 
-1. 主应用从 PostgreSQL 固定 Universe 与前复权日线生成不可变 Qlib dataset artifact。 <!-- pragma: allowlist secret -->
+1. 主应用从 PostgreSQL 固定 Universe 与前复权日线；训练生成可复用不可变工件，每日推理生成任务级临时 Qlib 输入。 <!-- pragma: allowlist secret -->
 2. 主 Worker 把版本化 JSON payload 发布到 `qlib` 队列。
 3. Qlib Worker 读取工件，训练或预测后只返回 JSON/工件 URI。
 4. 主 Worker 的 callback 完成信号融合、组合构建及 PostgreSQL 持久化；Redis 只缓存最新视图。 <!-- pragma: allowlist secret -->
+
+Quant 0081：每日推理输入为任务级临时工件，不再创建 dataset 记录；训练输入按实验复用。
+双模型成组发布/回滚，正式结果原子写入；临时输入成功后清理，失败保留24h，维护任务受心跳/文件锁保护。
+前端移除数据集页，模型管理仅管理员可见。
 
 详细边界见 `docs/quant-research.md`，但调度时间等易变信息应以 `definitions.py` 为准。
 

@@ -145,7 +145,7 @@ class QlibDatasetExporter:
             )
             relative = f"datasets/{dataset_key}"
             root = self.artifacts.directory(relative)
-            self._write_qlib(root, frame)
+            self._write_qlib(root, frame, include_source=False)
             manifest = {
                 "dataset_key": dataset_key,
                 "market": market.upper(),
@@ -192,6 +192,7 @@ class QlibDatasetExporter:
         self,
         root,
         frame: pd.DataFrame,
+        include_source: bool = True,
     ) -> None:
         calendars = root / "calendars"
         instruments = root / "instruments"
@@ -212,7 +213,7 @@ class QlibDatasetExporter:
             start_index = date_index[group_dates.iloc[0]]
             positions = [date_index[item] - start_index for item in group_dates]
             length = max(positions) + 1
-            for field in self.FIELDS:
+            for field in QlibDatasetExporter.FIELDS:
                 values = np.full(length, np.nan, dtype="<f4")
                 if field == "factor":
                     # ``stock_daily`` is already forward-adjusted; a neutral Qlib factor
@@ -222,4 +223,5 @@ class QlibDatasetExporter:
                     values[positions] = group[field].to_numpy(dtype="<f4")
                 np.concatenate((np.array([start_index], dtype="<f4"), values)).tofile(directory / f"{field}.day.bin")
         (instruments / "all.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
-        frame.to_csv(source / "daily.csv", index=False)
+        if include_source:
+            frame.to_csv(source / "daily.csv", index=False)

@@ -53,6 +53,11 @@ def train_model(self: Any, **raw_payload: Any) -> dict[str, Any]:
             features = load_features(dataset, manifest, payload.feature_config)
             target = build_target(dataset, manifest, target_config)
             panel = features.join(target.rename("label"), how="inner")
+            import pandas as pd
+            calendar = pd.DatetimeIndex(pd.to_datetime((dataset / "calendars/day.txt").read_text().splitlines()))
+            if len(calendar) <= 65:
+                raise ValueError("Dataset has insufficient feature warm-up and mature labels")
+            panel = panel[panel.index.get_level_values("datetime") >= calendar[60]]
             training = train_walk_forward(
                 panel,
                 runner,
@@ -87,7 +92,8 @@ def train_model(self: Any, **raw_payload: Any) -> dict[str, Any]:
                 "schema_version": 1,
                 "model_run_id": payload.model_run_id,
                 "model_key": payload.model_key,
-                "metrics": training["metrics"],
+                "metrics": {**training["metrics"], "final_training_end": training["final_training_end"],
+                            "label_calendar": "market_sessions_v2", "warmup_sessions": 60},
                 "feature_importance": training["feature_importance"],
                 "warnings": [*manifest.get("warnings", []), *training.get("warnings", [])],
             }

@@ -135,7 +135,8 @@ def test_cn_pipeline_queries_only_cn_production_models(monkeypatch):
     repository = MagicMock()
     repository.get_universe.return_value = SimpleNamespace(id=9, key="cn_quant", market="CN", enabled=True)
     repository.daily_bar_codes.return_value = {"600519.SH"}
-    repository.production_model.side_effect = [
+    repository.active_release.return_value = SimpleNamespace(id=1, cross_section_id=11, time_series_id=12)
+    repository.get_model_run.side_effect = [
         SimpleNamespace(
             id=11,
             model_key="cross_section_lgbm",
@@ -180,12 +181,15 @@ def test_cn_pipeline_queries_only_cn_production_models(monkeypatch):
                         "close": 100,
                     }
                 },
-                "market_regime": SimpleNamespace(id=4, regime="neutral", market_score=0.5, max_equity_exposure=0.4),
+                "market_regime": {"regime": "neutral", "market_score": 0.5, "max_equity_exposure": 0.4},
+                "loaded": SimpleNamespace(source_revision="revision"),
+                "symbols_by_code": {"600519.SH": SimpleNamespace(id=1)},
                 "warnings": [],
                 "coverage": {"rankable_members": 1},
             }
         ),
     )
+    monkeypatch.setattr("finance_analysis.quant.pipeline.service.PredictionInputs", lambda *_: SimpleNamespace(build=lambda *args: "quant://temporary/test"))
     payload, context = QuantDailyPipeline(
         repository=repository,
         exporter=exporter,
@@ -193,13 +197,13 @@ def test_cn_pipeline_queries_only_cn_production_models(monkeypatch):
         artifact_store=MagicMock(),
     ).prepare("CN", trade_date=TRADE_DATE)
 
-    assert repository.production_model.call_args_list[0].args == ("CN", "cross_section_lgbm")
-    assert repository.production_model.call_args_list[1].args == ("CN", "time_series_lgbm")
+    assert repository.get_model_run.call_args_list[0].args == (11,)
+    assert repository.get_model_run.call_args_list[1].args == (12,)
     assert context["market"] == "CN"
     assert context["universe_key"] == "cn_quant"
     assert payload["cross_section"]["artifact_uri"] == "quant://cn/cs"
     assert payload["time_series"]["artifact_uri"] == "quant://cn/ts"
-    assert "price_mode" not in exporter.export.call_args.kwargs
+    exporter.export.assert_not_called()
 
 
 @pytest.mark.parametrize(
@@ -208,10 +212,11 @@ def test_cn_pipeline_queries_only_cn_production_models(monkeypatch):
 )
 def test_scheduled_daily_pipeline_dispatches_the_fixed_market_universe(monkeypatch, market, universe):
     captured = {}
+    monkeypatch.setattr("finance_analysis.market_review.trading_calendar.is_market_session_closed", lambda *a, **k: True)
 
     class Pipeline:
         @staticmethod
-        def prepare(market):
+        def prepare(market, task_id=None):
             return (
                 {
                     "schema_version": 1,

@@ -3,6 +3,11 @@
 from __future__ import annotations
 
 import json
+import fcntl
+import os
+import threading
+from contextlib import contextmanager
+from pathlib import Path
 import logging
 from typing import Any
 
@@ -19,6 +24,30 @@ from qlib_worker.protocol import DailyPredictPayload, ModelArtifactRef, PredictP
 from qlib_worker.price_modes import require_forward_adjusted_manifest
 
 logger = logging.getLogger(__name__)
+
+
+@contextmanager
+def prediction_input_lease(dataset):
+    dataset = Path(dataset)
+    if dataset.parent.name != "temporary":
+        yield
+        return
+    # Missing directory is an error, never recreate an input already reclaimed.
+    with (dataset / ".lease").open("a") as handle:
+        fcntl.flock(handle, fcntl.LOCK_EX)
+        stop = threading.Event()
+        def heartbeat():
+            while not stop.wait(30):
+                os.utime(dataset / ".lease", None)
+        os.utime(dataset / ".lease", None)
+        thread = threading.Thread(target=heartbeat, daemon=True)
+        thread.start()
+        try:
+            yield
+        finally:
+            stop.set()
+            thread.join(timeout=1)
+            fcntl.flock(handle, fcntl.LOCK_UN)
 
 
 def _load_bundle(store: ArtifactStore, spec: ModelArtifactRef | PredictPayload) -> dict[str, Any]:
@@ -107,11 +136,12 @@ def predict_model(self: Any, **raw_payload: Any) -> dict[str, Any]:
     try:
         store = ArtifactStore(get_worker_config().artifact_root)
         dataset = store.path_for_uri(payload.dataset_uri)
-        manifest = load_manifest(dataset)
-        dataset_price_mode = require_forward_adjusted_manifest(manifest)
-        features = load_features(dataset, manifest, {"base": "Alpha158"})
-        rows = _rows_for_trade_date(features, manifest, payload.trade_date)
-        return _predict_one(store, payload, dataset_price_mode, rows, payload.trade_date)
+        with prediction_input_lease(dataset):
+            manifest = load_manifest(dataset)
+            dataset_price_mode = require_forward_adjusted_manifest(manifest)
+            features = load_features(dataset, manifest, {"base": "Alpha158"})
+            rows = _rows_for_trade_date(features, manifest, payload.trade_date)
+            return _predict_one(store, payload, dataset_price_mode, rows, payload.trade_date)
     except Exception:
         logger.exception(
             "Qlib prediction failed task_id=%s model_run_id=%s artifact_uri=%s",
@@ -135,19 +165,20 @@ def predict_daily(self: Any, **raw_payload: Any) -> dict[str, Any]:
     try:
         store = ArtifactStore(get_worker_config().artifact_root)
         dataset = store.path_for_uri(payload.dataset_uri)
-        manifest = load_manifest(dataset)
-        dataset_price_mode = require_forward_adjusted_manifest(manifest)
-        features = load_features(dataset, manifest, {"base": "Alpha158"})
-        rows = _rows_for_trade_date(features, manifest, payload.trade_date)
-        results = [
-            _predict_one(store, payload.cross_section, dataset_price_mode, rows, payload.trade_date),
-            _predict_one(store, payload.time_series, dataset_price_mode, rows, payload.trade_date),
-        ]
-        return {
-            "schema_version": 1,
-            "trade_date": payload.trade_date,
-            "results": results,
-        }
+        with prediction_input_lease(dataset):
+            manifest = load_manifest(dataset)
+            dataset_price_mode = require_forward_adjusted_manifest(manifest)
+            features = load_features(dataset, manifest, {"base": "Alpha158"})
+            rows = _rows_for_trade_date(features, manifest, payload.trade_date)
+            results = [
+                _predict_one(store, payload.cross_section, dataset_price_mode, rows, payload.trade_date),
+                _predict_one(store, payload.time_series, dataset_price_mode, rows, payload.trade_date),
+            ]
+            return {
+                "schema_version": 1,
+                "trade_date": payload.trade_date,
+                "results": results,
+            }
     except Exception:
         logger.exception(
             "Qlib daily prediction failed task_id=%s trade_date=%s dataset_uri=%s",

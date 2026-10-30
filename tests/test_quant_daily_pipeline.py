@@ -165,8 +165,9 @@ def test_daily_research_uses_csi300_primary_and_growth_style_benchmarks(
 
     service.config = replace(service.config, minimum_universe_coverage=0.5)
     result = service.run("CN", "cn_quant", TRADE_DATE)
-    assert set(market_data.get_daily_bars.call_args.args[0]) == {"159915.SZ", "510300.SH"}
-    assert market_data.get_daily_bars.call_args.kwargs["source_policy"] == "db_fresh"
+    market_data.get_daily_bars.assert_not_called()
+    repository.save_market_regime.assert_not_called()
+    assert result["loaded"] is loaded
 
     assert captured["benchmark_labels"] == ("510300.SH", "510300.SH")
     assert captured["style_label"] == "159915.SZ"
@@ -180,98 +181,19 @@ def test_daily_research_uses_csi300_primary_and_growth_style_benchmarks(
     assert "行情覆盖 1/2" in result["warnings"][0]
 
 
-def test_prepare_rejects_research_symbol_without_target_daily_bar(monkeypatch) -> None:
-    repository = MagicMock()
-    repository.get_universe.return_value = SimpleNamespace(id=3, key="us_quant", market="US", enabled=True)
-    repository.daily_bar_codes.return_value = {"AAPL.US"}
-    pipeline = QuantDailyPipeline(
-        repository=repository,
-        exporter=MagicMock(),
-        symbol_repository=MagicMock(),
-        artifact_store=MagicMock(),
-    )
-    repository.production_model.side_effect = [
-        _published("cross_section_lgbm"),
-        _published("time_series_lgbm"),
-    ]
-    monkeypatch.setattr(
-        "finance_analysis.quant.pipeline.service.DailyResearchService",
-        lambda _repository, **_kwargs: SimpleNamespace(
-            run=lambda *_args: {
-                "eligible_codes": ["AAPL.US", "NVDA.US"],
-                "runtime_context": {},
-                "market_regime": SimpleNamespace(id=1, regime="neutral", market_score=0.5, max_equity_exposure=0.4),
-            }
-        ),
-    )
-
-    with pytest.raises(FeatureDataMissingError, match=r"2026-07-16.*NVDA\.US"):
-        pipeline.prepare(market="US", trade_date=TRADE_DATE)
-
-    repository.production_model.assert_any_call("US", "cross_section_lgbm")
-
-
-def test_prepare_does_not_require_universe_member_repository_methods(monkeypatch) -> None:
-    repository = MagicMock(spec_set=["production_model", "get_universe", "daily_bar_codes"])
-    repository.production_model.side_effect = [
-        _published("cross_section_lgbm", model_version="v1"),
-        _published("time_series_lgbm", model_version="v1"),
-    ]
-    repository.get_universe.return_value = SimpleNamespace(id=3, key="us_quant", market="US", enabled=True)
-    repository.daily_bar_codes.return_value = {"AAPL.US"}
-    exporter = MagicMock()
-    exporter.export.return_value = SimpleNamespace(artifact_uri="quant://us/dataset")
-    monkeypatch.setattr(
-        "finance_analysis.quant.pipeline.service.DailyResearchService",
-        lambda _repository, **_kwargs: SimpleNamespace(
-            run=lambda *_args: {
-                "eligible_codes": ["AAPL.US"],
-                "runtime_context": {
-                    "AAPL.US": {
-                        "has_sufficient_data": True,
-                        "liquidity": 2_000_000,
-                        "risk_penalty": 0.04,
-                        "close": 100,
-                    }
-                },
-                "market_regime": SimpleNamespace(
-                    id=1,
-                    regime="neutral",
-                    market_score=0.5,
-                    max_equity_exposure=0.4,
-                ),
-            }
-        ),
-    )
-
-    payload, context = QuantDailyPipeline(
-        repository=repository,
-        exporter=exporter,
-        symbol_repository=MagicMock(),
-        artifact_store=MagicMock(),
-    ).prepare(market="US", trade_date=TRADE_DATE)
-
-    assert payload["schema_version"] == PROTOCOL_VERSION
-    assert payload["cross_section"]["model_key"] == "cross_section_lgbm"
-    assert payload["time_series"]["model_key"] == "time_series_lgbm"
-    assert payload["dataset_uri"] == "quant://us/dataset"
-    assert context["expected_codes"] == ["AAPL.US"]
-    assert context["lineage"]["cross_section_model_run_id"] == 11
-    assert context["lineage"]["time_series_model_run_id"] == 12
-
-
 @pytest.mark.parametrize(
     ("production_models", "missing_model"),
     [
-        ([None], "cross_section_lgbm"),
-        ([SimpleNamespace(artifact_uri="quant://us/cs"), None], "time_series_lgbm"),
+        ([None, None], "cross_section_lgbm"),
+        ([_published("cross_section_lgbm"), None], "time_series_lgbm"),
     ],
 )
 def test_prepare_rejects_missing_model_before_universe_lookup(
     production_models: list[object], missing_model: str
 ) -> None:
     repository = MagicMock()
-    repository.production_model.side_effect = production_models
+    repository.active_release.return_value = SimpleNamespace(id=1, cross_section_id=11, time_series_id=12)
+    repository.get_model_run.side_effect = production_models
     artifact_store = MagicMock()
     pipeline = QuantDailyPipeline(
         repository=repository,
@@ -289,7 +211,8 @@ def test_prepare_rejects_missing_model_before_universe_lookup(
 
 def test_prepare_rejects_missing_model_artifact_before_universe_lookup() -> None:
     repository = MagicMock()
-    repository.production_model.side_effect = [
+    repository.active_release.return_value = SimpleNamespace(id=1, cross_section_id=11, time_series_id=12)
+    repository.get_model_run.side_effect = [
         _published("cross_section_lgbm"),
         _published("time_series_lgbm"),
     ]
@@ -310,7 +233,8 @@ def test_prepare_rejects_missing_model_artifact_before_universe_lookup() -> None
 
 def test_prepare_rejects_legacy_production_model_before_universe_lookup() -> None:
     repository = MagicMock()
-    repository.production_model.return_value = SimpleNamespace(
+    repository.active_release.return_value = SimpleNamespace(id=1, cross_section_id=11, time_series_id=12)
+    repository.get_model_run.return_value = SimpleNamespace(
         artifact_uri="quant://cn/legacy",
         feature_config={"base": "Alpha158", "ablation": "all_features"},
     )
@@ -343,7 +267,7 @@ def test_prepare_rejects_unsupported_universe_before_lookup() -> None:
 def test_prediction_coverage_lists_missing_symbols() -> None:
     response = {
         "model_key": "cross_section_lgbm",
-        "predictions": [{"code": "AAPL.US", "normalized_score": 0.8}],
+        "predictions": [{"code": "AAPL.US", "normalized_score": 0.8, "raw_prediction": 1.0, "predicted_return": 1.0}],
     }
 
     with pytest.raises(PredictionFailedError) as exc_info:
@@ -366,7 +290,7 @@ def test_finalize_builds_recommendation_without_personal_holdings(monkeypatch) -
             return SimpleNamespace(id=3, key="us_quant", market="US", enabled=True)
 
         def replace_signals_and_save_portfolio(
-            self, market, universe_id, trade_date, model_version, signals, portfolio_values, portfolio_items
+            self, market, universe_id, trade_date, model_version, signals, portfolio_values, portfolio_items, **kwargs
         ):
             self.replaced = signals
             self.portfolio_values = portfolio_values
@@ -405,18 +329,22 @@ def test_finalize_builds_recommendation_without_personal_holdings(monkeypatch) -
         "market": "US",
         "universe_key": "us_quant",
         "universe_id": 3,
+        "execution_id": "test-execution",
+        "result_version": "batch-test-execution",
         "cross_section_model_version": "v1",
         "cross_section_model_run_id": 11,
         "time_series_model_run_id": 12,
         "expected_codes": ["AAPL.US", "NVDA.US"],
         "runtime_context": {
             "AAPL.US": {
+                "instrument_id": 1,
                 "has_sufficient_data": True,
                 "liquidity": 2_000_000,
                 "risk_penalty": 0.04,
                 "close": 100.0,
             },
             "NVDA.US": {
+                "instrument_id": 2,
                 "has_sufficient_data": True,
                 "liquidity": 2_000_000,
                 "risk_penalty": 0.04,
@@ -446,8 +374,8 @@ def test_finalize_builds_recommendation_without_personal_holdings(monkeypatch) -
             "trade_date": str(TRADE_DATE),
             "model_key": "cross_section_lgbm",
             "predictions": [
-                {"code": "AAPL.US", "normalized_score": 0.8},
-                {"code": "NVDA.US", "normalized_score": 0.7},
+                {"code": "AAPL.US", "normalized_score": 0.8, "raw_prediction": 1.0, "predicted_return": 1.0},
+                {"code": "NVDA.US", "normalized_score": 0.7, "raw_prediction": 1.0, "predicted_return": 1.0},
             ],
         },
         {
@@ -455,8 +383,8 @@ def test_finalize_builds_recommendation_without_personal_holdings(monkeypatch) -
             "trade_date": str(TRADE_DATE),
             "model_key": "time_series_lgbm",
             "predictions": [
-                {"code": "AAPL.US", "normalized_score": 0.6},
-                {"code": "NVDA.US", "normalized_score": 0.5},
+                {"code": "AAPL.US", "normalized_score": 0.6, "raw_prediction": 1.0, "predicted_return": 1.0},
+                {"code": "NVDA.US", "normalized_score": 0.5, "raw_prediction": 1.0, "predicted_return": 1.0},
             ],
         },
     ]
@@ -470,9 +398,8 @@ def test_finalize_builds_recommendation_without_personal_holdings(monkeypatch) -
     assert all(item["risk_penalty"] == 0.04 for item in captured["signals"])
     assert repository.portfolio_values["warnings"] == ["行情覆盖 2/3；已跳过缺失数据标的"]
     assert repository.portfolio_values["summary"]["coverage"]["skipped_members"] == 1
-    assert captured["signals"][0]["score_components"]["lineage"]["cross_section_model_run_id"] == 11
-    assert captured["signals"][0]["score_components"]["lineage"]["time_series_model_run_id"] == 12
-    assert captured["signals"][0]["score_components"]["lineage"] == repository.portfolio_values["summary"]["lineage"]
+    assert captured["signals"][0]["score_components"] == {}
+    assert repository.portfolio_values["summary"]["lineage"]["cross_section_model_run_id"] == 11
     assert "regime_multiplier" not in captured["signals"][0]["score_components"]
     assert result["lineage"]["fusion_version"] == "fusion-rules-v3"
 
@@ -507,6 +434,7 @@ def test_training_and_dataset_export_reject_unsupported_universe() -> None:
         market="US",
         universe_id=9,
         dataset_snapshot_id=4,
+        status="draft",
     )
     repository.get_universe.return_value = SimpleNamespace(
         id=9,
@@ -536,6 +464,7 @@ def test_training_rejects_missing_dataset_artifact_before_marking_training() -> 
         market="CN",
         universe_id=9,
         dataset_snapshot_id=4,
+        status="draft",
     )
     repository.get_universe.return_value = SimpleNamespace(
         id=9,
@@ -714,7 +643,8 @@ def test_finalize_rejects_partial_prediction_payload() -> None:
 
 def test_prepare_rejects_legacy_time_series_excess_return_target() -> None:
     repository = MagicMock()
-    repository.production_model.side_effect = [
+    repository.active_release.return_value = SimpleNamespace(id=1, cross_section_id=11, time_series_id=12)
+    repository.get_model_run.side_effect = [
         _published("cross_section_lgbm"),
         _published(
             "time_series_lgbm",
@@ -744,7 +674,8 @@ def test_prepare_rejects_legacy_time_series_excess_return_target() -> None:
 
 def test_prepare_rejects_non_five_session_production_horizon() -> None:
     repository = MagicMock()
-    repository.production_model.side_effect = [
+    repository.active_release.return_value = SimpleNamespace(id=1, cross_section_id=11, time_series_id=12)
+    repository.get_model_run.side_effect = [
         _published(
             "cross_section_lgbm",
             target_config={

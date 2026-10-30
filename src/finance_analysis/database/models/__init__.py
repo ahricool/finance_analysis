@@ -151,3 +151,7 @@ __all__.extend(["StockStrategyDay", "StockStrategyLaunch", "StockStrategyRun", "
 from .research_preview import ResearchPreview, ResearchPreviewItem
 
 __all__.extend(["ResearchPreview", "ResearchPreviewItem"])
+
+from .quant import QuantModelRelease, QuantExecution
+
+__all__.extend(["QuantModelRelease", "QuantExecution"])

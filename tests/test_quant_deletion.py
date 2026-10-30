@@ -11,6 +11,7 @@ from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import Session
 
 from finance_analysis.database.models.quant import (
+    QuantModelRelease,
     ModelDefinition,
     ModelPublication,
     ModelRun,
@@ -59,6 +60,7 @@ def _database() -> SqliteManager:
         ModelDefinition.__table__,
         ModelRun.__table__,
         ModelPublication.__table__,
+        QuantModelRelease.__table__,
     ):
         table.create(database.engine)
     with Session(database.engine) as session:

@@ -7,6 +7,9 @@ import PageHeader from '@/components/layout/PageHeader.vue';
 import { quantApi } from '@/api/quant';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import ApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
+import { exportExcel } from '@/utils/excelExport';
+import FieldSelect from '@/components/forms/FieldSelect.vue';
+import { Button } from '@/components/ui/button';
 import FieldInput from '@/components/forms/FieldInput.vue';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -26,15 +29,26 @@ const ranking = ref<SignalRanking | null>(null);
 const error = ref<ParsedApiError | null>(null);
 const loading = ref(false);
 const filter = ref('');
-const items = computed(
-  () =>
-    ranking.value?.items.filter(
-      (item) =>
-        (!filter.value ||
-          item.code.includes(filter.value.toUpperCase()) ||
-          item.name?.toLowerCase().includes(filter.value.toLowerCase())),
-    ) ?? [],
-);
+const signalFilter = ref('all');
+const sortKey = ref('finalScore');
+const items = computed(() => (ranking.value?.items ?? []).filter(item =>
+  (signalFilter.value === 'all' || item.signal === signalFilter.value) &&
+  (!filter.value || item.code.includes(filter.value.toUpperCase()) || item.name?.toLowerCase().includes(filter.value.toLowerCase()))
+).sort((a, b) => {
+  const key = sortKey.value as 'finalScore' | 'crossSectionScore' | 'timeSeriesScore' | 'predictedReturn';
+  return (b[key] ?? -Infinity) - (a[key] ?? -Infinity) || a.code.localeCompare(b.code);
+}));
+const exporting = ref(false);
+async function exportRanking() {
+  if (exporting.value || !items.value.length) return;
+  exporting.value=true;
+  try {
+    await exportExcel(`Quant_${market.value}_${ranking.value?.tradeDate}.xlsx`, '量化选股',
+      ['日期','代码','名称','原排名','综合分','横截面分','时间序列分','预测收益（百分点）','信号'].map(label => ({label})),
+      items.value.map(item => [item.tradeDate,item.code,item.name,item.universeRank,item.finalScore,item.crossSectionScore,item.timeSeriesScore,item.predictedReturn,item.signal]));
+  } catch(cause) { error.value=getParsedApiError(cause); }
+  finally {exporting.value=false;}
+}
 let requestVersion = 0;
 
 watch(
@@ -66,7 +80,7 @@ const detailInitialTab = ref<'overview' | 'quant'>('quant');
       variant="section"
       title="模型选股排名"
       en="Model Signals"
-      :description="`模型预测仅用于研究和生成目标组合，不代表真实订单。${ranking?.modelVersion ? `当前版本：${ranking.modelVersion}。` : ''}`"
+      :description="`模型预测仅用于研究和生成目标组合，不代表真实订单。${ranking?.releaseId ? `模型组 #${ranking.releaseId}。` : ''}`"
     />
     <ApiErrorAlert
       v-if="error"
@@ -97,6 +111,25 @@ const detailInitialTab = ref<'overview' | 'quant'>('quant');
             v-model="filter"
             placeholder="股票代码或名称"
           />
+          <div class="mt-3 flex flex-wrap items-end gap-3">
+            <FieldSelect
+              v-model="signalFilter"
+              label="信号筛选"
+              :options="[{value:'all',label:'全部'}, {value:'BUY',label:'BUY'}, {value:'WATCH',label:'WATCH'}, {value:'AVOID',label:'AVOID'}]"
+            />
+            <FieldSelect
+              v-model="sortKey"
+              label="排名排序"
+              :options="[{value:'finalScore',label:'综合分'}, {value:'crossSectionScore',label:'横截面分'}, {value:'timeSeriesScore',label:'时间序列分'}, {value:'predictedReturn',label:'预测收益'}]"
+            />
+            <Button
+              :disabled="exporting || !items.length"
+              variant="outline"
+              @click="exportRanking"
+            >
+              导出筛选结果
+            </Button>
+          </div>
         </CardContent>
       </Card>
       <Card
@@ -207,8 +240,8 @@ const detailInitialTab = ref<'overview' | 'quant'>('quant');
           </Table>
         </CardContent>
       </Card>
-      <Empty v-else>
-        <EmptyHeader><EmptyTitle>{{ tradeDate ? '所选日期暂无模型排名' : market === 'CN' ? 'A股模型尚未就绪' : '暂无模型排名' }}</EmptyTitle><EmptyDescription>{{ tradeDate ? '请选择其他交易日，或清空日期查看最新数据。' : '当前市场没有可展示的生产模型信号。' }}</EmptyDescription></EmptyHeader>
+      <Empty v-else-if="!error">
+        <EmptyHeader><EmptyTitle>{{ ranking?.items.length ? '没有匹配的股票，请清空搜索条件' : tradeDate ? '所选日期暂无模型排名' : market === 'CN' ? 'A股模型尚未就绪' : '暂无模型排名' }}</EmptyTitle><EmptyDescription>{{ tradeDate ? '请选择其他交易日，或清空日期查看最新数据。' : '当前市场没有可展示的生产模型信号。' }}</EmptyDescription></EmptyHeader>
       </Empty>
     </template>
     <StockDetailDialog

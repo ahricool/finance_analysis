@@ -80,7 +80,7 @@ qlib_worker/
 
 ## Dataset 与 artifact
 
-主应用导出的 dataset 包含 calendar、instrument、Qlib float32 feature binaries、`source/daily.csv`、`manifest.json` 和 `validation.json`。Worker 必须把 manifest 视为输入契约：
+主应用导出的 dataset 包含 calendar、instrument、Qlib float32 feature binaries、`manifest.json` 和（训练输入）`validation.json`。新工件不保留重复 CSV；标签读取同一二进制行情并按市场 calendar 对齐，旧 `source/daily.csv` 保持兼容。每日临时输入只读期间持有 `.lease` 文件锁并每30秒刷新心跳。Worker 必须把 manifest 视为输入契约：
 
 - 价格来自 PostgreSQL canonical 前复权 `stock_daily`，Worker 不再复权。 <!-- pragma: allowlist secret -->
 - Qlib `factor.day.bin` 保持 `1.0`，避免双重复权。

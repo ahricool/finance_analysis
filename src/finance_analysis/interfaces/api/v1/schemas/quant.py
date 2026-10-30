@@ -65,3 +65,18 @@ class SignalReturns(BaseModel):
 
 class QuantDatesResponse(BaseModel):
     items: list[date]
+
+
+class TrainingExperimentRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    market: Literal["US", "CN"]
+    date_from: date
+    date_to: date
+    model_version: str = Field(min_length=1, max_length=96, pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+
+
+class ReleaseRequest(BaseModel):
+    market: Literal["US", "CN"]
+    cross_section_id: int = Field(gt=0)
+    time_series_id: int = Field(gt=0)
+    reason: str = Field(min_length=3, max_length=1000)

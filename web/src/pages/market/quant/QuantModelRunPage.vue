@@ -4,7 +4,6 @@ import PageHeader from '@/components/layout/PageHeader.vue';
 import { quantApi } from '@/api/quant';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import ApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
-import { Button } from '@/components/ui/button';
 import type { ModelRun } from '@/types/quant';
 import {
   formatScore,
@@ -15,15 +14,11 @@ import {
 } from '@/utils/quant';
 import { computed, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
-import { useAuthStore } from '@/stores/authStore';
 import { useQuantMarket } from '@/composables/useQuantMarket';
 const route = useRoute();
 const { market, marketQuery } = useQuantMarket();
-const auth = useAuthStore();
 const item = ref<ModelRun | null>(null);
 const error = ref<ParsedApiError | null>(null);
-const reason = ref('验证指标与风险检查已人工确认');
-const isAdmin = computed(() => auth.currentUser?.role === 'admin');
 const targetCopy = computed(() =>
   item.value && isTrainableModelKey(item.value.modelKey)
     ? MODEL_TARGET_COPY[item.value.modelKey]
@@ -56,18 +51,6 @@ watch(
   },
   { immediate: true },
 );
-async function publish() {
-  if (
-    !item.value ||
-    !window.confirm('确认将此候选模型发布为 production？当前 production 将被退役。')
-  )
-    return;
-  try {
-    item.value = await quantApi.publish(item.value.id, reason.value, market.value);
-  } catch (err) {
-    error.value = getParsedApiError(err);
-  }
-}
 </script>
 <template>
   <div class="space-y-4">
@@ -85,21 +68,6 @@ async function publish() {
         :title="targetCopy?.shortName ?? item.modelKey"
         en="Model Run"
         :description="`${item.modelVersion} · ${item.status}`"
-      >
-        <template #actions>
-          <Button
-            v-if="isAdmin && item.status === 'candidate'"
-            @click="publish"
-          >
-            发布为 production
-          </Button>
-        </template>
-      </PageHeader>
-      <input
-        v-if="isAdmin && item.status === 'candidate'"
-        v-model="reason"
-        class="w-full rounded-xl border border-border bg-background p-2 text-sm"
-        aria-label="发布原因"
       />
       <section class="grid gap-3 md:grid-cols-3">
         <div class="rounded-xl border border-border bg-card p-3">
