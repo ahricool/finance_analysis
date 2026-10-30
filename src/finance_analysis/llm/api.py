@@ -1,6 +1,5 @@
 """The only LiteLLM transport call. Retries belong to LLMClient."""
 
-import re
 import time
 from typing import Any
 
@@ -17,19 +16,16 @@ def _get(value: Any, key: str, default=None):
 def complete(config: LLMConfig, request: LLMRequest) -> LLMResult:
     import litellm
 
+    if request.web_search and supported(config) and config.api_search_mode == "responses":
+        return _complete_responses(config, request)
     messages = []
     if request.system_prompt:
         messages.append({"role": "system", "content": request.system_prompt})
     messages.append({"role": "user", "content": request.prompt})
-    temperature = config.temperature if request.temperature is None else request.temperature
-    # Kimi K2.6 defaults to thinking mode and requires temperature=1.
-    if re.search(r"(?:^|[/ :])kimi-k2\.6(?:$|-)", config.model.lower()):
-        temperature = 1.0
     kwargs = dict(
         model=config.model,
         api_key=config.api_key,
         messages=messages,
-        temperature=temperature,
         timeout=request.timeout or config.attempt_timeout,
         num_retries=0,
     )
@@ -40,16 +36,10 @@ def complete(config: LLMConfig, request: LLMRequest) -> LLMResult:
         if config.model.startswith("openai/"):
             # Allow new OpenAI models before LiteLLM's model catalog catches up.
             kwargs["allowed_openai_params"] = ["reasoning_effort"]
-        if re.match(r"^(?:openai/)?gpt-[56](?:[.\-/]|$)", config.model):
-            kwargs.pop("temperature", None)
-    if request.max_tokens is not None:
-        kwargs["max_tokens"] = request.max_tokens
-    if request.web_search and (not request.prefer_search or supported(config)):
+    if request.web_search and supported(config):
         # LiteLLM/OpenAI-compatible web search. Prompt still restricts the
         # search to the current symbol; this is review, not signal generation.
         kwargs["web_search_options"] = {"search_context_size": "medium"}
-        if request.prefer_search:
-            kwargs.pop("temperature", None)  # Search-specialized models need not support sampling controls.
     started = time.monotonic()
     try:
         response = litellm.completion(**kwargs)
@@ -81,4 +71,63 @@ def complete(config: LLMConfig, request: LLMRequest) -> LLMResult:
         model=config.model,
         usage=usage,
         search_evidence=evidence(request.web_search, supported(config), citations),
+    )
+
+
+def _complete_responses(config: LLMConfig, request: LLMRequest) -> LLMResult:
+    import litellm
+
+    kwargs = dict(
+        model=config.model,
+        api_key=config.api_key,
+        input=request.prompt,
+        tools=[{"type": "web_search", "search_context_size": "medium"}],
+        timeout=request.timeout or config.attempt_timeout,
+        num_retries=0,
+        store=False,
+    )
+    if config.base_url:
+        kwargs["api_base"] = config.base_url.rstrip("/")
+    if request.system_prompt:
+        kwargs["instructions"] = request.system_prompt
+    if config.api_effort:
+        kwargs["reasoning"] = {"effort": config.api_effort}
+    started = time.monotonic()
+    try:
+        response = litellm.responses(**kwargs)
+    finally:
+        request.diagnostics["api_ms"] = round((time.monotonic() - started) * 1000)
+    # A partial answer or a started search is not successful research.
+    if _get(response, "status") != "completed":
+        raise ProviderFailure("invalid_output", retryable=True)
+    texts, citations, events = [], [], []
+    for item in _get(response, "output", []) or []:
+        kind = _get(item, "type")
+        if kind == "web_search_call" and _get(item, "status") == "completed":
+            action = _get(item, "action")
+            if hasattr(action, "model_dump"):
+                action = action.model_dump(mode="json")
+            events.append(dict(id=_get(item, "id"), type=kind, status="completed", action=action))
+        if kind != "message":
+            continue
+        for part in _get(item, "content", []) or []:
+            if _get(part, "type") != "output_text":
+                continue
+            texts.append(_get(part, "text", ""))
+            for annotation in _get(part, "annotations", []) or []:
+                url = _get(annotation, "url", "")
+                if _get(annotation, "type") == "url_citation" and isinstance(url, str) and url.startswith(
+                    ("https://", "http://")
+                ):
+                    citations.append(dict(url=url, title=_get(annotation, "title", "")))
+    content = "\n".join(texts)
+    if not content.strip():
+        raise ProviderFailure("empty_response", retryable=True)
+    raw_usage = _get(response, "usage")
+    return LLMResult(
+        text=content,
+        backend="api",
+        model=config.model,
+        usage={key: int(_get(raw_usage, key, 0) or 0) for key in ("input_tokens", "output_tokens", "total_tokens")},
+        search_evidence=evidence(request.web_search, supported(config), citations, events),
     )

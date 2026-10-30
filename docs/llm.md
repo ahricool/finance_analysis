@@ -28,11 +28,12 @@ LLM任务没有固定Celery软/硬时限；多事件、多桶和重试会使整�
 - Codex：`LLM_CODEX_MODEL`、`LLM_CODEX_EFFORT`（low/medium/high/xhigh）；留空使用Host默认模型。
 - Host：`LLM_CLI_CODEX_PATH`、`LLM_CLI_PYTHON_PATH`、`LLM_CLI_SSH_HOST/PORT/USERNAME/PASSWORD`、
   `LLM_CLI_REMOTE_WORKDIR`。Codex及Python使用绝对路径，Python仅需要标准库。
-- API：`LLM_MODEL`、`LLM_API_KEY`、`LLM_BASE_URL`、`LLM_API_EFFORT`、`LLM_TEMPERATURE`、`LLM_API_SEARCH_MODE`。
+- API：`LLM_MODEL`、`LLM_API_KEY`、`LLM_BASE_URL`、`LLM_API_EFFORT`、`LLM_API_SEARCH_MODE`。
   默认地址为 OpenAI 官方 `https://api.openai.com/v1`，其他兼容服务仍可覆盖地址。
   例如 `LLM_MODEL=openai/gpt-6.1-sol`、`LLM_API_EFFORT=medium`；effort 留空不发送，
   支持 none/minimal/low/medium/high/xhigh/max，具体取值须由模型支持。
-  GPT-5/6 设置 effort 时不发送 temperature，避免与推理模式不兼容。
+  不配置或发送 temperature、max_tokens/max_completion_tokens/max_output_tokens，使用 LiteLLM / 模型默认行为。
+  旧 `LLM_TEMPERATURE` 等采样/输出额度环境变量不再读取，业务 request 也不保留这些参数。
 
 生产升级时将现有 `LLM_ATTEMPT_TIMEOUT` 更新为300，移除旧总预算、路由及单渠道模型配置；
 这些旧变量不再被读取。凭据继续使用现有私有环境配置，不写入仓库。本改动不需要数据库迁移。
@@ -72,8 +73,12 @@ Codex JSONL要求最终 `turn.completed`，取最后一条agent_message，读取
 ## 财报搜索
 
 `earnings_research` 使用 `web_search=True, prefer_search=True`，顺序仍固定Codex→API。
-Codex显式开启live search，只以完成的web_search事件作为执行证据；API仅在
-`LLM_API_SEARCH_MODE=chat_completions`时发送搜索参数，响应url_citation作为证据。
+Codex显式开启live search，只以完成的web_search事件作为执行证据。OpenAI 设置
+`LLM_API_SEARCH_MODE=responses` 时，联网请求走 LiteLLM Responses API 的 `web_search` 工具，
+`search_context_size=medium`、`reasoning.effort` 复用 `LLM_API_EFFORT`；普通请求仍走 Chat Completions。
+Responses 不保存服务端状态（store=false），只有 completed 响应可以成功返回；
+已完成 web_search_call 或接口 url_citation 才能确认搜索，模型自行生成的来源列表不算证据。
+旧搜索模型仍可显式设置 `chat_completions` 使用 web_search_options；`unavailable` 不发送搜索参数。
 没有证据时尝试后续渠道；均无证据但有可用文本时返回unverified结果，由业务层保留缺失语义。
 `earnings_outlook`价格预测阶段关闭搜索。普通业务不因此获得互联网搜索能力。
 

@@ -341,7 +341,7 @@ class OptionsIntelligenceService:
 
         result = client.complete_text(
             LLMRequest(
-                prompt=prompt, system_prompt=system, temperature=0.2, call_type="options_intelligence", web_search=False
+                prompt=prompt, system_prompt=system, call_type="options_intelligence", web_search=False
             ),
             validator=validate,
         )
