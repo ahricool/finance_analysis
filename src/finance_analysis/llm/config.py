@@ -24,7 +24,6 @@ class LLMConfig:
     base_url: str = "https://api.openai.com/v1"
     api_key: str = field(default="", repr=False)
     api_effort: str = ""
-    temperature: float = 0.7
     cli_engine: str = "codex"
     cli_ssh_host: str = "host.docker.internal"
     cli_ssh_port: int = 22
@@ -37,8 +36,8 @@ class LLMConfig:
     def __post_init__(self):
         if self.api_effort not in {"", "none", "minimal", "low", "medium", "high", "xhigh", "max"}:
             raise ValueError("Invalid LLM_API_EFFORT")
-        if self.api_search_mode not in {"unavailable", "chat_completions"}:
-            raise ValueError("LLM_API_SEARCH_MODE must be unavailable or chat_completions")
+        if self.api_search_mode not in {"unavailable", "chat_completions", "responses"}:
+            raise ValueError("LLM_API_SEARCH_MODE must be unavailable, chat_completions or responses")
         if self.backend not in {"api", "cli"}:
             raise ValueError("LLM_BACKEND must be api or cli")
         if self.cli_engine != "codex":
@@ -90,7 +89,7 @@ def get_llm_config() -> LLMConfig:
             continue
         if name in {"max_retries", "cli_ssh_port"}:
             values[name] = int(raw)
-        elif name in {"attempt_timeout", "temperature"}:
+        elif name == "attempt_timeout":
             values[name] = float(raw)
         elif name == "log_dir":
             values[name] = Path(raw).expanduser() if raw else defaults.log_dir

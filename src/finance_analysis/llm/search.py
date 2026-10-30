@@ -4,6 +4,8 @@
 def supported(config):
     if config.backend == "cli":
         return config.cli_engine == "codex"
+    if config.api_search_mode == "responses":
+        return config.model.startswith("openai/")
     return config.api_search_mode == "chat_completions"
 
 

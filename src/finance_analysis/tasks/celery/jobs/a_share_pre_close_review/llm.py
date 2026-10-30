@@ -79,7 +79,7 @@ class ASharePreCloseLLM:
                     raise ValueError("LLM response is not a JSON object")
             result = client.complete_text(
                 LLMRequest(
-                    system_prompt=system, prompt=user, temperature=0.1, max_tokens=6000,
+                    system_prompt=system, prompt=user,
                     call_type=call_type,
                 ),
                 validator=validate,

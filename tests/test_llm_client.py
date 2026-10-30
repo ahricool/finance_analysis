@@ -33,7 +33,7 @@ def test_api_conversion_and_sdk_retries_disabled(config, monkeypatch):
         )
     )
     monkeypatch.setattr(litellm, "completion", call)
-    result = api.complete(config, LLMRequest("user", system_prompt="system", max_tokens=100))
+    result = api.complete(config, LLMRequest("user", system_prompt="system"))
     assert result.usage == dict(input_tokens=2, output_tokens=3, total_tokens=5)
     assert result.text == "response" and result.model == config.model
     assert call.call_args.kwargs["num_retries"] == 0
@@ -72,7 +72,7 @@ def test_api_effort_from_env_reaches_openai_without_temperature(monkeypatch):
         config = get_llm_config()
         call = Mock(return_value={"choices": [{"message": {"content": "OK"}}]})
         monkeypatch.setattr(litellm, "completion", call)
-        api.complete(config, LLMRequest("Reply OK", temperature=0.7))
+        api.complete(config, LLMRequest("Reply OK"))
         kwargs = call.call_args.kwargs
         assert kwargs["reasoning_effort"] == "medium"
         assert kwargs["allowed_openai_params"] == ["reasoning_effort"]
@@ -85,6 +85,24 @@ def test_api_effort_from_env_reaches_openai_without_temperature(monkeypatch):
 def test_api_effort_invalid():
     with pytest.raises(ValueError, match="LLM_API_EFFORT"):
         LLMConfig(api_effort="invalid")
+
+
+@pytest.mark.parametrize("model", ["openai/gpt-6.1-sol", "openai/kimi-k2.6", "openai/test"])
+@pytest.mark.parametrize("search", [False, True])
+def test_api_uses_provider_sampling_and_output_defaults(config, monkeypatch, model, search):
+    import litellm
+
+    monkeypatch.setenv("LLM_TEMPERATURE", "0.7")
+    monkeypatch.setenv("LLM_MAX_TOKENS", "2000")
+    get_llm_config.cache_clear()
+    try:
+        assert not hasattr(get_llm_config(), "temperature")
+        call = Mock(return_value={"choices": [{"message": {"content": "OK"}}]})
+        monkeypatch.setattr(litellm, "completion", call)
+        api.complete(replace(config, model=model), LLMRequest("OK", web_search=search))
+        assert not {"temperature", "max_tokens", "max_completion_tokens", "max_output_tokens"} & call.call_args.kwargs.keys()
+    finally:
+        get_llm_config.cache_clear()
 
 
 def test_no_retry_after_deadline(config, monkeypatch):
@@ -303,9 +321,9 @@ def test_stock_analyzer_uses_shared_client_and_preserves_owner(config, monkeypat
     call = Mock(return_value=LLMResult("report", "api"))
     monkeypatch.setattr(LLMClient, "complete_text", call)
     analyzer = StockReportAnalyzer(config=SimpleNamespace(llm=config), uid=42)
-    assert analyzer.generate_text("review", max_tokens=123) == "report"
+    assert analyzer.generate_text("review") == "report"
     request = call.call_args.args[0]
-    assert request.uid == 42 and request.call_type == "market_review" and request.max_tokens == 123
+    assert request.uid == 42 and request.call_type == "market_review"
     call.side_effect = LLMError("failed")
     assert analyzer.generate_text("review") is None
 

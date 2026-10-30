@@ -486,8 +486,6 @@ class USPostmarketReviewService:
                 LLMRequest(
                     system_prompt=self._system_prompt(),
                     prompt=self._user_prompt(payload),
-                    temperature=0.2,
-                    max_tokens=9000,
                     call_type="us_postmarket_review",
                 )
             )
