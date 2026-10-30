@@ -416,6 +416,7 @@ const ladderTable = useTableSort(() => ladder.value?.source?.items ?? [], (row, 
           class="ml-2 flex items-center gap-2 text-sm"
         ><input
           v-model="scope"
+          class="accent-brand"
           type="checkbox"
           true-value="all"
           false-value="main"

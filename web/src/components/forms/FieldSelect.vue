@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { computed, useId } from 'vue';
+import { computed, useAttrs, useId } from 'vue';
+
+defineOptions({ inheritAttrs: false });
 
 export type FieldSelectOption = { value: string; label: string; disabled?: boolean };
 const EMPTY_VALUE = '__field_select_empty__';
@@ -15,16 +17,22 @@ const props = withDefaults(defineProps<{
   hint?: string;
   id?: string;
   class?: string;
+  triggerClass?: string;
 }>(), {
-  modelValue: '', label: '', placeholder: '请选择', disabled: false, error: '', hint: '', id: undefined, class: '',
+  modelValue: '', label: '', placeholder: '请选择', disabled: false, error: '', hint: '', id: undefined, class: '', triggerClass: '',
 });
-const emit = defineEmits<{ 'update:modelValue': [value: string] }>();
+const emit = defineEmits<{ 'update:modelValue': [value: string]; change: [value: string] }>();
+const attrs = useAttrs();
 const generatedId = useId();
 const triggerId = computed(() => props.id ?? generatedId);
 const descriptionId = computed(() => props.error ? `${triggerId.value}-error` : props.hint ? `${triggerId.value}-hint` : undefined);
-const selectValue = computed(() => props.modelValue === '' ? EMPTY_VALUE : props.modelValue);
+const selectValue = computed(() => props.modelValue === ''
+  ? props.options.some(option => option.value === '') ? EMPTY_VALUE : undefined
+  : props.modelValue);
 function update(value: unknown) {
-  emit('update:modelValue', String(value ?? '') === EMPTY_VALUE ? '' : String(value ?? ''));
+  const next = String(value ?? '') === EMPTY_VALUE ? '' : String(value ?? '');
+  emit('update:modelValue', next);
+  emit('change', next);
 }
 </script>
 
@@ -40,14 +48,19 @@ function update(value: unknown) {
       @update:model-value="update"
     >
       <SelectTrigger
+        v-bind="attrs"
         :id="triggerId"
-        class="h-10 w-full"
+        :class="['h-10 w-full min-w-0', triggerClass]"
         :aria-invalid="error ? true : undefined"
         :aria-describedby="descriptionId"
       >
         <SelectValue :placeholder="placeholder" />
       </SelectTrigger>
-      <SelectContent class="max-h-[min(20rem,60dvh)]">
+      <SelectContent
+        position="popper"
+        align="start"
+        class="max-h-[min(20rem,60dvh)] max-w-[calc(100vw-2rem)]"
+      >
         <SelectItem
           v-for="option in options"
           :key="option.value"

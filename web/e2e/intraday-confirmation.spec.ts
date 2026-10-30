@@ -79,7 +79,8 @@ test('pending directions and header sorting work across the complete snapshot be
   await expect(rows.first()).toContainText('ROW0.US');
   await page.getByRole('columnheader', { name: '10日收益', exact: true }).getByRole('button').click();
   await expect(rows.first()).toContainText('ROW17.US');
-  await page.getByRole('combobox', { name: '当前观察', exact: true }).selectOption('PENDING_FAILURE');
+  await page.getByRole('combobox', { name: '当前观察', exact: true }).click();
+  await page.getByRole('option', { name: '失效待确认', exact: true }).click();
   await expect(rows).toHaveCount(1);
   await expect(rows.first()).toContainText('ROW1.US');
   await expect(rows.first()).toContainText('失效待确认');

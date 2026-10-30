@@ -1,3 +1,4 @@
+import { setFieldSelect } from '../../../../tests/helpers/fieldSelect';
 import { mount, flushPromises, enableAutoUnmount } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getMacroDashboard, getMacroSeries, type MacroDashboard, type MacroSeriesResult } from '@/api/macro';
@@ -93,10 +94,10 @@ describe('Macro series requests', () => {
   });
   it('supports all ranges and modes with every asset included', async () => {
     const wrapper = mount(MacroPerformanceChart); await flushPromises();
-    for (const range of ['20d', '120d', '250d', 'ytd', '60d']) { await wrapper.get('select[data-testid="macro-range"]').setValue(range); await flushPromises(); expect(getMacroSeries).toHaveBeenLastCalledWith(expect.objectContaining({ range })); }
-    await wrapper.get('select[data-testid="macro-mode"]').setValue('relative'); await flushPromises();
+    for (const range of ['20d', '120d', '250d', 'ytd', '60d']) { await setFieldSelect(wrapper, '[data-testid="macro-range"]', range); await flushPromises(); expect(getMacroSeries).toHaveBeenLastCalledWith(expect.objectContaining({ range })); }
+    await setFieldSelect(wrapper, '[data-testid="macro-mode"]', 'relative'); await flushPromises();
     expect(getMacroSeries).toHaveBeenLastCalledWith(expect.objectContaining({ mode: 'relative', benchmark: 'SPY.US' }));
-    await wrapper.get('select[data-testid="macro-mode"]').setValue('price'); await flushPromises();
+    await setFieldSelect(wrapper, '[data-testid="macro-mode"]', 'price'); await flushPromises();
     expect(getMacroSeries).toHaveBeenLastCalledWith({ range: '60d', mode: 'price', symbols: macroAssets });
     expect(macroAssets).toHaveLength(13);
     const requests = vi.mocked(getMacroSeries).mock.calls.length;
@@ -111,15 +112,15 @@ describe('Macro series requests', () => {
     const wrapper = mount(MacroPerformanceChart); await flushPromises();
     let resolveOld!: (value: MacroSeriesResult) => void;
     vi.mocked(getMacroSeries).mockImplementationOnce(() => new Promise(resolve => { resolveOld = resolve; }));
-    await wrapper.get('select').setValue('250d');
+    await setFieldSelect(wrapper, '[data-testid="macro-range"]', '250d');
     expect(wrapper.text()).toContain('加载中'); expect(wrapper.findComponent({ name: 'VChart' }).exists()).toBe(true);
     vi.mocked(getMacroSeries).mockResolvedValueOnce(series(120));
-    await wrapper.get('select').setValue('20d'); await flushPromises();
+    await setFieldSelect(wrapper, '[data-testid="macro-range"]', '20d'); await flushPromises();
     resolveOld(series(80)); await flushPromises();
     expect(wrapper.findComponent(MacroSeriesChart).props('result')!.series[0]!.points[1]!.value).toBe(120);
     let rejectOld!: (reason: Error) => void;
     vi.mocked(getMacroSeries).mockImplementationOnce(() => new Promise((_, reject) => { rejectOld = reject; }));
-    await wrapper.get('select').setValue('250d'); await wrapper.get('select').setValue('60d'); await flushPromises();
+    await setFieldSelect(wrapper, '[data-testid="macro-range"]', '250d'); await setFieldSelect(wrapper, '[data-testid="macro-range"]', '60d'); await flushPromises();
     rejectOld(new Error('stale')); await flushPromises(); expect(wrapper.text()).not.toContain('加载失败');
   });
 });

@@ -1,3 +1,4 @@
+import { fieldSelect, setFieldSelect } from '../../../../tests/helpers/fieldSelect';
 import { createPinia, setActivePinia } from 'pinia';
 import { useMarketStore } from '@/stores/marketStore';
 import { mount, flushPromises } from '@vue/test-utils';
@@ -32,7 +33,7 @@ describe('intraday confirmation page', () => {
     expect(wrapper.text()).toContain('Yahoo 可能延迟');
     expect(wrapper.text()).not.toContain('运行当日确认任务');
     expect(api.run).not.toHaveBeenCalled();
-    await wrapper.get('select[aria-label="状态"]').setValue('FAILED');
+    await setFieldSelect(wrapper, '[aria-label="状态"]', 'FAILED');
     await flushPromises();
     expect(api.read).toHaveBeenLastCalledWith('CN', 'FAILED', undefined, undefined, expect.any(AbortSignal));
     expect(wrapper.find('select[aria-label="市场"]').exists()).toBe(false);
@@ -96,7 +97,7 @@ describe('intraday history and confirmed-price returns', () => {
     expect(wrapper.get('[data-testid="intraday-return-3d"]').text()).toBe('12.34%');
     expect(wrapper.get('[data-testid="intraday-return-5d"]').text()).toBe('0.00%');
     expect(wrapper.get('[data-testid="intraday-return-10d"]').text()).toBe('');
-    await wrapper.get('[data-testid="intraday-date-selector"]').setValue('2026-09-18'); await flushPromises();
+    await setFieldSelect(wrapper, '[data-testid="intraday-date-selector"]', '2026-09-18'); await flushPromises();
     expect(api.read).toHaveBeenLastCalledWith('CN', undefined, undefined, '2026-09-18', expect.any(AbortSignal));
     expect(wrapper.text()).toContain('历史快照 2026-09-18');
     expect(wrapper.text()).toContain('首次确认价格起算');
@@ -110,7 +111,7 @@ describe('intraday history and confirmed-price returns', () => {
     expect(wrapper.getComponent(StockDetailDialog).props('open')).toBe(true);
     const old = deferred<Snapshot>();
     vi.mocked(api.read).mockReturnValueOnce(old.promise);
-    await wrapper.get('[data-testid="intraday-date-selector"]').setValue('2026-09-18');
+    await setFieldSelect(wrapper, '[data-testid="intraday-date-selector"]', '2026-09-18');
     expect(wrapper.getComponent(StockDetailDialog).props('open')).toBe(false);
     const signal = vi.mocked(api.read).mock.calls.at(-1)![4]!;
     const oldDates = deferred<{ dates: string[] }>();
@@ -119,7 +120,7 @@ describe('intraday history and confirmed-price returns', () => {
     await flushPromises();
     expect(signal.aborted).toBe(true);
     expect(api.read).toHaveBeenLastCalledWith('US', undefined, undefined, undefined, expect.any(AbortSignal));
-    expect((wrapper.get('select[aria-label="交易日"]').element as HTMLSelectElement).value).toBe('');
+    expect(fieldSelect(wrapper, '[aria-label="交易日"]').props('modelValue')).toBe('');
     const datesSignal = vi.mocked(api.dates).mock.calls.at(-1)![1]!;
     useMarketStore().market = 'CN'; await flushPromises();
     expect(datesSignal.aborted).toBe(true);
@@ -136,7 +137,7 @@ describe('intraday history and confirmed-price returns', () => {
     expect(wrapper.text()).toContain('趋势前30');
     await wrapper.findAll('button').find(button => button.text() === '重试历史日期')!.trigger('click'); await flushPromises();
     expect(wrapper.text()).not.toContain('重试历史日期');
-    expect(wrapper.get('select[aria-label="交易日"]').findAll('option')).toHaveLength(3);
+    expect(fieldSelect(wrapper, '[aria-label="交易日"]').props('options')).toHaveLength(3);
     wrapper.unmount();
   });
   it('only runs today and ignores an old market task response', async () => {
@@ -145,10 +146,10 @@ describe('intraday history and confirmed-price returns', () => {
     const old = deferred<{ taskId: string }>(); vi.mocked(api.run).mockReturnValueOnce(old.promise);
     const wrapper = mount(Page); await flushPromises();
     const run = wrapper.findAll('button').find(button => button.text() === '运行当日确认任务')!;
-    await wrapper.get('select[aria-label="交易日"]').setValue('2026-09-18'); await flushPromises();
+    await setFieldSelect(wrapper, '[aria-label="交易日"]', '2026-09-18'); await flushPromises();
     expect(run.attributes('disabled')).toBeDefined();
     await run.trigger('click'); expect(api.run).not.toHaveBeenCalled();
-    await wrapper.get('select[aria-label="交易日"]').setValue(''); await flushPromises();
+    await setFieldSelect(wrapper, '[aria-label="交易日"]', ''); await flushPromises();
     await run.trigger('click'); expect(api.run).toHaveBeenCalledWith('CN');
     useMarketStore().market = 'US'; await flushPromises();
     old.resolve({ taskId: 'stale-cn-task' }); await flushPromises();
@@ -166,9 +167,9 @@ it('separates current weakness from the historical confirmation and retains ever
   expect(wrapper.get('tbody').text()).toContain('曾经确认');
   expect(wrapper.get('tbody').text()).toContain('共振精选');
   expect(wrapper.get('tbody').text()).toContain('轮动前5');
-  await wrapper.get('select[aria-label="当前观察"]').setValue('ACTIVE');
+  await setFieldSelect(wrapper, '[aria-label="当前观察"]', 'ACTIVE');
   expect(wrapper.get('tbody').text()).toContain('没有符合筛选条件');
-  await wrapper.get('select[aria-label="当前观察"]').setValue('');
+  await setFieldSelect(wrapper, '[aria-label="当前观察"]', '');
   await wrapper.get('input[aria-label="搜索候选"]').setValue('nomatch');
   expect(wrapper.get('tbody').text()).toContain('没有符合筛选条件');
   wrapper.unmount();
@@ -182,10 +183,10 @@ it('distinguishes pending directions and filters them independently', async () =
   const wrapper = mount(Page); await flushPromises();
   expect(wrapper.get('tbody').text()).toContain('走强待确认');
   expect(wrapper.get('tbody').text()).toContain('失效待确认');
-  await wrapper.get('select[aria-label="当前观察"]').setValue('PENDING_FAILURE');
+  await setFieldSelect(wrapper, '[aria-label="当前观察"]', 'PENDING_FAILURE');
   expect(wrapper.get('tbody').text()).toContain('TMO.US');
   expect(wrapper.get('tbody').text()).not.toContain('UP.US');
-  await wrapper.get('select[aria-label="当前观察"]').setValue('PENDING_CONFIRMATION');
+  await setFieldSelect(wrapper, '[aria-label="当前观察"]', 'PENDING_CONFIRMATION');
   expect(wrapper.get('tbody').text()).toContain('UP.US');
   expect(wrapper.get('tbody').text()).not.toContain('TMO.US');
   wrapper.unmount();

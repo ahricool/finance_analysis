@@ -49,13 +49,14 @@ for (const domain of ['etf-rotation', 'trend-following']) {
         expect(await nameHeader.evaluate((el, point) => el.contains(document.elementFromPoint(point.x, point.y)), { x: box.x + 10, y: box.y + 10 })).toBe(true);
       }
       if (domain === 'etf-rotation') {
-        await page.getByLabel('排名排序字段').selectOption('rank');
+        await page.getByRole('combobox', { name: '排名排序字段', exact: true }).click();
+        await page.getByRole('option', { name: '排名', exact: true }).click();
         await expect(scroll.locator('tbody tr').first()).toContainText('TEST0.SH');
-        await expect(header.getByRole('columnheader').filter({ has: page.getByRole('button', { name: 'Rank', exact: true }) })).toHaveAttribute('aria-sort', 'ascending');
-        await expect(header.getByRole('button', { name: /^Rank Δ/ })).toHaveCount(3);
-        await header.getByRole('button', { name: 'Rank Δ 3D', exact: true }).click();
+        await expect(header.getByRole('columnheader').filter({ has: page.getByRole('button', { name: '排名（Rank）', exact: true }) })).toHaveAttribute('aria-sort', 'ascending');
+        await expect(header.getByRole('button', { name: /（Rank Δ/ })).toHaveCount(3);
+        await header.getByRole('button', { name: '排名变化3日（Rank Δ 3D）', exact: true }).click();
         await expect(scroll.locator('tbody tr').first()).toContainText('TEST0.SH');
-        await header.getByRole('button', { name: 'Rank Δ 3D', exact: true }).click();
+        await header.getByRole('button', { name: '排名变化3日（Rank Δ 3D）', exact: true }).click();
         await expect(scroll.locator('tbody tr').first()).toContainText('TEST79.SH');
       }
     });

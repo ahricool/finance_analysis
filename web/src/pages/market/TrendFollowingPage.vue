@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import FieldSelect from '@/components/forms/FieldSelect.vue';
 import { useMarket } from '@/composables/useMarket';
 import { formatRank } from '@/utils/rank';
 import { formatFixed, formatPercent } from '@/utils/number';
@@ -759,17 +760,14 @@ onMounted(async () => {
               >
             </label>
             <label class="flex items-center gap-2 text-sm text-muted-foreground">排序指标
-              <select
-                v-model="table.sortKey"
+              <FieldSelect
+                :model-value="table.sortKey"
+                :options="table.columns.map(column => ({ value: column.key, label: metricLabel(column.label).zh }))"
                 :aria-label="`${table.title}排序指标`"
-                class="h-9 rounded-md border bg-background px-2 text-foreground"
-              >
-                <option
-                  v-for="column in table.columns"
-                  :key="column.key"
-                  :value="column.key"
-                >{{ metricLabel(column.label).zh }}</option>
-              </select>
+                class="w-44"
+                trigger-class="h-9"
+                @update:model-value="table.sortKey = $event as SortKey"
+              />
             </label>
           </CardHeader>
           <CardContent class="px-0">

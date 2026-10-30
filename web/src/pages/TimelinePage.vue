@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import FieldSelect from '@/components/forms/FieldSelect.vue';
 import { useMarket } from '@/composables/useMarket';
 import { Button } from '@/components/ui/button';
 import PageHeader from '@/components/layout/PageHeader.vue';
@@ -151,22 +152,13 @@ function safeUrl(value: unknown) { return typeof value === 'string' && /^https?:
           >
           仅高置信度
         </label>
-        <select
-          v-model="importance"
+        <FieldSelect
+          :model-value="importance"
+          :options="[{ value: '', label: '全部重要性' }, ...(['critical', 'high', 'normal', 'low'] as const).map(value => ({ value, label: `${importanceNames[value]} 及以上` }))]"
           aria-label="重要性"
-          class="h-10 w-full rounded-md border border-input bg-background px-3 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30 sm:ml-auto sm:w-40"
-        >
-          <option value="">
-            全部重要性
-          </option>
-          <option
-            v-for="value in (['critical', 'high', 'normal', 'low'] as const)"
-            :key="value"
-            :value="value"
-          >
-            {{ importanceNames[value] }} 及以上
-          </option>
-        </select>
+          class="w-full sm:ml-auto sm:w-40"
+          @update:model-value="importance = $event as Importance | ''"
+        />
       </div>
       <div
         class="-mx-1 flex gap-1 overflow-x-auto px-1 pb-1"

@@ -72,13 +72,15 @@ for (const width of [1280, 1440, 1920]) {
     await expect(page.getByTestId('btc-strategy-comparison')).toBeVisible();
     const requestsBeforeSwitch = marketRequests.length;
     const subscriptionsBeforeSwitch = subscriptions.length;
-    await page.getByRole('combobox', { name: 'Strategy', exact: true }).selectOption('btc_test_v1');
+    await page.getByRole('combobox', { name: 'Strategy', exact: true }).click();
+    await page.getByRole('option', { name: 'Test V1', exact: true }).click();
     await expect(page.getByTestId('btc-performance').getByText('-12.34%', { exact: true })).toBeVisible();
     await expect(page.getByText('Test strategy exit', { exact: true })).toBeVisible();
     expect(marketRequests).toHaveLength(requestsBeforeSwitch);
     expect(subscriptions).toHaveLength(subscriptionsBeforeSwitch);
     expect(connections).toBe(1);
-    await page.getByRole('combobox', { name: 'Strategy', exact: true }).selectOption('btc_breakout_v1');
+    await page.getByRole('combobox', { name: 'Strategy', exact: true }).click();
+    await page.getByRole('option', { name: 'Breakout V1', exact: true }).click();
     for (const label of ['5m', '15m', '1h', '4h', '1D', '1W', '1M']) {
       await page.getByTestId('btc-interval-selector').getByRole('button', { name: label, exact: true }).click();
       const interval = label === '1D' ? '1d' : label === '1W' ? '1w' : label;

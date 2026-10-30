@@ -1,4 +1,6 @@
-import { mount } from '@vue/test-utils';
+import { flushPromises, mount } from '@vue/test-utils';
+import { Select } from '@/components/ui/select';
+import { Popover } from '@/components/ui/popover';
 import { describe, expect, it } from 'vitest';
 import AppCombobox from '../AppCombobox.vue';
 import AppDatePicker from '../AppDatePicker.vue';
@@ -52,4 +54,33 @@ describe('application form control accessibility', () => {
     const wrapper = mount(component, { props: { label, error } });
     expectAccessibleControl(wrapper, 'button', error);
   });
+});
+
+it('forwards trigger attributes and keeps empty and zero select values distinct', async () => {
+  const wrapper = mount(FieldSelect, {
+    props: { modelValue: '', options: [{ value: '', label: '全部' }, { value: '0', label: '版本 0' }] },
+    attrs: { 'aria-label': '预测版本', 'data-testid': 'version-choice' },
+  });
+  await flushPromises();
+  const trigger = wrapper.get('[role="combobox"]');
+  expect(trigger.attributes('aria-label')).toBe('预测版本');
+  expect(trigger.attributes('data-testid')).toBe('version-choice');
+  expect(trigger.text()).toContain('全部');
+  wrapper.getComponent(Select).vm.$emit('update:modelValue', '0');
+  await flushPromises();
+  expect(wrapper.emitted('update:modelValue')?.at(-1)).toEqual(['0']);
+  expect(wrapper.emitted('change')?.at(-1)).toEqual(['0']);
+  await wrapper.setProps({ modelValue: '0' });
+  expect(trigger.text()).toContain('版本 0');
+  wrapper.getComponent(Select).vm.$emit('update:modelValue', '');
+  expect(wrapper.emitted('update:modelValue')?.at(-1)).toEqual(['']);
+  wrapper.unmount();
+});
+
+it('shows the placeholder when no empty option exists and keeps combobox popovers nonmodal', () => {
+  const select = mount(FieldSelect, { props: { options: [{ value: 'a', label: 'Alpha' }], placeholder: '选择版本' } });
+  expect(select.get('[role="combobox"]').text()).toContain('选择版本');
+  const combo = mount(AppCombobox, { props: { options: [{ value: 'a', label: 'Alpha' }] } });
+  expect(combo.getComponent(Popover).props('modal')).toBe(false);
+  select.unmount(); combo.unmount();
 });

@@ -1,10 +1,10 @@
 <script setup lang="ts">
+import FieldSelect from '@/components/forms/FieldSelect.vue';
 import { onBeforeUnmount, ref, shallowRef, watch } from 'vue';
 import { getMacroSeries, type MacroRange, type MacroMode, type MacroSeriesResult } from '@/api/macro';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import AppApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
-import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
 import MacroSeriesChart from './MacroSeriesChart.vue';
 import { macroAssets, ratioKeys } from './display';
 const props = defineProps<{ ratios?: boolean }>();
@@ -43,33 +43,25 @@ onBeforeUnmount(() => { sequence++; });
           </CardDescription>
         </div>
         <div class="flex flex-wrap gap-2">
-          <NativeSelect
-            v-model="range"
+          <FieldSelect
+            :model-value="range"
+            :options="['20d', '60d', '120d', '250d', 'ytd'].map(value => ({ value, label: value.toUpperCase() }))"
             aria-label="图表区间"
             data-testid="macro-range"
-          >
-            <NativeSelectOption
-              v-for="r in (['20d', '60d', '120d', '250d', 'ytd'] as const)"
-              :key="r"
-              :value="r"
-            >
-              {{ r.toUpperCase() }}
-            </NativeSelectOption>
-          </NativeSelect>
-          <NativeSelect
+            class="w-28"
+            trigger-class="h-9"
+            @update:model-value="range = $event as MacroRange"
+          />
+          <FieldSelect
             v-if="!ratios"
-            v-model="mode"
+            :model-value="mode"
+            :options="[{ value: 'normalized', label: '归一化' }, { value: 'price', label: '价格' }, { value: 'relative', label: '相对 SPY' }]"
             aria-label="图表模式"
             data-testid="macro-mode"
-          >
-            <NativeSelectOption value="normalized">
-              归一化
-            </NativeSelectOption><NativeSelectOption value="price">
-              价格
-            </NativeSelectOption><NativeSelectOption value="relative">
-              相对 SPY
-            </NativeSelectOption>
-          </NativeSelect>
+            class="w-32"
+            trigger-class="h-9"
+            @update:model-value="mode = $event as MacroMode"
+          />
         </div>
       </div>
     </CardHeader>

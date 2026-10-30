@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import FieldSelect from '@/components/forms/FieldSelect.vue';
 import { useMarket } from '@/composables/useMarket';
 import { formatRank } from '@/utils/rank';
 import { formatFixed, formatPercent } from '@/utils/number';
@@ -27,7 +28,6 @@ import { indicatorDescriptions as descriptions } from '@/components/etf-rotation
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHeader, TableRow } from '@/components/ui/table';
 import type {
@@ -145,8 +145,8 @@ function toggleSort(key: SortKey) {
     ? (sortDirection.value === 'asc' ? 'desc' : 'asc') : defaultSortDirection(key);
   sortKey.value = key;
 }
-function selectSort(event: Event) {
-  sortKey.value = (event.target as HTMLSelectElement).value as SortKey;
+function selectSort(value: string) {
+  sortKey.value = value as SortKey;
   sortDirection.value = defaultSortDirection(sortKey.value);
 }
 const changeGroups = computed(() => [
@@ -824,23 +824,14 @@ onMounted(async () => {
           >
             导出 Excel
           </LoadingButton>
-          <NativeSelect
+          <FieldSelect
             :model-value="sortKey"
+            :options="[...rankingColumns.map(column => ({ value: column.key, label: metricLabel(column.label).zh })), { value: 'entryScore', label: metricLabel('entry').zh }]"
             aria-label="排名排序字段"
-            size="sm"
-            @change="selectSort"
-          >
-            <NativeSelectOption
-              v-for="column in rankingColumns"
-              :key="column.key"
-              :value="column.key"
-            >
-              {{ metricLabel(column.label).zh }}
-            </NativeSelectOption>
-            <NativeSelectOption value="entryScore">
-              {{ metricLabel('entry').zh }}
-            </NativeSelectOption>
-          </NativeSelect>
+            class="w-44"
+            trigger-class="h-8"
+            @update:model-value="selectSort"
+          />
         </CardHeader>
         <CardContent class="px-0">
           <p

@@ -70,7 +70,8 @@ for (const width of [390, 768, 1024, 1280, 1440, 1920]) {
       await expect(signals).toContainText('N/A / 20');
       await signals.getByRole('button', { name: 'Close', exact: true }).click();
       await expect(signals).not.toBeVisible();
-      await page.getByTestId('macro-performance-chart').getByTestId('macro-mode').selectOption('relative');
+      await page.getByTestId('macro-performance-chart').getByTestId('macro-mode').click();
+      await page.getByRole('option', { name: '相对 SPY', exact: true }).click();
       await expect(page.getByTestId('macro-performance-chart').locator('[aria-busy]')).toHaveAttribute('aria-busy', 'false');
       await expect.poll(() => page.locator('canvas').first().evaluate(el => Math.abs(el.width / devicePixelRatio - el.getBoundingClientRect().width))).toBeLessThan(2);
       // Verify both an ETF and the VIX index use the existing stock detail/K-line flow.

@@ -75,7 +75,7 @@ function choose(value: string) {
     <div class="flex min-w-0 gap-1">
       <Popover
         v-model:open="open"
-        modal
+        :modal="false"
       >
         <PopoverTrigger as-child>
           <Button
@@ -112,7 +112,7 @@ function choose(value: string) {
                   @select="choose(option.value)"
                 >
                   <Check
-                    :class="cn('size-4', option.value === modelValue ? 'opacity-100' : 'opacity-0')"
+                    :class="cn('size-4 text-brand', option.value === modelValue ? 'opacity-100' : 'opacity-0')"
                   />
                   {{ option.label }}
                 </CommandItem>
