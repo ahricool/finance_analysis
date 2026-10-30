@@ -35,6 +35,13 @@ def complete(config: LLMConfig, request: LLMRequest) -> LLMResult:
     )
     if config.base_url:
         kwargs["api_base"] = config.base_url.rstrip("/")
+    if config.api_effort:
+        kwargs["reasoning_effort"] = config.api_effort
+        if config.model.startswith("openai/"):
+            # Allow new OpenAI models before LiteLLM's model catalog catches up.
+            kwargs["allowed_openai_params"] = ["reasoning_effort"]
+        if re.match(r"^(?:openai/)?gpt-[56](?:[.\-/]|$)", config.model):
+            kwargs.pop("temperature", None)
     if request.max_tokens is not None:
         kwargs["max_tokens"] = request.max_tokens
     if request.web_search and (not request.prefer_search or supported(config)):

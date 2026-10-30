@@ -61,6 +61,32 @@ def test_json_validation_consumes_same_retry_budget(config, monkeypatch):
     assert rows[0]["status"] == "failed" and rows[0]["response"] == "invalid"
 
 
+def test_api_effort_from_env_reaches_openai_without_temperature(monkeypatch):
+    import litellm
+
+    monkeypatch.setenv("LLM_MODEL", "openai/gpt-6.1-sol")
+    monkeypatch.setenv("LLM_API_EFFORT", "medium")
+    monkeypatch.setenv("LLM_BASE_URL", "https://api.openai.com/v1")
+    get_llm_config.cache_clear()
+    try:
+        config = get_llm_config()
+        call = Mock(return_value={"choices": [{"message": {"content": "OK"}}]})
+        monkeypatch.setattr(litellm, "completion", call)
+        api.complete(config, LLMRequest("Reply OK", temperature=0.7))
+        kwargs = call.call_args.kwargs
+        assert kwargs["reasoning_effort"] == "medium"
+        assert kwargs["allowed_openai_params"] == ["reasoning_effort"]
+        assert kwargs["api_base"] == "https://api.openai.com/v1"
+        assert "temperature" not in kwargs
+    finally:
+        get_llm_config.cache_clear()
+
+
+def test_api_effort_invalid():
+    with pytest.raises(ValueError, match="LLM_API_EFFORT"):
+        LLMConfig(api_effort="invalid")
+
+
 def test_no_retry_after_deadline(config, monkeypatch):
     now = [0.0]
     monkeypatch.setattr("finance_analysis.llm.client.time.monotonic", lambda: now[0])

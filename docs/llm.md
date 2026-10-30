@@ -28,7 +28,11 @@ LLM任务没有固定Celery软/硬时限；多事件、多桶和重试会使整�
 - Codex：`LLM_CODEX_MODEL`、`LLM_CODEX_EFFORT`（low/medium/high/xhigh）；留空使用Host默认模型。
 - Host：`LLM_CLI_CODEX_PATH`、`LLM_CLI_PYTHON_PATH`、`LLM_CLI_SSH_HOST/PORT/USERNAME/PASSWORD`、
   `LLM_CLI_REMOTE_WORKDIR`。Codex及Python使用绝对路径，Python仅需要标准库。
-- API：`LLM_MODEL`、`LLM_API_KEY`、`LLM_BASE_URL`、`LLM_TEMPERATURE`、`LLM_API_SEARCH_MODE`。
+- API：`LLM_MODEL`、`LLM_API_KEY`、`LLM_BASE_URL`、`LLM_API_EFFORT`、`LLM_TEMPERATURE`、`LLM_API_SEARCH_MODE`。
+  默认地址为 OpenAI 官方 `https://api.openai.com/v1`，其他兼容服务仍可覆盖地址。
+  例如 `LLM_MODEL=openai/gpt-6.1-sol`、`LLM_API_EFFORT=medium`；effort 留空不发送，
+  支持 none/minimal/low/medium/high/xhigh/max，具体取值须由模型支持。
+  GPT-5/6 设置 effort 时不发送 temperature，避免与推理模式不兼容。
 
 生产升级时将现有 `LLM_ATTEMPT_TIMEOUT` 更新为300，移除旧总预算、路由及单渠道模型配置；
 这些旧变量不再被读取。凭据继续使用现有私有环境配置，不写入仓库。本改动不需要数据库迁移。
