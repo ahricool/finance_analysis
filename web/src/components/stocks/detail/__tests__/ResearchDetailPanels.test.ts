@@ -95,7 +95,7 @@ describe('independent research detail panels', () => {
     await flushPromises();
     expect(quantApi.signal).toHaveBeenCalledWith('AAPL.US', 'US', '2026-09-21');
     expect(quantApi.signalHistory).toHaveBeenCalledWith('AAPL.US', 'US', '2026-09-21');
-    for (const text of ['量化依据', '风险惩罚', '横截面', '时间序列', '2026-09-18']) expect(wrapper.text()).toContain(text);
+    for (const text of ['量化依据', '模型 v1', '风险惩罚', '横截面', '时间序列', '2026-09-18']) expect(wrapper.text()).toContain(text);
     expect(wrapper.findComponent(DailyKLineCard).exists()).toBe(false);
     wrapper.unmount();
   });

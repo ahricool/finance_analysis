@@ -24,11 +24,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import type { OptionsView } from '@/api/optionsIntelligence';
 import type { StockDetailContext, StockDetailTab } from './detail/types';
 
-const ResearchEvidence = defineAsyncComponent(() => import('./ResearchEvidence.vue'));
 const HoldingsDetailPanel = defineAsyncComponent(() => import('./detail/HoldingsDetailPanel.vue'));
 const DailyKLineCard = defineAsyncComponent(() => import('@/components/market-data/DailyKLineCard.vue'));
 const OptionsPanel = defineAsyncComponent(() => import('@/components/options-intelligence/OptionsPanel.vue'));
 const detailPanels = {
+  industry: defineAsyncComponent(() => import('./detail/IndustryDetailPanel.vue')),
   trend: defineAsyncComponent(() => import('./detail/TrendDetailPanel.vue')),
   etf: defineAsyncComponent(() => import('./detail/ETFDetailPanel.vue')),
   confluence: defineAsyncComponent(() => import('./detail/ConfluenceDetailPanel.vue')),
@@ -76,7 +76,7 @@ const tabs = computed<Array<{ value: StockDetailTab; label: string }>>(() => [
     { value: 'quant' as const, label: '量化' },
   ] : []),
   ...(props.stock?.marketType === 'CN' ? [{ value: 'dragon-tiger' as const, label: '龙虎榜' }] : []),
-  ...(props.stock?.marketType !== 'HK' ? [{ value: 'evidence' as const, label: '研究概览' }] : []),
+  ...(props.stock?.marketType === 'CN' ? [{ value: 'industry' as const, label: '行业' }] : []),
 ]);
 const activeTab = ref<StockDetailTab>('overview');
 const detailContext = computed<StockDetailContext>(() => ({
@@ -255,12 +255,6 @@ function movementClass(value: number | null | undefined): string {
             :symbol="stock.code"
             :market="stock.marketType"
             :context="detailContext"
-            class="p-4 sm:p-6"
-          />
-          <ResearchEvidence
-            v-else-if="activeTab === 'evidence'"
-            :symbol="stock.code"
-            :market="stock.marketType"
             class="p-4 sm:p-6"
           />
           <OptionsPanel

@@ -3,7 +3,7 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { holdingsApi, tradeEngineApi, type PortfolioAccount, type PortfolioPosition, type TradeEnginePosition } from '@/api/holdings';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import ApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
-import ResearchEvidence from '@/components/stocks/ResearchEvidence.vue';
+import TradeSignalHistory from '@/components/stocks/TradeSignalHistory.vue';
 import DailyKLineCard from '@/components/market-data/DailyKLineCard.vue';
 import { Button } from '@/components/ui/button';
 import type { TradeMarker } from '@/lib/tradeMarkers';
@@ -236,7 +236,7 @@ onBeforeUnmount(() => { stopped = true; request++; engineRequest++; detailReques
       <p v-if="engineView?.llmReason">
         LLM最终判断 {{ engineView.llmReason }}
       </p>
-      <ResearchEvidence
+      <TradeSignalHistory
         :key="detail.id"
         :symbol="detail.symbol"
         :market="detail.market"

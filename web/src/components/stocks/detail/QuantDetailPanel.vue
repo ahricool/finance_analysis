@@ -73,6 +73,9 @@ onBeforeUnmount(() => { ++generation; });
         en="Signal Detail"
         :description="`${item.tradeDate} · 排名 ${formatRank(item.universeRank, item.rankTotal)} · ${item.signal} · 预测 ${formatPredictedReturn(item.predictedReturn)}`"
       />
+      <p class="text-sm text-muted-foreground">
+        模型 {{ item.modelVersion }}
+      </p>
       <section class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <div
           v-for="row in [

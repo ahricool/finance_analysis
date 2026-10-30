@@ -8,10 +8,14 @@ for (const width of [1280, 1440, 1920]) {
     page.on('pageerror', error => errors.push(error.message));
     const requests: string[] = [];
     let failEngine = true;
+    await page.routeWebSocket('**/api/v1/market-data/ws**', socket => {
+      socket.onMessage(() => socket.send(JSON.stringify({ type: 'snapshot', quotes: [] })));
+    });
     await page.route('**/api/v1/**', async route => {
       const url = new URL(route.request().url());
       const path = url.pathname;
       requests.push(path);
+      if (path === '/api/v1/stocks/search') return route.fulfill({ json: { items: [] } });
       if (path === '/api/v1/holdings/summary') return route.fulfill({ json: {
         market: 'CN', accounts: [{ id: 1, name: 'A股账户', market: 'CN', cash: '90000', currency: 'CNY' }], cash: '90000', market_value: '12000', total_asset: '102000', gross_exposure: '0.1176',
         positions: [{ id: 11, account_id: 1, market: 'CN', symbol: '600519.SH', name: '贵州茅台', asset_type: 'STOCK', quantity: '100', average_cost: '100', current_price: '120', market_value: '12000', weight: '0.1176', unrealized_pnl: '2000', trade_engine_enabled: true }],
@@ -41,13 +45,16 @@ for (const width of [1280, 1440, 1920]) {
     await page.getByRole('button', { name: '600519.SH - 贵州茅台', exact: true }).click();
     const dialog = page.getByRole('dialog');
     await dialog.getByRole('tab', { name: '持仓', exact: true }).click();
-    await expect(dialog.getByTestId('research-evidence')).toContainText('趋势保持向上');
-    await expect(dialog.getByTestId('research-evidence')).toContainText('各模块数据日期不一致');
-    await expect(dialog.getByTestId('evidence-industry')).toContainText('食品饮料');
-    await dialog.locator('summary').click();
+    await expect(dialog.getByRole('tab', { name: '研究概览', exact: true })).toHaveCount(0);
+    await dialog.getByTestId('signal-evidence').locator('summary').click();
     await expect(dialog.getByTestId('signal-evidence')).toContainText('当时集中度过高');
     await expect(dialog.getByTestId('signal-evidence')).not.toContainText('趋势保持向上');
-    await expect(dialog.getByTestId('evidence-trend').getByRole('link')).toHaveAttribute('href', /symbol=600519.SH.*tradeDate=2026-09-21/);
+    expect(requests.filter(path => path.startsWith('/api/v1/trend-following/'))).toHaveLength(0);
+    expect(requests.filter(path => path.startsWith('/api/v1/quant/'))).toHaveLength(0);
+    expect(requests.filter(path => path.endsWith('/600519.SH/context'))).toHaveLength(0);
+    await dialog.getByRole('tab', { name: '行业', exact: true }).click();
+    await expect(dialog.getByTestId('industry-detail-panel')).toContainText('食品饮料');
+    await expect(dialog.getByTestId('industry-detail-panel').getByRole('link')).toHaveAttribute('href', /industry=881101.TI.*tradeDate=2026-09-21/);
     const box = await dialog.boundingBox();
     expect(box!.width).toBeLessThan(width);
     expect(box!.width).toBeGreaterThan(800);
