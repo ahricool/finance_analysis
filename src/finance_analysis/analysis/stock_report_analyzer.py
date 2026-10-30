@@ -479,11 +479,11 @@ class StockReportAnalyzer:
     def is_available(self) -> bool:
         return self._get_runtime_config().llm.is_available()
 
-    def generate_text(self, prompt: str, max_tokens: int = 2048, temperature: float = 0.7) -> Optional[str]:
+    def generate_text(self, prompt: str) -> Optional[str]:
         try:
             return LLMClient(self._get_runtime_config().llm).complete_text(LLMRequest(
                 prompt=prompt, system_prompt=self.TEXT_SYSTEM_PROMPT,
-                max_tokens=max_tokens, temperature=temperature, call_type="market_review", uid=self.uid,
+                call_type="market_review", uid=self.uid,
             )).text
         except Exception as exc:
             logger.warning("Market review LLM failed: %s", exc)
@@ -557,7 +557,7 @@ class StockReportAnalyzer:
             _emit_progress(68, f"{name}：正在请求 LLM 生成报告")
             response = LLMClient(config.llm).complete_text(
                 LLMRequest(
-                    prompt=prompt, system_prompt=system_prompt, max_tokens=8192,
+                    prompt=prompt, system_prompt=system_prompt,
                     call_type="analysis", uid=self.uid,
                 ),
                 validator=self._validate_json_response,
