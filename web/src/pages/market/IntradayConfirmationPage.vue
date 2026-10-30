@@ -1,12 +1,12 @@
 <script setup lang="ts">
+import { useMarket } from '@/composables/useMarket';
 import { formatFixed, formatPercent } from '@/utils/number';
 import StockLink from '@/components/stocks/StockLink.vue';
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
-import { intradayConfirmationApi as api, type Snapshot, type Confirmation, type Market, type State, type Source } from '@/api/intradayConfirmation';
+import { intradayConfirmationApi as api, type Snapshot, type Confirmation, type State, type Source } from '@/api/intradayConfirmation';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import { useAuth } from '@/composables/useAuth';
 import AppApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
-import ResearchMarketToggle from '@/components/research/ResearchMarketToggle.vue';
 import PageHeader from '@/components/layout/PageHeader.vue';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -18,7 +18,7 @@ import { Activity, ArrowUpRight, Clock3, RefreshCw, Search, ShieldAlert } from '
 import { formatDateTime } from '@/utils/format';
 
 const { currentUser } = useAuth();
-const market = ref<Market>('CN');
+const { market } = useMarket();
 const tradeDate = ref(''); const dates = ref<string[]>([]);
 const datesLoading = ref(false); const datesError = shallowRef<ParsedApiError | null>(null);
 const state = ref<State | ''>(''); const source = ref<Source | ''>('');
@@ -65,12 +65,11 @@ async function load() {
   } catch (cause) { if (token === generation) error.value = getParsedApiError(cause); }
   finally { if (token === generation) loading.value = false; }
 }
-function setMarket(target: Market) {
-  if (target === market.value) return;
-  market.value = target; tradeDate.value = ''; dates.value = [];
+watch(market, () => {
+  tradeDate.value = ''; dates.value = [];
   ++runGeneration; taskId.value = ''; submitting.value = false;
   refresh();
-}
+});
 async function run() {
   if (tradeDate.value || submitting.value) return;
   const token = ++runGeneration;
@@ -102,11 +101,6 @@ const detailInitialTab = ref<'overview' | 'intraday'>('intraday');
       description="跟踪昨日精选与趋势候选，用今日价格结构确认强弱。"
     >
       <template #actions>
-        <ResearchMarketToggle
-          :model-value="market"
-          data-testid="intraday-market-switcher"
-          @update:model-value="setMarket"
-        />
         <Button
           variant="outline"
           :disabled="loading"

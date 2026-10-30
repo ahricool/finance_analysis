@@ -1,16 +1,16 @@
 <script setup lang="ts">
+import { useMarket } from '@/composables/useMarket';
 import { formatRank } from '@/utils/rank';
 import StockLink from '@/components/stocks/StockLink.vue';
 import BilingualEnum from '@/components/app/BilingualEnum.vue';
 import PageHeader from '@/components/layout/PageHeader.vue';
-import { computed, onBeforeUnmount, onMounted, ref, shallowRef } from 'vue';
-import { confluenceApi as api, type ConfluenceRanking, type ConfluenceItem, type Market } from '@/api/confluence';
+import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
+import { confluenceApi as api, type ConfluenceRanking, type ConfluenceItem } from '@/api/confluence';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import { useAuth } from '@/composables/useAuth';
 import AppApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
 import StockDetailDialog from '@/components/stocks/StockDetailDialog.vue';
 import AppDatePicker from '@/components/app/AppDatePicker.vue';
-import ResearchMarketToggle from '@/components/research/ResearchMarketToggle.vue';
 import { RefreshCcw } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -20,7 +20,7 @@ import { primary, secondary, labels, weights, signal, strength, agreement, tone 
 import { formatDateTime } from '@/utils/format';
 
 const { currentUser } = useAuth();
-const market = ref<Market>('CN'); const tradeDate = ref(''); const dates = ref<string[]>([]);
+const { market } = useMarket(); const tradeDate = ref(''); const dates = ref<string[]>([]);
 const minSignals = ref<number>(); const minScore = ref(0); const industry = ref(''); const lifecycle = ref('');
 const earlyOnly = ref(false); const topIndustry = ref(false); const strongOnly = ref(false);
 const result = shallowRef<ConfluenceRanking | null>(null); const selected = shallowRef<ConfluenceItem | null>(null);
@@ -33,7 +33,7 @@ const pageCount = computed(() => Math.max(1, Math.ceil(rankedItems.value.length 
 const pageItems = computed(() => rankedItems.value.slice((page.value - 1) * pageSize, page.value * pageSize));
 const minimumScore = computed(() => result.value?.rules.minimumScore ?? 60);
 const sectorMacro = computed(() => Boolean(result.value?.rules.macroMethod || result.value?.items.some(row => row.signals.macro?.evidence.macroMethod)));
-let generation = 0;
+let generation = 0; let runGeneration = 0;
 async function load(reset = false) {
   const token = ++generation; loading.value = true; error.value = null; result.value = null;
   selected.value = null; dialogOpen.value = false; page.value = 1;
@@ -51,11 +51,10 @@ async function load(reset = false) {
   } catch (cause) { if (token === generation) error.value = getParsedApiError(cause); }
   finally { if (token === generation) loading.value = false; }
 }
-function setMarket(target: Market) {
-  if (target === market.value) return;
-  market.value = target;
+watch(market, () => {
+  ++runGeneration; submitting.value = false; taskId.value = '';
   void load(true);
-}
+});
 function selectDate(value: string) {
   tradeDate.value = value;
   minSignals.value = undefined;
@@ -63,10 +62,14 @@ function selectDate(value: string) {
 }
 function show(row: ConfluenceItem) { selected.value = row; dialogOpen.value = true; }
 async function run() {
+  const token = ++runGeneration;
   submitting.value = true; error.value = null; taskId.value = '';
-  try { taskId.value = (await api.run(market.value, tradeDate.value || undefined)).taskId; }
-  catch (cause) { error.value = getParsedApiError(cause); }
-  finally { submitting.value = false; }
+  try {
+    const result = await api.run(market.value, tradeDate.value || undefined);
+    if (token === runGeneration) taskId.value = result.taskId;
+  }
+  catch (cause) { if (token === runGeneration) error.value = getParsedApiError(cause); }
+  finally { if (token === runGeneration) submitting.value = false; }
 }
 function configuredWeight(key: keyof typeof weights) {
   return result.value?.rules.weights?.[key] ?? result.value?.items[0]?.signals[key]?.weight ?? (result.value?.algorithmVersion?.startsWith('confluence_v2') ? weights[key] : null);
@@ -74,7 +77,7 @@ function configuredWeight(key: keyof typeof weights) {
 function configuredLabel(key: keyof typeof weights) { return key === 'macro' && !sectorMacro.value ? '宏观环境' : labels[key]; }
 function frameworkTotal(keys: Array<keyof typeof weights>) { return keys.reduce((sum, key) => sum + (configuredWeight(key) ?? 0), 0); }
 onMounted(() => { void load(); });
-onBeforeUnmount(() => { ++generation; });
+onBeforeUnmount(() => { ++generation; ++runGeneration; });
 const detailInitialTab = ref<'overview' | 'confluence'>('confluence');
 </script>
 
@@ -90,11 +93,6 @@ const detailInitialTab = ref<'overview' | 'confluence'>('confluence');
       description="展示前50条研究排行，每页10条；每个市场每日精选最多10个，其余仅供观察。"
     >
       <template #actions>
-        <ResearchMarketToggle
-          :model-value="market"
-          data-testid="confluence-market-switcher"
-          @update:model-value="setMarket"
-        />
         <Button
           variant="outline"
           :disabled="loading"

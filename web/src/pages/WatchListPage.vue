@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useMarket } from '@/composables/useMarket';
 import StockIdentity from '@/components/stocks/StockIdentity.vue';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import type { RealtimePatternState, RealtimeTrend } from '@/api/realtimeMarket';
@@ -78,12 +79,17 @@ const deletingCode = ref('');
 const togglingFavoriteId = ref<number | null>(null);
 const detailItem = ref<WatchListItem | null>(null);
 const expandedCode = ref<string | null>(null);
-const selectedMarket = ref<'CN' | 'US'>('CN');
+const { market: selectedMarket } = useMarket();
 const selectedTag = ref<TagFilter>('ALL');
 const tags = ref<WatchListTag[]>([]);
 const formTags = ref<WatchListTagDraft[]>([]);
 const showTagManager = ref(false);
-watch(selectedMarket, () => { expandedCode.value = null; });
+watch(selectedMarket, () => {
+  expandedCode.value = null;
+  detailItem.value = null;
+  showDeleteConfirm.value = false;
+  closeDialog();
+});
 watch(selectedTag, () => { expandedCode.value = null; });
 const filters = computed(() => ({
   market: selectedMarket.value,
@@ -445,24 +451,6 @@ onMounted(() => {
     />
 
     <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
-      <div
-        role="group"
-        aria-label="自选股市场"
-        class="inline-flex items-center gap-1 rounded-lg bg-muted/80 p-1 ring-1 ring-border/50"
-      >
-        <Button
-          v-for="market in (['US', 'CN'] as const)"
-          :key="market"
-          variant="ghost"
-          size="sm"
-          :class="selectedMarket === market ? 'bg-background text-foreground shadow-sm hover:bg-background' : 'text-muted-foreground'"
-          :aria-pressed="selectedMarket === market"
-          :data-testid="`market-${market.toLowerCase()}`"
-          @click="selectedMarket = market"
-        >
-          {{ market === 'US' ? '美股' : 'A股' }}
-        </Button>
-      </div>
       <div class="flex items-center gap-3">
         <RealtimeStatus :status="realtimeStatus" />
         <p

@@ -116,7 +116,9 @@ layout（Shell / PageHeader / ModuleLayout）+ ui/app 组件
 - 加密货币使用 `CryptoPage` 二级侧栏，BTC 子页保留自身介绍；任务中心顶栏下拉与侧栏共用 `taskNavItems`，定时任务仅向管理员显示。
 - BTC 的旧 `/research/crypto/btc` 同样重定向到 `/crypto/btc`；一级“加密货币”菜单位于“任务中心”之前。
 - `/chat` 只保留到 `/dashboard` 的 legacy redirect，前端不再有问股或个股分析页面。
-- 量化范围用 query `?market=US|CN`。在量化子路由之间跳转时，守卫会保留已有 `market`。读写市场用 `useQuantMarket()`，不要手写丢 query 的 `router.push`。
+- 全局 A 股／美股开关固定在顶栏头像左侧，头像保持最右。`marketStore` 保存选择到 `localStorage.selected_market`，默认 CN；`useMarket()` 优先读取合法 URL `?market=CN|US`，无 query 时复用全局选择。路由成功后同步显式 URL 市场，跨页面/刷新保留选择。
+- `meta.marketScope` 标记 `selectable` 的页面启用开关；单市场页标记 `CN`/`US` 并置灰显示对应市场，其他页面（含主页）置灰但不改变已选偏好。禁止添加页内市场选择器。
+- 量化日期/导航继续用 `useQuantMarket()`；切市场清除日期/证券上下文，策略/量化详情返回对应列表。时间线仅查所选市场，不再支持全部市场；信号中心 daily/history 由后端按 market 筛选后分页。
 - 顶栏菜单数据在 `src/config/mainNav.ts`，和路由表分开维护。加入口时两处都要改，并补 `src/config/__tests__/mainNav.test.ts` 一类断言。
 - `/tasks` 由 `TasksPage` 按角色转到子页：管理员进入 `/tasks/scheduled`，普通用户进入 `/tasks/runs`。
 
@@ -193,6 +195,7 @@ Cookie 会话，`apiClient` 设了 `withCredentials: true`。
 | Store | 实现 | 用途 |
 | --- | --- | --- |
 | `authStore` | Pinia | 登录态、当前用户、lookup/login/logout |
+| `marketStore` | Pinia | 全局 CN/US 市场偏好，写入 `localStorage` |
 | `timezoneStore` | Pinia | 展示时区 `Asia/Shanghai` \| `America/New_York`，写入 `localStorage` |
 
 选择：和壳层/鉴权/时区相关 → Pinia，组件用 `storeToRefs`。
@@ -205,7 +208,8 @@ Cookie 会话，`apiClient` 设了 `withCredentials: true`。
 | --- | --- |
 | `useAuth` | 对 `authStore` 的稳定 API |
 | `useTheme` | 主题偏好（`system` / `light` / `dark`）与 `documentElement` class |
-| `useQuantMarket` | 量化 `market` query |
+| `useMarket` | 共享市场：显式 URL 优先，否则全局偏好 |
+| `useQuantMarket` | 共享市场与量化日期/导航 query |
 | `useRealtimeQuotes` | 自选/持仓 WebSocket 与 HTTP SSE 降级 |
 | `useAutocomplete` | 证券主数据搜索建议（debounce 请求搜索 API） |
 | `useCurrentTime` | 随展示时区走的当前时间 |
@@ -225,7 +229,7 @@ Cookie 会话，`apiClient` 设了 `withCredentials: true`。
 - 根滚动条使用 `scrollbar-gutter: stable`，路由切换时不要让页面左右跳。
 - WebUI 面向桌面优先，并做基础响应式适配：去掉根 `min-width: 1200px`；`<1024px`（`lg`）顶栏通过点击 Logo 打开左侧抽屉导航，不显示独立汉堡按钮；表格在容器内横向滚动，页面本身不横向溢出；卡片/统计格子可换行；弹窗限制在视口内。验证 390 / 768 / 1024 / 1280 / 1440 / 1920px。
 - 标签语言：中文为主、英文 muted 小号副标题。复用 `BilingualLabel` / `BilingualEnum` 与 `i18n/labels.ts`；表头空间紧时用 `compact`（英文只保留在 `aria-label`）。按钮与普通操作文案只用中文。业务枚举仅改展示，不改 API 字段。
-- Dashboard 按市场结构、Trend Market Regime、ETF/Trend Changes、Timeline、Quant Signals/BTC overview 排序；市场环境通过 `/trend-following/dashboard` 读取正式 Trend 的 0–100 分数、breakdown、完整变化计数和最多3条变化摘要，不下载 ranking 明细，不请求 Quant Regime 或展示风险敞口。不得读取持仓、自选股、分析历史等私人数据；各模块独立加载和失败。
+- Dashboard 保留双市场概览，顶栏市场开关置灰；策略变化同时展示两市，不提供局部市场选择。按市场结构、Trend Market Regime、ETF/Trend Changes、Timeline、Quant Signals/BTC overview 排序；市场环境通过 `/trend-following/dashboard` 读取正式 Trend 的 0–100 分数、breakdown、完整变化计数和最多3条变化摘要，不下载 ranking 明细，不请求 Quant Regime 或展示风险敞口。不得读取持仓、自选股、分析历史等私人数据；各模块独立加载和失败。
 
 新增 shadcn 组件：按 `components.json` 生成到 `src/components/ui/`，不要改 aliases，不要另开一套 primitive。
 

@@ -1,3 +1,4 @@
+import { createPinia, setActivePinia } from 'pinia';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushPromises, mount } from '@vue/test-utils';
 import { createMemoryHistory, createRouter } from 'vue-router';
@@ -29,7 +30,8 @@ async function setup() {
 }
 
 describe('stock strategy page', () => {
-  beforeEach(() => { vi.clearAllMocks(); auth.role = 'user'; vi.spyOn(window, 'scrollTo').mockImplementation(() => {}); });
+  beforeEach(() => {
+  localStorage.clear(); setActivePinia(createPinia()); vi.clearAllMocks(); auth.role = 'user'; vi.spyOn(window, 'scrollTo').mockImplementation(() => {}); });
   it('shows failed date separately from the last successful return and preserves market in links', async () => {
     vi.mocked(api.overview).mockResolvedValue(fixture('US'));
     const { wrapper } = await setup(); await flushPromises();

@@ -1,3 +1,4 @@
+import { useMarketStore } from '@/stores/marketStore';
 import { mount, flushPromises } from '@vue/test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPinia } from 'pinia';
@@ -12,11 +13,12 @@ import v2 from '../../../../e2e/fixtures/confluenceV2';
 import raw from '../../../../e2e/fixtures/confluence';
 
 vi.mock('@/api/confluence', () => ({ confluenceApi: { ranking: vi.fn(), dates: vi.fn(), run: vi.fn() } }));
-vi.mock('@/composables/useAuth', () => ({ useAuth: () => ({ currentUser: { role: 'user' } }) }));
+const auth = vi.hoisted(() => ({ currentUser: { role: 'user' } }));
+vi.mock('@/composables/useAuth', () => ({ useAuth: () => auth }));
 const ranking = toCamelCase<ConfluenceRanking>(raw);
 const mountPage = () => mount(Page, { global: { plugins: [createPinia()], stubs: { StockDetailDialog: true } } });
 beforeEach(() => {
-  vi.clearAllMocks();
+  vi.clearAllMocks(); auth.currentUser.role = 'user';
   vi.mocked(api.ranking).mockResolvedValue(ranking);
   vi.mocked(api.dates).mockResolvedValue(['2026-09-22', '2026-09-21']);
 });
@@ -31,7 +33,7 @@ describe('confluence controls and detail', () => {
     picker.vm.$emit('update:modelValue', '2026-09-21');
     await flushPromises();
     expect(api.ranking).toHaveBeenLastCalledWith(expect.objectContaining({ market: 'CN', trade_date: '2026-09-21', min_signals: undefined }));
-    await wrapper.get('[data-testid="confluence-market-switcher"] [role="radio"]').trigger('click');
+    useMarketStore().market = 'US';
     await flushPromises();
     expect(api.ranking).toHaveBeenLastCalledWith(expect.objectContaining({ market: 'US', trade_date: undefined, min_signals: undefined }));
     expect(api.dates).toHaveBeenLastCalledWith('US');
@@ -118,4 +120,19 @@ describe('confluence controls and detail', () => {
     wrapper.unmount();
   });
 
+});
+
+
+it('ignores an old market task submission after switching away and back', async () => {
+  auth.currentUser.role = 'admin';
+  let resolveOld!: (value: { taskId: string }) => void;
+  vi.mocked(api.run).mockReturnValueOnce(new Promise(resolve => { resolveOld = resolve; }));
+  const wrapper = mountPage(); await flushPromises();
+  await wrapper.findAll('button').find(button => button.text() === '生成信号')!.trigger('click');
+  useMarketStore().market = 'US'; await flushPromises();
+  useMarketStore().market = 'CN'; await flushPromises();
+  resolveOld({ taskId: 'stale-cn-task' }); await flushPromises();
+  expect(wrapper.text()).not.toContain('stale-cn-task');
+  expect(wrapper.findAll('button').some(button => button.text() === '生成信号' && button.attributes('disabled') === undefined)).toBe(true);
+  wrapper.unmount();
 });

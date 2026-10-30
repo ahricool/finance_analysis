@@ -1,3 +1,5 @@
+import { createPinia, setActivePinia } from 'pinia';
+import { useMarketStore } from '@/stores/marketStore';
 import { metricLabel } from '@/i18n/labels';
 import { exportExcel } from '@/utils/excelExport';
 import { marketDataApi } from '@/api/marketData';
@@ -167,6 +169,8 @@ function mockPreview(payload: Record<string, unknown> | null) {
 
 describe('ETFRotationPage', () => {
   beforeEach(() => {
+  localStorage.clear();
+  setActivePinia(createPinia());
     apiMocks.rankHistory.mockResolvedValue({ market: 'CN', dates: [], series: [], officialCount: 0 });
     apiMocks.dates.mockImplementation(async (market: ETFMarket = 'CN') => (
       market === 'US'
@@ -317,7 +321,6 @@ describe('ETFRotationPage', () => {
     await flushPromises();
 
     const controls = [
-      wrapper.get('[aria-label="市场"]'),
       wrapper.get('[data-testid="etf-rotation-refresh"]'),
       wrapper.get('[data-testid="etf-rotation-run"]'),
     ];
@@ -384,7 +387,7 @@ describe('ETFRotationPage', () => {
     await wrapper.get('[data-testid="etf-rotation-date"]').setValue('2026-08-21');
     await flushPromises();
 
-    await wrapper.get('[aria-label="市场"] [role="radio"]').trigger('click');
+    useMarketStore().market = 'US';
     await flushPromises();
 
     expect(apiMocks.dates).toHaveBeenLastCalledWith('US');

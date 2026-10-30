@@ -1,3 +1,5 @@
+import { createPinia, setActivePinia } from 'pinia';
+import { useMarketStore } from '@/stores/marketStore';
 import { flushPromises, mount } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { nextTick } from 'vue';
@@ -46,6 +48,8 @@ async function mountPage() {
 function streamFilters() { return (mocks.streamOptions as () => unknown)(); }
 
 beforeEach(() => {
+  localStorage.clear();
+  setActivePinia(createPinia());
   rows = [item(1, 'CN', [tags[0]!]), item(2, 'CN'), item(3, 'US', [tags[0]!, tags[1]!])];
   mocks.listTags.mockResolvedValue(tags);
   mocks.list.mockImplementation(async (filters: WatchListFilters) => {
@@ -65,8 +69,8 @@ afterEach(() => { vi.clearAllMocks(); });
 describe('watch-list market and group selection', () => {
   it('defaults to CN with All first, filters on the server and stream, retains groups on market switches', async () => {
     const page = await mountPage();
-    expect(page.get('[data-testid=market-cn]').attributes('aria-pressed')).toBe('true');
-    expect(page.findAll('[aria-label="自选股市场"] button').map(b => b.text())).toEqual(['美股', 'A股']);
+    expect(useMarketStore().market).toBe('CN');
+    expect(page.find('[aria-label="自选股市场"]').exists()).toBe(false);
     expect(page.get('[data-testid=tag-filters] button').text()).toBe('全部');
     expect(page.get('[data-testid=tag-filters] button').attributes('aria-pressed')).toBe('true');
     expect(page.get('[data-testid=watch-list-count]').text()).toBe('显示 2 / 2 只');
@@ -76,7 +80,7 @@ describe('watch-list market and group selection', () => {
     expect(mocks.list).toHaveBeenLastCalledWith({ market: 'CN', tagId: 1, ungrouped: false }, expect.any(AbortSignal));
     expect(streamFilters()).toEqual({ scope: 'watch-list', market: 'CN', tagId: 1, ungrouped: false });
     expect(page.get('[data-testid=watch-list-count]').text()).toBe('显示 1 / 2 只');
-    await page.get('[data-testid=market-us]').trigger('click');
+    useMarketStore().market = 'US';
     await flushPromises();
     expect(streamFilters()).toEqual({ scope: 'watch-list', market: 'US', tagId: 1, ungrouped: false });
     expect(page.get('tbody').text()).toContain('股票3');
@@ -94,7 +98,8 @@ describe('watch-list market and group selection', () => {
     const page = await mountPage();
     expect(page.text()).toContain('当前市场暂无自选股');
     expect(page.text()).toContain('空标签');
-    await page.get('[data-testid=market-us]').trigger('click');
+    useMarketStore().market = 'US';
+    await nextTick();
     await page.findAll('button').find(b => b.text() === '添加')!.trigger('click');
     expect(page.findComponent(StockAutocomplete).props('market')).toBe('US');
     page.findComponent(StockAutocomplete).vm.$emit('submit', '00700.HK', '腾讯', 'autocomplete', 'HK');
@@ -149,7 +154,7 @@ describe('watch-list market and group selection', () => {
     let resolveOld!: (value: unknown) => void;
     mocks.list.mockImplementationOnce(() => new Promise(resolve => { resolveOld = resolve; }));
     const page = await mountPage();
-    await page.get('[data-testid=market-us]').trigger('click');
+    useMarketStore().market = 'US';
     await flushPromises();
     resolveOld({ items: [item(9, 'CN')], total: 99 });
     await flushPromises();

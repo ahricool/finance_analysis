@@ -95,7 +95,7 @@ CPI/FOMC、非农和利率决议等核心宏观标题映射为 critical；其他
 新闻 = `category=news`，全部 = 无 filter。旧 `category=analysis` 查询返回空集。没有“财经事件”一级 Tab，
 没有财经事件二级筛选，没有笔记 Tab。
 
-筛选区只有三行元素：市场按钮组、类型 Tab、截止日期 DatePicker；市场按钮与 DatePicker 统一 `h-10`。
+筛选区包含高置信度/重要性、类型 Tab、截止日期 DatePicker。市场仅由顶栏头像左侧的全局 A 股／美股开关决定，每次请求显式传入 `market=CN|US`，不提供“全部市场”。类型按钮与 DatePicker 统一 `h-10`。
 
 每条消息都是独立圆角 Card（`rounded-xl` + 克制 border + 轻微 hover）。四种 Card 共享
 `TimelineCardShell.vue` 外壳（弱化的类型 / 市场 / 元信息 / 重要度 / 日期），内部布局不同：
@@ -116,7 +116,7 @@ Card wrapper 使用 `mb-3 break-inside-avoid`，12px 间距；Shell 为 `block w
 DOM 仍按 API 顺序单次遍历，未排序、未按奇偶或高度分列，也没有新增第三方依赖。
 CSS Columns 按列流动而非逐行左右交替；追加数据或高度变化时浏览器可能重新平衡列，这是已知取舍。
 
-桌面筛选分为市场与重要性、类型、快捷日期与 DatePicker 三行。详情继续用可滚动 Dialog。
+桌面筛选分为高置信度与重要性、类型、快捷日期与 DatePicker 三行。详情继续用可滚动 Dialog。
 
 ![桌面 1440px](images/investment-timeline-desktop.png)
 ![移动端 360px](images/investment-timeline-mobile.png)

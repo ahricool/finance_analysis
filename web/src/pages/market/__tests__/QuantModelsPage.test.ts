@@ -1,10 +1,11 @@
+import { createPinia, setActivePinia } from 'pinia';
 import { mount, flushPromises } from '@vue/test-utils';
 import { createRouter, createMemoryHistory } from 'vue-router';
 import { beforeEach, expect, it, vi } from 'vitest';
 import QuantModelsPage from '../quant/QuantModelsPage.vue';
 import { quantApi } from '@/api/quant';
 vi.mock('@/api/quant', () => ({ quantApi: { models:vi.fn(), releases:vi.fn(), preflight:vi.fn(), experiment:vi.fn(), publishRelease:vi.fn() } }));
-beforeEach(()=>{vi.clearAllMocks(); vi.mocked(quantApi.models).mockResolvedValue([]); vi.mocked(quantApi.releases).mockResolvedValue([]);});
+beforeEach(()=>{localStorage.clear(); setActivePinia(createPinia()); vi.clearAllMocks(); vi.mocked(quantApi.models).mockResolvedValue([]); vi.mocked(quantApi.releases).mockResolvedValue([]);});
 async function page() {
  const router=createRouter({history:createMemoryHistory(),routes:[{path:'/research/quant/models',component:QuantModelsPage}]});
  await router.push('/research/quant/models?market=US');

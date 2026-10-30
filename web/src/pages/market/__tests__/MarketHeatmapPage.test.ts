@@ -32,21 +32,21 @@ describe('market heatmap page', () => {
     wrapper.unmount();
   });
   it('filters locally, displays no results, and resets filters on market changes', async () => {
-    const { wrapper } = await setup();
+    const { wrapper, router } = await setup();
     await wrapper.get('[aria-label="搜索热力图股票"]').setValue('missing');
     expect(wrapper.text()).toContain('没有匹配的股票');
     expect(getMarketHeatmap).toHaveBeenCalledTimes(1);
     vi.mocked(getMarketHeatmap).mockResolvedValue(ready('US'));
-    await wrapper.get('[data-testid="heatmap-market-US"]').trigger('click'); await flushPromises();
+    await router.push('/market/heatmap?market=US'); await flushPromises();
     expect((wrapper.get('[aria-label="搜索热力图股票"]').element as HTMLInputElement).value).toBe('');
     expect(wrapper.find('[data-testid="heatmap-chart"]').exists()).toBe(true);
     wrapper.unmount();
   });
   it('switches markets, clears the old market and reads only cached snapshots', async () => {
-    const { wrapper } = await setup();
+    const { wrapper, router } = await setup();
     expect(wrapper.text()).toContain('100.0亿元');
     vi.mocked(getMarketHeatmap).mockResolvedValue(ready('US'));
-    await wrapper.get('[data-testid="heatmap-market-US"]').trigger('click'); await flushPromises();
+    await router.push('/market/heatmap?market=US'); await flushPromises();
     expect(getMarketHeatmap).toHaveBeenLastCalledWith('US');
     expect(wrapper.text()).toContain('20.0亿美元');
     wrapper.unmount();
@@ -65,8 +65,8 @@ describe('market heatmap page', () => {
     let resolveOld!: (value: HeatmapResponse) => void;
     vi.mocked(getMarketHeatmap).mockImplementation(market => market === 'CN'
       ? new Promise(resolve => { resolveOld = resolve; }) : Promise.resolve(ready('US')));
-    const { wrapper } = await setup();
-    await wrapper.get('[data-testid="heatmap-market-US"]').trigger('click'); await flushPromises();
+    const { wrapper, router } = await setup();
+    await router.push('/market/heatmap?market=US'); await flushPromises();
     resolveOld(ready('CN')); await flushPromises();
     expect(wrapper.text()).toContain('20.0亿美元');
     expect(wrapper.text()).not.toContain('100.0亿元');

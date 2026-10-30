@@ -101,6 +101,8 @@ def test_daily_unique_immutable_inputs_and_checked_decision(repo):
     assert repo.get("CN", day)["decision"] == "NO_TRADE"
     repo.create("US", day, **fields)
     assert len(repo.history()) == 2
+    assert [row["market"] for row in repo.history(market="CN")] == ["CN"]
+    assert repo.history(limit=1, offset=1, market="CN") == []
     assert repo.get("CN", day)["candidate_snapshot"] == {"candidates": []}
 
 

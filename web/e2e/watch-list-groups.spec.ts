@@ -34,7 +34,7 @@ for (const width of [390, 768, 1024, 1280, 1440, 1920]) {
     });
     await page.goto('/market/watch-list');
     await expect(page.getByTestId('tag-filters').getByRole('button').first()).toHaveText('全部');
-    await expect(page.getByTestId('market-cn')).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.getByTestId('global-market-switch')).toHaveAttribute('aria-checked', 'false');
     await expect(page.getByTestId('stock-tags')).toContainText('分组标签5');
     await page.getByRole('button', { name: '自选股操作', exact: true }).click();
     await page.getByRole('menuitem', { name: '编辑', exact: true }).click();
@@ -49,7 +49,7 @@ for (const width of [390, 768, 1024, 1280, 1440, 1920]) {
     await expect(page.getByText('当前分组暂无自选股', { exact: true })).toBeVisible();
     await expect.poll(() => requests.at(-1)?.searchParams.get('tag_id')).toBe('16');
     await expect.poll(() => sockets.at(-1)?.searchParams.get('tag_id')).toBe('16');
-    await page.getByTestId('market-us').click();
+    await page.getByTestId('global-market-switch').click();
     await expect(page.getByText('当前分组暂无自选股', { exact: true })).toBeVisible();
     await expect.poll(() => sockets.at(-1)?.searchParams.get('market')).toBe('US');
     await expect(page.getByTestId('tag-filters').getByRole('button', { name: '分组标签16', exact: true })).toHaveAttribute('aria-pressed', 'true');

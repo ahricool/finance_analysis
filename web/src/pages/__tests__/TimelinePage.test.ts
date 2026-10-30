@@ -1,3 +1,4 @@
+import { useMarketStore } from '@/stores/marketStore';
 import { nextTick } from 'vue';
 import AppDatePicker from '@/components/app/AppDatePicker.vue';
 import { useTimezoneStore } from '@/stores/timezoneStore';
@@ -63,6 +64,7 @@ beforeEach(() => {
 afterEach(() => { vi.useRealTimers(); globalThis.IntersectionObserver = originalIntersectionObserver; });
 
 function clickTab(wrapper: ReturnType<typeof mount>, label: string) {
+  if (label === '美股') { useMarketStore().market = 'US'; return nextTick(); }
   return wrapper.findAll('button').find(button => button.text() === label)!.trigger('click');
 }
 
@@ -93,7 +95,7 @@ describe('Public investment timeline', () => {
   it('sends no category filter for the 全部 tab and combines the market filter', async () => {
     const wrapper = mount(TimelinePage, { global: { plugins: [createPinia()] } });
     await flushPromises();
-    expect(timelineApi.list).toHaveBeenLastCalledWith({ market: undefined, importance: undefined, end_date: '2026-09-09', cursor: undefined, limit: 20 });
+    expect(timelineApi.list).toHaveBeenLastCalledWith({ market: 'CN', importance: undefined, end_date: '2026-09-09', cursor: undefined, limit: 20 });
     await clickTab(wrapper, '美股');
     await flushPromises();
     expect(timelineApi.list).toHaveBeenLastCalledWith({ market: 'US', importance: undefined, end_date: '2026-09-09', cursor: undefined, limit: 20 });
@@ -365,5 +367,18 @@ it.each([
   for (const label of ['EPS 预期', '实际 EPS']) {
     expect(facts.find(fact => fact.querySelector('dt')?.textContent?.trim() === label)?.querySelector('dd')?.textContent?.trim()).toBe(expected);
   }
+  wrapper.unmount();
+});
+
+it('closes an old event detail when the global market changes', async () => {
+  vi.mocked(timelineApi.list).mockResolvedValue(respond([macro]));
+  const wrapper = mount(TimelinePage, { global: { plugins: [createPinia()] }, attachTo: document.body });
+  await flushPromises();
+  await wrapper.get('[aria-label="查看美国 CPI"]').trigger('click');
+  await flushPromises();
+  expect(document.body.querySelector('[role="dialog"]')).not.toBeNull();
+  useMarketStore().market = 'US';
+  await flushPromises();
+  expect(document.body.querySelector('[role="dialog"]')).toBeNull();
   wrapper.unmount();
 });

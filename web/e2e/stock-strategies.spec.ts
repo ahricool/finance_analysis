@@ -34,7 +34,7 @@ for (const width of [390, 768, 1024, 1280, 1440, 1920]) {
       await page.screenshot({ path: testInfo.outputPath('strategy-detail.png'), fullPage: true });
       expect(errors).toEqual([]);
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-      await page.getByRole('radio', { name: 'A股', exact: true }).click();
+      await page.getByTestId('global-market-switch').click();
       await expect(page).toHaveURL(/\/strategies\?market=CN$/);
     });
   }

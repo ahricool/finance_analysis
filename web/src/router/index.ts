@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory, type RouteLocationGeneric, type RouteLocationNormalizedLoaded } from 'vue-router';
+import { isAppMarket, useMarketStore } from '@/stores/marketStore';
 import Shell from '@/components/layout/Shell.vue';
 import { formatDocumentTitle } from '@/config/app';
 import { useAuthStore } from '@/stores/authStore';
@@ -8,6 +9,7 @@ declare module 'vue-router' {
   interface RouteMeta {
     public?: boolean;
     title?: string;
+    marketScope?: 'selectable' | 'CN' | 'US';
   }
 }
 
@@ -57,8 +59,8 @@ const router = createRouter({
       path: '/',
       component: Shell,
       children: [
-        { path: 'strategies', name: 'strategies', component: () => import('@/pages/StockStrategiesPage.vue'), meta: { title: '策略模拟' } },
-        { path: 'strategies/:strategyKey', name: 'strategy-detail', component: () => import('@/pages/StockStrategiesPage.vue'), meta: { title: '策略详情' } },
+        { path: 'strategies', name: 'strategies', component: () => import('@/pages/StockStrategiesPage.vue'), meta: { title: '策略模拟', marketScope: 'selectable' } },
+        { path: 'strategies/:strategyKey', name: 'strategy-detail', component: () => import('@/pages/StockStrategiesPage.vue'), meta: { title: '策略详情', marketScope: 'selectable' } },
         { path: 'notifications', name: 'notifications', component: () => import('@/pages/NotificationsPage.vue'), meta: { title: '消息中心' } },
         { path: '', redirect: { name: 'dashboard' } },
         {
@@ -76,7 +78,7 @@ const router = createRouter({
           ],
         },
         { path: 'research/crypto/btc', name: 'research-crypto-btc', redirect: redirectWithQuery('/crypto/btc') },
-        { path: 'timeline', name: 'timeline', component: TimelinePage, meta: { title: '投资时间线' } },
+        { path: 'timeline', name: 'timeline', component: TimelinePage, meta: { title: '投资时间线', marketScope: 'selectable' } },
         {
           path: 'research',
           component: ResearchPage,
@@ -87,26 +89,26 @@ const router = createRouter({
               path: 'etf-rotation',
               name: 'research-etf-rotation',
               component: ETFRotationPage,
-              meta: { title: 'ETF动量轮动' },
+              meta: { title: 'ETF动量轮动', marketScope: 'selectable' },
             },
             {
               path: 'trend-following',
               name: 'research-trend-following',
               component: TrendFollowingPage,
-              meta: { title: '趋势跟踪' },
+              meta: { title: '趋势跟踪', marketScope: 'selectable' },
             },
-            { path: 'intraday-confirmation', name: 'research-intraday-confirmation', component: () => import('@/pages/market/IntradayConfirmationPage.vue'), meta: { title: '盘中确认' } },
-            { path: 'options-intelligence', name: 'research-options-intelligence', component: () => import('@/pages/market/OptionsIntelligencePage.vue'), meta: { title: '期权情报' } },
-            { path: 'signal-center', name: 'research-signal-center', component: () => import('@/pages/market/SignalCenterPage.vue'), meta: { title: '信号中心' } },
-            { path: 'confluence', name: 'research-confluence', component: () => import('@/pages/market/ConfluencePage.vue'), meta: { title: '多信号共振' } },
-            { path: 'industry-strength', name: 'research-industry-strength', component: () => import('@/pages/market/IndustryStrengthPage.vue'), meta: { title: '行业强度' } },
-            { path: 'dragon-tiger-flow', name: 'research-dragon-tiger-flow', component: () => import('@/pages/market/DragonTigerFlowPage.vue'), meta: { title: '龙虎榜资金流向' } },
-            { path: 'market-sentiment', name: 'research-market-sentiment', component: () => import('@/pages/market/MarketSentimentPage.vue'), meta: { title: '市场情绪' } },
-            { path: 'macro', name: 'research-macro', component: () => import('@/pages/market/MacroPage.vue'), meta: { title: '宏观数据' } },
+            { path: 'intraday-confirmation', name: 'research-intraday-confirmation', component: () => import('@/pages/market/IntradayConfirmationPage.vue'), meta: { title: '盘中确认', marketScope: 'selectable' } },
+            { path: 'options-intelligence', name: 'research-options-intelligence', component: () => import('@/pages/market/OptionsIntelligencePage.vue'), meta: { title: '期权情报', marketScope: 'US' } },
+            { path: 'signal-center', name: 'research-signal-center', component: () => import('@/pages/market/SignalCenterPage.vue'), meta: { title: '信号中心', marketScope: 'selectable' } },
+            { path: 'confluence', name: 'research-confluence', component: () => import('@/pages/market/ConfluencePage.vue'), meta: { title: '多信号共振', marketScope: 'selectable' } },
+            { path: 'industry-strength', name: 'research-industry-strength', component: () => import('@/pages/market/IndustryStrengthPage.vue'), meta: { title: '行业强度', marketScope: 'CN' } },
+            { path: 'dragon-tiger-flow', name: 'research-dragon-tiger-flow', component: () => import('@/pages/market/DragonTigerFlowPage.vue'), meta: { title: '龙虎榜资金流向', marketScope: 'CN' } },
+            { path: 'market-sentiment', name: 'research-market-sentiment', component: () => import('@/pages/market/MarketSentimentPage.vue'), meta: { title: '市场情绪', marketScope: 'CN' } },
+            { path: 'macro', name: 'research-macro', component: () => import('@/pages/market/MacroPage.vue'), meta: { title: '宏观数据', marketScope: 'US' } },
             {
               path: 'quant',
               component: QuantPage,
-              meta: { title: '量化研究' },
+              meta: { title: '量化研究', marketScope: 'selectable' },
               children: [
                 { path: '', name: 'research-quant', component: QuantDashboardPage },
                 {
@@ -154,18 +156,18 @@ const router = createRouter({
           meta: { title: '市场' },
           children: [
             { path: '', redirect: { name: 'market-watch-list' } },
-            { path: 'heatmap', name: 'market-heatmap', component: () => import('@/pages/market/MarketHeatmapPage.vue'), meta: { title: '热力图' } },
+            { path: 'heatmap', name: 'market-heatmap', component: () => import('@/pages/market/MarketHeatmapPage.vue'), meta: { title: '热力图', marketScope: 'selectable' } },
             {
               path: 'watch-list',
               name: 'market-watch-list',
               component: MarketWatchListPage,
-              meta: { title: '自选股' },
+              meta: { title: '自选股', marketScope: 'selectable' },
             },
             {
               path: 'holdings',
               name: 'market-holdings',
               component: MarketHoldingsPage,
-              meta: { title: '投资组合' },
+              meta: { title: '投资组合', marketScope: 'selectable' },
             },
           ],
         },
@@ -198,15 +200,7 @@ export function resolveDocumentTitle(to: Pick<RouteLocationNormalizedLoaded, 'ma
   return formatDocumentTitle(pageTitle);
 }
 
-router.beforeEach(async (to, from) => {
-  if (
-    to.path.startsWith('/research/quant')
-    && from.path.startsWith('/research/quant')
-    && to.query.market === undefined
-    && (from.query.market === 'US' || from.query.market === 'CN')
-  ) {
-    return { path: to.path, params: to.params, query: { ...to.query, market: from.query.market }, replace: true };
-  }
+router.beforeEach(async (to) => {
   const auth = useAuthStore();
   if (auth.isLoading) {
     await auth.fetchStatus();
@@ -227,6 +221,12 @@ router.beforeEach(async (to, from) => {
     return { path: '/dashboard', replace: true };
   }
 
+  if (to.meta.marketScope === 'selectable'
+    && (to.query.market !== undefined || to.path.startsWith('/research/quant'))
+    && !isAppMarket(to.query.market)) {
+    return { path: to.path, query: { ...to.query, market: useMarketStore().market }, hash: to.hash, replace: true };
+  }
+
   return true;
 });
 
@@ -235,5 +235,12 @@ router.afterEach((to) => {
 });
 
 installChunkReload(router);
+
+
+router.afterEach((to, _from, failure) => {
+  if (!failure && to.meta.marketScope === 'selectable' && isAppMarket(to.query.market)) {
+    useMarketStore().setMarket(to.query.market);
+  }
+});
 
 export default router;

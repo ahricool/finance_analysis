@@ -3,7 +3,6 @@ import { Button } from '@/components/ui/button';
 import { quantApi } from '@/api/quant';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import AppApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
-import ResearchMarketToggle from '@/components/research/ResearchMarketToggle.vue';
 import AppDatePicker from '@/components/app/AppDatePicker.vue';
 import PageHeader from '@/components/layout/PageHeader.vue';
 import ModuleTabs from '@/components/layout/ModuleTabs.vue';
@@ -17,7 +16,7 @@ import { RouterView, useRoute } from 'vue-router';
 type QuantTab = 'dashboard' | 'signals' | 'datasets' | 'models' | 'portfolios';
 
 const route = useRoute();
-const { market, setMarket, marketQuery, tradeDate, setTradeDate } = useQuantMarket();
+const { market, marketQuery, tradeDate, setTradeDate } = useQuantMarket();
 const auth = useAuthStore();
 const status = ref<QuantStatus | null>(null);
 const statusFailed = ref(false);
@@ -94,11 +93,6 @@ function selectTradeDate(value: string) {
         label="量化研究导航"
       />
       <div class="research-toolbar flex min-w-0 flex-wrap items-end gap-3 rounded-xl border border-border/60 bg-muted/20 p-3">
-        <ResearchMarketToggle
-          :model-value="market"
-          data-testid="quant-market-switcher"
-          @update:model-value="setMarket"
-        />
         <p
           class="flex h-10 max-w-full items-center text-xs text-muted-foreground"
           data-testid="quant-scope-description"

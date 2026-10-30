@@ -19,6 +19,7 @@ export function dashboardResponse(url: URL): object {
     metrics: { states: { breadth: 'STRONG_DIVERGENCE', rotation: 'EXTREME' }, universe_key: 'cn_daily_sync',
       member_count: 800, universe_size: 800, data_coverage: 1, benchmark_code: '510300.SH' },
   };
+  if (path === '/api/v1/stocks/search') return { items: [], total: 0 };
   if (path === '/api/v1/auth/status') return { loggedIn: true, user: { uid: 1, username: 'Reviewer', role: 'user', extra: {} } };
   if (path === '/api/v1/quant/signals/ranking') return {
     market, trade_date: '2026-09-09', items: [name, market === 'CN' ? '北方华创' : 'Broadcom', market === 'CN' ? '立讯精密' : 'Micron'].map((name, i) => ({ code: `${code}-${i}`, name, final_score: 87.4 - i * 3.2 })),

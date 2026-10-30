@@ -1,3 +1,5 @@
+import { createPinia, setActivePinia } from 'pinia';
+import { useMarketStore } from '@/stores/marketStore';
 import { asRankingSnapshot } from '@/utils/rankingFeatures';
 import { exportExcel } from '@/utils/excelExport';
 import { marketDataApi } from '@/api/marketData';
@@ -101,6 +103,8 @@ function mockPreview(payload: Record<string, unknown> | null) {
 // the default 5s on shared CI runners.
 describe('TrendFollowingPage', { timeout: 30_000 }, () => {
   beforeEach(() => {
+  localStorage.clear();
+  setActivePinia(createPinia());
     apiMocks.snapshotStatus.mockImplementation(async () => ({ tradeDate: '2026-08-28', generatedAt: '2026-08-28T12:00:00Z' }));
     apiMocks.transitions.mockResolvedValue({ items: [], warnings: [] });
     apiMocks.breadthHistory.mockResolvedValue({ market: 'CN', dates: [], points: [], officialCount: 0, warnings: [] });
@@ -130,7 +134,7 @@ describe('TrendFollowingPage', { timeout: 30_000 }, () => {
     expect(toolbar.classes()).toContain('flex-wrap');
     expect(periods.classes()).toEqual(expect.arrayContaining(['ml-auto', 'shrink-0', 'flex-nowrap!']));
     expect(periods.findAll('button').map(button => button.text())).toEqual(['20日', '40日', '60日']);
-    expect(toolbar.find('[data-testid="trend-market"]').exists()).toBe(true);
+    expect(toolbar.find('[data-testid="trend-market"]').exists()).toBe(false);
     expect(toolbar.find('[data-testid="trend-refresh"]').exists()).toBe(true);
     expect(toolbar.find('[data-testid="trend-run-latest"]').exists()).toBe(mode === 'official');
     expect(toolbar.find('[data-testid="trend-date-input"]').exists()).toBe(mode === 'official');
@@ -836,7 +840,7 @@ describe('TrendFollowingPage', { timeout: 30_000 }, () => {
   it('switches to US S&P 500 snapshots', async () => {
     const wrapper = mount(TrendFollowingPage);
     await flushPromises();
-    await wrapper.get('[aria-label="市场"] [role="radio"]').trigger('click');
+    useMarketStore().market = 'US';
     await flushPromises();
     expect(apiMocks.dates).toHaveBeenLastCalledWith('US', 20);
     expect(apiMocks.ranking).toHaveBeenLastCalledWith('US', undefined, 20);
@@ -883,7 +887,6 @@ describe('TrendFollowingPage', { timeout: 30_000 }, () => {
     await flushPromises();
 
     const controls = [
-      wrapper.get('[data-testid="trend-market"]'),
       wrapper.get('[data-testid="trend-refresh"]'),
       wrapper.get('[data-testid="trend-run-latest"]'),
     ];

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useMarket } from '@/composables/useMarket';
 import StockLink from '@/components/stocks/StockLink.vue';
 import IndicatorHelpLabel from '@/components/app/IndicatorHelpLabel.vue';
 import PageHeader from '@/components/layout/PageHeader.vue';
@@ -37,7 +38,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { createOperationId } from '@/utils/operationId';
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 
-const market = ref<'CN' | 'US'>('CN');
+const { market } = useMarket();
 const { portfolio: livePortfolio, status: realtimeStatus, getQuote } = useRealtimeQuotes(() => ({ scope: 'holdings', market: market.value }));
 const currentTime = useCurrentTime(1_000);
 const expandedId = ref<number | null>(null);
@@ -180,9 +181,7 @@ async function load() {
   await Promise.all([loadSummary(), loadEngine()]);
 }
 
-function changeMarket(value: 'CN' | 'US') {
-  if (value === market.value) return;
-  market.value = value;
+watch(market, () => {
   expandedId.value = null;
   closeDetail();
   closeForm();
@@ -193,7 +192,7 @@ function changeMarket(value: 'CN' | 'US') {
   updatedAt.value = null;
   missingQuotes.value = 0;
   void load();
-}
+});
 
 function closeForm() {
   formRequest++;
@@ -275,36 +274,7 @@ function closeDetail() {
       title="投资组合"
       en="Portfolio"
       description="管理实际持仓与账户现金，查看资产分布、持仓盈亏和调仓建议。"
-    >
-      <template #title-actions>
-        <div
-          role="group"
-          aria-label="投资组合市场"
-          class="inline-flex items-center gap-1 rounded-lg bg-muted/80 p-1 ring-1 ring-border/50"
-        >
-          <Button
-            variant="ghost"
-            size="sm"
-            :class="market === 'CN' ? 'bg-background text-foreground shadow-sm hover:bg-background' : 'text-muted-foreground'"
-            :aria-pressed="market === 'CN'"
-            data-testid="market-cn"
-            @click="changeMarket('CN')"
-          >
-            A 股
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            :class="market === 'US' ? 'bg-background text-foreground shadow-sm hover:bg-background' : 'text-muted-foreground'"
-            :aria-pressed="market === 'US'"
-            data-testid="market-us"
-            @click="changeMarket('US')"
-          >
-            美股
-          </Button>
-        </div>
-      </template>
-    </PageHeader>
+    />
 
     <ApiErrorAlert
       v-if="error"

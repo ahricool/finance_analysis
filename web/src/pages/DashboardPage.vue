@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { formatRank } from '@/utils/rank';
 import StockLink from '@/components/stocks/StockLink.vue';
-import { computed, ref } from 'vue';
+import { computed } from 'vue';
 import { RouterLink } from 'vue-router';
 import { ArrowUpRight, Bitcoin } from 'lucide-vue-next';
 import { useMarketDashboard } from '@/composables/useMarketDashboard';
@@ -19,8 +19,6 @@ import { formatScore } from '@/utils/quant';
 
 const { markets, latest, upcoming, btc } = useMarketDashboard();
 const now = useCurrentTime();
-const strategyMarket = ref('CN');
-const strategyMarkets = computed(() => markets.filter(entry => entry.market === strategyMarket.value));
 const nextEvents = computed(() => upcomingEvents(upcoming.data?.items ?? [], now.value));
 const btcPrice = computed(() => btc.data?.strategy?.price);
 const number = (value: string | undefined) => value && Number.isFinite(Number(value))
@@ -171,21 +169,6 @@ const number = (value: string | undefined) => value && Number.isFinite(Number(va
         <h2 class="text-lg font-semibold">
           <BilingualLabel label="strategyChanges" />
         </h2>
-        <div
-          class="flex gap-1"
-          aria-label="策略市场"
-        >
-          <button
-            v-for="market in ['CN', 'US']"
-            :key="market"
-            class="rounded-md px-2.5 py-1 text-xs"
-            :class="strategyMarket === market ? 'bg-foreground text-background' : 'text-muted-foreground hover:bg-muted'"
-            :aria-pressed="strategyMarket === market"
-            @click="strategyMarket = market"
-          >
-            {{ marketLabel(market) }}
-          </button>
-        </div>
       </div>
       <p class="mt-1 text-xs text-muted-foreground">
         <BilingualLabel
@@ -194,7 +177,7 @@ const number = (value: string | undefined) => value && Number.isFinite(Number(va
         /> · 最新交易日与前一交易日对比
       </p>
       <div
-        v-for="entry in strategyMarkets"
+        v-for="entry in markets"
         :key="entry.market"
         class="mt-5 space-y-5"
       >

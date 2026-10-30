@@ -3,6 +3,7 @@
 const listScroll = new Map<string, number>();
 </script>
 <script setup lang="ts">
+import { useMarket } from '@/composables/useMarket';
 import { formatPercent } from '@/utils/number';
 import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, ref, shallowRef, watch } from 'vue';
 import { RouterLink, useRoute, useRouter } from 'vue-router';
@@ -10,7 +11,6 @@ import { ArrowLeft, ArrowUpRight, RefreshCcw } from 'lucide-vue-next';
 import PageHeader from '@/components/layout/PageHeader.vue';
 import BilingualLabel from '@/components/app/BilingualLabel.vue';
 import AppApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
-import ResearchMarketToggle from '@/components/research/ResearchMarketToggle.vue';
 import PositionsPlan from '@/components/stock-strategies/PositionsPlan.vue';
 import FieldInput from '@/components/forms/FieldInput.vue';
 import FieldSelect from '@/components/forms/FieldSelect.vue';
@@ -19,14 +19,14 @@ import { tasksApi } from '@/api/tasks';
 import { finite, runStatus, strategyTags } from '@/utils/stockStrategies';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { stockStrategiesApi as api, type Market, type Overview, type Detail, type Day, type Metrics } from '@/api/stockStrategies';
+import { stockStrategiesApi as api, type Overview, type Detail, type Day, type Metrics } from '@/api/stockStrategies';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import { useAuth } from '@/composables/useAuth';
 import { formatDateTime } from '@/utils/format';
 
 const PerformanceChart = defineAsyncComponent(() => import('@/components/stock-strategies/PerformanceChart.vue'));
 const route = useRoute(); const router = useRouter(); const { currentUser } = useAuth();
-const market = computed<Market>(() => route.query.market === 'US' ? 'US' : 'CN');
+const { market } = useMarket();
 const key = computed(() => typeof route.params.strategyKey === 'string' ? route.params.strategyKey : '');
 const overview = shallowRef<Overview | null>(null); const detail = shallowRef<Detail | null>(null);
 const error = shallowRef<ParsedApiError | null>(null); const loading = ref(false); const submitting = ref(false);
@@ -120,9 +120,7 @@ async function loadMore() {
   } catch (cause) { if (token === generation) error.value = getParsedApiError(cause); }
   finally { if (token === generation) moreLoading.value = false; }
 }
-function setMarket(value: Market) {
-  if (market.value !== value) void router.push({ path: '/strategies', query: { market: value } });
-}
+
 function rememberList() { listScroll.set(market.value, window.scrollY); }
 function show(strategyKey: string) { rememberList(); void router.push({ name: 'strategy-detail', params: { strategyKey }, query: { ...route.query, market: market.value } }); }
 async function run() {
@@ -171,11 +169,6 @@ onBeforeUnmount(() => { ++generation; ++contextGeneration; objectId = ''; clearT
             <ArrowLeft class="size-4" />策略列表
           </RouterLink>
         </Button>
-        <ResearchMarketToggle
-          :model-value="market"
-          data-testid="strategy-market-switcher"
-          @update:model-value="setMarket"
-        />
         <Button
           variant="outline"
           :disabled="loading"

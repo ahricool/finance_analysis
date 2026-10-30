@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useMarket } from '@/composables/useMarket';
 import { formatRank } from '@/utils/rank';
 import { formatFixed, formatPercent } from '@/utils/number';
 import StockLink from '@/components/stocks/StockLink.vue';
@@ -15,7 +16,6 @@ import { alphaVersionLabel } from '@/utils/trendFollowing';
 import { exportExcel, type ExcelColumn } from '@/utils/excelExport';
 import { useForwardReturns } from '@/composables/useForwardReturns';
 import { parseDate } from '@internationalized/date';
-import ResearchMarketToggle from '@/components/research/ResearchMarketToggle.vue';
 import { useRoute } from 'vue-router';
 import { useLazyResearchPreview } from '@/composables/useLazyResearchPreview';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
@@ -70,7 +70,7 @@ const emptySummary = (): TrendSummary => ({
   scoreBreakdown: {}, generatedAt: '',
 });
 const route = useRoute();
-const market = ref<TrendMarket>(route?.query.market === 'US' ? 'US' : 'CN');
+const { market } = useMarket();
 const trendPeriod = ref<TrendPeriod>(20);
 const periodText = (text: string) => trendPeriodText(text, trendPeriod.value);
 const descriptions = new Proxy(trendIndicatorDescriptions, { get: (target, key: string) => target[key] == null ? undefined : periodText(target[key]) });
@@ -415,10 +415,7 @@ watch([market, trendPeriod], () => {
   modeChosenByUser.value = false;
   void load(true, { autoSelectMode: true });
 });
-function setMarket(target: TrendMarket) {
-  if (market.value === target) return;
-  market.value = target;
-}
+
 let entryDisposed = false;
 onBeforeUnmount(() => { entryDisposed = true; });
 onMounted(async () => {
@@ -446,11 +443,6 @@ onMounted(async () => {
       :description="`${scope} · ${trendPeriod}日策略 · 跟踪股票趋势强弱、排名变化与风险指标，观察趋势延续和转弱。`"
     >
       <template #actions>
-        <ResearchMarketToggle
-          :model-value="market"
-          data-testid="trend-market"
-          @update:model-value="setMarket"
-        />
         <ResearchDataModeToggle
           :mode="dataMode"
           :preview-available="previewAvailable"
@@ -590,7 +582,6 @@ onMounted(async () => {
           </CardContent>
         </Card>
       </div>
-
 
 
       <TrendMarketOverview

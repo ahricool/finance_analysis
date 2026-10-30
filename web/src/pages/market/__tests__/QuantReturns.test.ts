@@ -1,11 +1,14 @@
+import { createPinia, setActivePinia } from 'pinia';
 import { flushPromises, mount } from '@vue/test-utils';
 import { createMemoryHistory, createRouter } from 'vue-router';
-import { expect, it, vi } from 'vitest';
+import { beforeEach, expect, it, vi } from 'vitest';
 import { quantApi } from '@/api/quant';
 import StockDetailDialog from '@/components/stocks/StockDetailDialog.vue';
 import QuantSignalsPage from '../quant/QuantSignalsPage.vue';
 
 vi.mock('@/api/quant', () => ({ quantApi: { signals: vi.fn() } }));
+
+beforeEach(() => { localStorage.clear(); setActivePinia(createPinia()); });
 
 it('renders realized-return columns including signed percentages and missing values', async () => {
   vi.mocked(quantApi.signals).mockResolvedValue({
