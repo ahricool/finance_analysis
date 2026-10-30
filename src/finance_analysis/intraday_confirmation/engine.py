@@ -1,4 +1,4 @@
-"""Pure, explainable calculations on closed regular-session bars."""
+"""Pure, explainable calculations on closed one-minute regular-session bars."""
 
 from datetime import datetime, timedelta
 from math import isfinite
@@ -32,6 +32,7 @@ def metrics(quote, bars, benchmark, history, session, now):
         "industry_unavailable_reason": "无可靠行业盘中收益及对应映射",
         "etf_unavailable_reason": "无可靠股票到 ETF 映射",
         "benchmark_code": c.BENCHMARKS[session.market],
+        "market_benchmark_self": quote is not None and quote.symbol == c.BENCHMARKS[session.market],
     }
     usable_quote = (
         quote is not None
@@ -88,12 +89,26 @@ def metrics(quote, bars, benchmark, history, session, now):
         and all(a.bar_end == b.bar_start for a, b in zip(tail, tail[1:]))
     )
     m["break_above_opening_range"] = (
-        all(b.close > high * (1 + c.BREAK_BUFFER) for b in tail) if consecutive and high is not None else None
+        (all(b.close > high * (1 + c.BREAK_BUFFER) for b in tail) and price > high * (1 + c.BREAK_BUFFER))
+        if consecutive and high is not None
+        else None
     )
     m["break_below_opening_range"] = (
-        all(b.close < low * (1 - c.BREAK_BUFFER) for b in tail) if consecutive and low is not None else None
+        (all(b.close < low * (1 - c.BREAK_BUFFER) for b in tail) and price < low * (1 - c.BREAK_BUFFER))
+        if consecutive and low is not None
+        else None
     )
     complete = bool(bars) and [b.bar_start for b in bars] == session.slots(bars[-1].bar_end, c.BAR_MINUTES)
+    m.update(
+        session_complete=complete,
+        minute_count=len(bars),
+        expected_minute_count=len(session.slots(stamp, c.BAR_MINUTES)),
+        session_mean_price=sum((b.high + b.low + b.close) / 3 for b in bars) / len(bars) if complete else None,
+        session_high=max(b.high for b in bars) if complete else None,
+        session_low=min(b.low for b in bars) if complete else None,
+    )
+    m["session_mean_distance_pct"] = ratio(price, m["session_mean_price"])
+    m["data_fresh"] = bool(m["data_fresh"] and complete)
     reliable_volume = complete and all(b.volume is not None and isfinite(b.volume) and b.volume >= 0 for b in bars)
     total = sum(b.volume for b in bars) if reliable_volume else None
     vwap = sum((b.high + b.low + b.close) / 3 * b.volume for b in bars) / total if total else None
@@ -102,7 +117,7 @@ def metrics(quote, bars, benchmark, history, session, now):
         vwap_distance_pct=ratio(price, vwap),
         price_vs_vwap=ratio(price, vwap),
         above_vwap=price > vwap if price is not None and vwap is not None else None,
-        vwap_method="provisional_typical_price_closed_5m" if vwap is not None else "unavailable",
+        vwap_method="provisional_typical_price_closed_1m" if vwap is not None else "unavailable",
         vwap_unavailable_reason=None if vwap is not None else "闭合分钟线缺失、不连续或成交量不足",
     )
     prior = [b.volume for b in history[-c.VOLUME_DAYS :]]
@@ -148,82 +163,80 @@ def decision(m, trend):
 
     above = m["break_above_opening_range"]
     below = m["break_below_opening_range"]
-    vwap = m["vwap_distance_pct"]
+    mean_distance = m["session_mean_distance_pct"]
     rs = m["relative_to_market"]
     volume = m["volume_ratio"]
-    healthy_window = m["return_15m"] is not None and m["return_15m"] >= 0
-    weak_window = any(m[f"return_{w}m"] is not None and m[f"return_{w}m"] <= c.WINDOW_WEAK for w in (15, 30))
+    benchmark_self = m.get("market_benchmark_self", False)
+    relative_confirmed = benchmark_self or (rs is not None and rs >= c.RS_CONFIRM)
+    positive_session = m["intraday_return"] is not None and m["intraday_return"] >= 0
     fade = (
         m["gap_pct"] is not None
         and m["gap_pct"] >= c.GAP_OBVIOUS
         and m["intraday_return"] is not None
         and m["intraday_return"] <= c.GAP_FADE
     )
-    weak_vwap = vwap is not None and vwap <= c.VWAP_WEAK
+    weak_mean_distance = mean_distance is not None and mean_distance <= c.SESSION_MEAN_WEAK
     weak_rs = rs is not None and rs <= c.RS_WEAK
     intact = trend.get("impact") in {"intact", "improving"}
-    broken = trend.get("impact") == "broken"
-    fail = bool(
-        (below and (weak_vwap or weak_rs or weak_window or fade or broken)) or (broken and weak_vwap and weak_rs)
-    )
+    fail = bool(below and (weak_mean_distance or weak_rs or fade))
     confirm = bool(
         above
-        and vwap is not None
-        and vwap > 0
-        and healthy_window
+        and mean_distance is not None
+        and mean_distance > 0
+        and positive_session
         and not fade
-        and rs is not None
-        and rs >= c.RS_CONFIRM
-        and volume is not None
-        and volume >= c.VOLUME_EXPANDING
-        and intact
+        and relative_confirmed
     )
     chase = sum(
         value is not None and value >= threshold
         for value, threshold in (
             (m["gap_pct"], c.GAP_EXCESSIVE),
             (m["return_from_previous_close"], c.CHASE_RETURN),
-            (vwap, c.CHASE_VWAP),
-            (m["return_30m"], c.CHASE_30M),
+            (mean_distance, c.CHASE_SESSION_MEAN),
+            (m["intraday_return"], c.CHASE_INTRADAY),
         )
     )
     risk = "HIGH" if chase else "MEDIUM" if m["gap_pct"] is not None and m["gap_pct"] >= c.GAP_OBVIOUS else "LOW"
-    # Gap, distance from previous close and VWAP are required for a current risk assessment.
-    # The completed 30m window adds evidence only once it is available.
-    if not m["data_fresh"] or any(v is None for v in (m["gap_pct"], m["return_from_previous_close"], vwap)):
+    # Gap, distance from previous close and session mean are required for a current risk assessment.
+    if not m["data_fresh"] or any(v is None for v in (m["gap_pct"], m["return_from_previous_close"], mean_distance)):
         risk = "UNKNOWN"
     if risk == "UNKNOWN":
-        reason("chase_unavailable", "当前数据不足，追高风险 unavailable")
+        reason("chase_unavailable", "当前数据不足，追高风险 不可评估")
     if above:
-        reason("opening_breakout", f"连续{c.BREAK_BARS}根闭合5分钟线突破开盘区间高点（buffer {c.BREAK_BUFFER:.1%}）")
+        reason("opening_breakout", f"连续{c.BREAK_BARS}根闭合1分钟线突破开盘区间高点（buffer {c.BREAK_BUFFER:.1%}）")
     if below:
-        reason("opening_breakdown", f"连续{c.BREAK_BARS}根闭合5分钟线跌破开盘区间低点")
-    if vwap is not None:
-        reason("vwap", f"价格相对 provisional VWAP {vwap:+.2%}")
-    if rs is not None:
+        reason("opening_breakdown", f"连续{c.BREAK_BARS}根闭合1分钟线跌破开盘区间低点")
+    if mean_distance is not None:
+        reason("session_mean", f"价格相对 全天分钟等权均价 {mean_distance:+.2%}")
+    if benchmark_self:
+        reason("benchmark_self", "标的是市场基准自身，相对大盘项不适用、不计分")
+    elif rs is not None:
         reason("relative_market", f"开盘以来相对 {m['benchmark_code']} {rs:+.2%}")
     if volume is not None:
         reason("volume", f"量能 {volume:.2f}x（日均量按交易时间线性近似）")
-    if m["return_15m"] is not None:
-        reason("opening_15m", f"完整开盘15分钟收益 {m['return_15m']:+.2%}")
+    if m["intraday_return"] is not None:
+        reason("session_return", f"开盘至今收益 {m['intraday_return']:+.2%}")
     if fade:
         reason("gap_fade", f"高开 {m['gap_pct']:+.2%} 后自开盘回落 {m['intraday_return']:+.2%}")
-    reason("trend", f"Temporary Trend: {trend.get('impact', 'unavailable')}")
+    impact_labels = {"intact": "保持完整", "improving": "改善", "deteriorating": "走弱", "broken": "破坏"}
+    reason("trend", "临时趋势：" + impact_labels.get(trend.get("impact"), "缺少基线，仅用价格确认"))
     if chase:
         reason("chase_risk", "价格过度扩张，确认不代表适合追入")
+    if rs is None:
+        reason("benchmark_unavailable", "大盘报价缺失或不同步，暂不可评估")
     if not m["data_fresh"]:
         reason("data_unavailable", "行情过期或闭合分钟线不足，不推进确认状态")
     if not confirm and not fail:
-        reason("waiting", "等待价格结构、相对强度、量能及趋势共同确认；缺失数据不视为负向")
+        reason("waiting", "等待全天价格结构与相对大盘确认；趋势和量能仅辅助评分")
     # Each price subcomponent has one third of the configured price weight.
     # Missing evidence contributes neither points nor denominator weight.
     components = {
         "price": [
             None if above is None else float(above),
-            None if vwap is None else float(vwap > 0),
-            None if m["return_15m"] is None else float(healthy_window),
+            None if mean_distance is None else float(mean_distance > 0),
+            None if m["intraday_return"] is None else float(positive_session),
         ],
-        "relative_strength": [None if rs is None else float(rs >= c.RS_CONFIRM)],
+        "relative_strength": [None if rs is None or benchmark_self else float(rs >= c.RS_CONFIRM)],
         "volume": [None if volume is None else min(1, volume / c.VOLUME_EXPANDING)],
         "trend": [None if trend.get("impact") in {None, "unavailable"} else float(intact)],
     }
@@ -243,7 +256,16 @@ def decision(m, trend):
     )
     raw = "FAILED" if fail else "CONFIRMED" if confirm else "WAIT"
     return dict(
-        proposed_state=raw if m["data_fresh"] else "WAIT",
+        proposed_state=raw if m["data_fresh"] and rs is not None else "WAIT",
+        data_status="READY" if m["data_fresh"] and rs is not None else "UNAVAILABLE",
+        trend_available=trend.get("impact") not in {None, "unavailable"},
+        conditions={
+            "opening_breakout": above,
+            "above_session_mean": None if mean_distance is None else mean_distance > 0,
+            "positive_session_return": None if m["intraday_return"] is None else positive_session,
+            "relative_strength": None if rs is None or benchmark_self else rs >= c.RS_CONFIRM,
+            "no_gap_fade": not fade,
+        },
         reasons=reasons,
         confirmation_score=score,
         available_score_weight=round(available_weight, 2),
@@ -293,12 +315,33 @@ def stabilize(current, previous, observation, now):
         state_reasons=current["reasons"][:] if changed else old.get("state_reasons", []),
         current_price_recovered=current.get("current_price_recovered", False),
     )
+    current["current_status"] = (
+        "UNAVAILABLE"
+        if current.get("data_status") == "UNAVAILABLE"
+        else (
+            "RECOVERED"
+            if state == "FAILED" and proposed == "CONFIRMED"
+            else (
+                "FAILED"
+                if state == "FAILED"
+                else (
+                    "ACTIVE"
+                    if state == "CONFIRMED" and proposed == "CONFIRMED"
+                    else (
+                        "WEAKENING"
+                        if state == "CONFIRMED"
+                        else "PENDING" if proposed in {"CONFIRMED", "FAILED"} else "WAIT"
+                    )
+                )
+            )
+        )
+    )
     if state != proposed:
         current["reasons"].append(
             {
                 "code": "state_stability",
                 "text": (
-                    "FAILED 当日锁定；CONFIRMED 仅在稳定结构性失败后改变"
+                    "当日失效记录锁定；历史确认仅在稳定结构性失败后改变"
                     if state != "WAIT"
                     else f"等待连续 {c.STABLE_EVALUATIONS} 次新闭合线评估确认"
                 ),

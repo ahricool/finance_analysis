@@ -18,3 +18,15 @@ class IntradayConfirmationSnapshot(Base):
         CheckConstraint("market IN ('CN','US')", name="ck_intraday_confirmation_market"),
         CheckConstraint("revision > 0", name="ck_intraday_confirmation_revision"),
     )
+
+
+class IntradayConfirmationEvaluation(Base):
+    """Compact immutable evaluation evidence; no raw minute history or user data."""
+
+    __tablename__ = "intraday_confirmation_evaluation"
+    market = Column(String(8), primary_key=True)
+    trade_date = Column(Date, primary_key=True)
+    evaluated_at = Column(DateTime(timezone=True), primary_key=True)
+    rule_version = Column(String(32), nullable=False)
+    payload = Column(JSONB().with_variant(JSON(), "sqlite"), nullable=False)
+    __table_args__ = (CheckConstraint("market IN ('CN','US')", name="ck_intraday_evaluation_market"),)

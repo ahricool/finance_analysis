@@ -158,6 +158,7 @@ def test_phase_budget_stops_waiting_for_uncooperative_source(monkeypatch):
 
 
 def test_budget_keeps_provider_partial_data_and_publishes_missing_candidate_wait(monkeypatch):
+    from finance_analysis.integrations.market_data.providers.cn_intraday import CnIntradayProvider
     from finance_analysis.integrations.market_data import MarketDataService
     from finance_analysis.integrations.market_data.models import BatchQuoteResult, MarketQuote, Market
     from finance_analysis.integrations.market_data.registry import ProviderRegistry, REALTIME_QUOTES, MINUTE_BARS
@@ -168,10 +169,11 @@ def test_budget_keeps_provider_partial_data_and_publishes_missing_candidate_wait
     entered = Event()
 
     def fetch(symbol):
-        if symbol == "sh600001":
+        if symbol == "600001.SH":
             entered.set()
             assert release.wait(timeout=5)
-        return frame()
+        return [dict(day=f"2026-09-22 09:{31+i:02d}:00" if i < 29 else "2026-09-22 10:00:00",
+                     open=100, high=102, low=99, close=101, volume=1000) for i in range(30)]
 
     class Quotes:
         def fetch_quotes(self, request):
@@ -196,7 +198,8 @@ def test_budget_keeps_provider_partial_data_and_publishes_missing_candidate_wait
 
     registry = ProviderRegistry()
     registry.register("easyquotation", Quotes(), capabilities={REALTIME_QUOTES})
-    registry.register("sina_minute", SinaMinuteProvider(fetch_frame=fetch), capabilities={MINUTE_BARS})
+    registry.register("sina_intraday", CnIntradayProvider("sina_intraday", fetch_rows=fetch), capabilities={MINUTE_BARS})
+    registry.register("tencent_intraday", CnIntradayProvider("tencent_intraday", fetch_rows=lambda s: []), capabilities={MINUTE_BARS})
     md = MarketDataService(registry=registry)
     monkeypatch.setattr(md, "get_daily_bars", lambda *a, **kw: BatchBarResult())
 
@@ -215,7 +218,7 @@ def test_budget_keeps_provider_partial_data_and_publishes_missing_candidate_wait
         assert slow["metrics"]["vwap"] is None
         assert fast["metrics"]["return_5m"] == pytest.approx(0.01)
         assert fast["metrics"]["quote_time"] == NOW
-        assert fast["metrics"]["bar_time"] == OPEN + timedelta(minutes=5)
+        assert fast["metrics"]["bar_time"] == NOW
     finally:
         release.set()
 

@@ -18,7 +18,15 @@ def collect_data(market_data, codes, session, now):
     calls = {
         "quotes": partial(market_data.get_realtime_quotes, codes, providers=(quote_provider,)),
         "minute": partial(
-            market_data.get_minute_bars, codes, session.opened, now, interval="5m", providers=(minute_provider,)
+            market_data.get_minute_bars,
+            codes,
+            session.opened,
+            now,
+            interval="1m",
+            providers=minute_provider,
+            minimum_latest_bar_time=now - timedelta(seconds=c.MAX_DATA_AGE_SECONDS),
+            required_bar_starts=session.slots(now - timedelta(seconds=c.MAX_COMPARISON_SKEW_SECONDS), c.BAR_MINUTES),
+            budget_seconds=c.MARKET_DATA_BUDGET_SECONDS - c.MARKET_DATA_RETURN_RESERVE_SECONDS,
         ),
         "history": partial(
             market_data.get_daily_bars,

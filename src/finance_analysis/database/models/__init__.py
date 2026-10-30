@@ -140,9 +140,9 @@ from .options_intelligence import OptionContract, OptionQuoteSnapshot, OptionDai
 
 __all__.extend(["OptionContract", "OptionQuoteSnapshot", "OptionDailyMetrics", "OptionAnomalyEvent", "OptionAnalysis"])
 
-from .intraday_confirmation import IntradayConfirmationSnapshot
+from .intraday_confirmation import IntradayConfirmationSnapshot, IntradayConfirmationEvaluation
 
-__all__.append("IntradayConfirmationSnapshot")
+__all__.extend(["IntradayConfirmationSnapshot", "IntradayConfirmationEvaluation"])
 
 from .stock_strategies import StockStrategyDay, StockStrategyLaunch, StockStrategyRun, StockStrategyState
 

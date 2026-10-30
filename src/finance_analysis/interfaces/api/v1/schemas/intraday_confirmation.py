@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 
 Market = Literal["CN", "US"]
 State = Literal["WAIT", "CONFIRMED", "FAILED"]
-Source = Literal["confluence", "trend", "quant"]
+Source = Literal["confluence", "trend", "etf", "quant"]
 
 
 class Reason(BaseModel):
@@ -17,6 +17,13 @@ class Reason(BaseModel):
 class Confirmation(BaseModel):
     code: str
     name: str
+    candidate_sources: list[Source] = Field(default_factory=list)
+    source_evidence: list[dict[str, Any]] = Field(default_factory=list)
+    instrument_type: str | None = None
+    current_status: str = "LEGACY"
+    data_status: str | None = None
+    conditions: dict[str, bool | None] = Field(default_factory=dict)
+    proposed_state: State | None = None
     candidate_source: Source
     candidate_trade_date: date
     candidate_reason: list[str]
@@ -53,6 +60,7 @@ class Snapshot(BaseModel):
     items: list[Confirmation]
     summary: dict[str, int]
     rules_note: str
+    rule_version: str = "intraday_v1"
 
 
 class RunRequest(BaseModel):

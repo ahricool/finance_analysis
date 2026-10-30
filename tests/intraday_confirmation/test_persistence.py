@@ -8,7 +8,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
-from finance_analysis.database.models.intraday_confirmation import IntradayConfirmationSnapshot
+from finance_analysis.database.models.intraday_confirmation import IntradayConfirmationSnapshot, IntradayConfirmationEvaluation
 from finance_analysis.database.repositories.intraday_confirmation_store import (
     ConfirmationStore, StaleConfirmationWrite,
 )
@@ -24,6 +24,7 @@ TRADING = TradingSession("US", OPEN, OPEN + timedelta(hours=6, minutes=30), date
 def store():
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     IntradayConfirmationSnapshot.__table__.create(engine)
+    IntradayConfirmationEvaluation.__table__.create(engine)
 
     class DB:
         @contextmanager
@@ -159,14 +160,14 @@ def test_first_stabilized_confirmation_records_exact_quote_and_never_resets(stor
         quote_usable=True, data_fresh=True, bar_time=observations["now"], relative_to_market=None,
     ))
     monkeypatch.setattr(module, "decision", lambda *args: dict(
-        proposed_state="CONFIRMED", reasons=[], confirmation_score=99,
+        proposed_state="CONFIRMED", data_status="READY", reasons=[], confirmation_score=99,
     ))
     service = ConfirmationService(store=store, market_data=object())
     service._evaluate(TRADING, first, now)
     pending = store.load("US", DAY)
     assert pending["items"][0]["state"] == "WAIT"
     assert pending["items"][0].get("first_confirmed_price") is None
-    observations.update(now=now + timedelta(minutes=15), price=111)
+    observations.update(now=now + timedelta(minutes=5), price=111)
     service._evaluate(TRADING, pending, observations["now"])
     confirmed = store.load("US", DAY)
     anchor = confirmed["items"][0]
@@ -340,3 +341,32 @@ def test_permanently_missing_first_anchor_does_not_fill_pending_queue(store):
     saved = store.save(TRADING, frozen())
     saved = store.save(TRADING, evaluation(saved, price=None))
     assert store.pending_returns("US", DAY + timedelta(days=200)) == []
+
+
+def test_v2_evaluation_and_snapshot_commit_together_and_are_read_only(store):
+    first = store.save(TRADING, frozen(rule_version="intraday_v2"))
+    saved = store.save(TRADING, evaluation(first))
+    rows = store.evaluations("US", DAY, "ABC.US")
+    assert len(rows) == 1 and rows[0]["state"] == "CONFIRMED"
+    assert rows[0]["rule_version"] == "intraday_v2"
+    assert store.evaluations("CN", DAY, "ABC.US") == []
+    assert store.evaluations("US", DAY, "OTHER.US") == []
+    with pytest.raises(StaleConfirmationWrite):
+        store.save(TRADING, evaluation(first))
+    assert len(store.evaluations("US", DAY, "ABC.US")) == 1
+    assert store.load("US", DAY) == saved
+
+
+def test_evaluation_write_failure_rolls_back_snapshot(store, monkeypatch):
+    from sqlalchemy import event
+    first = store.save(TRADING, frozen(rule_version="intraday_v2"))
+    def fail(*args):
+        raise RuntimeError("evaluation write failed")
+    event.listen(IntradayConfirmationEvaluation, "before_insert", fail)
+    try:
+        with pytest.raises(RuntimeError, match="evaluation write failed"):
+            store.save(TRADING, evaluation(first))
+    finally:
+        event.remove(IntradayConfirmationEvaluation, "before_insert", fail)
+    assert store.load("US", DAY) == first
+    assert store.evaluations("US", DAY, "ABC.US") == []

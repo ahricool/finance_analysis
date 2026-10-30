@@ -96,7 +96,7 @@ class MarketDataRouter:
 
     def route_minute(self, request: MinuteBarsRequest, providers: Iterable[str] | None = None) -> BatchBarResult:
         return self._route_bars(request, MINUTE_BARS, "fetch_minute_bars", providers,
-                                complete_fallback=request.minimum_latest_bar_time is not None)
+                                complete_fallback=request.minimum_latest_bar_time is not None or bool(request.required_bar_starts))
 
     def _route_bars(self, request, capability: str, method_name: str, providers, *, complete_fallback=False) -> BatchBarResult:
         market = self._market_for_symbols(request.symbols)
@@ -126,6 +126,10 @@ class MarketDataRouter:
                     result.request_errors[symbol] = f"{registration.name}: {failure}"
                 try:
                     bars = validate_bars(provider_result.data.get(symbol, []))
+                    if capability == MINUTE_BARS and request.required_bar_starts:
+                        observed = {bar.bar_start for bar in bars if bar.bar_end is not None and bar.bar_end <= request.end_time}
+                        if set(request.required_bar_starts) - observed:
+                            raise ValueError("minute history has gaps in required session window")
                     if capability == MINUTE_BARS and request.minimum_latest_bar_time is not None:
                         closed = [bar for bar in bars if bar.bar_end is not None and bar.bar_end <= request.end_time]
                         latest = max((bar.bar_start or bar.bar_time for bar in closed), default=None)

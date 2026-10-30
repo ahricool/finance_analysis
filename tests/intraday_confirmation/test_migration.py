@@ -21,9 +21,9 @@ def test_upgrade_downgrade_models_and_single_head():
     cfg = Config()
     cfg.set_main_option("script_location", str(root / "alembic"))
     script = ScriptDirectory.from_config(cfg)
-    assert script.get_heads() == ["0081_quant_lifecycle"]
+    assert script.get_heads() == ["0082_intraday_evaluation"]
     assert [r.revision for r in script.iterate_revisions("head", "0071_user_avatar")] == [
-        "0081_quant_lifecycle", "0080_signal_center_v2", "0079_confluence_v2", "0078_research_preview", "0077_core_index_etf_sync", "0076_stock_strategies", "0075_watch_list_tags",
+        "0082_intraday_evaluation", "0081_quant_lifecycle", "0080_signal_center_v2", "0079_confluence_v2", "0078_research_preview", "0077_core_index_etf_sync", "0076_stock_strategies", "0075_watch_list_tags",
         "0074_industry_reference", "0073_intraday_confirmation", "0072_trend_periods",
     ]
     assert not (root / "alembic/versions/0072_intraday_confirmation.py").exists()
@@ -64,3 +64,22 @@ def test_postgresql_upgrade_sql_orders_trend_then_intraday_without_a_database():
     )
     assert sql.count("CREATE TABLE intraday_confirmation_snapshot") == 1
     assert "SET version_num='0073_intraday_confirmation'" in sql
+
+
+def test_evaluation_migration_matches_metadata_without_rewriting_history():
+    from finance_analysis.database.models.intraday_confirmation import IntradayConfirmationEvaluation
+    root = Path(__file__).parents[2]
+    spec = importlib.util.spec_from_file_location('evaluation_revision', root / 'alembic/versions/0082_intraday_evaluation.py')
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+    assert migration.down_revision == '0081_quant_lifecycle'
+    engine = create_engine('sqlite://')
+    with engine.begin() as conn:
+        migration.op = Operations(MigrationContext.configure(conn))
+        migration.upgrade()
+        actual = inspect(conn)
+        assert {c['name'] for c in actual.get_columns('intraday_confirmation_evaluation')} == set(IntradayConfirmationEvaluation.__table__.columns.keys())
+        assert actual.get_pk_constraint('intraday_confirmation_evaluation')['constrained_columns'] == ['market', 'trade_date', 'evaluated_at']
+        migration.downgrade()
+        assert inspect(conn).get_table_names() == []
+    engine.dispose()

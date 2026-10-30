@@ -213,3 +213,28 @@ export const provisionalTranslations = glossaryNotes.map(item => ({
   en: item.en,
   note: item.meaning,
 }));
+
+
+/** Intraday research enums; keep transport codes out of visible tables. */
+export const intradayLabels: Record<string, string> = {
+  confluence: '共振精选', trend: '趋势前30', etf: '轮动前5', quant: '量化（历史）',
+  CONFIRMED: '曾经确认', WAIT: '等待确认', FAILED: '结构失效',
+  ACTIVE: '确认有效', WEAKENING: '确认后走弱', RECOVERED: '失效后修复',
+  UNAVAILABLE: '数据不足', PREOPEN: '等待开盘', PENDING: '等待稳定', LEGACY: '历史规则',
+  LOW: '低', MEDIUM: '中', HIGH: '高', UNKNOWN: '待评估',
+  intact: '趋势完整', improving: '趋势改善', deteriorating: '趋势走弱', broken: '趋势破坏', unavailable: '缺少基线',
+  CANDIDATE: '趋势候选', TRENDING: '趋势中', WATCHING: '观察中', BROKEN: '趋势破坏', IDLE: '未启动',
+  EMERGING: '形成期', EXPANSION: '扩张期', IGNITION: '启动期', MATURE: '成熟期', EXHAUSTED: '衰竭期', EXHAUSTION: '衰竭期',
+  COOLING: '降温期', STRONG: '强势', WEAK: '弱势', NEUTRAL: '中性', NORMAL: '正常', EXPANDING: '放量',
+  opening_breakout: '突破开盘区间', above_session_mean: '站上全天均价', positive_session_return: '开盘至今非负',
+  relative_strength: '跑赢大盘', no_gap_fade: '无明显高开低走',
+  openingBreakout: '突破开盘区间', aboveSessionMean: '站上全天均价', positiveSessionReturn: '开盘至今非负',
+  relativeStrength: '跑赢大盘', noGapFade: '无明显高开低走',
+};
+export function intradayLabel(value: unknown): string {
+  return typeof value === 'string' ? intradayLabels[value] ?? '暂无分类' : '暂无数据';
+}
+
+export function intradayTrendLabel(value: unknown): string {
+  return value === 'WEAKENING' ? '趋势走弱' : intradayLabel(value);
+}

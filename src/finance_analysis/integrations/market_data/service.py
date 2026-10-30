@@ -519,6 +519,8 @@ class MarketDataService:
         period: str | None = None,
         include_incomplete: bool = False,
         minimum_latest_bar_time: datetime | None = None,
+        required_bar_starts: Iterable[datetime] = (),
+        budget_seconds: float | None = None,
     ) -> BatchBarResult:
         request = MinuteBarsRequest(
             self._canonical_symbols(symbols),
@@ -528,11 +530,13 @@ class MarketDataService:
             period=period,
             include_incomplete=include_incomplete,
             minimum_latest_bar_time=minimum_latest_bar_time,
+            required_bar_starts=tuple(required_bar_starts),
         )
-        if interval == "1m" and infer_market(request.symbols[0]) is Market.CN:
-            with request_budget(max(15, min(90, len(request.symbols) * 3 + 12))):
-                return self.router.route_minute(request, providers)
-        return self.router.route_minute(request, providers)
+        budget = budget_seconds
+        if budget is None and interval == "1m" and infer_market(request.symbols[0]) is Market.CN:
+            budget = max(15, min(90, len(request.symbols) * 3 + 12))
+        with request_budget(budget):
+            return self.router.route_minute(request, providers)
 
     def get_option_chain(self, symbol: str, *, now=None):
         """US options: Yahoo primary, Alpaca capability fallback without cross-feed stitching."""
