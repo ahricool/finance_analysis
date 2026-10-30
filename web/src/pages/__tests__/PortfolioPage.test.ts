@@ -91,7 +91,7 @@ async function mountPage() {
       plugins: [createPinia(), router],
       stubs: {
         DailyKLineCard: true,
-        ResearchEvidence: true,
+        TradeSignalHistory: true,
         StockAutocomplete: true,
         Dialog: { props: ['open'], template: '<div v-if="open"><slot /></div>' },
         DialogContent: { template: '<div><slot /></div>' },

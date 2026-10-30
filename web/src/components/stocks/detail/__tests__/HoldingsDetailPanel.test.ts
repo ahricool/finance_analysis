@@ -8,7 +8,7 @@ vi.mock('@/api/holdings', () => ({
 }));
 const position = (id = 1, accountId = 10, symbol = 'AAPL.US'): PortfolioPosition => ({ id, accountId, symbol, market: 'US', assetType: 'STOCK', quantity: '12', averageCost: '100', tradeEngineEnabled: true });
 const summary = (positions = [position()]): HoldingsSummary => ({ market: 'US', accounts: [{ id: 10, name: '美股账户', market: 'US', currency: 'USD', cash: '100' }, { id: 20, name: '第二账户', market: 'US', currency: 'USD', cash: '200' }], positions, cash: '100', marketValue: '1200', totalAsset: '1300', grossExposure: null });
-const stubs = { ResearchEvidence: true, DailyKLineCard: true };
+const stubs = { TradeSignalHistory: true, DailyKLineCard: true };
 function mountPanel(context?: { accountId?: number; positionId?: number }) {
   return mount(HoldingsDetailPanel, { props: { symbol: 'AAPL.US', market: 'US', context }, global: { stubs } });
 }

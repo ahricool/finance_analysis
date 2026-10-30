@@ -124,7 +124,7 @@ function boolText(value: boolean | null) { return value == null ? '—' : value 
     </p>
     <template v-else-if="selected">
       <p class="text-sm font-medium">
-        排名 {{ formatRank(selected.latest.rank, selected.latest.rankTotal) }}
+        排名 {{ formatRank(selected.latest.rank, selected.latest.rankTotal) }} · 动量分 {{ score(selected.latest.momentumScore) }} · 入选候选 {{ boolText(selected.latest.isCandidate) }}
       </p>
       <p
         v-if="detailMode === 'preview'"

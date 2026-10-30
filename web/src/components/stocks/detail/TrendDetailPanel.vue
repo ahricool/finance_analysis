@@ -213,6 +213,22 @@ function badgeVariant(value: string | null): 'default' | 'success' | 'warning' |
           {{ detail.latest.setup }}
         </Badge>
       </div>
+      <section
+        v-if="detail.latest.reasons?.length"
+        class="space-y-2 text-sm"
+      >
+        <h3 class="font-semibold">
+          原因说明
+        </h3>
+        <ul class="list-disc space-y-1 pl-5">
+          <li
+            v-for="reason in detail.latest.reasons"
+            :key="reason"
+          >
+            {{ reason }}
+          </li>
+        </ul>
+      </section>
       <div class="grid grid-cols-1 gap-3 rounded-lg border p-4 text-sm sm:grid-cols-3">
         <div>
           <BilingualLabel

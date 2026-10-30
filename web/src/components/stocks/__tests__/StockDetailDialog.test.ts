@@ -3,7 +3,7 @@ import { flushPromises, mount } from '@vue/test-utils';
 import StockDetailDialog from '../StockDetailDialog.vue';
 import { stocksApi } from '@/api/stocks';
 import type { StockDetailTab } from '../detail/types';
-vi.mock('../ResearchEvidence.vue', () => ({ default: { name: 'ResearchEvidence', template: '<div />' } }));
+vi.mock('../detail/IndustryDetailPanel.vue', () => ({ __esModule: true, default: { name: 'IndustryDetailPanel', props: ['symbol', 'market', 'context'], template: '<div data-testid="industry-panel">{{ symbol }}</div>' } }));
 vi.mock('../detail/HoldingsDetailPanel.vue', () => ({ __esModule: true, default: { name: 'HoldingsDetailPanel', props: ['symbol', 'market', 'context'], emits: ['updated'], template: '<div data-testid="holding-panel">{{ symbol }}<button @click="$emit(\'updated\')">updated</button></div>' } }));
 vi.mock('../detail/TrendDetailPanel.vue', () => ({ __esModule: true, default: { name: 'TrendDetailPanel', props: ['symbol', 'market', 'context'], template: '<div data-testid="trend-panel">{{ symbol }}</div>' } }));
 vi.mock('../detail/ETFDetailPanel.vue', () => ({ __esModule: true, default: { name: 'ETFDetailPanel', props: ['symbol', 'market', 'context'], template: '<div data-testid="etf-panel">{{ symbol }}</div>' } }));
@@ -15,7 +15,7 @@ vi.mock('@/api/stocks', () => ({ stocksApi: { quote: vi.fn(), classification: vi
 beforeEach(() => { vi.mocked(stocksApi.quote).mockReset().mockResolvedValue({ code: 'AAPL.US', symbol: 'AAPL.US', marketType: 'US', available: false }); });
 const stock = { code: 'AAPL.US', name: 'Apple', marketType: 'US' as const };
 const slots = { template: '<div><slot /></div>' };
-const stubs = { Dialog: { props: ['open'], template: '<div v-if="open"><slot /></div>' }, DialogContent: slots, DialogHeader: slots, DialogTitle: slots, DialogDescription: slots, ResearchEvidence: true, DailyKLineCard: true, OptionsPanel: { name: 'OptionsPanel', props: ['symbol', 'initialView', 'initialDate'], template: '<div />' } };
+const stubs = { Dialog: { props: ['open'], template: '<div v-if="open"><slot /></div>' }, DialogContent: slots, DialogHeader: slots, DialogTitle: slots, DialogDescription: slots, DailyKLineCard: true, OptionsPanel: { name: 'OptionsPanel', props: ['symbol', 'initialView', 'initialDate'], template: '<div />' } };
 function render(initialTab: StockDetailTab = 'overview') {
   return mount(StockDetailDialog, { props: { stock, kind: 'research', initialTab, context: { tradeDate: '2026-10-09', view: 'official' } }, global: { stubs } });
 }
@@ -27,7 +27,7 @@ describe('unified StockDetailDialog', () => {
   it('preserves legacy stock-driven opening and presents accessible responsive tabs', () => {
     const wrapper = render();
     expect(wrapper.text()).toContain('Apple');
-    expect(wrapper.findAll('[role="tab"]').map(item => item.text())).toEqual(['行情', '持仓', '期权', '趋势', 'ETF 轮动', '共振', '盘中确认', '量化', '研究概览']);
+    expect(wrapper.findAll('[role="tab"]').map(item => item.text())).toEqual(['行情', '持仓', '期权', '趋势', 'ETF 轮动', '共振', '盘中确认', '量化']);
     expect(wrapper.get('[role="tabpanel"]').attributes('aria-labelledby')).toBe(wrapper.get('[role="tab"][data-state="active"]').attributes('id'));
     expect(wrapper.get('[data-testid="stock-detail-tabs"]').element.parentElement?.classList.contains('overflow-x-auto')).toBe(true);
     wrapper.unmount();
@@ -81,6 +81,8 @@ describe('unified StockDetailDialog', () => {
     await wrapper.setProps({ stock: { code: '600519.SH', name: '贵州茅台', marketType: 'CN' } }); await flushPromises();
     expect(wrapper.findComponent({ name: 'OptionsPanel' }).exists()).toBe(false);
     expect(wrapper.findAll('[role="tab"]').map(item => item.text())).toContain('龙虎榜');
+    expect(wrapper.findAll('[role="tab"]').map(item => item.text())).toContain('行业');
+    await tab(wrapper, '行业'); expect(wrapper.get('[data-testid="industry-panel"]').text()).toBe('600519.SH');
     await tab(wrapper, '龙虎榜'); expect(wrapper.get('[data-testid="dragon-panel"]').text()).toBe('600519.SH');
     await wrapper.setProps({ stock: { code: '00700.HK', name: '腾讯控股', marketType: 'HK' } }); await flushPromises();
     expect(wrapper.findAll('[role="tab"]').map(item => item.text())).toEqual(['行情', '持仓']);
@@ -151,17 +153,17 @@ describe('unified StockDetailDialog', () => {
 
 });
 
-it('keeps general charts and price action in the first market tab and loads research summaries separately', async () => {
+it('keeps charts in market and research in their own tabs without a summary tab', async () => {
   const wrapper = render('trend'); await flushPromises();
   expect(wrapper.findComponent({ name: 'DailyKLineCard' }).exists()).toBe(false);
-  expect(wrapper.findComponent({ name: 'ResearchEvidence' }).exists()).toBe(false);
+  expect(wrapper.findAll('[role="tab"]').map(item => item.text())).not.toContain('研究概览');
   await tab(wrapper, '行情');
   const chart = wrapper.findComponent({ name: 'DailyKLineCard' });
   expect(chart.attributes('symbol')).toBe('AAPL.US');
   expect(chart.attributes('highlight-date')).toBe('2026-10-09');
-  expect(wrapper.findComponent({ name: 'ResearchEvidence' }).exists()).toBe(false);
-  await tab(wrapper, '研究概览');
+  expect(wrapper.find('[data-testid="trend-panel"]').exists()).toBe(false);
+  await tab(wrapper, '量化');
   expect(wrapper.findComponent({ name: 'DailyKLineCard' }).exists()).toBe(false);
-  expect(wrapper.findComponent({ name: 'ResearchEvidence' }).exists()).toBe(true);
+  expect(wrapper.find('[data-testid="quant-panel"]').exists()).toBe(true);
   wrapper.unmount();
 });
