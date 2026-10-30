@@ -8,7 +8,7 @@ import ETFRankHistoryChart from '../ETFRankHistoryChart.vue';
 vi.mock('@/api/etfRotation', () => ({ etfRotationApi: { rankHistory: vi.fn() } }));
 vi.mock('vue-echarts', () => ({ default: { name: 'VChart', props: ['option'], template: '<div />' } }));
 const history: ETFRankHistoryResponse = {
-  market: 'US', dates: ['2026-09-10', '2026-09-11', '2026-09-14'], officialCount: 2,
+  market: 'US', dates: ['2026-09-10', '2026-09-11', '2026-09-14'], officialCount: 2, rankTotals: [10, 15, 20],
   previewDate: '2026-09-14', previewTime: null, generatedAt: null,
   series: [
     { code: 'QQQ.US', name: 'Nasdaq', ranks: [7, null, 2] },
@@ -32,7 +32,7 @@ it('plots all ETFs with inverse integer ranks, gaps, plain legend and an explici
     emphasis: { focus: 'series', lineStyle: { width: 2 } },
     data: [7, null, { value: 2, symbol: 'emptyCircle', symbolSize: 8 }],
   });
-  expect(option.tooltip.formatter({ dataIndex: 2, seriesIndex: 0 })).toBe('2026-09-14 · Preview\nNasdaq / QQQ.US\nRank: #2');
+  expect(option.tooltip.formatter({ dataIndex: 2, seriesIndex: 0 })).toBe('2026-09-14 · Preview\nNasdaq / QQQ.US\nRank: #2 · 前 10%');
   expect(option.tooltip.formatter({ dataIndex: 0, seriesIndex: 0 })).not.toContain('Preview');
   expect(wrapper.text()).toContain('不计入 30 个正式交易日');
   wrapper.unmount();

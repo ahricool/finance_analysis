@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatRank } from '@/utils/rank';
 import { formatFixed, formatPercent } from '@/utils/number';
 import StockLink from '@/components/stocks/StockLink.vue';
 import StockDetailDialog from '@/components/stocks/StockDetailDialog.vue';
@@ -869,7 +870,7 @@ onMounted(async () => {
                       :data-column="column.key"
                     >
                       <template v-if="column.key === 'rank'">
-                        #{{ item.rank }}
+                        {{ formatRank(item.rank, summary.rankableCount) }}
                       </template>
                       <template v-else-if="column.key === 'name'">
                         <StockLink

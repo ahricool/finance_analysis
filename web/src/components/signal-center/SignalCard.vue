@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatRank } from '@/utils/rank';
 import { computed } from 'vue';
 import { ArrowUpRight, ShieldCheck, ScanLine, Globe2 } from 'lucide-vue-next';
 import StockLink from '@/components/stocks/StockLink.vue';
@@ -68,7 +69,7 @@ const searches: Record<string, string> = { confirmed: '已执行检索', unverif
         <div class="flex items-start justify-between gap-3 border-b bg-muted/20 p-4">
           <div class="min-w-0 space-y-2">
             <div class="flex items-center gap-2 text-xs text-muted-foreground">
-              <span class="tabular-nums">{{ String(index + 1).padStart(2, '0') }}</span><span>{{ pick.instrumentType === 'ETF' ? 'ETF' : '股票' }}</span>
+              <span class="tabular-nums">推荐内 {{ formatRank(index + 1, picks.length) }}</span><span>{{ pick.instrumentType === 'ETF' ? 'ETF' : '股票' }}</span>
             </div>
             <StockLink
               :code="pick.symbol"

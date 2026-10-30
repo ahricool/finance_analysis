@@ -116,6 +116,7 @@ def load_preview_view(market, field, *, trend_period=20, repository=None):
         if not stored or not stored["items"] or stored["header"].get("status") != "completed":
             return None
         header, row = stored["header"], _row(stored, stored["items"][0])
+        row["rank_total"] = header.get("rankable_count")
         return encode({
             "market": header["market"], "trade_date": header["trade_date"],
             "metadata": {"market": header["market"], "code": row["code"], "name": row.get("name") or row["code"]},

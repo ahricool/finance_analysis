@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatRank } from '@/utils/rank';
 import { chartDate, type DetailChartPoint } from '@/utils/detailChartHistory';
 import type { ETFMomentumSnapshot } from '@/types/etfRotation';
 import { LineChart } from 'echarts/charts';
@@ -14,7 +15,10 @@ const ordered = computed(() => [...props.history].sort((a, b) => a.tradeDate.loc
 function option(series: Array<{ name: string; values: Array<number | null> }>, inverse = false) {
   return {
     animation: false,
-    tooltip: { trigger: 'axis' }, legend: { top: 0, textStyle: { fontSize: 10 } },
+    tooltip: { trigger: 'axis', ...(inverse ? { formatter: (params: Array<{ dataIndex: number }>) => {
+      const row = ordered.value[params[0]?.dataIndex ?? -1];
+      return row ? `${chartDate(row)}<br/>排名 ${formatRank(row.rank, row.rankTotal)}` : '—';
+    } } : {}) }, legend: { top: 0, textStyle: { fontSize: 10 } },
     grid: { left: 46, right: 16, top: 34, bottom: 28 },
     xAxis: { type: 'category', data: ordered.value.map(chartDate), axisLabel: { fontSize: 9 } },
     yAxis: { type: 'value', inverse, scale: true, axisLabel: { fontSize: 9 } },

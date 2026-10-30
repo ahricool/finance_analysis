@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatRank } from '@/utils/rank';
 import { formatFixed, formatPercent } from '@/utils/number';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
@@ -122,6 +123,9 @@ function boolText(value: boolean | null) { return value == null ? '—' : value 
       {{ unavailable }}
     </p>
     <template v-else-if="selected">
+      <p class="text-sm font-medium">
+        排名 {{ formatRank(selected.latest.rank, selected.latest.rankTotal) }}
+      </p>
       <p
         v-if="detailMode === 'preview'"
         class="text-xs text-muted-foreground"

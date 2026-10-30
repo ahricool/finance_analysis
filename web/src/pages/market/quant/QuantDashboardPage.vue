@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatRank } from '@/utils/rank';
 import SortableTableHeader from '@/components/stocks/SortableTableHeader.vue';
 import { useQuantTableSort } from '@/composables/useQuantTableSort';
 import StockLink from '@/components/stocks/StockLink.vue';
@@ -318,7 +319,7 @@ const detailInitialTab = ref<'overview' | 'quant'>('quant');
                   @keydown.space.self.prevent="detailInitialTab = 'quant'; show(item)"
                 >
                   <TableCell class="p-2">
-                    {{ item.universeRank ?? '—' }}
+                    {{ formatRank(item.universeRank, item.rankTotal) }}
                   </TableCell>
                   <TableCell>
                     <StockLink

@@ -176,3 +176,19 @@ def test_rank_history_limits_sessions_before_universe_and_uses_one_query():
     assert rows[-1]["rank"] == 35  # Persisted rank, never renumbered for the filtered universe.
     older = ETFRotationRepository("CN", database).rank_history(["588000.SH"], days=2, as_of=sessions[10])
     assert [row["trade_date"] for row in older] == sessions[9:11]
+
+
+def test_history_rank_total_counts_full_market_with_ties_and_former_members():
+    db = _Database()
+    day, prior = date(2026, 8, 27), date(2026, 8, 26)
+    with db.session_scope() as session:
+        session.add_all([Instrument(id=i, market='US' if i < 4 else 'CN', code=f'S{i}.US' if i < 4 else '600001.SH', name='ETF')
+                         for i in range(1, 5)])
+        unranked = _snapshot(3, 'US', 3, day, 1)
+        unranked.rank = None
+        session.add_all([_snapshot(1, 'US', 1, day, 1), _snapshot(2, 'US', 2, day, 1),
+                         unranked, _snapshot(4, 'CN', 4, day, 1),
+                         _snapshot(5, 'US', 1, prior, 1)])
+    repo = ETFRotationRepository('US', db)
+    assert [row['rank_total'] for row in repo.snapshot_history('S1.US')] == [2, 1]
+    assert [row['rank_total'] for row in repo.rank_history(['S1.US'], days=2, as_of=day)] == [1, 2]

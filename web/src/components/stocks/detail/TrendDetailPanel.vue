@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatRank } from '@/utils/rank';
 import { formatFixed, formatPercent } from '@/utils/number';
 import StockIdentity from '@/components/stocks/StockIdentity.vue';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
@@ -172,7 +173,7 @@ function badgeVariant(value: string | null): 'default' | 'success' | 'warning' |
       <StockIdentity
         :code="detail.metadata.code"
         :name="detail.metadata.name"
-      /> · {{ detail.latest.tradeDate }} · 趋势指标、风险与状态历史
+      /> · {{ detail.latest.tradeDate }} · 排名 {{ formatRank(detail.latest.rank, detail.latest.rankTotal) }} · 趋势指标、风险与状态历史
     </p>
     <div
       v-if="detailLoading"
@@ -650,7 +651,7 @@ function badgeVariant(value: string | null): 'default' | 'success' | 'warning' |
             class="flex flex-wrap items-center justify-between gap-2 rounded border p-2 text-sm"
             data-testid="trend-history"
           >
-            <span>{{ snapshot.tradeDate }}</span><span>排名 {{ snapshot.rank > 0 ? `#${snapshot.rank}` : '—' }}</span><span>Alpha {{ score(snapshot.alphaScore) }}</span><Badge :variant="badgeVariant(snapshot.state)">
+            <span>{{ snapshot.tradeDate }}</span><span>排名 {{ formatRank(snapshot.rank, snapshot.rankTotal) }}</span><span>Alpha {{ score(snapshot.alphaScore) }}</span><Badge :variant="badgeVariant(snapshot.state)">
               {{ stateText(snapshot.state) }}
             </Badge>
           </div>

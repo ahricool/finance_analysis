@@ -74,7 +74,7 @@ it('defaults to 3D, sends direction and range filters, and opens point-in-time d
   expect(wrapper.emitted('select')).toEqual([[{ code: 'TEST.US', tradeDate: '2026-09-11', preview: false }]]);
   expect(wrapper.text()).toContain('新确认趋势');
   expect(wrapper.text()).toContain('CANDIDATE → TRENDING');
-  expect(wrapper.text()).toContain('Rank #18 → #9');
+  expect(wrapper.text()).toContain('Rank #18 · 百分比暂无 → #9 · 百分比暂无');
   expect(wrapper.text()).toContain('趋势状态变更');
   wrapper.unmount();
 });

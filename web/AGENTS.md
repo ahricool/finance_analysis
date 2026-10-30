@@ -169,6 +169,10 @@ Cookie 会话，`apiClient` 设了 `withCredentials: true`。
 - 行情 WS/SSE 报价与盘中快照在 `realtimeMarket.ts` 的 `parseRealtimeQuoteMessage()` / `toRealtimeQuote()` 统一转换；`trend_1m`/`pattern_1m` 显式映射为 `trend1m`/`pattern1m`，不要对含数字后缀或以证券代码为键的对象直接 deep camelCase。
 - 行情推送：`useRealtimeQuotes()` 优先 WebSocket，连续两次连接/快照超时失败后固定回落 HTTP SSE；SSE 断开仅重试 SSE。`4401`/`4403` 或 SSE 401/403 视为未授权，停止重连，其中 `4401`/SSE 401（会话失效）与 HTTP 401 一样跳转登录；页面在后台超过 60 秒断开并显示暂停，回到前台重连；切市场与卸载取消旧连接。
 
+排名显示统一复用 `utils/rank.ts`，保留名次并显示“前 xx%”（名次 ÷ 原始排名范围总数）。
+证券排名分母必须匹配日期、市场、策略周期、Universe 和模型批次；搜索、分页或只显示 Top N 不缩小分母。
+候选内、推荐内和共振当前结果内的顺序须标明范围；历史/Preview 各用对应批次，分母缺失显示“百分比暂无”，不得用最大名次推算。
+
 ## 语言边界
 
 当前没有 `vue-i18n`。全站标签采用「中文为主 + 英文 muted 小号副标题」双语：

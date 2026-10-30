@@ -1,3 +1,4 @@
+import { formatRank } from '@/utils/rank';
 import type { IndustrySnapshot, IndustryState } from '@/api/industryStrength';
 
 export const STATE_ORDER = ['EMERGING', 'STRONG', 'NEUTRAL', 'COOLING', 'WEAK'] as const;
@@ -412,7 +413,7 @@ export const PERCENT_KEYS = new Set<RankingColumnKey>(['upRatio', 'aboveMa5Ratio
 export const RANK_DELTA_KEYS = new Set<RankingColumnKey>(['rankChange1D', 'rankChange3D', 'rankChange5D']);
 
 export function formatRankingCell(row: IndustrySnapshot, key: RankingColumnKey, compact = true): string {
-  if (key === 'strengthRank') return String(row.strengthRank);
+  if (key === 'strengthRank') return formatRank(row.strengthRank, row.quality.rankedCount);
   if (key === 'industryName') return row.industryName;
   if (key === 'state') return stateLabels[row.state];
   if (key === 'strengthScore') return formatScore(row.strengthScore);

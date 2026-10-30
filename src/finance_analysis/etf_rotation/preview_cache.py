@@ -57,5 +57,6 @@ def load_preview_view(market, field, *, repository=None):
         return None
     header = stored["header"]["payload"]
     row = merge_dict(stored["shared"], stored["items"][0]["summary"])
+    row["rank_total"] = header.get("rankable_count")
     return encode({"market": header["market"], "trade_date": header["trade_date"], "metadata": row,
                    "latest": row, "history": [], "market_snapshot": header.get("market_snapshot")})

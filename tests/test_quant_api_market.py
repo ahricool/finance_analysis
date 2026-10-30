@@ -97,6 +97,9 @@ class FakeQuantRepository:
         self.calls.append(("latest_signals", market, universe_id, code, model_version))
         return self.signal_rows
 
+    def signal_rank_totals(self, rows):
+        return {(row.market, row.universe_id, row.trade_date, row.model_version): 100 for row in rows}
+
     def market_regimes(self, *args, **kwargs):
         return self.market_regime_rows
 
@@ -332,7 +335,7 @@ def test_signal_ranking_exposes_and_filters_model_version(monkeypatch):
             market="US",
             trade_date=date(2026, 7, 22),
             code="AAPL.US",
-            model_version="model-v2",
+            model_version="model-v2", universe_id=1,
         )
     ]
 
@@ -543,7 +546,7 @@ def test_dataset_and_model_write_endpoints_reject_unsupported_universe(monkeypat
 def test_signal_ranking_serializes_request_time_returns(monkeypatch):
     client, repository = _client(monkeypatch)
     repository.signal_rows = [SimpleNamespace(
-        id=1, code="AAPL.US", market="US", trade_date=date(2026, 7, 22), model_version="v1"
+        id=1, code="AAPL.US", market="US", trade_date=date(2026, 7, 22), model_version="v1", universe_id=1
     )]
     repository.load_return_daily_rows = lambda codes, signal_date: [
         {"code": "AAPL.US", "date": date(2026, 7, day), "close": close,

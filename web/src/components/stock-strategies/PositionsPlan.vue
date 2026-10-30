@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatRank } from '@/utils/rank';
 import { computed, ref } from 'vue';
 import type { Detail } from '@/api/stockStrategies';
 import { positionMetrics, exitRows, scoreLabel } from '@/utils/stockStrategies';
@@ -195,7 +196,7 @@ const tone = (v: number | null) => v == null || v === 0 ? '' : v > 0 ? 'text-mar
           <p>待卖出 · {{ reasons.join('；') }}</p>
         </div>
         <h3 class="mt-4 font-medium">
-          买入候选 · 共 {{ plan.candidates.length }} 个（非买入清单）
+          买入候选 · 候选内排名 · 共 {{ plan.candidates.length }} 个（非买入清单）
         </h3>
         <p class="mt-2 text-sm text-muted-foreground">
           按排名依次检查，满足条件才买入，仓位满后停止。跳过已持有、当天已交易、存在退出指令或不可成交的标的；还须允许新增、有实际空位且现金足够。候选仅属于指定执行日，未成交退出持续保留。
@@ -214,7 +215,7 @@ const tone = (v: number | null) => v == null || v === 0 ? '' : v > 0 ? 'text-mar
             data-testid="strategy-candidate"
           >
             <div class="flex items-center gap-2">
-              <span>#{{ index + 1 }}</span><StockLink
+              <span>{{ formatRank(index + 1, plan.candidates.length) }}</span><StockLink
                 :code="c.code"
                 :name="c.name"
                 :market="detail.market"

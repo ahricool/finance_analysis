@@ -123,6 +123,7 @@ def get_transitions(market: str, *, days=3, direction="all", limit=20, as_of=Non
                 "previous_state": previous["state"], "current_state": row["state"],
                 "previous_date": previous_date, "trade_date": current_date,
                 "previous_rank": previous["rank"], "current_rank": row["rank"],
+                "rank_total": len(by_date[current_date]), "previous_rank_total": len(by_date[previous_date]),
                 "rank_delta": previous["rank"] - row["rank"],
                 "alpha_score": row.get("alpha_score"),
                 "fragility_score": row.get("fragility_score"),

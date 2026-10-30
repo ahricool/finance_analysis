@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatRank } from '@/utils/rank';
 import { chartDate, type DetailChartPoint } from '@/utils/detailChartHistory';
 import { computed } from 'vue';
 import { LineChart } from 'echarts/charts';
@@ -13,7 +14,7 @@ import type { TrendSnapshot } from '@/types/trendFollowing';
 
 use([CanvasRenderer, LineChart, GridComponent, TooltipComponent]);
 
-const props = defineProps<{ history: DetailChartPoint<Pick<TrendSnapshot, 'tradeDate' | 'rank'>>[] }>();
+const props = defineProps<{ history: DetailChartPoint<Pick<TrendSnapshot, 'tradeDate' | 'rank' | 'rankTotal'>>[] }>();
 const { resolvedTheme } = useTheme();
 const ordered = computed(() => [...props.history].sort((a, b) => a.tradeDate.localeCompare(b.tradeDate)));
 const ranks = computed(() => ordered.value.map(row => Number.isInteger(row.rank) && row.rank > 0 ? row.rank : null));
@@ -29,7 +30,11 @@ const option = computed<ComposeOption<LineSeriesOption | GridComponentOption | T
       backgroundColor: dark ? '#262626' : '#ffffff',
       borderColor: split,
       textStyle: { color: dark ? '#fafafa' : '#171717' },
-      valueFormatter: value => value == null ? '未参与排名' : `第 ${value} 名`,
+      formatter: params => {
+        const point = (Array.isArray(params) ? params[0] : params) as { dataIndex: number };
+        const row = ordered.value[point.dataIndex];
+        return row ? `${chartDate(row)}<br/>排名 ${formatRank(row.rank, row.rankTotal)}` : '—';
+      },
     },
     grid: { left: 12, right: 16, top: 16, bottom: 8, containLabel: true },
     xAxis: {

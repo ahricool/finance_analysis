@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatRank } from '@/utils/rank';
 import { formatFixed, formatPercent } from '@/utils/number';
 import StockLink from '@/components/stocks/StockLink.vue';
 import StockDetailDialog from '@/components/stocks/StockDetailDialog.vue';
@@ -548,7 +549,7 @@ onMounted(async () => {
               @click="openDetail(item)"
             >
               <div class="flex items-center justify-between gap-2">
-                <span>#{{ item.candidateRank ?? '—' }} <StockLink
+                <span>候选内 {{ formatRank(item.candidateRank, candidates.length) }} <StockLink
                   :code="item.code"
                   :name="item.name"
                   :market="market"
@@ -584,7 +585,7 @@ onMounted(async () => {
                   {{ vsOfficial(item)!.scoreDelta! >= 0 ? '↑' : '↓' }} {{ scoreChange(vsOfficial(item)!.scoreDelta) }} vs 正式
                 </p>
                 <p v-if="vsOfficial(item)?.rankDelta != null">
-                  Rank #{{ item.rank ?? '—' }}
+                  排名 {{ formatRank(item.rank, summary.rankableSize) }}
                   <span v-if="vsOfficial(item)!.rankDelta"> {{ vsOfficial(item)!.rankDelta! > 0 ? '↑' : '↓' }} {{ Math.abs(vsOfficial(item)!.rankDelta!) }}</span>
                 </p>
               </div>
@@ -794,7 +795,7 @@ onMounted(async () => {
                   :market="market"
                   @select="openDetail(change, 'overview')"
                 />
-                <span class="ml-2">#{{ change.previousRank ?? '—' }} → #{{ change.currentRank ?? '—' }} ({{ rankChange(change.rankChange) }})</span>
+                <span class="ml-2">{{ formatRank(change.previousRank, changes?.previousRankTotal) }} → {{ formatRank(change.currentRank, summary.rankableSize) }} ({{ rankChange(change.rankChange) }})</span>
                 <span class="ml-2 inline-flex items-baseline gap-1"><BilingualLabel
                   label="composite"
                   compact
@@ -896,7 +897,7 @@ onMounted(async () => {
                   @keydown.enter.prevent="openDetail(item)"
                   @keydown.space.prevent="openDetail(item)"
                 >
-                  <TableCell>#{{ item.rank ?? '—' }}</TableCell>
+                  <TableCell>{{ formatRank(item.rank, summary.rankableSize) }}</TableCell>
                   <TableCell
                     class="sticky left-0 z-10 min-w-48 max-w-60 bg-background"
                     data-column="name"

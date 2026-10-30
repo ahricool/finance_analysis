@@ -149,6 +149,7 @@ def _changes(
         }
     return {
         "previous_trade_date": previous_date,
+        "previous_rank_total": sum(1 for row in previous_rows if (row.get("rank") or 0) > 0),
         "new_buys": [
             item for item in changes
             if item.get("current_action") == "BUY" and item["previous_action"] != "BUY"

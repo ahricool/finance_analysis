@@ -42,7 +42,7 @@ def preview_views(payload):
         **{f"stock:{row['code']}": {
             "market": payload["market"], "trade_date": payload["trade_date"],
             "metadata": {"market": payload["market"], "code": row["code"], "name": row.get("name") or row["code"]},
-            "latest": row, "history": [],
+            "latest": {**row, "rank_total": payload.get("rankable_count")}, "history": [],
             "market_context": {**summary, "generated_at": payload.get("preview_time")},
         } for row in rows if payload.get("status") == "completed"},
     }

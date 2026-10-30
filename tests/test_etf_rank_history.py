@@ -110,3 +110,10 @@ def test_preview_is_extra_to_thirty_official_sessions(source):
     result = history.get_rank_history("US")
     assert result["official_count"] == 30 and len(result["dates"]) == 31
     assert result["dates"][:30] == [day.isoformat() for day in sessions]
+
+
+def test_history_carries_each_sessions_own_full_denominator(source):
+    source.rows[0]['rank_total'] = 40
+    source.rows[1]['rank_total'] = 42
+    source.preview.return_value['rankable_count'] = 50
+    assert history.get_rank_history('US')['rank_totals'] == [40, 42, 50]

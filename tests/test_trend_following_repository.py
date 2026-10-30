@@ -455,3 +455,17 @@ def test_box_json_roundtrip_projection_and_sort():
     assert projected[0]['features']['box_episode_consumed'] is True
     assert projected[0]['features']['box_episode_breakout_date'] == '2026-08-20'
     assert rows[0]['features']['box_episode_consumed'] is True
+
+
+def test_detail_history_denominator_tracks_date_market_and_period():
+    db = _Database()
+    first, second = date(2026, 6, 1), date(2026, 6, 2)
+    with db.session_scope() as session:
+        session.add(Instrument(id=1, market='US', code='AAPL.US', name='Apple'))
+        session.add_all([_snapshot(snapshot_id=i, code='AAPL.US', instrument_id=1, trade_date=day)
+                         for i, day in enumerate((first, second), 1)])
+        session.add_all([TrendFollowingSummary(**{**_summary(first), 'id': 1, 'rankable_count': 100}),
+                         TrendFollowingSummary(**{**_summary(second), 'id': 2, 'rankable_count': 200}),
+                         TrendFollowingSummary(**{**_summary(first), 'id': 3, 'trend_period': 40, 'rankable_count': 300})])
+    rows = TrendFollowingRepository('US', db).snapshot_history('AAPL.US', limit=60)
+    assert [row['rank_total'] for row in rows] == [200, 100]

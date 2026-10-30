@@ -28,9 +28,9 @@ class Repository:
     def history(self, end, limit):
         return []
 
-    def latest_cn_trend_ranks(self, codes):
+    def latest_cn_trend_rank_context(self, codes):
         self.trend_calls.append(codes)
-        return self.ranks
+        return self.ranks, 100
 
     def save(self, day, rows, constituents=None):
         self.saved.append((day, rows))
@@ -218,7 +218,7 @@ def test_trend_read_failure_is_not_a_publication_dependency():
     repo = Repository()
     def fail(codes):
         raise OperationalError("SELECT", {}, Exception("unavailable"))
-    repo.latest_cn_trend_ranks = fail
+    repo.latest_cn_trend_rank_context = fail
     assert IndustryStrengthService(repo, MarketData()).run()["status"] == "completed"
     assert all(item["trend_rank"] is None for item in repo.members)
 
