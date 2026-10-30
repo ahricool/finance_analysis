@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import SortableTableHeader from '@/components/stocks/SortableTableHeader.vue';
+import { useQuantTableSort } from '@/composables/useQuantTableSort';
 import StockLink from '@/components/stocks/StockLink.vue';
 import IndicatorHelpLabel from '@/components/app/IndicatorHelpLabel.vue';
 import PageHeader from '@/components/layout/PageHeader.vue';
@@ -9,7 +11,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Table, TableBody, TableCell, TableHeader, TableRow } from '@/components/ui/table';
 import { useQuantMarket } from '@/composables/useQuantMarket';
 import type { Portfolio } from '@/types/quant';
 import { formatPercent, formatPredictedReturn, formatScore } from '@/utils/quant';
@@ -36,6 +38,9 @@ watch(
   },
   { immediate: true },
 );
+const { sortKey, direction, toggle, sorted: positions } = useQuantTableSort(
+  () => item.value?.items ?? [],
+  (row, key) => key === 'name' ? row.name || row.code : row[key as keyof typeof row], 'rank');
 </script>
 
 <template>
@@ -116,55 +121,58 @@ watch(
         </CardHeader>
         <CardContent class="block">
           <Table class="w-full min-w-[900px] text-sm">
-            <TableHeader class="text-left text-xs text-muted-foreground">
+            <TableHeader>
               <TableRow>
-                <TableHead class="min-w-[220px] p-3">
-                  <IndicatorHelpLabel
-                    scope="quant"
-                    label="股票"
-                    compact
-                  />
-                </TableHead>
-                <TableHead>
-                  <IndicatorHelpLabel
-                    scope="quant"
-                    label="排名"
-                    compact
-                  />
-                </TableHead>
-                <TableHead>
-                  <IndicatorHelpLabel
-                    scope="quant"
-                    label="目标权重"
-                    compact
-                  />
-                </TableHead>
-                <TableHead>
-                  <IndicatorHelpLabel
-                    scope="quant"
-                    label="信号"
-                    compact
-                  />
-                </TableHead>
-                <TableHead>
-                  <IndicatorHelpLabel
-                    scope="quant"
-                    label="得分"
-                    compact
-                  />
-                </TableHead>
-                <TableHead>
-                  <IndicatorHelpLabel
-                    scope="quant"
-                    label="预测收益"
-                    compact
-                  />
-                </TableHead>
+                <SortableTableHeader
+                  label="股票"
+                  scope="quant"
+                  :active="sortKey === 'name'"
+                  :direction="direction"
+                  @sort="toggle('name')"
+                />
+                <SortableTableHeader
+                  label="排名"
+                  scope="quant"
+                  :active="sortKey === 'rank'"
+                  :direction="direction"
+                  @sort="toggle('rank')"
+                />
+                <SortableTableHeader
+                  label="目标权重"
+                  scope="quant"
+                  align="right"
+                  :active="sortKey === 'targetWeight'"
+                  :direction="direction"
+                  @sort="toggle('targetWeight')"
+                />
+                <SortableTableHeader
+                  label="信号"
+                  scope="quant"
+                  :active="sortKey === 'signal'"
+                  :direction="direction"
+                  @sort="toggle('signal')"
+                />
+                <SortableTableHeader
+                  label="得分"
+                  scope="quant"
+                  align="right"
+                  :active="sortKey === 'finalScore'"
+                  :direction="direction"
+                  @sort="toggle('finalScore')"
+                />
+                <SortableTableHeader
+                  label="预测收益"
+                  scope="quant"
+                  align="right"
+                  :active="sortKey === 'predictedReturn'"
+                  :direction="direction"
+                  @sort="toggle('predictedReturn')"
+                />
               </TableRow>
             </TableHeader>
             <TableBody>
               <TableRow
-                v-for="row in item.items"
+                v-for="row in positions"
                 :key="row.id"
                 class="border-t border-border"
               >
@@ -177,10 +185,16 @@ watch(
                   />
                 </TableCell>
                 <TableCell>#{{ row.rank }}</TableCell>
-                <TableCell>{{ formatPercent(row.targetWeight) }}</TableCell>
+                <TableCell class="text-right tabular-nums">
+                  {{ formatPercent(row.targetWeight) }}
+                </TableCell>
                 <TableCell>{{ row.signal }}</TableCell>
-                <TableCell>{{ formatScore(row.finalScore) }}</TableCell>
-                <TableCell>{{ formatPredictedReturn(row.predictedReturn) }}</TableCell>
+                <TableCell class="text-right tabular-nums">
+                  {{ formatScore(row.finalScore) }}
+                </TableCell>
+                <TableCell class="text-right tabular-nums">
+                  {{ formatPredictedReturn(row.predictedReturn) }}
+                </TableCell>
               </TableRow>
             </TableBody>
           </Table>

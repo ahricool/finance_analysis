@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import SortableTableHeader from '@/components/stocks/SortableTableHeader.vue';
+import { useQuantTableSort } from '@/composables/useQuantTableSort';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { quantApi } from '@/api/quant';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
@@ -11,7 +13,7 @@ import FieldSelect from '@/components/forms/FieldSelect.vue';
 import PageHeader from '@/components/layout/PageHeader.vue';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Table, TableBody, TableCell, TableHeader, TableRow } from '@/components/ui/table';
 import { useQuantMarket } from '@/composables/useQuantMarket';
 import type { ModelRun, QuantRelease, TrainingPreflight } from '@/types/quant';
 import { MODEL_TARGET_COPY, isTrainableModelKey, primaryMetricValue, secondaryMetricValue, formatScore } from '@/utils/quant';
@@ -70,6 +72,11 @@ async function publish() {
 }
 function rollback(item: QuantRelease) {cs.value=String(item.crossSectionId); ts.value=String(item.timeSeriesId); reason.value=`回滚到模型组 #${item.id}`; confirmOpen.value=true;}
 function secondary(row: ModelRun) { const v=secondaryMetricValue(row.modelKey,row.metrics); return row.modelKey==='time_series_lgbm' && v!=null ? `${(v*100).toFixed(1)}%` : formatScore(v); }
+const { sortKey, direction, toggle, sorted: sortedRuns } = useQuantTableSort(
+  () => runs.value,
+  (row, key) => key === 'primary' ? primaryMetricValue(row.modelKey,row.metrics)
+    : key === 'secondary' ? secondaryMetricValue(row.modelKey,row.metrics)
+    : key === 'cutoff' ? row.metrics.finalTrainingEnd : row[key as keyof ModelRun], 'id', 'desc');
 </script>
 <template>
   <div class="space-y-4">
@@ -162,10 +169,55 @@ function secondary(row: ModelRun) { const v=secondaryMetricValue(row.modelKey,ro
           暂无训练记录。
         </p>
         <Table v-else>
-          <TableHeader><TableRow><TableHead>模型 / 版本</TableHead><TableHead>状态</TableHead><TableHead>主要评估</TableHead><TableHead>辅助评估</TableHead><TableHead>实际拟合截止</TableHead><TableHead>进度</TableHead></TableRow></TableHeader>
+          <TableHeader>
+            <TableRow>
+              <SortableTableHeader
+                label="模型 / 版本"
+                scope="quant"
+                :active="sortKey === 'modelVersion'"
+                :direction="direction"
+                @sort="toggle('modelVersion')"
+              />
+              <SortableTableHeader
+                label="状态"
+                scope="quant"
+                :active="sortKey === 'status'"
+                :direction="direction"
+                @sort="toggle('status')"
+              />
+              <SortableTableHeader
+                label="主要评估"
+                scope="quant"
+                :active="sortKey === 'primary'"
+                :direction="direction"
+                @sort="toggle('primary')"
+              />
+              <SortableTableHeader
+                label="辅助评估"
+                scope="quant"
+                :active="sortKey === 'secondary'"
+                :direction="direction"
+                @sort="toggle('secondary')"
+              />
+              <SortableTableHeader
+                label="实际拟合截止"
+                scope="quant"
+                :active="sortKey === 'cutoff'"
+                :direction="direction"
+                @sort="toggle('cutoff')"
+              />
+              <SortableTableHeader
+                label="进度"
+                scope="quant"
+                :active="sortKey === 'progress'"
+                :direction="direction"
+                @sort="toggle('progress')"
+              />
+            </TableRow>
+          </TableHeader>
           <TableBody>
             <TableRow
-              v-for="row in runs"
+              v-for="row in sortedRuns"
               :key="row.id"
             >
               <TableCell>
@@ -176,7 +228,7 @@ function secondary(row: ModelRun) { const v=secondaryMetricValue(row.modelKey,ro
                   {{ isTrainableModelKey(row.modelKey) ? MODEL_TARGET_COPY[row.modelKey].shortName : row.modelKey }} · {{ row.modelVersion }} · #{{ row.id }}
                 </RouterLink>
               </TableCell>
-              <TableCell>{{ labels[row.status] ?? row.status }}</TableCell><TableCell>{{ row.modelKey==='time_series_lgbm' ? 'AUC' : 'Daily Rank IC' }} {{ formatScore(primaryMetricValue(row.modelKey,row.metrics)) }}</TableCell><TableCell>{{ row.modelKey==='time_series_lgbm' ? '方向命中率' : 'Top10超额（百分点）' }} {{ secondary(row) }}</TableCell><TableCell>{{ row.progress }}%</TableCell>
+              <TableCell>{{ labels[row.status] ?? row.status }}</TableCell><TableCell>{{ row.modelKey==='time_series_lgbm' ? 'AUC' : 'Daily Rank IC' }} {{ formatScore(primaryMetricValue(row.modelKey,row.metrics)) }}</TableCell><TableCell>{{ row.modelKey==='time_series_lgbm' ? '方向命中率' : 'Top10超额（百分点）' }} {{ secondary(row) }}</TableCell><TableCell>{{ row.metrics.finalTrainingEnd ?? '—' }}</TableCell><TableCell>{{ row.progress }}%</TableCell>
             </TableRow>
           </TableBody>
         </Table>

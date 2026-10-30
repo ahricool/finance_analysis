@@ -37,3 +37,20 @@ it('submits a checked experiment and clears busy state after refresh',async()=>{
  expect(wrapper.findAll('button').find(x=>x.text()==='创建训练实验')!.attributes('disabled')).toBeUndefined();
  wrapper.unmount();
 });
+it('keeps cutoff and progress in their own columns and sorts the model table',async()=>{
+ vi.mocked(quantApi.models).mockResolvedValue([
+  {id:1,modelKey:'cross_section_lgbm',modelVersion:'first',status:'candidate',progress:100,metrics:{finalTrainingEnd:'2026-09-01'},warnings:[]},
+  {id:2,modelKey:'time_series_lgbm',modelVersion:'second',status:'candidate',progress:70,metrics:{},warnings:[]},
+ ] as never);
+ const {wrapper}=await page();
+ const rows=()=>wrapper.findAll('tbody tr');
+ expect(rows()[0]!.findAll('td')).toHaveLength(wrapper.findAll('th').length);
+ expect(rows()[0]!.findAll('td')[4]!.text()).toBe('—');
+ expect(rows()[0]!.findAll('td')[5]!.text()).toBe('70%');
+ const progress=wrapper.findAll('th').find(x=>x.text().includes('进度'))!;
+ await progress.find('button').trigger('click');
+ await progress.find('button').trigger('click');
+ expect(rows()[0]!.findAll('td')[4]!.text()).toBe('2026-09-01');
+ expect(rows()[0]!.findAll('td')[5]!.text()).toBe('100%');
+ wrapper.unmount();
+});
