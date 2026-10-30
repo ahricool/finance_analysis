@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatRank } from '@/utils/rank';
 import StockLink from '@/components/stocks/StockLink.vue';
 import { computed, ref } from 'vue';
 import { RouterLink } from 'vue-router';
@@ -389,12 +390,12 @@ const number = (value: string | undefined) => value && Number.isFinite(Number(va
               {{ entry.signals.data?.tradeDate }} · Research Signal · Top 3
             </p>
             <RouterLink
-              v-for="(item, index) in entry.signals.data?.items.slice(0, 3)"
+              v-for="item in entry.signals.data?.items.slice(0, 3)"
               :key="item.code"
               :to="{ path: '/research/quant', query: { market: entry.market } }"
               class="flex items-center gap-3 py-2 text-sm"
             >
-              <span class="text-xs tabular-nums text-muted-foreground">0{{ index + 1 }}</span><StockLink
+              <span class="text-xs tabular-nums text-muted-foreground">{{ formatRank(item.universeRank, item.rankTotal) }}</span><StockLink
                 class="min-w-0 flex-1"
                 :code="item.code"
                 :name="item.name"

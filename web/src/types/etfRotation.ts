@@ -84,6 +84,7 @@ export interface ETFMomentumSnapshot extends ETFUniverseMember {
   accelerationScore: number | null;
   efficiencyScore: number | null;
   compositeScore: number | null;
+  rankTotal?: number | null;
   rank: number | null;
   entryScore: number;
   absoluteTrendEligible: boolean | null;
@@ -134,6 +135,7 @@ export interface ETFRegimeChange {
 }
 
 export interface ETFRankingChanges {
+  previousRankTotal?: number | null;
   previousTradeDate: string | null;
   newBuys: ETFChange[];
   newExits: ETFChange[];
@@ -212,6 +214,7 @@ export interface ETFPreviewStatusResponse {
 
 
 export interface ETFRankHistoryResponse {
+  rankTotals?: Array<number | null>;
   market: ETFMarket;
   dates: string[];
   officialCount: number;

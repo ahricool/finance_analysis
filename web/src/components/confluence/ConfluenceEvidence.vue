@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatRank } from '@/utils/rank';
 import { computed } from 'vue';
 import BilingualEnum from '@/components/app/BilingualEnum.vue';
 import IndicatorHelpLabel from '@/components/app/IndicatorHelpLabel.vue';
@@ -18,7 +19,7 @@ function metrics(key: SignalKey): [string, unknown][] {
   if (key === 'macro') return [['环境', e.regime], ['整体风险偏好', e.riskScore], ...(e.macroMethod ? [['行业适配度', e.adaptationScore] as [string, unknown]] : []), ['宏观数据覆盖', typeof e.signalCoverage === 'number' ? `${(e.signalCoverage * 100).toFixed(0)}%` : null]];
   if (key === 'industry') return [['行业', e.industryName], ['强度', e.strengthScore], ['状态', e.state]];
   if (key === 'trend') return [['趋势状态', e.state], ['生命周期', e.trendLifecycle], ['脆弱性', e.fragilityScore]];
-  if (key === 'quant') return [['原生分', e.finalScore], ['信号', e.signal], ['排名', e.universeRank]];
+  if (key === 'quant') return [['原生分', e.finalScore], ['信号', e.signal], ['排名', formatRank(e.universeRank, e.rankTotal)]];
   if (key === 'sentiment') return [['热度', e.heatScore], ['状态', e.state], ['涨停家数', e.limitUpCount]];
   if (key === 'dragonTiger') return [['净流入', e.netInflow], ['机构净额', e.institutionNetInflow], ['榜单窗口', e.rangeDays]];
   if (key === 'options') {

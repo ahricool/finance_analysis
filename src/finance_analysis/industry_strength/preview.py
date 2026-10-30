@@ -113,6 +113,7 @@ class IndustryPreviewService(IndustryStrengthService):
                 "industry_code": code,
                 "updated_at": now,
                 "trend_rank_date": trend_date,
+                "trend_rank_total": row["quality"].get("trend_rank_total"),
                 "items": member_items.get(code, []),
                 **{
                     k: row[k]

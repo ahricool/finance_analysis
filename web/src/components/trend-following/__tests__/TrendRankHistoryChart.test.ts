@@ -51,6 +51,6 @@ describe('TrendRankHistoryChart', () => {
     theme.value = 'dark';
     await wrapper.vm.$nextTick();
     expect(chart.props('option').yAxis.axisLabel.color).not.toBe(lightLabel);
-    expect(chart.props('option').tooltip.valueFormatter(1)).toBe('第 1 名');
+    expect(chart.props('option').tooltip.formatter([{ dataIndex: 0 }])).toContain('#1 · 百分比暂无');
   });
 });

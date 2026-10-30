@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatRank } from '@/utils/rank';
 import IndicatorHelpLabel from '@/components/app/IndicatorHelpLabel.vue';
 import { computed, onBeforeUnmount, ref, shallowRef, watch } from 'vue';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
@@ -70,7 +71,7 @@ onBeforeUnmount(() => { ++generation; });
         variant="section"
         :title="'量化信号'"
         en="Signal Detail"
-        :description="`${item.tradeDate} · 排名 ${item.universeRank ?? '—'} · ${item.signal} · 预测 ${formatPredictedReturn(item.predictedReturn)}`"
+        :description="`${item.tradeDate} · 排名 ${formatRank(item.universeRank, item.rankTotal)} · ${item.signal} · 预测 ${formatPredictedReturn(item.predictedReturn)}`"
       />
       <section class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <div
@@ -119,7 +120,7 @@ onBeforeUnmount(() => { ++generation; });
             :key="row.id"
             class="flex justify-between border-b border-border pb-2"
           >
-            <span>{{ row.tradeDate }}</span><span>排名 {{ row.universeRank ?? '—' }} · 得分 {{ formatScore(row.finalScore) }}</span>
+            <span>{{ row.tradeDate }}</span><span>排名 {{ formatRank(row.universeRank, row.rankTotal) }} · 得分 {{ formatScore(row.finalScore) }}</span>
           </div>
         </div>
       </section>

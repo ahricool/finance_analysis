@@ -152,6 +152,7 @@ export interface TrendSnapshot {
   universeKey: string;
   marketRegime: TrendRegime;
   marketScore: number;
+  rankTotal?: number | null;
   rank: number;
   trendScore: number;
   rsScore: number;
@@ -330,6 +331,8 @@ export interface TrendBreadthResponse {
 }
 export type TransitionDirection = 'all' | 'strengthening' | 'deteriorating';
 export interface RecentTrendTransition {
+  rankTotal?: number | null;
+  previousRankTotal?: number | null;
   code: string;
   name: string;
   previousState: TrendState;

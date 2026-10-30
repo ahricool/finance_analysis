@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatRank } from '@/utils/rank';
 import { formatFixed } from '@/utils/number';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { RouterLink } from 'vue-router';
@@ -42,25 +43,25 @@ async function loadSource(source: Source, version = generation) {
     if (source.key === 'trend') {
       const { latest } = await trendFollowingApi.detail(symbol, market, 1);
       if (latest) items = [{ title: '趋势跟踪', date: latest.tradeDate,
-        summary: `${latest.state} · 排名 ${latest.rank ?? '—'} · Alpha ${number(latest.alphaScore)}`,
+        summary: `${latest.state} · 排名 ${formatRank(latest.rank, latest.rankTotal)} · Alpha ${number(latest.alphaScore)}`,
         reasons: latest.reasons || [], path: '/research/trend-following',
         query: { market, symbol, tradeDate: latest.tradeDate } }];
     } else if (source.key === 'etf') {
       const { latest } = await etfRotationApi.detail(symbol, market, 1);
       if (latest) items = [{ title: 'ETF 轮动', date: latest.tradeDate,
-        summary: `${latest.state} · ${latest.action || '无动作'} · 排名 ${latest.rank ?? '—'}`,
+        summary: `${latest.state} · ${latest.action || '无动作'} · 排名 ${formatRank(latest.rank, latest.rankTotal)}`,
         reasons: [`动量分 ${number(latest.momentumScore)}`, `入选候选 ${latest.isCandidate ? '是' : '否'}`],
         path: '/research/etf-rotation', query: { market, symbol, tradeDate: latest.tradeDate } }];
     } else if (source.key === 'quant') {
       const item = await quantApi.signal(symbol, market);
       if (item) items = [{ title: 'Quant', date: item.tradeDate,
-        summary: `${item.signal} · 排名 ${item.universeRank ?? '—'} · 得分 ${number(item.finalScore)}`,
+        summary: `${item.signal} · 排名 ${formatRank(item.universeRank, item.rankTotal)} · 得分 ${number(item.finalScore)}`,
         reasons: [`模型 ${item.modelVersion}`, ...(item.reasons || [])],
         path: `/research/quant/signals/${encodeURIComponent(symbol)}`, query: { market, tradeDate: item.tradeDate } }];
     } else if (source.key === 'industry') {
       const rows = await industryStrengthApi.stockContext(symbol);
       items = rows.map(item => ({ title: item.industryName, date: item.tradeDate,
-        summary: `${item.state} · 排名 ${item.strengthRank ?? '—'} · 强度 ${number(item.strengthScore)}`,
+        summary: `${item.state} · 排名 ${formatRank(item.strengthRank, item.rankTotal)} · 强度 ${number(item.strengthScore)}`,
         reasons: [`当前成分观测时间 ${formatDateTimeInDisplayTimezone(item.membersObservedAt)}`, '行业背景不代表个股交易建议'],
         path: '/research/industry-strength', query: { industry: item.industryCode, tradeDate: item.tradeDate } }));
     }

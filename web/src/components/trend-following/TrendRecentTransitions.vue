@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatRank } from '@/utils/rank';
 import StockLink from '@/components/stocks/StockLink.vue';
 import { onBeforeUnmount, ref, shallowRef, watch } from 'vue';
 import { trendFollowingApi } from '@/api/trendFollowing';
@@ -130,7 +131,7 @@ onBeforeUnmount(() => { requestId++; });
             <strong class="block">{{ describeTrendStateChange(item.previousState, item.currentState) }}</strong>
             <span class="text-xs text-muted-foreground">{{ item.previousState }} → {{ item.currentState }}</span>
           </span>
-          <span class="text-xs tabular-nums text-muted-foreground">Rank #{{ item.previousRank }} → #{{ item.currentRank }}<span class="ml-2">({{ item.rankDelta > 0 ? '+' : '' }}{{ item.rankDelta }})</span></span>
+          <span class="text-xs tabular-nums text-muted-foreground">Rank {{ formatRank(item.previousRank, item.previousRankTotal) }} → {{ formatRank(item.currentRank, item.rankTotal) }}<span class="ml-2">({{ item.rankDelta > 0 ? '+' : '' }}{{ item.rankDelta }})</span></span>
           <span class="text-right text-xs text-muted-foreground">{{ item.tradeDate }}<span
             v-if="item.isPreview"
             class="ml-1 rounded border border-warning/50 px-1 text-warning"

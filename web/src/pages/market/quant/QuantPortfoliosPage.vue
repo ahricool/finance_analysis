@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatRank } from '@/utils/rank';
 import SortableTableHeader from '@/components/stocks/SortableTableHeader.vue';
 import { useQuantTableSort } from '@/composables/useQuantTableSort';
 import StockLink from '@/components/stocks/StockLink.vue';
@@ -184,7 +185,7 @@ const { sortKey, direction, toggle, sorted: positions } = useQuantTableSort(
                     :context="{ tradeDate: item.tradeDate }"
                   />
                 </TableCell>
-                <TableCell>#{{ row.rank }}</TableCell>
+                <TableCell>{{ formatRank(row.rank, item.rankTotal) }}</TableCell>
                 <TableCell class="text-right tabular-nums">
                   {{ formatPercent(row.targetWeight) }}
                 </TableCell>

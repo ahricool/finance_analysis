@@ -95,12 +95,13 @@ class ConfluenceRepository:
             return []
         # Reuse the existing formal result/version selection; no live production-model lookup.
         rows = repo.latest_signals(market=market, universe_id=universe.id, trade_date=latest, limit=100000)
+        rank_total = sum(1 for row in rows if row.universe_rank and row.universe_rank > 0)
         return [
-            values(
+            {**values(
                 row,
                 "id instrument_id trade_date generated_at model_version universe_id universe_rank "
                 "final_score signal predicted_return cross_section_score",
-            )
+            ), "rank_total": rank_total}
             for row in rows
         ]
 

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatRank } from '@/utils/rank';
 import StockLink from '@/components/stocks/StockLink.vue';
 import IndicatorHelpLabel from '@/components/app/IndicatorHelpLabel.vue';
 import { computed, ref } from 'vue';
@@ -142,7 +143,7 @@ function ma(value: boolean | null) {
               <span
                 v-if="current"
                 class="text-muted-foreground"
-              >强度排名 {{ current.strengthRank }}</span>
+              >强度排名 {{ formatRank(current.strengthRank, current.quality.rankedCount) }}</span>
               <span
                 v-if="current"
                 class="rounded-full border px-2 py-0.5 text-xs"
@@ -317,7 +318,7 @@ function ma(value: boolean | null) {
                     {{ item.tradeDate }}
                   </TableCell>
                   <TableCell class="tabular-nums">
-                    {{ item.strengthRank }}
+                    {{ formatRank(item.strengthRank, item.quality.rankedCount) }}
                   </TableCell>
                   <TableCell class="tabular-nums">
                     {{ formatScore(item.strengthScore) }}
@@ -448,7 +449,7 @@ function ma(value: boolean | null) {
                       />
                     </TableCell>
                     <TableCell class="tabular-nums">
-                      {{ item.trendRank == null ? '—' : `#${item.trendRank}` }}
+                      {{ formatRank(item.trendRank, constituents?.trendRankTotal) }}
                     </TableCell>
                     <TableCell class="tabular-nums">
                       {{ formatPrice(item.price) }}

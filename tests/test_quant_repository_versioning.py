@@ -163,3 +163,29 @@ def test_available_dates_filter_market_universe_code_and_deduplicate_versions():
         date(2026, 7, 23), date(2026, 7, 22), date(2026, 7, 20),
     ]
     assert repo.available_trade_dates("US", 1, "portfolios") == [date(2026, 7, 21)]
+
+
+def test_signal_rank_totals_are_batched_and_isolated_by_full_cohort():
+    from sqlalchemy import event
+
+    db = _SqliteManager()
+    ModelSignal.__table__.create(db.engine)
+    stamp = datetime(2026, 7, 22, tzinfo=timezone.utc)
+    rows = [_signal(i, f'S{i}.US', 'v1' if i <= 3 else 'v2', stamp) for i in range(1, 8)]
+    rows[2].universe_rank = None  # Not ranked, so excluded from denominator.
+    rows[4].universe_id = 2
+    rows[5].market = 'CN'
+    rows[6].trade_date = date(2026, 7, 23)
+    with Session(db.engine, expire_on_commit=False) as session:
+        session.add_all(rows)
+        session.commit()
+        session.expunge_all()
+    statements = []
+    event.listen(db.engine, 'before_cursor_execute', lambda _c, _s, sql, *_: statements.append(sql))
+    result = QuantRepository(db).signal_rank_totals([rows[0], rows[3], rows[6]])
+    assert result == {('US', 1, date(2026, 7, 22), 'v1'): 2,
+                      ('US', 1, date(2026, 7, 22), 'v2'): 1,
+                      ('US', 1, date(2026, 7, 23), 'v2'): 1}
+    assert len(statements) == 1
+    assert QuantRepository(db).signal_rank_totals([]) == {}
+    assert len(statements) == 1

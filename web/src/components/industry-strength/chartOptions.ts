@@ -1,3 +1,4 @@
+import { formatRank } from '@/utils/rank';
 import type { IndustryHistory, IndustrySnapshot } from '@/api/industryStrength';
 import {
   bubbleSize,
@@ -234,7 +235,7 @@ function heatmapTooltipText(cell: HeatmapCell): string {
   return [
     cell.name,
     cell.date,
-    `当日排名 ${cell.rank}`,
+    `当日排名 ${formatRank(cell.rank, cell.rankedCount)}`,
     `当日有效行业数 ${cell.rankedCount}`,
   ].join('\n');
 }

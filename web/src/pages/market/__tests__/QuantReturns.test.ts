@@ -44,3 +44,23 @@ it('opens quant evidence in place with its returned snapshot date and resets on 
   expect(dialog.props('open')).toBe(false); expect(dialog.props('stock')).toBeNull();
   wrapper.unmount();
 });
+
+
+it('keeps full-cohort rank percentages when search reduces the visible rows', async () => {
+  vi.mocked(quantApi.signals).mockResolvedValue({ items: [
+    { id: 1, code: 'AAPL.US', name: 'Apple', universeRank: 20, rankTotal: 500 },
+    { id: 2, code: 'MSFT.US', name: 'Microsoft', universeRank: 40, rankTotal: 500 },
+  ] } as never);
+  const router = createRouter({ history: createMemoryHistory(), routes: [
+    { path: '/research/quant/signals', component: QuantSignalsPage },
+  ] });
+  await router.push('/research/quant/signals?market=US'); await router.isReady();
+  const wrapper = mount(QuantSignalsPage, { global: { plugins: [router], stubs: { StockDetailDialog: true } } });
+  await flushPromises();
+  expect(wrapper.text()).toContain('#20 · 前 4%');
+  await wrapper.get('input').setValue('AAPL');
+  expect(wrapper.findAll('tbody tr')).toHaveLength(1);
+  expect(wrapper.text()).toContain('#20 · 前 4%');
+  expect(wrapper.text()).not.toContain('#40 · 前 8%');
+  wrapper.unmount();
+});

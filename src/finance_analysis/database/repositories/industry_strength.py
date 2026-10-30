@@ -103,6 +103,7 @@ class IndustryStrengthRepository:
         query = (
             select(Snapshot.industry_code, Snapshot.industry_name, Snapshot.trade_date,
                    Snapshot.state, Snapshot.strength_score, Snapshot.strength_rank,
+                   Snapshot.quality["ranked_count"].as_integer().label("rank_total"),
                    Snapshot.members_observed_at)
             .join(Constituent, Constituent.industry_code == Snapshot.industry_code)
             .where(Constituent.stock_code == code, Snapshot.trade_date == day,
@@ -157,16 +158,24 @@ class IndustryStrengthRepository:
             return session.scalar(select(func.max(TrendSnapshot.trade_date)).where(TrendSnapshot.trend_period == 20, TrendSnapshot.market == "CN"))
 
     def latest_cn_trend_ranks(self, codes):
-        """One query at the latest formal CN date, independent of the industry date."""
+        return self.latest_cn_trend_rank_context(codes)[0]
+
+    def latest_cn_trend_rank_context(self, codes):
+        """Freeze member ranks and the full cohort's denominator in one statement."""
         codes = sorted(set(codes))
         if not codes:
-            return {}
-        latest = select(func.max(TrendSnapshot.trade_date)).where(TrendSnapshot.trend_period == 20, TrendSnapshot.market == "CN").scalar_subquery()
-        query = select(TrendSnapshot.code, TrendSnapshot.rank).where(
-            TrendSnapshot.trend_period == 20, TrendSnapshot.market == "CN", TrendSnapshot.trade_date == latest, TrendSnapshot.code.in_(codes)
-        )
+            return {}, None
+        latest = select(func.max(TrendSnapshot.trade_date)).where(
+            TrendSnapshot.trend_period == 20, TrendSnapshot.market == "CN"
+        ).scalar_subquery()
+        ranked = select(
+            TrendSnapshot.code, TrendSnapshot.rank,
+            func.count().filter(TrendSnapshot.rank > 0).over().label("rank_total"),
+        ).where(TrendSnapshot.trend_period == 20, TrendSnapshot.market == "CN",
+                TrendSnapshot.trade_date == latest).subquery()
         with self.db.get_session() as session:
-            return dict(session.execute(query).all())
+            rows = session.execute(select(ranked).where(ranked.c.code.in_(codes))).all()
+            return {row.code: row.rank for row in rows}, rows[0].rank_total if rows else None
 
     def constituents(self, code):
         query = select(Constituent).where(Constituent.industry_code == code).order_by(
@@ -174,7 +183,13 @@ class IndustryStrengthRepository:
         )
         with self.db.get_session() as session:
             rows = session.execute(query).scalars().all()
+            quality = session.scalar(select(Snapshot.quality).where(
+                Snapshot.industry_code == code,
+                Snapshot.updated_at == max((row.updated_at for row in rows), default=None),
+            )
+                                     .order_by(Snapshot.trade_date.desc()).limit(1)) or {}
             return {
+                "trend_rank_total": quality.get("trend_rank_total"),
                 "industry_code": code,
                 "updated_at": max((row.updated_at for row in rows), default=None),
                 "constituent_count": len(rows),

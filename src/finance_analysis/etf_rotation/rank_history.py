@@ -16,6 +16,7 @@ def get_rank_history(market: str, *, days: int = 30, as_of: date | None = None, 
         [member.code for member in members], days=days, as_of=cutoff,
     )
     dates = sorted({row["trade_date"].isoformat() for row in rows})
+    totals = {row["trade_date"].isoformat(): row.get("rank_total") for row in rows}
     official_count = len(dates)
     ranks = {(row["trade_date"].isoformat(), row["code"]): row["rank"] for row in rows}
     generated_at = max((row["generated_at"] for row in rows if row["generated_at"] is not None), default=None)
@@ -28,10 +29,12 @@ def get_rank_history(market: str, *, days: int = 30, as_of: date | None = None, 
             preview_date = today.isoformat()
             preview_time = preview.get("preview_time")
             dates.append(preview_date)
+            totals[preview_date] = preview.get("rankable_count")
             for row in preview["items"]:
                 ranks[(preview_date, row["code"])] = row.get("rank")
     return {
-        "market": market, "dates": dates, "official_count": official_count,
+        "market": market, "dates": dates, "rank_totals": [totals.get(day) for day in dates],
+        "official_count": official_count,
         "preview_date": preview_date, "preview_time": preview_time, "generated_at": generated_at,
         "series": [
             {"code": member.code, "name": member.name,

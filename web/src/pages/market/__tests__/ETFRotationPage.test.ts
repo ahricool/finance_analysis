@@ -355,7 +355,7 @@ describe('ETFRotationPage', () => {
     expect(wrapper.get('[data-testid="etf-regime-change"]').text()).toContain('中性 → 风险偏好');
     expect(wrapper.get('[data-testid="etf-change-newBuy"]').text()).toContain('综合分 Δ +7.2');
     expect(wrapper.get('[data-testid="etf-change-newEmerging"]').text()).toContain('NEUTRAL → EMERGING');
-    expect(wrapper.get('[data-testid="etf-rank-mover"]').text()).toContain('#8 → #3 (+5)');
+    expect(wrapper.get('[data-testid="etf-rank-mover"]').text()).toContain('#8 · 百分比暂无 → #3 · 前 7.5% (+5)');
   });
 
   it('loads the selected date directly without candidates or full preview requests', async () => {

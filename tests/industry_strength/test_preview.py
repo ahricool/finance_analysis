@@ -82,8 +82,8 @@ class Repo:
                    for i in range(20)]
         return catalog, {r["thscode"]: [{"thscode": "600001.SH", "name": "共同成分"}] for r in catalog}
 
-    def latest_cn_trend_ranks(self, codes):
-        return {}
+    def latest_cn_trend_rank_context(self, codes):
+        return {}, 100
 
     def save(self, *args, **kwargs):
         pytest.fail("Preview must not save official data")

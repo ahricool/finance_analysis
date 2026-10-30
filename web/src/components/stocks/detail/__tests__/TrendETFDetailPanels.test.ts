@@ -25,7 +25,7 @@ function deferred<T>() {
 }
 function snapshot(code = 'AAPL.US', tradeDate = '2026-09-10') {
   return { code, name: code, tradeDate, market: 'US', state: 'TRENDING', features: {}, scoreBreakdown: {},
-    category: 'BROAD_INDEX', theme: 'GROWTH', riskGroup: 'EQUITY', rank: 1, alphaScore: 80, compositeScore: 82 };
+    category: 'BROAD_INDEX', theme: 'GROWTH', riskGroup: 'EQUITY', rank: 1, rankTotal: 200, alphaScore: 80, compositeScore: 82 };
 }
 function detail(code = 'AAPL.US', date = '2026-09-10') {
   const latest = snapshot(code, date);
@@ -56,6 +56,7 @@ for (const kind of ['trend', 'etf'] as const) {
       await flushPromises();
       expect(api.detail).toHaveBeenCalledWith('AAPL.US', 'US', 60, undefined, ...(kind === 'trend' ? [20] : []));
       expect(api.previewDetail).not.toHaveBeenCalled();
+      expect(wrapper.text()).toContain('#1 · 前 0.5%');
       expect(wrapper.findComponent(DailyKLineCard).exists()).toBe(false);
       await wrapper.setProps({ context: { tradeDate: '2026-08-20', view: 'official' } });
       await flushPromises();

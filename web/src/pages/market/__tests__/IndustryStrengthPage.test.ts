@@ -371,7 +371,7 @@ describe('Industry Strength', () => {
     await flushPromises();
     expect(detailText()).toContain('行业乙');
     expect(detailText()).not.toContain('2026-08-01');
-    expect(detailText()).toContain('强度排名 2');
+    expect(detailText()).toContain('强度排名 #2 · 前 100%');
     expect(detailText()).toContain('正在加载历史表现');
     resolveB({ current: rows[1], history: [{ ...rows[1], tradeDate: '2026-08-02' }] });
     await flushPromises();

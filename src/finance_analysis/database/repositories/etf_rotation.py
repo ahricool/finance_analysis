@@ -277,8 +277,9 @@ class ETFRotationRepository:
         """
         snapshot = ETFMomentumSnapshot
         sessions = (
-            select(snapshot.trade_date).where(snapshot.market == self.market, snapshot.trade_date <= as_of)
-            .distinct().order_by(snapshot.trade_date.desc()).limit(days).subquery()
+            select(snapshot.trade_date, func.count().filter(snapshot.rank > 0).label("rank_total"))
+            .where(snapshot.market == self.market, snapshot.trade_date <= as_of)
+            .group_by(snapshot.trade_date).order_by(snapshot.trade_date.desc()).limit(days).subquery()
         )
         ranks = (
             select(snapshot.trade_date, Instrument.code, snapshot.rank, snapshot.generated_at)
@@ -287,7 +288,7 @@ class ETFRotationRepository:
             .subquery()
         )
         query = (
-            select(sessions.c.trade_date, ranks.c.code, ranks.c.rank, ranks.c.generated_at)
+            select(sessions.c.trade_date, sessions.c.rank_total, ranks.c.code, ranks.c.rank, ranks.c.generated_at)
             .outerjoin(ranks, ranks.c.trade_date == sessions.c.trade_date)
             .order_by(sessions.c.trade_date, ranks.c.code)
         )
@@ -408,7 +409,15 @@ class ETFRotationRepository:
                 .order_by(desc(ETFMomentumSnapshot.trade_date))
                 .limit(limit)
             ).all()
-            return [self._payload(snapshot, str(row_code)) for snapshot, row_code in rows]
+            totals = dict(session.execute(
+                select(ETFMomentumSnapshot.trade_date, func.count()).where(
+                    ETFMomentumSnapshot.market == self.market,
+                    ETFMomentumSnapshot.trade_date.in_([row.trade_date for row, _ in rows]),
+                    ETFMomentumSnapshot.rank > 0,
+                ).group_by(ETFMomentumSnapshot.trade_date)
+            ).all()) if rows else {}
+            return [{**self._payload(snapshot, str(row_code)), "rank_total": totals.get(snapshot.trade_date)}
+                    for snapshot, row_code in rows]
 
 
 __all__ = ["ETFRotationRepository", "SORT_FIELDS"]

@@ -104,7 +104,7 @@ export interface MarketRegime {
   reasons: string[];
   scoreBreakdown: MarketScoreBreakdown | null;
 }
-export interface QuantSignal { id: number; tradeDate: string; market: QuantMarket; code: string; name:string|null; modelVersion: string; finalScore: number; marketScore: number|null; timeSeriesScore: number|null; crossSectionScore: number|null; riskPenalty: number; universeRank: number|null; predictedReturn: number|null; signal: string; reasons: string[]; scoreComponents: Record<string, unknown> }
+export interface QuantSignal { id: number; tradeDate: string; market: QuantMarket; code: string; name:string|null; modelVersion: string; finalScore: number; marketScore: number|null; timeSeriesScore: number|null; crossSectionScore: number|null; riskPenalty: number; rankTotal?: number | null; universeRank: number|null; predictedReturn: number|null; signal: string; reasons: string[]; scoreComponents: Record<string, unknown> }
 export interface QuantSignalReturns { return3D: number|null; return5D: number|null; returnSince: number|null; returnAsOf: string|null }
 export interface SignalRanking { releaseId?: number|null; tradeDate: string|null; market: QuantMarket; universe: string; modelVersion: string|null; marketRegime: string|null; maxEquityExposure: number|null; items: (QuantSignal & QuantSignalReturns)[] }
 export interface ModelRun {
@@ -125,7 +125,7 @@ export interface ModelRun {
   createdAt: string;
 }
 export interface PortfolioItem { id:number; code:string; name:string|null; rank:number; targetWeight:number; finalScore:number; predictedReturn:number|null; signal:string; reasons:string[]; constraints:Record<string,unknown> }
-export interface Portfolio { id:number; tradeDate:string; market:QuantMarket; universe:string; modelVersion:string; status:string; maxEquityExposure:number; targetEquityExposure:number; summary:Record<string,unknown>; warnings:string[]; generatedAt:string; items:PortfolioItem[] }
+export interface Portfolio { rankTotal?: number | null; id:number; tradeDate:string; market:QuantMarket; universe:string; modelVersion:string; status:string; maxEquityExposure:number; targetEquityExposure:number; summary:Record<string,unknown>; warnings:string[]; generatedAt:string; items:PortfolioItem[] }
 
 export interface QuantRelease { id: number; market: QuantMarket; crossSectionId: number; timeSeriesId: number; active: boolean; reason: string; createdAt: string }
 export interface QuantStatus { market: QuantMarket; universe: string; universeName: string; memberCount: number; latestAttempt: { tradeDate: string; status: string; error: string|null }|null }

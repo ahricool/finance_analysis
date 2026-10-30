@@ -125,7 +125,7 @@ describe('industry strength charts', () => {
     const tooltip = heatmapOption(leaders, history, '881101.TI', 'light').tooltip.formatter;
     expect(tooltip({ data: presentCell! })).toContain('半导体');
     expect(tooltip({ data: presentCell! })).toContain('2026-09-16');
-    expect(tooltip({ data: presentCell! })).toContain('当日排名 1');
+    expect(tooltip({ data: presentCell! })).toContain('当日排名 #1 · 前 10%');
     expect(tooltip({ data: presentCell! })).toContain('当日有效行业数 10');
     expect(tooltip({ data: missingCell! })).toContain('该日无该行业快照');
   });

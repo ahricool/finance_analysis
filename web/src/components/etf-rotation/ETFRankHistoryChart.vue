@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatRank } from '@/utils/rank';
 import StockIdentity from '@/components/stocks/StockIdentity.vue';
 import StockLink from '@/components/stocks/StockLink.vue';
 import { computed, onBeforeUnmount, shallowRef, ref, watch } from 'vue';
@@ -71,7 +72,7 @@ const option = computed<ComposeOption<LineSeriesOption | GridComponentOption | L
         const date = data?.dates[point.dataIndex];
         const series = data?.series[point.seriesIndex ?? 0];
         const rank = series?.ranks[point.dataIndex];
-        return `${date}${date === data?.previewDate ? ' · Preview' : ''}\n${series?.name} / ${series?.code}\nRank: ${rank == null ? '—' : `#${rank}`}`;
+        return `${date}${date === data?.previewDate ? ' · Preview' : ''}\n${series?.name} / ${series?.code}\nRank: ${formatRank(rank, data?.rankTotals?.[point.dataIndex])}`;
       },
     },
     legend: {

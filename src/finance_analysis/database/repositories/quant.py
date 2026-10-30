@@ -635,6 +635,21 @@ class QuantRepository:
             )
             return self._detach(session, rows)
 
+    def signal_rank_totals(self, rows) -> dict[tuple, int]:
+        """Batch denominators for the exact persisted date/universe/model of each signal."""
+        scopes = {(row.market, row.universe_id, row.trade_date, row.model_version) for row in rows}
+        if not scopes:
+            return {}
+        fields = (ModelSignal.market, ModelSignal.universe_id, ModelSignal.trade_date, ModelSignal.model_version)
+        with self.db.get_session() as session:
+            result = session.execute(
+                select(*fields, func.count()).where(
+                    or_(*(and_(*(field == value for field, value in zip(fields, scope))) for scope in scopes)),
+                    ModelSignal.universe_rank > 0,
+                ).group_by(*fields)
+            ).all()
+            return {tuple(row[:4]): row[4] for row in result}
+
     def latest_portfolios(
         self,
         market: str,

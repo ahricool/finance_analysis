@@ -21,7 +21,7 @@ export interface Constituent {
   code: string; name: string; price: number | null; changePct: number | null; volume: number | null;
   amount: number | null; trendRank: number | null; aboveMa5: boolean | null; aboveMa20: boolean | null;
 }
-export interface Constituents { trendRankDate?: string | null; industryCode: string; updatedAt: string | null;
+export interface Constituents { trendRankTotal?: number | null; trendRankDate?: string | null; industryCode: string; updatedAt: string | null;
   constituentCount: number; dailyValidCount: number; ma5ValidCount: number; aboveMa5Count: number; ma20ValidCount: number; aboveMa20Count: number; items: Constituent[] }
 export interface IndustryPreview {
   status: string; error: string | null;
@@ -30,7 +30,7 @@ export interface IndustryPreview {
 const base = '/api/v1/industry-strength';
 export interface StockIndustryContext {
   industryCode: string; industryName: string; tradeDate: string; state: IndustryState;
-  strengthScore: number | null; strengthRank: number | null; membersObservedAt: string;
+  rankTotal?: number | null; strengthScore: number | null; strengthRank: number | null; membersObservedAt: string;
 }
 export const industryStrengthApi = {
   async stockContext(code: string): Promise<StockIndustryContext[]> {

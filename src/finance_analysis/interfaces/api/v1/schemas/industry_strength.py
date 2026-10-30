@@ -85,6 +85,7 @@ class Constituent(BaseModel):
 
 
 class ConstituentsResponse(BaseModel):
+    trend_rank_total: int | None = None
     trend_rank_date: date | None = None
     industry_code: str
     updated_at: datetime | None
@@ -112,6 +113,7 @@ class PreviewResponse(BaseModel):
 
 
 class StockIndustryContext(BaseModel):
+    rank_total: int | None = None
     industry_code: str
     industry_name: str
     trade_date: date

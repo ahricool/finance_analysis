@@ -267,6 +267,7 @@ def test_constituent_migration_schema_and_database_only_reads():
             member(), member("600002.SH", rank=None), member(industry="881102.TI"),
         ])
     repo = IndustryStrengthRepository(db)
+    Snapshot.__table__.create(db.bind)
     result = repo.constituents("881101.TI")
     assert [r["trend_rank"] for r in result["items"]] == [38, None]
     assert result["constituent_count"] == result["daily_valid_count"] == result["ma5_valid_count"] == 2

@@ -726,7 +726,15 @@ class TrendFollowingRepository:
                 .order_by(desc(TrendFollowingSnapshot.trade_date))
                 .limit(limit)
             ).all()
-            return [self._snapshot_payload(row, str(name)) for row, name in rows]
+            totals = dict(session.execute(
+                select(TrendFollowingSummary.trade_date, TrendFollowingSummary.rankable_count).where(
+                    TrendFollowingSummary.market == self.market,
+                    TrendFollowingSummary.trend_period == self.trend_period,
+                    TrendFollowingSummary.trade_date.in_([row.trade_date for row, _ in rows]),
+                )
+            ).all()) if rows else {}
+            return [{**self._snapshot_payload(row, str(name)), "rank_total": totals.get(row.trade_date)}
+                    for row, name in rows]
 
 
 __all__ = ["TrendFollowingRepository"]

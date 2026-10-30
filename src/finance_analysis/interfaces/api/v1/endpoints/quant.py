@@ -67,6 +67,14 @@ def _encoded_with_name(
     return _encoded_with_names(repo, [row], code_field=code_field, name_field=name_field)[0]
 
 
+def _signals_with_ranks(repo, rows):
+    payloads = _encoded_with_names(repo, rows)
+    totals = repo.signal_rank_totals(rows)
+    for row, item in zip(rows, payloads):
+        item["rank_total"] = totals.get((row.market, row.universe_id, row.trade_date, row.model_version))
+    return payloads
+
+
 def _universe(repo: QuantRepository, market: str, key: str | None):
     try:
         return repo.supported_universe(market, key)
@@ -389,7 +397,7 @@ async def signals(
         market, definition.id, model_version=model_version, **({"trade_date": trade_date} if trade_date else {})
     )
     returns = signal_returns(repo, {row.code for row in rows}, rows[0].trade_date if rows else None)
-    items = _encoded_with_names(repo, rows)
+    items = _signals_with_ranks(repo, rows)
     for item in items:
         item.update(SignalReturns(**returns[item["code"]]).model_dump(mode="json"))
     regimes = (
@@ -428,7 +436,7 @@ async def signal(
     )
     if not rows:
         raise HTTPException(404, f"{market} signal not found")
-    return _encoded_with_name(repo, rows[0])
+    return _signals_with_ranks(repo, rows)[0]
 
 
 @router.get("/signals/{code}/history")
@@ -441,7 +449,7 @@ async def signal_history(
 ):
     repo = QuantRepository()
     universe = _universe(repo, market, None)
-    return _encoded_with_names(
+    return _signals_with_ranks(
         repo,
         repo.signal_history(
             market,
@@ -476,7 +484,9 @@ async def latest_portfolio(
     if not result:
         raise HTTPException(404, "Portfolio recommendation not found")
     row, items = result
-    return {**encoded(row), "universe": definition.key, "items": _encoded_with_names(repo, items)}
+    return {**encoded(row), "universe": definition.key,
+            "rank_total": repo.signal_rank_totals([row]).get((row.market, row.universe_id, row.trade_date, row.model_version)),
+            "items": _encoded_with_names(repo, items)}
 
 
 @router.get("/portfolios")
@@ -508,7 +518,9 @@ async def portfolio(
     if not result:
         raise HTTPException(404, "Portfolio recommendation not found")
     row, items = result
-    return {**encoded(row), "universe": universe.key, "items": _encoded_with_names(repo, items)}
+    return {**encoded(row), "universe": universe.key,
+            "rank_total": repo.signal_rank_totals([row]).get((row.market, row.universe_id, row.trade_date, row.model_version)),
+            "items": _encoded_with_names(repo, items)}
 
 
 @router.post("/training/preflight")

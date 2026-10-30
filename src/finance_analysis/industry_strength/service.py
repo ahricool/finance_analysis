@@ -147,9 +147,10 @@ class IndustryStrengthService:
         timings["quotes"] = monotonic() - stage
         stage = monotonic()
         trend_ranks = {}
+        trend_rank_total = None
         if codes:
             try:
-                trend_ranks = self.repository.latest_cn_trend_ranks(codes)
+                trend_ranks, trend_rank_total = self.repository.latest_cn_trend_rank_context(codes)
             except SQLAlchemyError:
                 logger.warning("Latest CN Trend ranks unavailable; publishing null ranks", exc_info=True)
         current_constituents = []
@@ -201,6 +202,7 @@ class IndustryStrengthService:
                 "version": self.config.version,
                 "catalog_count": len(catalog),
                 "ranked_count": len(valid),
+                "trend_rank_total": trend_rank_total,
                 "coverage": len(valid) / len(catalog),
                 "excluded": failures,
                 "benchmark": self.config.benchmark,

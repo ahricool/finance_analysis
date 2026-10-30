@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatRank } from '@/utils/rank';
 import StockLink from '@/components/stocks/StockLink.vue';
 import BilingualEnum from '@/components/app/BilingualEnum.vue';
 import PageHeader from '@/components/layout/PageHeader.vue';
@@ -301,7 +302,7 @@ const detailInitialTab = ref<'overview' | 'confluence'>('confluence');
         </div>
         <div class="mb-3 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
           <p class="font-medium text-foreground">
-            前50条研究排行
+            前50条研究排行（百分比相对当前筛选结果）
           </p>
           <p>精选优先，其余按综合分排列 · 精选门槛 {{ minimumScore }} 分 · 观察项不属于正式信号</p>
         </div>
@@ -338,7 +339,7 @@ const detailInitialTab = ref<'overview' | 'confluence'>('confluence');
               >
                 <TableCell class="py-5">
                   <div class="flex items-start gap-3">
-                    <span class="mt-1 font-mono text-xs text-muted-foreground">{{ String((page - 1) * pageSize + index + 1).padStart(2, '0') }}</span><div>
+                    <span class="mt-1 font-mono text-xs text-muted-foreground">{{ formatRank((page - 1) * pageSize + index + 1, result?.total) }}</span><div>
                       <StockLink
                         :code="row.code"
                         :name="row.name"
