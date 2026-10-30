@@ -96,3 +96,24 @@ test('every selectable page requests the shared market and signal pagination is 
   await expect.poll(() => reads.findLast(url => url.pathname.endsWith('/signal-center/daily'))?.searchParams.get('market')).toBe('CN');
   await expect.poll(() => reads.findLast(url => url.pathname.endsWith('/signal-center/history'))?.searchParams.get('market')).toBe('CN');
 });
+
+for (const theme of ['light', 'dark'] as const) {
+  test(`market switch uses theme colors and moves its thumb in ${theme} mode`, async ({ page }) => {
+    await mockMarkets(page);
+    await page.addInitScript(value => localStorage.setItem('theme', value), theme);
+    await page.goto('/timeline?market=CN');
+    const control = page.getByTestId('global-market-switch');
+    const thumb = control.locator('[data-slot="switch-thumb"]');
+    await expect(control).toHaveAttribute('data-slot', 'switch');
+    await expect(control).toHaveAttribute('data-state', 'unchecked');
+    const before = await thumb.boundingBox();
+    await control.press('Space');
+    await expect(control).toHaveAttribute('data-state', 'checked');
+    await expect(thumb).toHaveAttribute('data-state', 'checked');
+    await expect.poll(async () => (await thumb.boundingBox())!.x).toBeGreaterThan(before!.x + 10);
+    await expect(control).toHaveCSS('background-color', theme === 'light' ? 'rgb(23, 23, 23)' : 'rgb(250, 250, 250)');
+    await page.goto('/profile/info');
+    await expect(control).toBeDisabled();
+    await expect(control).toHaveCSS('opacity', '0.5');
+  });
+}

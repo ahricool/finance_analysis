@@ -32,6 +32,9 @@ describe('global market switch', () => {
     useStockDetail().open({ code: '600000.SH', name: '浦发银行', marketType: 'CN' });
     await control.trigger('click'); await flushPromises();
     expect(control.attributes('aria-checked')).toBe('true');
+    expect(control.attributes('data-slot')).toBe('switch');
+    expect(control.attributes('data-state')).toBe('checked');
+    expect(wrapper.get('[data-slot="switch-thumb"]').attributes('data-state')).toBe('checked');
     expect(router.currentRoute.value.query).toEqual({ market: 'US', keep: 'yes' });
     expect(router.currentRoute.value.hash).toBe('#feed');
     expect(localStorage.getItem('selected_market')).toBe('US');
