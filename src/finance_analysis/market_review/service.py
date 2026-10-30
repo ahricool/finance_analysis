@@ -25,7 +25,12 @@ logger = logging.getLogger(__name__)
 class TextGenerator(Protocol):
     def is_available(self) -> bool: ...
 
-    def generate_text(self, prompt: str) -> str | None: ...
+    def generate_text(
+        self,
+        prompt: str,
+        max_tokens: int = 2048,
+        temperature: float = 0.7,
+    ) -> str | None: ...
 
 
 def _get_market_review_text(language: str) -> dict[str, str]:

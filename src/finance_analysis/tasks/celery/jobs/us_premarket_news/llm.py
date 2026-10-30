@@ -216,6 +216,8 @@ class PremarketNewsLLMAnalyzer:
                 LLMRequest(
                     system_prompt="你是美股盘前新闻重要性筛选器，只输出 JSON。",
                     prompt=build_importance_prompt(candidates),
+                    temperature=0.1,
+                    max_tokens=5000,
                     call_type="us_premarket_news_importance",
                 ),
                 validator=lambda text: parse_llm_batch_results(text, strict=True),
@@ -242,6 +244,8 @@ class PremarketNewsLLMAnalyzer:
                 LLMRequest(
                     system_prompt="你是美股盘前新闻影响方向 JSON 判定器，只输出 JSON。",
                     prompt=build_impact_prompt(selected_news, candidates_by_key),
+                    temperature=0.1,
+                    max_tokens=6000,
                     call_type="us_premarket_news_impact",
                 ),
                 validator=lambda text: parse_llm_batch_results(text, strict=True),

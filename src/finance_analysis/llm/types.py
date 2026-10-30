@@ -8,6 +8,8 @@ from typing import Any
 class LLMRequest:
     prompt: str
     system_prompt: str | None = None
+    temperature: float | None = None
+    max_tokens: int | None = None
     timeout: float | None = None
     call_type: str = "generic"
     uid: int | None = None

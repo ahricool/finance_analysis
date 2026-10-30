@@ -358,7 +358,7 @@ Focus on index trend, liquidity, and sector rotation to shape the next-session t
         
         logger.info("[大盘] 调用大模型生成复盘报告...")
         # Use the public generate_text() entry point — never access private analyzer attributes.
-        review = self.analyzer.generate_text(prompt)
+        review = self.analyzer.generate_text(prompt, max_tokens=8192, temperature=0.7)
 
         if review:
             logger.info("[大盘] 复盘报告生成成功，长度: %d 字符", len(review))

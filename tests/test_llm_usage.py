@@ -118,6 +118,8 @@ def test_removed_api_and_request_surface():
     assert set(LLMRequest.__dataclass_fields__) == {
         "prompt",
         "system_prompt",
+        "temperature",
+        "max_tokens",
         "timeout",
         "call_type",
         "uid",

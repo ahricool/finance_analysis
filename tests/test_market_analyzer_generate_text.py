@@ -140,8 +140,8 @@ class TestMarketAnalyzerBypassFix:
         assert isinstance(result, str) and len(result) > 0
         ma.analyzer.generate_text.assert_called_once()
 
-    def test_market_review_uses_provider_output_defaults(self):
-        """Market review does not override sampling or output limits."""
+    def test_market_review_uses_8192_max_tokens(self):
+        """generate_market_review() should request a larger output budget to avoid truncation."""
         from finance_analysis.market_review.analyzer import MarketOverview, MarketIndex
 
         ma = self._make_market_analyzer_with_mock_generate_text(return_value="复盘结果")
@@ -163,7 +163,8 @@ class TestMarketAnalyzerBypassFix:
         assert isinstance(result, str) and len(result) > 0
         ma.analyzer.generate_text.assert_called_once()
         _, kwargs = ma.analyzer.generate_text.call_args
-        assert kwargs == {}
+        assert kwargs["max_tokens"] == 8192
+        assert kwargs["temperature"] == 0.7
 
     def test_generate_template_review_uses_english_shell_for_cn_when_report_language_is_en(self):
         from finance_analysis.market_review.analyzer import MarketOverview, MarketIndex

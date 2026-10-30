@@ -200,6 +200,7 @@ class MarketDecisionResolver:
                     prompt=_PROMPT.format(payload=json.dumps(payload, ensure_ascii=False, default=str)),
                     system_prompt=_SYSTEM,
                     call_type="trade_engine_market",
+                    temperature=0,
                     web_search=use_search,
                 ),
                 validator=lambda text: parse_llm_json_response(text) or (_ for _ in ()).throw(ValueError("empty")),

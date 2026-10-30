@@ -320,6 +320,8 @@ class MarketCalendarImportanceService:
             LLMRequest(
                 system_prompt="你是财经日历客观市场重要性 JSON 评分器，只输出 JSON。",
                 prompt=build_event_importance_prompt(prompt_payload),
+                temperature=0.1,
+                max_tokens=6000,
                 call_type="market_calendar_importance",
             ),
             validator=lambda text: parse_llm_batch_results(text, strict=True),
