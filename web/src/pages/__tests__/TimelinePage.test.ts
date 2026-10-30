@@ -1,3 +1,4 @@
+import { setFieldSelect } from '../../../tests/helpers/fieldSelect';
 import { useMarketStore } from '@/stores/marketStore';
 import { nextTick } from 'vue';
 import AppDatePicker from '@/components/app/AppDatePicker.vue';
@@ -248,7 +249,7 @@ describe('Public investment timeline', () => {
     if (filter === 'market' || filter === 'tab') {
       await clickTab(wrapper, filter === 'market' ? '美股' : '宏观');
     } else if (filter === 'importance') {
-      await wrapper.get('select[aria-label="重要性"]').setValue('high');
+      await setFieldSelect(wrapper, '[aria-label="重要性"]', 'high');
     } else if (filter === 'preset') {
       await clickTab(wrapper, '未来7天');
     } else if (filter === 'date') {
@@ -328,7 +329,7 @@ describe('cutoff presets and columns', () => {
     await clickTab(wrapper, '美股');
     await clickTab(wrapper, '财报');
     await clickTab(wrapper, '未来30天');
-    await wrapper.get('select[aria-label="重要性"]').setValue(importance);
+    await setFieldSelect(wrapper, '[aria-label="重要性"]', importance);
     await flushPromises();
     expect(timelineApi.list).toHaveBeenLastCalledWith(expect.objectContaining({ market: 'US', category: 'event', calendar_type: 'earnings', end_date: '2026-10-09', importance: importance || undefined, cursor: undefined }));
     wrapper.unmount();

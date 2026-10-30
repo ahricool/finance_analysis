@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import FieldSelect from '@/components/forms/FieldSelect.vue';
 import { useTableSort, sortField } from '@/composables/useTableSort';
 import { formatPercent } from '@/utils/number';
 import StockLink from '@/components/stocks/StockLink.vue';
@@ -202,15 +203,13 @@ const horizonTable = useTableSort(() => chosenGroup.value?.horizons ?? [], sortF
           />
         </template>
         <span class="text-xs text-muted-foreground">{{ start }} — {{ end }}</span>
-        <label>Regime <select
-          v-model="regime"
+        <label>Regime <FieldSelect
+          :model-value="regime"
+          :options="['ALL', 'RISK_ON', 'NEUTRAL', 'RISK_OFF'].map(value => ({ value, label: value }))"
           aria-label="研究市场环境"
-          class="rounded border bg-background p-2"
-        ><option
-          v-for="item in ['ALL', 'RISK_ON', 'NEUTRAL', 'RISK_OFF']"
-          :key="item"
-          :value="item"
-        >{{ item }}</option></select></label>
+          class="w-36"
+          @update:model-value="regime = $event as StudyRegime"
+        /></label>
         <Button
           :disabled="invalidRange || loading"
           data-testid="study-query"

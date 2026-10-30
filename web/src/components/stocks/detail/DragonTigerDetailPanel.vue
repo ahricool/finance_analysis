@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import FieldSelect from '@/components/forms/FieldSelect.vue';
 import { metricHint } from '@/utils/metricHints';
 import SortableTableHeader from '@/components/stocks/SortableTableHeader.vue';
 import { useTableSort, sortField } from '@/composables/useTableSort';
@@ -141,17 +142,12 @@ const table = useTableSort(() => stockRows.value, (row, key) => key === 'concept
           </tbody>
         </table>
         <label class="grid gap-2 text-sm">逐日分摊贡献 · 选择概念
-          <select
+          <FieldSelect
             v-model="selected"
+            :options="concepts.map(entry => ({ value: entry.id, label: entry.name }))"
             aria-label="股票贡献概念"
-            class="h-10 rounded-md border bg-background px-3"
-          >
-            <option
-              v-for="entry in concepts"
-              :key="entry.id"
-              :value="entry.id"
-            >{{ entry.name }}</option>
-          </select>
+            class="w-full"
+          />
         </label>
         <div
           v-for="row in contributions"

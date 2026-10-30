@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import FieldSelect from '@/components/forms/FieldSelect.vue';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { holdingsApi, tradeEngineApi, type PortfolioAccount, type PortfolioPosition, type TradeEnginePosition } from '@/api/holdings';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
@@ -160,17 +161,14 @@ onBeforeUnmount(() => { stopped = true; request++; engineRequest++; detailReques
         class="flex flex-wrap items-center gap-2 text-sm"
       >
         持仓账户
-        <select
-          v-model="selectedId"
-          class="rounded-md border bg-background p-2"
+        <FieldSelect
+          :model-value="String(selectedId ?? '')"
+          :options="positions.map(row => ({ value: String(row.id), label: accountName(row.accountId) }))"
+          aria-label="持仓账户"
+          class="w-full sm:w-56"
           data-testid="holding-account"
-        >
-          <option
-            v-for="row in positions"
-            :key="row.id"
-            :value="row.id"
-          >{{ accountName(row.accountId) }}</option>
-        </select>
+          @update:model-value="selectedId = Number($event)"
+        />
       </label>
       <p
         v-else
@@ -186,7 +184,7 @@ onBeforeUnmount(() => { stopped = true; request++; engineRequest++; detailReques
       <label class="flex items-start gap-2 text-sm">
         <input
           type="checkbox"
-          class="mt-1"
+          class="mt-1 accent-brand"
           data-testid="trade-engine-enabled"
           :checked="detail.tradeEngineEnabled !== false"
           :disabled="toggleSaving"

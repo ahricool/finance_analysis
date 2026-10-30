@@ -1,3 +1,4 @@
+import { setFieldSelect } from '../../../../tests/helpers/fieldSelect';
 import { createPinia, setActivePinia } from 'pinia';
 import { useMarketStore } from '@/stores/marketStore';
 import { asRankingSnapshot } from '@/utils/rankingFeatures';
@@ -730,7 +731,7 @@ describe('TrendFollowingPage', { timeout: 30_000 }, () => {
       await click(label);
       expect(order()).toEqual(['C.US', 'B.US', 'A.US']);
     }
-    await wrapper.get('select[aria-label="趋势排名排序指标"]').setValue('return10D');
+    await setFieldSelect(wrapper, '[aria-label="趋势排名排序指标"]', 'return10D');
     expect(order()[0]).toBe('B.US');
     await click('排名趋势');
     expect(order()).toEqual(['B.US', 'A.US', 'C.US']);

@@ -33,7 +33,7 @@
   --destructive-foreground: 0 0% 98%;
   --border: 0 0% 89.8%;
   --input: 0 0% 89.8%;
-  --ring: 0 0% 3.9%;
+  --ring: var(--brand);
   --radius: 0.625rem;
 
   --brand: 342 64% 68%;
@@ -71,7 +71,7 @@
   --destructive-foreground: 0 0% 98%;
   --border: 0 0% 18%;
   --input: 0 0% 18%;
-  --ring: 0 0% 83.1%;
+  --ring: var(--brand);
 
   --brand: 342 70% 72%;
   --brand-foreground: 230 25% 12%;

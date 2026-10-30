@@ -227,8 +227,9 @@ Cookie 会话，`apiClient` 设了 `withCredentials: true`。
 
 ## UI 与样式
 
-- 设计令牌在 `src/index.css`：shadcn **neutral** 底，品牌粉 `--brand` 只给 Logo、主 CTA、焦点环和少量选中态。涨跌用 `--market-up`（红）/ `--market-down`（绿），A 股习惯，不要改成绿涨红跌。
+- 设计令牌在 `src/index.css`：shadcn **neutral** 底，品牌粉 `--brand` 用于 Logo、主 CTA、焦点环、Switch/日期/选框等明确的选中态；`--primary` 是中性前景色，不代表品牌色。涨跌用 `--market-up`（红）/ `--market-down`（绿），A 股习惯，不要改成绿涨红跌。
 - 原子组件从 `@/components/ui/<name>` 按 `index.ts` 具名导入。变体用 `class-variance-authority`；主按钮默认即 brand。
+- 普通下拉筛选与表单选择复用 `FieldSelect` / 主题 `Select`，固定外层宽度，`aria-*`、`data-testid` 透传给触发按钮；空选项与字符串 `0` 必须区分。`SelectContent` 默认 `bodyLock: false`，下拉打开不得修改 body overflow/padding 或导致页面位移。
 - 产品级控件优先复用：`components/app/` 下的 `LoadingButton`、`AppConfirmDialog`、`AppDatePicker` / `AppDateTimePicker` / `AppTimePicker`、`AppCombobox`、`AppPagination`、`AppApiErrorAlert`，以及 `components/forms/` 下的 `FieldInput` / `FieldSelect`。
 - 类名合并用 `cn()`（`@/utils/cn`）。`components.json` 的 `utils` 别名指向这里。
 - 图标用 `lucide-vue-next`。

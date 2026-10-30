@@ -1,3 +1,4 @@
+import { setFieldSelect } from '../../../../../tests/helpers/fieldSelect';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushPromises, mount } from '@vue/test-utils';
 import HoldingsDetailPanel from '../HoldingsDetailPanel.vue';
@@ -43,7 +44,7 @@ describe('HoldingsDetailPanel', () => {
   it('lets cross-entry users choose between existing holding accounts', async () => {
     vi.mocked(holdingsApi.summary).mockResolvedValue(summary([position(1, 10), position(2, 20)]));
     const wrapper = mountPanel(); await flushPromises();
-    await wrapper.get('[data-testid="holding-account"]').setValue(2); await flushPromises();
+    await setFieldSelect(wrapper, '[data-testid="holding-account"]', 2); await flushPromises();
     expect(holdingsApi.operations).toHaveBeenLastCalledWith(2);
     wrapper.unmount();
   });

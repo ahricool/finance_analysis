@@ -111,7 +111,8 @@ for (const width of [1280, 1440, 1920]) {
       await expect(page.getByTestId('trend-event-study')).toContainText('Box 连续完整自 2026-08-28');
       await expect(page.getByTestId('trend-event-study')).toContainText('MR 连续完整自 2026-08-28');
       await page.getByRole('button', { name: '90D', exact: true }).click();
-      await page.getByLabel('研究市场环境').selectOption('RISK_OFF');
+      await page.getByRole('combobox', { name: '研究市场环境', exact: true }).click();
+      await page.getByRole('option', { name: 'RISK_OFF', exact: true }).click();
       await page.getByTestId('study-query').click();
       await page.getByTestId('study-strategy-row').filter({ hasText: '箱体突破' }).click();
       await expect(page.getByTestId('study-event-row')).toContainText('历史样本');

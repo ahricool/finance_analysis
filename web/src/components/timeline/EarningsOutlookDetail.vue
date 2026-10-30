@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import FieldSelect from '@/components/forms/FieldSelect.vue';
 import { computed, ref, watch } from 'vue';
 import { timelineApi, type EarningsDetail } from '@/api/timeline';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
@@ -88,16 +89,13 @@ function when(value: string | null | undefined) { return value ? formatDateTimeI
     </div>
     <template v-if="version && prediction">
       <label class="block text-sm">预测版本
-        <select
-          v-model="selected"
-          class="mt-1 w-full rounded-md border border-input bg-background p-2"
-        >
-          <option
-            v-for="(v, i) in data?.versions"
-            :key="v.id"
-            :value="i"
-          >{{ when(v.generatedAt) }} · {{ outlookStage[v.stage] || v.stage }} · {{ v.applicability }}</option>
-        </select>
+        <FieldSelect
+          :model-value="String(selected)"
+          :options="(data?.versions ?? []).map((v, i) => ({ value: String(i), label: `${when(v.generatedAt)} · ${outlookStage[v.stage] || v.stage} · ${v.applicability}` }))"
+          aria-label="预测版本"
+          class="mt-1 w-full"
+          @update:model-value="selected = Number($event)"
+        />
       </label>
       <div class="space-y-2 text-sm">
         <p>{{ prediction.conclusion }}</p>

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import FieldSelect from '@/components/forms/FieldSelect.vue';
 import SortableTableHeader from '@/components/stocks/SortableTableHeader.vue';
 import { useTableSort, sortField, sortNumber, sortTime } from '@/composables/useTableSort';
 import { computed } from 'vue';
@@ -173,25 +174,12 @@ const summaryTable = useTableSort(() => summaries.value, (row, key) => key === '
       <h3 class="text-lg font-semibold">
         Strategy
       </h3>
-      <select
+      <FieldSelect
         v-model="selectedKey"
+        :options="strategies.length ? strategies.map(item => ({ value: item.strategyKey, label: `${item.displayName}${item.enabled ? '' : '（停用）'}` })) : [{ value: 'btc_breakout_v1', label: 'Breakout V1' }]"
         aria-label="Strategy"
-        class="rounded border bg-background px-3 py-2 text-sm"
-      >
-        <option
-          v-if="!strategies.length"
-          value="btc_breakout_v1"
-        >
-          Breakout V1
-        </option>
-        <option
-          v-for="item in strategies"
-          :key="item.strategyKey"
-          :value="item.strategyKey"
-        >
-          {{ item.displayName }}{{ item.enabled ? '' : '（停用）' }}
-        </option>
-      </select>
+        class="w-64 max-w-full"
+      />
     </div>
     <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
       <Card

@@ -1,3 +1,4 @@
+import { setFieldSelect } from '../../../../tests/helpers/fieldSelect';
 import { flushPromises, mount } from '@vue/test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import AppDatePicker from '@/components/app/AppDatePicker.vue';
@@ -61,7 +62,7 @@ describe('TrendEventStudy', () => {
     await wrapper.setProps({ market: 'US' });
     await wrapper.findAll('button').find(b => b.text() === '自定义')!.trigger('click');
     wrapper.findAllComponents(AppDatePicker)[0]!.vm.$emit('update:modelValue', '2026-08-01');
-    await wrapper.get('[aria-label="研究市场环境"]').setValue('RISK_ON');
+    await setFieldSelect(wrapper, '[aria-label="研究市场环境"]', 'RISK_ON');
     await flushPromises();
     expect(trendFollowingApi.eventStudySummary).toHaveBeenCalledTimes(2);
     await wrapper.get('[data-testid="study-query"]').trigger('click');
@@ -95,7 +96,7 @@ describe('TrendEventStudy', () => {
     expect(wrapper.findAllComponents(AppDatePicker)).toHaveLength(2);
     expect(wrapper.findAllComponents(AppDatePicker)[0]!.props('max')).toBe('2026-09-01');
     wrapper.findAllComponents(AppDatePicker)[0]!.vm.$emit('update:modelValue', '2026-08-01');
-    await wrapper.get('[aria-label="研究市场环境"]').setValue('RISK_OFF');
+    await setFieldSelect(wrapper, '[aria-label="研究市场环境"]', 'RISK_OFF');
     await flushPromises();
     expect(trendFollowingApi.eventStudySummary).toHaveBeenCalledTimes(1);
     await wrapper.get('[data-testid="study-query"]').trigger('click');

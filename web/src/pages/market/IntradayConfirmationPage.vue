@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import FieldSelect from '@/components/forms/FieldSelect.vue';
 import SortableTableHeader from '@/components/stocks/SortableTableHeader.vue';
 import { useTableSort, sortField } from '@/composables/useTableSort';
 import { useMarket } from '@/composables/useMarket';
@@ -183,41 +184,45 @@ const detailInitialTab = ref<'overview' | 'intraday'>('intraday');
     </section>
     <section class="min-w-0 overflow-hidden rounded-xl border bg-card">
       <div class="flex flex-wrap items-end gap-3 border-b p-4">
-        <label class="grid gap-1.5 text-xs text-muted-foreground">交易日<select
-          v-model="tradeDate"
+        <FieldSelect
+          :model-value="tradeDate"
+          :options="[{ value: '', label: '当日' }, ...dates.map(value => ({ value, label: value }))]"
+          label="交易日"
           aria-label="交易日"
           data-testid="intraday-date-selector"
-          class="h-9 rounded-md border border-input bg-background px-3 text-sm text-foreground"
-          @change="load"
-        ><option value="">当日</option><option
-          v-for="date in dates"
-          :key="date"
-          :value="date"
-        >{{ date }}</option></select></label>
-        <label class="grid gap-1.5 text-xs text-muted-foreground">历史状态<select
-          v-model="state"
+          class="w-40"
+          trigger-class="h-9"
+          @update:model-value="tradeDate = $event"
+          @change="load()"
+        />
+        <FieldSelect
+          :model-value="state"
+          :options="[{ value: '', label: '全部状态' }, { value: 'CONFIRMED', label: '曾经确认且未失效' }, { value: 'WAIT', label: '等待确认' }, { value: 'FAILED', label: '结构失效' }]"
+          label="历史状态"
           aria-label="状态"
-          class="h-9 rounded-md border border-input bg-background px-3 text-sm text-foreground"
-          @change="load"
-        ><option value="">全部状态</option><option value="CONFIRMED">曾经确认且未失效</option><option value="WAIT">等待确认</option><option value="FAILED">结构失效</option></select></label>
-        <label class="grid gap-1.5 text-xs text-muted-foreground">候选来源<select
-          v-model="source"
+          class="w-44"
+          trigger-class="h-9"
+          @update:model-value="state = $event as State | ''"
+          @change="load()"
+        />
+        <FieldSelect
+          :model-value="source"
+          :options="[{ value: '', label: '全部来源' }, { value: 'confluence', label: '共振精选' }, { value: 'trend', label: '趋势前30' }, { value: 'etf', label: '轮动前5' }, ...(result?.ruleVersion !== 'intraday_v2' ? [{ value: 'quant', label: '量化（历史）' }] : [])]"
+          label="候选来源"
           aria-label="候选来源"
-          class="h-9 rounded-md border border-input bg-background px-3 text-sm text-foreground"
-          @change="load"
-        ><option value="">全部来源</option><option value="confluence">共振精选</option><option value="trend">趋势前30</option><option value="etf">轮动前5</option><option
-          v-if="result?.ruleVersion !== 'intraday_v2'"
-          value="quant"
-        >量化（历史）</option></select></label>
-        <label class="grid gap-1.5 text-xs text-muted-foreground">当前观察<select
+          class="w-40"
+          trigger-class="h-9"
+          @update:model-value="source = $event as Source | ''"
+          @change="load()"
+        />
+        <FieldSelect
           v-model="currentFilter"
+          :options="[{ value: '', label: '全部观察' }, ...['ACTIVE', 'PENDING_CONFIRMATION', 'WAIT', 'WEAKENING', 'PENDING_FAILURE', 'RECOVERED', 'FAILED', 'UNAVAILABLE', 'PENDING'].map(value => ({ value, label: intradayLabel(value) }))]"
+          label="当前观察"
           aria-label="当前观察"
-          class="h-9 rounded-md border border-input bg-background px-3 text-sm text-foreground"
-        ><option value="">全部观察</option><option
-          v-for="value in ['ACTIVE', 'PENDING_CONFIRMATION', 'WAIT', 'WEAKENING', 'PENDING_FAILURE', 'RECOVERED', 'FAILED', 'UNAVAILABLE', 'PENDING']"
-          :key="value"
-          :value="value"
-        >{{ intradayLabel(value) }}</option></select></label>
+          class="w-44"
+          trigger-class="h-9"
+        />
         <label class="relative ml-auto min-w-40 flex-1 xl:max-w-56"><Search class="absolute top-2.5 left-3 size-4 text-muted-foreground" /><input
           v-model="search"
           aria-label="搜索候选"

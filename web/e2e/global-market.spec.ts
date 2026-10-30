@@ -111,9 +111,12 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(control).toHaveAttribute('data-state', 'checked');
     await expect(thumb).toHaveAttribute('data-state', 'checked');
     await expect.poll(async () => (await thumb.boundingBox())!.x).toBeGreaterThan(before!.x + 10);
-    await expect(control).toHaveCSS('background-color', theme === 'light' ? 'rgb(23, 23, 23)' : 'rgb(250, 250, 250)');
+    const brand = await page.getByRole('button', { name: '今天', exact: true }).evaluate(el => getComputedStyle(el).backgroundColor);
+    await expect(control).toHaveCSS('background-color', brand);
+    expect(await thumb.evaluate(el => getComputedStyle(el).backgroundColor)).not.toBe(brand);
     await page.goto('/profile/info');
     await expect(control).toBeDisabled();
     await expect(control).toHaveCSS('opacity', '0.5');
+    expect(await control.evaluate(el => getComputedStyle(el).backgroundColor)).not.toBe(brand);
   });
 }

@@ -1,3 +1,4 @@
+import { fieldSelect, setFieldSelect } from '../../../../../tests/helpers/fieldSelect';
 import MetricHint from '@/components/app/MetricHint.vue';
 import { metricHint } from '@/utils/metricHints';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -74,11 +75,11 @@ describe('independent research detail panels', () => {
     const wrapper = mount(DragonTigerDetailPanel, { props: { symbol: '600001.SH', market: 'CN', context: { dragonTiger: filters, dragonTigerConceptId: 'concept-2' } } });
     await flushPromises();
     expect(dragonTigerFlowApi.overview).toHaveBeenCalledWith(filters);
-    expect(wrapper.get('select').element.value).toBe('concept-2');
+    expect(fieldSelect(wrapper, '[aria-label="股票贡献概念"]').props('modelValue')).toBe('concept-2');
     expect(wrapper.text()).toContain('1/2');
     expect(wrapper.text()).toContain('不代表游资净额为零');
-    await wrapper.get('select').setValue('concept-0');
-    expect(wrapper.get('select').element.value).toBe('concept-0');
+    await setFieldSelect(wrapper, '[aria-label="股票贡献概念"]', 'concept-0');
+    expect(fieldSelect(wrapper, '[aria-label="股票贡献概念"]').props('modelValue')).toBe('concept-0');
     wrapper.unmount();
   });
   it('defaults dragon tiger to the source trade date and keeps 3-day snapshots non-cumulative', async () => {

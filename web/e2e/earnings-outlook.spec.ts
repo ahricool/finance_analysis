@@ -30,6 +30,9 @@ for (const width of [390, 768, 1024, 1280, 1440, 1920]) {
         json = { status: 'success', summary: outlook, actual: null, versions: [{ id: 1, stage: 'final', applicability: 'valid',
           generated_at: outlook.generated_at, data_cutoff: outlook.generated_at, release_cutoff: '2026-10-02T20:00:00Z',
           prediction: outlook, search_evidence: { status: 'unverified', requested: true, configured_support: true },
+          research: { sources: [], facts: [], conflicts: [] } }, { id: 2, stage: 'near', applicability: 'valid',
+          generated_at: '2026-09-30T20:10:00Z', data_cutoff: '2026-09-30T20:10:00Z',
+          prediction: { ...outlook, conclusion: '历史预测版本' }, search_evidence: { status: 'unverified' },
           research: { sources: [], facts: [], conflicts: [] } }] };
       }
       await route.fulfill({ json });
@@ -48,6 +51,27 @@ for (const width of [390, 768, 1024, 1280, 1440, 1920]) {
     await expect(dialog).toContainText('搜索执行未能确认');
     await expect(dialog).toContainText('模型证据评分，非胜率');
     expect(detailCalls).toBe(1);
+    const version = dialog.getByRole('combobox', { name: '预测版本', exact: true });
+    const geometry = () => page.evaluate(() => {
+      const header = document.querySelector('[data-testid="shell-header-content"]')!.getBoundingClientRect();
+      const dialog = document.querySelector('[role="dialog"]')!.getBoundingClientRect();
+      const trigger = document.querySelector('[aria-label="预测版本"]')!.getBoundingClientRect();
+      return { headerX: header.x, headerWidth: header.width, dialogX: dialog.x, dialogWidth: dialog.width,
+        triggerX: trigger.x, triggerWidth: trigger.width, overflow: document.body.style.overflow, padding: document.body.style.paddingRight };
+    });
+    // Wait for the dialog animation to finish before comparing dropdown geometry.
+    await dialog.evaluate(async element => { await Promise.all(element.getAnimations().map(animation => animation.finished)); });
+    const before = await geometry();
+    await version.click();
+    await expect(page.getByRole('listbox')).toBeVisible();
+    expect(await geometry()).toEqual(before);
+    await page.getByRole('option').nth(1).click();
+    await expect(dialog).toContainText('历史预测版本');
+    expect(await geometry()).toEqual(before);
+    await version.click(); await page.getByRole('option').nth(0).click();
+    await expect(dialog).not.toContainText('历史预测版本');
+    await expect(version).toContainText('最终版');
+    expect(await geometry()).toEqual(before);
     await page.screenshot({ path: `/tmp/earnings-outlook-${width}.png`, fullPage: true, animations: 'disabled' });
     await page.emulateMedia({ colorScheme: 'dark' });
     await expect(dialog).toBeVisible();
