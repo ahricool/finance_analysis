@@ -7,9 +7,16 @@ from finance_analysis.core.time import utc_now
 from . import config as c
 from .returns import positive, with_returns
 from .session import resolve_session
-from .engine import metrics, decision, stabilize
+from .engine import metrics, decision, stabilize, pending_status
 from .trend import temporary_trend
 from .market_data import collect_data
+
+
+def project_pending(row):
+    """Clarify saved V2 pending direction without rewriting historical evidence."""
+    if row.get("current_status") == "PENDING":
+        return {**row, "current_status": pending_status(row.get("proposed_state"))}
+    return row
 
 
 class ConfirmationService:
@@ -28,6 +35,9 @@ class ConfirmationService:
 
     def dates(self, market):
         return {"dates": self.store.dates(market)}
+
+    def evaluations(self, market, day, code):
+        return [project_pending(row) for row in self.store.evaluations(market, day, code)]
 
     def read(self, market, state=None, candidate_source=None, now=None, trade_date=None):
         now = now or utc_now()
@@ -48,7 +58,7 @@ class ConfirmationService:
         rows = [
             {
                 k: v
-                for k, v in r.items()
+                for k, v in project_pending(r).items()
                 if k
                 not in {
                     "official_trend",
@@ -88,7 +98,9 @@ class ConfirmationService:
         summary["total"] = len(rows)
         summary["ever_confirmed"] = sum(bool(r.get("first_confirmed_at")) or r["state"] == "CONFIRMED" for r in rows)
         summary["active"] = sum(r.get("current_status") == "ACTIVE" for r in rows)
-        summary["attention"] = sum(r.get("current_status") in {"WEAKENING", "FAILED", "UNAVAILABLE"} for r in rows)
+        summary["attention"] = sum(
+            r.get("current_status") in {"WEAKENING", "PENDING_FAILURE", "FAILED", "UNAVAILABLE"} for r in rows
+        )
         rows = [
             r
             for r in rows
@@ -99,14 +111,15 @@ class ConfirmationService:
             key=lambda r: (
                 {
                     "ACTIVE": 0,
-                    "PENDING": 1,
+                    "PENDING_CONFIRMATION": 1,
                     "WAIT": 2,
                     "WEAKENING": 3,
-                    "RECOVERED": 4,
-                    "FAILED": 5,
-                    "UNAVAILABLE": 6,
-                    "PREOPEN": 7,
-                }.get(r.get("current_status"), 8),
+                    "PENDING_FAILURE": 4,
+                    "RECOVERED": 5,
+                    "FAILED": 6,
+                    "UNAVAILABLE": 7,
+                    "PREOPEN": 8,
+                }.get(r.get("current_status"), 9),
                 {"CONFIRMED": 0, "WAIT": 1, "FAILED": 2}[r["state"]],
                 r.get("confirmation_score") is None,
                 -(r.get("confirmation_score") or 0),

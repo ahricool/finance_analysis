@@ -1,11 +1,13 @@
 <script setup lang="ts">
+import SortableTableHeader from '@/components/stocks/SortableTableHeader.vue';
+import { useTableSort, sortField } from '@/composables/useTableSort';
 import { useMarket } from '@/composables/useMarket';
 import { formatRank } from '@/utils/rank';
 import StockLink from '@/components/stocks/StockLink.vue';
 import BilingualEnum from '@/components/app/BilingualEnum.vue';
 import PageHeader from '@/components/layout/PageHeader.vue';
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
-import { confluenceApi as api, type ConfluenceRanking, type ConfluenceItem } from '@/api/confluence';
+import { confluenceApi as api, type ConfluenceRanking, type ConfluenceItem, type SignalKey } from '@/api/confluence';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import { useAuth } from '@/composables/useAuth';
 import AppApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
@@ -15,7 +17,7 @@ import { RefreshCcw } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { Table, TableHeader, TableHead, TableBody, TableRow, TableCell } from '@/components/ui/table';
+import { Table, TableHeader, TableBody, TableRow, TableCell } from '@/components/ui/table';
 import { primary, secondary, labels, weights, signal, strength, agreement, tone } from '@/components/confluence/evidence';
 import { formatDateTime } from '@/utils/format';
 
@@ -29,8 +31,18 @@ const taskId = ref(''); const dialogOpen = ref(false);
 const page = ref(1);
 const pageSize = 10;
 const rankedItems = computed(() => result.value?.items.slice(0, 50) ?? []);
+const originalRanks = computed(() => new Map(rankedItems.value.map((row, index) => [row.code, index + 1])));
+const table = useTableSort(() => rankedItems.value, (row, key) => {
+  if (key.startsWith('primary.')) return strength(row, key.slice(8) as SignalKey);
+  if (key === 'secondary') {
+    const values = secondary.map(family => strength(row, family)).filter((value): value is number => value != null);
+    return values.length ? values.reduce((sum, value) => sum + value, 0) : null;
+  }
+  return sortField(row, key);
+});
+watch([() => table.sortKey, () => table.direction], () => { page.value = 1; });
 const pageCount = computed(() => Math.max(1, Math.ceil(rankedItems.value.length / pageSize)));
-const pageItems = computed(() => rankedItems.value.slice((page.value - 1) * pageSize, page.value * pageSize));
+const pageItems = computed(() => table.sorted.slice((page.value - 1) * pageSize, page.value * pageSize));
 const minimumScore = computed(() => result.value?.rules.minimumScore ?? 60);
 const sectorMacro = computed(() => Boolean(result.value?.rules.macroMethod || result.value?.items.some(row => row.signals.macro?.evidence.macroMethod)));
 let generation = 0; let runGeneration = 0;
@@ -308,26 +320,36 @@ const detailInitialTab = ref<'overview' | 'confluence'>('confluence');
           <Table class="min-w-[1080px]">
             <TableHeader>
               <TableRow class="bg-muted/35 hover:bg-muted/35">
-                <TableHead class="w-44">
-                  证券 / 证据一致性
-                </TableHead><TableHead class="w-28">
-                  共振分
-                </TableHead><TableHead
+                <SortableTableHeader
+                  class="w-44"
+                  label="证券 / 证据一致性"
+                  v-bind="table.header('name')"
+                /><SortableTableHeader
+                  class="w-28"
+                  label="共振分"
+                  v-bind="table.header('confluenceScore')"
+                /><SortableTableHeader
                   v-for="key in primary"
                   :key="key"
                   class="w-24"
-                >
-                  {{ configuredLabel(key) }}
-                </TableHead><TableHead class="w-60">
-                  辅助证据
-                </TableHead><TableHead class="w-24 text-right">
-                  有效权重
-                </TableHead>
+                  :label="configuredLabel(key)"
+                  v-bind="table.header('primary.' + key)"
+                /><SortableTableHeader
+                  class="w-60"
+                  label="辅助证据"
+                  description="按可用辅助指标强度合计排序；全部缺失时置后"
+                  v-bind="table.header('secondary')"
+                /><SortableTableHeader
+                  align="right"
+                  class="w-24 text-right"
+                  label="有效权重"
+                  v-bind="table.header('availableWeight')"
+                />
               </TableRow>
             </TableHeader>
             <TableBody>
               <TableRow
-                v-for="(row, index) in pageItems"
+                v-for="row in pageItems"
                 :key="row.code"
                 class="cursor-pointer"
                 tabindex="0"
@@ -337,7 +359,7 @@ const detailInitialTab = ref<'overview' | 'confluence'>('confluence');
               >
                 <TableCell class="py-5">
                   <div class="flex items-start gap-3">
-                    <span class="mt-1 font-mono text-xs text-muted-foreground">{{ formatRank((page - 1) * pageSize + index + 1, result?.total) }}</span><div>
+                    <span class="mt-1 font-mono text-xs text-muted-foreground">{{ formatRank(originalRanks.get(row.code), result?.total) }}</span><div>
                       <StockLink
                         :code="row.code"
                         :name="row.name"

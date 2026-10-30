@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import SortableTableHeader from '@/components/stocks/SortableTableHeader.vue';
+import { useTableSort, sortField, sortTime } from '@/composables/useTableSort';
 import IndicatorHelpLabel from '@/components/app/IndicatorHelpLabel.vue';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import { tasksApi, type TaskRunQuery } from '@/api/tasks';
@@ -384,6 +386,14 @@ watch(
 onBeforeUnmount(() => {
   clearKeywordTimer();
 });
+
+const scheduleTable = useTableSort(() => scheduledItems.value, (row, key) => {
+  if (key === 'latestRun') return sortTime(row.latestRun?.finishedAt || row.latestRun?.startedAt);
+  if (key === 'nextRunTime') return sortTime(row.nextRunTime);
+  return sortField(row, key);
+});
+// Run history is genuinely server-paginated; its API has no global sorting parameters.
+
 </script>
 
 <template>
@@ -497,46 +507,37 @@ onBeforeUnmount(() => {
               >
                 <TableHeader>
                   <TableRow>
-                    <TableHead>
-                      <IndicatorHelpLabel
-                        scope="tasks"
-                        label="任务"
-                        compact
-                      />
-                    </TableHead>
-                    <TableHead>
-                      <IndicatorHelpLabel
-                        scope="tasks"
-                        label="任务 ID"
-                        compact
-                      />
-                    </TableHead>
-                    <TableHead class="w-[10rem]">
-                      <IndicatorHelpLabel
-                        scope="tasks"
-                        label="调度规则"
-                        compact
-                      />
-                    </TableHead>
-                    <TableHead>
-                      <IndicatorHelpLabel
-                        scope="tasks"
-                        label="最近执行"
-                        compact
-                      />
-                    </TableHead>
-                    <TableHead>
-                      <IndicatorHelpLabel
-                        scope="tasks"
-                        label="下次执行"
-                        compact
-                      />
-                    </TableHead>
+                    <SortableTableHeader
+                      label="任务"
+                      scope="tasks"
+                      v-bind="scheduleTable.header('name')"
+                    />
+                    <SortableTableHeader
+                      label="任务 ID"
+                      scope="tasks"
+                      v-bind="scheduleTable.header('jobId')"
+                    />
+                    <SortableTableHeader
+                      class="w-[10rem]"
+                      label="调度规则"
+                      scope="tasks"
+                      v-bind="scheduleTable.header('schedule')"
+                    />
+                    <SortableTableHeader
+                      label="最近执行"
+                      scope="tasks"
+                      v-bind="scheduleTable.header('latestRun')"
+                    />
+                    <SortableTableHeader
+                      label="下次执行"
+                      scope="tasks"
+                      v-bind="scheduleTable.header('nextRunTime')"
+                    />
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   <TableRow
-                    v-for="job in scheduledItems"
+                    v-for="job in scheduleTable.sorted"
                     :key="job.jobId"
                     class="cursor-pointer"
                     @click="scheduledDetail = job"

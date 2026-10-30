@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import SortableTableHeader from '@/components/stocks/SortableTableHeader.vue';
+import { useTableSort } from '@/composables/useTableSort';
 import StockLink from '@/components/stocks/StockLink.vue';
 import IndicatorHelpLabel from '@/components/app/IndicatorHelpLabel.vue';
 import { metricHint } from '@/utils/metricHints';
@@ -77,6 +79,9 @@ onMounted(() => {
   void api.dates().then(value => { dates.value = value; }).catch(cause => { auxiliaryError.value = getParsedApiError(cause); });
 });
 onBeforeUnmount(() => { generation++; poolGeneration++; });
+
+const ladderTable = useTableSort(() => ladder.value?.source?.items ?? [], (row, key) => key === 'date' ? row.date : row.boards[key]?.length);
+
 </script>
 <template>
   <div
@@ -342,23 +347,23 @@ onBeforeUnmount(() => { generation++; poolGeneration++; });
           <table class="w-full min-w-max text-left text-xs">
             <thead>
               <tr>
-                <th class="p-2">
-                  <IndicatorHelpLabel
-                    scope="sentiment"
-                    label="日期"
-                    compact
-                  />
-                </th><th
+                <SortableTableHeader
+                  class="p-2"
+                  label="日期"
+                  scope="sentiment"
+                  v-bind="ladderTable.header('date')"
+                /><SortableTableHeader
                   v-for="(label, key) in officialBoards"
                   :key="key"
                   class="p-2"
-                >
-                  {{ label }}
-                </th>
+                  :label="label"
+                  description="按该栏已展示的上榜样本数排序"
+                  v-bind="ladderTable.header(key)"
+                />
               </tr>
             </thead><tbody>
               <tr
-                v-for="d in ladder.source.items"
+                v-for="d in ladderTable.sorted"
                 :key="d.date"
                 class="border-t"
               >

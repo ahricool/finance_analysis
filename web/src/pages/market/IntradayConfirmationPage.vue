@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import SortableTableHeader from '@/components/stocks/SortableTableHeader.vue';
+import { useTableSort, sortField } from '@/composables/useTableSort';
 import { useMarket } from '@/composables/useMarket';
 import { formatFixed, formatPercent } from '@/utils/number';
 import StockLink from '@/components/stocks/StockLink.vue';
@@ -11,7 +13,7 @@ import PageHeader from '@/components/layout/PageHeader.vue';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import StockDetailDialog from '@/components/stocks/StockDetailDialog.vue';
-import { Table, TableHeader, TableHead, TableBody, TableRow, TableCell } from '@/components/ui/table';
+import { Table, TableHeader, TableBody, TableRow, TableCell } from '@/components/ui/table';
 import AppPagination from '@/components/app/AppPagination.vue';
 import { intradayLabel } from '@/i18n/labels';
 import { Activity, ArrowUpRight, Clock3, RefreshCw, Search, ShieldAlert } from 'lucide-vue-next';
@@ -29,18 +31,25 @@ const search = ref(''); const page = ref(1); const currentFilter = ref('');
 const filtered = computed(() => (result.value?.items ?? []).filter(row =>
   `${row.code} ${row.name}`.toLowerCase().includes(search.value.toLowerCase()) &&
   (!currentFilter.value || (row.currentStatus ?? 'LEGACY') === currentFilter.value)));
+const observationOrder = ['ACTIVE', 'PENDING_CONFIRMATION', 'WAIT', 'WEAKENING', 'PENDING_FAILURE', 'RECOVERED', 'FAILED', 'UNAVAILABLE', 'PREOPEN'];
+const table = useTableSort(() => filtered.value, (row, key) => {
+  if (key === 'currentStatus') return observationOrder.indexOf(row.currentStatus ?? '') < 0 ? null : observationOrder.indexOf(row.currentStatus!);
+  if (key === 'chaseRisk') return ['LOW', 'MEDIUM', 'HIGH'].indexOf(row.chaseRisk) < 0 ? null : ['LOW', 'MEDIUM', 'HIGH'].indexOf(row.chaseRisk);
+  if (key === 'trend.impact') return ({ improving: 0, intact: 1, deteriorating: 2, broken: 3 } as Record<string, number>)[String(row.trend.impact)];
+  return sortField(row, key);
+});
 const pageCount = computed(() => Math.max(1, Math.ceil(filtered.value.length / 15)));
-const visibleRows = computed(() => filtered.value.slice((page.value - 1) * 15, page.value * 15));
-watch([search, currentFilter, result], () => { page.value = 1; });
+const visibleRows = computed(() => table.sorted.slice((page.value - 1) * 15, page.value * 15));
+watch([search, currentFilter, result, () => table.sortKey, () => table.direction], () => { page.value = 1; });
 const cards = computed(() => [
   { label: '冻结候选', value: result.value?.summary.total ?? 0, note: '三个正式来源 · 去重保留', icon: Activity },
   { label: '曾经确认', value: result.value?.summary.everConfirmed ?? result.value?.summary.confirmed ?? 0, note: '首次价格固定 · 追踪后续收益', icon: ArrowUpRight },
   { label: '当前有效', value: result.value?.ruleVersion === 'intraday_v2' ? result.value.summary.active ?? 0 : '—', note: '最新评估仍满足确认条件', icon: Clock3 },
-  { label: '需要关注', value: result.value?.ruleVersion === 'intraday_v2' ? result.value.summary.attention ?? 0 : '—', note: '走弱 / 失效 / 数据不足', icon: ShieldAlert },
+  { label: '需要关注', value: result.value?.ruleVersion === 'intraday_v2' ? result.value.summary.attention ?? 0 : '—', note: '走弱 / 失效待确认 / 失效 / 数据不足', icon: ShieldAlert },
 ]);
 function currentClass(row: Confirmation) {
   return row.currentStatus === 'ACTIVE' ? 'border-sky-500/30 bg-sky-500/10 text-sky-700 dark:text-sky-300' :
-    ['FAILED', 'WEAKENING'].includes(row.currentStatus ?? '') ? 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300' : 'border-border bg-muted/40 text-muted-foreground';
+    ['FAILED', 'WEAKENING', 'PENDING_FAILURE'].includes(row.currentStatus ?? '') ? 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300' : 'border-border bg-muted/40 text-muted-foreground';
 }
 let generation = 0; let datesGeneration = 0; let runGeneration = 0;
 let controller: AbortController | undefined; let datesController: AbortController | undefined;
@@ -205,7 +214,7 @@ const detailInitialTab = ref<'overview' | 'intraday'>('intraday');
           aria-label="当前观察"
           class="h-9 rounded-md border border-input bg-background px-3 text-sm text-foreground"
         ><option value="">全部观察</option><option
-          v-for="value in ['ACTIVE', 'PENDING', 'WAIT', 'WEAKENING', 'FAILED', 'RECOVERED', 'UNAVAILABLE']"
+          v-for="value in ['ACTIVE', 'PENDING_CONFIRMATION', 'WAIT', 'WEAKENING', 'PENDING_FAILURE', 'RECOVERED', 'FAILED', 'UNAVAILABLE', 'PENDING']"
           :key="value"
           :value="value"
         >{{ intradayLabel(value) }}</option></select></label>
@@ -238,28 +247,58 @@ const detailInitialTab = ref<'overview' | 'intraday'>('intraday');
           <Table class="min-w-[1180px] text-sm">
             <TableHeader class="bg-muted/30">
               <TableRow>
-                <TableHead class="w-44 pl-4">
-                  证券 / 来源
-                </TableHead><TableHead>当前观察 / 历史</TableHead><TableHead class="text-right">
-                  确认分
-                </TableHead>
-                <TableHead class="text-right">
-                  最新价 / 日内
-                </TableHead><TableHead class="text-right">
-                  相对大盘
-                </TableHead><TableHead class="text-right">
-                  距全天均价
-                </TableHead>
-                <TableHead>追高风险</TableHead><TableHead>趋势辅助</TableHead><TableHead class="text-right">
-                  量比≈
-                </TableHead>
-                <TableHead
-                  v-for="label in ['3日收益', '5日收益', '10日收益']"
-                  :key="label"
+                <SortableTableHeader
+                  class="w-44 pl-4"
+                  label="证券 / 来源"
+                  description="按证券名称排序"
+                  v-bind="table.header('name')"
+                /><SortableTableHeader
+                  label="当前观察 / 历史"
+                  description="按当前观察状态排序"
+                  v-bind="table.header('currentStatus')"
+                /><SortableTableHeader
+                  align="right"
                   class="text-right"
-                >
-                  {{ label }}
-                </TableHead>
+                  label="确认分"
+                  v-bind="table.header('confirmationScore')"
+                />
+                <SortableTableHeader
+                  align="right"
+                  class="text-right"
+                  label="最新价 / 日内"
+                  description="按开盘至今收益排序"
+                  v-bind="table.header('metrics.intradayReturn')"
+                /><SortableTableHeader
+                  align="right"
+                  class="text-right"
+                  label="相对大盘"
+                  v-bind="table.header('metrics.relativeToMarket')"
+                /><SortableTableHeader
+                  align="right"
+                  class="text-right"
+                  label="距全天均价"
+                  v-bind="table.header('metrics.sessionMeanDistancePct')"
+                />
+                <SortableTableHeader
+                  label="追高风险"
+                  v-bind="table.header('chaseRisk')"
+                /><SortableTableHeader
+                  label="趋势辅助"
+                  v-bind="table.header('trend.impact')"
+                /><SortableTableHeader
+                  align="right"
+                  class="text-right"
+                  label="量比≈"
+                  v-bind="table.header('metrics.volumeRatio')"
+                />
+                <SortableTableHeader
+                  v-for="days in [3, 5, 10]"
+                  :key="days"
+                  align="right"
+                  class="text-right"
+                  :label="`${days}日收益`"
+                  v-bind="table.header('return' + days + 'D')"
+                />
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -377,7 +416,7 @@ const detailInitialTab = ref<'overview' | 'intraday'>('intraday');
       <div class="space-y-1">
         <p class="font-medium text-foreground">
           如何阅读
-        </p><p>“曾经确认”记录历史事件，“当前观察”表示最新评估；两者独立。高追高风险不撤销确认。</p><p>行情以各证券数据时间为准，Yahoo 可能延迟。缺失数据不按零值处理。</p><p>{{ result.rulesNote }}</p>
+        </p><p>“曾经确认”记录历史事件，“当前观察”表示最新评估；两者独立。高追高风险不撤销确认。</p><p>走强待确认：已满足走强条件，等待连续评估；失效待确认：已触发失效条件，等待连续评估。</p><p>行情以各证券数据时间为准，Yahoo 可能延迟。缺失数据不按零值处理。</p><p>{{ result.rulesNote }}</p>
       </div>
       <div class="space-y-1">
         <p class="font-medium text-foreground">

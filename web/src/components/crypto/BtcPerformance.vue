@@ -1,10 +1,13 @@
 <script setup lang="ts">
+import { metricHint } from '@/utils/metricHints';
+import SortableTableHeader from '@/components/stocks/SortableTableHeader.vue';
+import { useTableSort, sortField, sortNumber, sortTime } from '@/composables/useTableSort';
 import { computed } from 'vue';
 import type { CryptoPerformance } from '@/types/crypto';
 import BilingualEnum from '@/components/app/BilingualEnum.vue';
 import IndicatorHelpLabel from '@/components/app/IndicatorHelpLabel.vue';
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/components/ui/card';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Table, TableBody, TableCell, TableHeader, TableRow } from '@/components/ui/table';
 const props = defineProps<{ performance: CryptoPerformance; price: string | null }>();
 const percent = (value: string | number | null | undefined) => value == null ? '—' : Number.isFinite(Number(value) * 100) ? `${(Number(value) * 100).toFixed(2)}%` : `${value} × 100%`;
 const number = (value: string | null) => value == null ? '—' : Number(value).toLocaleString('en-US', { maximumFractionDigits: 2 });
@@ -25,6 +28,10 @@ const curve = computed(() => {
   const low = values.reduce((a, b) => Math.min(a, b), 1), high = values.reduce((a, b) => Math.max(a, b), 1);
   return values.map((value, index) => `${10 + index / Math.max(values.length - 1, 1) * 980},${110 - (value - low) / (high - low || 1) * 90}`).join(' ');
 });
+
+const executionTable = useTableSort(() => props.performance.recentExecutions, (row, key) => key === 'evaluatedAt' ? sortTime(row.evaluatedAt) : key === 'action' ? row.action : sortNumber(sortField(row, key)));
+const tradeTable = useTableSort(() => props.performance.recentTrades, (row, key) => key === 'entryTime' ? sortTime(row.entryTime) : sortNumber(sortField(row, key)));
+
 </script>
 <template>
   <Card data-testid="btc-performance">
@@ -100,36 +107,29 @@ const curve = computed(() => {
           <Table v-else>
             <TableHeader>
               <TableRow>
-                <TableHead>
-                  <IndicatorHelpLabel
-                    scope="crypto"
-                    label="时间 UTC"
-                    compact
-                  />
-                </TableHead><TableHead>
-                  <IndicatorHelpLabel
-                    scope="crypto"
-                    label="操作"
-                    compact
-                  />
-                </TableHead><TableHead>
-                  <IndicatorHelpLabel
-                    scope="crypto"
-                    label="仓位"
-                    compact
-                  />
-                </TableHead><TableHead>
-                  <IndicatorHelpLabel
-                    scope="crypto"
-                    label="价格"
-                    compact
-                  />
-                </TableHead>
+                <SortableTableHeader
+                  label="时间 UTC"
+                  scope="crypto"
+                  v-bind="executionTable.header('evaluatedAt')"
+                /><SortableTableHeader
+                  label="操作"
+                  scope="crypto"
+                  v-bind="executionTable.header('action')"
+                /><SortableTableHeader
+                  label="仓位"
+                  :description="[metricHint('crypto', '仓位'), '按调整后仓位排序'].filter(Boolean).join('；')"
+                  scope="crypto"
+                  v-bind="executionTable.header('positionAfter')"
+                /><SortableTableHeader
+                  label="价格"
+                  scope="crypto"
+                  v-bind="executionTable.header('price')"
+                />
               </TableRow>
             </TableHeader>
             <TableBody>
               <TableRow
-                v-for="item in performance.recentExecutions.slice(0, 10)"
+                v-for="item in executionTable.sorted.slice(0, 10)"
                 :key="item.evaluatedAt"
               >
                 <TableCell>{{ item.evaluatedAt.replace('T', ' ').slice(0, 16) }}</TableCell><TableCell>
@@ -158,30 +158,25 @@ const curve = computed(() => {
           <Table v-else>
             <TableHeader>
               <TableRow>
-                <TableHead>
-                  <IndicatorHelpLabel
-                    scope="crypto"
-                    label="入场 / 退出 UTC"
-                    compact
-                  />
-                </TableHead><TableHead>
-                  <IndicatorHelpLabel
-                    scope="crypto"
-                    label="持有"
-                    compact
-                  />
-                </TableHead><TableHead>
-                  <IndicatorHelpLabel
-                    scope="crypto"
-                    label="收益"
-                    compact
-                  />
-                </TableHead>
+                <SortableTableHeader
+                  label="入场 / 退出 UTC"
+                  :description="[metricHint('crypto', '入场 / 退出 UTC'), '按入场时间排序'].filter(Boolean).join('；')"
+                  scope="crypto"
+                  v-bind="tradeTable.header('entryTime')"
+                /><SortableTableHeader
+                  label="持有"
+                  scope="crypto"
+                  v-bind="tradeTable.header('holdingSeconds')"
+                /><SortableTableHeader
+                  label="收益"
+                  scope="crypto"
+                  v-bind="tradeTable.header('realizedReturn')"
+                />
               </TableRow>
             </TableHeader>
             <TableBody>
               <TableRow
-                v-for="item in performance.recentTrades.slice(0, 10)"
+                v-for="item in tradeTable.sorted.slice(0, 10)"
                 :key="item.entryTime"
               >
                 <TableCell>{{ item.entryTime.replace('T', ' ').slice(0, 16) }}<br>{{ item.exitTime.replace('T', ' ').slice(0, 16) }}</TableCell><TableCell>{{ (item.holdingSeconds / 3600).toFixed(2) }}h</TableCell><TableCell>{{ percent(item.realizedReturn) }}</TableCell>

@@ -47,3 +47,41 @@ for (const width of [390, 768, 1024, 1280, 1440, 1920]) {
     });
   }
 }
+
+test('pending directions and header sorting work across the complete snapshot before pagination', async ({ page }, testInfo) => {
+  const fixture = { ...raw, items: Array.from({ length: 18 }, (_, index) => ({
+    ...raw.items[0], code: `ROW${index}.US`, name: `候选${index}`, state: 'WAIT',
+    current_status: index === 0 ? 'PENDING_CONFIRMATION' : index === 1 ? 'PENDING_FAILURE' : 'WAIT',
+    confirmation_score: index, return_3d: index / 100, return_5d: index / 200, return_10d: (18 - index) / 100,
+    metrics: { ...raw.items[0]!.metrics, relative_to_market: index / 100 },
+  })) };
+  await page.route('**/api/v1/**', route => {
+    const url = new URL(route.request().url());
+    if (url.pathname.endsWith('/auth/status')) return route.fulfill({ json: { loggedIn: true, user: { uid: 1, username: 'Tester', role: 'user', extra: {} } } });
+    if (url.pathname.endsWith('/intraday-confirmation')) return route.fulfill({ json: fixture });
+    if (url.pathname.endsWith('/dates')) return route.fulfill({ json: { dates: [] } });
+    return route.fulfill({ json: {} });
+  });
+  await page.goto('/research/intraday-confirmation?market=US');
+  const rows = page.locator('tbody tr');
+  await expect(rows.first()).toContainText('ROW0.US');
+  await expect(page.getByRole('table')).toContainText('走强待确认');
+  await expect(page.getByRole('table')).toContainText('失效待确认');
+  const score = page.getByRole('columnheader', { name: '确认分', exact: true });
+  await score.getByRole('button').click();
+  await score.getByRole('button').click();
+  await expect(score).toHaveAttribute('aria-sort', 'descending');
+  await expect(rows.first()).toContainText('ROW17.US');
+  await page.getByRole('button', { name: '下一页', exact: true }).click();
+  await expect(rows).toHaveCount(3);
+  await page.getByRole('columnheader', { name: '相对大盘', exact: true }).getByRole('button').click();
+  await expect(rows).toHaveCount(15);
+  await expect(rows.first()).toContainText('ROW0.US');
+  await page.getByRole('columnheader', { name: '10日收益', exact: true }).getByRole('button').click();
+  await expect(rows.first()).toContainText('ROW17.US');
+  await page.getByRole('combobox', { name: '当前观察', exact: true }).selectOption('PENDING_FAILURE');
+  await expect(rows).toHaveCount(1);
+  await expect(rows.first()).toContainText('ROW1.US');
+  await expect(rows.first()).toContainText('失效待确认');
+  await page.screenshot({ path: testInfo.outputPath('pending-failure.png'), fullPage: true });
+});

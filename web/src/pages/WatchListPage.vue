@@ -2,7 +2,6 @@
 import { useMarket } from '@/composables/useMarket';
 import StockIdentity from '@/components/stocks/StockIdentity.vue';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
-import type { RealtimePatternState, RealtimeTrend } from '@/api/realtimeMarket';
 import {
   watchListApi,
   type MarketType,
@@ -38,6 +37,7 @@ import { useRealtimeQuotes } from '@/composables/useRealtimeQuotes';
 import type { Market } from '@/types/stockIndex';
 import { formatSecurityLabel } from '@/utils/security';
 import { signedTextClass } from '@/utils/marketTone';
+import { trendSortValue, patternSortValue } from '@/utils/realtimeTableSort';
 import { calculateIntradayDirection, intradayDirectionSortValue } from '@/utils/intradayDirection';
 import { Eye, Heart, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-vue-next';
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
@@ -161,27 +161,6 @@ function sortValue(
     );
   }
   return item[key];
-}
-
-function trendSortValue(trend: RealtimeTrend | null | undefined): number | null {
-  if (!trend || trend.state === 'insufficient' || trend.streak <= 0) return null;
-  if (trend.state === 'above') return trend.streak;
-  if (trend.state === 'below') return -trend.streak;
-  return 0;
-}
-
-function patternSortValue(pattern: RealtimePatternState | null | undefined): number | null {
-  const signal = pattern?.status === 'active' ? pattern.signal : null;
-  if (!signal) return null;
-  const stage = { forming: 1, warning: 2, confirmed: 3 }[signal.stage];
-  const direction = ['bullish_continuation', 'bearish_to_bullish', 'bullish_breakout'].includes(
-    signal.direction,
-  )
-    ? 1
-    : ['bearish_continuation', 'bullish_to_bearish', 'bearish_breakout'].includes(signal.direction)
-      ? -1
-      : 0;
-  return stage * 1000 + signal.qualityScore * 10 + direction;
 }
 
 function normalizeSortValue(value: string | number | boolean | null | undefined): string | number {

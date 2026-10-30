@@ -173,3 +173,65 @@ it('separates current weakness from the historical confirmation and retains ever
   expect(wrapper.get('tbody').text()).toContain('没有符合筛选条件');
   wrapper.unmount();
 });
+
+it('distinguishes pending directions and filters them independently', async () => {
+  vi.mocked(api.read).mockResolvedValue({ ...snapshot, ruleVersion: 'intraday_v2', items: [
+    { ...snapshot.items[0], code: 'UP.US', name: '走强样本', state: 'WAIT', currentStatus: 'PENDING_CONFIRMATION' },
+    { ...snapshot.items[0], code: 'TMO.US', name: '失效样本', state: 'WAIT', currentStatus: 'PENDING_FAILURE', confirmationScore: 3.81 },
+  ] } as never);
+  const wrapper = mount(Page); await flushPromises();
+  expect(wrapper.get('tbody').text()).toContain('走强待确认');
+  expect(wrapper.get('tbody').text()).toContain('失效待确认');
+  await wrapper.get('select[aria-label="当前观察"]').setValue('PENDING_FAILURE');
+  expect(wrapper.get('tbody').text()).toContain('TMO.US');
+  expect(wrapper.get('tbody').text()).not.toContain('UP.US');
+  await wrapper.get('select[aria-label="当前观察"]').setValue('PENDING_CONFIRMATION');
+  expect(wrapper.get('tbody').text()).toContain('UP.US');
+  expect(wrapper.get('tbody').text()).not.toContain('TMO.US');
+  wrapper.unmount();
+});
+
+it('sorts the whole filtered snapshot through headers before paging and returns to page one', async () => {
+  vi.mocked(api.read).mockResolvedValue({ ...snapshot, items: Array.from({ length: 18 }, (_, index) => ({
+    ...snapshot.items[0], code: `ROW${index}.US`, name: `样本${index}`, confirmationScore: index,
+    metrics: { ...snapshot.items[0]!.metrics, relativeToMarket: index / 100, intradayReturn: index / 200 },
+  })) } as never);
+  const wrapper = mount(Page); await flushPromises();
+  const body = () => wrapper.get('tbody').findAll('tr');
+  expect(body()[0]!.text()).toContain('ROW0.US');
+  const score = wrapper.findAll('th').find(header => header.text().includes('确认分'))!;
+  await score.get('button').trigger('click');
+  expect(score.attributes('aria-sort')).toBe('ascending');
+  await score.get('button').trigger('click');
+  expect(score.attributes('aria-sort')).toBe('descending');
+  expect(body()[0]!.text()).toContain('ROW17.US');
+  expect(body()).toHaveLength(15);
+  await wrapper.findAll('button').find(button => button.attributes('aria-label') === '下一页')!.trigger('click');
+  const rs = wrapper.findAll('th').find(header => header.text().includes('相对大盘'))!;
+  await rs.get('button').trigger('click');
+  expect(body()[0]!.text()).toContain('ROW0.US');
+  expect(body()).toHaveLength(15);
+  await wrapper.get('input[aria-label="搜索候选"]').setValue('样本17');
+  expect(body()).toHaveLength(1);
+  expect(body()[0]!.text()).toContain('ROW17.US');
+  wrapper.unmount();
+});
+
+it('sorts all three forward-return horizons by their own raw values and keeps missing returns last', async () => {
+  vi.mocked(api.read).mockResolvedValue({ ...snapshot, items: [
+    { ...snapshot.items[0], code: 'A.US', return3D: .1, return5D: -.2, return10D: .3 },
+    { ...snapshot.items[0], code: 'B.US', return3D: -.1, return5D: .2, return10D: -.3 },
+    { ...snapshot.items[0], code: 'EMPTY.US', return3D: null, return5D: null, return10D: null },
+  ] } as never);
+  const wrapper = mount(Page); await flushPromises();
+  for (const [days, first] of [[3, 'B.US'], [5, 'A.US'], [10, 'B.US']] as const) {
+    const header = wrapper.findAll('th').find(node => node.text().includes(`${days}日收益`))!;
+    await header.get('button').trigger('click');
+    const rows = wrapper.get('tbody').findAll('tr');
+    expect(rows[0]!.text()).toContain(first);
+    expect(rows.at(-1)!.text()).toContain('EMPTY.US');
+    await header.get('button').trigger('click');
+    expect(wrapper.get('tbody').findAll('tr').at(-1)!.text()).toContain('EMPTY.US');
+  }
+  wrapper.unmount();
+});

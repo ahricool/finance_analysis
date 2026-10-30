@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import SortableTableHeader from '@/components/stocks/SortableTableHeader.vue';
+import { useTableSort, useGroupedTableSort, sortField } from '@/composables/useTableSort';
 import { formatRank } from '@/utils/rank';
 import { computed } from 'vue';
 import BilingualEnum from '@/components/app/BilingualEnum.vue';
@@ -36,6 +38,10 @@ function hint(key: SignalKey, label: string) {
   return metricHint(`confluence-${key}`, fields[label] ?? label) || '来源模块的正式核心指标，缺失显示为空。';
 }
 function etfs() { return (signal(props.row, 'etf').evidence.etfs ?? []) as Array<{ code: string; name: string; compositeScore: number | null; mappingReasons: string[] }>; }
+
+const profileTable = useGroupedTableSort((key: string) => macroProfiles.value.find(profile => profile.key === key)?.terms ?? [], sortField);
+const matrixTable = useTableSort(() => matrix.value, (row, key) => sortField(row, key));
+
 </script>
 <template>
   <div
@@ -138,20 +144,31 @@ function etfs() { return (signal(props.row, 'etf').evidence.etfs ?? []) as Array
                 <table class="w-full text-xs">
                   <thead>
                     <tr class="text-muted-foreground">
-                      <th class="py-1 text-left font-normal">
-                        因子
-                      </th><th class="text-right font-normal">
-                        值
-                      </th><th class="text-right font-normal">
-                        敏感系数
-                      </th><th class="text-right font-normal">
-                        适配增减
-                      </th>
+                      <SortableTableHeader
+                        class="py-1 text-left font-normal"
+                        label="因子"
+                        v-bind="profileTable(profile.key).header('label')"
+                      /><SortableTableHeader
+                        align="right"
+                        class="text-right font-normal"
+                        label="值"
+                        v-bind="profileTable(profile.key).header('value')"
+                      /><SortableTableHeader
+                        align="right"
+                        class="text-right font-normal"
+                        label="敏感系数"
+                        v-bind="profileTable(profile.key).header('coefficient')"
+                      /><SortableTableHeader
+                        align="right"
+                        class="text-right font-normal"
+                        label="适配增减"
+                        v-bind="profileTable(profile.key).header('contribution')"
+                      />
                     </tr>
                   </thead>
                   <tbody>
                     <tr
-                      v-for="term in profile.terms"
+                      v-for="term in profileTable(profile.key).sorted"
                       :key="term.key"
                       class="border-t"
                     >
@@ -212,19 +229,22 @@ function etfs() { return (signal(props.row, 'etf').evidence.etfs ?? []) as Array
             <table class="w-full text-xs">
               <thead>
                 <tr class="text-muted-foreground">
-                  <th class="py-2 text-left font-normal">
-                    周期
-                  </th><th
+                  <SortableTableHeader
+                    class="py-2 text-left font-normal"
+                    label="周期"
+                    v-bind="matrixTable.header('period')"
+                  /><SortableTableHeader
                     v-for="route in routes"
                     :key="route.key"
+                    align="right"
                     class="text-right font-normal"
-                  >
-                    {{ route.label }}
-                  </th>
+                    :label="route.label"
+                    v-bind="matrixTable.header('routes.' + route.key)"
+                  />
                 </tr>
               </thead><tbody>
                 <tr
-                  v-for="period in matrix"
+                  v-for="period in matrixTable.sorted"
                   :key="period.period"
                   class="border-t"
                 >

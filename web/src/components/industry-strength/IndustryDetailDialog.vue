@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useTableSort, sortField } from '@/composables/useTableSort';
 import { formatRank } from '@/utils/rank';
 import StockLink from '@/components/stocks/StockLink.vue';
 import IndicatorHelpLabel from '@/components/app/IndicatorHelpLabel.vue';
@@ -10,7 +11,7 @@ import AppApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Table, TableBody, TableCell, TableHeader, TableRow } from '@/components/ui/table';
 import { formatDateTime } from '@/utils/format';
 import { XIcon } from 'lucide-vue-next';
 import {
@@ -123,6 +124,15 @@ const sortedItems = computed(() => [...(props.constituents?.items ?? [])].sort((
 function ma(value: boolean | null) {
   return value == null ? '缺失' : value ? '上方' : '下方 / 持平';
 }
+
+const historyColumns = [
+  ['tradeDate', '日期'], ['strengthRank', '强度排名'], ['strengthScore', '综合强度'],
+  ['rs5D', '5 日超额（百分点）'], ['rs10D', '10 日超额（百分点）'], ['rs20D', '20 日超额（百分点）'],
+  ['momentumAcceleration5D', '5 日动量（百分点）'], ['upRatio', '上涨占比（%）'],
+  ['aboveMa5Ratio', 'MA5（%）'], ['aboveMa20Ratio', 'MA20（%）'], ['turnoverRatio5D', '成交脉冲（×）'],
+] as const;
+const historyTable = useTableSort(() => [...historyItems.value].reverse(), sortField);
+
 </script>
 
 <template>
@@ -297,21 +307,18 @@ function ma(value: boolean | null) {
             <Table container-class="overflow-visible">
               <TableHeader class="sticky top-0 bg-background">
                 <TableRow>
-                  <TableHead
-                    v-for="label in ['日期', '强度排名', '综合强度', '5 日超额（百分点）', '10 日超额（百分点）', '20 日超额（百分点）', '5 日动量（百分点）', '上涨占比（%）', 'MA5（%）', 'MA20（%）', '成交脉冲（×）']"
-                    :key="label"
-                  >
-                    <IndicatorHelpLabel
-                      scope="industry"
-                      :label="label"
-                      compact
-                    />
-                  </TableHead>
+                  <SortableTableHeader
+                    v-for="[key, label] in historyColumns"
+                    :key="key"
+                    :label="label"
+                    scope="industry"
+                    v-bind="historyTable.header(key)"
+                  />
                 </TableRow>
               </TableHeader>
               <TableBody>
                 <TableRow
-                  v-for="item in [...historyItems].reverse()"
+                  v-for="item in historyTable.sorted"
                   :key="item.tradeDate"
                 >
                   <TableCell class="tabular-nums">

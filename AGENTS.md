@@ -281,6 +281,7 @@ pnpm run test:smoke
 - 外部服务：通过现有领域门面接入，保留降级、超时、Provider 错误和离线测试能力。
 - Celery：新增周期任务时同步更新 job package、任务注册、schedule definition、queue route、生命周期元数据和测试。
 - 生成内容：不要手改 `static/`、量化 artifact、运行日志或 `data/` 下产物。
+- 前端表格：所有数据列表头支持点击排序；先排序再前端分页，空值始终靠后。真正后端分页与操作列例外，详见 `web/AGENTS.md` 的“表格排序”。
 
 ## 常见改动去向
 

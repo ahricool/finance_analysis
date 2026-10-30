@@ -1,12 +1,20 @@
 <script setup lang="ts">
+import { metricHint } from '@/utils/metricHints';
+import SortableTableHeader from '@/components/stocks/SortableTableHeader.vue';
+import { useTableSort, sortField } from '@/composables/useTableSort';
 import StockLink from '@/components/stocks/StockLink.vue';
-import IndicatorHelpLabel from '@/components/app/IndicatorHelpLabel.vue';
 import type { MacroDashboard } from '@/api/macro';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetTrigger, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet';
-import { Table, TableHeader, TableHead, TableBody, TableRow, TableCell } from '@/components/ui/table';
+import { Table, TableHeader, TableBody, TableRow, TableCell } from '@/components/ui/table';
 import { seriesLabel, trendLabel } from './display';
-defineProps<{ dashboard: MacroDashboard }>();
+const props = defineProps<{ dashboard: MacroDashboard }>();
+
+const table = useTableSort(() => props.dashboard.signals, (row, key) => {
+  if (key === 'key') return props.dashboard.instruments.find(item => item.code === row.key)?.name ?? seriesLabel(row.key);
+  if (key === 'trend' || key === 'riskOnTrend') return ({ UP: 0, NEUTRAL: 1, DOWN: 2 } as Record<string, number>)[String(row[key])];
+  return sortField(row, key);
+});
 </script>
 <template>
   <Sheet>
@@ -26,36 +34,29 @@ defineProps<{ dashboard: MacroDashboard }>();
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>
-                <IndicatorHelpLabel
-                  scope="macroSignal"
-                  label="信号"
-                  compact
-                />
-              </TableHead><TableHead>
-                <IndicatorHelpLabel
-                  scope="macroSignal"
-                  label="趋势"
-                  compact
-                />
-              </TableHead><TableHead>
-                <IndicatorHelpLabel
-                  scope="macroSignal"
-                  label="Risk On 条件"
-                  compact
-                />
-              </TableHead><TableHead>
-                <IndicatorHelpLabel
-                  scope="macroSignal"
-                  label="贡献 / 权重"
-                  compact
-                />
-              </TableHead>
+              <SortableTableHeader
+                label="信号"
+                scope="macroSignal"
+                v-bind="table.header('key')"
+              /><SortableTableHeader
+                label="趋势"
+                scope="macroSignal"
+                v-bind="table.header('trend')"
+              /><SortableTableHeader
+                label="Risk On 条件"
+                scope="macroSignal"
+                v-bind="table.header('riskOnTrend')"
+              /><SortableTableHeader
+                label="贡献 / 权重"
+                :description="[metricHint('macroSignal', '贡献 / 权重'), '按贡献值排序'].filter(Boolean).join('；')"
+                scope="macroSignal"
+                v-bind="table.header('contribution')"
+              />
             </TableRow>
           </TableHeader>
           <TableBody>
             <TableRow
-              v-for="signal in dashboard.signals"
+              v-for="signal in table.sorted"
               :key="signal.key"
             >
               <TableCell>

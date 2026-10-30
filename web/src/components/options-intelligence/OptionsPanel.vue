@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import SortableTableHeader from '@/components/stocks/SortableTableHeader.vue';
+import { useTableSort, sortField } from '@/composables/useTableSort';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { RouterLink } from 'vue-router';
 import { optionsIntelligenceApi, type OptionsDetail, type OptionsView } from '@/api/optionsIntelligence';
@@ -8,11 +10,12 @@ import AppApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
 import LoadingButton from '@/components/app/LoadingButton.vue';
 import FieldSelect from '@/components/forms/FieldSelect.vue';
 import { Button } from '@/components/ui/button';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Table, TableBody, TableCell, TableHeader, TableRow } from '@/components/ui/table';
 import { formatDateTimeInDisplayTimezone } from '@/utils/format';
 import OptionsScores from './OptionsScores.vue';
 import OptionsDataControls from './OptionsDataControls.vue';
 import OptionHelp from './OptionHelp.vue';
+import { optionHelp } from './help';
 import OptionsCharts from './OptionsCharts.vue';
 import { eventLabels, formatOptionNumber as num, formatOptionPct as pct, reasonLabel } from './labels';
 
@@ -155,6 +158,11 @@ onBeforeUnmount(() => {
   generation++;
   clearTimeout(timer);
 });
+
+const termTable = useTableSort(() => latest.value?.termStructure ?? [], sortField);
+const chainTable = useTableSort(() => chain.value, (row, key) => key === 'risk' ? row.observedRisk?.value ?? row.risk.value : sortField(row, key));
+const historyTable = useTableSort(() => [...(data.value?.dailyHistory ?? [])].reverse(), sortField);
+
 </script>
 
 <template>
@@ -368,41 +376,36 @@ onBeforeUnmount(() => {
           <Table>
             <TableHeader>
               <TableRow class="bg-muted/30">
-                <TableHead>
-                  <OptionHelp
-                    label="实际期限"
-                    compact
-                  />
-                </TableHead>
-                <TableHead>
-                  <OptionHelp
-                    label="ATM IV"
-                    compact
-                  />
-                </TableHead>
-                <TableHead>
-                  <OptionHelp
-                    label="Expected Move ($)"
-                    compact
-                  />
-                </TableHead>
-                <TableHead>
-                  <OptionHelp
-                    label="计算方法"
-                    compact
-                  />
-                </TableHead>
-                <TableHead>
-                  <OptionHelp
-                    label="来源"
-                    compact
-                  />
-                </TableHead>
+                <SortableTableHeader
+                  label="实际期限"
+                  v-bind="termTable.header('dte')"
+                  :description="optionHelp['实际期限']"
+                />
+                <SortableTableHeader
+                  label="ATM IV"
+                  v-bind="termTable.header('atmIv')"
+                  :description="optionHelp['ATM IV']"
+                />
+                <SortableTableHeader
+                  label="Expected Move ($)"
+                  v-bind="termTable.header('expectedMove')"
+                  :description="optionHelp['Expected Move ($)']"
+                />
+                <SortableTableHeader
+                  label="计算方法"
+                  v-bind="termTable.header('expectedMoveMethod')"
+                  :description="optionHelp['计算方法']"
+                />
+                <SortableTableHeader
+                  label="来源"
+                  v-bind="termTable.header('source')"
+                  :description="(optionHelp['来源'] ?? '来源') + '；按数据源名称排序'"
+                />
               </TableRow>
             </TableHeader>
             <TableBody>
               <TableRow
-                v-for="term in latest.termStructure"
+                v-for="term in termTable.sorted"
                 :key="term.expiration"
               >
                 <TableCell class="font-mono">
@@ -483,59 +486,51 @@ onBeforeUnmount(() => {
           <Table>
             <TableHeader>
               <TableRow class="bg-muted/30">
-                <TableHead>
-                  <OptionHelp
-                    label="类型/Strike"
-                    compact
-                  />
-                </TableHead>
-                <TableHead>
-                  <OptionHelp
-                    label="Bid / Ask"
-                    compact
-                  />
-                </TableHead>
-                <TableHead>
-                  <OptionHelp
-                    label="最优可见 Size"
-                    compact
-                  />
-                </TableHead>
-                <TableHead>
-                  <OptionHelp
-                    label="Volume / OI"
-                    compact
-                  />
-                </TableHead>
-                <TableHead>
-                  <OptionHelp
-                    label="OI日期"
-                    compact
-                  />
-                </TableHead>
-                <TableHead>
-                  <OptionHelp
-                    label="IV / Delta"
-                    compact
-                  />
-                </TableHead>
-                <TableHead>
-                  <OptionHelp
-                    label="Spread / Vol:OI"
-                    compact
-                  />
-                </TableHead>
-                <TableHead>
-                  <OptionHelp
-                    label="风险与来源"
-                    compact
-                  />
-                </TableHead>
+                <SortableTableHeader
+                  label="类型/Strike"
+                  v-bind="chainTable.header('strike')"
+                  :description="(optionHelp['类型/Strike'] ?? '类型/Strike') + '；按行权价排序'"
+                />
+                <SortableTableHeader
+                  label="Bid / Ask"
+                  v-bind="chainTable.header('bid')"
+                  :description="(optionHelp['Bid / Ask'] ?? 'Bid / Ask') + '；按 Bid 排序'"
+                />
+                <SortableTableHeader
+                  label="最优可见 Size"
+                  v-bind="chainTable.header('bidSize')"
+                  :description="(optionHelp['最优可见 Size'] ?? '最优可见 Size') + '；按 Bid Size 排序'"
+                />
+                <SortableTableHeader
+                  label="Volume / OI"
+                  v-bind="chainTable.header('volume')"
+                  :description="(optionHelp['Volume / OI'] ?? 'Volume / OI') + '；按成交量排序'"
+                />
+                <SortableTableHeader
+                  label="OI日期"
+                  v-bind="chainTable.header('oiDate')"
+                  :description="optionHelp['OI日期']"
+                />
+                <SortableTableHeader
+                  label="IV / Delta"
+                  v-bind="chainTable.header('iv')"
+                  :description="(optionHelp['IV / Delta'] ?? 'IV / Delta') + '；按 IV 排序'"
+                />
+                <SortableTableHeader
+                  label="Spread / Vol:OI"
+                  v-bind="chainTable.header('spread')"
+                  :description="(optionHelp['Spread / Vol:OI'] ?? 'Spread / Vol:OI') + '；按价差比例排序'"
+                />
+                <SortableTableHeader
+                  label="风险与来源"
+                  v-bind="chainTable.header('risk')"
+                  :description="(optionHelp['风险与来源'] ?? '风险与来源') + '；按研究风险分数排序'"
+                />
               </TableRow>
             </TableHeader>
             <TableBody>
               <TableRow
-                v-for="c in chain"
+                v-for="c in chainTable.sorted"
                 :key="`${c.symbol}:${c.dataSource}`"
               >
                 <TableCell>
@@ -757,41 +752,36 @@ onBeforeUnmount(() => {
           <Table>
             <TableHeader>
               <TableRow class="bg-muted/30">
-                <TableHead>
-                  <OptionHelp
-                    label="交易日"
-                    compact
-                  />
-                </TableHead>
-                <TableHead>
-                  <OptionHelp
-                    label="看跌保护"
-                    compact
-                  />
-                </TableHead>
-                <TableHead>
-                  <OptionHelp
-                    label="异常活动"
-                    compact
-                  />
-                </TableHead>
-                <TableHead>
-                  <OptionHelp
-                    label="流动性风险"
-                    compact
-                  />
-                </TableHead>
-                <TableHead>
-                  <OptionHelp
-                    label="证据"
-                    compact
-                  />
-                </TableHead>
+                <SortableTableHeader
+                  label="交易日"
+                  v-bind="historyTable.header('tradeDate')"
+                  :description="optionHelp['交易日']"
+                />
+                <SortableTableHeader
+                  label="看跌保护"
+                  v-bind="historyTable.header('scores.bearishDemand.value')"
+                  :description="optionHelp['看跌保护']"
+                />
+                <SortableTableHeader
+                  label="异常活动"
+                  v-bind="historyTable.header('scores.unusualActivity.value')"
+                  :description="optionHelp['异常活动']"
+                />
+                <SortableTableHeader
+                  label="流动性风险"
+                  v-bind="historyTable.header('scores.liquidityRisk.value')"
+                  :description="optionHelp['流动性风险']"
+                />
+                <SortableTableHeader
+                  label="证据"
+                  v-bind="historyTable.header('evidenceGrade')"
+                  :description="optionHelp['证据']"
+                />
               </TableRow>
             </TableHeader>
             <TableBody>
               <TableRow
-                v-for="h in [...data.dailyHistory].reverse()"
+                v-for="h in historyTable.sorted"
                 :key="h.tradeDate"
               >
                 <TableCell class="font-mono">

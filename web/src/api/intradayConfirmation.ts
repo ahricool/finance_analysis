@@ -2,12 +2,13 @@ import apiClient from './index';
 import { toCamelCase } from './utils';
 export type Market = 'CN' | 'US';
 export type State = 'WAIT' | 'CONFIRMED' | 'FAILED';
+export type CurrentStatus = 'ACTIVE' | 'PENDING_CONFIRMATION' | 'WAIT' | 'WEAKENING' | 'PENDING_FAILURE' | 'RECOVERED' | 'FAILED' | 'UNAVAILABLE' | 'PREOPEN' | 'PENDING' | 'LEGACY';
 export type Source = 'confluence' | 'trend' | 'etf' | 'quant';
 export interface Reason { code: string; text: string }
 export interface Confirmation {
   code: string; name: string; candidateSource: Source; candidateTradeDate: string;
-  candidateSources?: Source[]; instrumentType?: string; currentStatus?: string; dataStatus?: string;
-  conditions?: Record<string, boolean | null>; proposedState?: State;
+  candidateSources?: Source[]; instrumentType?: string; currentStatus?: CurrentStatus; dataStatus?: string;
+  conditions?: Record<string, boolean | null>; proposedState?: State | null;
   candidateReason: string[]; sourceGeneratedAt: string; state: State; confirmationScore: number | null; availableScoreWeight: number;
   chaseRisk: 'LOW' | 'MEDIUM' | 'HIGH' | 'UNKNOWN'; reasons: Reason[]; stateReasons: Reason[];
   metrics: Record<string, number | string | boolean | null>;
@@ -24,7 +25,7 @@ export interface Snapshot {
   summary: { total: number; wait: number; confirmed: number; failed: number; everConfirmed?: number; active?: number; attention?: number }; rulesNote: string;
 }
 export interface Evaluation {
-  evaluatedAt: string; ruleVersion: string; state: State; currentStatus: string; proposedState: State;
+  evaluatedAt: string; ruleVersion: string; state: State; currentStatus: CurrentStatus; proposedState: State;
   confirmationScore: number | null; chaseRisk: string; dataStatus: string;
   conditions: Record<string, boolean | null>; reasons: Reason[];
   metrics: Confirmation['metrics'];

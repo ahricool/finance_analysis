@@ -186,7 +186,7 @@ describe('preserved metric hints after detail extraction', () => {
     await flushPromises();
     const descriptions = wrapper.findAllComponents(MetricHint).map(hint => hint.props('description'));
     for (const label of ['股票整体净额', '所选口径原始净额', '当日概念 / 每概念权重']) {
-      expect(descriptions).toContain(metricHint('flow', label));
+      expect(descriptions.some(description => description.includes(metricHint('flow', label)!))).toBe(true);
     }
     wrapper.unmount();
   });
