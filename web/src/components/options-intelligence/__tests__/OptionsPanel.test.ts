@@ -98,4 +98,17 @@ describe('OptionsPanel', () => {
     wrapper.unmount();
   });
 
+  it('provides detailed help descriptions for all table headers and option terms', async () => {
+    const { optionHelp } = await import('../help');
+    for (const key of [
+      '看跌保护需求', '看跌保护', '异常交易活动', '异常活动', '流动性风险',
+      '标准30D ATM IV', 'IV 分位数', 'IV / RV (20D)', '25Δ Skew', '7D Skew', '30D Skew', '60D Skew',
+      'Put/Call Volume', 'Put/Call 期限分布', '实际期限', 'ATM IV', 'Expected Move ($)', '计算方法', '来源',
+      '类型/Strike', 'Bid / Ask', '最优可见 Size', 'Volume / OI', 'OI日期', 'IV / Delta', 'Spread / Vol:OI', '风险与来源',
+      '交易日', '股票', '股价 ($)', '主要异常', '证据', '更新时间', '链覆盖与样本限制', '数据来源（独立报价）',
+    ]) {
+      expect(optionHelp[key]).toBeTruthy();
+      expect(optionHelp[key]!.length).toBeGreaterThan(15);
+    }
+  });
 });

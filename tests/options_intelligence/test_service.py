@@ -155,3 +155,80 @@ def test_scan_preserves_soft_time_limit_during_prefetch(repository, now, config)
     with pytest.raises(SoftTimeLimitExceeded):
         OptionsIntelligenceService(repository, market, config).scan(["AAPL"], now=now)
     market.get_option_chain.assert_not_called()
+
+
+def test_intraday_anomaly_sends_notification_without_llm(repository, observation, now, config):
+    intraday = now.replace(hour=18)
+    market = Mock()
+    row = observation.model_copy(
+        update={
+            "observed_at": intraday,
+            "quote_timestamp": intraday,
+            "volume_date": intraday.date(),
+            "volume": 600,
+            "open_interest": 100,
+        }
+    )
+    market.get_option_chain.return_value = OptionChain(symbol="AAPL.US", observed_at=intraday, observations=[row])
+    market.get_daily_bars.return_value = SimpleNamespace(data={})
+    llm = Mock()
+    notifier = Mock()
+    preview_repo = Mock()
+    preview_repo.read.return_value = None
+    service = OptionsIntelligenceService(repository, market, config, llm=llm, preview_repository=preview_repo, notifier=notifier)
+    result = service.scan(["AAPL.US"], now=intraday, view="preview")
+    assert result["status_counts"]["success"] == 1
+    llm.complete_text.assert_not_called()
+    notifier.send.assert_called_once()
+    call_kwargs = notifier.send.call_args.kwargs
+    call_args = notifier.send.call_args.args
+    assert call_kwargs["route_type"] == "alert"
+    assert "AAPL.US" in call_args[0]
+    assert "成交量/OI 异常" in call_args[0]
+
+
+def test_daily_scan_summarizes_with_llm_and_sends_notification(repository, observation, now, config):
+    import json
+    from finance_analysis.llm import LLMResult  # pragma: allowlist secret
+
+    market = Mock()
+    row = observation.model_copy(update={"volume_date": now.date(), "volume": 600, "open_interest": 100})
+    market.get_option_chain.return_value = OptionChain(symbol="AAPL.US", observed_at=now, observations=[row])
+    market.get_daily_bars.return_value = SimpleNamespace(data={})
+    llm = Mock()
+    llm.is_available.return_value = True
+    summary_payload = {
+        "market_overview": "今日盘后期权活跃度集中在科技龙头。",
+        "notable_symbols": ["AAPL.US 出现成交量/OI异常"],
+        "protection_vs_direction": "成交活跃不代表净空头。",
+        "data_limits": ["Indicative 报价非 NBBO"],
+        "risk_notes": ["注意跨期点差风险"],
+    }
+    llm.complete_text.return_value = LLMResult(text=json.dumps(summary_payload), backend="api", model="test-model")
+    notifier = Mock()
+    repository.monitored_symbols = lambda uid=None: ["AAPL.US"]
+    service = OptionsIntelligenceService(repository, market, config, llm=llm, notifier=notifier)
+    result = service.scan(now=now, view="official")
+    assert result["status_counts"]["success"] == 1
+    llm.complete_text.assert_called_once()
+    notifier.send.assert_called_once()
+    body = notifier.send.call_args.args[0]
+    assert "今日盘后期权活跃度集中在科技龙头" in body
+    assert "AAPL.US 出现成交量/OI异常" in body
+    assert notifier.send.call_args.kwargs["route_type"] == "report"
+
+
+def test_explain_request_does_not_hold_options_scan_mutex(monkeypatch, repository, observation, now, config):
+    from finance_analysis.tasks import lifecycle  # pragma: allowlist secret
+    from finance_analysis.tasks.celery.jobs.options_intelligence import tasks  # pragma: allowlist secret
+
+    service_mock = Mock()
+    service_mock.explain.return_value = {"why_it_matters": "ok"}
+    monkeypatch.setattr(tasks, "OptionsIntelligenceService", lambda **kwargs: service_mock)
+    monkeypatch.setattr(tasks, "get_options_config", lambda: config)
+    lock_ctor = Mock()
+    monkeypatch.setattr(lifecycle, "PostgreSQLAdvisoryLock", lock_ctor)  # pragma: allowlist secret // pragma: allowlist secret
+    monkeypatch.setattr(lifecycle, "get_task_lifecycle_service", lambda: Mock())
+    res = tasks.options_request.run(symbol="AAPL.US", explain=True, trade_date=now.date().isoformat(), owner_uid=7)
+    assert res == {"why_it_matters": "ok"}
+    lock_ctor.assert_not_called()

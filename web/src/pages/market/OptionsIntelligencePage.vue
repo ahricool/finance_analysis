@@ -1,10 +1,13 @@
 <script setup lang="ts">
 import StockLink from '@/components/stocks/StockLink.vue';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
+import { RouterLink } from 'vue-router';
 import { optionsIntelligenceApi, type OptionMetrics, type OptionsView } from '@/api/optionsIntelligence';
+import { tasksApi } from '@/api/tasks';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import { useAuthStore } from '@/stores/authStore';
 import OptionsDataControls from '@/components/options-intelligence/OptionsDataControls.vue';
+import OptionHelp from '@/components/options-intelligence/OptionHelp.vue';
 import { optionHelp } from '@/components/options-intelligence/help';
 import SortableTableHeader from '@/components/stocks/SortableTableHeader.vue';
 import PageHeader from '@/components/layout/PageHeader.vue';
@@ -14,10 +17,10 @@ import LoadingButton from '@/components/app/LoadingButton.vue';
 import AppApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
 import StockDetailDialog, { type StockDetailRecord } from '@/components/stocks/StockDetailDialog.vue';
 import { Table, TableBody, TableCell, TableHeader, TableRow } from '@/components/ui/table';
-import { Button } from '@/components/ui/button';
 import { formatDateTimeInDisplayTimezone } from '@/utils/format';
 import { formatSecurityLabel } from '@/utils/security';
 import { eventLabels, formatOptionNumber as num, formatOptionPct as pct } from '@/components/options-intelligence/labels';
+
 const auth = useAuthStore();
 const columns = [
   { key: 'symbol', label: '股票' },
@@ -32,15 +35,18 @@ const columns = [
   { key: 'observedAt', label: '更新时间' },
 ] as const;
 type SortKey = typeof columns[number]['key'];
+
 const items = ref<OptionMetrics[]>([]), query = ref(''), eventType = ref('');
 const sortKey = ref<SortKey>('unusualActivity'), sortDirection = ref<'asc' | 'desc'>('desc');
-const loading = ref(false), error = ref<ParsedApiError | null>(null), selected = ref<StockDetailRecord | null>(null);
+const loading = ref(false), running = ref(false), error = ref<ParsedApiError | null>(null), selected = ref<StockDetailRecord | null>(null);
 const pending = ref('');
 const mode = ref<OptionsView>('official'), requestedDate = ref(''), selectedDate = ref('');
 const dates = ref<string[]>([]), reason = ref<string | null>(null);
 const failedCount = ref(0), failureSource = ref<string | null>(null);
 const taskSummary = ref<{ failedCount: number; totalCount: number } | null>(null);
 let generation = 0;
+let pollTimer: ReturnType<typeof setTimeout> | undefined;
+
 function eventText(row: OptionMetrics) {
   if (row.refreshStatus === 'failed') return '刷新失败，显示上次预演';
   if (row.status === 'failed') return '采集失败';
@@ -48,6 +54,7 @@ function eventText(row: OptionMetrics) {
   if (row.status === 'not_scanned') return mode.value === 'preview' ? '本轮预演尚未采集' : '无正式快照／未确认执行结果';
   return '无满足规则的异常';
 }
+
 function sortValue(row: OptionMetrics, key: SortKey) {
   if (key === 'bearishDemand' || key === 'unusualActivity' || key === 'liquidityRisk') return row.scores?.[key].value;
   if (key === 'topEvent') return eventText(row);
@@ -55,18 +62,22 @@ function sortValue(row: OptionMetrics, key: SortKey) {
   if (key === 'evidenceGrade') return row.evidenceGrade === 'N/A' ? null : row.evidenceGrade;
   return row[key];
 }
+
 function defaultSortDirection(key: SortKey) {
   return ['symbol', 'topEvent', 'evidenceGrade'].includes(key) ? 'asc' : 'desc';
 }
+
 function toggleSort(key: SortKey) {
   sortDirection.value = sortKey.value === key
     ? (sortDirection.value === 'asc' ? 'desc' : 'asc') : defaultSortDirection(key);
   sortKey.value = key;
 }
+
 function selectSort(value: string) {
   sortKey.value = value as SortKey;
   sortDirection.value = defaultSortDirection(sortKey.value);
 }
+
 const filtered = computed(() => items.value.filter(r =>
   formatSecurityLabel(r.symbol, r.name).toLowerCase().includes(query.value.trim().toLowerCase()) &&
   (!eventType.value || r.eventTypes?.includes(eventType.value))).sort((a, b) => {
@@ -79,33 +90,96 @@ const filtered = computed(() => items.value.filter(r =>
       ? String(left).localeCompare(String(right), 'zh-CN') : Number(left) - Number(right);
     return (sortDirection.value === 'asc' ? comparison : -comparison) || tie;
   }));
+
+const readyCount = computed(() => items.value.filter(r => r.status === 'ready' || r.status === 'warming_up').length);
+const anomalyStockCount = computed(() => items.value.filter(r => (r.eventTypes?.length ?? 0) > 0 || r.topEvent != null).length);
+
 async function load() {
   const version = ++generation;
-  loading.value = true; error.value = null; items.value = []; reason.value = null;
-  failedCount.value = 0; failureSource.value = null;
-  taskSummary.value = null;
+  loading.value = true;
+  error.value = null;
+  reason.value = null;
   try {
-    const response = await optionsIntelligenceApi.scan({ view: mode.value, tradeDate: mode.value === 'official' ? requestedDate.value || undefined : undefined });
+    const response = await optionsIntelligenceApi.scan({
+      view: mode.value,
+      tradeDate: mode.value === 'official' ? requestedDate.value || undefined : undefined,
+    });
     if (version !== generation) return;
-    items.value = response.items; dates.value = response.availableDates ?? [];
-    selectedDate.value = response.tradeDate ?? ''; reason.value = response.reason ?? null;
-    failedCount.value = response.failedCount ?? 0; failureSource.value = response.failureSource ?? null;
+    items.value = response.items;
+    dates.value = response.availableDates ?? [];
+    selectedDate.value = response.tradeDate ?? '';
+    reason.value = response.reason ?? null;
+    failedCount.value = response.failedCount ?? 0;
+    failureSource.value = response.failureSource ?? null;
     taskSummary.value = response.latestTaskSummary ?? null;
+  } catch (e) {
+    if (version === generation) error.value = getParsedApiError(e);
+  } finally {
+    if (version === generation) loading.value = false;
   }
-  catch (e) { if (version === generation) error.value = getParsedApiError(e); }
-  finally { if (version === generation) loading.value = false; }
 }
+
+async function pollTask(id: string, version: number) {
+  if (!tasksApi?.getTaskRunDetail) {
+    running.value = false;
+    return;
+  }
+  try {
+    const task = await tasksApi.getTaskRunDetail(id);
+    if (version !== generation) return;
+    if (['completed', 'partial', 'failed', 'cancelled', 'skipped'].includes(task.status)) {
+      running.value = false;
+      await load();
+      return;
+    }
+    pollTimer = setTimeout(() => { void pollTask(id, version); }, 3000);
+  } catch {
+    if (version === generation) running.value = false;
+  }
+}
+
 async function run() {
-  try { pending.value = (await optionsIntelligenceApi.run(mode.value)).taskId; }
-  catch (e) { error.value = getParsedApiError(e); }
+  const version = generation;
+  running.value = true;
+  error.value = null;
+  try {
+    const res = await optionsIntelligenceApi.run(mode.value);
+    pending.value = res.taskId;
+    void pollTask(res.taskId, version);
+  } catch (e) {
+    running.value = false;
+    error.value = getParsedApiError(e);
+  }
 }
+
 function open(row: OptionMetrics) {
-  selected.value = { id: 0, code: row.symbol, name: row.name ?? null, marketType: 'US', createdAt: '', updatedAt: row.observedAt ?? '' };
+  selected.value = {
+    id: 0,
+    code: row.symbol,
+    name: row.name ?? null,
+    marketType: 'US',
+    createdAt: '',
+    updatedAt: row.observedAt ?? '',
+  };
 }
-watch([mode, requestedDate], () => { selected.value = null; void load(); }, { immediate: true });
-onBeforeUnmount(() => { generation++; });
+
+watch([mode, requestedDate], () => {
+  selected.value = null;
+  items.value = [];
+  failedCount.value = 0;
+  failureSource.value = null;
+  taskSummary.value = null;
+  void load();
+}, { immediate: true });
+
+onBeforeUnmount(() => {
+  generation++;
+  clearTimeout(pollTimer);
+});
+
 const detailInitialTab = ref<'overview' | 'options'>('options');
 </script>
+
 <template>
   <div
     class="min-w-0 space-y-5"
@@ -132,67 +206,79 @@ const detailInitialTab = ref<'overview' | 'options'>('options');
         >
           刷新列表
         </LoadingButton>
-        <Button
+        <LoadingButton
           v-if="auth.currentUser?.role === 'admin'"
+          :loading="running"
           @click="run"
         >
           运行{{ mode === 'preview' ? '预演' : '正式扫描' }}
-        </Button>
+        </LoadingButton>
       </template>
     </PageHeader>
+
     <AppApiErrorAlert
       v-if="error"
       :error="error"
       @dismiss="error = null"
     />
-    <p
-      v-if="failedCount || failureSource"
-      class="text-xs text-muted-foreground"
+
+    <div
+      v-if="items.length || failedCount || taskSummary || pending"
+      class="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-card/70 px-4 py-3 text-xs text-muted-foreground"
     >
-      已记录采集失败 {{ failedCount }} 只。{{ failureSource }}
-    </p>
-    <p
-      v-if="taskSummary"
-      class="text-xs text-muted-foreground"
-    >
-      最近正式任务（TaskRecord，整轮范围）：失败 {{ taskSummary.failedCount }} / 计划 {{ taskSummary.totalCount }} 只；逐股明细可能被截断。
-    </p>
-    <p
-      v-if="pending"
-      class="text-sm"
-    >
-      已提交任务 <RouterLink
-        class="underline"
-        to="/tasks/runs"
+      <div class="flex flex-wrap items-center gap-x-4 gap-y-1">
+        <span>监控池 <strong class="font-mono text-foreground">{{ items.length }}</strong> 只</span>
+        <span>已采集 <strong class="font-mono text-foreground">{{ readyCount }}</strong> 只</span>
+        <span>触发异常 <strong class="font-mono text-amber-600 dark:text-amber-400">{{ anomalyStockCount }}</strong> 只</span>
+        <span v-if="failedCount || failureSource">
+          已记录采集失败 {{ failedCount }} 只。{{ failureSource }}
+        </span>
+        <span v-if="taskSummary">
+          最近正式任务（TaskRecord，整轮范围）：失败 {{ taskSummary.failedCount }} / 计划 {{ taskSummary.totalCount }} 只；逐股明细可能被截断。
+        </span>
+      </div>
+      <p
+        v-if="pending"
+        class="text-xs text-foreground"
       >
-        {{ pending }}
-      </RouterLink>；完成后刷新列表。
-    </p>
-    <div class="grid items-end gap-3 sm:grid-cols-3">
+        已提交任务 <RouterLink
+          class="font-mono underline"
+          to="/tasks/runs"
+        >
+          {{ pending }}
+        </RouterLink>；{{ running ? '正在后台扫描并自动刷新…' : '完成后刷新列表。' }}
+      </p>
+    </div>
+
+    <div class="grid items-end gap-3 rounded-xl border bg-card/50 p-3.5 sm:grid-cols-3">
       <div>
         <label
           for="options-search"
-          class="mb-2 block text-sm"
-        >股票搜索</label><Input
+          class="mb-2 block text-xs font-medium text-muted-foreground"
+        >股票搜索</label>
+        <Input
           id="options-search"
           v-model="query"
           placeholder="股票代码 / 名称…"
         />
-      </div><FieldSelect
+      </div>
+      <FieldSelect
         :model-value="sortKey"
         label="排序字段"
         :options="columns.map(column => ({ value: column.key, label: column.label }))"
         @update:model-value="selectSort"
-      /><FieldSelect
+      />
+      <FieldSelect
         v-model="eventType"
         label="异常类型"
         :options="[{ value: '', label: '全部' }, ...Object.entries(eventLabels).map(([value, label]) => ({ value, label }))]"
       />
     </div>
-    <div class="overflow-x-auto rounded-xl border">
+
+    <div class="overflow-x-auto rounded-xl border bg-card">
       <Table>
         <TableHeader>
-          <TableRow>
+          <TableRow class="bg-muted/30">
             <SortableTableHeader
               v-for="column in columns"
               :key="column.key"
@@ -203,11 +289,12 @@ const detailInitialTab = ref<'overview' | 'options'>('options');
               @sort="toggleSort(column.key)"
             />
           </TableRow>
-        </TableHeader><TableBody>
+        </TableHeader>
+        <TableBody>
           <TableRow
             v-for="r in filtered"
             :key="r.symbol"
-            class="cursor-pointer"
+            class="cursor-pointer transition-colors hover:bg-muted/40"
             tabindex="0"
             @click="detailInitialTab = 'options'; open(r)"
             @keydown.enter.self="detailInitialTab = 'options'; open(r)"
@@ -220,56 +307,90 @@ const detailInitialTab = ref<'overview' | 'options'>('options');
                 market="US"
                 @select="detailInitialTab = 'overview'; open(r)"
               />
-            </TableCell><TableCell>{{ num(r.underlyingPrice) }}</TableCell><TableCell
-              class="text-red-600 dark:text-red-400"
+            </TableCell>
+            <TableCell class="font-mono tabular-nums">
+              {{ num(r.underlyingPrice) }}
+            </TableCell>
+            <TableCell
+              class="font-mono tabular-nums text-red-600 dark:text-red-400"
               :class="{ 'bg-red-500/10 font-bold': (r.scores?.bearishDemand.value ?? 0) >= 80 }"
             >
               {{ num(r.scores?.bearishDemand.value, 1) }}
-            </TableCell><TableCell
-              class="text-amber-600 dark:text-amber-400"
+            </TableCell>
+            <TableCell
+              class="font-mono tabular-nums text-amber-600 dark:text-amber-400"
               :class="{ 'bg-amber-500/10 font-bold': (r.scores?.unusualActivity.value ?? 0) >= 80 }"
             >
               {{ num(r.scores?.unusualActivity.value, 1) }}
-            </TableCell><TableCell
-              class="text-orange-600 dark:text-orange-400"
+            </TableCell>
+            <TableCell
+              class="font-mono tabular-nums text-orange-600 dark:text-orange-400"
               :class="{ 'bg-orange-500/10 font-bold': (r.scores?.liquidityRisk.value ?? 0) >= 80 }"
             >
               {{ num(r.scores?.liquidityRisk.value, 1) }}
-            </TableCell><TableCell>{{ pct(r.skew30D) }}</TableCell><TableCell>{{ num(r.putCallVolumeRatio) }}</TableCell><TableCell>
+            </TableCell>
+            <TableCell class="font-mono tabular-nums">
+              {{ pct(r.skew30D) }}
+            </TableCell>
+            <TableCell class="font-mono tabular-nums">
+              {{ num(r.putCallVolumeRatio) }}
+            </TableCell>
+            <TableCell>
               <template v-if="r.refreshStatus === 'failed'">
-                刷新失败，显示上次预演
+                <span class="text-amber-600 dark:text-amber-400">刷新失败，显示上次预演</span>
                 <p class="text-xs text-muted-foreground">
                   {{ r.refreshReason }}
                 </p>
               </template>
               <template v-else-if="r.status === 'failed'">
-                采集失败
+                <span class="text-destructive">采集失败</span>
                 <p class="text-xs text-muted-foreground">
                   {{ r.limitations[0] }}
                 </p>
               </template>
               <template v-else>
-                {{ eventText(r) }}
+                <span :class="r.topEvent ? 'font-medium text-foreground' : 'text-muted-foreground'">
+                  {{ eventText(r) }}
+                </span>
               </template>
-            </TableCell><TableCell>
-              {{ r.evidenceGrade ?? 'N/A' }}<p class="text-xs text-muted-foreground">
-                {{ r.status === 'warming_up' ? `预热 ${r.historyDays}D` : '' }}
+            </TableCell>
+            <TableCell>
+              <span class="inline-flex items-center rounded-md border bg-muted/40 px-1.5 py-0.5 font-mono text-xs">
+                {{ r.evidenceGrade ?? 'N/A' }}
+              </span>
+              <p
+                v-if="r.status === 'warming_up'"
+                class="mt-0.5 text-[11px] text-muted-foreground"
+              >
+                预热 {{ r.historyDays }}D
               </p>
-            </TableCell><TableCell class="text-xs">
+            </TableCell>
+            <TableCell class="font-mono text-xs text-muted-foreground">
               {{ formatDateTimeInDisplayTimezone(r.observedAt) }}
             </TableCell>
           </TableRow>
         </TableBody>
-      </Table><p
+      </Table>
+      <p
         v-if="!filtered.length"
         class="p-6 text-center text-sm text-muted-foreground"
       >
-        {{ reason || '暂无符合筛选的股票' }}
+        {{ loading && !items.length ? '正在加载期权扫描结果…' : (reason || '暂无符合筛选的股票') }}
       </p>
     </div>
-    <p class="text-xs text-muted-foreground">
-      三个评分互相独立，不相加。高看跌需求不代表下跌概率或真实净空头。N/A 表示缺少评分所需证据。监控范围：数据库维护的当前 Nasdaq-100 成分股与您的美股自选。历史按当前可见范围过滤；盘中预演为临时研究，正式数据按交易日保存。
-    </p>
+
+    <div class="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+      <p>
+        三个评分互相独立，不相加。高看跌需求不代表下跌概率或真实净空头。N/A 表示缺少评分所需证据。监控范围：数据库维护的当前 Nasdaq-100 成分股与您的美股自选。历史按当前可见范围过滤；盘中预演为临时研究，正式数据按交易日保存。
+      </p>
+      <p class="shrink-0">
+        <OptionHelp
+          label="链覆盖与样本限制"
+          compact
+        /> · 点击行打开期权详情，点击代码打开行情
+      </p>
+    </div>
+
     <StockDetailDialog
       :stock="selected"
       kind="research"

@@ -8,50 +8,93 @@ import { CanvasRenderer } from 'echarts/renderers';
 import VChart from 'vue-echarts';
 import type { OptionMetrics } from '@/api/optionsIntelligence';
 import { useTheme } from '@/composables/useTheme';
+
 use([LineChart, GridComponent, TooltipComponent, LegendComponent, CanvasRenderer]);
+
 const props = defineProps<{ latest: OptionMetrics; history: OptionMetrics[] }>();
 const { resolvedTheme } = useTheme();
 const textColor = computed(() => resolvedTheme.value === 'dark' ? '#a3a3a3' : '#525252');
-const common = computed(() => ({ backgroundColor: 'transparent', textStyle: { color: textColor.value },
-  grid: { left: 55, right: 20, top: 35, bottom: 40 }, tooltip: { trigger: 'axis' },
-  yAxis: { type: 'value', axisLabel: { formatter: '{value}%' } } }));
-const term = computed(() => ({ ...common.value,
+const splitLineColor = computed(() => resolvedTheme.value === 'dark' ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)');
+
+const common = computed(() => ({
+  backgroundColor: 'transparent',
+  textStyle: { color: textColor.value },
+  grid: { left: 55, right: 20, top: 35, bottom: 40 },
+  tooltip: { trigger: 'axis' },
+  yAxis: {
+    type: 'value',
+    axisLabel: { formatter: '{value}%' },
+    splitLine: { lineStyle: { color: splitLineColor.value } },
+  },
+}));
+
+const term = computed(() => ({
+  ...common.value,
   xAxis: { type: 'category', data: props.latest.termStructure?.map(t => `${t.dte}D`) },
-  series: [{ name: 'ATM IV', type: 'line', connectNulls: false,
-    data: props.latest.termStructure?.map(t => t.atmIv == null ? null : +(t.atmIv * 100).toFixed(2)), itemStyle: { color: '#d97706' } }],
+  series: [{
+    name: 'ATM IV',
+    type: 'line',
+    connectNulls: false,
+    smooth: 0.15,
+    symbolSize: 6,
+    data: props.latest.termStructure?.map(t => t.atmIv == null ? null : +(t.atmIv * 100).toFixed(2)),
+    itemStyle: { color: '#d97706' },
+  }],
 }));
-const skew = computed(() => ({ ...common.value,
+
+const skew = computed(() => ({
+  ...common.value,
   xAxis: { type: 'category', data: props.history.map(h => h.tradeDate) },
-  series: [{ name: '实际近30D 25Δ Skew', type: 'line', connectNulls: false,
-    data: props.history.map(h => h.skew30D == null ? null : +(h.skew30D * 100).toFixed(2)), itemStyle: { color: '#dc2626' } }],
+  series: [{
+    name: '实际近30D 25Δ Skew',
+    type: 'line',
+    connectNulls: false,
+    smooth: 0.15,
+    symbolSize: 5,
+    data: props.history.map(h => h.skew30D == null ? null : +(h.skew30D * 100).toFixed(2)),
+    itemStyle: { color: '#dc2626' },
+  }],
 }));
+
+const hasTermData = computed(() => (props.latest.termStructure?.length ?? 0) > 0);
 </script>
+
 <template>
   <div class="grid gap-4 md:grid-cols-2">
-    <section class="min-w-0 rounded-xl border p-3">
-      <h4 class="text-sm">
+    <section class="min-w-0 rounded-xl border bg-card/80 p-3.5">
+      <h4 class="text-sm font-medium">
         <OptionHelp
           label="IV 期限结构"
           compact
         />
-      </h4><div
+      </h4>
+      <div
         class="relative h-56 w-full min-w-0 overflow-hidden"
         data-testid="options-chart-frame"
       >
         <VChart
+          v-if="hasTermData"
           class="absolute inset-0 h-full w-full"
           :option="term"
           autoresize
         />
+        <p
+          v-else
+          class="py-20 text-center text-sm text-muted-foreground"
+        >
+          N/A · 有效 ATM IV 期限数据不足
+        </p>
       </div>
     </section>
-    <section class="min-w-0 rounded-xl border p-3">
-      <h4 class="text-sm">
+
+    <section class="min-w-0 rounded-xl border bg-card/80 p-3.5">
+      <h4 class="text-sm font-medium">
         <OptionHelp
           label="25Δ Skew 日度历史"
           compact
         />
-      </h4><div
+      </h4>
+      <div
         class="relative h-56 w-full min-w-0 overflow-hidden"
         data-testid="options-chart-frame"
       >
@@ -60,7 +103,8 @@ const skew = computed(() => ({ ...common.value,
           class="absolute inset-0 h-full w-full"
           :option="skew"
           autoresize
-        /><p
+        />
+        <p
           v-else
           class="py-20 text-center text-sm text-muted-foreground"
         >

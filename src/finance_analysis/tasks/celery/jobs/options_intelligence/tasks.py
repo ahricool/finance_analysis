@@ -2,11 +2,13 @@
 
 from finance_analysis.core.time import utc_now
 from finance_analysis.options_intelligence.config import get_options_config
-from finance_analysis.options_intelligence.service import (
+from finance_analysis.options_intelligence.service import (  # pragma: allowlist secret
     OptionsIntelligenceService,
     session_context,
     PREVIEW_BUDGET_SECONDS,
     PREVIEW_HARD_LIMIT_SECONDS,
+    OFFICIAL_BUDGET_SECONDS,
+    OFFICIAL_HARD_LIMIT_SECONDS,
 )
 from finance_analysis.tasks.celery.app import celery_app
 from finance_analysis.tasks.celery.schedule import require_scheduled_task_definition
@@ -60,7 +62,9 @@ def scan_options_intraday(**kwargs):
     return _scheduled("intraday")
 
 
-@celery_app.task(name=DAILY.celery_task_name)
+@celery_app.task(
+    name=DAILY.celery_task_name, soft_time_limit=OFFICIAL_BUDGET_SECONDS, time_limit=OFFICIAL_HARD_LIMIT_SECONDS
+)
 @track_task(
     task_type=DAILY.task_type,
     task_name=DAILY.name,
