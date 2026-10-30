@@ -12,7 +12,7 @@ describe('router document titles', () => {
     ['/market/holdings', '投资组合 - Finance Analysis'],
     ['/research/macro', '宏观数据 - Finance Analysis'],
     ['/research/quant', '量化研究 - Finance Analysis'],
-    ['/research/quant/signals', '模型选股 - Finance Analysis'],
+    ['/research/quant/signals', '个股排名 - Finance Analysis'],
     ['/research/quant/signals/NVDA.US', '选股详情 - Finance Analysis'],
     ['/research/quant/models', '量化模型管理 - Finance Analysis'],
     ['/research/quant/portfolios', '目标组合 - Finance Analysis'],

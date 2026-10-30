@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import SortableTableHeader from '@/components/stocks/SortableTableHeader.vue';
+import { useQuantTableSort } from '@/composables/useQuantTableSort';
 import StockLink from '@/components/stocks/StockLink.vue';
 import IndicatorHelpLabel from '@/components/app/IndicatorHelpLabel.vue';
 import StockDetailDialog from '@/components/stocks/StockDetailDialog.vue';
@@ -13,7 +15,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Table, TableBody, TableCell, TableHeader, TableRow } from '@/components/ui/table';
 import { useQuantMarket } from '@/composables/useQuantMarket';
 import type { MarketRegime, QuantCapabilities, SignalRanking } from '@/types/quant';
 import { formatPercent, formatPredictedReturn, formatRealizedReturn, formatScore, regimeLabels } from '@/utils/quant';
@@ -65,6 +67,9 @@ watch(
   { immediate: true },
 );
 onBeforeUnmount(() => { ++requestVersion; });
+const { sortKey, direction, toggle, sorted: rankedItems } = useQuantTableSort(
+  () => ranking.value?.items.slice(0, 10) ?? [],
+  (row, key) => key === 'name' ? row.name || row.code : row[key as keyof typeof row], 'universeRank');
 const detailInitialTab = ref<'overview' | 'quant'>('quant');
 </script>
 
@@ -74,7 +79,7 @@ const detailInitialTab = ref<'overview' | 'quant'>('quant');
       variant="section"
       title="总览"
       en="Overview"
-      description="展示市场状态、Qlib 模型选股和目标组合。"
+      description="从市场环境到个股排名，查看同一交易日的研究结果。"
     />
     <ApiErrorAlert
       v-if="error"
@@ -156,52 +161,54 @@ const detailInitialTab = ref<'overview' | 'quant'>('quant');
           </CardHeader>
         </Card>
       </section>
-      <Card>
-        <CardHeader>
-          <CardTitle>市场得分拆解</CardTitle>
-          <CardDescription>
-            <IndicatorHelpLabel
-              scope="quant"
-              label="原始指标先标准化到 0–1，再按权重汇总；贡献之和等于市场得分。"
-              compact
+      <div class="grid items-start gap-5 xl:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle>市场得分拆解</CardTitle>
+            <CardDescription>
+              <IndicatorHelpLabel
+                scope="quant"
+                label="原始指标先标准化到 0–1，再按权重汇总；贡献之和等于市场得分。"
+                compact
+              />
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <MarketScoreBreakdown
+              v-if="regime?.scoreBreakdown"
+              :breakdown="regime.scoreBreakdown"
             />
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <MarketScoreBreakdown
-            v-if="regime?.scoreBreakdown"
-            :breakdown="regime.scoreBreakdown"
-          />
-          <Empty
-            v-else
-            data-testid="market-score-breakdown-empty"
-          >
-            <EmptyHeader>
-              <EmptyTitle>暂无市场得分拆解</EmptyTitle>
-              <EmptyDescription>旧版历史快照仍可读取，但没有保存结构化评分分项。</EmptyDescription>
-            </EmptyHeader>
-          </Empty>
-        </CardContent>
-      </Card>
-      <Card>
-        <CardHeader>
-          <CardTitle>市场得分历史</CardTitle><CardDescription>
-            <IndicatorHelpLabel
-              scope="quant"
-              label="观察市场状态的时间序列变化。"
-              compact
-            />
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <MarketScoreChart
-            v-if="history.length"
-            :items="history"
-          /><Empty v-else>
-            <EmptyHeader><EmptyTitle>暂无市场状态历史</EmptyTitle></EmptyHeader>
-          </Empty>
-        </CardContent>
-      </Card>
+            <Empty
+              v-else
+              data-testid="market-score-breakdown-empty"
+            >
+              <EmptyHeader>
+                <EmptyTitle>暂无市场得分拆解</EmptyTitle>
+                <EmptyDescription>旧版历史快照仍可读取，但没有保存结构化评分分项。</EmptyDescription>
+              </EmptyHeader>
+            </Empty>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle>市场得分历史</CardTitle><CardDescription>
+              <IndicatorHelpLabel
+                scope="quant"
+                label="观察市场状态的时间序列变化。"
+                compact
+              />
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <MarketScoreChart
+              v-if="history.length"
+              :items="history"
+            /><Empty v-else>
+              <EmptyHeader><EmptyTitle>暂无市场状态历史</EmptyTitle></EmptyHeader>
+            </Empty>
+          </CardContent>
+        </Card>
+      </div>
       <Card>
         <CardHeader>
           <CardTitle>个股排名</CardTitle><CardDescription>{{ tradeDate ? `${tradeDate} 的股票评分。` : '生产模型生成的最新股票评分。' }}</CardDescription><CardAction>
@@ -219,83 +226,90 @@ const detailInitialTab = ref<'overview' | 'quant'>('quant');
             class="overflow-x-auto"
           >
             <Table class="w-full min-w-[800px] text-sm">
-              <TableHeader class="text-left text-xs text-muted-foreground">
+              <TableHeader>
                 <TableRow>
-                  <TableHead class="p-2">
-                    <IndicatorHelpLabel
-                      scope="quant"
-                      label="排名"
-                      compact
-                    />
-                  </TableHead>
-                  <TableHead class="min-w-[220px]">
-                    <IndicatorHelpLabel
-                      scope="quant"
-                      label="股票"
-                      compact
-                    />
-                  </TableHead>
-                  <TableHead>
-                    <IndicatorHelpLabel
-                      scope="quant"
-                      label="最终得分"
-                      compact
-                    />
-                  </TableHead>
-                  <TableHead>
-                    <IndicatorHelpLabel
-                      scope="quant"
-                      label="横截面"
-                      compact
-                    />
-                  </TableHead>
-                  <TableHead>
-                    <IndicatorHelpLabel
-                      scope="quant"
-                      label="时间序列"
-                      compact
-                    />
-                  </TableHead>
-                  <TableHead>
-                    <IndicatorHelpLabel
-                      scope="quant"
-                      label="预测收益"
-                      compact
-                    />
-                  </TableHead>
-                  <TableHead>
-                    <IndicatorHelpLabel
-                      scope="quant"
-                      label="3D收益"
-                      compact
-                    />
-                  </TableHead>
-                  <TableHead>
-                    <IndicatorHelpLabel
-                      scope="quant"
-                      label="5D收益"
-                      compact
-                    />
-                  </TableHead>
-                  <TableHead>
-                    <IndicatorHelpLabel
-                      scope="quant"
-                      label="至今收益"
-                      compact
-                    />
-                  </TableHead>
-                  <TableHead>
-                    <IndicatorHelpLabel
-                      scope="quant"
-                      label="信号"
-                      compact
-                    />
-                  </TableHead>
+                  <SortableTableHeader
+                    label="排名"
+                    scope="quant"
+                    :active="sortKey === 'universeRank'"
+                    :direction="direction"
+                    @sort="toggle('universeRank')"
+                  />
+                  <SortableTableHeader
+                    label="股票"
+                    scope="quant"
+                    :active="sortKey === 'name'"
+                    :direction="direction"
+                    @sort="toggle('name')"
+                  />
+                  <SortableTableHeader
+                    label="最终得分"
+                    scope="quant"
+                    align="right"
+                    :active="sortKey === 'finalScore'"
+                    :direction="direction"
+                    @sort="toggle('finalScore')"
+                  />
+                  <SortableTableHeader
+                    label="横截面"
+                    scope="quant"
+                    align="right"
+                    :active="sortKey === 'crossSectionScore'"
+                    :direction="direction"
+                    @sort="toggle('crossSectionScore')"
+                  />
+                  <SortableTableHeader
+                    label="时间序列"
+                    scope="quant"
+                    align="right"
+                    :active="sortKey === 'timeSeriesScore'"
+                    :direction="direction"
+                    @sort="toggle('timeSeriesScore')"
+                  />
+                  <SortableTableHeader
+                    label="预测收益"
+                    scope="quant"
+                    align="right"
+                    :active="sortKey === 'predictedReturn'"
+                    :direction="direction"
+                    @sort="toggle('predictedReturn')"
+                  />
+                  <SortableTableHeader
+                    label="3D收益"
+                    scope="quant"
+                    align="right"
+                    :active="sortKey === 'return3D'"
+                    :direction="direction"
+                    @sort="toggle('return3D')"
+                  />
+                  <SortableTableHeader
+                    label="5D收益"
+                    scope="quant"
+                    align="right"
+                    :active="sortKey === 'return5D'"
+                    :direction="direction"
+                    @sort="toggle('return5D')"
+                  />
+                  <SortableTableHeader
+                    label="至今收益"
+                    scope="quant"
+                    align="right"
+                    :active="sortKey === 'returnSince'"
+                    :direction="direction"
+                    @sort="toggle('returnSince')"
+                  />
+                  <SortableTableHeader
+                    label="信号"
+                    scope="quant"
+                    :active="sortKey === 'signal'"
+                    :direction="direction"
+                    @sort="toggle('signal')"
+                  />
                 </TableRow>
               </TableHeader>
               <TableBody>
                 <TableRow
-                  v-for="item in ranking.items.slice(0, 10)"
+                  v-for="item in rankedItems"
                   :key="item.id"
                   class="cursor-pointer border-t border-border"
                   tabindex="0"
@@ -314,13 +328,27 @@ const detailInitialTab = ref<'overview' | 'quant'>('quant');
                       @select="detailInitialTab = 'overview'; show(item)"
                     />
                   </TableCell>
-                  <TableCell>{{ formatScore(item.finalScore) }}</TableCell>
-                  <TableCell>{{ formatScore(item.crossSectionScore) }}</TableCell>
-                  <TableCell>{{ formatScore(item.timeSeriesScore) }}</TableCell>
-                  <TableCell>{{ formatPredictedReturn(item.predictedReturn) }}</TableCell>
-                  <TableCell>{{ formatRealizedReturn(item.return3D) }}</TableCell>
-                  <TableCell>{{ formatRealizedReturn(item.return5D) }}</TableCell>
-                  <TableCell>{{ formatRealizedReturn(item.returnSince) }}</TableCell>
+                  <TableCell class="text-right tabular-nums">
+                    {{ formatScore(item.finalScore) }}
+                  </TableCell>
+                  <TableCell class="text-right tabular-nums">
+                    {{ formatScore(item.crossSectionScore) }}
+                  </TableCell>
+                  <TableCell class="text-right tabular-nums">
+                    {{ formatScore(item.timeSeriesScore) }}
+                  </TableCell>
+                  <TableCell class="text-right tabular-nums">
+                    {{ formatPredictedReturn(item.predictedReturn) }}
+                  </TableCell>
+                  <TableCell class="text-right tabular-nums">
+                    {{ formatRealizedReturn(item.return3D) }}
+                  </TableCell>
+                  <TableCell class="text-right tabular-nums">
+                    {{ formatRealizedReturn(item.return5D) }}
+                  </TableCell>
+                  <TableCell class="text-right tabular-nums">
+                    {{ formatRealizedReturn(item.returnSince) }}
+                  </TableCell>
                   <TableCell>{{ item.signal }}</TableCell>
                 </TableRow>
               </TableBody>

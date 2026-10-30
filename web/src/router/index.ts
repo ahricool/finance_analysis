@@ -113,7 +113,7 @@ const router = createRouter({
                   path: 'signals',
                   name: 'research-quant-signals',
                   component: QuantSignalsPage,
-                  meta: { title: '模型选股' },
+                  meta: { title: '个股排名' },
                 },
                 {
                   path: 'signals/:code',

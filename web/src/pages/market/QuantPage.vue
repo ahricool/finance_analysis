@@ -28,7 +28,7 @@ watch(market, async (current, _, onCleanup) => {
 const scopeDescription = computed(() => status.value ? `当前范围：${status.value.universeName} · ${status.value.memberCount}只` : statusFailed.value ? '研究范围读取失败，请刷新重试' : '正在读取研究范围');
 const baseNavItems = [
   { key: 'dashboard' as const, label: '总览', icon: LayoutDashboard, path: '/research/quant' },
-  { key: 'signals' as const, label: '模型选股', icon: BarChart3, path: '/research/quant/signals' },
+  { key: 'signals' as const, label: '个股排名', icon: BarChart3, path: '/research/quant/signals' },
   { key: 'models' as const, label: '模型管理', icon: Bot, path: '/research/quant/models' },
   {
     key: 'portfolios' as const,
@@ -82,12 +82,10 @@ function selectTradeDate(value: string) {
 </script>
 
 <template>
-  <div class="min-w-0 space-y-4">
+  <div class="quant-workspace min-w-0 space-y-6">
     <PageHeader
       variant="section"
       title="量化研究"
-      en="Quant Research"
-      description="查看正式市场状态、模型选股与目标组合。"
     />
     <div class="flex min-w-0 flex-col gap-3">
       <ModuleTabs
@@ -95,7 +93,7 @@ function selectTradeDate(value: string) {
         :active-key="activeTab"
         label="量化研究导航"
       />
-      <div class="research-toolbar flex min-w-0 flex-wrap items-end gap-2">
+      <div class="research-toolbar flex min-w-0 flex-wrap items-end gap-3 rounded-xl border border-border/60 bg-muted/20 p-3">
         <ResearchMarketToggle
           :model-value="market"
           data-testid="quant-market-switcher"
@@ -148,3 +146,20 @@ function selectTradeDate(value: string) {
     </section>
   </div>
 </template>
+
+<style scoped>
+.quant-workspace :deep([data-slot="card"]) { box-shadow: none; border: 1px solid hsl(var(--border)); --tw-ring-shadow: 0 0 #0000; }
+.quant-workspace :deep([data-slot="card-title"]) { letter-spacing: -.02em; font-weight: 600; }
+.quant-workspace :deep([data-slot="table-container"]) { max-height: 70vh; border-radius: .65rem; border: 1px solid hsl(var(--border)); }
+.quant-workspace :deep(thead) { position: sticky; top: 0; z-index: 2; background: hsl(var(--card)); }
+.quant-workspace :deep(th) { background: color-mix(in srgb, hsl(var(--muted)) 55%, hsl(var(--card))); font-size: .75rem; }
+.quant-workspace :deep(td) { padding: .9rem 1rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.quant-workspace :deep(tbody tr) { transition: background-color .15s; }
+.quant-workspace :deep(tbody tr:hover) { background: color-mix(in srgb, hsl(var(--muted)) 45%, transparent); }
+.quant-workspace :deep(.quant-filters) { display: flex; flex-wrap: wrap; align-items: end; gap: 1rem; padding-top: 0; }
+.quant-workspace :deep(.quant-filters > :first-child) { flex: 1; min-width: 12rem; }
+.quant-workspace :deep(.quant-signal-buy) { color: hsl(var(--primary)); background: color-mix(in srgb, hsl(var(--primary)) 8%, transparent); border-color: color-mix(in srgb, hsl(var(--primary)) 25%, transparent); }
+.quant-workspace :deep(.quant-signal-avoid) { color: hsl(var(--muted-foreground)); }
+.quant-workspace :deep(section.grid [data-slot="card"]) { background: linear-gradient(145deg, hsl(var(--card)), color-mix(in srgb, hsl(var(--muted)) 35%, hsl(var(--card)))); }
+.quant-workspace :deep(section.grid [data-slot="card-title"]) { font-variant-numeric: tabular-nums; letter-spacing: -.035em; }
+</style>
