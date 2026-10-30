@@ -86,4 +86,4 @@ def evaluations(
     from finance_analysis.core.time import utc_now
 
     day = trade_date or utc_now().astimezone(ZoneInfo("Asia/Shanghai" if market == "CN" else "America/New_York")).date()
-    return {"items": service.store.evaluations(market, day, code.upper())}
+    return {"items": service.evaluations(market, day, code.upper())}

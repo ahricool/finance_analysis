@@ -8,7 +8,7 @@ export function useQuantTableSort<T>(rows: () => T[], value: (row: T, key: strin
     direction.value = sortKey.value === key && direction.value === 'asc' ? 'desc' : 'asc';
     sortKey.value = key;
   }
-  const sorted = computed(() => rows().map((row, index) => ({ row, index })).sort((a, b) => {
+  const sorted = computed(() => !sortKey.value ? rows() : rows().map((row, index) => ({ row, index })).sort((a, b) => {
     const left = value(a.row, sortKey.value), right = value(b.row, sortKey.value);
     const missing = (x: unknown) => x == null || x === '' || (typeof x === 'number' && !Number.isFinite(x));
     if (missing(left) || missing(right)) return Number(missing(left)) - Number(missing(right)) || a.index - b.index;

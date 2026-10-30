@@ -20,7 +20,7 @@ class Confirmation(BaseModel):
     candidate_sources: list[Source] = Field(default_factory=list)
     source_evidence: list[dict[str, Any]] = Field(default_factory=list)
     instrument_type: str | None = None
-    current_status: str = "LEGACY"
+    current_status: str = Field(default="LEGACY", description="PENDING_CONFIRMATION=走强待确认；PENDING_FAILURE=失效待确认")
     data_status: str | None = None
     conditions: dict[str, bool | None] = Field(default_factory=dict)
     proposed_state: State | None = None

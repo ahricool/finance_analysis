@@ -45,6 +45,7 @@ async function show(row: SignalSummary) {
 function page(delta: number) { offset.value = Math.max(0, offset.value + delta); void load(); }
 watch(market, () => { date.value = ''; offset.value = 0; void load(); }, { immediate: true });
 onBeforeUnmount(() => { ++generation; ++detailGeneration; });
+// Signal history uses backend offset pagination without global sort parameters.
 </script>
 
 <template>

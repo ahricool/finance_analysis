@@ -119,3 +119,101 @@ def test_current_quote_below_breakout_does_not_reuse_earlier_bullish_closes():
     m = metrics(quote(now, price=100.9), bars, quote(now, price=100), history(), SESSION, now)
     assert m["break_above_opening_range"] is False
     assert decision(m, {})["proposed_state"] == "WAIT"
+
+
+@pytest.mark.parametrize(
+    "proposed,status,reason",
+    [("CONFIRMED", "PENDING_CONFIRMATION", "确认走强"), ("FAILED", "PENDING_FAILURE", "判定失效")],
+)
+def test_pending_direction_still_requires_two_distinct_stable_evaluations(proposed, status, reason):
+    now = OPEN + timedelta(minutes=15)
+    raw = {**decision(inputs(), {}), "proposed_state": proposed}
+    first = stabilize(deepcopy(raw), {}, now, now)
+    assert first["state"] == "WAIT" and first["current_status"] == status
+    assert reason in first["reasons"][-1]["text"]
+    repeated = stabilize(deepcopy(raw), first, now, now + timedelta(seconds=30))
+    assert repeated["state"] == "WAIT" and repeated["pending_count"] == 1
+    later = now + timedelta(minutes=5)
+    second = stabilize(deepcopy(raw), repeated, later, later)
+    assert second["state"] == proposed
+    assert second["current_status"] == ("ACTIVE" if proposed == "CONFIRMED" else "FAILED")
+
+
+@pytest.mark.parametrize("legacy", [True, False])
+def test_pending_failure_ranks_after_wait_and_counts_as_attention_without_rewriting_history(legacy):
+    store = Store()
+
+    def item(code, score, status, proposed):
+        return dict(
+            code=code, state="WAIT", candidate_source="trend", metrics={}, chase_risk="LOW",
+            confirmation_score=score, current_status=status, proposed_state=proposed,
+        )
+
+    store.value = dict(
+        rule_version=config.RULE_VERSION,
+        items=[
+            item("SBUX.US", 15, "PENDING" if legacy else "PENDING_FAILURE", "FAILED"),
+            item("TMO.US", 3.81, "PENDING" if legacy else "PENDING_FAILURE", "FAILED"),
+            item("EW.US", 15, "WAIT", "WAIT"),
+            item("UP.US", 95, "PENDING" if legacy else "PENDING_CONFIRMATION", "CONFIRMED"),
+            item("OLD.US", 100, "PENDING", None),
+        ],
+    )
+    original = deepcopy(store.value)
+    # Reading a historical day avoids today's freshness projection; no providers or writes are permitted.
+    result = ConfirmationService(store=store, market_data=object()).read(
+        "US", trade_date=OPEN.date(), now=OPEN + timedelta(days=1)
+    )
+    assert [row["code"] for row in result["items"]] == ["UP.US", "EW.US", "SBUX.US", "TMO.US", "OLD.US"]
+    assert result["items"][0]["current_status"] == "PENDING_CONFIRMATION"
+    assert result["items"][2]["current_status"] == "PENDING_FAILURE"
+    assert result["items"][-1]["current_status"] == "PENDING"
+    assert result["summary"]["attention"] == 2
+    assert result["summary"]["ever_confirmed"] == 0
+    assert store.value == original
+
+
+def test_evaluation_history_projects_saved_pending_direction_without_mutation():
+    from types import SimpleNamespace
+
+    rows = [
+        {"current_status": "PENDING", "proposed_state": "FAILED", "confirmation_score": 3.81},
+        {"current_status": "PENDING", "proposed_state": "CONFIRMED", "confirmation_score": 95},
+        {"current_status": "PENDING"},
+    ]
+    original = deepcopy(rows)
+    calls = []
+
+    def evaluations(*args):
+        calls.append(args)
+        return rows
+
+    service = ConfirmationService(store=SimpleNamespace(evaluations=evaluations))
+    result = service.evaluations("US", OPEN.date(), "TMO.US")
+    assert [row["current_status"] for row in result] == ["PENDING_FAILURE", "PENDING_CONFIRMATION", "PENDING"]
+    assert calls == [("US", OPEN.date(), "TMO.US")]
+    assert rows == original
+
+
+def test_evaluation_api_uses_the_same_pending_projection_as_the_list():
+    from types import SimpleNamespace
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from finance_analysis.interfaces.api.v1.endpoints import intraday_confirmation as api
+
+    calls = []
+
+    def evaluations(*args):
+        calls.append(args)
+        return [{"current_status": "PENDING", "proposed_state": "FAILED", "confirmation_score": 3.81}]
+
+    service = ConfirmationService(store=SimpleNamespace(evaluations=evaluations))
+    app = FastAPI()
+    app.include_router(api.router, prefix="/intraday-confirmation")
+    app.dependency_overrides[api.get_service] = lambda: service
+    app.dependency_overrides[api.require_current_user] = lambda: SimpleNamespace(id=1)
+    with TestClient(app) as client:
+        result = client.get("/intraday-confirmation/tmo.us/evaluations?market=US&trade_date=2026-09-21")
+    assert result.status_code == 200
+    assert result.json()["items"][0]["current_status"] == "PENDING_FAILURE"
+    assert calls == [("US", OPEN.date(), "TMO.US")]

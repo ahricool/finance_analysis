@@ -1,5 +1,7 @@
 <script setup lang="ts">
-import IndicatorHelpLabel from '@/components/app/IndicatorHelpLabel.vue';
+import { metricHint } from '@/utils/metricHints';
+import SortableTableHeader from '@/components/stocks/SortableTableHeader.vue';
+import { useTableSort, sortField } from '@/composables/useTableSort';
 import { computed, onBeforeUnmount, ref, shallowRef, watch } from 'vue';
 import { dragonTigerFlowApi, flowBoardLabels, type FlowFilters, type FlowOverview } from '@/api/dragonTigerFlow';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
@@ -41,6 +43,9 @@ async function load() {
 }
 watch([() => props.symbol, () => props.market, () => filters.value.endDate, () => filters.value.days, () => filters.value.board, () => filters.value.rangeDays, () => props.context?.dragonTigerConceptId], load, { immediate: true });
 onBeforeUnmount(() => { ++generation; });
+
+const table = useTableSort(() => stockRows.value, (row, key) => key === 'concepts' ? row.concepts.join('、') : sortField(row, key));
+
 </script>
 <template>
   <div
@@ -90,36 +95,36 @@ onBeforeUnmount(() => { ++generation; });
         <table class="w-full min-w-max text-sm">
           <thead>
             <tr>
-              <th class="p-2 text-left">
-                <IndicatorHelpLabel
-                  scope="flow"
-                  label="日期 / 周期"
-                  compact
-                />
-              </th><th class="p-2 text-right">
-                <IndicatorHelpLabel
-                  scope="flow"
-                  label="股票整体净额"
-                  compact
-                />
-              </th><th class="p-2 text-right">
-                <IndicatorHelpLabel
-                  scope="flow"
-                  label="所选口径原始净额"
-                  compact
-                />
-              </th><th class="p-2 text-left">
-                <IndicatorHelpLabel
-                  scope="flow"
-                  label="当日概念 / 每概念权重"
-                  compact
-                />
-              </th>
+              <SortableTableHeader
+                class="p-2 text-left"
+                label="日期 / 周期"
+                :description="[metricHint('flow', '日期 / 周期'), '按交易日期排序'].filter(Boolean).join('；')"
+                scope="flow"
+                v-bind="table.header('tradeDate')"
+              /><SortableTableHeader
+                align="right"
+                class="p-2 text-right"
+                label="股票整体净额"
+                scope="flow"
+                v-bind="table.header('stockNetValue')"
+              /><SortableTableHeader
+                align="right"
+                class="p-2 text-right"
+                label="所选口径原始净额"
+                scope="flow"
+                v-bind="table.header('originalNetValue')"
+              /><SortableTableHeader
+                class="p-2 text-left"
+                label="当日概念 / 每概念权重"
+                :description="[metricHint('flow', '当日概念 / 每概念权重'), '按概念名称排序'].filter(Boolean).join('；')"
+                scope="flow"
+                v-bind="table.header('concepts')"
+              />
             </tr>
           </thead>
           <tbody>
             <tr
-              v-for="row in stockRows"
+              v-for="row in table.sorted"
               :key="row.tradeDate"
               class="border-t"
             >

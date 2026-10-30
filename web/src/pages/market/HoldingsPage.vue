@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { trendSortValue, patternSortValue } from '@/utils/realtimeTableSort';
+import { calculateIntradayDirection, intradayDirectionSortValue } from '@/utils/intradayDirection';
 import { useMarket } from '@/composables/useMarket';
 import StockLink from '@/components/stocks/StockLink.vue';
 import IndicatorHelpLabel from '@/components/app/IndicatorHelpLabel.vue';
@@ -52,7 +54,7 @@ const totalAsset = ref('0');
 const exposure = ref<string | null>(null);
 const missingQuotes = ref(0);
 const updatedAt = ref<string | null>(null);
-type SortKey = 'symbol' | 'currentPrice' | 'changePct' | 'engine' | 'quantity' | 'averageCost' | 'weight' | 'dayPnl' | 'unrealizedPnlPct';
+type SortKey = 'trend' | 'pattern' | 'intradayDirection' | 'symbol' | 'currentPrice' | 'changePct' | 'engine' | 'quantity' | 'averageCost' | 'weight' | 'dayPnl' | 'unrealizedPnlPct';
 const sortKey = ref<SortKey>('weight');
 const sortDirection = ref<'asc' | 'desc'>('desc');
 const columns: Array<{ key: SortKey; label: string }> = [
@@ -60,6 +62,7 @@ const columns: Array<{ key: SortKey; label: string }> = [
   { key: 'changePct', label: '当日涨跌' }, { key: 'engine', label: '交易引擎' },
   { key: 'quantity', label: '数量' }, { key: 'averageCost', label: '成本' },
   { key: 'weight', label: '仓位' }, { key: 'dayPnl', label: '当日盈亏' }, { key: 'unrealizedPnlPct', label: '盈亏' },
+  { key: 'trend', label: '趋势持续' }, { key: 'pattern', label: '最近形态' }, { key: 'intradayDirection', label: '日内方向状态' },
 ];
 const engine = ref<TradeEnginePosition[]>([]);
 const formOpen = ref(false);
@@ -101,10 +104,19 @@ function engineLabel(row: PortfolioPosition) {
   if (engineError.value) return '读取失败';
   return engineByPosition.value[String(row.id)]?.action || '暂无正式信号';
 }
+function positionSortValue(row: PortfolioPosition, key: SortKey) {
+  if (key === 'symbol') return row.name || row.symbol;
+  if (key === 'engine') return engineLabel(row);
+  const quote = getQuote(row.symbol, market.value);
+  if (key === 'trend') return trendSortValue(quote?.trend1m);
+  if (key === 'pattern') return patternSortValue(quote?.pattern1m);
+  if (key === 'intradayDirection') return intradayDirectionSortValue(calculateIntradayDirection(quote, market.value, currentTime.value));
+  return numeric(row[key]);
+}
 const sortedPositions = computed(() => [...positions.value].sort((a, b) => {
   const key = sortKey.value;
-  const left = key === 'symbol' ? a.name || a.symbol : key === 'engine' ? engineLabel(a) : numeric(a[key]);
-  const right = key === 'symbol' ? b.name || b.symbol : key === 'engine' ? engineLabel(b) : numeric(b[key]);
+  const left = positionSortValue(a, key);
+  const right = positionSortValue(b, key);
   if (left == null) return right == null ? a.id - b.id : 1;
   if (right == null) return -1;
   const order = typeof left === 'number' && typeof right === 'number' ? left - right : String(left).localeCompare(String(right), 'zh-CN');
@@ -423,7 +435,7 @@ function closeDetail() {
                 :align="column.key === 'symbol' || column.key === 'engine' ? 'left' : 'right'"
                 @sort="sort(column.key)"
               />
-              <TableHead>趋势持续</TableHead><TableHead>最近形态</TableHead><TableHead>日内方向状态</TableHead>
+
               <TableHead>操作</TableHead>
             </TableRow>
           </TableHeader>

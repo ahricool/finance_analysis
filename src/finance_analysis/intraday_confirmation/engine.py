@@ -5,6 +5,11 @@ from math import isfinite
 from . import config as c
 
 
+def pending_status(proposed):
+    """Keep old undirected pending evidence explicit when its direction is missing."""
+    return {"CONFIRMED": "PENDING_CONFIRMATION", "FAILED": "PENDING_FAILURE"}.get(proposed, "PENDING")
+
+
 def ratio(value, base):
     return value / base - 1 if value is not None and base is not None and base > 0 else None
 
@@ -330,7 +335,7 @@ def stabilize(current, previous, observation, now):
                     else (
                         "WEAKENING"
                         if state == "CONFIRMED"
-                        else "PENDING" if proposed in {"CONFIRMED", "FAILED"} else "WAIT"
+                        else pending_status(proposed) if proposed in {"CONFIRMED", "FAILED"} else "WAIT"
                     )
                 )
             )
@@ -343,7 +348,10 @@ def stabilize(current, previous, observation, now):
                 "text": (
                     "当日失效记录锁定；历史确认仅在稳定结构性失败后改变"
                     if state != "WAIT"
-                    else f"等待连续 {c.STABLE_EVALUATIONS} 次新闭合线评估确认"
+                    else (
+                        f"等待连续 {c.STABLE_EVALUATIONS} 次新闭合线评估后"
+                        + ("判定失效" if proposed == "FAILED" else "确认走强")
+                    )
                 ),
             }
         )

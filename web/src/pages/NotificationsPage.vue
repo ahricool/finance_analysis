@@ -88,6 +88,7 @@ async function showDetail(id: number) {
 }
 onMounted(() => void load());
 onBeforeUnmount(() => { listRequest++; detailRequest++; });
+// Notification history uses backend pagination without a global sorting contract.
 </script>
 
 <template>

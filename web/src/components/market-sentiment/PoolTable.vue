@@ -4,6 +4,7 @@ import IndicatorHelpLabel from '@/components/app/IndicatorHelpLabel.vue';
 import type { Pool } from '@/api/marketSentiment';
 import { pct, money, flag } from './display';
 defineProps<{ pool: Pool | null }>();
+// Pool rows are backend-paginated; the endpoint has no global sort parameters.
 </script>
 <template>
   <p

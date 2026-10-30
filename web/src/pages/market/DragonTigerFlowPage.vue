@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useTableSort, sortField } from '@/composables/useTableSort';
 import StockLink from '@/components/stocks/StockLink.vue';
 import IndicatorHelpLabel from '@/components/app/IndicatorHelpLabel.vue';
 import { computed, onMounted, ref } from 'vue';
@@ -47,19 +48,14 @@ function sortStocks(key: 'name' | 'netValue' | 'days') {
 const boards: FlowBoard[] = ['all', 'org', 'hot_money'];
 const windows = [1, 5, 10, 20] as const;
 const stockSearch = ref('');
-const allStockSort = ref<'observedNetValue' | 'buyValue' | 'sellValue' | 'orgNetValue' | 'hotMoneyNetValue'>('observedNetValue');
-const allStockDescending = ref(true);
 const allStockRows = computed(() => allStocks(data.value).filter(row =>
   `${row.symbol} ${row.name} ${row.concepts.join(' ')}`.toLowerCase().includes(stockSearch.value.trim().toLowerCase()),
 ).sort((a, b) => {
-  const av = a[allStockSort.value], bv = b[allStockSort.value];
+  const av = a.observedNetValue, bv = b.observedNetValue;
   return Number(av === null) - Number(bv === null)
-    || (allStockDescending.value ? -1 : 1) * ((av ?? 0) - (bv ?? 0)) || a.symbol.localeCompare(b.symbol);
+    || (bv ?? 0) - (av ?? 0) || a.symbol.localeCompare(b.symbol);
 }));
-function sortAllStocks(key: typeof allStockSort.value) {
-  allStockDescending.value = allStockSort.value === key ? !allStockDescending.value : true;
-  allStockSort.value = key;
-}
+
 const amountColumns = [
   { key: 'observedNetValue', label: '所选口径净额' }, { key: 'buyValue', label: '买入额' },
   { key: 'sellValue', label: '卖出额' }, { key: 'orgNetValue', label: '机构净额' },
@@ -86,6 +82,10 @@ function openStock(row: { symbol: string; name: string | null }, tab: 'overview'
   stockLabel.value = row.name;
   stock.value = row.symbol;
 }
+
+const allTable = useTableSort(() => allStockRows.value, (row, key) => key === 'concepts' ? row.concepts.join('、') : sortField(row, key));
+const hotTable = useTableSort(() => data.value?.hotMoneyDetails ?? [], sortField);
+
 </script>
 
 <template>
@@ -326,41 +326,39 @@ function openStock(row: { symbol: string; name: string | null }, tab: 'overview'
             >
               <thead class="sticky top-0 bg-muted">
                 <tr>
-                  <th class="p-3 text-left">
-                    <IndicatorHelpLabel
-                      scope="flow"
-                      label="股票"
-                      compact
-                    />
-                  </th>
+                  <SortableTableHeader
+                    class="p-3 text-left"
+                    label="股票"
+                    scope="flow"
+                    v-bind="allTable.header('name')"
+                  />
                   <SortableTableHeader
                     v-for="column in amountColumns"
                     :key="column.key"
                     scope="flow"
                     :label="!data.complete && column.key === 'observedNetValue' ? '已采集日净额' : column.label"
                     align="right"
-                    :active="allStockSort === column.key"
-                    :direction="allStockDescending ? 'desc' : 'asc'"
-                    @sort="sortAllStocks(column.key)"
+                    :active="allTable.sortKey === column.key"
+                    :direction="allTable.direction"
+                    @sort="allTable.toggle(column.key)"
                   />
-                  <th class="p-3 text-right">
-                    <IndicatorHelpLabel
-                      scope="flow"
-                      label="上榜日数"
-                      compact
-                    />
-                  </th><th class="p-3 text-left">
-                    <IndicatorHelpLabel
-                      scope="flow"
-                      label="观测概念"
-                      compact
-                    />
-                  </th>
+                  <SortableTableHeader
+                    align="right"
+                    class="p-3 text-right"
+                    label="上榜日数"
+                    scope="flow"
+                    v-bind="allTable.header('observedDays')"
+                  /><SortableTableHeader
+                    class="p-3 text-left"
+                    label="观测概念"
+                    scope="flow"
+                    v-bind="allTable.header('concepts')"
+                  />
                 </tr>
               </thead>
               <tbody>
                 <tr
-                  v-for="row in allStockRows"
+                  v-for="row in allTable.sorted"
                   :key="row.symbol"
                   class="border-t cursor-pointer"
                   tabindex="0"
@@ -418,36 +416,33 @@ function openStock(row: { symbol: string; name: string | null }, tab: 'overview'
           <table class="w-full min-w-max text-sm">
             <thead class="sticky top-0 bg-muted">
               <tr>
-                <th class="p-2 text-left">
-                  <IndicatorHelpLabel
-                    scope="flow"
-                    label="日期"
-                    compact
-                  />
-                </th><th class="p-2 text-left">
-                  <IndicatorHelpLabel
-                    scope="flow"
-                    label="股票"
-                    compact
-                  />
-                </th><th class="p-2 text-left">
-                  <IndicatorHelpLabel
-                    scope="flow"
-                    label="席位"
-                    compact
-                  />
-                </th><th class="p-2 text-right">
-                  <IndicatorHelpLabel
-                    scope="flow"
-                    label="样本净额"
-                    compact
-                  />
-                </th>
+                <SortableTableHeader
+                  class="p-2 text-left"
+                  label="日期"
+                  scope="flow"
+                  v-bind="hotTable.header('tradeDate')"
+                /><SortableTableHeader
+                  class="p-2 text-left"
+                  label="股票"
+                  scope="flow"
+                  v-bind="hotTable.header('name')"
+                /><SortableTableHeader
+                  class="p-2 text-left"
+                  label="席位"
+                  scope="flow"
+                  v-bind="hotTable.header('hotMoneyName')"
+                /><SortableTableHeader
+                  align="right"
+                  class="p-2 text-right"
+                  label="样本净额"
+                  scope="flow"
+                  v-bind="hotTable.header('hotMoneyItemNetValue')"
+                />
               </tr>
             </thead>
             <tbody>
               <tr
-                v-for="(row, i) in data.hotMoneyDetails"
+                v-for="(row, i) in hotTable.sorted"
                 :key="`${row.tradeDate}-${row.symbol}-${row.hotMoneyName}-${i}`"
                 class="border-t cursor-pointer"
                 tabindex="0"

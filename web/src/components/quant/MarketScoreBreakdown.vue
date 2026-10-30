@@ -1,17 +1,22 @@
 <script setup lang="ts">
+import SortableTableHeader from '@/components/stocks/SortableTableHeader.vue';
+import { useGroupedTableSort, sortField } from '@/composables/useTableSort';
 import IndicatorHelpLabel from '@/components/app/IndicatorHelpLabel.vue';
 import { metricHint } from '@/utils/metricHints';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Table, TableBody, TableCell, TableHeader, TableRow } from '@/components/ui/table';
 import type { MarketScoreBreakdown, MarketScoreComponent } from '@/types/quant';
 import { formatPercent, formatScore } from '@/utils/quant';
 
-defineProps<{ breakdown: MarketScoreBreakdown }>();
+const props = defineProps<{ breakdown: MarketScoreBreakdown }>();
 
 function formatRaw(component: MarketScoreComponent): string {
   return component.rawFormat === 'percent'
     ? formatPercent(component.rawValue)
     : formatScore(component.rawValue);
 }
+
+const groupTable = useGroupedTableSort((key: string) => props.breakdown.groups.find(group => group.key === key)?.components ?? [], sortField);
+
 </script>
 
 <template>
@@ -46,46 +51,36 @@ function formatRaw(component: MarketScoreComponent): string {
         <Table class="min-w-[620px]">
           <TableHeader>
             <TableRow>
-              <TableHead>
-                <IndicatorHelpLabel
-                  scope="quant"
-                  label="指标"
-                  compact
-                />
-              </TableHead>
-              <TableHead>
-                <IndicatorHelpLabel
-                  scope="quant"
-                  label="原始值"
-                  compact
-                />
-              </TableHead>
-              <TableHead>
-                <IndicatorHelpLabel
-                  scope="quant"
-                  label="标准化得分"
-                  compact
-                />
-              </TableHead>
-              <TableHead>
-                <IndicatorHelpLabel
-                  scope="quant"
-                  label="权重"
-                  compact
-                />
-              </TableHead>
-              <TableHead>
-                <IndicatorHelpLabel
-                  scope="quant"
-                  label="贡献"
-                  compact
-                />
-              </TableHead>
+              <SortableTableHeader
+                label="指标"
+                scope="quant"
+                v-bind="groupTable(group.key).header('label')"
+              />
+              <SortableTableHeader
+                label="原始值"
+                scope="quant"
+                v-bind="groupTable(group.key).header('rawValue')"
+              />
+              <SortableTableHeader
+                label="标准化得分"
+                scope="quant"
+                v-bind="groupTable(group.key).header('score')"
+              />
+              <SortableTableHeader
+                label="权重"
+                scope="quant"
+                v-bind="groupTable(group.key).header('weight')"
+              />
+              <SortableTableHeader
+                label="贡献"
+                scope="quant"
+                v-bind="groupTable(group.key).header('contribution')"
+              />
             </TableRow>
           </TableHeader>
           <TableBody>
             <TableRow
-              v-for="component in group.components"
+              v-for="component in groupTable(group.key).sorted"
               :key="component.key"
             >
               <TableCell class="font-medium">

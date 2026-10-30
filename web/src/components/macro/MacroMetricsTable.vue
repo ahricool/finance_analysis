@@ -1,15 +1,26 @@
 <script setup lang="ts">
+import SortableTableHeader from '@/components/stocks/SortableTableHeader.vue';
+import { useTableSort, sortField } from '@/composables/useTableSort';
 import StockIdentity from '@/components/stocks/StockIdentity.vue';
-import IndicatorHelpLabel from '@/components/app/IndicatorHelpLabel.vue';
 import type { MacroInstrument, MacroRatio } from '@/api/macro';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Table, TableHeader, TableHead, TableBody, TableRow, TableCell } from '@/components/ui/table';
+import { Table, TableHeader, TableBody, TableRow, TableCell } from '@/components/ui/table';
 import { formatDateOnly } from '@/utils/format';
 import { numberLabel, returnClass, returnLabel, seriesLabel, trendLabel, regimeLabel } from './display';
 const emit = defineEmits<{ select: [asset: MacroInstrument] }>();
-defineProps<{ rows: (MacroInstrument | MacroRatio)[]; ratios?: boolean }>();
+const props = defineProps<{ rows: (MacroInstrument | MacroRatio)[]; ratios?: boolean }>();
 const categories: Record<string, string> = { EQUITY: '权益', RATES: '利率', DOLLAR: '美元', COMMODITY: '商品', CREDIT: '信用', RISK: '风险偏好', DEFENSIVE: '防御', VOLATILITY: '波动率' };
+
+const table = useTableSort(() => props.rows, (row, key) => {
+  if (key === 'name') return 'code' in row ? row.name : seriesLabel(row.key);
+  if (key === 'value') return 'close' in row ? row.close : row.value;
+  if (key === 'category') return 'category' in row ? categories[row.category] ?? row.category : null;
+  if (key === 'trend') return ({ UP: 0, NEUTRAL: 1, DOWN: 2 } as Record<string, number>)[row.trend ?? ''];
+  if (key === 'signal') return 'signal' in row ? ({ RISK_ON: 0, NEUTRAL: 1, RISK_OFF: 2 } as Record<string, number>)[row.signal ?? ''] : null;
+  return sortField(row, key);
+});
+
 </script>
 <template>
   <Card
@@ -21,52 +32,47 @@ const categories: Record<string, string> = { EQUITY: '权益', RATES: '利率', 
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead>{{ ratios ? '指标' : '资产' }}</TableHead><TableHead v-if="!ratios">
-              <IndicatorHelpLabel
-                scope="macro"
-                label="类别"
-                compact
-              />
-            </TableHead><TableHead class="text-right">
-              <IndicatorHelpLabel
-                scope="macro"
-                :label="ratios ? '当前值' : '最新价'"
-                compact
-              />
-            </TableHead><TableHead
+            <SortableTableHeader
+              :label="ratios ? '指标' : '资产'"
+              v-bind="table.header('name')"
+            /><SortableTableHeader
+              v-if="!ratios"
+              label="类别"
+              scope="macro"
+              v-bind="table.header('category')"
+            /><SortableTableHeader
+              align="right"
+              class="text-right"
+              :label="ratios ? '当前值' : '最新价'"
+              scope="macro"
+              v-bind="table.header('value')"
+            /><SortableTableHeader
               v-for="period in ['1D', '5D', '20D']"
               :key="period"
+              align="right"
               class="text-right"
-            >
-              <IndicatorHelpLabel
-                scope="macro"
-                :label="period"
-                compact
-              />
-            </TableHead><TableHead>
-              <IndicatorHelpLabel
-                scope="macro"
-                label="趋势"
-                compact
-              />
-            </TableHead><TableHead v-if="ratios">
-              <IndicatorHelpLabel
-                scope="macro"
-                label="信号"
-                compact
-              />
-            </TableHead><TableHead>
-              <IndicatorHelpLabel
-                scope="macro"
-                label="数据日期"
-                compact
-              />
-            </TableHead>
+              :label="period"
+              scope="macro"
+              v-bind="table.header('ret' + period)"
+            /><SortableTableHeader
+              label="趋势"
+              scope="macro"
+              v-bind="table.header('trend')"
+            /><SortableTableHeader
+              v-if="ratios"
+              label="信号"
+              scope="macro"
+              v-bind="table.header('signal')"
+            /><SortableTableHeader
+              label="数据日期"
+              scope="macro"
+              v-bind="table.header('tradeDate')"
+            />
           </TableRow>
         </TableHeader>
         <TableBody>
           <TableRow
-            v-for="row in rows"
+            v-for="row in table.sorted"
             :key="'code' in row ? row.code : row.key"
             :class="{ 'cursor-pointer': 'code' in row }"
             @click="'code' in row && emit('select', row)"

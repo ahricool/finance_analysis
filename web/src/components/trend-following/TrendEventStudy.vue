@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useTableSort, sortField } from '@/composables/useTableSort';
 import { formatPercent } from '@/utils/number';
 import StockLink from '@/components/stocks/StockLink.vue';
 import IndicatorHelpLabel from '@/components/app/IndicatorHelpLabel.vue';
@@ -149,6 +150,15 @@ async function exportSummary() {
       sorted.value.map(group => columns.map(column => value(group, column.key))));
   } catch { toast.error('Excel 导出失败，请重试'); }
 }
+
+const horizonColumns = [
+  ['days', '周期'], ['maturedCount', '可评价 N'], ['pendingCount', '未到期'], ['missingCount', '缺行情'],
+  ['meanReturn', '平均收益'], ['medianReturn', '中位收益'], ['winRate', '胜率'], ['excessMaturedCount', '超额 N'],
+  ['meanExcessReturn', '平均超额'], ['medianExcessReturn', '中位超额'], ['excessWinRate', '超额胜率'],
+] as const;
+const horizonTable = useTableSort(() => chosenGroup.value?.horizons ?? [], sortField);
+// Event details use backend offset pagination without a global sort contract.
+
 </script>
 
 <template>
@@ -293,22 +303,19 @@ async function exportSummary() {
         <Table v-if="chosenGroup">
           <TableHeader>
             <TableRow>
-              <th
-                v-for="label in ['周期', '可评价 N', '未到期', '缺行情', '平均收益', '中位收益', '胜率', '超额 N', '平均超额', '中位超额', '超额胜率']"
-                :key="label"
+              <SortableTableHeader
+                v-for="[key, label] in horizonColumns"
+                :key="key"
                 class="p-2 text-left text-xs"
-              >
-                <IndicatorHelpLabel
-                  scope="study"
-                  :label="label"
-                  compact
-                />
-              </th>
+                :label="label"
+                scope="study"
+                v-bind="horizonTable.header(key)"
+              />
             </TableRow>
           </TableHeader>
           <TableBody>
             <TableRow
-              v-for="h in chosenGroup.horizons"
+              v-for="h in horizonTable.sorted"
               :key="h.days"
             >
               <TableCell>{{ h.days }}D</TableCell><TableCell>{{ h.maturedCount }}</TableCell><TableCell>{{ h.pendingCount }}</TableCell><TableCell>{{ h.missingCount }}</TableCell><TableCell>{{ pct(h.meanReturn) }}</TableCell><TableCell>{{ pct(h.medianReturn) }}</TableCell><TableCell>{{ pct(h.winRate) }}</TableCell><TableCell>{{ h.excessMaturedCount }}</TableCell><TableCell>{{ pct(h.meanExcessReturn) }}</TableCell><TableCell>{{ pct(h.medianExcessReturn) }}</TableCell><TableCell>{{ pct(h.excessWinRate) }}</TableCell>

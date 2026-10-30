@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import SortableTableHeader from '@/components/stocks/SortableTableHeader.vue';
+import { useTableSort, sortField, sortNumber, sortTime } from '@/composables/useTableSort';
 import { computed } from 'vue';
 import { RefreshCcw } from 'lucide-vue-next';
 import { useBinanceBtcMarket } from '@/composables/useBinanceBtcMarket';
@@ -12,7 +14,7 @@ import IndicatorHelpLabel from '@/components/app/IndicatorHelpLabel.vue';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Table, TableBody, TableCell, TableHeader, TableRow } from '@/components/ui/table';
 import { Skeleton } from '@/components/ui/skeleton';
 
 const { candles, current, price, interval, connection, loading: marketLoading, restError, wsError, refresh: refreshMarket } = useBinanceBtcMarket();
@@ -44,6 +46,17 @@ function number(value: string | null | undefined) {
 function time(value: string | null | undefined) {
   return value ? new Date(value).toISOString().replace('T', ' ').slice(0, 19) + ' UTC' : '—';
 }
+
+const signalTable = useTableSort(() => signals.value, (row, key) => {
+  if (key === 'evaluatedAt') return sortTime(row.evaluatedAt);
+  if (key === 'price') return sortNumber(row.price);
+  if (key === 'regime') return row.regime === 'UNKNOWN' ? null : ['BULL', 'RANGE', 'BEAR'].indexOf(row.regime);
+  if (key === 'action') return ['BUY', 'HOLD', 'WAIT', 'EXIT'].indexOf(row.action);
+  if (key === 'positionState') return row.positionState === 'LONG' ? 0 : 1;
+  return sortField(row, key);
+});
+const summaryTable = useTableSort(() => summaries.value, (row, key) => key === 'displayName' ? row.displayName : sortNumber(sortField(row, key)));
+
 </script>
 
 <template>
@@ -234,53 +247,41 @@ function time(value: string | null | undefined) {
         <Table v-else>
           <TableHeader>
             <TableRow>
-              <TableHead>
-                <IndicatorHelpLabel
-                  scope="crypto"
-                  label="时间 UTC"
-                  compact
-                />
-              </TableHead>
-              <TableHead>
-                <IndicatorHelpLabel
-                  scope="crypto"
-                  label="action"
-                  compact
-                />
-              </TableHead>
-              <TableHead>
-                <IndicatorHelpLabel
-                  scope="crypto"
-                  label="marketRegime"
-                  compact
-                />
-              </TableHead>
-              <TableHead>
-                <IndicatorHelpLabel
-                  scope="crypto"
-                  label="价格"
-                  compact
-                />
-              </TableHead>
-              <TableHead>
-                <IndicatorHelpLabel
-                  scope="crypto"
-                  label="状态"
-                  compact
-                />
-              </TableHead>
-              <TableHead>
-                <IndicatorHelpLabel
-                  scope="crypto"
-                  label="原因"
-                  compact
-                />
-              </TableHead>
+              <SortableTableHeader
+                label="时间 UTC"
+                scope="crypto"
+                v-bind="signalTable.header('evaluatedAt')"
+              />
+              <SortableTableHeader
+                label="action"
+                scope="crypto"
+                v-bind="signalTable.header('action')"
+              />
+              <SortableTableHeader
+                label="marketRegime"
+                scope="crypto"
+                v-bind="signalTable.header('regime')"
+              />
+              <SortableTableHeader
+                label="价格"
+                scope="crypto"
+                v-bind="signalTable.header('price')"
+              />
+              <SortableTableHeader
+                label="状态"
+                scope="crypto"
+                v-bind="signalTable.header('positionState')"
+              />
+              <SortableTableHeader
+                label="原因"
+                scope="crypto"
+                v-bind="signalTable.header('reason')"
+              />
             </TableRow>
           </TableHeader>
           <TableBody>
             <TableRow
-              v-for="item in signals"
+              v-for="item in signalTable.sorted"
               :key="item.evaluatedAt"
             >
               <TableCell class="whitespace-nowrap">
@@ -332,60 +333,46 @@ function time(value: string | null | undefined) {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>
-                <IndicatorHelpLabel
-                  scope="crypto"
-                  label="strategy"
-                  compact
-                />
-              </TableHead>
-              <TableHead>
-                <IndicatorHelpLabel
-                  scope="crypto"
-                  label="position"
-                  compact
-                />
-              </TableHead>
-              <TableHead>
-                <IndicatorHelpLabel
-                  scope="crypto"
-                  label="totalReturn"
-                  compact
-                />
-              </TableHead>
-              <TableHead>
-                <IndicatorHelpLabel
-                  scope="crypto"
-                  label="annualized"
-                  compact
-                />
-              </TableHead>
-              <TableHead>
-                <IndicatorHelpLabel
-                  scope="crypto"
-                  label="maxDrawdown"
-                  compact
-                />
-              </TableHead>
-              <TableHead>
-                <IndicatorHelpLabel
-                  scope="crypto"
-                  label="winRate"
-                  compact
-                />
-              </TableHead>
-              <TableHead>
-                <IndicatorHelpLabel
-                  scope="crypto"
-                  label="runningDays"
-                  compact
-                />
-              </TableHead>
+              <SortableTableHeader
+                label="strategy"
+                scope="crypto"
+                v-bind="summaryTable.header('displayName')"
+              />
+              <SortableTableHeader
+                label="position"
+                scope="crypto"
+                v-bind="summaryTable.header('currentPosition.positionPct')"
+              />
+              <SortableTableHeader
+                label="totalReturn"
+                scope="crypto"
+                v-bind="summaryTable.header('totalReturn')"
+              />
+              <SortableTableHeader
+                label="annualized"
+                scope="crypto"
+                v-bind="summaryTable.header('annualizedReturn')"
+              />
+              <SortableTableHeader
+                label="maxDrawdown"
+                scope="crypto"
+                v-bind="summaryTable.header('maxDrawdown')"
+              />
+              <SortableTableHeader
+                label="winRate"
+                scope="crypto"
+                v-bind="summaryTable.header('winRate')"
+              />
+              <SortableTableHeader
+                label="runningDays"
+                scope="crypto"
+                v-bind="summaryTable.header('runningDays')"
+              />
             </TableRow>
           </TableHeader>
           <TableBody>
             <TableRow
-              v-for="item in summaries"
+              v-for="item in summaryTable.sorted"
               :key="item.strategyKey"
             >
               <TableCell>{{ item.displayName }}</TableCell><TableCell>{{ percent(item.currentPosition.positionPct) }}</TableCell><TableCell>{{ percent(item.totalReturn) }}</TableCell><TableCell>{{ percent(item.annualizedReturn) }}</TableCell><TableCell>{{ percent(item.maxDrawdown) }}</TableCell><TableCell>{{ percent(item.winRate) }}</TableCell><TableCell>{{ number(item.runningDays) }}</TableCell>
