@@ -87,6 +87,7 @@ class SignalCenterService:
                             call_type="signal_center",
                             web_search=True,
                             prefer_search=True,
+                            api_first=True,
                         ),
                         validator=lambda text: contract.parse_decision(text, final),
                     )
@@ -168,6 +169,7 @@ class SignalCenterService:
                     call_type="signal_center_screen",
                     web_search=True,
                     prefer_search=True,
+                    api_first=True,
                 ),
                 validator=lambda text: contract.parse_screen(text, symbols),
             )

@@ -193,6 +193,7 @@ def test_five_buckets_choose_at_most_fifteen_then_three_and_notify_once():
     assert len(result["symbols"]) == 3 and "510300.SH" in result["symbols"]
     assert len(client.calls) == 6
     assert all(r.web_search and r.prefer_search for r in client.calls)
+    assert all(r.api_first for r in client.calls)
     final = json.loads(client.calls[-1].prompt)
     assert len(final["candidates"]) == 15
     assert all(len(a["output"]["symbols"]) <= 3 for a in repo.run_record["screening"])

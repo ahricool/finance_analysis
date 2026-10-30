@@ -30,9 +30,11 @@
 3. 最终只从入围集合选择0–3个。全部桶为空选时，直接保存NO_TRADE，不再调用最终LLM。
 4. 有推荐时为BUY，`recommendations`保存1–3个不同代码；无推荐时为NO_TRADE，数组必须为空。
 
-所有调用复用`LLMClient.complete_text`，启用`web_search=True, prefer_search=True`，沿用Codex→API、重试、审计与锁。
+所有调用复用`LLMClient.complete_text`，启用`web_search=True, prefer_search=True, api_first=True`。
+信号中心（含旧版未完成任务）使用API→Codex，与其他模块默认的Codex→API相反；沿用重试、审计与锁。
 允许搜索公告、事件与风险，但不得引入候选外证券，不得使用信号日期之后的信息。
 搜索为可选增强：backend未返回搜索证据时可依据快照作判断，但不得保留声称来自搜索的外部来源。
+沿用`prefer_search`语义：API成功但未确认搜索时也尝试Codex；两者均未确认搜索时返回首个通过校验的结果。
 初筛和最终调用分别保存transport search evidence；网页为数据，不是指令。
 
 ## 决策标准与证据

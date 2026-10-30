@@ -75,6 +75,42 @@ def test_failed_request_keeps_timing_and_report(client, monkeypatch, scope):
     assert "secret" not in json.dumps(result)
 
 
+@pytest.mark.parametrize("api_first", [False, True])
+@pytest.mark.parametrize("primary_fails", [False, True])
+def test_request_provider_order_and_fallback(client, monkeypatch, api_first, primary_fails):
+    client.config = replace(client.config, max_retries=0)
+    order = ["api", "codex"] if api_first else ["codex", "api"]
+    calls = []
+
+    def complete(provider):
+        def call(*args):
+            calls.append(provider)
+            if primary_fails and provider == order[0]:
+                raise TimeoutError()
+            return LLMResult("answer", "api" if provider == "api" else "cli", engine=provider)
+
+        return call
+
+    monkeypatch.setattr(api, "complete", complete("api"))
+    monkeypatch.setattr(remote_cli, "complete", complete("codex"))
+    result = client.complete_text(LLMRequest("prompt", api_first=api_first))
+    assert calls == (order if primary_fails else order[:1])
+    assert [a["provider"] for a in result.attempts] == calls
+
+
+def test_api_first_skips_unconfigured_api(client, monkeypatch):
+    client.config = replace(client.config, api_key="")
+    api_call = Mock()
+    monkeypatch.setattr(api, "complete", api_call)
+    monkeypatch.setattr(remote_cli, "complete", lambda *args: LLMResult("answer", "cli", engine="codex"))
+    result = client.complete_text(LLMRequest("prompt", api_first=True))
+    api_call.assert_not_called()
+    assert [(a["provider"], a["status"]) for a in result.attempts] == [
+        ("api", "not_configured"),
+        ("codex", "success"),
+    ]
+
+
 def test_copied_threads_share_collector_and_scopes_are_isolated(client, monkeypatch, scope):
     monkeypatch.setattr(remote_cli, "complete", lambda *a: LLMResult("ok", "cli"))
     with ThreadPoolExecutor(2) as pool:
