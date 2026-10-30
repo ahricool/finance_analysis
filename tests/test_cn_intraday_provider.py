@@ -152,3 +152,29 @@ def test_slow_primary_is_given_only_part_of_the_shared_budget():
     assert not result.failed_symbols
     assert 0 < budgets["primary"] <= 9
     assert budgets["fallback"] > budgets["primary"]
+
+
+def test_required_session_window_falls_back_without_mixing_source_bars():
+    registry = ProviderRegistry()
+    registry.register('sina_intraday', CnIntradayProvider('sina_intraday', lambda symbol: [sina_row('09:33')]), capabilities={MINUTE_BARS})
+    registry.register('tencent_intraday', CnIntradayProvider('tencent_intraday', lambda symbol: [
+        [f'2026102309{31+i:02d}', '10', '11', '12', '9', '123', {}] for i in range(3)
+    ]), capabilities={MINUTE_BARS})
+    result = MarketDataService(registry).get_minute_bars(
+        ['512800.SH'], START, END, providers=('sina_intraday', 'tencent_intraday'),
+        required_bar_starts=tuple(START+timedelta(minutes=i) for i in range(3)),
+    )
+    assert result.providers_used == {'512800.SH': 'tencent_intraday'}
+    assert len(result.data['512800.SH']) == 3
+    assert {b.provider for b in result.data['512800.SH']} == {'tencent_intraday'}
+    assert 'gaps' in result.fallback_reasons['512800.SH'][0]
+
+
+def test_incomplete_only_source_is_unavailable_when_full_window_required():
+    registry = ProviderRegistry()
+    registry.register('sina_intraday', CnIntradayProvider('sina_intraday', lambda symbol: [sina_row('09:33')]), capabilities={MINUTE_BARS})
+    result = MarketDataService(registry).get_minute_bars(
+        ['512800.SH'], START, END, providers=('sina_intraday',), required_bar_starts=(START,),
+    )
+    assert not result.data
+    assert '512800.SH' in result.failed_symbols

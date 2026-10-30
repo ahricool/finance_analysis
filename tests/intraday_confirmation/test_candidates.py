@@ -1,218 +1,178 @@
-"""Exercise exact-date/cutoff filtering against a real SQL engine, no production DB."""
+"""Prior-day selection mirrors formal ranks; observations and Quant never enter V2."""
 
 from contextlib import contextmanager
 from datetime import date, datetime, timedelta, timezone
-import pytest
-from finance_analysis.intraday_confirmation import config as c
+
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
+
 from finance_analysis.database.models.stock import Instrument
-from finance_analysis.database.models.trend_following import TrendFollowingSnapshot
-from finance_analysis.database.models.confluence import ConfluenceSnapshot
+from finance_analysis.database.models.trend_following import TrendFollowingSnapshot as Trend
+from finance_analysis.database.models.confluence import ConfluenceSnapshot as Confluence
+from finance_analysis.database.models.etf_rotation import ETFMomentumSnapshot as ETF
 from finance_analysis.database.repositories.intraday_confirmation import CandidateRepository
 
-
-def test_candidates_only_exact_prior_session_before_freeze(monkeypatch):
-    engine = create_engine("sqlite://")
-    for model in (Instrument, TrendFollowingSnapshot, ConfluenceSnapshot):
-        model.__table__.create(engine)
-
-    class DB:
-        @contextmanager
-        def get_session(self):
-            with Session(engine) as session:
-                yield session
-
-    repo = CandidateRepository(DB())
-    monkeypatch.setattr(repo.formal, "quant", lambda *args: [])
-    day = date(2026, 9, 18)
-    cutoff = datetime(2026, 9, 21, 13, 25, tzinfo=timezone.utc)
-    with Session(engine) as session, session.begin():
-        for i, (trade_date, generated, state, kind) in enumerate(
-            [
-                (day, cutoff - timedelta(hours=12), "CANDIDATE", "STOCK"),
-                (day - timedelta(days=1), cutoff - timedelta(hours=12), "CANDIDATE", "STOCK"),
-                (day + timedelta(days=3), cutoff - timedelta(hours=12), "CANDIDATE", "STOCK"),
-                (day, cutoff + timedelta(hours=1), "CANDIDATE", "STOCK"),
-                (day, cutoff - timedelta(hours=12), "BROKEN", "STOCK"),
-                (day, cutoff - timedelta(hours=12), "CANDIDATE", "ETF"),
-                (day, cutoff - timedelta(hours=12), "CANDIDATE", "STOCK"),  # 40D is not a 20D candidate.
-                (day, cutoff - timedelta(hours=12), "CANDIDATE", "STOCK"),  # 60D is not a 20D candidate.
-            ],
-            1,
-        ):
-            code = f"T{i}.US"
-            session.add(
-                Instrument(
-                    id=i,
-                    code=code,
-                    native_code=f"T{i}",
-                    market="US",
-                    name=code,
-                    instrument_type=kind,
-                    currency="USD",
-                    source="test",
-                )
-            )
-            session.add(
-                TrendFollowingSnapshot(
-                    id=i,
-                    market="US",
-                    trend_period=40 if i == 7 else 60 if i == 8 else 20,
-                    code=code,
-                    instrument_id=i,
-                    universe_key="us_trend",
-                    trade_date=trade_date,
-                    generated_at=generated,
-                    state=state,
-                    market_regime="NEUTRAL",
-                    market_score=50,
-                    rank=i,
-                    trend_score=70,
-                    rs_score=70,
-                    breakout_score=70,
-                    alpha_score=70,
-                    setup="BREAKOUT_10D",
-                    reference_price=100,
-                    atr=2,
-                    features={},
-                    reasons=["昨日趋势"],
-                )
-            )
-    # Other periods for the same stock must not overwrite the frozen 20D baseline.
-    with Session(engine) as session, session.begin():
-        original = session.get(TrendFollowingSnapshot, 1)
-        fields = {c.name: getattr(original, c.name) for c in original.__table__.columns if c.name != "id"}
-        for period in (40, 60):
-            session.add(TrendFollowingSnapshot(**{**fields, "id": period, "trend_period": period, "state": "BROKEN"}))
-    result = repo.candidates("US", day, cutoff)
-    assert [row["code"] for row in result] == ["T1.US"]
-    assert result[0]["candidate_trade_date"] == day
-    assert result[0]["official_trend"]["state"] == "CANDIDATE"
-    engine.dispose()
+DAY = date(2026, 9, 18)
+CUTOFF = datetime(2026, 9, 21, 13, 20, tzinfo=timezone.utc)
+GENERATED = CUTOFF - timedelta(days=1)
 
 
-def test_candidate_priority_and_quant_date_cutoff(monkeypatch):
-    engine = create_engine("sqlite://")
-    for model in (Instrument, TrendFollowingSnapshot, ConfluenceSnapshot):
-        model.__table__.create(engine)
+class DB:
+    def __init__(self):
+        self.engine = create_engine("sqlite://")
+        for model in (Instrument, Trend, Confluence, ETF):
+            model.__table__.create(self.engine)
 
-    class DB:
-        @contextmanager
-        def get_session(self):
-            with Session(engine) as session:
-                yield session
+    @contextmanager
+    def get_session(self):
+        with Session(self.engine) as session:
+            yield session
 
-    repo = CandidateRepository(DB())
-    day = date(2026, 9, 18)
-    cutoff = datetime(2026, 9, 21, 13, 25, tzinfo=timezone.utc)
-    with Session(engine) as session, session.begin():
-        for i in range(1, 5):
-            session.add(
-                Instrument(
-                    id=i,
-                    code=f"T{i}.US",
-                    native_code=f"T{i}",
-                    market="US",
-                    name=f"T{i}",
-                    instrument_type="STOCK",
-                    currency="USD",
-                    source="test",
-                )
-            )
-        session.add(
-            ConfluenceSnapshot(
-                id=1,
+
+def stock(i, kind="STOCK"):
+    return Instrument(
+        id=i,
+        code=f"T{i}.US",
+        market="US",
+        name=f"T{i}",
+        instrument_type=kind,
+        currency="USD",
+        source="test",
+        listing_status="ACTIVE",
+    )
+
+
+def trend(i, rank, **updates):
+    return Trend(
+        **dict(
+            dict(
+                id=i,
+                instrument_id=i,
+                code=f"T{i}.US",
                 market="US",
-                instrument_id=1,
-                trade_date=day,
-                generated_at=cutoff - timedelta(days=1),
-                confluence_score=90,
+                trade_date=DAY,
+                generated_at=GENERATED,
+                trend_period=20,
+                universe_key="us_trend",
+                state="WATCHING",
+                market_regime="NEUTRAL",
+                market_score=50,
+                rank=rank,
+                trend_score=70,
+                rs_score=70,
+                breakout_score=70,
+                alpha_score=70,
+                setup="BREAKOUT_10D",
+                reference_price=100,
+                atr=2,
+                features={},
+                reasons=["趋势"],
+            ),
+            **updates,
+        )
+    )
+
+
+def confluence(i, eligible=True, **updates):
+    return Confluence(
+        **dict(
+            dict(
+                id=i,
+                instrument_id=i,
+                market="US",
+                trade_date=DAY,
+                generated_at=GENERATED,
+                confluence_score=65,
                 available_weight=85,
                 available_signal_count=4,
                 positive_signal_count=4,
-                eligible=True,
-                strong_confluence=True,
+                eligible=eligible,
+                strong_confluence=False,
                 signals={},
-                reasons=["强共振"],
-                algorithm_version="v1",
-            )
+                reasons=["共振精选"],
+                algorithm_version="confluence_v2_2",
+            ),
+            **updates,
         )
-    base = dict(trade_date=day, generated_at=cutoff - timedelta(hours=1), signal="BUY", universe_rank=1)
-    monkeypatch.setattr(
-        repo.formal,
-        "quant",
-        lambda *args: [
-            dict(base, instrument_id=1),
-            dict(base, instrument_id=2),
-            dict(base, instrument_id=3, trade_date=day - timedelta(days=1)),
-            dict(base, instrument_id=4, generated_at=cutoff + timedelta(hours=1)),
-        ],
     )
-    rows = repo.candidates("US", day, cutoff)
-    assert [(r["code"], r["candidate_source"]) for r in rows] == [("T1.US", "confluence"), ("T2.US", "quant")]
-    engine.dispose()
 
 
-@pytest.mark.parametrize(
-    ("signal", "rank", "included"),
-    [
-        ("avoid", 1, False),
-        ("avoid", c.QUANT_TOP, False),
-        ("avoid", None, False),
-        ("buy", c.QUANT_TOP + 1, True),
-        ("buy", None, True),
-        ("watch", c.QUANT_TOP, True),
-        ("watch", c.QUANT_TOP + 1, False),
-        ("watch", None, False),
-        ("hold", c.QUANT_TOP, True),
-        ("hold", c.QUANT_TOP + 1, False),
-        ("hold", None, False),
-        (None, 1, False),
-    ],
-)
-def test_quant_candidate_signal_contract(monkeypatch, signal, rank, included):
-    engine = create_engine("sqlite://")
-    for model in (Instrument, TrendFollowingSnapshot, ConfluenceSnapshot):
-        model.__table__.create(engine)
+def etf(i, rank, **updates):
+    fields = dict(
+        id=i,
+        instrument_id=i,
+        market="US",
+        trade_date=DAY,
+        generated_at=GENERATED,
+        rank=rank,
+        previous_5d_return=0.01,
+        ma20_ratio=0.01,
+        realized_vol_20d=0.2,
+        distance_from_20d_high=-0.01,
+        momentum_score=70,
+        entry_score=75,
+        state="TRENDING",
+        overheated=False,
+        is_candidate=False,
+        score_components={},
+    )
+    for w in (1, 5, 10, 20):
+        fields.update({f"ret_{w}d": 0.01, f"rank_{w}d": rank, f"pct_rank_{w}d": 90})
+    return ETF(**{**fields, **updates})
 
-    class DB:
-        @contextmanager
-        def get_session(self):
-            with Session(engine) as session:
-                yield session
 
-    repo = CandidateRepository(DB())
-    day = date(2026, 9, 18)
-    cutoff = datetime(2026, 9, 21, 13, 25, tzinfo=timezone.utc)
-    with Session(engine) as session, session.begin():
-        session.add(
-            Instrument(
-                id=1,
-                code="T1.US",
-                native_code="T1",
-                market="US",
-                name="T1",
-                instrument_type="STOCK",
-                currency="USD",
-                source="test",
-            )
+def test_all_selected_not_strong_plus_top30_and_top5_without_global_truncation():
+    db = DB()
+    with db.get_session() as s, s.begin():
+        s.add_all([stock(i) for i in range(1, 50)])
+        s.add_all([confluence(i) for i in range(1, 11)])
+        s.add(confluence(11, eligible=False, confluence_score=90))
+        s.add_all([trend(i, i - 11) for i in range(12, 43)])
+        s.add_all([etf(i, i - 42) for i in range(43, 49)])
+    rows = CandidateRepository(db).candidates("US", DAY, CUTOFF)
+    assert len(rows) == 45
+    assert "T11.US" not in {r["code"] for r in rows}  # High score but observation only.
+    assert "T42.US" not in {r["code"] for r in rows}  # rank 31
+    assert "T48.US" not in {r["code"] for r in rows}  # rank 6
+    assert {r["candidate_source"] for r in rows} == {"confluence", "trend", "etf"}
+    assert all(r["instrument_type"] == "ETF" and r["official_trend"] is None for r in rows[-5:])
+    db.engine.dispose()
+
+
+def test_sources_merge_and_preserve_formal_dates_ranks_reasons():
+    db = DB()
+    with db.get_session() as s, s.begin():
+        s.add(stock(1, "ETF"))
+        s.add_all([confluence(1), trend(1, 3), etf(1, 2)])
+    rows = CandidateRepository(db).candidates("US", DAY, CUTOFF)
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["candidate_sources"] == ["confluence", "trend", "etf"]
+    assert [r["rank"] for r in row["source_evidence"]] == [None, 3, 2]
+    assert row["official_trend"]["state"] == "WATCHING"
+    assert len(row["candidate_reason"]) == 4
+    db.engine.dispose()
+
+
+def test_exact_date_cutoff_active_and_period_boundaries():
+    db = DB()
+    with db.get_session() as s, s.begin():
+        s.add_all([stock(i) for i in range(1, 10)])
+        s.add_all(
+            [
+                trend(1, 1),
+                trend(2, 2, trade_date=DAY - timedelta(days=1)),
+                trend(3, 3, generated_at=CUTOFF),
+                trend(4, 4, trend_period=40),
+                trend(5, 5, trend_period=60),
+                trend(6, 6),
+            ]
         )
-    monkeypatch.setattr(
-        repo.formal,
-        "quant",
-        lambda *args: [
-            dict(
-                instrument_id=1,
-                trade_date=day,
-                generated_at=cutoff - timedelta(hours=1),
-                signal=signal,
-                universe_rank=rank,
-            )
-        ],
-    )
-    rows = repo.candidates("US", day, cutoff)
-    assert [r["code"] for r in rows] == (["T1.US"] if included else [])
-    if included:
-        assert rows[0]["candidate_source"] == "quant"
-    engine.dispose()
+        s.add(etf(7, 1, generated_at=CUTOFF + timedelta(minutes=1)))
+        s.add(confluence(8, trade_date=DAY + timedelta(days=3)))
+        s.flush()
+        s.get(Instrument, 6).listing_status = "DELISTED"
+    rows = CandidateRepository(db).candidates("US", DAY, CUTOFF)
+    assert [r["code"] for r in rows] == ["T1.US"]
+    assert CandidateRepository(db).candidates("CN", DAY, CUTOFF) == []
+    db.engine.dispose()

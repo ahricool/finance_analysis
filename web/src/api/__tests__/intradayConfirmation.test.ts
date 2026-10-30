@@ -34,3 +34,14 @@ describe('intraday snapshot API', () => {
     expect(apiClient.post).toHaveBeenCalledWith('/api/v1/intraday-confirmation/run', { market: 'CN' });
   });
 });
+
+it('loads dated evaluation evidence and translates condition keys without losing false or null', async () => {
+  vi.mocked(apiClient.get).mockResolvedValue({ data: { items: [{ evaluated_at: '2026-10-30T02:00:00Z',
+    current_status: 'WEAKENING', conditions: { opening_breakout: false, relative_strength: null } }] } });
+  const result = await api.evaluations('512800.SH', 'CN', '2026-10-30');
+  expect(result.items[0]?.currentStatus).toBe('WEAKENING');
+  expect(result.items[0]?.conditions).toEqual({ openingBreakout: false, relativeStrength: null });
+  expect(apiClient.get).toHaveBeenLastCalledWith('/api/v1/intraday-confirmation/512800.SH/evaluations', {
+    params: { market: 'CN', trade_date: '2026-10-30' }, signal: undefined,
+  });
+});

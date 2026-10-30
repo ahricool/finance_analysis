@@ -66,7 +66,7 @@ describe('independent research detail panels', () => {
     const wrapper = mount(IntradayDetailPanel, { props: { symbol: 'AAPL.US', market: 'US', context: { tradeDate: '2025-01-01' } } });
     await flushPromises();
     expect(intradayConfirmationApi.detail).toHaveBeenCalledWith('AAPL.US', 'US', '2025-01-01', expect.any(AbortSignal));
-    for (const text of ['指定交易日盘中确认', '2025-01-01', '昨日候选', 'FAILED', 'HIGH', '状态依据', '不自动恢复', 'unavailable']) expect(wrapper.text()).toContain(text);
+    for (const text of ['指定交易日盘中确认', '2025-01-01', '昨日候选', '结构失效', '高', '状态依据', '不自动撤销', '空值表示数据不足']) expect(wrapper.text()).toContain(text);
     wrapper.unmount();
   });
   it('passes all dragon tiger observation filters and preserves the source concept', async () => {

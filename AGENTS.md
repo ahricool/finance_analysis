@@ -391,10 +391,11 @@ Signal Confluence V2.1宏观15%使用`confluence/sector_macro.py`行业适配，
 
 ## Intraday Confirmation
 
-`intraday_confirmation/` 只确认前一交易日正式 Confluence/Trend/Quant 候选。当地09:20/09:25开盘前冻结、交易时段每15分钟评估，
-复用 alerts 队列；CN Tencent 定向报价 + 既有 Sina 5m，US yfinance。候选/每日状态持久化 PostgreSQL，首次确认价格与时间不可变，
-缺少冻结池则盘中不补建；GET 支持历史日期与 DB 日线计算 3/5/10D 收益，不调用实时 Provider。页面 `/research/intraday-confirmation`。Temporary Trend 复用纯计算，
-固定昨日横截面百分位，不写正式 snapshot/rank/lifecycle。规则、不可用指标及取舍见 `docs/intraday-confirmation.md`。
+`intraday_confirmation/` V2冻结前一交易日Confluence精选（eligible，非strong子集）、Trend20综合前30和ETF轮动综合前5，去重保留全部来源，不再读Quant。
+当地09:20/09:25盘前冻结，交易时段每5分钟读取开盘以来完整原生1min；CN腾讯报价+新浪→腾讯分钟降级，US yfinance。
+价格60/相对大盘25/Trend10/量能5，Trend与量能仅辅助；全天等权均价不依赖量，移除固定开盘15m门槛。
+历史确认和当前观察分开，首次确认基准不可变；快照与版本化评估轨迹同事务保存（迁移0082），V1池不混算。
+GET只读及3/5/10D收益保留，详情可读评估轨迹；页面`/research/intraday-confirmation`，见`docs/intraday-confirmation.md`。
 
 
 ## Unified Signal Center

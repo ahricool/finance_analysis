@@ -21,11 +21,11 @@ def bar(start, close=102, high=None, low=100, volume=500):
     return MarketBar(
         symbol="ABC.US",
         market=Market.US,
-        interval="5m",
+        interval="1m",
         trade_date=start.date(),
         bar_time=start,
         bar_start=start,
-        bar_end=start + timedelta(minutes=5),
+        bar_end=start + timedelta(minutes=1),
         open=100,
         high=high or max(101, close),
         low=low,
@@ -60,13 +60,13 @@ def history():
 
 def inputs():
     now = OPEN + timedelta(minutes=15)
-    bars = [bar(OPEN, close=100.5, high=101), bar(OPEN + timedelta(minutes=5)), bar(OPEN + timedelta(minutes=10))]
+    bars = [bar(OPEN + timedelta(minutes=i), close=100.5 if i < 5 else 102, high=101 if i < 5 else 103) for i in range(15)]
     return metrics(quote(now), bars, quote(now, price=100), history(), SESSION, now)
 
 
 def test_completed_windows_only_and_vwap_gaps():
     now = OPEN + timedelta(minutes=8)
-    m = metrics(quote(now), [bar(OPEN), bar(OPEN + timedelta(minutes=5))], None, history(), SESSION, now)
+    m = metrics(quote(now), [bar(OPEN + timedelta(minutes=i)) for i in range(9)], None, history(), SESSION, now)
     assert m["return_5m"] == pytest.approx(0.02)
     assert m["return_15m"] is None and m["return_30m"] is None
     assert m["high_15m"] is None
@@ -86,7 +86,7 @@ def test_breakout_relative_strength_and_volume_confirm():
     m = inputs()
     assert m["break_above_opening_range"] is True
     assert m["relative_to_market"] == pytest.approx(0.02)
-    assert m["volume_ratio"] == pytest.approx(1500 / (10000 * 15 / 390))
+    assert m["volume_ratio"] == pytest.approx(7500 / (10000 * 15 / 390))
     assert "approximation" in m["volume_method"]
     result = decision(m, {"impact": "intact"})
     assert result["proposed_state"] == "CONFIRMED"
@@ -97,11 +97,11 @@ def test_zero_volume_unavailable_is_not_failure():
     m = inputs()
     m.update(volume_ratio=None, volume_status="unavailable", vwap=None, vwap_distance_pct=None)
     result = decision(m, {"impact": "unavailable"})
-    assert result["proposed_state"] == "WAIT"
+    assert result["proposed_state"] == "CONFIRMED"
     assert not any(r["code"] == "opening_breakdown" for r in result["reasons"])
     now = OPEN + timedelta(minutes=15)
     z = metrics(
-        quote(now), [bar(OPEN + timedelta(minutes=i), volume=0) for i in (0, 5, 10)], None, history(), SESSION, now
+        quote(now), [bar(OPEN + timedelta(minutes=i), volume=0) for i in range(15)], None, history(), SESSION, now
     )
     assert z["vwap"] is None
 
@@ -124,7 +124,7 @@ def test_opening_breakdown_gap_fade_needs_structure():
     assert decision(m, {"impact": "intact"})["proposed_state"] == "WAIT"
 
 
-@pytest.mark.parametrize("evaluation_minutes", [5, 15])
+@pytest.mark.parametrize("evaluation_minutes", [5, 10])
 def test_failed_latch_distinct_observations_and_confirmed_to_failed(evaluation_minutes):
     now = OPEN + timedelta(minutes=15)
     initial = decision(inputs(), {"impact": "intact"})
@@ -151,7 +151,7 @@ def test_stale_quotes_time_exposed_and_cannot_advance():
     old_quote = quote(OPEN + timedelta(minutes=15))
     m = metrics(
         old_quote,
-        [bar(OPEN + timedelta(minutes=i)) for i in (0, 5, 10)],
+        [bar(OPEN + timedelta(minutes=i)) for i in range(15)],
         quote(old_quote.quote_time, price=100),
         history(),
         SESSION,
@@ -227,7 +227,7 @@ def test_freeze_only_before_open_candidate_not_expanded(monkeypatch):
         get_daily_bars=lambda *args, **kwargs: SimpleNamespace(data={}),
     )
     service.run("US", OPEN + timedelta(minutes=15))
-    assert requested == [["ABC.US", "SPY.US"]]
+    assert requested == [["SPY.US", "ABC.US"]]
     assert [r["code"] for r in cache.value["items"]] == ["ABC.US"]
     assert "minute_bars" not in str(cache.value)
     # GET only reads persistence and stored bars, never live providers.
@@ -280,11 +280,7 @@ def test_relative_requires_synchronized_quotes_and_true_break_closes():
     now = OPEN + timedelta(minutes=15)
     m = metrics(
         quote(now),
-        [
-            bar(OPEN, close=100.5, high=101),
-            bar(OPEN + timedelta(minutes=5), close=100.5),
-            bar(OPEN + timedelta(minutes=10), close=102),
-        ],
+        [bar(OPEN + timedelta(minutes=i), close=102 if i == 14 else 100.5, high=103) for i in range(15)],
         quote(OPEN + timedelta(minutes=5), price=100),
         history(),
         SESSION,
@@ -410,7 +406,7 @@ def test_network_elapsed_time_is_used_for_quotes(monkeypatch):
     md = SimpleNamespace(
         get_realtime_quotes=lambda *a, **kw: SimpleNamespace(data={"ABC.US": q, "SPY.US": q}),
         get_minute_bars=lambda *a, **kw: SimpleNamespace(
-            data={"ABC.US": [bar(OPEN + timedelta(minutes=i)) for i in (0, 5, 10)]}
+            data={"ABC.US": [bar(OPEN + timedelta(minutes=i)) for i in range(15)]}
         ),
         get_daily_bars=lambda *a, **kw: SimpleNamespace(data={}),
     )
@@ -425,7 +421,7 @@ def test_network_elapsed_time_is_used_for_quotes(monkeypatch):
 def test_unavailable_observation_has_no_score_or_low_risk(missing):
     now = OPEN + timedelta(minutes=15)
     q = None if missing == "quote" else quote()
-    bars = [] if missing == "minutes" else [bar(OPEN + timedelta(minutes=i)) for i in (0, 5, 10)]
+    bars = [] if missing == "minutes" else [bar(OPEN + timedelta(minutes=i)) for i in range(15)]
     if missing == "stale":
         now += timedelta(hours=1)
     m = metrics(q, bars, None, history(), SESSION, now)
@@ -441,11 +437,11 @@ def test_partial_score_excludes_missing_dimensions_without_penalizing_them():
     m = inputs()
     m.update(relative_to_market=None, volume_ratio=None)
     result = decision(m, {"impact": "unavailable"})
-    assert result["available_score_weight"] == 45
+    assert result["available_score_weight"] == 60
     assert result["confirmation_score"] == 100
     assert result["score_breakdown"]["relative_strength_score"] is None
     assert result["proposed_state"] == "WAIT"
-    m.update(break_above_opening_range=None, vwap_distance_pct=None, return_15m=None)
+    m.update(break_above_opening_range=None, session_mean_distance_pct=None, intraday_return=None)
     result = decision(m, {"impact": "unavailable"})
     assert result["confirmation_score"] is None
     assert result["available_score_weight"] == 0

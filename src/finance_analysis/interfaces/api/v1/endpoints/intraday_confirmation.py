@@ -62,10 +62,28 @@ def run(body: RunRequest, user=Depends(require_admin)):
 
 @router.get("/{code}", response_model=Confirmation)
 def detail(
-    code: str, market: Market = "CN", trade_date: date | None = None,
-    user=Depends(require_current_user), service=Depends(get_service),
+    code: str,
+    market: Market = "CN",
+    trade_date: date | None = None,
+    user=Depends(require_current_user),
+    service=Depends(get_service),
 ):
     row = next((r for r in service.read(market, trade_date=trade_date)["items"] if r["code"] == code.upper()), None)
     if row is None:
         raise HTTPException(404, "不在所选日期冻结候选池")
     return row
+
+
+@router.get("/{code}/evaluations")
+def evaluations(
+    code: str,
+    market: Market = "CN",
+    trade_date: date | None = None,
+    user=Depends(require_current_user),
+    service=Depends(get_service),
+):
+    from zoneinfo import ZoneInfo
+    from finance_analysis.core.time import utc_now
+
+    day = trade_date or utc_now().astimezone(ZoneInfo("Asia/Shanghai" if market == "CN" else "America/New_York")).date()
+    return {"items": service.store.evaluations(market, day, code.upper())}

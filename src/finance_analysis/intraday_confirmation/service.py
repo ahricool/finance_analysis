@@ -1,6 +1,6 @@
 """Durable daily confirmation evidence; live providers are used only by evaluation tasks."""
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from time import monotonic
 from zoneinfo import ZoneInfo
 from finance_analysis.core.time import utc_now
@@ -22,6 +22,7 @@ class ConfirmationService:
     def store(self):
         if self._store is None:
             from finance_analysis.database.repositories.intraday_confirmation_store import ConfirmationStore
+
             self._store = ConfirmationStore()
         return self._store
 
@@ -45,21 +46,67 @@ class ConfirmationService:
         # Candidate baselines remain private to the task; API returns compact evidence.
         evaluated = with_returns(self.store, market, day, payload["items"], now)
         rows = [
-            {k: v for k, v in r.items() if k not in {
-                "official_trend", "pending_since", "last_observation", "first_confirmation_open", "return_evidence",
-            }}
+            {
+                k: v
+                for k, v in r.items()
+                if k
+                not in {
+                    "official_trend",
+                    "pending_since",
+                    "last_observation",
+                    "first_confirmation_open",
+                    "return_evidence",
+                }
+            }
             for r in evaluated
         ]
+        if payload.get("rule_version") == c.RULE_VERSION and day == now.astimezone(tz).date():
+            try:
+                session = resolve_session(market, now)
+            except RuntimeError:
+                session = None
+            if session is None or session.active(now):
+                for row in rows:
+                    quote_time = row.get("metrics", {}).get("quote_time")
+                    stamp = datetime.fromisoformat(quote_time) if isinstance(quote_time, str) else quote_time
+                    if stamp is None or (now - stamp).total_seconds() > c.MAX_DATA_AGE_SECONDS:
+                        row.update(
+                            current_status="UNAVAILABLE",
+                            data_status="UNAVAILABLE",
+                            proposed_state=None,
+                            confirmation_score=None,
+                            available_score_weight=0,
+                            chase_risk="UNKNOWN",
+                            conditions={key: None for key in row.get("conditions", {})},
+                            score_breakdown={key: None for key in row.get("score_breakdown", {})},
+                            reasons=[
+                                *row.get("reasons", []),
+                                {"code": "read_stale", "text": "报价已过期，指标为最后观测值"},
+                            ],
+                        )
         summary = {s: sum(r["state"] == s for r in rows) for s in ("WAIT", "CONFIRMED", "FAILED")}
         summary["total"] = len(rows)
+        summary["ever_confirmed"] = sum(bool(r.get("first_confirmed_at")) or r["state"] == "CONFIRMED" for r in rows)
+        summary["active"] = sum(r.get("current_status") == "ACTIVE" for r in rows)
+        summary["attention"] = sum(r.get("current_status") in {"WEAKENING", "FAILED", "UNAVAILABLE"} for r in rows)
         rows = [
             r
             for r in rows
             if (state is None or r["state"] == state)
-            and (candidate_source is None or r["candidate_source"] == candidate_source)
+            and (candidate_source is None or candidate_source in r.get("candidate_sources", [r["candidate_source"]]))
         ]
         rows.sort(
             key=lambda r: (
+                {
+                    "ACTIVE": 0,
+                    "PENDING": 1,
+                    "WAIT": 2,
+                    "WEAKENING": 3,
+                    "RECOVERED": 4,
+                    "FAILED": 5,
+                    "UNAVAILABLE": 6,
+                    "PREOPEN": 7,
+                }.get(r.get("current_status"), 8),
                 {"CONFIRMED": 0, "WAIT": 1, "FAILED": 2}[r["state"]],
                 r.get("confirmation_score") is None,
                 -(r.get("confirmation_score") or 0),
@@ -71,7 +118,12 @@ class ConfirmationService:
             **{k: v for k, v in payload.items() if k != "_revision"},
             "items": rows,
             "summary": summary,
-            "rules_note": "V1 启发式规则，未经回测验证；确认不代表适合追入，不自动交易。",
+            "rule_version": payload.get("rule_version", "intraday_v1"),
+            "rules_note": (
+                "V2 · 1分钟线 / 每5分钟评估 · 价格60 / 相对强弱25 / 趋势10 / 量能5；不自动交易。"
+                if payload.get("rule_version") == c.RULE_VERSION
+                else "V1历史规则快照；不按新规则重算。"
+            ),
         }
 
     def refresh_returns(self, market, day, now):
@@ -107,6 +159,7 @@ class ConfirmationService:
                 for row in rows:
                     row.update(
                         state="WAIT",
+                        current_status="PREOPEN",
                         confirmation_score=None,
                         available_score_weight=0,
                         chase_risk="UNKNOWN",
@@ -123,6 +176,7 @@ class ConfirmationService:
                         frozen_at=now,
                         generated_at=now,
                         status="frozen",
+                        rule_version=c.RULE_VERSION,
                         items=rows,
                         warnings=[],
                     ),
@@ -130,6 +184,8 @@ class ConfirmationService:
                 return dict(status="frozen", count=len(rows))
             if payload is None:
                 return dict(status="skipped", reason="缺少开盘前冻结池，禁止盘中重建")
+            if payload.get("rule_version") != c.RULE_VERSION:
+                return dict(status="skipped", reason="当日池属于旧规则，保留原始证据；下一交易日启用V2")
             if not session.active(now):
                 return dict(status="skipped", reason="午休")
             if not payload["items"]:
@@ -144,7 +200,7 @@ class ConfirmationService:
             self.market_data = MarketDataService()
         market = session.market
         benchmark = c.BENCHMARKS[market]
-        codes = list(dict.fromkeys([r["code"] for r in payload["items"]] + [benchmark]))
+        codes = list(dict.fromkeys([benchmark] + [r["code"] for r in payload["items"]]))
         quotes, minute, history = collect_data(self.market_data, codes, session, now)
         # Quotes may advance while network requests run; use completion time, not task start.
         now += timedelta(seconds=monotonic() - started)
@@ -164,7 +220,7 @@ class ConfirmationService:
                 session.previous_date,
             )
             result = decision(m, trend)
-            result = stabilize(result, candidate, m["bar_time"] if m["data_fresh"] else None, now)
+            result = stabilize(result, candidate, m["bar_time"] if result["data_status"] == "READY" else None, now)
             row = {**candidate, **result, "metrics": m, "trend": trend, "generated_at": now}
             if not candidate.get("first_confirmed_at") and result.get("first_confirmed_at"):
                 # Freeze exactly the quote used in the first stabilized confirmation. An

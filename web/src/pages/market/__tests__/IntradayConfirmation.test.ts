@@ -20,11 +20,11 @@ describe('intraday confirmation page', () => {
     vi.mocked(api.read).mockResolvedValue(snapshot as never);
     const wrapper = mount(Page);
     await flushPromises();
-    expect(wrapper.text()).toContain('昨日 CANDIDATE');
+    expect(wrapper.text()).toContain('趋势前30');
     expect(wrapper.text()).toContain('2026-09-18');
-    expect(wrapper.text()).toContain('CONFIRMED');
-    expect(wrapper.text()).toContain('HIGH');
-    expect(wrapper.text()).toContain('unavailable');
+    expect(wrapper.text()).toContain('曾经确认');
+    expect(wrapper.text()).toContain('高');
+    expect(wrapper.text()).toContain('—');
     expect(wrapper.text()).toContain('Yahoo 可能延迟');
     expect(wrapper.text()).not.toContain('运行当日确认任务');
     expect(api.run).not.toHaveBeenCalled();
@@ -50,10 +50,10 @@ describe('intraday confirmation page', () => {
     const wrapper = mount(Page);
     await flushPromises();
     const row = wrapper.get('tbody tr');
-    expect(row.text()).toContain('CONFIRMED');
-    expect(row.text()).toContain('unavailable');
+    expect(row.text()).toContain('曾经确认');
+    expect(row.text()).toContain('—');
     expect(row.text()).toContain('有效权重 0/100');
-    const risk = row.findAll('td').find(cell => cell.text() === 'UNKNOWN');
+    const risk = row.findAll('td').find(cell => cell.text() === '待评估');
     expect(risk?.classes()).toContain('text-muted-foreground');
     expect(row.text()).not.toContain('LOW');
     wrapper.unmount();
@@ -131,7 +131,7 @@ describe('intraday history and confirmed-price returns', () => {
     vi.mocked(api.read).mockResolvedValue(snapshot as never);
     vi.mocked(api.dates).mockRejectedValueOnce(new Error('offline'));
     const wrapper = mount(Page); await flushPromises();
-    expect(wrapper.text()).toContain('昨日 CANDIDATE');
+    expect(wrapper.text()).toContain('趋势前30');
     await wrapper.findAll('button').find(button => button.text() === '重试历史日期')!.trigger('click'); await flushPromises();
     expect(wrapper.text()).not.toContain('重试历史日期');
     expect(wrapper.get('select[aria-label="交易日"]').findAll('option')).toHaveLength(3);
@@ -153,4 +153,21 @@ describe('intraday history and confirmed-price returns', () => {
     expect(wrapper.text()).not.toContain('stale-cn-task');
     wrapper.unmount();
   });
+});
+
+it('separates current weakness from the historical confirmation and retains every source', async () => {
+  vi.mocked(api.read).mockResolvedValue({ ...snapshot, ruleVersion: 'intraday_v2', items: [{ ...snapshot.items[0],
+    currentStatus: 'WEAKENING', firstConfirmedAt: '2026-09-21T14:00:00Z', candidateSources: ['confluence', 'etf'], instrumentType: 'ETF',
+  }] } as never);
+  const wrapper = mount(Page); await flushPromises();
+  expect(wrapper.get('tbody').text()).toContain('确认后走弱');
+  expect(wrapper.get('tbody').text()).toContain('曾经确认');
+  expect(wrapper.get('tbody').text()).toContain('共振精选');
+  expect(wrapper.get('tbody').text()).toContain('轮动前5');
+  await wrapper.get('select[aria-label="当前观察"]').setValue('ACTIVE');
+  expect(wrapper.get('tbody').text()).toContain('没有符合筛选条件');
+  await wrapper.get('select[aria-label="当前观察"]').setValue('');
+  await wrapper.get('input[aria-label="搜索候选"]').setValue('nomatch');
+  expect(wrapper.get('tbody').text()).toContain('没有符合筛选条件');
+  wrapper.unmount();
 });

@@ -6,11 +6,14 @@ import AppApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
 import IndicatorHelpLabel from '@/components/app/IndicatorHelpLabel.vue';
 import { Button } from '@/components/ui/button';
 import type { StockDetailPanelProps } from './types';
-import { intradayConfirmationApi as api, type Confirmation } from '@/api/intradayConfirmation';
+import { intradayConfirmationApi as api, type Confirmation, type Evaluation } from '@/api/intradayConfirmation';
+import { intradayLabel, intradayTrendLabel } from '@/i18n/labels';
 import { formatDateTime } from '@/utils/format';
 const props = defineProps<StockDetailPanelProps>();
 const selected = shallowRef<Confirmation | null>(null);
 const loading = ref(false);
+const evaluations = shallowRef<Evaluation[]>([]);
+const evaluationError = ref(false);
 const error = shallowRef<ParsedApiError | null>(null);
 const supported = computed(() => props.market === 'CN' || props.market === 'US');
 let generation = 0;
@@ -18,19 +21,25 @@ let controller: AbortController | undefined;
 async function load() {
   const token = ++generation;
   controller?.abort(); controller = new AbortController();
-  selected.value = null; error.value = null; loading.value = false;
+  selected.value = null; error.value = null; loading.value = false; evaluations.value = []; evaluationError.value = false;
   if (props.market !== 'CN' && props.market !== 'US') return;
   loading.value = true;
-  try { const response = await api.detail(props.symbol, props.market, props.context?.tradeDate, controller.signal); if (token === generation) selected.value = response; }
+  try { const response = await api.detail(props.symbol, props.market, props.context?.tradeDate, controller.signal); if (token === generation) {
+    selected.value = response;
+    if (response.currentStatus && response.currentStatus !== 'LEGACY') {
+      try { const history = await api.evaluations(props.symbol, props.market, props.context?.tradeDate, controller.signal); if (token === generation) evaluations.value = history.items; }
+      catch { if (token === generation) evaluationError.value = true; }
+    }
+  } }
   catch (cause) { if (token === generation) { const parsed = getParsedApiError(cause); if (parsed.status !== 404) error.value = parsed; } }
   finally { if (token === generation) loading.value = false; }
 }
 watch([() => props.symbol, () => props.market, () => props.context?.tradeDate], load, { immediate: true });
 onBeforeUnmount(() => { ++generation; controller?.abort(); });
 function forwardReturn(value: unknown) { return typeof value === 'number' && Number.isFinite(value) ? `${(value * 100).toFixed(2)}%` : ''; }
-function pct(value: unknown) { return formatPercent(value, { digits: 2, fallback: 'unavailable' }); }
-function num(value: unknown) { return formatFixed(value, { fallback: 'unavailable' }); }
-function stamp(value: unknown) { return typeof value === 'string' ? formatDateTime(value) : 'unavailable'; }
+function pct(value: unknown) { return formatPercent(value, { digits: 2, fallback: '—' }); }
+function num(value: unknown) { return formatFixed(value, { fallback: '—' }); }
+function stamp(value: unknown) { return typeof value === 'string' ? formatDateTime(value) : '—'; }
 </script>
 <template>
   <div
@@ -71,10 +80,10 @@ function stamp(value: unknown) { return typeof value === 'string' ? formatDateTi
     </Button>
     <template v-if="selected">
       <p class="text-sm">
-        确认分数 {{ selected.confirmationScore == null ? 'unavailable' : selected.confirmationScore.toFixed(1) }} · 有效权重 {{ selected.availableScoreWeight ?? 0 }}/100 · 候选来源 {{ selected.candidateSource }}
+        确认分数 {{ selected.confirmationScore == null ? '—' : selected.confirmationScore.toFixed(1) }} · 有效权重 {{ selected.availableScoreWeight ?? 0 }}/100 · 候选来源 {{ (selected.candidateSources?.length ? selected.candidateSources : [selected.candidateSource]).map(intradayLabel).join(' / ') }}
       </p>
       <p class="text-xs text-muted-foreground">
-        首次确认 {{ stamp(selected.firstConfirmedAt) }} · 失效时间 {{ stamp(selected.failedAt) }}。unavailable 表示数据不足，不代表负向。
+        首次确认 {{ stamp(selected.firstConfirmedAt) }} · 失效时间 {{ stamp(selected.failedAt) }}。空值表示数据不足，不代表负向。
       </p>
       <section
         class="space-y-2"
@@ -123,34 +132,35 @@ function stamp(value: unknown) { return typeof value === 'string' ? formatDateTi
       </section>
       <section class="space-y-2">
         <h3 class="font-semibold">
-          确认日 Price Action
+          全天价格结构
         </h3>
         <p>行情时间 {{ stamp(selected.metrics.quoteTime) }} · 闭合线时间 {{ stamp(selected.metrics.barTime) }} · 确认生成 {{ stamp(selected.generatedAt) }}</p>
-        <p>Gap {{ pct(selected.metrics.gapPct) }} · {{ selected.metrics.gapStatus }}</p>
-        <p>5m {{ pct(selected.metrics.return5M) }} / 15m {{ pct(selected.metrics.return15M) }} / 30m {{ pct(selected.metrics.return30M) }}</p>
-        <p>Opening Range {{ num(selected.metrics.openingRangeLow) }} – {{ num(selected.metrics.openingRangeHigh) }}</p>
-        <p>provisional VWAP {{ num(selected.metrics.vwap) }} · 距离 {{ pct(selected.metrics.vwapDistancePct) }}</p>
-        <p>Volume {{ num(selected.metrics.volumeRatio) }}x · {{ selected.metrics.volumeStatus }}（日均量 × 交易时间比例近似）</p>
+        <p>开盘缺口 {{ pct(selected.metrics.gapPct) }} · {{ selected.metrics.gapStatus }}</p>
+        <p>开盘至今 {{ pct(selected.metrics.intradayReturn) }} · 全天等权均价 {{ num(selected.metrics.sessionMeanPrice) }} · 距均价 {{ pct(selected.metrics.sessionMeanDistancePct) }}</p>
+        <p>已闭合分钟线 {{ selected.metrics.minuteCount ?? '—' }} / {{ selected.metrics.expectedMinuteCount ?? '—' }} · 无成交量加权</p>
+        <p>开盘区间 {{ num(selected.metrics.openingRangeLow) }} – {{ num(selected.metrics.openingRangeHigh) }}</p>
+        <p>近似成交均价 {{ num(selected.metrics.vwap) }} · 距离 {{ pct(selected.metrics.vwapDistancePct) }}</p>
+        <p>量比 {{ num(selected.metrics.volumeRatio) }}x · {{ intradayLabel(selected.metrics.volumeStatus) }}（日均量 × 交易时间比例近似）</p>
       </section>
       <section class="space-y-2">
         <h3 class="font-semibold">
-          Relative Strength（统一以开盘为基准）
-        </h3><p>{{ selected.metrics.benchmarkCode }}：{{ pct(selected.metrics.relativeToMarket) }} · 数据时间 {{ stamp(selected.metrics.benchmarkQuoteTime) }}</p><p>Industry：unavailable · {{ selected.metrics.industryUnavailableReason }}</p><p>ETF：unavailable · {{ selected.metrics.etfUnavailableReason }}</p>
+          相对强弱（统一以开盘为基准）
+        </h3><p>{{ selected.metrics.benchmarkCode }}：{{ pct(selected.metrics.relativeToMarket) }} · 数据时间 {{ stamp(selected.metrics.benchmarkQuoteTime) }}</p><p>行业：暂无数据 · {{ selected.metrics.industryUnavailableReason }}</p><p>关联基金：暂无数据 · {{ selected.metrics.etfUnavailableReason }}</p>
       </section>
       <section class="space-y-2">
         <h3 class="font-semibold">
-          Trend Impact · Official → Temporary
+          趋势辅助 · 昨日正式 → 今日临时
         </h3>
-        <p>{{ selected.trend.officialTrendState ?? 'unavailable' }} → {{ selected.trend.temporaryTrendState ?? 'unavailable' }}</p>
-        <p>Lifecycle {{ selected.trend.officialLifecycle ?? 'unavailable' }} → {{ selected.trend.temporaryLifecycle ?? 'unavailable' }}</p>
-        <p>Trend Score Δ {{ num(selected.trend.trendScoreDelta) }} · Fragility {{ num(selected.trend.officialFragility) }} → unavailable</p>
+        <p>{{ intradayTrendLabel(selected.trend.officialTrendState) }} → {{ intradayTrendLabel(selected.trend.temporaryTrendState) }}</p>
+        <p>生命周期 {{ intradayLabel(selected.trend.officialLifecycle) }} → {{ intradayLabel(selected.trend.temporaryLifecycle) }}</p>
+        <p>趋势分变化 {{ num(selected.trend.trendScoreDelta) }} · 脆弱度 {{ num(selected.trend.official脆弱度) }} → 暂无数据</p>
         <p class="text-sm text-muted-foreground">
           {{ selected.trend.calculationBasis }}。{{ selected.trend.fragilityUnavailableReason }}
         </p>
       </section>
       <section class="space-y-2">
         <h3 class="font-semibold">
-          Decision · {{ selected.state }} · Chase Risk {{ selected.chaseRisk }}
+          {{ intradayLabel(selected.currentStatus ?? 'LEGACY') }} · 历史：{{ intradayLabel(selected.state) }} · 追高风险：{{ intradayLabel(selected.chaseRisk) }}
         </h3><ul class="list-disc pl-5">
           <li
             v-for="reason in selected.reasons"
@@ -160,7 +170,7 @@ function stamp(value: unknown) { return typeof value === 'string' ? formatDateTi
           </li>
         </ul>
         <p v-if="selected.currentPriceRecovered">
-          当前价格行为已恢复，但本次候选当日 FAILED 不自动恢复。
+          当前价格行为已恢复，但本次候选当日失效记录不自动撤销。
         </p>
         <template v-if="selected.stateReasons.length">
           <p>状态变更时依据：</p><ul class="list-disc pl-5">
@@ -172,6 +182,59 @@ function stamp(value: unknown) { return typeof value === 'string' ? formatDateTi
             </li>
           </ul>
         </template>
+      </section>
+      <section class="space-y-3 rounded-lg border p-4">
+        <h3 class="font-semibold">
+          确认条件
+        </h3>
+        <div class="grid gap-2 sm:grid-cols-2">
+          <p
+            v-for="(value, key) in selected.conditions"
+            :key="key"
+            class="rounded bg-muted/40 px-3 py-2 text-sm"
+          >
+            {{ intradayLabel(key) }}<span class="float-right text-muted-foreground">{{ key === 'relativeStrength' && selected.metrics.marketBenchmarkSelf ? '基准自身，不适用' : value === null ? '数据不足' : value ? '满足' : '未满足' }}</span>
+          </p>
+        </div>
+      </section>
+      <section class="space-y-3">
+        <h3 class="font-semibold">
+          评估轨迹
+        </h3>
+        <p
+          v-if="evaluationError"
+          class="text-sm text-muted-foreground"
+        >
+          评估轨迹暂时无法加载。<Button
+            variant="outline"
+            @click="load"
+          >
+            重试
+          </Button>
+        </p>
+        <p
+          v-else-if="!evaluations.length"
+          class="text-sm text-muted-foreground"
+        >
+          暂无评估记录；旧规则历史不补造轨迹。
+        </p>
+        <div
+          v-else
+          class="max-h-72 space-y-2 overflow-y-auto"
+        >
+          <div
+            v-for="item in [...evaluations].reverse()"
+            :key="item.evaluatedAt"
+            class="rounded-lg border p-3 text-sm"
+          >
+            <div class="flex flex-wrap justify-between gap-2">
+              <span>{{ stamp(item.evaluatedAt) }}</span><span>{{ intradayLabel(item.currentStatus) }} · {{ item.confirmationScore == null ? '—' : item.confirmationScore.toFixed(1) }} 分</span>
+            </div>
+            <p class="mt-1 text-xs text-muted-foreground">
+              {{ item.reasons.map(r => r.text).join('；') }}
+            </p>
+          </div>
+        </div>
       </section>
     </template>
   </div>
