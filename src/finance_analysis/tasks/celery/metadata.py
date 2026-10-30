@@ -59,7 +59,12 @@ OPTIONS_TASK = CeleryTaskMetadata(
     celery_name="options.request", task_type="options_intelligence", display_name="期权分析", source="celery_manual"
 )
 
+QUANT_EXPERIMENT_TASK = CeleryTaskMetadata(
+    celery_name="quant.experiment.prepare", task_type="quant_training", display_name="准备量化训练实验", source="celery_manual"
+)
+
 ON_DEMAND_TASKS = (
+    QUANT_EXPERIMENT_TASK,
     OPTIONS_TASK,
     EARNINGS_OUTLOOK_TASK,
     DEMO_ADD_TASK,

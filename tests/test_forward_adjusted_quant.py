@@ -113,14 +113,15 @@ def test_dataset_export_uses_stored_prices_and_neutral_qlib_factor(tmp_path: Pat
         )
     root = tmp_path / snapshot.artifact_uri.removeprefix("quant://")
     manifest = json.loads((root / "manifest.json").read_text())
-    daily = pd.read_csv(root / "source" / "daily.csv")
+    assert not (root / "source" / "daily.csv").exists()
+    close_bin = np.fromfile(root / "features" / "aapl.us" / "close.day.bin", dtype="<f4")
     factor_bin = np.fromfile(root / "features" / "aapl.us" / "factor.day.bin", dtype="<f4")
 
     assert manifest["daily_price_semantics"] == "forward_adjusted"
     assert manifest["price_mode"] == "forward_adjusted"
     assert require_forward_adjusted_manifest(manifest) == "forward_adjusted"
     assert "adjustment_coverage" not in manifest
-    assert set(daily["close"]) == {50.0}
+    assert close_bin.tolist() == [0.0, 50.0]
     assert factor_bin.tolist() == [0.0, 1.0]
 
 

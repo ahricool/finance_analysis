@@ -9,6 +9,7 @@ describe('legacy URL redirects', () => {
     const auth = useAuthStore();
     auth.isLoading = false;
     auth.loggedIn = true;
+    auth.currentUser = { uid: 1, username: 'admin', role: 'admin', extra: {} } as never;
   });
 
   it.each([
@@ -16,7 +17,7 @@ describe('legacy URL redirects', () => {
     ['/market/quant', '/research/quant'],
     ['/market/quant/signals', '/research/quant/signals'],
     ['/market/quant/signals/NVDA.US', '/research/quant/signals/NVDA.US'],
-    ['/market/quant/datasets', '/research/quant/datasets'],
+    ['/market/quant/datasets', '/research/quant/models'],
     ['/market/quant/models', '/research/quant/models'],
     ['/market/quant/models/42', '/research/quant/models/42'],
     ['/market/quant/portfolios', '/research/quant/portfolios'],
@@ -26,6 +27,12 @@ describe('legacy URL redirects', () => {
   ])('redirects %s to %s', async (from, expected) => {
     await router.push(from);
     expect(router.currentRoute.value.path).toBe(expected);
+  });
+
+  it('hides admin model management from ordinary users', async () => {
+    useAuthStore().currentUser = { uid: 2, role: 'user' } as never;
+    await router.push('/research/quant/models?market=CN');
+    expect(router.currentRoute.value.path).toBe('/research/quant');
   });
 
   it('keeps quant market query when redirecting legacy research URLs', async () => {

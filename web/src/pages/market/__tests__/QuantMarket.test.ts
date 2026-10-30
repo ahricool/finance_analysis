@@ -1,3 +1,4 @@
+import { createPinia, setActivePinia } from 'pinia';
 import { flushPromises, mount } from '@vue/test-utils';
 import { createMemoryHistory, createRouter } from 'vue-router';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -7,6 +8,7 @@ import { quantApi } from '@/api/quant';
 
 vi.mock('@/api/quant', () => ({
   quantApi: {
+    status: vi.fn(),
     capabilities: vi.fn(),
     marketRegime: vi.fn(),
     marketRegimeHistory: vi.fn(),
@@ -33,6 +35,8 @@ async function mountMarket(path: string) {
 
 describe('quant market context', () => {
   beforeEach(() => {
+  setActivePinia(createPinia());
+  vi.mocked(quantApi.status).mockImplementation(async (market) => ({ market, universe: market === "CN" ? "cn_quant" : "us_quant", universeName: market === "CN" ? "A股研究池" : "美股研究池", memberCount: 300, latestAttempt: null }));
     vi.clearAllMocks();
     vi.mocked(quantApi.capabilities).mockResolvedValue(capability as never);
     vi.mocked(quantApi.marketRegime).mockRejectedValue({ response: { status: 404, data: { detail: 'missing' } } });
@@ -46,16 +50,16 @@ describe('quant market context', () => {
     const controls = wrapper.get('[data-testid="quant-market-switcher"]');
     expect(controls.attributes('role')).toBe('radiogroup');
     expect(controls.get('button[aria-checked="true"]').text()).toBe('美股');
-    expect(wrapper.get('[data-testid="quant-scope-description"]').text()).toContain('当前范围：标普500');
+    expect(wrapper.get('[data-testid="quant-scope-description"]').text()).toContain('当前范围：美股研究池');
 
     await controls.findAll('button')[1].trigger('click');
     await flushPromises();
 
     expect(router.currentRoute.value.query.market).toBe('CN');
     expect(controls.get('button[aria-checked="true"]').text()).toBe('A股');
-    expect(wrapper.get('[data-testid="quant-scope-description"]').text()).toContain('当前范围：沪深300');
+    expect(wrapper.get('[data-testid="quant-scope-description"]').text()).toContain('当前范围：A股研究池');
     expect(controls.classes()).toContain('rounded-lg');
-    expect(quantApi.signals).toHaveBeenLastCalledWith('CN');
+    expect(quantApi.signals).toHaveBeenLastCalledWith('CN', undefined);
   });
 
   it('honors market=CN on refresh and never restores a late US ranking', async () => {
@@ -76,7 +80,7 @@ describe('quant market context', () => {
 
     expect(wrapper.text()).toContain('A股模型尚未就绪');
     expect(wrapper.text()).not.toContain('AAPL.US');
-    expect(quantApi.signals).toHaveBeenCalledWith('CN');
+    expect(quantApi.signals).toHaveBeenCalledWith('CN', undefined);
   });
 
   it('renders ranking codes with persisted instrument names', async () => {

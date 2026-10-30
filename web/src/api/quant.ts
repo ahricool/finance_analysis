@@ -2,6 +2,7 @@ import apiClient from './index';
 import { toCamelCase } from './utils';
 import type {
   DatasetBuildAccepted,
+  QuantRelease, QuantStatus, TrainingExperiment, TrainingPreflight,
   MarketRegime,
   ModelRun,
   ModelRunCreateAccepted,
@@ -20,6 +21,26 @@ import type {
 const withMarket = (market: QuantMarket, params: Record<string, unknown> = {}) => ({ ...params, market });
 
 export const quantApi = {
+  async status(market: QuantMarket): Promise<QuantStatus> {
+    const { data } = await apiClient.get('/api/v1/quant/status', { params: { market } });
+    return toCamelCase(data);
+  },
+  async releases(market: QuantMarket): Promise<QuantRelease[]> {
+    const { data } = await apiClient.get('/api/v1/quant/releases', { params: { market } });
+    return toCamelCase(data);
+  },
+  async publishRelease(market: QuantMarket, crossSectionId: number, timeSeriesId: number, reason: string): Promise<QuantRelease> {
+    const { data } = await apiClient.post('/api/v1/quant/releases', { market, cross_section_id: crossSectionId, time_series_id: timeSeriesId, reason });
+    return toCamelCase(data);
+  },
+  async preflight(payload: TrainingExperiment): Promise<TrainingPreflight> {
+    const { data } = await apiClient.post('/api/v1/quant/training/preflight', { market: payload.market, date_from: payload.dateFrom, date_to: payload.dateTo, model_version: payload.modelVersion });
+    return toCamelCase(data);
+  },
+  async experiment(payload: TrainingExperiment): Promise<{ modelRunIds: number[]; taskId: string }> {
+    const { data } = await apiClient.post('/api/v1/quant/training/experiments', { market: payload.market, date_from: payload.dateFrom, date_to: payload.dateTo, model_version: payload.modelVersion });
+    return toCamelCase(data);
+  },
   async dates(
     market: QuantMarket,
     scope: 'dashboard' | 'signals' | 'portfolios',
@@ -38,8 +59,8 @@ export const quantApi = {
     const { data } = await apiClient.get('/api/v1/quant/universes', { params: withMarket(market) });
     return toCamelCase(data);
   },
-  async marketRegime(market: QuantMarket = 'US', tradeDate?: string): Promise<MarketRegime> {
-    const { data } = await apiClient.get('/api/v1/quant/market-regime/latest', { params: withMarket(market, { trade_date: tradeDate }) });
+  async marketRegime(market: QuantMarket = 'US', tradeDate?: string, modelVersion?: string): Promise<MarketRegime> {
+    const { data } = await apiClient.get('/api/v1/quant/market-regime/latest', { params: withMarket(market, { trade_date: tradeDate, model_version: modelVersion }) });
     return toCamelCase(data);
   },
   async marketRegimeHistory(market: QuantMarket = 'US', dateTo?: string): Promise<MarketRegime[]> {

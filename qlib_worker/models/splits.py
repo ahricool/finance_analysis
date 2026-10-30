@@ -57,6 +57,8 @@ def walk_forward_splits(dates: Iterable[object], config: WalkForwardConfig) -> l
         if test_start_index >= len(calendar):
             break
         test_end_target = calendar[test_start_index] + pd.DateOffset(months=config.test_months)
+        if calendar[-1] < test_end_target - pd.Timedelta(days=7):
+            break
         test_end_index = min(int(calendar.searchsorted(test_end_target, side="left")) - 1, len(calendar) - 1)
         if valid_end_index < valid_start_index or test_end_index < test_start_index:
             break

@@ -14,17 +14,21 @@ from finance_analysis.database.repositories.quant import QuantRepository
 from finance_analysis.interfaces.api.deps import require_admin, require_current_user
 from finance_analysis.interfaces.api.v1.schemas.quant import (
     DatasetBuildRequest,
+    TrainingExperimentRequest,
+    ReleaseRequest,
     ModelRunCreateRequest,
     PublishRequest,
     QuantDatesResponse,
     SignalReturns,
 )
+from finance_analysis.quant.exceptions import QuantError
 from finance_analysis.quant.capabilities import get_quant_capabilities
 from finance_analysis.quant.config import get_quant_config
 from finance_analysis.quant.datasets.artifact_store import ArtifactStore
 from finance_analysis.quant.markets import get_universe_codes
 from finance_analysis.quant.models import QLIB_TRAINABLE_MODEL_KEYS
 from finance_analysis.quant.signal_returns import signal_returns
+from finance_analysis.quant.training import training_preflight, validate_training_dates
 from finance_analysis.tasks.celery.schedule import QUEUE_ANALYSIS
 
 router = APIRouter()
@@ -75,12 +79,19 @@ def _dataset_payload(row) -> dict:
     dataset_symbols = int(row.symbol_count or 0)
     coverage_ratio = dataset_symbols / universe_members if universe_members else 0.0
     minimum_coverage = get_quant_config().minimum_universe_coverage
+    training_error = None
+    try:
+        root = ArtifactStore().resolve_uri(row.artifact_uri or "")
+        validate_training_dates((root / "calendars/day.txt").read_text().splitlines())
+    except Exception as exc:
+        training_error = str(exc)
     return {
         **encoded(row),
         "universe_member_count": universe_members,
         "universe_coverage_ratio": coverage_ratio,
         "minimum_universe_coverage": minimum_coverage,
-        "trainable": (row.status == "ready" and bool(row.artifact_uri) and coverage_ratio >= minimum_coverage),
+        "trainable": (row.status == "ready" and training_error is None and coverage_ratio >= minimum_coverage),
+        "training_unavailable_reason": training_error,
     }
 
 
@@ -147,7 +158,7 @@ async def universes(market: QuantMarket = "US", _: User = Depends(require_curren
 
 
 @router.get("/models/definitions")
-async def model_definitions(market: QuantMarket = "US", _: User = Depends(require_current_user)):
+async def model_definitions(market: QuantMarket = "US", _: User = Depends(require_admin)):
     return encoded(
         [
             row
@@ -158,21 +169,21 @@ async def model_definitions(market: QuantMarket = "US", _: User = Depends(requir
 
 
 @router.get("/models")
-async def models(market: QuantMarket = "US", _: User = Depends(require_current_user)):
+async def models(market: QuantMarket = "US", _: User = Depends(require_admin)):
     repo = QuantRepository()
     universe = _universe(repo, market, None)
     return encoded(repo.list_model_runs(market=market, universe_id=universe.id))
 
 
 @router.get("/datasets")
-async def datasets(market: QuantMarket = "US", _: User = Depends(require_current_user)):
+async def datasets(market: QuantMarket = "US", _: User = Depends(require_admin)):
     repo = QuantRepository()
     universe = _universe(repo, market, None)
     return [_dataset_payload(row) for row in repo.list_datasets(market=market, universe_id=universe.id)]
 
 
 @router.get("/datasets/{snapshot_id}")
-async def dataset(snapshot_id: int, market: QuantMarket = "US", _: User = Depends(require_current_user)):
+async def dataset(snapshot_id: int, market: QuantMarket = "US", _: User = Depends(require_admin)):
     repo = QuantRepository()
     universe = _universe(repo, market, None)
     row = repo.get_dataset(snapshot_id)
@@ -229,10 +240,11 @@ async def build_dataset(body: DatasetBuildRequest, user: User = Depends(require_
 async def latest_market_regime(
     market: QuantMarket = "US",
     trade_date: date | None = None,
+    model_version: str | None = None,
     _: User = Depends(require_current_user),
 ):
     date_filter = {"date_from": trade_date, "date_to": trade_date} if trade_date else {}
-    rows = QuantRepository().market_regimes(market, limit=1, **date_filter)
+    rows = QuantRepository().market_regimes(market, limit=1, model_version=model_version, **date_filter)
     if not rows:
         raise HTTPException(404, f"{market} market regime not available")
     return _market_regime_payload(rows[0])
@@ -270,6 +282,13 @@ async def create_model_run(body: ModelRunCreateRequest, user: User = Depends(req
         raise HTTPException(400, f"Model {body.model_key} does not support {market}")
     if dataset.market != market or dataset.universe_id != universe.id:
         raise HTTPException(409, "Model run, universe, and dataset market must match")
+    if dataset.status != "ready" or not dataset.artifact_uri:
+        raise HTTPException(409, "Dataset is not ready")
+    try:
+        root = ArtifactStore().resolve_uri(dataset.artifact_uri)
+        validate_training_dates((root / "calendars/day.txt").read_text().splitlines(), body.stored_split_config())
+    except (ValueError, OSError, QuantError) as exc:
+        raise HTTPException(409, str(exc)) from exc
     if dataset.status != "ready":
         raise HTTPException(409, "Dataset is not ready")
     universe_members = len(get_universe_codes(market))
@@ -311,14 +330,14 @@ async def create_model_run(body: ModelRunCreateRequest, user: User = Depends(req
 
 
 @router.get("/model-runs")
-async def model_runs(market: QuantMarket = "US", _: User = Depends(require_current_user)):
+async def model_runs(market: QuantMarket = "US", _: User = Depends(require_admin)):
     repo = QuantRepository()
     universe = _universe(repo, market, None)
     return encoded(repo.list_model_runs(market=market, universe_id=universe.id))
 
 
 @router.get("/model-runs/{run_id}")
-async def model_run(run_id: int, market: QuantMarket = "US", _: User = Depends(require_current_user)):
+async def model_run(run_id: int, market: QuantMarket = "US", _: User = Depends(require_admin)):
     repo = QuantRepository()
     universe = _universe(repo, market, None)
     row = repo.get_model_run(run_id)
@@ -352,23 +371,7 @@ async def publish_model(
     market: QuantMarket = "US",
     user: User = Depends(require_admin),
 ):
-    repo = QuantRepository()
-    run = repo.get_model_run(run_id)
-    if not run or run.market != market:
-        raise HTTPException(404, "Model run not found")
-    try:
-        universe = repo.get_universe(run.universe_id)
-        if not universe:
-            raise ValueError(f"Model run {run_id} has no universe")
-        _universe(repo, market, universe.key)
-    except HTTPException:
-        raise
-    except ValueError as exc:
-        raise HTTPException(409, str(exc)) from exc
-    try:
-        return encoded(repo.publish_model(run_id, user.id, body.reason))
-    except ValueError as exc:
-        raise HTTPException(409, str(exc)) from exc
+    raise HTTPException(409, "请在模型管理中发布完整模型组")
 
 
 @router.get("/signals/latest")
@@ -390,9 +393,12 @@ async def signals(
     for item in items:
         item.update(SignalReturns(**returns[item["code"]]).model_dump(mode="json"))
     regimes = (
-        repo.market_regimes(market, date_from=rows[0].trade_date, date_to=rows[0].trade_date, limit=1) if rows else []
+        repo.market_regimes(market, date_from=rows[0].trade_date, date_to=rows[0].trade_date, limit=1,
+                            **({"model_version": rows[0].model_version} if rows[0].model_version.startswith("batch-") else {})) if rows else []
     )
+    batch = repo.execution(rows[0].model_version.removeprefix("batch-")) if rows and rows[0].model_version.startswith("batch-") else None
     return {
+        "release_id": batch.release_id if batch else None,
         "trade_date": rows[0].trade_date if rows else None,
         "market": market,
         "universe": definition.key,
@@ -503,3 +509,67 @@ async def portfolio(
         raise HTTPException(404, "Portfolio recommendation not found")
     row, items = result
     return {**encoded(row), "universe": universe.key, "items": _encoded_with_names(repo, items)}
+
+
+@router.post("/training/preflight")
+def preflight(body: TrainingExperimentRequest, _: User = Depends(require_admin)):
+    try:
+        return training_preflight(QuantRepository(), body.market, body.date_from, body.date_to)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+
+
+@router.post("/training/experiments", status_code=202)
+def create_experiment(body: TrainingExperimentRequest, user: User = Depends(require_admin)):
+    from finance_analysis.tasks.celery.jobs.quant_training.tasks import prepare_quant_experiment
+    repo = QuantRepository()
+    try:
+        training_preflight(repo, body.market, body.date_from, body.date_to)
+        universe = _universe(repo, body.market, None)
+        run_ids = repo.create_experiment(body.market, universe.id, user.id, body.model_version,
+                                        body.date_from, body.date_to)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    try:
+        task = prepare_quant_experiment.apply_async(kwargs={"run_ids": run_ids, "owner_uid": user.id}, queue=QUEUE_ANALYSIS)
+    except Exception as exc:
+        for run_id in run_ids:
+            repo.update_model_run(run_id, status="failed", error="训练任务提交失败")
+        raise HTTPException(503, "训练任务提交失败") from exc
+    for run_id in run_ids:
+        repo.update_model_run(run_id, task_id=task.id)
+    return {"model_run_ids": run_ids, "task_id": task.id, "market": body.market, "status": "pending"}
+
+
+@router.get("/releases")
+def releases(market: QuantMarket = "US", _: User = Depends(require_admin)):
+    return encoded(QuantRepository().releases(market))
+
+
+@router.post("/releases")
+def publish_release(body: ReleaseRequest, user: User = Depends(require_admin)):
+    repo = QuantRepository()
+    try:
+        for run_id in (body.cross_section_id, body.time_series_id):
+            run = repo.get_model_run(run_id)
+            if run is None or not run.artifact_uri:
+                raise ValueError("模型文件不可用")
+            root = ArtifactStore().resolve_uri(run.artifact_uri)
+            if not all((root / name).is_file() for name in ("model.joblib", "metadata.json", "metrics.json", "test_predictions.parquet")):
+                raise ValueError("模型工件不完整，请重新训练")
+        return encoded(repo.publish_release(body.market, body.cross_section_id, body.time_series_id, user.id, body.reason))
+    except (ValueError, OSError, QuantError) as exc:
+        raise HTTPException(409, str(exc)) from exc
+
+
+@router.get("/status")
+def research_status(market: QuantMarket = "US", _: User = Depends(require_current_user)):
+    repo = QuantRepository()
+    universe = _universe(repo, market, None)
+    executions = repo.executions(market)
+    # Public state contains operational meaning, never filesystem paths or raw payloads.
+    return {"market": market, "universe": universe.key, "universe_name": universe.name,
+            "member_count": len(get_universe_codes(market)),
+            "latest_attempt": ({"trade_date": executions[0].trade_date, "status": executions[0].status,
+                                "error": "本轮计算失败，请查看任务中心" if executions[0].error else None}
+                               if executions else None)}

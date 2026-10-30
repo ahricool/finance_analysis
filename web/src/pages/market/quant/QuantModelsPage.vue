@@ -1,323 +1,240 @@
 <script setup lang="ts">
-import IndicatorHelpLabel from '@/components/app/IndicatorHelpLabel.vue';
-import PageHeader from '@/components/layout/PageHeader.vue';
-import { computed, ref, watch } from 'vue';
-import { useRouter } from 'vue-router';
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { quantApi } from '@/api/quant';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
-import ApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
+import AppApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
 import AppConfirmDialog from '@/components/app/AppConfirmDialog.vue';
+import AppDatePicker from '@/components/app/AppDatePicker.vue';
+import LoadingButton from '@/components/app/LoadingButton.vue';
+import FieldInput from '@/components/forms/FieldInput.vue';
+import FieldSelect from '@/components/forms/FieldSelect.vue';
+import PageHeader from '@/components/layout/PageHeader.vue';
 import { Button } from '@/components/ui/button';
-import QuantTrainingDialog from '@/components/quant/QuantTrainingDialog.vue';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
-import { Skeleton } from '@/components/ui/skeleton';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useQuantMarket } from '@/composables/useQuantMarket';
-import { useAuthStore } from '@/stores/authStore';
-import type { ModelRun, ModelRunCreateAccepted, QuantMarket } from '@/types/quant';
-import { formatScore, MODEL_TARGET_COPY, isTrainableModelKey, primaryMetricValue, secondaryMetricValue } from '@/utils/quant';
+import type { ModelRun, QuantRelease, TrainingPreflight } from '@/types/quant';
+import { MODEL_TARGET_COPY, isTrainableModelKey, primaryMetricValue, secondaryMetricValue, formatScore } from '@/utils/quant';
 
-const router = useRouter();
-const auth = useAuthStore();
 const { market, marketQuery } = useQuantMarket();
-const rows = ref<ModelRun[]>([]);
+const runs = ref<ModelRun[]>([]), releases = ref<QuantRelease[]>([]);
 const error = ref<ParsedApiError | null>(null);
-const loading = ref(false);
-const trainingOpen = ref(false);
-const createdRun = ref<ModelRunCreateAccepted | null>(null);
-const deleteTarget = ref<ModelRun | null>(null);
-const deletingId = ref<number | null>(null);
-const deleteSuccess = ref<string | null>(null);
-const isAdmin = computed(() => auth.currentUser?.role === 'admin');
-let requestVersion = 0;
-
-async function load(current = market.value): Promise<void> {
-  const version = ++requestVersion;
-  rows.value = [];
-  error.value = null;
-  loading.value = true;
+const loading = ref(false), busy = ref(false), formOpen = ref(false), confirmOpen = ref(false);
+const from = ref(`${new Date().getFullYear()-5}-01-01`), to = ref(new Date().toISOString().slice(0,10)), version = ref('');
+const preflight = ref<TrainingPreflight | null>(null);
+const cs = ref(''), ts = ref(''), reason = ref(''), message = ref('');
+let generation = 0;
+let actionGeneration = 0;
+let timer: ReturnType<typeof setTimeout> | undefined;
+const active = computed(() => releases.value.find(x => x.active));
+const payload = computed(() => ({market: market.value, dateFrom: from.value, dateTo: to.value, modelVersion: version.value}));
+const canSubmit = computed(() => !!preflight.value && /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(version.value));
+const options = (key: string) => runs.value.filter(x => x.modelKey === key && ['candidate','production','retired'].includes(x.status)).map(x => ({value: String(x.id), label: `${x.modelVersion} · #${x.id}`}));
+const labels: Record<string,string> = {draft:'准备中',training:'训练中',candidate:'待发布',production:'正式',retired:'已退役',failed:'失败'};
+watch(payload, () => { preflight.value = null; });
+async function load() {
+  const token = ++generation; clearTimeout(timer); loading.value = true; error.value = null;
   try {
-    const value = await quantApi.models(current);
-    if (version === requestVersion) rows.value = value;
-  } catch (err) {
-    if (version === requestVersion) error.value = getParsedApiError(err);
-  } finally {
-    if (version === requestVersion) loading.value = false;
-  }
+    const values = await Promise.all([quantApi.models(market.value),quantApi.releases(market.value)]);
+    if(token !== generation) return;
+    [runs.value,releases.value] = values;
+    if(runs.value.some(x=>['draft','training'].includes(x.status))) timer = setTimeout(load, 10000);
+  } catch(cause) { if(token === generation) error.value = getParsedApiError(cause); }
+  finally { if(token === generation) loading.value = false; }
 }
-
-function openTraining(): void {
-  trainingOpen.value = true;
+watch(market, () => {
+  ++actionGeneration; busy.value=false;
+  runs.value=[]; releases.value=[]; cs.value=''; ts.value=''; reason.value=''; message.value=''; formOpen.value=false; confirmOpen.value=false;
+  version.value=`${market.value.toLowerCase()}-${Date.now()}`; void load();
+}, {immediate:true});
+onBeforeUnmount(()=>{ ++generation; ++actionGeneration; clearTimeout(timer); });
+async function check() {
+  const token=actionGeneration; const current = JSON.stringify(payload.value); busy.value=true; error.value=null;
+  try { const result = await quantApi.preflight(payload.value); if(token === actionGeneration && current === JSON.stringify(payload.value)) preflight.value=result; }
+  catch(cause) { if(token === actionGeneration && current === JSON.stringify(payload.value)) error.value=getParsedApiError(cause); }
+  finally {if(token === actionGeneration) busy.value=false;}
 }
-
-function canDelete(item: ModelRun): boolean {
-  return item.status !== 'draft' && item.status !== 'training' && item.status !== 'production';
+async function train() {
+  if(!canSubmit.value || busy.value) return;
+  const token=actionGeneration; const current=market.value; busy.value=true; error.value=null;
+  try { await quantApi.experiment(payload.value); if(token !== actionGeneration || current !== market.value) return; formOpen.value=false; message.value='训练实验已提交，将准备数据并训练两个模型。'; await load(); }
+  catch(cause) {if(token === actionGeneration && current === market.value) error.value=getParsedApiError(cause);}
+  finally {if(token === actionGeneration) busy.value=false;}
 }
-
-function requestDelete(item: ModelRun): void {
-  if (!canDelete(item)) return;
-  deleteTarget.value = item;
+async function publish() {
+  if(busy.value) return;
+  const token=actionGeneration; const current=market.value; confirmOpen.value=false; busy.value=true; error.value=null;
+  try { await quantApi.publishRelease(current,Number(cs.value),Number(ts.value),reason.value); if(token !== actionGeneration || current !== market.value) return; message.value='模型组已发布，下一轮计算将使用新模型组。'; await load(); }
+  catch(cause) {if(token === actionGeneration && current === market.value) error.value=getParsedApiError(cause);}
+  finally {if(token === actionGeneration) busy.value=false;}
 }
-
-async function confirmDelete(): Promise<void> {
-  const item = deleteTarget.value;
-  if (!item || deletingId.value !== null) return;
-  deleteTarget.value = null;
-  deletingId.value = item.id;
-  error.value = null;
-  deleteSuccess.value = null;
-  try {
-    await quantApi.deleteModelRun(item.id, market.value);
-    rows.value = rows.value.filter((row) => row.id !== item.id);
-    deleteSuccess.value = `模型运行 #${item.id} 及其制品已删除。`;
-  } catch (err) {
-    error.value = getParsedApiError(err);
-  } finally {
-    deletingId.value = null;
-  }
-}
-
-async function handleCreated(result: ModelRunCreateAccepted): Promise<void> {
-  trainingOpen.value = false;
-  if (result.market !== market.value) {
-    await router.push({ path: '/research/quant/models', query: { market: result.market } });
-  } else {
-    await load();
-  }
-  createdRun.value = result;
-}
-
-async function openDatasetBuilder(targetMarket: QuantMarket): Promise<void> {
-  trainingOpen.value = false;
-  await router.push({
-    path: '/research/quant/datasets',
-    query: { market: targetMarket, build: '1' },
-  });
-}
-
-watch(
-  market,
-  (current) => {
-    trainingOpen.value = false;
-    createdRun.value = null;
-    void load(current);
-  },
-  { immediate: true },
-);
-
-watch(
-  () =>
-    [router.currentRoute.value.query.createdRun, router.currentRoute.value.query.taskId] as const,
-  ([runId, taskId]) => {
-    const id = Number(runId);
-    if (!Number.isInteger(id) || id <= 0 || typeof taskId !== 'string') return;
-    createdRun.value = { modelRunId: id, taskId, status: 'pending', market: market.value };
-  },
-  { immediate: true },
-);
+function rollback(item: QuantRelease) {cs.value=String(item.crossSectionId); ts.value=String(item.timeSeriesId); reason.value=`回滚到模型组 #${item.id}`; confirmOpen.value=true;}
+function secondary(row: ModelRun) { const v=secondaryMetricValue(row.modelKey,row.metrics); return row.modelKey==='time_series_lgbm' && v!=null ? `${(v*100).toFixed(1)}%` : formatScore(v); }
 </script>
-
 <template>
   <div class="space-y-4">
     <PageHeader
       variant="section"
-      title="模型运行"
-      en="Model Runs"
-      description="候选模型必须由管理员手动发布，训练不会自动替换 production。"
+      title="模型管理"
+      description="训练与每日推理独立；审核两个候选模型后成组发布。"
     >
       <template #actions>
-        <Button
-          v-if="isAdmin"
-          data-testid="open-quant-training"
-          @click="openTraining"
+        <LoadingButton
+          :loading="loading"
+          variant="outline"
+          @click="load"
         >
-          创建训练任务
+          刷新
+        </LoadingButton><Button
+          :disabled="busy"
+          @click="formOpen=!formOpen"
+        >
+          创建训练实验
         </Button>
       </template>
     </PageHeader>
-
-    <ApiErrorAlert
+    <AppApiErrorAlert
       v-if="error"
       :error="error"
     />
-    <Alert
-      v-if="deleteSuccess"
-      variant="success"
+    <p
+      v-if="message"
+      role="status"
+      class="text-sm"
     >
-      <AlertTitle>删除成功</AlertTitle>
-      <AlertDescription class="text-current/80">
-        {{ deleteSuccess }}
-      </AlertDescription>
-    </Alert>
-    <Alert
-      v-if="createdRun"
-      variant="success"
-    >
-      <AlertTitle>训练任务已创建</AlertTitle>
-      <AlertDescription class="text-current/80">
-        ModelRun #{{ createdRun.modelRunId }} 已提交，训练将在后台执行。
-      </AlertDescription>
-      <div class="mt-3 flex flex-wrap gap-2">
-        <Button
-          as-child
-          variant="outline"
-          size="sm"
-        >
-          <RouterLink
-            :to="{
-              path: `/research/quant/models/${createdRun.modelRunId}`,
-              query: { market: createdRun.market },
-            }"
-          >
-            查看模型运行
-          </RouterLink>
-        </Button>
-        <Button
-          as-child
-          variant="outline"
-          size="sm"
-        >
-          <RouterLink
-            to="/tasks/runs"
-          >
-            查看任务详情
-          </RouterLink>
-        </Button>
-      </div>
-    </Alert>
-    <div
-      v-if="loading"
-      class="space-y-3"
-    >
-      <Skeleton
-        v-for="index in 5"
-        :key="index"
-        class="h-14 w-full"
-      />
-    </div>
-    <Card v-else-if="rows.length">
-      <CardHeader>
-        <CardTitle>模型运行列表</CardTitle>
-        <CardDescription>
-          <IndicatorHelpLabel
-            scope="quantModel"
-            label="Walk-forward 候选模型必须由管理员手动发布。"
-            compact
+      {{ message }}
+    </p>
+    <Card>
+      <CardHeader><CardTitle>当前正式模型组 {{ active ? `#${active.id}` : '尚未发布' }}</CardTitle></CardHeader><CardContent class="text-sm">
+        横截面 #{{ active?.crossSectionId ?? '—' }} · 时间序列 #{{ active?.timeSeriesId ?? '—' }}
+      </CardContent>
+    </Card>
+    <Card v-if="formOpen">
+      <CardHeader><CardTitle>创建训练实验</CardTitle></CardHeader>
+      <CardContent class="space-y-4">
+        <div class="grid gap-3 sm:grid-cols-3">
+          <AppDatePicker
+            v-model="from"
+            label="历史开始日期"
+          /><AppDatePicker
+            v-model="to"
+            label="历史结束日期"
+          /><FieldInput
+            v-model="version"
+            label="实验版本"
+            maxlength="96"
           />
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>
-                <IndicatorHelpLabel
-                  scope="quantModel"
-                  label="模型"
-                  compact
-                />
-              </TableHead><TableHead>
-                <IndicatorHelpLabel
-                  scope="quantModel"
-                  label="版本"
-                  compact
-                />
-              </TableHead><TableHead>
-                <IndicatorHelpLabel
-                  scope="quantModel"
-                  label="状态"
-                  compact
-                />
-              </TableHead><TableHead>
-                <IndicatorHelpLabel
-                  scope="quantModel"
-                  label="训练方式"
-                  compact
-                />
-              </TableHead><TableHead>
-                <IndicatorHelpLabel
-                  scope="quantModel"
-                  label="核心指标"
-                  compact
-                />
-              </TableHead><TableHead>
-                <IndicatorHelpLabel
-                  scope="quantModel"
-                  label="辅助指标"
-                  compact
-                />
-              </TableHead><TableHead>
-                <IndicatorHelpLabel
-                  scope="quantModel"
-                  label="进度"
-                  compact
-                />
-              </TableHead><TableHead v-if="isAdmin">
-                <IndicatorHelpLabel
-                  scope="quantModel"
-                  label="操作"
-                  compact
-                />
-              </TableHead>
-            </TableRow>
-          </TableHeader><TableBody>
+        </div>
+        <p class="text-sm text-muted-foreground">
+          使用多年历史，完成特征预热后按3年训练、3个月验证、3个月测试滚动评估。系统自动准备训练输入。
+        </p>
+        <p
+          v-if="preflight"
+          role="status"
+          class="text-sm"
+        >
+          有效交易日 {{ preflight.sessions }} · 有效股票 {{ preflight.eligibleCount }}/{{ preflight.memberCount }} · 标签截止 {{ preflight.labelCutoff }}。{{ preflight.warning }}
+        </p>
+        <div class="flex gap-2">
+          <LoadingButton
+            :loading="busy"
+            :disabled="!version || !from || !to"
+            variant="outline"
+            @click="check"
+          >
+            检查训练数据
+          </LoadingButton><LoadingButton
+            :loading="busy"
+            :disabled="!canSubmit"
+            @click="train"
+          >
+            提交双模型训练
+          </LoadingButton>
+        </div>
+      </CardContent>
+    </Card>
+    <Card>
+      <CardHeader><CardTitle>训练记录与评估</CardTitle></CardHeader><CardContent>
+        <p
+          v-if="!runs.length && !loading && !error"
+          class="text-sm"
+        >
+          暂无训练记录。
+        </p>
+        <Table v-else>
+          <TableHeader><TableRow><TableHead>模型 / 版本</TableHead><TableHead>状态</TableHead><TableHead>主要评估</TableHead><TableHead>辅助评估</TableHead><TableHead>实际拟合截止</TableHead><TableHead>进度</TableHead></TableRow></TableHeader>
+          <TableBody>
             <TableRow
-              v-for="item in rows"
-              :key="item.id"
+              v-for="row in runs"
+              :key="row.id"
             >
               <TableCell>
                 <RouterLink
-                  :to="{ path: `/research/quant/models/${item.id}`, query: marketQuery() }"
-                  class="font-medium rounded-sm underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                  :to="{path:`/research/quant/models/${row.id}`,query:marketQuery()}"
+                  class="underline"
                 >
-                  {{ isTrainableModelKey(item.modelKey) ? MODEL_TARGET_COPY[item.modelKey].shortName : item.modelKey }}
+                  {{ isTrainableModelKey(row.modelKey) ? MODEL_TARGET_COPY[row.modelKey].shortName : row.modelKey }} · {{ row.modelVersion }} · #{{ row.id }}
                 </RouterLink>
-              </TableCell><TableCell class="max-w-64 whitespace-normal break-all">
-                {{ item.modelVersion }}
-              </TableCell><TableCell>
-                <Badge variant="outline">
-                  {{ item.status }}
-                </Badge>
-              </TableCell><TableCell>Walk-forward</TableCell><TableCell>{{ formatScore(primaryMetricValue(item.modelKey, item.metrics)) }}</TableCell><TableCell>{{ formatScore(secondaryMetricValue(item.modelKey, item.metrics)) }}</TableCell><TableCell>{{ item.progress }}%</TableCell><TableCell v-if="isAdmin">
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  :disabled="!canDelete(item) || deletingId === item.id"
-                  :aria-label="canDelete(item) ? '删除模型运行' : '排队中、训练中或生产模型不能删除'"
-                  :data-testid="`delete-model-run-${item.id}`"
-                  @click="requestDelete(item)"
-                >
-                  {{ deletingId === item.id ? '删除中…' : '删除' }}
-                </Button>
               </TableCell>
+              <TableCell>{{ labels[row.status] ?? row.status }}</TableCell><TableCell>{{ row.modelKey==='time_series_lgbm' ? 'AUC' : 'Daily Rank IC' }} {{ formatScore(primaryMetricValue(row.modelKey,row.metrics)) }}</TableCell><TableCell>{{ row.modelKey==='time_series_lgbm' ? '方向命中率' : 'Top10超额（百分点）' }} {{ secondary(row) }}</TableCell><TableCell>{{ row.progress }}%</TableCell>
             </TableRow>
           </TableBody>
         </Table>
       </CardContent>
     </Card>
-    <Empty v-else>
-      <EmptyHeader><EmptyTitle>{{ market === 'CN' ? 'A股模型尚未训练' : '暂无模型运行' }}</EmptyTitle><EmptyDescription>当前市场还没有模型运行记录。管理员可以选择已就绪数据集创建训练任务。</EmptyDescription></EmptyHeader>
-    </Empty>
-
-    <QuantTrainingDialog
-      v-if="isAdmin"
-      :open="trainingOpen"
-      :market="market"
-      @update:open="trainingOpen = false"
-      @created="handleCreated"
-      @open-dataset-builder="openDatasetBuilder"
-    />
+    <Card>
+      <CardHeader><CardTitle>发布模型组</CardTitle></CardHeader><CardContent class="space-y-3">
+        <div class="grid gap-3 sm:grid-cols-2">
+          <FieldSelect
+            v-model="cs"
+            label="横截面模型"
+            :options="options('cross_section_lgbm')"
+          /><FieldSelect
+            v-model="ts"
+            label="时间序列模型"
+            :options="options('time_series_lgbm')"
+          />
+        </div>
+        <FieldInput
+          v-model="reason"
+          label="审核结论 / 发布原因"
+        /><Button
+          :disabled="busy || !cs || !ts || reason.trim().length<3"
+          @click="confirmOpen=true"
+        >
+          发布选定模型组
+        </Button>
+        <p class="text-xs text-muted-foreground">
+          评估为历史滚动验证结果。发布会整体替换当前模型组。
+        </p>
+      </CardContent>
+    </Card>
+    <Card v-if="releases.length">
+      <CardHeader><CardTitle>发布历史</CardTitle></CardHeader><CardContent class="space-y-2">
+        <div
+          v-for="release in releases"
+          :key="release.id"
+          class="flex flex-wrap items-center justify-between gap-2 text-sm"
+        >
+          <span>#{{ release.id }} · 横截面 #{{ release.crossSectionId }} / 时间序列 #{{ release.timeSeriesId }} · {{ release.reason }}</span><Button
+            v-if="!release.active"
+            :disabled="busy"
+            variant="outline"
+            size="sm"
+            @click="rollback(release)"
+          >
+            回滚到此组
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
     <AppConfirmDialog
-      :open="deleteTarget !== null"
-      title="删除模型运行"
-      :description="`确认删除模型运行 #${deleteTarget?.id ?? ''}？数据库中的运行、预测和发布关联记录，以及 /data 下对应模型制品会一并删除。`"
-      confirm-text="确认删除"
-      destructive
-      @update:open="deleteTarget = $event ? deleteTarget : null"
-      @confirm="confirmDelete"
+      :open="confirmOpen"
+      title="发布模型组"
+      :description="`将使用横截面 #${cs} 和时间序列 #${ts}，替换当前正式模型组。`"
+      confirm-text="确认发布"
+      @update:open="confirmOpen=$event"
+      @confirm="publish"
     />
   </div>
 </template>

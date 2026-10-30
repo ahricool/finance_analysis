@@ -9,7 +9,6 @@ import pandas as pd
 
 from finance_analysis.database.repositories.quant import QuantRepository
 from finance_analysis.database.repositories.stock import InstrumentRepository
-from finance_analysis.integrations.market_data.service import MarketDataService
 from finance_analysis.quant.config import get_quant_config
 from finance_analysis.quant.data import DailyBarLoader
 from finance_analysis.quant.exceptions import BenchmarkDataMissingError, FeatureDataMissingError
@@ -26,7 +25,7 @@ class DailyResearchService:
         self.repository = repository or QuantRepository()
         self.symbol_repository = symbol_repository or InstrumentRepository()
         self.config = get_quant_config()
-        self.market_data = market_data or MarketDataService()
+
 
     def run(self, market: str, universe_key: str, trade_date: date) -> dict:
         market_config = get_quant_market_config(market)
@@ -43,7 +42,7 @@ class DailyResearchService:
         required_benchmarks = set(market_config.benchmark_dependencies)
         loaded = DailyBarLoader(self.repository).load(
             market_config.market,
-            universe_codes,
+            universe_codes | required_benchmarks,
             trade_date - timedelta(days=500),
             trade_date,
         )
@@ -51,36 +50,6 @@ class DailyResearchService:
             code: group.rename(columns={"datetime": "date"}).drop(columns="instrument").reset_index(drop=True)
             for code, group in loaded.frame.groupby("instrument")
         }
-        del loaded
-        # Only the small, explicit benchmark set may refresh stale tails remotely. Main
-        # universe readiness remains DB-only; these bars are never persisted.
-        benchmarks = self.market_data.get_daily_bars(
-            sorted(required_benchmarks),
-            trade_date - timedelta(days=500),
-            trade_date,
-            adjustment="forward",
-            source_policy="db_fresh",
-        )
-        for code, bars in benchmarks.data.items():
-            if bars:
-                frames[code] = (
-                    pd.DataFrame(
-                        [
-                            {
-                                "date": bar.trade_date,
-                                "open": bar.open,
-                                "high": bar.high,
-                                "low": bar.low,
-                                "close": bar.close,
-                                "volume": bar.volume,
-                                "amount": bar.amount,
-                            }
-                            for bar in bars
-                        ]
-                    )
-                    .sort_values("date")
-                    .reset_index(drop=True)
-                )
         missing_benchmarks = {code for code in required_benchmarks if code not in frames or len(frames[code]) < 61}
         if missing_benchmarks:
             raise BenchmarkDataMissingError(
@@ -99,7 +68,7 @@ class DailyResearchService:
             code
             for code in universe_codes
             if code not in frames
-            or frames[code].empty
+            or len(frames[code]) < 61
             or pd.Timestamp(frames[code]["date"].iloc[-1]).date() != trade_date
         }
         eligible_codes = sorted(universe_codes - missing_symbols - missing_daily)
@@ -123,8 +92,7 @@ class DailyResearchService:
             style=frames[market_config.style_benchmark],
             style_label=market_config.style_benchmark,
         )
-        regime = self.repository.save_market_regime(
-            {
+        regime = {
                 "market": market_config.market,
                 "trade_date": trade_date,
                 "model_version": self.config.regime_model_version,
@@ -133,8 +101,7 @@ class DailyResearchService:
                 "max_equity_exposure": market_result.max_equity_exposure,
                 "features": market_result.features,
                 "reasons": market_result.reasons,
-            }
-        )
+        }
 
         runtime_context = {}
         for code in eligible_codes:
@@ -151,6 +118,8 @@ class DailyResearchService:
             )
         return {
             "market_regime": regime,
+            "loaded": loaded,
+            "symbols_by_code": symbols_by_code,
             "context_count": len(runtime_context),
             "runtime_context": runtime_context,
             "eligible_codes": eligible_codes,

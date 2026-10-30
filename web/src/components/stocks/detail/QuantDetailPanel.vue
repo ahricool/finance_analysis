@@ -108,14 +108,6 @@ onBeforeUnmount(() => { ++generation; });
             {{ reason }}
           </li>
         </ul>
-        <details class="mt-4 text-xs">
-          <summary class="cursor-pointer text-muted-foreground">
-            查看原始数据
-          </summary>
-          <pre class="mt-2 overflow-auto rounded bg-background p-3">{{
-            JSON.stringify(item.scoreComponents, null, 2)
-          }}</pre>
-        </details>
       </section>
       <section class="rounded-xl border bg-card p-4">
         <h3 class="mb-2 text-sm font-semibold">

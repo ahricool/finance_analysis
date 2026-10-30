@@ -20,7 +20,6 @@ const QuantPage = () => import('@/pages/market/QuantPage.vue');
 const QuantDashboardPage = () => import('@/pages/market/quant/QuantDashboardPage.vue');
 const QuantSignalsPage = () => import('@/pages/market/quant/QuantSignalsPage.vue');
 const QuantSignalDetailPage = () => import('@/pages/market/quant/QuantSignalDetailPage.vue');
-const QuantDatasetsPage = () => import('@/pages/market/quant/QuantDatasetsPage.vue');
 const QuantModelsPage = () => import('@/pages/market/quant/QuantModelsPage.vue');
 const QuantModelRunPage = () => import('@/pages/market/quant/QuantModelRunPage.vue');
 const QuantPortfoliosPage = () => import('@/pages/market/quant/QuantPortfoliosPage.vue');
@@ -125,20 +124,19 @@ const router = createRouter({
                 {
                   path: 'datasets',
                   name: 'research-quant-datasets',
-                  component: QuantDatasetsPage,
-                  meta: { title: '量化数据集' },
+                  redirect: to => ({ path: '/research/quant/models', query: to.query }),
                 },
                 {
                   path: 'models',
                   name: 'research-quant-models',
                   component: QuantModelsPage,
-                  meta: { title: '量化模型' },
+                  meta: { title: '量化模型管理', admin: true },
                 },
                 {
                   path: 'models/:runId',
                   name: 'research-quant-model-run',
                   component: QuantModelRunPage,
-                  meta: { title: '模型运行详情' },
+                  meta: { title: '模型运行详情', admin: true },
                 },
                 {
                   path: 'portfolios',
@@ -222,6 +220,8 @@ router.beforeEach(async (to, from) => {
       replace: true,
     };
   }
+
+  if (to.meta.admin && auth.currentUser?.role !== 'admin') return { path: '/research/quant', query: { market: to.query.market } };
 
   if (to.path === '/login' && auth.loggedIn) {
     return { path: '/dashboard', replace: true };

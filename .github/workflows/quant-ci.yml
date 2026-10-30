@@ -1,0 +1,47 @@
+name: Quant CI
+on:
+  pull_request:
+    paths:
+      - 'qlib_worker/**'
+      - 'src/finance_analysis/quant/**'
+      - 'src/finance_analysis/database/**'
+      - 'src/finance_analysis/tasks/**'
+      - 'alembic/**'
+      - 'tests/test_quant*'
+      - '.github/workflows/quant-ci.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  lifecycle:
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: quant_test
+          POSTGRES_PASSWORD: quant_test
+          POSTGRES_DB: quant_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd 'pg_isready -U quant_test'
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql+psycopg2://quant_test:quant_test@localhost:5432/quant_test
+      QUANT_TEST_DATABASE_URL: postgresql+psycopg2://quant_test:quant_test@localhost:5432/quant_test
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: '3.13'
+      - run: uv sync --frozen
+      - run: uv run pytest tests/test_quant*.py tests/test_forward_adjusted_quant.py tests/test_qlib_boundary.py -q
+  qlib-worker:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: '3.12'
+      - run: uv sync --project qlib_worker --frozen
+      - run: uv run --project qlib_worker pytest qlib_worker/tests -q

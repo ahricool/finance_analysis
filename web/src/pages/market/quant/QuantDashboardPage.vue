@@ -42,18 +42,24 @@ watch(
     ranking.value = null;
     error.value = null;
     loading.value = true;
-    const results = await Promise.allSettled([
-      quantApi.capabilities(current),
-      (date ? quantApi.marketRegime(current, date) : quantApi.marketRegime(current)),
-      (date ? quantApi.marketRegimeHistory(current, date) : quantApi.marketRegimeHistory(current)),
-      (date ? quantApi.signals(current, date) : quantApi.signals(current)),
-    ]);
+    try {
+      const signals = await quantApi.signals(current, date || undefined);
+      if (version !== requestVersion) return;
+      ranking.value = signals;
+      const actualDate = signals.tradeDate || date || undefined;
+      const results = await Promise.allSettled([
+        quantApi.capabilities(current),
+        quantApi.marketRegime(current, actualDate, signals.modelVersion?.startsWith('batch-') ? signals.modelVersion : undefined),
+        quantApi.marketRegimeHistory(current, actualDate),
+      ]);
+      if (version !== requestVersion) return;
+      if (results[0].status === 'fulfilled') capability.value = results[0].value;
+      if (results[1].status === 'fulfilled') regime.value = results[1].value;
+      if (results[2].status === 'fulfilled') history.value = results[2].value;
+      const failed = results.find(result => result.status === 'rejected');
+      if (failed?.status === 'rejected') error.value = getParsedApiError(failed.reason);
+    } catch (cause) { if (version === requestVersion) error.value = getParsedApiError(cause); }
     if (version !== requestVersion) return;
-    if (results[0].status === 'fulfilled') capability.value = results[0].value;
-    else error.value = getParsedApiError(results[0].reason);
-    if (results[1].status === 'fulfilled') regime.value = results[1].value;
-    if (results[2].status === 'fulfilled') history.value = results[2].value;
-    if (results[3].status === 'fulfilled') ranking.value = results[3].value;
     loading.value = false;
   },
   { immediate: true },
@@ -143,7 +149,7 @@ const detailInitialTab = ref<'overview' | 'quant'>('quant');
                 compact
               />
             </CardDescription><CardTitle class="text-base">
-              {{ ranking?.modelVersion ?? '—' }}
+              {{ ranking?.releaseId ? `模型组 #${ranking.releaseId}` : ranking?.modelVersion ?? '—' }}
             </CardTitle><p class="text-xs text-muted-foreground">
               {{ ranking?.tradeDate ?? '—' }}
             </p>
