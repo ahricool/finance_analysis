@@ -597,7 +597,7 @@ def track_task(
                 )
                 advisory_lock: PostgreSQLAdvisoryLock | None = None
                 try:
-                    if advisory_lock_id is not None:
+                    if advisory_lock_id is not None and not kwargs.get("explain"):
                         advisory_lock = PostgreSQLAdvisoryLock(
                             advisory_lock_id,
                             blocking=advisory_lock_blocking,

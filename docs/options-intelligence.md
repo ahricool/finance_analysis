@@ -112,8 +112,8 @@ OI有明确日期、同来源且相邻有效交易日才比较；变化于网络
 
 ## 调度与API
 
-`options_intelligence_intraday`：纽约时区工作日9–15点，0/30分触发；执行时严格检查真实NYSE开闭市，过滤假期、盘前与提前收盘后的时段。
-`options_intelligence_daily`：纽约14:00/17:00检查，收盘至少30分钟后执行；14:00覆盖13:00提前收盘，17:00覆盖常规16:00收盘。日度基线每交易日只保存一次，后来OI仍可更新独立事件验证。
+`options_intelligence_intraday`：纽约时区工作日9–15点，0/30分触发；执行时严格检查真实NYSE开闭市，过滤假期、盘前与提前收盘后的时段。若检测到盘中成交活跃异常（Put/Call 成交异常、成交量/OI 异常、大额权利金估算），直接通过 `NotificationService` 发送 `alert` 通知，不调用 LLM。
+`options_intelligence_daily`：纽约14:00/17:00检查，收盘至少30分钟后执行；14:00覆盖13:00提前收盘，17:00覆盖常规16:00收盘。日度基线每交易日只保存一次，后来OI仍可更新独立事件验证；全范围正式扫描结束后汇总当日有效快照交由 LLM 生成盘后日报并通过 `NotificationService` 发送 `report` 通知（LLM 未配置或失败时回退确定性规则摘要）。单股显式 LLM 解释只读已存快照，不抢占期权链采集互斥锁。
 复用ingestion队列与TaskRecord生命周期，不创建新的Worker。
 
 `intraday` 写独立 PostgreSQL 最新 Preview 表，摘要与详情按股拆分，在纽约午夜过期，GET拒绝旧日期。

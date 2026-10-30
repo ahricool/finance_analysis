@@ -1,7 +1,9 @@
 """Low-frequency research orchestration; all price reads go through MarketDataService."""
 
+import hashlib
 import json
 import logging
+import os
 import re
 from time import monotonic
 from datetime import datetime, timedelta
@@ -22,6 +24,8 @@ from .metrics import oi_change
 logger = logging.getLogger(__name__)
 PREVIEW_BUDGET_SECONDS = 20 * 60
 PREVIEW_HARD_LIMIT_SECONDS = PREVIEW_BUDGET_SECONDS + 60
+OFFICIAL_BUDGET_SECONDS = 45 * 60
+OFFICIAL_HARD_LIMIT_SECONDS = OFFICIAL_BUDGET_SECONDS + 60
 
 
 def us_symbol(value):
@@ -68,13 +72,258 @@ class Explanation(BaseModel):
     trading_risks: list[str]
 
 
+class DailySummary(BaseModel):
+    market_overview: str
+    notable_symbols: list[str]
+    protection_vs_direction: str
+    data_limits: list[str]
+    risk_notes: list[str]
+
+
+INTRADAY_ACTIVITY_EVENTS = {
+    "PUT_VOLUME_SPIKE",
+    "CALL_VOLUME_SPIKE",
+    "VOLUME_OI_ANOMALY",
+    "LARGE_PREMIUM_ACTIVITY",
+}
+EVENT_TITLES = {
+    "PUT_VOLUME_SPIKE": "Put 成交异常",
+    "CALL_VOLUME_SPIKE": "Call 成交异常",
+    "VOLUME_OI_ANOMALY": "成交量/OI 异常",
+    "LARGE_PREMIUM_ACTIVITY": "大额权利金估算",
+    "BEARISH_SKEW_SPIKE": "下行偏斜升高",
+    "IV_SPIKE": "隐含波动率异常",
+    "IV_TERM_INVERSION": "波动率期限倒挂",
+    "LIQUIDITY_DRY_UP": "流动性不足",
+    "WIDE_BID_ASK_SPREAD": "买卖点差过宽",
+    "OI_BUILDUP_CONFIRMED": "次日 OI 增加确认",
+}
+
+
 class OptionsIntelligenceService:
-    def __init__(self, repo=None, market_data=None, config=None, llm=None, preview_repository=None):
+    def __init__(self, repo=None, market_data=None, config=None, llm=None, preview_repository=None, notifier=None):
         self.repo = repo or OptionsRepository()
         self.market = market_data or MarketDataService()
         self.config = config or get_options_config()
         self.llm = llm
         self.preview_repository = preview_repository
+        self.notifier = notifier
+        self._notifier_provided = notifier is not None
+
+    def _get_notifier(self):
+        if os.getenv("PYTEST_CURRENT_TEST") and not self._notifier_provided:
+            return None
+        if self.notifier is None:
+            from finance_analysis.notification.service import NotificationService  # pragma: allowlist secret
+
+            self.notifier = NotificationService()
+        return self.notifier
+
+    def _notify_intraday_anomalies(self, items, trade_date):
+        notifier = self._get_notifier()
+        if notifier is None or not items:
+            return
+        anomalies = []
+        for item in items:
+            symbol = item.get("symbol", "")
+            events = [e for e in item.get("events", []) if e.get("event_type") in INTRADAY_ACTIVITY_EVENTS]
+            if not events:
+                continue
+            top = max(events, key=lambda e: (e.get("severity") or 0, e.get("value") or 0))
+            anomalies.append((symbol, item, top, len(events)))
+        if not anomalies:
+            return
+        anomalies.sort(
+            key=lambda row: (
+                row[2].get("severity") or 0,
+                ((row[1].get("scores") or {}).get("unusual_activity") or {}).get("value") or 0,
+            ),
+            reverse=True,
+        )
+        digest = hashlib.sha256(
+            "|".join(
+                sorted(
+                    f"{symbol}:{top.get('contract_symbol') or symbol}:{top.get('event_type')}"
+                    for symbol, _, top, _ in anomalies
+                )
+            ).encode()
+        ).hexdigest()[:16]
+        key = f"options_intraday_alert:{trade_date.isoformat()}:{digest}"
+        lines = [
+            f"# 【期权盘中成交异常】{trade_date.isoformat()}（共 {len(anomalies)} 只标的）",
+            "",
+            "盘中预演基于确定性规则检测成交活跃度异常（不调用 LLM、不推断买卖方向或净开仓）：",
+            "",
+        ]
+        for symbol, item, top, count in anomalies[:20]:
+            label = EVENT_TITLES.get(top.get("event_type"), top.get("event_type") or "成交异常")
+            contract = top.get("contract_symbol") or symbol
+            activity = ((item.get("scores") or {}).get("unusual_activity") or {}).get("value")
+            bearish = ((item.get("scores") or {}).get("bearish_demand") or {}).get("value")
+            pc = item.get("put_call_volume_ratio")
+            parts = [f"- **{symbol}**（`{contract}`）：{label}"]
+            if top.get("value") is not None:
+                parts.append(f"原值 `{round(float(top['value']), 2)}`")
+            if activity is not None:
+                parts.append(f"异常活动 `{activity}`")
+            if bearish is not None:
+                parts.append(f"看跌需求 `{bearish}`")
+            if pc is not None:
+                parts.append(f"22–45D P/C `{round(float(pc), 2)}`")
+            if count > 1:
+                parts.append(f"共 {count} 项成交异常")
+            lines.append("，".join(parts))
+        if len(anomalies) > 20:
+            lines.append(f"- ……另有 {len(anomalies) - 20} 只标的存在盘中成交异常。")
+        lines.extend(
+            [
+                "",
+                "> 说明：盘中成交仅使用当日绝对规则（Volume/OI、权利金估算等），不与全天历史成交分位数直接比较；高分不代表看空概率或真实净开仓。",
+            ]
+        )
+        try:
+            notifier.send(
+                "\n".join(lines),
+                title=f"期权盘中成交异常（{trade_date.isoformat()} · {len(anomalies)} 只）",
+                route_type="alert",
+                severity="warning",
+                dedup_key=key,
+                cooldown_key=key,
+            )
+        except Exception as exc:
+            logger.warning("Options intraday alert notification failed category=%s", type(exc).__name__)
+
+    def summarize_daily(self, trade_date, total_count=None, failed_count=0, unfinished_count=0):
+        notifier = self._get_notifier()
+        symbols = self.repo.monitored_symbols()
+        rows = [row for row in self.repo.scan(symbols, trade_date) if row.get("status") in {"ready", "warming_up"}]
+        if not rows:
+            return None
+        scored = []
+        for row in rows:
+            scores = row.get("scores") or {}
+            bearish = (scores.get("bearish_demand") or {}).get("value")
+            activity = (scores.get("unusual_activity") or {}).get("value")
+            liquidity = (scores.get("liquidity_risk") or {}).get("value")
+            events = row.get("events") or []
+            top_event = max(events, key=lambda e: e.get("severity") or 0, default=None)
+            scored.append(
+                {
+                    "symbol": row["symbol"],
+                    "status": row.get("status"),
+                    "evidence_grade": row.get("evidence_grade"),
+                    "bearish_demand": bearish,
+                    "unusual_activity": activity,
+                    "liquidity_risk": liquidity,
+                    "iv_30d": row.get("iv_30d"),
+                    "iv_percentile": row.get("iv_percentile"),
+                    "skew_30d": row.get("skew_30d"),
+                    "put_call_volume_ratio": row.get("put_call_volume_ratio"),
+                    "event_count": len(events),
+                    "top_event": (
+                        {
+                            "event_type": top_event.get("event_type"),
+                            "contract_symbol": top_event.get("contract_symbol"),
+                            "severity": top_event.get("severity"),
+                            "value": top_event.get("value"),
+                        }
+                        if top_event
+                        else None
+                    ),
+                }
+            )
+        scored.sort(
+            key=lambda r: (
+                max(r["unusual_activity"] or 0, r["bearish_demand"] or 0),
+                r["event_count"],
+            ),
+            reverse=True,
+        )
+        summary_data = None
+        try:
+            client = self.llm or LLMClient()
+            if client.is_available():
+                payload = {
+                    "trade_date": trade_date.isoformat(),
+                    "scanned_count": len(rows),
+                    "total_planned": total_count or len(symbols),
+                    "failed_count": failed_count,
+                    "unfinished_count": unfinished_count,
+                    "anomalous_stock_count": sum(1 for r in scored if r["event_count"] > 0),
+                    "top_candidates": scored[:15],
+                }
+                prompt = json.dumps(payload, ensure_ascii=False, default=str)
+                system = (
+                    "你汇总美股盘后期权情报扫描结果，只做结构化研究总结，不预测股价、不输出买卖建议。"
+                    "不得编造大单、机构流向、主动买卖方向或净空头；Indicative不是NBBO；Put成交与Skew升高只代表保护需求或成交活跃证据。"
+                    "输出中文JSON，字段为market_overview(str),notable_symbols(list[str]),protection_vs_direction(str),"
+                    "data_limits(list[str]),risk_notes(list[str])。"
+                )
+
+                def validate(text):
+                    DailySummary.model_validate(parse_llm_json_response(text))
+
+                llm_res = client.complete_text(
+                    LLMRequest(
+                        prompt=prompt,
+                        system_prompt=system,
+                        call_type="options_intelligence_daily_summary",
+                        web_search=False,
+                    ),
+                    validator=validate,
+                )
+                summary_data = DailySummary.model_validate(parse_llm_json_response(llm_res.text)).model_dump()
+        except Exception as exc:
+            logger.warning("Options daily LLM summary failed category=%s", type(exc).__name__)
+
+        lines = [
+            f"# 【期权盘后日报】{trade_date.isoformat()}（有效快照 {len(rows)} 只）",
+            "",
+        ]
+        if summary_data:
+            lines.extend(
+                [
+                    summary_data["market_overview"],
+                    "",
+                    "## 重点标的观察",
+                    *[f"- {item}" for item in summary_data["notable_symbols"]],
+                    "",
+                    "## 保护需求与方向边界",
+                    summary_data["protection_vs_direction"],
+                    "",
+                    "## 数据限制与风险提示",
+                    *[f"- {item}" for item in [*summary_data["data_limits"], *summary_data["risk_notes"]]],
+                ]
+            )
+        else:
+            lines.append("今日盘后正式扫描已完成（LLM 未启用或暂不可用，以下为确定性规则摘要）：")
+            lines.append("")
+            for item in scored[:10]:
+                top = item["top_event"]
+                top_text = (
+                    f"{EVENT_TITLES.get(top['event_type'], top['event_type'])} ({top['contract_symbol'] or item['symbol']})"
+                    if top
+                    else "无触发规则事件"
+                )
+                lines.append(
+                    f"- **{item['symbol']}**：看跌保护 `{item['bearish_demand'] if item['bearish_demand'] is not None else 'N/A'}` · "
+                    f"异常活动 `{item['unusual_activity'] if item['unusual_activity'] is not None else 'N/A'}` · "
+                    f"流动性风险 `{item['liquidity_risk'] if item['liquidity_risk'] is not None else 'N/A'}` · {top_text}"
+                )
+        if notifier is not None:
+            key = f"options_daily_summary:{trade_date.isoformat()}"
+            try:
+                notifier.send(
+                    "\n".join(lines),
+                    title=f"期权盘后日报（{trade_date.isoformat()}）",
+                    route_type="report",
+                    severity="info",
+                    dedup_key=key,
+                    cooldown_key=key,
+                )
+            except Exception as exc:
+                logger.warning("Options daily summary notification failed category=%s", type(exc).__name__)
+        return summary_data
 
     def run(self, symbol, now=None, explain=False, view=None, publish_preview=True, bars=None):
         realtime_run = now is None
@@ -162,6 +411,7 @@ class OptionsIntelligenceService:
             metrics["view"] = "preview"
             if publish_preview:
                 self._publish_preview([metrics], now, merge=True)
+                self._notify_intraday_anomalies([metrics], day)
             return metrics
         snapshot_id = self.repo.save(chain, metrics, bucket, mode)
         previous_analysis = self.repo.analysis_history(symbol) if self.config.auto_explain else []
@@ -243,10 +493,7 @@ class OptionsIntelligenceService:
                     self.run(symbol, supplied_now, view=view, publish_preview=False, bars=bars)
                 )
             except SoftTimeLimitExceeded:
-                if view != "preview":
-                    raise
-                # Keep completed results and release the common lock before the daily task.
-                logger.warning("Options preview execution budget reached symbol=%s", symbol)
+                logger.warning("Options %s execution budget reached symbol=%s", view, symbol)
                 break
             except Exception as exc:
                 logger.warning("Options scan failed symbol=%s category=%s", symbol, type(exc).__name__)
@@ -267,23 +514,32 @@ class OptionsIntelligenceService:
                     trade_date=day,
                 )
         failures = [r for r in results if r["status"] == "failed"]
+        succeeded = [r for r in results if r["status"] != "failed"]
         unfinished = len(selected) - len(results)
         logger.info(
             "Options scan view=%s trade_date=%s elapsed_seconds=%.1f success=%s failed=%s unfinished=%s",
             view,
             day,
             monotonic() - started,
-            len(results) - len(failures),
+            len(succeeded),
             len(failures),
             unfinished,
         )
         if view == "preview":
             self._publish_preview(
-                [r for r in results if r["status"] != "failed"],
+                succeeded,
                 supplied_now or utc_now(),
                 merge=symbols is not None,
                 failures=failures,
                 trade_date=day,
+            )
+            self._notify_intraday_anomalies(succeeded, day)
+        elif symbols is None and succeeded:
+            self.summarize_daily(
+                day,
+                total_count=len(selected),
+                failed_count=len(failures),
+                unfinished_count=unfinished,
             )
         return {
             "view": view,

@@ -147,7 +147,7 @@ SCHEDULED_TASK_DEFINITIONS = (
     ),
     ScheduledTaskDefinition(
         job_id="options_intelligence_intraday", name="期权异常盘中扫描 US",
-        description="Nasdaq-100+美股自选；Yahoo主链、Alpaca回退，盘中预演仅写Redis",
+        description="Nasdaq-100+美股自选；Yahoo主链、Alpaca回退，盘中预演写独立Preview表",
         task_type="scheduled_options_intelligence_intraday",
         celery_task_name=celery_task_name("options_intelligence_intraday"),
         schedules=(CronSchedule(minute="0,30", hour="9-15", day_of_week="mon-fri", timezone=US_TIMEZONE),),
