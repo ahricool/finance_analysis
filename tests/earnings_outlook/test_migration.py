@@ -8,7 +8,7 @@ from finance_analysis.database.models import FinanceEvent, Instrument
 
 def test_migration_builds_and_reverses_only_new_earnings_tables():
     scripts = ScriptDirectory.from_config(Config("alembic.ini"))
-    assert scripts.get_heads() == ["0083_retire_stock_analysis"]
+    assert scripts.get_heads() == ["0084_drop_stock_analysis_archive"]
     migration = scripts.get_revision("0069_earnings_outlook").module
     engine = create_engine("sqlite://")
     Instrument.__table__.create(engine)

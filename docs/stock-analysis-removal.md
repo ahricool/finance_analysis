@@ -29,8 +29,8 @@
 
 | 项目 | 删除后的状态 | 本次处理 |
 | --- | --- | --- |
-| `analysis_history` | 不再写入；没有决策报告查询/重建服务 | 保留表、ORM 和已有记录作为历史存档，不清空、不重分配 uid |
-| `fundamental_snapshot` | 唯一业务写入链被删除，不再生产 | 同样保留存档；删除应用写入/查询方法 |
+| `analysis_history` | 部署迁移后不再存在 | 迁移 `0084_drop_stock_analysis_archive` 删除整表及全部历史数据，同时移除 ORM 和导出 |
+| `fundamental_snapshot` | 部署迁移后不再存在 | 同样由 `0084_drop_stock_analysis_archive` 删除整表及数据，移除 ORM 和导出 |
 | 历史 TaskRecord、notification、llm_usage、LLM 私有日志 | 属于历史审计记录，不需要原任务存在 | 保留；任务中心/消息中心仍可读，旧报告正文不重新渲染 |
 | 旧任务的 pending / processing / retrying TaskRecord | 执行代码删除后可能永久悬空 | 迁移 `0083_retire_stock_analysis` 仅取消这两类未完成任务，保留已结束记录及结果 |
 | Broker 中旧任务消息 | 迁移只更新 PostgreSQL，不清 Redis broker | 正常部署先停止 Beat 并等待旧 worker 退出；残余旧名称消息不再有处理器，新 worker 不会继续生成个股报告；对应既有任务行由迁移取消。不清空共享队列 |
@@ -43,8 +43,9 @@
 ## 发布与回滚
 
 按 `docs/deployment.md` 使用标准部署流程，不直接向正在运行的 worker 热替换代码。
-迁移不修改业务 schema，不删除历史数据；downgrade 不自动恢复被取消的工作，也不重新发布任务。
-空库 metadata bootstrap 没有旧任务可取消；已有库执行数据迁移。
+迁移 `0083_retire_stock_analysis` 取消未完成旧任务；随后 `0084_drop_stock_analysis_archive` 删除 `analysis_history`、`fundamental_snapshot` 两张表及数据。
+后者为不可逆删除，downgrade 明确报错；前者不自动恢复被取消的工作，也不重新发布任务。
+空库 metadata bootstrap 不再创建两张历史存档表；已有库执行取消任务及删表迁移。
 
 ## 验证重点
 
@@ -56,10 +57,10 @@
 
 ## 简单 code review 结果
 
-已检查删除入口、共享 import、任务注册/路由、Docker 文件引用、数据迁移范围及历史数据保留。
+已检查删除入口、共享 import、任务注册/路由、Docker 文件引用、数据迁移范围及存档删除边界。
 发现并修复了共享大盘复盘类依赖、模板路径烟测和未完成旧任务悬空问题；未发现其他阻塞问题。
 
 在独立临时 PostgreSQL 16 上执行完整后端门禁：syntax、flake8、deterministic 均通过；
-离线测试 3132 passed、57 skipped、2 deselected，另有 92 subtests passed。
-退役迁移同时通过 SQLite 与 PostgreSQL 验证，覆盖幂等取消和不影响其他任务/已完成结果。
-没有调用真实 LLM、发布生产部署或清理生产数据。
+离线测试 3141 passed、57 skipped、2 deselected，另有 92 subtests passed。
+退役及删表迁移通过 SQLite 与 PostgreSQL 验证：覆盖幂等取消、存档表全部/部分/均不存在、新库 metadata 不建表，以及保留其他任务/通知/新闻/日线数据。
+上述为独立测试库验证结果；尚未部署生产，生产存档删除将在部署迁移时执行。

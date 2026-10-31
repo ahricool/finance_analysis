@@ -81,7 +81,7 @@ REST 修改至少核对 endpoint、schema、前端 `web/src/api/` 与 `tests/tes
 大盘复盘改用 `market_review/text_generator.py`；共享任务配置在
 `market_review/runtime_config.py`。股票历史读取在 `stocks/history.py`，RSI 在
 `trend_following/indicators.py`。不得重新引入旧 pipeline 或个股 Prompt。
-历史存档及已处理/待清理依赖见仓库根 `docs/stock-analysis-removal.md`。
+历史报告及基本面快照表由迁移 `0084_drop_stock_analysis_archive` 删除，不再保留 ORM；已处理/待清理依赖见仓库根 `docs/stock-analysis-removal.md`。
 
 LLM 调用统一进入 `llm/LLMClient`，固定 Codex → API。每次尝试由 `LLM_ATTEMPT_TIMEOUT` 限制，默认300秒；没有整链总预算或后续渠道预留。可重试错误每渠道最多重试三次，退避2/4/8秒；额度/认证失败及单次超时直接切换，清理未确认或程序错误终止。LLM任务无固定Celery时限。每次尝试独立记录diagnostics，最终任务结果和报告展示调用、失败、重试及等待耗时。线程池须复制contextvars以传播耗时collector；详见 `docs/llm.md`。
 
@@ -130,7 +130,7 @@ LLM 调用统一进入 `llm/LLMClient`，固定 Codex → API。每次尝试由 
 
 - 用户、自选股、日历、任务。
 - `Instrument`、`StockDaily`、`Universe`/`UniverseInclude`/`UniverseMember`。
-- 分析历史、新闻/基本面快照、LLM 用量。
+- 新闻事实/使用关系、LLM 用量。
 - Quant dataset/model/signal/portfolio。
 - ETF Rotation 和 Trend Following 快照。
 

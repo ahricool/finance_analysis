@@ -26,7 +26,7 @@ Vue WebUI ──HTTP/SSE/WS──> FastAPI
 ```
 
 - FastAPI 提供 Cookie/JWT 会话、REST、SSE 和 WebSocket 接口。
-- PostgreSQL 是用户、证券、前复权日线、任务状态、分析历史及策略结果的权威存储。 <!-- pragma: allowlist secret -->
+- PostgreSQL 是用户、证券、前复权日线、任务状态及策略结果的权威存储。 <!-- pragma: allowlist secret -->
 - Redis 是 Celery broker/result backend、Beat 心跳、实时行情状态和量化“最新结果”缓存；不是业务事实源。
 - Celery Worker 执行按需及周期任务，Celery Beat 根据代码注册表发任务；没有 APScheduler。
 - `finance-analysis-stream` 对自选与持仓并集采集 US/HK Longbridge 推送及 CN 扶摇报价与新浪→腾讯原生分钟线，把 Quote、1 分钟 K 线、趋势和形态状态写入 Redis，不写 PostgreSQL 行情。 <!-- pragma: allowlist secret -->
@@ -106,7 +106,7 @@ static/                    Web 构建产物，由 `web/vite.config.ts` 生成
 
 个股决策仪表盘、单股分析入口、美股盘前分析任务及其 Prompt/pipeline 已删除。
 大盘复盘、盘前新闻、持仓复核和交易引擎继续独立运行。
-历史分析及基本面快照只保留存档；依赖迁移和残留清单见 `docs/stock-analysis-removal.md`。
+迁移 `0084_drop_stock_analysis_archive` 删除历史分析和基本面快照表及其全部数据；依赖迁移和残留清单见 `docs/stock-analysis-removal.md`。
 
 ### 市场数据
 
