@@ -5,7 +5,7 @@ from datetime import timedelta
 
 from finance_analysis.integrations.market_data import MarketDataService
 from finance_analysis.core.time import utc_now
-from finance_analysis.market_review.us_postmarket_symbols import US_POSTMARKET_SECTOR_ETFS
+from finance_analysis.market_review.us_research_symbols import US_SECTOR_ETFS
 from finance_analysis.market_review.trading_calendar import get_market_session_bounds
 from .rules import NY, number, timestamp, schedule, trading_days
 from .facts import raw_facts
@@ -95,7 +95,7 @@ class ContextCollector:
     def public(self, now):
         missing = []
         try:
-            benchmarks = self.bars(["SPY.US", "QQQ.US", *US_POSTMARKET_SECTOR_ETFS], now)
+            benchmarks = self.bars(["SPY.US", "QQQ.US", *US_SECTOR_ETFS], now)
         except Exception:
             benchmarks = {}
             missing.append("SPY/QQQ DB 日线不可用")
@@ -103,9 +103,9 @@ class ContextCollector:
         return dict(
             benchmarks={k: v for k, v in benchmarks.items() if k in {"SPY.US", "QQQ.US"}},
             sector_performance={
-                k: dict(name=US_POSTMARKET_SECTOR_ETFS[k], **v)
+                k: dict(name=US_SECTOR_ETFS[k], **v)
                 for k, v in benchmarks.items()
-                if k in US_POSTMARKET_SECTOR_ETFS
+                if k in US_SECTOR_ETFS
             },
             **self.repo.market_context(now),
             missing_data=missing,

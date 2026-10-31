@@ -16,13 +16,13 @@ from finance_analysis.tasks.celery.app import celery_app
 from finance_analysis.tasks.celery.schedule import get_scheduled_task_definition
 
 
-def test_removed_jobs_are_not_registered_and_market_review_remains_available():
+def test_removed_jobs_are_not_registered_and_holdings_review_remains_available():
     celery_app.loader.import_default_modules()
     assert get_scheduled_task_definition("analysis_us_premarket") is None
     assert "scheduled.analysis_us_premarket" not in celery_app.tasks
     assert "analysis.run_stock_analysis" not in celery_app.tasks
     for name in (
-        "scheduled.analysis_us_postmarket_review",
+        "scheduled.analysis_us_pre_close_review",
     ):
         assert name in celery_app.tasks
 

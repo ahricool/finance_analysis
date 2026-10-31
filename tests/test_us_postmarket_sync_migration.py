@@ -15,7 +15,7 @@ from finance_analysis.database.index_etf import seed_index_etf_universes
 from finance_analysis.database.models.stock import Instrument, StockDaily
 from finance_analysis.database.models.universe import Universe, UniverseInclude, UniverseMember
 from finance_analysis.database.repositories.universe import UniverseRepository, UniverseResolver
-from finance_analysis.market_review.us_postmarket_symbols import US_POSTMARKET_BENCHMARKS, US_POSTMARKET_SECTOR_ETFS
+from finance_analysis.market_review.us_research_symbols import US_BENCHMARK_ETFS, US_SECTOR_ETFS
 from finance_analysis.tasks.celery.jobs.market_data_sync.service import MarketDataSyncService
 
 
@@ -45,13 +45,13 @@ def test_migration_is_idempotent_and_preserves_existing_memberships_and_history(
             ))
         etfs_before = {item.code: item.id for item in resolver.resolve_universe("us_index_etf")}
         scripts = ScriptDirectory.from_config(Config("alembic.ini"))
-        assert scripts.get_heads() == ["0088_holdings_review"]
+        assert scripts.get_heads() == ["0089_retire_us_postmarket"]
         migration = scripts.get_revision("0068_us_postmarket_sync").module
         with engine.begin() as conn:
             migration.op = Operations(MigrationContext.configure(conn))
             migration.upgrade()
             migration.upgrade()
-        required = set(US_POSTMARKET_BENCHMARKS) | set(US_POSTMARKET_SECTOR_ETFS)
+        required = set(US_BENCHMARK_ETFS) | set(US_SECTOR_ETFS)
         sync = MarketDataSyncService(market="US", universe_resolver=resolver,
                                      stock_repository=SimpleNamespace(), market_data_service=SimpleNamespace())
         assert {item.code for item in sync.load_scope()} == required
@@ -74,6 +74,22 @@ def test_migration_is_idempotent_and_preserves_existing_memberships_and_history(
                 UniverseMember.universe_id == sync_id, UniverseMember.instrument_id == spy_id,
             )) == "EXISTING"
             migration.upgrade()
+        assert {item.code for item in sync.load_scope()} == required
+        assert {item.code: item.id for item in resolver.resolve_universe("us_index_etf")} == etfs_before
+        from finance_analysis.database.us_research import seed_us_research_symbols
+
+        with engine.begin() as conn:
+            migration.op = Operations(MigrationContext.configure(conn))
+            migration.downgrade()
+            seed_us_research_symbols(conn)
+            seed_us_research_symbols(conn)
+            assert conn.scalar(select(func.count()).select_from(StockDaily)) == 1
+            assert conn.scalar(select(UniverseMember.source).where(
+                UniverseMember.universe_id == sync_id, UniverseMember.instrument_id == spy_id,
+            )) == "EXISTING"
+            assert conn.scalar(select(func.count()).select_from(UniverseMember).where(
+                UniverseMember.universe_id == sync_id, UniverseMember.source == "US_RESEARCH_CONTEXT",
+            )) == len(required) - 1
         assert {item.code for item in sync.load_scope()} == required
         assert {item.code: item.id for item in resolver.resolve_universe("us_index_etf")} == etfs_before
     finally:

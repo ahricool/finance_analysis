@@ -18,7 +18,6 @@ TASK_PACKAGES = (
     "finance_analysis.tasks.celery.jobs.demo_add",  # pragma: allowlist secret
     "finance_analysis.tasks.celery.jobs.market_calendar_importance",  # pragma: allowlist secret
     "finance_analysis.tasks.celery.jobs.market_calendar_sync",  # pragma: allowlist secret
-    "finance_analysis.tasks.celery.jobs.us_postmarket_review",  # pragma: allowlist secret
     "finance_analysis.tasks.celery.jobs.market_data_sync",  # pragma: allowlist secret
     "finance_analysis.tasks.celery.jobs.reference_data_sync",  # pragma: allowlist secret
     "finance_analysis.tasks.celery.jobs.a_share_pre_close_review",  # pragma: allowlist secret

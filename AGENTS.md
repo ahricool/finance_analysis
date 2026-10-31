@@ -106,7 +106,8 @@ static/                    Web 构建产物，由 `web/vite.config.ts` 生成
 ### 个股分析已退役
 
 个股决策仪表盘、单股分析入口、美股盘前分析任务及其 Prompt/pipeline 已删除。
-旧手动大盘复盘和盘前新闻抓取分析也已删除；定时美股收盘复盘、持仓复核继续独立运行。
+旧手动大盘复盘、盘前新闻抓取分析和定时美股收盘复盘均已删除；双市场持仓复盘继续运行。
+迁移 `0089_retire_us_postmarket` 清理收盘复盘专属历史，保留财报研究使用的共享 ETF 数据，见 `docs/us-postmarket-removal.md`。
 新闻退役迁移 `0086_retire_news` 删除新闻原文/关联/判断、任务历史及通知；时间线只保留宏观与财报。见 `docs/news-removal.md`。
 迁移 `0084_drop_stock_analysis_archive` 删除历史分析和基本面快照表及其全部数据；依赖迁移和残留清单见 `docs/stock-analysis-removal.md`。
 
@@ -328,7 +329,7 @@ BTC 多策略以 `strategy_key + symbol` 隔离，代码注册表当前仅 `btc_
 
 ## 信息输入边界
 
-个股决策分析和旧手动大盘复盘已退役；定时美股收盘复盘只读取自身结构化行情数据，不读取新闻。
+个股决策分析、旧手动大盘复盘和定时美股收盘复盘均已退役。
 系统不负责通用互联网检索；`holdings_review/`允许通过LLMClient核查已有持仓、主要指数和相关板块的公告/事件，并保存transport证据；`signal_center/`另允许通过LLMClient联网核查候选的公告/事件/风险并保存检索证据，见`docs/signal-center.md`。`earnings_outlook/` 是财报研究例外，仅对 Nasdaq-100 当前有效股票成员
 通过 LLMClient 执行有传输证据的搜索；不改变其他模块边界，详见 `docs/investment-timeline.md`。通用新闻采集与分析已退役；Longbridge仍用于行情和财经日历。宏观与财报事件/研究继续运行，见 `docs/investment-timeline.md`。
 

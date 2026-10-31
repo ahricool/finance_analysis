@@ -40,15 +40,3 @@ def market_sync_outcome(result: dict[str, Any]) -> TaskOutcome | None:
         return None
     return TaskOutcome(TaskExecutionStatus.PARTIAL,
                        f"日线同步部分失败：partial={result['partial_symbols']}, failed={result['failed_symbols']}")
-
-
-def report_delivery_outcome(result: dict[str, Any]) -> TaskOutcome | None:
-    failed = [channel for channel, sent in result.get("channel_results", {}).items() if not sent]
-    issues = []
-    if result.get("validation_failures"):
-        issues.append(f"自选股校验失败 {len(result['validation_failures'])} 项")
-    if failed:
-        issues.append("推送失败渠道：" + ", ".join(failed))
-    if not issues:
-        return None
-    return TaskOutcome(TaskExecutionStatus.PARTIAL, "报告已生成，" + "；".join(issues))
