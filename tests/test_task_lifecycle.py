@@ -16,7 +16,6 @@ from finance_analysis.tasks.lifecycle import (
     defer_task_completion,
     track_task,
 )
-from finance_analysis.tasks.queue import AnalysisTaskQueue, reset_task_state_for_tests
 from tests.task_repo_fakes import FakeTaskRecordRepository
 
 
@@ -196,28 +195,6 @@ class TaskLifecycleDecoratorTestCase(unittest.TestCase):
         self.assertTrue(parsed.get("truncated"))
         self.assertIn("***", parsed.get("preview", ""))
         self.assertNotIn("secret-value", summary or "")
-
-
-class TaskQueueLifecycleIntegrationTestCase(unittest.TestCase):
-    def setUp(self) -> None:
-        reset_task_state_for_tests()
-
-    def tearDown(self) -> None:
-        reset_task_state_for_tests()
-
-    def test_submit_creates_pending_record_with_same_task_id_as_redis_state(self) -> None:
-        repository = FakeTaskRecordRepository()
-        queue = AnalysisTaskQueue(max_workers=1, repository=repository)
-
-        from finance_analysis.tasks.celery.jobs.stock_analysis.tasks import run_stock_analysis
-
-        with patch.object(run_stock_analysis, "apply_async"):
-            accepted, duplicates = queue.submit_tasks_batch(["600519"], report_type="detailed")
-
-        self.assertEqual(duplicates, [])
-        task = accepted[0]
-        self.assertEqual(queue.get_task(task.task_id).task_id, task.task_id)
-        self.assertEqual(repository.get_by_task_id(task.task_id).status, "pending")
 
 
 if __name__ == "__main__":

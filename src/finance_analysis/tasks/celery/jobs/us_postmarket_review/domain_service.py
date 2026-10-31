@@ -715,6 +715,6 @@ class USPostmarketReviewService:
 
     @staticmethod
     def _load_config() -> Any:
-        from finance_analysis.analysis.pipeline_config import get_pipeline_config
+        from finance_analysis.reporting.runtime import get_report_runtime_config
 
-        return get_pipeline_config()
+        return get_report_runtime_config()

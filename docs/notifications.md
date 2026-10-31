@@ -38,7 +38,7 @@ API 从认证会话取得 uid；列表和详情均只允许 `uid = 当前用户 
 
 ## 业务边界
 
-Trade Engine 确认信号、A股收盘前复核、美股盘前分析及新闻报告、美股盘后复盘、市场复盘、单股/汇总分析和任务错误统一使用 NotificationService。已知用户归属向下传 uid；无法确定时保持 NULL。一次业务消息只调用一次 send，渠道循环不写库。原先绕过 NotificationService 的分析汇总推送已统一入口。
+Trade Engine 确认信号、A股收盘前复核、美股盘前新闻报告、美股盘后复盘和任务错误统一使用 NotificationService。已知用户归属向下传 uid；无法确定时保持 NULL。一次业务消息只调用一次 send，渠道循环不写库。个股决策仪表盘及其单股/汇总推送已删除。
 
 报告不再自动写本地文件或 timeline_entries。Timeline 保留真实财经事件和逐条新闻结构化判断；旧 timeline_entries 表暂时保留，无报告读写入口。分析历史、新闻原文/结构化研究结果和任务执行统计仍属于各自业务领域，不作为消息中心的数据来源。
 

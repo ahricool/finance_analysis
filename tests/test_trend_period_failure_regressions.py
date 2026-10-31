@@ -9,7 +9,7 @@ from types import SimpleNamespace
 import pandas as pd
 import pytest
 
-from finance_analysis.analysis.technical.indicators import rsi_series
+from finance_analysis.trend_following.indicators import rsi_series
 from finance_analysis.trend_following.config import DEFAULT_CONFIG
 from finance_analysis.trend_following.features import calculate_features
 from finance_analysis.trend_following.mean_reversion import calculate_mean_reversion

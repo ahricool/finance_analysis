@@ -706,38 +706,6 @@ def test_cache_expiration_and_single_flight(monkeypatch):
     assert len(loads) == 2
 
 
-def test_pipeline_continues_after_budget_exhaustion(monkeypatch):
-    from types import SimpleNamespace
-    from unittest.mock import MagicMock
-    from finance_analysis.analysis.pipeline import StockAnalysisPipeline
-    from finance_analysis.integrations.market_data.models import BatchInstrumentResult
-
-    p, calls = provider(financial_handler)
-    service = fundamental_service(p)
-    monkeypatch.setattr(service, "get_instrument_info", lambda *args: BatchInstrumentResult())
-    pipeline = object.__new__(StockAnalysisPipeline)
-    pipeline.fetcher_manager = service
-    pipeline.config = SimpleNamespace(enable_realtime_quote=False, fundamental_stage_timeout_seconds=0.01,
-                                      report_language="zh")
-    pipeline._emit_progress = MagicMock()
-    pipeline.owner_uid = "test"
-    pipeline.save_context_snapshot = False
-    pipeline.db = MagicMock()
-    pipeline.db.get_data_range.return_value = []
-    pipeline.db.get_analysis_context.return_value = {"code": SYMBOL, "today": {}, "yesterday": {}}
-    pipeline.analyzer = MagicMock()
-    result = SimpleNamespace(success=True)
-    pipeline.analyzer.analyze.return_value = result
-    monkeypatch.setattr("finance_analysis.analysis.pipeline.fill_price_position_if_needed", lambda *a: None)
-    monkeypatch.setattr("finance_analysis.analysis.pipeline.stabilize_decision_with_structure", lambda *a: None)
-    actual = pipeline.analyze_stock(SYMBOL, SimpleNamespace(value="simple"), "test-budget")
-    assert actual is result
-    assert not calls
-    context = pipeline.analyzer.analyze.call_args.args[0]["fundamental_context"]
-    assert context["coverage"]["dragon_tiger"] == "skipped_budget"
-    pipeline.db.save_analysis_history.assert_called_once()
-
-
 def test_budget_reuses_existing_quote_without_starting_quote_chain(monkeypatch):
     from finance_analysis.integrations.market_data.models import MarketQuote
 

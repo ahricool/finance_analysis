@@ -147,37 +147,6 @@ def test_env_route_is_fixed_and_old_total_budget_ignored(monkeypatch):
         get_llm_config.cache_clear()
 
 
-def test_rendered_stock_report_carries_saved_timings():
-    from finance_analysis.analysis.stock_report_analyzer import AnalysisResult
-    from finance_analysis.notification.service import NotificationService
-
-    result = AnalysisResult(
-        code="A.US",
-        name="A",
-        sentiment_score=50,
-        trend_prediction="震荡",
-        operation_advice="持有",
-        llm_timings=[
-            dict(
-                request_id="12345678",
-                call_type="stock_analysis",
-                duration_ms=320000,
-                retry_wait_ms=0,
-                attempts=[
-                    dict(provider="codex", attempt=1, duration_ms=300000, status="timeout"),
-                    dict(provider="api", attempt=1, duration_ms=20000, status="success"),
-                ],
-            )
-        ],
-    )
-    # Rendering does not require external channels or a running collector.
-    notifier = NotificationService.__new__(NotificationService)
-    report = notifier.generate_single_stock_report(result=result)
-    assert "LLM 调用耗时" in report
-    assert "300.00s（timeout）" in report and "20.00s（success）" in report
-    assert result.to_dict()["llm_timings"] == result.llm_timings
-
-
 @pytest.mark.parametrize("failed", [False, True])
 def test_task_lifecycle_persists_attempts_and_releases_scope(client, monkeypatch, tmp_path, failed):
     from contextlib import nullcontext

@@ -4,10 +4,8 @@
 from finance_analysis.database.base import Base, ensure_aware_datetime
 from finance_analysis.database.session import DatabaseManager, get_db
 from finance_analysis.database.models import (
-    AnalysisHistory,
     TimelineEntry,
     FinanceEvent,
-    FundamentalSnapshot,
     LLMUsage,
     Instrument,
     NewsIntel,
@@ -19,12 +17,10 @@ from finance_analysis.database.models import (
 from finance_analysis.core.time import date_range_bounds_utc, utc_isoformat, utc_now
 
 __all__ = [
-    "AnalysisHistory",
     "Base",
     "TimelineEntry",
     "DatabaseManager",
     "FinanceEvent",
-    "FundamentalSnapshot",
     "LLMUsage",
     "Instrument",
     "NewsIntel",

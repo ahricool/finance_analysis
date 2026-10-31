@@ -102,8 +102,6 @@ class DataProviderConfig:
     longbridge_app_secret: str | None = None
     longbridge_access_token: str | None = None
     prefetch_realtime_quotes: bool = True
-    enable_realtime_quote: bool = True
-    enable_realtime_technical_indicators: bool = True
     enable_fundamental_pipeline: bool = True
     fundamental_stage_timeout_seconds: float = 1.5
     fundamental_fetch_timeout_seconds: float = 0.8

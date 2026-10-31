@@ -14,7 +14,7 @@
 
 import logging
 from datetime import date, datetime, time, timedelta
-from typing import Optional, Set
+from typing import Optional
 from zoneinfo import ZoneInfo
 
 logger = logging.getLogger(__name__)
@@ -321,53 +321,3 @@ def get_a_share_market_phase(current_time: Optional[datetime] = None) -> str:
     if _A_SHARE_CLOSING_START <= current <= _A_SHARE_CLOSE:
         return "尾盘"
     return "休市"
-
-
-def get_open_markets_today() -> Set[str]:
-    """
-    Get markets that are open today (by each market's local timezone).
-
-    Returns:
-        Set of market keys ('cn', 'hk', 'us') that are trading today
-    """
-    if not _XCALS_AVAILABLE:
-        return {"cn", "hk", "us"}
-    result: Set[str] = set()
-    for mkt, tz_name in MARKET_TIMEZONE.items():
-        try:
-            tz = ZoneInfo(tz_name)
-            today = datetime.now(tz).date()
-            if is_market_open(mkt, today):
-                result.add(mkt)
-        except Exception as e:
-            logger.warning("get_open_markets_today fail-open for %s: %s", mkt, e)
-            result.add(mkt)
-    return result
-
-
-def compute_effective_region(
-    config_region: str, open_markets: Set[str]
-) -> Optional[str]:
-    """
-    Compute effective market review region given config and open markets.
-
-    Args:
-        config_region: From MARKET_REVIEW_REGION ('cn' | 'hk' | 'us' | 'both')
-        open_markets: Markets open today
-
-    Returns:
-        None: caller uses config default (check disabled)
-        '': all relevant markets closed, skip market review
-        'cn' | 'hk' | 'us' | 'both': effective subset for today
-    """
-    if config_region not in ("cn", "hk", "us", "both"):
-        config_region = "cn"
-    if config_region in ("cn", "hk", "us"):
-        return config_region if config_region in open_markets else ""
-    # both: return only the markets that are actually open today
-    parts = [m for m in ("cn", "hk", "us") if m in open_markets]
-    if not parts:
-        return ""
-    if len(parts) == 1:
-        return parts[0]
-    return ",".join(parts)

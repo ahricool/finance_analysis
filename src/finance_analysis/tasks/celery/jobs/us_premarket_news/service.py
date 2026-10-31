@@ -20,14 +20,14 @@ class USPremarketNewsTaskService:
         started_at = scheduled_now()
         logger.info("美股盘前新闻情报任务开始执行 - %s", started_at.strftime("%Y-%m-%d %H:%M:%S"))
         try:
-            from finance_analysis.analysis.pipeline_config import get_pipeline_config
+            from finance_analysis.reporting.runtime import get_report_runtime_config
             from finance_analysis.database.repositories.watch_list import get_watch_list_codes_by_market
 
             from .domain_service import USPremarketNewsService
 
             watch_symbols = get_watch_list_codes_by_market("US")
             validation_failures = list(getattr(watch_symbols, "validation_failures", []))
-            summary = USPremarketNewsService(config=get_pipeline_config()).run(watch_symbols, now=started_at)
+            summary = USPremarketNewsService(config=get_report_runtime_config()).run(watch_symbols, now=started_at)
         except Exception as exc:
             logger.exception("美股盘前新闻情报任务执行失败: %s", exc)
             raise

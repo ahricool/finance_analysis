@@ -45,7 +45,6 @@ EXPECTED_JOBS = {
     "market_structure_us": ("scheduled_market_structure_us", "America/New_York"),
     "market_calendar": ("scheduled_market_calendar", "America/New_York"),
     "analysis_us_premarket_news": ("scheduled_us_premarket_news", "America/New_York"),
-    "analysis_us_premarket": ("scheduled_us_premarket", "America/New_York"),
     "analysis_us_postmarket_review": ("scheduled_us_postmarket_review", "America/New_York"),
     "reference_data_sync": ("scheduled_reference_data_sync", "Asia/Shanghai"),
     "market_data_sync_cn": ("scheduled_market_data_sync_cn", "Asia/Shanghai"),
@@ -93,8 +92,8 @@ def test_all_original_jobs_enter_beat_schedule():
 
 def test_beat_entries_carry_scheduler_kwargs_queue_and_expires():
     schedule = build_beat_schedule()
-    premarket = schedule["analysis_us_premarket"]
-    assert premarket["kwargs"]["scheduler_job_id"] == "analysis_us_premarket"
+    premarket = schedule["analysis_us_postmarket_review"]
+    assert premarket["kwargs"]["scheduler_job_id"] == "analysis_us_postmarket_review"
     assert premarket["kwargs"]["_trigger_source"] == "scheduler"
     assert premarket["options"]["queue"] == "analysis"
     assert premarket["options"]["expires"] > 0
@@ -383,18 +382,18 @@ def test_before_publish_creates_single_pending_record_with_scheduler_metadata():
 
     with patch.object(app_module, "get_task_lifecycle_service", return_value=_RecordingService()):
         app_module._create_pending_task_record(
-            sender="scheduled.analysis_us_premarket",
+            sender="scheduled.analysis_us_postmarket_review",
             headers={"id": "tid-1"},
-            body=([], {"scheduler_job_id": "analysis_us_premarket", "_trigger_source": "scheduler"}, {}),
+            body=([], {"scheduler_job_id": "analysis_us_postmarket_review", "_trigger_source": "scheduler"}, {}),
         )
 
     assert len(events) == 1
     event = events[0]
     assert event["task_id"] == "tid-1"
     metadata = event["metadata"]
-    assert metadata.task_type == "scheduled_us_premarket"
+    assert metadata.task_type == "scheduled_us_postmarket_review"
     assert metadata.source == "celery"
-    assert metadata.scheduler_job_id == "analysis_us_premarket"
+    assert metadata.scheduler_job_id == "analysis_us_postmarket_review"
     assert metadata.trigger_source == "scheduler"
 
 

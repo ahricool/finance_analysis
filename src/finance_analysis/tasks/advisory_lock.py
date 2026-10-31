@@ -22,7 +22,7 @@ TASK_MUTEX_NAMESPACE = 20_260_831
 class TaskAdvisoryLockId(IntEnum):
     CN_DAILY_MARKET_DATA_SYNC = 1
     US_DAILY_MARKET_DATA_SYNC = 2
-    STOCK_ANALYSIS = 5
+    # Value 5 belonged to retired stock analysis; do not reuse.
     REFERENCE_DATA_SYNC = 6
     CN_INDUSTRY_STRENGTH = 7
     CN_MARKET_SENTIMENT = 8

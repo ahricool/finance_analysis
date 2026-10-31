@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 
-from finance_analysis.analysis.history.loader import calculate_daily_indicators
+from finance_analysis.stocks.history import calculate_daily_indicators
 from finance_analysis.integrations.market_data import MarketDataService
 from finance_analysis.market_review.trading_calendar import get_completed_trading_days
 

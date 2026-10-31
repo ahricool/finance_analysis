@@ -18,7 +18,7 @@ interfaces/api + tasks/celery/jobs
 
 - `interfaces/` 是传输边界：解析请求、鉴权、选择依赖、序列化响应，不应承载核心计算。
 - `tasks/celery/jobs/` 是异步适配层：解析 payload、记录生命周期、调用领域服务。
-- 顶层领域包（`analysis`、`quant`、`etf_rotation`、`trend_following`、`market_review`、`portfolio`、`trade_engine`）拥有业务规则。
+- 顶层领域包（`quant`、`etf_rotation`、`trend_following`、`market_review`、`portfolio`、`trade_engine`）拥有业务规则。
 - `database/repositories/` 封装查询和事务；领域代码不应散落 SQL。
 - `integrations/` 封装外部行情；`llm/`、`notification/` 同样是共享基础能力。
 - 为避免循环导入和高成本启动，现有代码有意在函数内延迟导入数据库、Provider和任务组件；修改前先确认初始化顺序。
@@ -75,30 +75,13 @@ interfaces/api + tasks/celery/jobs
 
 REST 修改至少核对 endpoint、schema、前端 `web/src/api/` 与 `tests/test_*_api*.py`。WebSocket/SSE 还要核对 nginx buffering/upgrade 与断开清理。
 
-## 个股分析
+## 已退役个股分析与共享工具
 
-主链：
-
-```text
-Celery
-  → AnalysisService / StockAnalysisTaskService
-  → StockAnalysisPipeline
-  → PostgreSQL 历史 + Redis/Provider 实时状态 <!-- pragma: allowlist secret -->
-  → 技术分析 + 基本面
-  → StockReportAnalyzer → LLMClient
-  → AnalysisHistory + 报告 + 通知
-```
-
-关键文件：
-
-- `analysis/service.py`：任务侧分析门面和结果组装。
-- `analysis/pipeline.py`：数据编排、降级、上下文、LLM 分支、存储、通知。
-- `analysis/history/loader.py`：数据库历史完整性边界。
-- `analysis/technical/`：趋势和指标。
-- `analysis/stock_report_analyzer.py`：prompt、LLM 调用、报告解析与完整性校验。
-
-历史日线同步已从分析链拆开。`fetch_and_save_stock_data()` 名称为兼容保留，但当前只验证数据库历史，不拉取或保存远程日线。不要在分析请求中恢复隐式写行情。
-
+个股决策仪表盘、`analysis/`、按需单股任务与美股盘前分析定时任务已删除。
+旧手动大盘复盘及其文本生成/Prompt 也已删除。盘前新闻、定时美股收盘复盘、持仓复核
+共享的 LLM/报告语言配置在 `reporting/runtime.py`。股票历史读取在 `stocks/history.py`，RSI 在
+`trend_following/indicators.py`。不得重新引入旧 pipeline 或个股 Prompt。
+历史报告及基本面快照表由迁移 `0084_drop_stock_analysis_archive` 删除，不再保留 ORM；已处理/待清理依赖见仓库根 `docs/stock-analysis-removal.md`。
 
 LLM 调用统一进入 `llm/LLMClient`，固定 Codex → API。每次尝试由 `LLM_ATTEMPT_TIMEOUT` 限制，默认300秒；没有整链总预算或后续渠道预留。可重试错误每渠道最多重试三次，退避2/4/8秒；额度/认证失败及单次超时直接切换，清理未确认或程序错误终止。LLM任务无固定Celery时限。每次尝试独立记录diagnostics，最终任务结果和报告展示调用、失败、重试及等待耗时。线程池须复制contextvars以传播耗时collector；详见 `docs/llm.md`。
 
@@ -147,7 +130,7 @@ LLM 调用统一进入 `llm/LLMClient`，固定 Codex → API。每次尝试由 
 
 - 用户、自选股、日历、任务。
 - `Instrument`、`StockDaily`、`Universe`/`UniverseInclude`/`UniverseMember`。
-- 分析历史、新闻/基本面快照、LLM 用量。
+- 新闻事实/使用关系、LLM 用量。
 - Quant dataset/model/signal/portfolio。
 - ETF Rotation 和 Trend Following 快照。
 
@@ -168,7 +151,6 @@ Alembic：
 - `tasks/celery/jobs/__init__.py`：显式加载的任务包。
 - `tasks/celery/schedule/definitions.py`：所有周期定义。
 - `tasks/celery/schedule/constants.py`：job id、queue、expires。
-- `tasks/queue.py`：异步分析提交门面，供 Celery 任务与内部调用使用。
 - `tasks/lifecycle.py`：TaskRecord 状态与日志生命周期。
 - `tasks/service.py`：任务中心查询、Beat 状态、管理员手动运行。
 
@@ -240,8 +222,7 @@ Qlib worker 不可访问 PostgreSQL。主 Worker 不同步等待 Qlib，训练�
 
 ## 报告和通知
 
-- `reporting/` 定义 report 类型、schema、本地化、Markdown/Jinja 渲染和可选图片转换。
-- 根 `templates/report_*.j2` 是报告模板；昂贵查询在调用方完成后注入模板。
+- `reporting/` 只保留共享语言配置和 Markdown 图片转换；个股报告渲染器、schema 及 Jinja 模板已删除。
 - `notification/` 先将消息写入 `notification`，再按 route 过滤 Telegram/ntfy 并执行原有去重/冷却；推送状态不入库。
 - 通知失败通常应隔离到单渠道，不应抹掉成功分析；保持现有 fail-open/finalize 语义。
 
@@ -309,7 +290,6 @@ Fuyao 定向报价和日线批量复用 DB Instrument 类型，未知类型不�
 
 趋势跟踪完整策略支持20/40/60日，默认20日；任务计算三套结果，快照、状态历史与缓存按`trend_period`隔离。指标周期映射及迁移清空后重建见`docs/trend-periods.md`（仓库根）。外部趋势结果消费者固定读20日。
 
-美股盘前分析允许通过 MarketDataService 的 db_latest + required_dates 读取缺失日K窗口，前复权60交易日仅供本轮趋势和上下文计算，不写数据库。逐股失败写入任务 failures 和最终汇总报告，不中断其他证券。其他分析入口仍保持原有 DB-only 边界。
 
 ## 财报后首日股价验证
 

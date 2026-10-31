@@ -1,32 +1,15 @@
-"""Database-only historical OHLCV loader used by analysis."""
+"""Database-only historical OHLCV for stock quote APIs and market reviews."""
 
 from __future__ import annotations
 
-import contextvars
 from datetime import date, datetime, time
 from typing import Optional, Tuple
 from zoneinfo import ZoneInfo
 
 import pandas as pd
 
-from finance_analysis.analysis.history.errors import HistoricalMarketDataMissingError
+from finance_analysis.stocks.history_errors import HistoricalMarketDataMissingError
 from finance_analysis.market_review.trading_calendar import MARKET_TIMEZONE, get_completed_trading_days
-
-_frozen_target_date: contextvars.ContextVar[Optional[date]] = contextvars.ContextVar(
-    "_frozen_target_date", default=None
-)
-
-
-def set_frozen_target_date(d: date) -> contextvars.Token:
-    return _frozen_target_date.set(d)
-
-
-def get_frozen_target_date() -> Optional[date]:
-    return _frozen_target_date.get()
-
-
-def reset_frozen_target_date(token: contextvars.Token) -> None:
-    _frozen_target_date.reset(token)
 
 
 def market_from_canonical_code(code: str) -> str:
@@ -65,7 +48,7 @@ def load_history_df(
     code = str(stock_code or "").strip().upper()
     market = market_from_canonical_code(code)
     calendar_market = market.lower()
-    end = target_date or get_frozen_target_date() or date.today()
+    end = target_date or date.today()
     market_tz = ZoneInfo(MARKET_TIMEZONE[calendar_market])
     as_of = datetime.combine(end, time(23, 59), tzinfo=market_tz)
     required_days = get_completed_trading_days(calendar_market, max(1, int(days)), as_of)
@@ -92,9 +75,6 @@ def load_history_df(
 
 __all__ = [
     "calculate_daily_indicators",
-    "get_frozen_target_date",
     "load_history_df",
     "market_from_canonical_code",
-    "reset_frozen_target_date",
-    "set_frozen_target_date",
 ]

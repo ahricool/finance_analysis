@@ -24,7 +24,6 @@ from finance_analysis.database.models.market_sentiment import (
 from finance_analysis.database.models.market_structure import MarketStructureSnapshot  # pragma: allowlist secret
 
 from finance_analysis.database.models.notification import Notification  # pragma: allowlist secret
-from finance_analysis.database.models.analysis import AnalysisHistory  # pragma: allowlist secret
 from finance_analysis.database.models.timeline import TimelineEntry  # pragma: allowlist secret
 from finance_analysis.database.models.news_analysis import NewsAnalysis  # pragma: allowlist secret
 from finance_analysis.database.models.llm_usage import LLMUsage  # pragma: allowlist secret
@@ -34,7 +33,6 @@ from finance_analysis.database.models.etf_rotation import (
 )  # pragma: allowlist secret
 from finance_analysis.database.models.market_calendar import FinanceEvent  # pragma: allowlist secret
 from finance_analysis.database.models.news import (
-    FundamentalSnapshot,
     NewsIntel,
     NewsIntelUsage,
 )  # pragma: allowlist secret
@@ -95,12 +93,10 @@ __all__ = [
     "Notification",
     "CryptoStrategySnapshot",
     "CryptoStrategyState",
-    "AnalysisHistory",
     "TimelineEntry",
     "ETFMomentumSnapshot",
     "ETFMarketRotationSnapshot",
     "FinanceEvent",
-    "FundamentalSnapshot",
     "LLMUsage",
     "Instrument",
     "NewsIntel",
