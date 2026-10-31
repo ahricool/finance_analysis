@@ -105,7 +105,7 @@ static/                    Web 构建产物，由 `web/vite.config.ts` 生成
 ### 个股分析已退役
 
 个股决策仪表盘、单股分析入口、美股盘前分析任务及其 Prompt/pipeline 已删除。
-大盘复盘、盘前新闻、持仓复核和交易引擎继续独立运行。
+旧手动大盘复盘也已删除；盘前新闻、定时美股收盘复盘、持仓复核和交易引擎继续独立运行。
 迁移 `0084_drop_stock_analysis_archive` 删除历史分析和基本面快照表及其全部数据；依赖迁移和残留清单见 `docs/stock-analysis-removal.md`。
 
 ### 市场数据
@@ -325,7 +325,7 @@ BTC 多策略以 `strategy_key + symbol` 隔离，代码注册表当前仅 `btc_
 
 ## 信息输入边界
 
-个股决策分析已退役；大盘复盘只使用市场结构化数据。
+个股决策分析和旧手动大盘复盘已退役；定时美股收盘复盘读取自身结构化数据及已保存新闻。
 系统不负责通用互联网检索；`signal_center/`另允许通过LLMClient联网核查候选的公告/事件/风险并保存检索证据，见`docs/signal-center.md`。`earnings_outlook/` 是财报研究例外，仅对 Nasdaq-100 当前有效股票成员
 通过 LLMClient 执行有传输证据的搜索；不改变其他模块边界，详见 `docs/investment-timeline.md`。Longbridge 是唯一的外部新闻消息源，用于美股盘前新闻；
 美股收盘复盘只读已持久化新闻，空新闻不阻断报告或通知。新闻存储与调用方见

@@ -18,11 +18,11 @@ class USPostmarketReviewTaskService:
         started_at = datetime.now(ZoneInfo(US_TIMEZONE))
         logger.info("美股收盘复盘任务触发 - %s", started_at.strftime("%Y-%m-%d %H:%M:%S %Z"))
         try:
-            from finance_analysis.market_review.runtime_config import get_market_review_runtime_config
+            from finance_analysis.reporting.runtime import get_report_runtime_config
 
             from .domain_service import USPostmarketReviewService
 
-            summary = USPostmarketReviewService(config=get_market_review_runtime_config()).run(send_notification=True)
+            summary = USPostmarketReviewService(config=get_report_runtime_config()).run(send_notification=True)
             return summary.to_dict()
         except TaskSkipped:
             raise

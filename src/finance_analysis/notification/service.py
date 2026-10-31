@@ -28,7 +28,6 @@ from finance_analysis.notification.noise_control import (  # pragma: allowlist s
     record_notification_noise,
     release_notification_noise,
 )
-from finance_analysis.notification.messages import BotMessage  # pragma: allowlist secret
 from finance_analysis.notification.senders import (  # pragma: allowlist secret
     NtfySender,
     TelegramSender,
@@ -90,7 +89,7 @@ class NotificationService(
     注意：所有已配置的渠道都会收到推送
     """
     
-    def __init__(self, source_message: Optional[BotMessage] = None):
+    def __init__(self):
         """
         初始化通知服务
 
@@ -99,7 +98,6 @@ class NotificationService(
         config = get_notification_config()
         report_config = get_report_config()
         self._config = config
-        self._source_message = source_message
         self.last_notification_id: Optional[int] = None
 
         # Markdown 转图片（Issue #289）

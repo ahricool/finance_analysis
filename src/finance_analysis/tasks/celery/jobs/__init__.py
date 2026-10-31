@@ -15,7 +15,6 @@ TASK_PACKAGES = (
     "finance_analysis.tasks.celery.jobs.industry_strength",  # pragma: allowlist secret
     "finance_analysis.tasks.celery.jobs.market_structure",  # pragma: allowlist secret
     "finance_analysis.tasks.celery.jobs.demo_add",  # pragma: allowlist secret
-    "finance_analysis.tasks.celery.jobs.market_review",  # pragma: allowlist secret
     "finance_analysis.tasks.celery.jobs.market_calendar_importance",  # pragma: allowlist secret
     "finance_analysis.tasks.celery.jobs.market_calendar_sync",  # pragma: allowlist secret
     "finance_analysis.tasks.celery.jobs.us_premarket_news",  # pragma: allowlist secret

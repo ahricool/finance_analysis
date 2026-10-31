@@ -24,7 +24,6 @@ def test_removed_jobs_are_not_registered_and_market_review_remains_available():
     for name in (
         "scheduled.analysis_us_premarket_news",
         "scheduled.analysis_us_postmarket_review",
-        "analysis.run_market_review",
     ):
         assert name in celery_app.tasks
 

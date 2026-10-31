@@ -19,7 +19,7 @@ def test_us_premarket_news_service_runs_domain_service():
     domain_service = MagicMock()
     domain_service.run.return_value = summary
     with (
-        patch("finance_analysis.market_review.runtime_config.get_market_review_runtime_config", return_value=MagicMock()) as config,
+        patch("finance_analysis.reporting.runtime.get_report_runtime_config", return_value=MagicMock()) as config,
         patch(
             "finance_analysis.database.repositories.watch_list.get_watch_list_codes_by_market",
             return_value=["AAPL", "TSLA"],
@@ -45,7 +45,7 @@ def test_premarket_news_retains_watch_validation_failure_after_report_success():
     domain_service = MagicMock()
     domain_service.run.return_value = summary
     with (
-        patch("finance_analysis.market_review.runtime_config.get_market_review_runtime_config", return_value=MagicMock()),
+        patch("finance_analysis.reporting.runtime.get_report_runtime_config", return_value=MagicMock()),
         patch("finance_analysis.database.repositories.watch_list.get_watch_list_codes_by_market", return_value=codes),
         patch("finance_analysis.tasks.celery.jobs.us_premarket_news.domain_service.USPremarketNewsService",
               return_value=domain_service),
@@ -61,7 +61,7 @@ def test_us_postmarket_service_returns_domain_summary():
     domain_service = MagicMock()
     domain_service.run.return_value.to_dict.return_value = {"market_regime": "risk_on"}
     with (
-        patch("finance_analysis.market_review.runtime_config.get_market_review_runtime_config", return_value=MagicMock()) as config,
+        patch("finance_analysis.reporting.runtime.get_report_runtime_config", return_value=MagicMock()) as config,
         patch(
             "finance_analysis.tasks.celery.jobs.us_postmarket_review.domain_service.USPostmarketReviewService",
             return_value=domain_service,

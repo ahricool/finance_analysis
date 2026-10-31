@@ -15,8 +15,8 @@
 
 | 原依赖 | 仍在使用的调用方 | 处理 |
 | --- | --- | --- |
-| StockReportAnalyzer.generate_text | 大盘复盘 | 改为 `market_review/text_generator.py`，保留原文本提示词及 LLMClient 调用行为，不包含个股 Prompt |
-| analysis.pipeline_config | 大盘复盘、盘前新闻、美股收盘复盘、A 股 14:30 复核 | 移至 `market_review/runtime_config.py`，移除个股并发配置 |
+| StockReportAnalyzer.generate_text | 仅旧手动大盘复盘 | 随旧手动大盘复盘一并删除，无独立文本生成适配器残留 |
+| analysis.pipeline_config | 盘前新闻、美股收盘复盘、A 股 14:30 复核 | 仅保留 LLM/报告语言，移至 `reporting/runtime.py`，删除旧复盘市场选择配置 |
 | analysis.history.loader/errors | 股票历史 API、美股收盘复盘 | 移至 `stocks/history.py` / `history_errors.py`，保持只读历史与指标公式，删除 pipeline 专属冻结上下文 |
 | analysis.technical.indicators | Trend 超跌反弹研究 | 移至 `trend_following/indicators.py`，保持 RSI 公式 |
 | NotificationService | 全部研究消息、交易信号、任务错误 | 保留持久化/推送/降噪及图片转换，移除个股报告渲染继承 |
@@ -51,7 +51,7 @@
 
 - 任务不再出现在 Beat、Celery 注册表和手动提交入口。
 - 所有保留模块不再 import 已删除的 analysis 包。
-- 大盘复盘、新闻、收盘复盘、历史行情与 RSI 的原有测试继续执行。
+- 盘前新闻、定时美股收盘复盘、历史行情与 RSI 的原有测试继续执行。
 - 数据迁移只取消未完成的旧个股任务，不误伤盘前新闻、复盘或已完成历史。
 - Docker 不再引用已删除模板。
 
@@ -61,6 +61,29 @@
 发现并修复了共享大盘复盘类依赖、模板路径烟测和未完成旧任务悬空问题；未发现其他阻塞问题。
 
 在独立临时 PostgreSQL 16 上执行完整后端门禁：syntax、flake8、deterministic 均通过；
-离线测试 3141 passed、57 skipped、2 deselected，另有 92 subtests passed。
+离线测试 3114 passed、57 skipped、2 deselected，另有 88 subtests passed。
 退役及删表迁移通过 SQLite 与 PostgreSQL 验证：覆盖幂等取消、存档表全部/部分/均不存在、新库 metadata 不建表，以及保留其他任务/通知/新闻/日线数据。
 上述为独立测试库验证结果；尚未部署生产，生产存档删除将在部署迁移时执行。
+
+## 旧手动大盘复盘一并删除
+
+`analysis.run_market_review` 与纽约22:00的 `scheduled.analysis_us_postmarket_review` 是不同任务。
+删除前者的任务注册、执行适配、通用 CN/HK/US Prompt、策略蓝图、模板降级、数据模型、
+市场选择配置，以及没有其他调用方的 Bot payload/消息兼容层和日历市场子集辅助函数。
+`market_review/` 仅保留多模块仍使用的交易日历、涨跌停规则和美股基准/行业ETF常量。
+
+迁移 `0085_retire_market_review` 不保留该任务的业务历史：
+
+- 删除 `task_type=market_review` 的全部 TaskRecord，包含已结束和未结束记录。
+- 删除由任务结果关联的站内消息、旧复盘专属中英文标题报告及明确标记旧任务类型的错误通知。
+- 删除 `call_type=market_review` 的 LLM 用量和当前配置审计目录中对应的 JSONL 记录。
+- 删除日志根目录内该任务记录关联/专属命名的任务日志；拒绝删除日志根目录外的路径。
+- 保留定时美股收盘复盘的任务、通知、用量及日志，以及共享文件中其他任务的审计行。
+
+该迁移同时修改数据库与已识别的日志文件，删除不可逆；重跑安全，不会恢复历史或重新提交任务。
+不清空共享 Redis 队列，不按“market_review”子串批量删除其他任务。
+标准部署使用在线迁移执行日志清理；离线 SQL 导出只能清数据库记录，无法删除文件。
+
+追加 review 已确认两条复盘的执行主体与 Prompt 独立；仅共享配置提取到 reporting，
+新增删除测试覆盖 PostgreSQL/SQLite、站内消息关联、独立审计目录、混合 JSONL 保留及日志路径越界保护。
+离线 PostgreSQL 清理 SQL 也已在独立测试 schema 实际执行，未误删定时美股复盘记录。

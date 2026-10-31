@@ -325,9 +325,9 @@ class ASharePreCloseReviewService:
 
     @staticmethod
     def _load_runtime_config() -> Any:
-        from finance_analysis.market_review.runtime_config import get_market_review_runtime_config
+        from finance_analysis.reporting.runtime import get_report_runtime_config
 
-        return get_market_review_runtime_config()
+        return get_report_runtime_config()
 
 
 __all__ = ["ASharePreCloseReviewService"]

@@ -78,8 +78,8 @@ REST 修改至少核对 endpoint、schema、前端 `web/src/api/` 与 `tests/tes
 ## 已退役个股分析与共享工具
 
 个股决策仪表盘、`analysis/`、按需单股任务与美股盘前分析定时任务已删除。
-大盘复盘改用 `market_review/text_generator.py`；共享任务配置在
-`market_review/runtime_config.py`。股票历史读取在 `stocks/history.py`，RSI 在
+旧手动大盘复盘及其文本生成/Prompt 也已删除。盘前新闻、定时美股收盘复盘、持仓复核
+共享的 LLM/报告语言配置在 `reporting/runtime.py`。股票历史读取在 `stocks/history.py`，RSI 在
 `trend_following/indicators.py`。不得重新引入旧 pipeline 或个股 Prompt。
 历史报告及基本面快照表由迁移 `0084_drop_stock_analysis_archive` 删除，不再保留 ORM；已处理/待清理依赖见仓库根 `docs/stock-analysis-removal.md`。
 
