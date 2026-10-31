@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 from pathlib import Path
+from contextlib import nullcontext
 import fcntl
 
 import pandas as pd
@@ -159,6 +160,59 @@ def test_consumed_input_is_not_recreated_by_late_delivery(tmp_path):
     with pytest.raises(FileNotFoundError):
         with predict_tasks.prediction_input_lease(handoff, tmp_path):
             pytest.fail("Missing input must not be recreated")
+    assert not handoff.exists()
+
+
+@pytest.mark.parametrize("prediction_fails", (False, True))
+def test_handoff_cleanup_error_does_not_replace_prediction_outcome(tmp_path, monkeypatch, prediction_fails):
+    handoff = tmp_path / "temporary/run"
+    handoff.mkdir(parents=True)
+    (handoff / "input.bin").write_bytes(b"input")
+    original = predict_tasks.shutil.rmtree
+
+    def remove(path, *args, **kwargs):
+        if Path(path) == handoff:
+            raise PermissionError("handoff cleanup must be retried")
+        return original(path, *args, **kwargs)
+
+    monkeypatch.setattr(predict_tasks.shutil, "rmtree", remove)
+    expected = pytest.raises(ValueError, match="prediction failed") if prediction_fails else nullcontext()
+    with expected:
+        with predict_tasks.prediction_input_lease(handoff, tmp_path) as working:
+            assert (working / "input.bin").read_bytes() == b"input"
+            if prediction_fails:
+                raise ValueError("prediction failed")
+    assert handoff.exists()  # The existing startup/maintenance collector will retry.
+    assert not list(handoff.glob(".predict-*"))
+    with (handoff / ".lease").open("a") as lease:
+        fcntl.flock(lease, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+
+@pytest.mark.parametrize("prediction_fails", (False, True))
+def test_working_file_cleanup_error_preserves_outcome_and_can_be_reclaimed_later(
+    tmp_path, monkeypatch, prediction_fails
+):
+    handoff = tmp_path / "temporary/run"
+    handoff.mkdir(parents=True)
+    (handoff / "input.bin").write_bytes(b"input")
+    original = predict_tasks.os.unlink
+
+    def unlink(path, *args, **kwargs):
+        if str(path).endswith("input.bin"):
+            raise PermissionError("file is temporarily locked")
+        return original(path, *args, **kwargs)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(predict_tasks.os, "unlink", unlink)
+        expected = pytest.raises(ValueError, match="prediction failed") if prediction_fails else nullcontext()
+        with expected:
+            with predict_tasks.prediction_input_lease(handoff, tmp_path):
+                if prediction_fails:
+                    raise ValueError("prediction failed")
+        assert list(handoff.glob(".predict-*/input.bin"))
+        with (handoff / ".lease").open("a") as lease:
+            fcntl.flock(lease, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    predict_tasks.shutil.rmtree(handoff)
     assert not handoff.exists()
 
 

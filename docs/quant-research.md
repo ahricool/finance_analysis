@@ -186,6 +186,8 @@ for maintenance. Signals support sorting, filtering and export; API errors are n
   `TemporaryDirectory` while holding the handoff's POSIX lease; success and exceptions
   both clean the working files and handoff directory. Persistent training inputs are
   never adopted or deleted. Successful/failed callbacks also reclaim leftover handoffs.
+  Cleanup I/O errors are logged without replacing a valid prediction or its original
+  failure; the released lease allows startup/maintenance cleanup to retry later.
 - Every daily-task start first runs the existing cleanup routine; filesystem cleanup
   errors do not prevent the new prediction. Maintenance still runs every 6h as a fallback
   for hard kills, lost callbacks and other interrupted work. Worker heartbeats refresh

@@ -48,7 +48,7 @@ def prediction_input_lease(dataset, artifact_root):
         try:
             if not dataset.is_dir():
                 raise FileNotFoundError(f"Prediction input was already consumed: {dataset}")
-            with tempfile.TemporaryDirectory(prefix=".predict-", dir=dataset) as temporary:
+            with tempfile.TemporaryDirectory(prefix=".predict-", dir=dataset, ignore_cleanup_errors=True) as temporary:
                 working = Path(temporary)
                 for entry in dataset.iterdir():
                     if entry.name != ".lease" and entry != working:
@@ -59,9 +59,13 @@ def prediction_input_lease(dataset, artifact_root):
             thread.join(timeout=1)
             # TemporaryDirectory owns all prediction files. Remove the empty handoff
             # shell (and any partially moved files on an ownership-transfer error).
-            if dataset.exists():
-                shutil.rmtree(dataset)
-            fcntl.flock(handle, fcntl.LOCK_UN)
+            try:
+                if dataset.exists():
+                    shutil.rmtree(dataset)
+            except OSError:
+                logger.warning("Prediction input cleanup deferred to startup or maintenance", exc_info=True)
+            finally:
+                fcntl.flock(handle, fcntl.LOCK_UN)
 
 
 def _load_bundle(store: ArtifactStore, spec: ModelArtifactRef | PredictPayload) -> dict[str, Any]:
