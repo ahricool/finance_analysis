@@ -18,7 +18,7 @@ interfaces/api + tasks/celery/jobs
 
 - `interfaces/` 是传输边界：解析请求、鉴权、选择依赖、序列化响应，不应承载核心计算。
 - `tasks/celery/jobs/` 是异步适配层：解析 payload、记录生命周期、调用领域服务。
-- 顶层领域包（`quant`、`etf_rotation`、`trend_following`、`market_review`、`portfolio`）拥有业务规则。
+- 顶层领域包（`quant`、`etf_rotation`、`trend_following`、`market_review`、`portfolio`、`holdings_review`）拥有业务规则。
 - `database/repositories/` 封装查询和事务；领域代码不应散落 SQL。
 - `integrations/` 封装外部行情；`llm/`、`notification/` 同样是共享基础能力。
 - 为避免循环导入和高成本启动，现有代码有意在函数内延迟导入数据库、Provider和任务组件；修改前先确认初始化顺序。
@@ -295,3 +295,11 @@ Fuyao 定向报价和日线批量复用 DB Instrument 类型，未知类型不�
 `earnings_outlook_review` 每天纽约23:30只读目标日及前一交易日DB前复权日线，
 不调用LLM、不取实际EPS/营收或外部日历。首日涨跌相对昨收，预测命中相对冻结参考价；
 原预测缺项不阻断股价更新。旧actual记录按price_v1重算，GET只读投影且不展示实际财报比较。
+
+## 双市场持仓复盘
+
+`holdings_review/` 的CN/US任务按用户读取真实Portfolio，每天收盘前50分钟生成一次结构化复盘。
+保留原CN job id并改14:10，新增US15:10/提前收盘12:10；旧未接入持仓的A股报告pipeline已移除。
+只读精简Preview，过期/跨日不回退正式结果；K线与持仓输入冻结在`holdings_review`表（0088）。
+LLM允许web_search，但只能建议已有position；BUY为加仓，数量不执行。个人结果与notification原子保存。
+默认GET本人今日/上一交易日，只读历史，禁止历史日期套用当前行情生成报告。详见根目录`docs/holdings-review.md`。

@@ -89,13 +89,13 @@ class NotificationService(
     注意：所有已配置的渠道都会收到推送
     """
     
-    def __init__(self):
+    def __init__(self, *, config=None):
         """
         初始化通知服务
 
         检测所有已配置的渠道，推送时会向所有渠道发送
         """
-        config = get_notification_config()
+        config = config or get_notification_config()
         report_config = get_report_config()
         self._config = config
         self.last_notification_id: Optional[int] = None

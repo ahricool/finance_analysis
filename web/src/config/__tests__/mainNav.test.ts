@@ -50,6 +50,7 @@ describe('main navigation', () => {
       'dashboard',
       'watch-list',
       'holdings',
+      'holdings-review',
       'heatmap',
       'timeline',
       'options-intelligence',

@@ -84,6 +84,7 @@ src/finance_analysis/ <!-- pragma: allowlist secret -->
   etf_rotation/            ETF 动量轮动领域模型与服务
   trend_following/         多市场趋势跟踪领域模型与服务
   market_review/           市场复盘、交易日历、运行时配置
+  holdings_review/         双市场私有持仓复盘、冻结输入与结构化LLM建议
   llm/                     API / SSH CLI 调用、重试、审计日志与用量统计
   reporting/               报告语言配置与 Markdown 图片转换
   notification/            路由、降噪及 Telegram/ntfy 与消息持久化
@@ -147,6 +148,7 @@ Quant 0081：每日推理输入为任务级临时工件，不再创建 dataset �
 - `/tasks`：周期定义、手动触发及任务运行记录。
 - `/quant`、`/etf-rotation`、`/trend-following`：研究结果与运行入口；趋势预演为 `GET /trend-following/preview`。
 - `/holdings`：DB 持仓买卖/现金、操作记录与日 K 买卖标记；页面 `/market/holdings`。
+- `/holdings-review`：本人双市场持仓复盘与日期历史，只读冻结结果；页面 `/market/holdings-review`。
 - `/market-data/ws`、`/market-data/events`：用户自选股/持仓行情 WS 与 HTTP SSE；`scope=holdings&market=CN|US` 为持仓。WS连续两次失败固定回落SSE。
 - `/usage`：LLM 使用统计；`/celery` 是演示/诊断端点。
 
@@ -327,7 +329,7 @@ BTC 多策略以 `strategy_key + symbol` 隔离，代码注册表当前仅 `btc_
 ## 信息输入边界
 
 个股决策分析和旧手动大盘复盘已退役；定时美股收盘复盘只读取自身结构化行情数据，不读取新闻。
-系统不负责通用互联网检索；`signal_center/`另允许通过LLMClient联网核查候选的公告/事件/风险并保存检索证据，见`docs/signal-center.md`。`earnings_outlook/` 是财报研究例外，仅对 Nasdaq-100 当前有效股票成员
+系统不负责通用互联网检索；`holdings_review/`允许通过LLMClient核查已有持仓、主要指数和相关板块的公告/事件，并保存transport证据；`signal_center/`另允许通过LLMClient联网核查候选的公告/事件/风险并保存检索证据，见`docs/signal-center.md`。`earnings_outlook/` 是财报研究例外，仅对 Nasdaq-100 当前有效股票成员
 通过 LLMClient 执行有传输证据的搜索；不改变其他模块边界，详见 `docs/investment-timeline.md`。通用新闻采集与分析已退役；Longbridge仍用于行情和财经日历。宏观与财报事件/研究继续运行，见 `docs/investment-timeline.md`。
 
 ## Industry Strength
@@ -441,3 +443,12 @@ Streamer 页面行情只读 Redis；CN/US 共用日内方向状态，分钟线�
 Trend、ETF、行业和期权研究 preview 使用独立 `research_preview` / `research_preview_item` 表，只保留各范围最新批次。
 事务内范围 DELETE 后替换，不混入正式历史；名称复用 Instrument，共同字段只存一次，GET按需投影。
 迁移 `0078_research_preview`，有效期及失败清除语义见 `docs/preview-storage.md`，测试 `tests/research_preview/`。
+
+## Holdings Review
+
+`holdings_review/` 独立于已退役交易引擎，CN14:10、US15:10（提前收盘12:10）按实际收盘前50分钟触发。
+按用户扇出，冻结真实持仓、指数20根日K、持仓20根日K/12根5min、精简当日ETF/Trend/行业Preview。
+每用户每市场一次业务级LLM请求，允许联网并返回结构化HOLD/BUY/REDUCE/SELL/WATCH；BUY只为已有持仓加仓。
+uid+market advisory lock，结果与本人notification同事务保存，每天每市场一份Markdown；个人收件地址隔离，默认管理员可用全局地址。
+GET本人历史不重算，默认今日或上一交易日；手动触发仅当前复盘窗口。迁移0088，页面“市场→投资组合”下方。
+缺失/过期输入明确降级，不传复杂研究诊断或全市场逐股快照，不恢复旧analysis/trade_engine。详见`docs/holdings-review.md`。

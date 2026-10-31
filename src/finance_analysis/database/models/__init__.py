@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 """ORM model exports."""
 
+from finance_analysis.database.models.holdings_review import HoldingsReview
+
 from finance_analysis.database.models.portfolio import (  # pragma: allowlist secret
     CashOperation,
     PortfolioAccount,
@@ -66,6 +68,7 @@ from finance_analysis.database.models.crypto import (
 from .dragon_tiger_flow import DragonTigerFlowBatch
 
 __all__ = [
+    "HoldingsReview",
     "WatchListTag",
     "DragonTigerFlowBatch",
     "ConfluenceRun",

@@ -102,7 +102,7 @@ def test_timeline_domain_has_no_uid_or_note_left():
         text = path.read_text()
         for forbidden in (r"\buid\b", "manual_note", "NoteInput", r"\bnotes?\b", "get_effective_uid"):
             assert not re.search(forbidden, text), f"{path.name} still mentions {forbidden}"
-    for job in ("a_share_pre_close_review/reporter.py", "us_postmarket_review/reporter.py"):
+    for job in ("us_postmarket_review/reporter.py",):
         text = (TIMELINE_ROOT / "tasks/celery/jobs" / job).read_text()
         assert "ensure_default_admin" not in text and "UserRepository" not in text
 
@@ -248,7 +248,6 @@ def test_api_serves_identical_content_regardless_of_session(db, monkeypatch):
 @pytest.mark.parametrize(
     "market,entry_type,module_name,reporter_name",
     [
-        ("CN", "a_share_pre_close", "a_share_pre_close_review", "ASharePreCloseReporter"),
         ("US", "us_postmarket", "us_postmarket_review", "USPostmarketReviewReporter"),
     ],
 )

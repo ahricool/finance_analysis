@@ -18,13 +18,13 @@
 | 原依赖 | 仍在使用的调用方 | 处理 |
 | --- | --- | --- |
 | StockReportAnalyzer.generate_text | 仅旧手动大盘复盘 | 随旧手动大盘复盘一并删除，无独立文本生成适配器残留 |
-| analysis.pipeline_config | 盘前新闻、美股收盘复盘、A 股 14:30 复核 | 仅保留 LLM/报告语言，移至 `reporting/runtime.py`，删除旧复盘市场选择配置 |
+| analysis.pipeline_config | 盘前新闻、美股收盘复盘、双市场持仓复盘 | 仅保留 LLM/报告语言，移至 `reporting/runtime.py`，删除旧复盘市场选择配置 |
 | analysis.history.loader/errors | 股票历史 API、美股收盘复盘 | 移至 `stocks/history.py` / `history_errors.py`，保持只读历史与指标公式，删除 pipeline 专属冻结上下文 |
 | analysis.technical.indicators | Trend 超跌反弹研究 | 移至 `trend_following/indicators.py`，保持 RSI 公式 |
 | NotificationService | 全部研究消息、交易信号、任务错误 | 保留持久化/推送/降噪及图片转换，移除个股报告渲染继承 |
 | report language 配置 | 市场复盘与 Longbridge | 保留语言规范化，删除个股报告专属文案/信号本地化 |
 
-盘前新闻、美股收盘复盘、A 股 14:30 复核、Signal Center、财报前瞻、Trend/ETF/Quant、日线同步和 Streamer 都保留。
+盘前新闻、美股收盘复盘、双市场持仓复盘、Signal Center、财报前瞻、Trend/ETF/Quant、日线同步和 Streamer 都保留。
 `analysis` Celery 队列也继续承载其他研究任务，不能删除。
 
 ## 删除后停止生产或失去消费者的项目

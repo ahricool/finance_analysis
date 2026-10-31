@@ -156,6 +156,7 @@ const router = createRouter({
           meta: { title: '市场' },
           children: [
             { path: '', redirect: { name: 'market-watch-list' } },
+            { path: 'holdings-review', name: 'market-holdings-review', component: () => import('@/pages/market/HoldingsReviewPage.vue'), meta: { title: '持仓复盘', marketScope: 'selectable' } },
             { path: 'heatmap', name: 'market-heatmap', component: () => import('@/pages/market/MarketHeatmapPage.vue'), meta: { title: '热力图', marketScope: 'selectable' } },
             {
               path: 'watch-list',

@@ -41,6 +41,7 @@ export type MainNavItem = NavDestination & {
 export const marketNavItems: NavDestination[] = [
   { key: 'watch-list', label: '自选股', to: '/market/watch-list', icon: Star },
   { key: 'holdings', label: '投资组合', to: '/market/holdings', icon: Wallet },
+  { key: 'holdings-review', label: '持仓复盘', to: '/market/holdings-review', icon: ClipboardCheck },
   { key: 'heatmap', label: '热力图', to: '/market/heatmap', icon: LayoutGrid },
 ];
 
