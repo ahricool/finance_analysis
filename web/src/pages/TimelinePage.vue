@@ -13,7 +13,6 @@ import AppDatePicker from '@/components/app/AppDatePicker.vue';
 import TimelineEarningsCard from '@/components/timeline/TimelineEarningsCard.vue';
 import TimelineEventDetail from '@/components/timeline/TimelineEventDetail.vue';
 import TimelineMacroCard from '@/components/timeline/TimelineMacroCard.vue';
-import TimelineNewsCard from '@/components/timeline/TimelineNewsCard.vue';
 import { dayHeading, dayKey, importanceNames, kindLabel, marketLabel, tabQuery } from '@/components/timeline/timelineFormat';
 import { Dialog, DialogDescription, DialogHeader, DialogScrollContent, DialogTitle } from '@/components/ui/dialog';
 import { useTimezoneStore } from '@/stores/timezoneStore';
@@ -22,9 +21,8 @@ import { formatDateTimeInDisplayTimezone, getTodayInDisplayTimezone } from '@/ut
 const { displayTimezone } = storeToRefs(useTimezoneStore());
 const tabs = [
   { value: 'all', label: '全部' }, { value: 'earnings', label: '财报' }, { value: 'macro', label: '宏观' },
-  { value: 'news', label: '新闻' },
 ] as const;
-const cards = { earnings: TimelineEarningsCard, macro: TimelineMacroCard, news: TimelineNewsCard };
+const cards = { earnings: TimelineEarningsCard, macro: TimelineMacroCard };
 
 const { market } = useMarket();
 const tab = ref<TimelineTab>('all');
@@ -80,8 +78,7 @@ const groups = computed(() => {
 });
 
 function cardFor(item: TimelineItem) {
-  if (item.category === 'event') return item.calendarType === 'earnings' ? cards.earnings : cards.macro;
-  return cards.news;
+  return item.calendarType === 'earnings' ? cards.earnings : cards.macro;
 }
 
 let requestId = 0;
@@ -119,14 +116,6 @@ watch(loadMoreTrigger, (target, _previous, onCleanup) => {
 }, { flush: 'post' });
 onBeforeUnmount(() => { requestId++; });
 
-const newsFields = [
-  ['importanceScore', '重要性评分'], ['importanceReason', '重要性依据'], ['eventType', '事件类型'],
-  ['timeSensitivity', '时效性'], ['importanceConfidence', '重要性置信度'], ['impact', '影响方向'],
-  ['impactScore', '影响评分'], ['impactReason', '影响依据'], ['impactConfidence', '影响置信度'],
-  ['watchPoints', '观察要点'], ['riskNotes', '风险提示'],
-] as const;
-function fieldText(value: unknown) { return Array.isArray(value) ? value.join('\n') : String(value ?? '—'); }
-function safeUrl(value: unknown) { return typeof value === 'string' && /^https?:\/\//i.test(value) ? value : undefined; }
 </script>
 
 <template>
@@ -137,7 +126,7 @@ function safeUrl(value: unknown) { return typeof value === 'string' && /^https?:
     <PageHeader
       title="投资时间线"
       en="Investment Timeline"
-      description="公共市场信息看板：财报、宏观、新闻与市场分析统一按事件时间从新到旧排列，未来事件同样排在最前。"
+      description="公共市场信息看板：财报与宏观事件统一按事件时间从新到旧排列，未来事件同样排在最前。"
     />
 
     <div class="mt-4 space-y-3 rounded-xl border border-border bg-card p-3 shadow-sm sm:p-4">
@@ -307,38 +296,6 @@ function safeUrl(value: unknown) { return typeof value === 'string' && /^https?:
             v-if="detail.category === 'event'"
             :item="detail"
           />
-          <template v-else-if="detail.category === 'news'">
-            <p
-              v-if="detail.relatedSymbols.length"
-              class="text-sm font-medium"
-            >
-              {{ detail.relatedSymbols.join(' · ') }}
-            </p>
-            <p class="text-sm text-muted-foreground">
-              {{ detail.detailPayload.source }} ·
-              {{ detail.detailPayload.publishedAt ? formatDateTimeInDisplayTimezone(String(detail.detailPayload.publishedAt)) : '发布时间未提供' }}
-            </p>
-            <a
-              v-if="safeUrl(detail.detailPayload.url)"
-              :href="safeUrl(detail.detailPayload.url)"
-              target="_blank"
-              rel="noopener noreferrer"
-              class="text-sm underline"
-            >阅读原文 ↗</a>
-            <dl class="space-y-4">
-              <div
-                v-for="[key, label] in newsFields"
-                :key="key"
-              >
-                <dt class="text-xs text-muted-foreground">
-                  {{ label }}
-                </dt>
-                <dd class="mt-1 whitespace-pre-line text-sm leading-relaxed">
-                  {{ fieldText(detail.detailPayload[key]) }}
-                </dd>
-              </div>
-            </dl>
-          </template>
         </template>
       </DialogScrollContent>
     </Dialog>

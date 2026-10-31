@@ -22,7 +22,7 @@ def test_migration_matches_models_and_reverses():
     root = Path(__file__).resolve().parents[2]
     cfg = Config(str(root / 'alembic.ini'))
     cfg.set_main_option('script_location', str(root / 'alembic'))
-    assert ScriptDirectory.from_config(cfg).get_current_head() == '0085_retire_market_review'
+    assert ScriptDirectory.from_config(cfg).get_current_head() == '0086_retire_news'
     module = migration()
     with create_engine('sqlite://').begin() as connection:
         module.op = Operations(MigrationContext.configure(connection))

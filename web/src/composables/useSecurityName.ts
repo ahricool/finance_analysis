@@ -1,7 +1,7 @@
 import { computed, onScopeDispose, ref, watch, type MaybeRefOrGetter, toValue } from 'vue';
 import { stocksApi } from '@/api/stocks';
 
-// Share exact master-data lookups for symbol-only news/event entries.
+// Share exact master-data lookups for symbol-only event entries.
 const names = new Map<string, string>();
 const pending = new Map<string, Promise<string>>();
 function lookup(code: string): Promise<string> {

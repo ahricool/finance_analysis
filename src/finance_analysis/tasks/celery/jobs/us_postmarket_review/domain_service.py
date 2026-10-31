@@ -6,15 +6,11 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import replace
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from functools import partial
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence
 
-from sqlalchemy import desc, func, select
 
-from finance_analysis.core.time import utc_now
-from finance_analysis.database import DatabaseManager, ensure_aware_datetime
-from finance_analysis.database.models import NewsIntel, NewsIntelUsage
 from finance_analysis.integrations.market_data.realtime_types import safe_float, safe_int
 from finance_analysis.market_review.trading_calendar import (
     get_effective_trading_date,
@@ -40,7 +36,6 @@ logger = logging.getLogger(__name__)
 _OUTPERFORM_THRESHOLD_PCT = 1.0
 _UNUSUAL_VOLUME_RATIO = 1.5
 _FLAT_THRESHOLD_PCT = 0.05
-_NEWS_LIMIT = 15
 _PerformanceCache = Dict[tuple[str, date], InstrumentPerformance | Exception]
 
 
@@ -56,7 +51,6 @@ class USPostmarketReviewService:
         llm_client: Optional[Any] = None,
         reporter: Optional[USPostmarketReviewReporter] = None,
         watch_symbols_provider: Optional[Callable[[], Sequence[str]]] = None,
-        db: Optional[DatabaseManager] = None,
     ) -> None:
         self.config = config or self._load_config()
         self._history_market_data = None
@@ -72,8 +66,6 @@ class USPostmarketReviewService:
         self.llm_client = llm_client
         self.reporter = reporter or USPostmarketReviewReporter()
         self.watch_symbols_provider = watch_symbols_provider
-        self.db = db or DatabaseManager.get_instance()
-
 
     def run(
         self,
@@ -183,7 +175,6 @@ class USPostmarketReviewService:
             warnings,
             performance_cache=performance_cache,
         )
-        news = self._load_news(watch_symbols, warnings)
         return USPostmarketReviewContext(
             trading_date=trading_date,
             benchmarks=benchmarks,
@@ -193,7 +184,6 @@ class USPostmarketReviewService:
             style_bias=style_bias,
             market_regime=market_regime,
             watchlist_summary=watchlist_summary,
-            news=news,
             warnings=warnings,
             validation_failures=validation_failures,
         )
@@ -247,7 +237,9 @@ class USPostmarketReviewService:
             return
         from .history import load_review_histories
 
-        loaded = load_review_histories(ordered, target_date=trading_date, days=35, market_data=self._history_market_data)
+        loaded = load_review_histories(
+            ordered, target_date=trading_date, days=35, market_data=self._history_market_data
+        )
         for symbol, value in loaded.items():
             key = (symbol, trading_date)
             if isinstance(value, Exception):
@@ -406,68 +398,10 @@ class USPostmarketReviewService:
             summary.underperform_qqq = [
                 item for item in performances if (item.relative_to_qqq or 0.0) <= -_OUTPERFORM_THRESHOLD_PCT
             ][:8]
-        summary.unusual_volume = [
-            item for item in performances if (item.volume_ratio or 0.0) >= _UNUSUAL_VOLUME_RATIO
-        ][:8]
+        summary.unusual_volume = [item for item in performances if (item.volume_ratio or 0.0) >= _UNUSUAL_VOLUME_RATIO][
+            :8
+        ]
         return summary
-
-    def _load_news(
-        self,
-        watch_symbols: Sequence[str],
-        warnings: List[str],
-    ) -> List[Dict[str, Any]]:
-        news = self._load_persisted_news(watch_symbols, warnings)
-        return self._dedupe_news(news)[:_NEWS_LIMIT]
-
-    def _load_persisted_news(
-        self,
-        watch_symbols: Sequence[str],
-        warnings: List[str],
-    ) -> List[Dict[str, Any]]:
-        try:
-            end_utc = utc_now()
-            start_utc = end_utc - timedelta(hours=24)
-            codes = {"market", "SPY.US", "QQQ.US", *watch_symbols}
-            with self.db.get_session() as session:
-                stmt = (
-                    select(NewsIntel, NewsIntelUsage.symbol)
-                    .join(NewsIntelUsage, NewsIntelUsage.news_intel_id == NewsIntel.id)
-                    .where(
-                        NewsIntelUsage.symbol.in_(codes),
-                        func.coalesce(NewsIntel.published_date, NewsIntelUsage.observed_at) >= start_utc,
-                    )
-                    .order_by(desc(func.coalesce(NewsIntel.published_date, NewsIntelUsage.observed_at)))
-                    .limit(_NEWS_LIMIT)
-                )
-                rows = session.execute(stmt).all()
-            return [
-                {
-                    "title": str(row.title or "")[:180],
-                    "summary": str(row.snippet or "")[:500],
-                    "source": str(row.source or row.provider or "")[:80],
-                    "published_at": self._format_dt(ensure_aware_datetime(row.published_date)),
-                    "url": str(row.url or "")[:500],
-                    "related_symbols": [self._normalize_us_symbol(symbol)] if symbol else [],
-                }
-                for row, symbol in rows
-            ]
-        except Exception as exc:
-            logger.warning("读取已保存美股新闻失败: %s", exc, exc_info=True)
-            warnings.append(f"读取已保存新闻失败: {exc}")
-            return []
-
-
-    @staticmethod
-    def _dedupe_news(news: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        deduped: List[Dict[str, Any]] = []
-        seen: set[str] = set()
-        for item in news:
-            key = str(item.get("url") or item.get("title") or "").strip().lower()
-            if not key or key in seen:
-                continue
-            seen.add(key)
-            deduped.append(dict(item))
-        return deduped
 
     def _generate_llm_report(
         self,
@@ -513,7 +447,9 @@ class USPostmarketReviewService:
 
     def _system_prompt(self) -> str:
         language = normalize_report_language(getattr(self.config, "report_language", "zh"))
-        language_rule = "报告语言使用中文。" if language == "zh" else "报告语言优先使用配置语言，但章节标题保持指定结构。"
+        language_rule = (
+            "报告语言使用中文。" if language == "zh" else "报告语言优先使用配置语言，但章节标题保持指定结构。"
+        )
         return (
             "你是谨慎的美股收盘复盘分析师。"
             "只能根据用户输入的结构化数据分析，不得编造价格、涨跌幅、新闻或宏观事件；"
@@ -539,7 +475,7 @@ class USPostmarketReviewService:
             "## 8. 数据说明\n\n"
             "今日市场结论必须给出 risk_on / neutral / risk_off 之一并解释依据。"
             "下一交易日关注事项必须包含关键指数或 ETF 观察位、强弱板块延续性、"
-            "自选股重点、已知财报或宏观事件，以及判断失效条件。"
+            "自选股重点，以及判断失效条件。"
             "不得补充输入中不存在的新闻或宏观事件。\n\n"
             f"输入数据：\n{json.dumps(payload, ensure_ascii=False, indent=2)}"
         )
@@ -581,13 +517,7 @@ class USPostmarketReviewService:
             "## 5. 今日市场主要驱动",
             "",
         ]
-        if context.news:
-            lines.extend(
-                f"- {item.get('title', '-')}: {item.get('summary', '')}"[:500]
-                for item in context.news[:8]
-            )
-        else:
-            lines.append("- 暂无可用新闻输入，不能推断具体新闻驱动。")
+        lines.append("- 根据指数、板块相对强弱及成交量观察市场变化，不能据此推断具体事件驱动。")
         lines.extend(
             [
                 "",
@@ -602,7 +532,7 @@ class USPostmarketReviewService:
                 f"- 强势板块能否延续：{self._join_symbols(context.sector_top3)}。",
                 f"- 弱势板块风险：{self._join_symbols(context.sector_bottom3)}。",
                 f"- 自选股重点：{self._join_symbols(watch.gainers[:3] + watch.unusual_volume[:3])}。",
-                "- 已知财报或宏观事件：仅依据输入新闻，未提供则不作推断。",
+                "- 财报与宏观事件请查看投资时间线；本复盘不推断具体事件。",
                 "- 判断失效条件：SPY/QQQ 与当前风险偏好方向相反且板块扩散失败。",
                 "",
                 "## 8. 数据说明",
@@ -707,11 +637,6 @@ class USPostmarketReviewService:
         if symbol.startswith("$"):
             symbol = symbol[1:]
         return symbol if symbol.endswith(".US") else ""
-
-
-    @staticmethod
-    def _format_dt(value: Optional[datetime]) -> Optional[str]:
-        return value.isoformat() if value else None
 
     @staticmethod
     def _load_config() -> Any:

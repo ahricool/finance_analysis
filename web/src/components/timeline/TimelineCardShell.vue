@@ -6,11 +6,7 @@ import { importanceNames, kindLabel, marketLabel, shortDate } from './timelineFo
 const props = defineProps<{ item: TimelineItem }>();
 defineEmits<{ open: [] }>();
 
-const accent = computed(() => ({
-  event: 'before:bg-primary/70',
-  news: 'before:bg-sky-500/70',
-  analysis: 'before:bg-amber-500/70',
-}[props.item.category]));
+const accent = 'before:bg-primary/70';
 
 const scoreClass = computed(() =>
   props.item.importance === 'critical'

@@ -162,7 +162,7 @@ Router 拒绝带 `failed_symbols[market]` 的全市场 Snapshot，即使其中 d
 - 个股和板块主力资金流：官方页面明确尚未开放外部调用。
 - 原国内来源提供的 HK/US 专项 fallback，仅移除对应节点，保留其余顺序。
 
-报告 schema、数据库 schema、策略计算、Preview 专用数据链、财经日历、新闻及
+报告 schema、数据库 schema、策略计算、Preview 专用数据链、财经日历及
 Streamer Redis schema 不变。可选基本面模块返回 failed / not_supported / partial，
 不阻断股票分析。
 
@@ -200,7 +200,7 @@ easyquotation 的每个 HTTP GET 批次遇到连接错误或超时时，最多�
 `core/retry.py` 提供同步/异步的请求边界重试：首次调用后最多追加 3 次，
 退避固定为 2、4、8 秒；失败耗尽保持调用方原来的错误/降级语义。
 覆盖腾讯、扶摇、Alpaca、Yahoo、TickFlow、AkShare/Sina、指数成分、
-Longbridge 行情/新闻/日历，以及 Binance REST。HTTP 连接/读取错误、超时、
+Longbridge 行情/日历，以及 Binance REST。HTTP 连接/读取错误、超时、
 408/429/5xx 可重试；鉴权、参数、证书和数据解析错误通常不重试。
 SDK 通过异常类型和有限网络错误标记识别临时失败；TickFlow 与 LiteLLM 内置请求重试关闭，避免叠加；SDK 自身协议重连不属于应用层请求计数。
 Yahoo 吞掉错误的批请求以返回的失败/缺失标的重试，保留已成功标的，默认最多 3 次；

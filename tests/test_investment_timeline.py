@@ -13,12 +13,8 @@ from sqlalchemy.pool import StaticPool
 
 from finance_analysis.database.base import Base
 from finance_analysis.database.models.market_calendar import FinanceEvent
-from finance_analysis.database.models.news import NewsIntel, NewsIntelUsage
-from finance_analysis.database.models.news_analysis import NewsAnalysis
 from finance_analysis.database.models.timeline import TimelineEntry
 from finance_analysis.database.models.earnings_outlook import EarningsOutlookState
-from finance_analysis.database.repositories.news_analysis import NewsAnalysisRepo
-from finance_analysis.database.session import DatabaseManager
 from finance_analysis.timeline.cursor import TimelineCursor
 from finance_analysis.timeline.service import TimelineService  # pragma: allowlist secret
 
@@ -32,7 +28,7 @@ class TestDB:
 
     def __init__(self):
         self.engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
-        for model in (NewsIntel, NewsIntelUsage, NewsAnalysis, TimelineEntry, FinanceEvent, EarningsOutlookState):
+        for model in (TimelineEntry, FinanceEvent, EarningsOutlookState):
             model.__table__.create(self.engine)
 
     @contextmanager
@@ -82,41 +78,6 @@ def event(db, **overrides):
         return row
 
     return db._run_write_transaction("seed", write)
-
-
-def seed_news(db, score=9, url="https://example.com/news", published=NOW):
-    db._run_write_transaction(
-        "seed",
-        lambda session: session.add(
-            NewsIntel(title="芯片需求", snippet="订单增长", url=url, published_date=published, fetched_at=NOW)
-        ),
-    )
-    repo = NewsAnalysisRepo(db)
-    repo.persist_premarket(
-        [
-            dict(
-                news_id_or_url=url,
-                importance_score=score,
-                importance_reason="盈利驱动",
-                related_symbols=["NVDA", "AMD"],
-                event_type="guidance",
-                confidence=0.8,
-            )
-        ],
-        [
-            dict(
-                news_id_or_url=url,
-                impact="bullish",
-                impact_score=3,
-                confidence=0.7,
-                reason="需求上升",
-                watch_points=["订单"],
-                risk_notes=["估值"],
-            )
-        ],
-        model="test",
-        analyzed_at=NOW,
-    )
 
 
 def test_deleted_calendar_model_and_intraday_persistence():
@@ -175,42 +136,6 @@ def test_note_routes_are_gone():
     }
 
 
-def test_news_upsert_updates_structure_without_duplicate_or_calendar_marker(db):
-    seed_news(db)
-    NewsAnalysisRepo(db).persist_premarket(
-        [dict(news_id_or_url="https://example.com/news", importance_score=7, related_symbols=["AMD"])],
-        [],
-        model="new-model",
-        analyzed_at=NOW,
-    )
-    with db.get_session() as session:
-        analysis = session.scalars(select(NewsAnalysis)).one()
-        assert analysis.importance_score == 7
-        assert analysis.related_symbols == ["AMD"]
-        assert analysis.model == "new-model"
-        assert session.scalar(select(func.count()).select_from(TimelineEntry)) == 0
-
-
-def test_three_sources_filters_and_pagination(db):
-    calendar_marker(db)
-    calendar_marker(db, market="CN", importance="normal", actionability="none", entry_type="a_share_pre_close")
-    seed_news(db, score=9)
-    seed_news(db, score=10, url="https://example.com/top")
-    event(db)
-    service = TimelineService(db)
-    result = service.list(**QUERY)
-    assert result["total"] == 5
-    assert {item.category for item in result["items"]} == {"event", "news"}
-    news = service.list(**QUERY, category="news")["items"]
-    assert [item.importance_score for item in news] == [10, 9]
-    assert news[1].detail_payload["watch_points"] == ["订单"]
-    assert news[1].event_time == NOW
-    assert service.list(**QUERY, market="CN")["total"] == 1
-    first = service.list(**QUERY, limit=2)
-    second = service.list(**QUERY, cursor=TimelineCursor.decode(first["next_cursor"]), limit=2)
-    assert second["items"][0].id == result["items"][2].id
-
-
 def test_calendar_type_filter_separates_earnings_and_macro(db):
     event(db, event_key="macro", calendar_type="macro", title="CPI")
     event(db, event_key="nvda", calendar_type="earnings", symbol="NVDA", title="NVDA Earnings")
@@ -221,7 +146,6 @@ def test_calendar_type_filter_separates_earnings_and_macro(db):
     assert [item.title for item in service.list(**QUERY, category="event", calendar_type="macro")["items"]] == ["CPI"]
     assert service.list(**QUERY, category="event")["total"] == 2
     assert {item.calendar_type for item in service.list(**QUERY, category="event")["items"]} == {"earnings", "macro"}
-    assert service.list(**QUERY, category="news")["items"] == []
 
 
 def test_earnings_detail_exposes_typed_payload_and_source_providers(db):
@@ -261,29 +185,6 @@ def test_source_providers_fall_back_to_the_primary_provider(db):
     assert item.detail_payload["source_providers"] == ["yfinance"]
 
 
-def test_news_usage_preserves_multiple_symbols_and_queries(db):
-    from finance_analysis.database.news import NewsItem
-
-    manager = object.__new__(DatabaseManager)
-    manager._run_write_transaction = db._run_write_transaction
-    manager.get_session = db.get_session
-    response = [NewsItem(title="Chip demand", snippet="Growth", url="https://example.com/shared", source="test")]
-    for symbol, usage, query in [
-        ("NVDA", "premarket_news", "q1"),
-        ("AMD", "intraday_news", "q2"),
-        ("AMD", "intraday_news", "q2"),
-    ]:
-        manager.save_news_intel(
-            code=symbol, usage_type=usage, items=response, provider="longbridge", query_context={"query_id": query}
-        )
-    with db.get_session() as session:
-        assert session.scalar(select(func.count()).select_from(NewsIntel)) == 1
-        assert session.scalar(select(func.count()).select_from(NewsIntelUsage)) == 2
-    assert len(manager.get_recent_news("NVDA")) == len(manager.get_recent_news("AMD")) == 1
-    assert len(manager.get_news_intel_by_query_id("q1")) == len(manager.get_news_intel_by_query_id("q2")) == 1
-    assert "dimension" not in NewsIntel.__table__.columns
-
-
 def timeline_client(db, monkeypatch):
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
@@ -304,15 +205,16 @@ def test_api_is_public_and_validates_input(db, monkeypatch):
     assert not any(route.path.startswith("/api/v1/calendar") for route in router.routes)
     client = timeline_client(db, monkeypatch)
     calendar_marker(db)
-    seed_news(db)
     path = "/api/v1/timeline"
-    response = client.get(path, params=dict(market="US", category="news"))
+    response = client.get(path, params=dict(market="US", category="event"))
     assert response.status_code == 200
     assert response.json()["total"] == 1
-    assert response.json()["items"][0]["detail_payload"]["impact_reason"] == "需求上升"
+    assert response.json()["items"][0]["calendar_type"] == "earnings"
     for params in (
         {"timezone": "bad"},
         {"category": "note"},
+        {"category": "news"},
+        {"category": "analysis"},
         {"category": "a_share"},
         {"calendar_type": "bad"},
         {"importance": "bad"},
@@ -374,106 +276,6 @@ def test_reporters_persist_public_reports_without_an_owner(
         assert session.scalar(select(func.count()).select_from(TimelineEntry)) == 0
 
 
-def test_news_job_persists_each_selected_fact_analysis_only(db, monkeypatch):
-    from unittest.mock import MagicMock
-
-    from finance_analysis.integrations.market_data.providers.longbridge.news import LongbridgeNewsRecord
-    from finance_analysis.database.news import NewsItem
-    from finance_analysis.tasks.celery.jobs.us_premarket_news.domain_service import USPremarketNewsService
-
-    manager = object.__new__(DatabaseManager)
-    manager._run_write_transaction = db._run_write_transaction
-    manager.get_session = db.get_session
-    fetcher = MagicMock()
-    url = "https://example.com/news-job"
-
-    def fetch(symbol, **kwargs):
-        manager.save_news_intel(
-            code=symbol,
-            usage_type="premarket_news",
-            provider="longbridge",
-            items=[NewsItem(title="Growth", snippet="Orders", url=url, source="test", published_date=NOW.isoformat())],
-            query_context={"query_id": kwargs["query_id"]},
-        )
-        return [LongbridgeNewsRecord(news_id="job", title="Growth", description="Orders", url=url, published_at=NOW)]
-
-    fetcher.fetch_and_save_news.side_effect = fetch
-    llm = MagicMock(model_used="actual-model")
-    llm.select_important_news.return_value = [dict(news_id_or_url=url, importance_score=9)]
-    llm.judge_impact.return_value = [
-        dict(news_id_or_url=url, impact="bullish", impact_score=3, related_symbols=["AMD"])
-    ]
-    reporter = MagicMock()
-    service = USPremarketNewsService(
-        config=SimpleNamespace(),
-        longbridge_fetcher=MagicMock(),
-        news_fetcher=fetcher,
-        llm_analyzer=llm,
-        reporter=reporter,
-        db=db,
-    )
-    monkeypatch.setattr(
-        "finance_analysis.tasks.celery.jobs.us_premarket_news.domain_service.build_premarket_symbol_universe",
-        lambda symbols: ["NVDA"],
-    )
-    summary = service.run(["NVDA"], now=NOW)
-    assert summary.inserted_news_count == 1
-    reporter.send_notification.assert_called_once()
-    with db.get_session() as session:
-        analysis = session.scalars(select(NewsAnalysis)).one()
-        assert analysis.model == "actual-model"
-        assert analysis.related_symbols == ["NVDA", "AMD"]
-        assert analysis.impact_score == 3
-        assert session.scalar(select(func.count()).select_from(TimelineEntry)) == 0
-
-
-@pytest.mark.parametrize(
-    "published_days,observed_days,expected", [(0, 0, True), (None, 0, True), (30, 0, False), (None, 8, False)]
-)
-def test_recent_news_publication_first_and_relevant_observation(
-    db, monkeypatch, published_days, observed_days, expected
-):
-    monkeypatch.setattr("finance_analysis.database.session.utc_now", lambda: NOW)
-
-    def seed(session):
-        news = NewsIntel(
-            title="time",
-            url="https://example.com/time",
-            fetched_at=NOW - timedelta(days=8),
-            published_date=None if published_days is None else NOW - timedelta(days=published_days),
-        )
-        session.add(news)
-        session.flush()
-        session.add_all(
-            [
-                NewsIntelUsage(
-                    news_intel_id=news.id,
-                    symbol="NVDA",
-                    usage_type="premarket_news",
-                    query_id="q",
-                    observed_at=NOW - timedelta(days=observed_days),
-                ),
-                NewsIntelUsage(
-                    news_intel_id=news.id, symbol="AMD", usage_type="intraday_news", query_id="other", observed_at=NOW
-                ),
-            ]
-        )
-
-    db._run_write_transaction("seed", seed)
-    assert bool(DatabaseManager.get_recent_news(db, "NVDA", days=1)) is expected
-
-
-@pytest.mark.parametrize("published", [True, False])
-def test_timeline_news_publication_or_analysis_time(db, published):
-    seed_news(db)
-    with db.get_session() as session, session.begin():
-        fact = session.scalars(select(NewsIntel)).one()
-        fact.fetched_at = NOW - timedelta(days=8)
-        fact.published_date = NOW - timedelta(hours=1) if published else None
-    item = TimelineService(db).list(**QUERY, category="news")["items"][0]
-    assert item.event_time == (NOW - timedelta(hours=1) if published else NOW)
-
-
 def test_feed_chronology_overrides_importance_and_pagination_is_stable(db):
     calendar_marker(db, event_time=NOW - timedelta(hours=1), importance="critical", title="older critical")
     calendar_marker(db, event_time=NOW, importance="normal", title="newer normal")
@@ -509,18 +311,15 @@ def seed_desc_fixture(db):
         title="FOMC",
         event_datetime=datetime(2026, 9, 20, 12, tzinfo=timezone.utc),
     )
-    seed_news(db, url="https://example.com/desc-news", published=datetime(2026, 9, 10, 12, tzinfo=timezone.utc))
     calendar_marker(db, title="Analysis", event_time=datetime(2026, 9, 9, 12, tzinfo=timezone.utc))
 
 
 @pytest.mark.parametrize(
     "filters,expected",
     [
-        ({}, ["NVDA Earnings", "FOMC", "芯片需求", "Analysis"]),
+        ({}, ["NVDA Earnings", "FOMC", "Analysis"]),
         ({"category": "event", "calendar_type": "earnings"}, ["NVDA Earnings", "Analysis"]),
         ({"category": "event", "calendar_type": "macro"}, ["FOMC"]),
-        ({"category": "news"}, ["芯片需求"]),
-        ({"category": "analysis"}, []),
     ],
 )
 def test_every_tab_orders_future_and_past_events_newest_first(db, filters, expected):
@@ -532,12 +331,12 @@ def test_every_tab_orders_future_and_past_events_newest_first(db, filters, expec
 def test_cutoff_hides_later_events_and_keeps_desc_order(db):
     seed_desc_fixture(db)
     items = TimelineService(db).list(**QUERY, end_date=date(2026, 9, 20))["items"]
-    assert [item.title for item in items] == ["FOMC", "芯片需求", "Analysis"]
+    assert [item.title for item in items] == ["FOMC", "Analysis"]
 
 
 def test_no_cutoff_keeps_future_messages(db):
     seed_desc_fixture(db)
-    assert TimelineService(db).list(**QUERY)["total"] == 4
+    assert TimelineService(db).list(**QUERY)["total"] == 3
 
 
 @pytest.mark.parametrize("timezone_name,visible", [("Asia/Shanghai", False), ("America/New_York", True)])
@@ -551,12 +350,13 @@ def test_cutoff_uses_the_display_timezone_end_of_day(db, timezone_name, visible)
 def test_cutoff_and_cursor_paginate_without_gaps_or_duplicates(db):
     seed_desc_fixture(db)
     service = TimelineService(db)
+    calendar_marker(db, title="earlier", event_time=datetime(2026, 9, 8, 12, tzinfo=timezone.utc))
     cutoff = dict(end_date=date(2026, 9, 20))
     first = service.list(**QUERY, **cutoff, limit=2)
-    assert [item.title for item in first["items"]] == ["FOMC", "芯片需求"]
+    assert [item.title for item in first["items"]] == ["FOMC", "Analysis"]
     assert first["has_more"] is True
     second = service.list(**QUERY, **cutoff, limit=2, cursor=TimelineCursor.decode(first["next_cursor"]))
-    assert [item.title for item in second["items"]] == ["Analysis"]
+    assert [item.title for item in second["items"]] == ["earlier"]
     assert second["has_more"] is False and second["next_cursor"] is None
 
 
@@ -568,59 +368,6 @@ def test_api_returns_all_future_messages_without_a_cutoff(db, monkeypatch):
     assert [item["title"] for item in client.get("/api/v1/timeline").json()["items"]] == ["future", "today", "past"]
     cutoff = client.get("/api/v1/timeline", params={"end_date": "2026-09-06"}).json()
     assert [item["title"] for item in cutoff["items"]] == ["today", "past"]
-
-
-def test_premarket_freshness_and_history_use_only_relevant_usage(db):
-    from finance_analysis.tasks.celery.jobs.us_premarket_news.domain_service import USPremarketNewsService
-
-    def seed(session):
-        for title, published, observed in [
-            ("published today", NOW, NOW),
-            ("unpublished observed today", None, NOW),
-            ("old publication", NOW - timedelta(days=30), NOW),
-            ("unrelated observation", None, NOW - timedelta(days=8)),
-        ]:
-            fact = NewsIntel(
-                title=title,
-                url="https://example.com/" + title,
-                published_date=published,
-                fetched_at=NOW - timedelta(days=8),
-            )
-            session.add(fact)
-            session.flush()
-            session.add_all(
-                [
-                    NewsIntelUsage(
-                        news_intel_id=fact.id,
-                        symbol="NVDA",
-                        query_id="q",
-                        usage_type="premarket_news",
-                        observed_at=observed,
-                    ),
-                    NewsIntelUsage(
-                        news_intel_id=fact.id,
-                        symbol="AMD",
-                        query_id="other",
-                        usage_type="intraday_news",
-                        observed_at=NOW + timedelta(hours=1),
-                    ),
-                ]
-            )
-
-    db._run_write_transaction("seed", seed)
-    service = USPremarketNewsService.__new__(USPremarketNewsService)
-    service.db = db
-    assert {item.title for item in service._load_candidate_news(NOW, {})} == {
-        "published today",
-        "unpublished observed today",
-    }
-    history = DatabaseManager.get_news_intel_by_query_id(db, "q")
-    assert [item.title for item in history] == [
-        "unpublished observed today",
-        "published today",
-        "unrelated observation",
-        "old publication",
-    ]
 
 
 @pytest.mark.parametrize("mutation", ["none", "insert", "delete"])
@@ -646,54 +393,21 @@ def test_cursor_continues_after_loaded_position_despite_feed_changes(db, mutatio
     assert second["total"] == {"none": 4, "insert": 5, "delete": 2}[mutation]
 
 
-def test_cursor_ties_across_all_sources(db):
-    calendar_marker(db)
-    calendar_marker(db, entry_type="a_share_pre_close")
-    seed_news(db)
-    seed_news(db, url="https://example.com/second")
-    event(db, event_key="ties")
-    service = TimelineService(db)
-    expected = service.list(**QUERY)["items"]
-    assert [item.source_type for item in expected] == [
-        "finance_event",
-        "finance_event",
-        "finance_event",
-        "news",
-        "news",
-    ]
-    assert expected[3].source_id > expected[4].source_id
-    loaded = []
-    cursor = None
-    while True:
-        batch = service.list(**QUERY, cursor=cursor, limit=1)
-        loaded.extend(item.id for item in batch["items"])
-        if not batch["has_more"]:
-            assert batch["next_cursor"] is None
-            break
-        cursor = TimelineCursor.decode(batch["next_cursor"])
-    assert loaded == [item.id for item in expected]
-    last = expected[-1]
-    empty = service.list(**QUERY, cursor=TimelineCursor(last.event_time, last.source_type, last.source_id))
-    assert empty["items"] == []
-    assert empty["has_more"] is False
-    assert empty["next_cursor"] is None
-
-
 @pytest.mark.parametrize(
     "payload",
     [
         None,
         [],
         {},
-        {"event_time": "bad", "source_type": "news", "source_id": 1},
-        {"event_time": "2026-09-06T08:00:00", "source_type": "news", "source_id": 1},
+        {"event_time": "bad", "source_type": "finance_event", "source_id": 1},
+        {"event_time": "2026-09-06T08:00:00", "source_type": "finance_event", "source_id": 1},
         {"event_time": NOW.isoformat(), "source_type": "bad", "source_id": 1},
         {"event_time": NOW.isoformat(), "source_type": "note", "source_id": 1},
-        {"event_time": NOW.isoformat(), "source_type": "news", "source_id": True},
-        {"event_time": NOW.isoformat(), "source_type": "news", "source_id": "1"},
-        {"event_time": NOW.isoformat(), "source_type": "news", "source_id": -1},
-        {"event_time": NOW.isoformat(), "source_type": "news", "source_id": 2**63},
-        {"event_time": "0001-01-01T00:00:00+14:00", "source_type": "news", "source_id": 1},
+        {"event_time": NOW.isoformat(), "source_type": "finance_event", "source_id": True},
+        {"event_time": NOW.isoformat(), "source_type": "finance_event", "source_id": "1"},
+        {"event_time": NOW.isoformat(), "source_type": "finance_event", "source_id": -1},
+        {"event_time": NOW.isoformat(), "source_type": "finance_event", "source_id": 2**63},
+        {"event_time": "0001-01-01T00:00:00+14:00", "source_type": "finance_event", "source_id": 1},
     ],
 )
 def test_invalid_cursor_payload_returns_422_before_query(monkeypatch, payload):
@@ -733,45 +447,6 @@ def test_cursor_api_contract_and_round_trip(db, monkeypatch):
     assert second["next_cursor"] is None
 
 
-@pytest.mark.parametrize("importance", ["critical", "high", "normal", "low"])
-def test_importance_filters_unified_sources_and_cursor(db, monkeypatch, importance):
-    for index, level in enumerate(("critical", "high", "normal", "low")):
-        seed_news(
-            db,
-            score={"critical": 10, "high": 7, "normal": 5, "low": 1}[level],
-            url=f"https://example.com/{level}",
-            published=NOW - timedelta(minutes=index),
-        )
-        with db.get_session() as session, session.begin():
-            row = session.scalar(select(NewsIntel).where(NewsIntel.url == f"https://example.com/{level}"))
-            row.title = level
-            analysis = session.scalar(select(NewsAnalysis).where(NewsAnalysis.news_intel_id == row.id))
-            analysis.importance = level
-    event(db)
-    seed_news(db)
-    client = timeline_client(db, monkeypatch)
-    params = dict(importance=importance, market="US", end_date=NOW.date().isoformat(), limit=1)
-    included_levels = {
-        "critical": {"critical"},
-        "high": {"critical", "high"},
-        "normal": {"critical", "high", "normal"},
-        "low": {"critical", "high", "normal", "low"},
-    }[importance]
-    titles = []
-    while True:
-        response = client.get("/api/v1/timeline", params=params)
-        assert response.status_code == 200
-        page = response.json()
-        assert all(item["importance"] in included_levels for item in page["items"])
-        assert page["total"] == len(included_levels) + 2
-        titles.extend(item["title"] for item in page["items"])
-        if not page["has_more"]:
-            break
-        params["cursor"] = page["next_cursor"]
-    assert included_levels.issubset(titles)
-    assert len(titles) == len(included_levels) + 2
-
-
 def test_importance_combines_with_calendar_type_market_and_cutoff(db, monkeypatch):
     event(db, event_key="match", title="earnings", calendar_type="earnings", symbol="NVDA", importance_score=9)
     event(
@@ -786,7 +461,6 @@ def test_importance_combines_with_calendar_type_market_and_cutoff(db, monkeypatc
     event(db, event_key="normal", title="normal", calendar_type="earnings", symbol="NVDA", importance_score=1)
     event(db, event_key="macro", title="CPI")
     event(db, event_key="cn", title="CN", calendar_type="earnings", symbol="NVDA", market="CN", importance_score=9)
-    seed_news(db)
     calendar_marker(db, importance="critical")
     response = timeline_client(db, monkeypatch).get(
         "/api/v1/timeline",

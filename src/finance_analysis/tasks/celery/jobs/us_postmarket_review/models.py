@@ -77,7 +77,6 @@ class USPostmarketReviewContext:
     style_bias: str
     market_regime: str
     watchlist_summary: WatchlistSummary
-    news: List[Dict[str, Any]]
     warnings: List[str] = field(default_factory=list)
     validation_failures: List[Dict[str, Any]] = field(default_factory=list)
 
@@ -106,7 +105,6 @@ class USPostmarketReviewContext:
             "unusual_volume_symbols": [
                 item.to_context_dict() for item in self.watchlist_summary.unusual_volume[:8]
             ],
-            "news": self.news[:15],
             "warnings": self.warnings[:30],
         }
 

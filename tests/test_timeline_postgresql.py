@@ -6,8 +6,6 @@ from uuid import uuid4
 from sqlalchemy import delete, inspect
 
 from finance_analysis.database.models.market_calendar import FinanceEvent
-from finance_analysis.database.models.news import NewsIntel, NewsIntelUsage
-from finance_analysis.database.models.news_analysis import NewsAnalysis
 from finance_analysis.database.models.timeline import TimelineEntry
 from finance_analysis.database.session import DatabaseManager
 from finance_analysis.timeline.cursor import TimelineCursor
@@ -23,8 +21,8 @@ def cleanup_entries(db, ids):
 def test_migrated_postgresql_schema_has_no_calendar_or_news_context():  # pragma: allowlist secret
     db = DatabaseManager.get_instance()
     inspector = inspect(db._engine)
-    assert "calendar" not in inspector.get_table_names()
-    for model in (TimelineEntry, NewsIntel, NewsIntelUsage, NewsAnalysis):
+    assert not {"calendar", "news_intel", "news_intel_usage", "news_analysis"}.intersection(inspector.get_table_names())
+    for model in (TimelineEntry,):
         actual = {column["name"] for column in inspector.get_columns(model.__tablename__)}
         assert actual == set(model.__table__.columns.keys())
     assert "uid" not in {column["name"] for column in inspector.get_columns("timeline_entries")}
@@ -200,49 +198,6 @@ def test_connection_keeps_utc_after_pool_rollback():
         assert connection.execute(text("SHOW timezone")).scalar_one() == "UTC"
 
 
-def test_postgresql_news_freshness_and_feed_chronology(monkeypatch):
-    from datetime import timedelta
-
-    db = DatabaseManager.get_instance()
-    now = datetime(2099, 9, 6, 8, tzinfo=timezone.utc)
-    key = "news-time-" + uuid4().hex[:16]
-    monkeypatch.setattr("finance_analysis.database.session.utc_now", lambda: now)
-
-    def seed(session):
-        for index, published in enumerate([now, None, now - timedelta(days=30)]):
-            fact = NewsIntel(
-                title=str(index), url=f"{key}/{index}", published_date=published, fetched_at=now - timedelta(days=8)
-            )
-            session.add(fact)
-            session.flush()
-            session.add(NewsIntelUsage(news_intel_id=fact.id, usage_type="premarket_news", symbol=key, observed_at=now))
-            session.add(
-                NewsAnalysis(
-                    news_intel_id=fact.id,
-                    analysis_type="premarket",
-                    prompt_version="test",
-                    analyzed_at=now + timedelta(hours=index),
-                    importance="critical" if index == 0 else "normal",
-                    importance_score=10 - index,
-                    actionability="watch",
-                )
-            )
-
-    db._run_write_transaction("test.seed", seed)
-    try:
-        assert {item.title for item in db.get_recent_news(key, days=1)} == {"0", "1"}
-        query = dict(timezone_name="Asia/Shanghai", end_date=now.date(), category="news")
-        service = TimelineService(db)
-        items = [item for item in service.list(**query)["items"] if item.detail_payload["url"].startswith(key)]
-        # Without a range floor the cutoff keeps older publications, still newest first.
-        assert [item.title for item in items] == ["1", "0", "2"]
-        assert [item.event_time for item in items[:2]] == [now + timedelta(hours=1), now]
-    finally:
-        db._run_write_transaction(
-            "test.cleanup", lambda session: session.execute(delete(NewsIntel).where(NewsIntel.url.like(key + "/%")))
-        )
-
-
 def test_postgresql_cursor_survives_top_insert_and_deleted_anchor():
     from datetime import timedelta
 
@@ -271,7 +226,9 @@ def test_postgresql_cursor_survives_top_insert_and_deleted_anchor():
                 actionability="none",
             )
             ids.append(row.id)
-        query = dict(timezone_name="Asia/Shanghai", end_date=now.date(), category="event", calendar_type="earnings", market="US")
+        query = dict(
+            timezone_name="Asia/Shanghai", end_date=now.date(), category="event", calendar_type="earnings", market="US"
+        )
         service = TimelineService(db)
         first = service.list(**query, limit=2)
         assert [item.title for item in first["items"]] == ["A", "B"]
@@ -302,10 +259,19 @@ class CalendarMarkerRepo:
 
     def create(self, *, event_time, title, **kwargs):
         def write(session):
-            row = FinanceEvent(provider="test", event_key=uuid4().hex, calendar_type="earnings", market="US",
-                               symbol="TEST.US", event_date=event_time.date(), event_datetime=event_time,
-                               title=title, content="Test")
+            row = FinanceEvent(
+                provider="test",
+                event_key=uuid4().hex,
+                calendar_type="earnings",
+                market="US",
+                symbol="TEST.US",
+                event_date=event_time.date(),
+                event_datetime=event_time,
+                title=title,
+                content="Test",
+            )
             session.add(row)
             session.flush()
             return row
+
         return self.db._run_write_transaction("test.seed", write)

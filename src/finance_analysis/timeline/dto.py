@@ -7,13 +7,13 @@ from pydantic import BaseModel, Field
 
 Importance = Literal["low", "normal", "high", "critical"]
 Actionability = Literal["none", "watch", "consider", "action_required"]
-Category = Literal["event", "news", "analysis"]
+Category = Literal["event"]
 CalendarType = Literal["earnings", "macro"]
 
 
 class TimelineItem(BaseModel):
     id: str
-    source_type: Literal["finance_event", "news", "report"]
+    source_type: Literal["finance_event"]
     source_id: int
     event_time: datetime
     category: Category
@@ -25,8 +25,6 @@ class TimelineItem(BaseModel):
     related_symbols: list[str] = Field(default_factory=list)
     importance: Importance
     actionability: Actionability
-    impact: str | None = None
-    impact_score: int | None = None
     importance_score: int | None = None
     event_type: str | None = None
     outlook: dict[str, Any] | None = None

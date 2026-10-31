@@ -25,17 +25,12 @@ from finance_analysis.database.models.market_structure import MarketStructureSna
 
 from finance_analysis.database.models.notification import Notification  # pragma: allowlist secret
 from finance_analysis.database.models.timeline import TimelineEntry  # pragma: allowlist secret
-from finance_analysis.database.models.news_analysis import NewsAnalysis  # pragma: allowlist secret
 from finance_analysis.database.models.llm_usage import LLMUsage  # pragma: allowlist secret
 from finance_analysis.database.models.etf_rotation import (
     ETFMarketRotationSnapshot,
     ETFMomentumSnapshot,
 )  # pragma: allowlist secret
 from finance_analysis.database.models.market_calendar import FinanceEvent  # pragma: allowlist secret
-from finance_analysis.database.models.news import (
-    NewsIntel,
-    NewsIntelUsage,
-)  # pragma: allowlist secret
 from finance_analysis.database.models.quant import (  # pragma: allowlist secret
     MarketRegimeSnapshot,
     ModelDefinition,
@@ -99,9 +94,6 @@ __all__ = [
     "FinanceEvent",
     "LLMUsage",
     "Instrument",
-    "NewsIntel",
-    "NewsIntelUsage",
-    "NewsAnalysis",
     "Universe",
     "UniverseInclude",
     "UniverseMember",

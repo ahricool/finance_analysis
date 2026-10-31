@@ -44,7 +44,6 @@ EXPECTED_JOBS = {
     "market_structure_cn": ("scheduled_market_structure_cn", "Asia/Shanghai"),
     "market_structure_us": ("scheduled_market_structure_us", "America/New_York"),
     "market_calendar": ("scheduled_market_calendar", "America/New_York"),
-    "analysis_us_premarket_news": ("scheduled_us_premarket_news", "America/New_York"),
     "analysis_us_postmarket_review": ("scheduled_us_postmarket_review", "America/New_York"),
     "reference_data_sync": ("scheduled_reference_data_sync", "Asia/Shanghai"),
     "market_data_sync_cn": ("scheduled_market_data_sync_cn", "Asia/Shanghai"),

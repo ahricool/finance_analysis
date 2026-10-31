@@ -69,7 +69,7 @@ def test_explanation_is_structured_cached_and_uses_existing_llm(repository, obse
     )
     client = Mock()
     client.complete_text.return_value = LLMResult(text=json.dumps(fields), backend="api", model="test")
-    repository.context = lambda *args: {"news": [], "calendar": []}
+    repository.context = lambda *args: {"calendar": []}
     service = OptionsIntelligenceService(repository, market, config, client)
     service.run("AAPL", now)
     assert service.explain("AAPL") == fields
@@ -100,7 +100,7 @@ def test_historical_explanation_does_not_use_context_or_prices_after_snapshot(re
         backend="api",
         model="test",
     )
-    repository.context = Mock(return_value={"news": [], "calendar": []})
+    repository.context = Mock(return_value={"calendar": []})
     engine = OptionsIntelligenceService(repository, market, config, client)
     engine.run("AAPL.US", now, view="official")
     engine.explain("AAPL.US", now.date())

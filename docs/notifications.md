@@ -4,7 +4,7 @@
 
 ## 入库与外部推送结果
 
-`send()` 返回 `NotificationResult`：`notification_id` 非空表示消息已入库；`push_attempted` 表示实际尝试了外推；`push_sent` 表示至少一个渠道成功。`channel_results` 记录各实际尝试渠道的布尔结果；上述推送字段不写入 `notification` 表。美股盘前新闻和盘后复盘将渠道结果保存在任务执行结果中，任一渠道失败记录为 `partial`，报告与站内消息仍保留。
+`send()` 返回 `NotificationResult`：`notification_id` 非空表示消息已入库；`push_attempted` 表示实际尝试了外推；`push_sent` 表示至少一个渠道成功。`channel_results` 记录各实际尝试渠道的布尔结果；上述推送字段不写入 `notification` 表。美股盘后复盘将渠道结果保存在任务执行结果中，任一渠道失败记录为 `partial`，报告与站内消息仍保留。
 
 业务状态仅依据 `notification_id is not None` 推进。`push=False`、无渠道和 Noise Control suppress 均返回未尝试推送，不产生任务异常；外推失败记录日志和渠道结果，不自动重跑业务或重新生成通知。入库失败仍可尝试推送，但不能标记业务消息已处理。
 
@@ -38,9 +38,9 @@ API 从认证会话取得 uid；列表和详情均只允许 `uid = 当前用户 
 
 ## 业务边界
 
-Trade Engine 确认信号、A股收盘前复核、美股盘前新闻报告、美股盘后复盘和任务错误统一使用 NotificationService。已知用户归属向下传 uid；无法确定时保持 NULL。一次业务消息只调用一次 send，渠道循环不写库。个股决策仪表盘及其单股/汇总推送已删除。
+Trade Engine 确认信号、A股收盘前复核、美股盘后复盘和任务错误统一使用 NotificationService。已知用户归属向下传 uid；无法确定时保持 NULL。一次业务消息只调用一次 send，渠道循环不写库。个股决策仪表盘及其单股/汇总推送已删除。
 
-报告不再自动写本地文件或 timeline_entries。Timeline 保留真实财经事件和逐条新闻结构化判断；旧 timeline_entries 表暂时保留，无报告读写入口。分析历史、新闻原文/结构化研究结果和任务执行统计仍属于各自业务领域，不作为消息中心的数据来源。
+报告不再自动写本地文件或 timeline_entries。Timeline 只保留宏观与财报事件；旧 timeline_entries 表暂时保留，无报告读写入口。研究结果和任务执行统计仍属于各自业务领域，不作为消息中心的数据来源。
 
 Calendar 仍保存 earnings / macro 真实事件。日历现有“日期、准确时间、session 实质变化”规则生成提醒后只调用 NotificationService，不再在 FinanceEvent 上记录通知标记或 fingerprint；推送去重键只传给原有 Noise Control。
 
