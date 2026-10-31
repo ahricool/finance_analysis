@@ -4,6 +4,7 @@ from __future__ import annotations
 import fcntl
 import json
 import shutil
+import tempfile
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -41,18 +42,23 @@ class PredictionInputs:
         root = self.store.directory(relative)
         try:
             with input_lock(root):
-                QlibDatasetExporter._write_qlib(None, root, frame, include_source=False)
-                manifest = {
-                    'purpose': 'prediction', 'execution_id': execution_id,
-                    'market': market, 'universe': universe,
-                    'date_from': str(date_from), 'date_to': str(date_to),
-                    'symbols': sorted(symbols), 'benchmark_codes': sorted(config.benchmark_dependencies),
-                    'market_benchmark': config.label_benchmark,
-                    'price_mode': 'forward_adjusted', 'feature_version': 'alpha158-v1',
-                    'source_revision': loaded.source_revision,
-                }
-                (root / 'manifest.json').write_text(json.dumps(manifest), encoding='utf-8')
-        except Exception:
+                with tempfile.TemporaryDirectory(prefix='.export-', dir=root) as temporary:
+                    working = Path(temporary)
+                    QlibDatasetExporter._write_qlib(None, working, frame, include_source=False)
+                    manifest = {
+                        'purpose': 'prediction', 'execution_id': execution_id,
+                        'market': market, 'universe': universe,
+                        'date_from': str(date_from), 'date_to': str(date_to),
+                        'symbols': sorted(symbols), 'benchmark_codes': sorted(config.benchmark_dependencies),
+                        'market_benchmark': config.label_benchmark,
+                        'price_mode': 'forward_adjusted', 'feature_version': 'alpha158-v1',
+                        'source_revision': loaded.source_revision,
+                    }
+                    (working / 'manifest.json').write_text(json.dumps(manifest), encoding='utf-8')
+                    # Handoff lives until the asynchronous Qlib worker takes ownership.
+                    for entry in working.iterdir():
+                        entry.rename(root / entry.name)
+        except BaseException:
             shutil.rmtree(root, ignore_errors=True)
             raise
         return f'quant://{relative}'

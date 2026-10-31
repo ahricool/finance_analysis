@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from pathlib import Path
+from contextlib import nullcontext
+import fcntl
 
 import pandas as pd
 import pytest
@@ -9,7 +12,8 @@ from qlib_worker.protocol import DailyPredictPayload
 from qlib_worker.tasks import predict as predict_tasks
 
 
-def test_daily_predict_loads_alpha158_features_once(monkeypatch) -> None:
+@pytest.mark.parametrize("temporary", (False, True))
+def test_daily_predict_loads_alpha158_features_once(monkeypatch, tmp_path, temporary) -> None:
     calls: list[str] = []
     index = pd.MultiIndex.from_tuples(
         [(pd.Timestamp("2026-07-16"), "A.US"), (pd.Timestamp("2026-07-16"), "B.US")],
@@ -17,8 +21,15 @@ def test_daily_predict_loads_alpha158_features_once(monkeypatch) -> None:
     )
     features = pd.DataFrame({"ROC5": [0.1, 0.2], "MA5": [1.0, 1.1]}, index=index)
 
-    monkeypatch.setattr(predict_tasks, "ArtifactStore", lambda _root: SimpleNamespace(path_for_uri=lambda uri: uri))
-    monkeypatch.setattr(predict_tasks, "get_worker_config", lambda: SimpleNamespace(artifact_root="unused"))
+    handoff = tmp_path / "temporary/example"
+    if temporary:
+        handoff.mkdir(parents=True)
+        (handoff / "input.bin").write_bytes(b"frozen input")
+    monkeypatch.setattr(predict_tasks, "ArtifactStore", lambda _root: SimpleNamespace(
+        path_for_uri=lambda uri: handoff if temporary else uri,
+    ))
+    monkeypatch.setattr(predict_tasks, "get_worker_config",
+                        lambda: SimpleNamespace(artifact_root=tmp_path if temporary else "unused"))
     monkeypatch.setattr(
         predict_tasks,
         "load_manifest",
@@ -33,6 +44,9 @@ def test_daily_predict_loads_alpha158_features_once(monkeypatch) -> None:
     monkeypatch.setattr(predict_tasks, "require_forward_adjusted_manifest", lambda manifest: manifest["price_mode"])
 
     def load_features(_dataset, _manifest, _config):
+        if temporary:
+            assert _dataset.parent == handoff
+            assert (_dataset / "input.bin").read_bytes() == b"frozen input"
         calls.append("load_features")
         return features
 
@@ -71,6 +85,135 @@ def test_daily_predict_loads_alpha158_features_once(monkeypatch) -> None:
     assert calls == ["load_features"]
     assert {item["model_key"] for item in result["results"]} == {"cross_section_lgbm", "time_series_lgbm"}
     assert all(len(item["predictions"]) == 2 for item in result["results"])
+    if temporary:
+        assert not handoff.exists()
+
+
+@pytest.mark.parametrize("fail", (False, True))
+def test_prediction_context_cleans_owned_files_and_keeps_lease_until_exit(tmp_path, fail):
+    handoff = tmp_path / "temporary/run"
+    handoff.mkdir(parents=True)
+    (handoff / "manifest.json").write_text("{}")
+    (handoff / "features").mkdir()
+    (handoff / "features/data.bin").write_bytes(b"data")
+    working = None
+    caught = False
+    try:
+        with predict_tasks.prediction_input_lease(handoff, tmp_path) as working:
+            assert working != handoff
+            assert (working / "features/data.bin").read_bytes() == b"data"
+            with (handoff / ".lease").open("a") as lease:
+                with pytest.raises(BlockingIOError):
+                    fcntl.flock(lease, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            if fail:
+                raise ValueError("prediction failed")
+    except ValueError as exc:
+        caught = True
+        assert fail and str(exc) == "prediction failed"
+    assert caught is fail
+    assert working is not None and not working.exists()
+    assert not handoff.exists()
+
+
+def test_prediction_context_preserves_persistent_training_data_on_failure(tmp_path):
+    dataset = tmp_path / "datasets/training"
+    dataset.mkdir(parents=True)
+    (dataset / "manifest.json").write_text("keep")
+    with pytest.raises(ValueError, match="failed"):
+        with predict_tasks.prediction_input_lease(dataset, tmp_path) as working:
+            assert working == dataset
+            raise ValueError("failed")
+    assert (dataset / "manifest.json").read_text() == "keep"
+
+
+def test_temporary_named_folder_in_training_tree_is_not_consumed(tmp_path):
+    dataset = tmp_path / "datasets/temporary/training"
+    dataset.mkdir(parents=True)
+    (dataset / "manifest.json").write_text("keep")
+    with predict_tasks.prediction_input_lease(dataset, tmp_path) as working:
+        assert working == dataset
+    assert (dataset / "manifest.json").read_text() == "keep"
+
+
+def test_partial_input_transfer_is_cleaned_on_failure(tmp_path, monkeypatch):
+    handoff = tmp_path / "temporary/run"
+    handoff.mkdir(parents=True)
+    (handoff / "features").mkdir()
+    (handoff / "features/data.bin").write_bytes(b"data")
+    (handoff / "manifest.json").write_text("{}")
+    original = Path.rename
+
+    def rename(path, target):
+        if path.name == "manifest.json":
+            raise OSError("transfer failed")
+        return original(path, target)
+
+    monkeypatch.setattr(Path, "rename", rename)
+    with pytest.raises(OSError, match="transfer failed"):
+        with predict_tasks.prediction_input_lease(handoff, tmp_path):
+            pytest.fail("Partial handoff must not reach prediction")
+    assert not handoff.exists()
+
+
+def test_consumed_input_is_not_recreated_by_late_delivery(tmp_path):
+    handoff = tmp_path / "temporary/run"
+    with pytest.raises(FileNotFoundError):
+        with predict_tasks.prediction_input_lease(handoff, tmp_path):
+            pytest.fail("Missing input must not be recreated")
+    assert not handoff.exists()
+
+
+@pytest.mark.parametrize("prediction_fails", (False, True))
+def test_handoff_cleanup_error_does_not_replace_prediction_outcome(tmp_path, monkeypatch, prediction_fails):
+    handoff = tmp_path / "temporary/run"
+    handoff.mkdir(parents=True)
+    (handoff / "input.bin").write_bytes(b"input")
+    original = predict_tasks.shutil.rmtree
+
+    def remove(path, *args, **kwargs):
+        if Path(path) == handoff:
+            raise PermissionError("handoff cleanup must be retried")
+        return original(path, *args, **kwargs)
+
+    monkeypatch.setattr(predict_tasks.shutil, "rmtree", remove)
+    expected = pytest.raises(ValueError, match="prediction failed") if prediction_fails else nullcontext()
+    with expected:
+        with predict_tasks.prediction_input_lease(handoff, tmp_path) as working:
+            assert (working / "input.bin").read_bytes() == b"input"
+            if prediction_fails:
+                raise ValueError("prediction failed")
+    assert handoff.exists()  # The existing startup/maintenance collector will retry.
+    assert not list(handoff.glob(".predict-*"))
+    with (handoff / ".lease").open("a") as lease:
+        fcntl.flock(lease, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+
+@pytest.mark.parametrize("prediction_fails", (False, True))
+def test_working_file_cleanup_error_preserves_outcome_and_can_be_reclaimed_later(
+    tmp_path, monkeypatch, prediction_fails
+):
+    handoff = tmp_path / "temporary/run"
+    handoff.mkdir(parents=True)
+    (handoff / "input.bin").write_bytes(b"input")
+    original = predict_tasks.os.unlink
+
+    def unlink(path, *args, **kwargs):
+        if str(path).endswith("input.bin"):
+            raise PermissionError("file is temporarily locked")
+        return original(path, *args, **kwargs)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(predict_tasks.os, "unlink", unlink)
+        expected = pytest.raises(ValueError, match="prediction failed") if prediction_fails else nullcontext()
+        with expected:
+            with predict_tasks.prediction_input_lease(handoff, tmp_path):
+                if prediction_fails:
+                    raise ValueError("prediction failed")
+        assert list(handoff.glob(".predict-*/input.bin"))
+        with (handoff / ".lease").open("a") as lease:
+            fcntl.flock(lease, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    predict_tasks.shutil.rmtree(handoff)
+    assert not handoff.exists()
 
 
 def test_daily_predict_payload_rejects_swapped_model_keys() -> None:

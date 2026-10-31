@@ -7,6 +7,7 @@ import logging
 
 from finance_analysis.quant.pipeline.service import QuantDailyPipeline
 from finance_analysis.quant.datasets.transient import PredictionInputs
+from finance_analysis.quant.datasets.cleanup import cleanup_inputs
 from finance_analysis.database.repositories.quant import QuantRepository
 from finance_analysis.core.time import utc_now
 from finance_analysis.tasks.celery.app import celery_app
@@ -63,7 +64,19 @@ def _mark_final_status(
     )
 
 
+def _discard_input(context: dict[str, Any]) -> bool:
+    try:
+        return PredictionInputs().remove(context.get("input_uri"))
+    except OSError:
+        logging.getLogger(__name__).exception("Temporary input cleanup deferred to startup or maintenance")
+        return False
+
+
 def _dispatch(market: str) -> dict[str, Any]:
+    try:
+        cleanup_inputs(dry_run=False)
+    except OSError:
+        logging.getLogger(__name__).exception("Startup cleanup deferred to maintenance; daily prediction continues")
     from finance_analysis.market_review.trading_calendar import get_market_now, is_market_session_closed
     calendar_market = market.lower()
     market_now = get_market_now(calendar_market)
@@ -85,7 +98,7 @@ def _dispatch(market: str) -> dict[str, Any]:
         )
     except Exception as exc:
         QuantRepository().update_execution(context["execution_id"], status="failed", error=str(exc)[:4000], finished_at=utc_now())
-        PredictionInputs().remove(context["input_uri"])
+        _discard_input(context)
         raise
     return {
         "status": "prediction_dispatched",
@@ -128,14 +141,15 @@ def finalize_quant_daily(
     except Exception as exc:
         if self.request.retries < self.max_retries:
             raise self.retry(exc=exc, countdown=30 * (self.request.retries + 1))
-        QuantRepository().update_execution(context["execution_id"], status="failed", error=str(exc)[:4000], finished_at=utc_now())
+        removed = _discard_input(context)
+        QuantRepository().update_execution(
+            context["execution_id"], status="failed", error=str(exc)[:4000], finished_at=utc_now(),
+            input_uri=None if removed else context.get("input_uri"),
+        )
         _mark_final_status(context, error=exc)
         raise
     _mark_final_status(context, result=finalized)
-    try:
-        PredictionInputs().remove(context.get("input_uri"))
-    except OSError:
-        logging.getLogger(__name__).exception("Deferred temporary input cleanup to maintenance")
+    _discard_input(context)
     return finalized
 
 
@@ -156,7 +170,11 @@ def fail_quant_daily(
         "failed_task_id": failed_task_id,
         "error": str(detail) if detail else "Qlib prediction task failed",
     }
-    QuantRepository().update_execution(context["execution_id"], status="failed", error=result["error"], finished_at=utc_now())
+    removed = _discard_input(context)
+    QuantRepository().update_execution(
+        context["execution_id"], status="failed", error=result["error"], finished_at=utc_now(),
+        input_uri=None if removed else context.get("input_uri"),
+    )
     _mark_final_status(context, error=RuntimeError(result["error"]))
     return result
 
@@ -164,5 +182,4 @@ def fail_quant_daily(
 @celery_app.task(name="scheduled.quant_cleanup")
 @track_task(task_type="scheduled_quant_cleanup", task_name="清理量化临时输入", source="celery_schedule", record_result=True)
 def cleanup_quant_inputs(**_):
-    from finance_analysis.quant.datasets.cleanup import cleanup_inputs
     return cleanup_inputs(dry_run=False)

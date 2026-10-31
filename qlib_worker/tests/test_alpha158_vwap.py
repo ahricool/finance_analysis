@@ -84,3 +84,17 @@ def test_alpha158_reads_exported_vwap(tmp_path: Path) -> None:
             load_manifest(tmp_path),
             {"ablation": "base_plus_event"},
         )
+
+
+def test_temporary_working_directory_preserves_real_alpha158_features(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/15")
+    from qlib_worker.tasks.predict import prediction_input_lease
+
+    handoff = tmp_path / "temporary/prediction"
+    _write_minimal_dataset(handoff)
+    expected = load_features(handoff, load_manifest(handoff), {"base": "Alpha158"})
+    with prediction_input_lease(handoff, tmp_path) as working:
+        assert (working / "features/a.us/vwap.day.bin").is_file()
+        actual = load_features(working, load_manifest(working), {"base": "Alpha158"})
+        pd.testing.assert_frame_equal(actual, expected)
+    assert not handoff.exists()

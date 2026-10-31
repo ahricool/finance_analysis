@@ -180,12 +180,21 @@ for maintenance. Signals support sorting, filtering and export; API errors are n
 
 - Persistent: canonical DB daily bars; reusable training Qlib binaries and manifest;
   model artifacts/metrics; releases; small execution records; formal result batches.
-- Temporary: `quant://temporary/<execution UUID>` inference inputs, no dataset DB row
-  and no CSV copy. Successful callback removes files; failures retain inputs for 24h.
-- Worker holds a POSIX file lock and refreshes a heartbeat every 30s. Maintenance runs
-  every 6h, skips live readers, fences tasks with no heartbeat for 24h, and rejects late
-  publication. Abandoned inputs remain a further 24h for diagnosis. Unknown directories
-  and all training evidence are excluded from automatic deletion.
+- Temporary: `quant://temporary/<execution UUID>` inference handoffs, no dataset DB row
+  and no CSV copy. The main worker exports through a `TemporaryDirectory`, then hands
+  off the existing Qlib format. The Qlib worker moves the input into its own
+  `TemporaryDirectory` while holding the handoff's POSIX lease; success and exceptions
+  both clean the working files and handoff directory. Persistent training inputs are
+  never adopted or deleted. Successful/failed callbacks also reclaim leftover handoffs.
+  Cleanup I/O errors are logged without replacing a valid prediction or its original
+  failure; the released lease allows startup/maintenance cleanup to retry later.
+- Every daily-task start first runs the existing cleanup routine; filesystem cleanup
+  errors do not prevent the new prediction. Maintenance still runs every 6h as a fallback
+  for hard kills, lost callbacks and other interrupted work. Worker heartbeats refresh
+  every 30s. Cleanup skips live readers, fences tasks with no heartbeat for 24h, and
+  rejects late publication. Completed/failed inputs are reclaimed immediately when
+  encountered, with no diagnostic retention delay. Unknown directories and all training
+  evidence are excluded from automatic deletion.
 - `uv run python scripts/quant_cleanup.py` previews cleanup; `--apply-temporary` applies
   it. `--legacy-inventory` lists old snapshots and model references for review only.
   Migration 0081 does **not** delete old snapshots or artifacts. Never infer disposable
