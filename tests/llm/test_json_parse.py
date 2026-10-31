@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Shared LLM JSON parse helpers used by pre-close, news, and Trade Engine review."""
+"""Shared LLM JSON parse helpers used by scheduled reports."""
 
 from finance_analysis.llm.json_parse import parse_llm_batch_results, parse_llm_json_response  # pragma: allowlist secret
 

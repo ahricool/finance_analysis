@@ -26,7 +26,3 @@ class CashRequest(BaseModel):
     operation_id: UUID
     account_id: int
     amount: str
-
-
-class PositionUpdateRequest(BaseModel):
-    trade_engine_enabled: Optional[bool] = None

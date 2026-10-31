@@ -28,8 +28,7 @@ class TaskAdvisoryLockId(IntEnum):
     CN_MARKET_SENTIMENT = 8
     CN_INDUSTRY_STRENGTH_PREVIEW = 9
     CN_DRAGON_TIGER_FLOW = 10
-    TRADE_ENGINE_CN = 11
-    TRADE_ENGINE_US = 12
+    # Values 11/12 belonged to the retired Trade Engine; do not reuse.
     OPTIONS_INTELLIGENCE = 13
     INDUSTRY_REFERENCE_SYNC = 14
     STOCK_STRATEGIES_CN = 15

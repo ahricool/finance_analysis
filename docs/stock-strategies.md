@@ -1,7 +1,7 @@
 # 股票策略模拟
 
 入口 `/strategies?market=CN|US`；详情 `/strategies/:strategyKey?market=CN|US`。
-顶栏位于研究之后。模拟是全局共享研究结果，与用户真实持仓、现金和 Trade Engine 完全独立。
+顶栏位于研究之后。模拟是全局共享研究结果，与用户真实持仓和现金完全独立。
 
 ## 收益与成交口径
 

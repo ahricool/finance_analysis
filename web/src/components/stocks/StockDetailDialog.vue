@@ -61,7 +61,7 @@ const props = withDefaults(defineProps<{
   optionsView?: OptionsView;
   optionsDate?: string;
 }>(), { open: undefined, quote: undefined, initialTab: 'overview', context: undefined, optionsView: undefined, optionsDate: undefined });
-const emit = defineEmits<{ 'update:open': [value: boolean]; 'holdings-updated': [] }>();
+const emit = defineEmits<{ 'update:open': [value: boolean] }>();
 
 const isOpen = computed(() => props.open ?? Boolean(props.stock));
 const tabs = computed<Array<{ value: StockDetailTab; label: string }>>(() => [
@@ -247,7 +247,6 @@ function movementClass(value: number | null | undefined): string {
             :market="stock.marketType"
             :context="detailContext"
             class="p-4 sm:p-6"
-            @updated="emit('holdings-updated')"
           />
           <component
             :is="activePanel"

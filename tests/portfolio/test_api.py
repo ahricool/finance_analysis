@@ -50,6 +50,22 @@ def test_buy_checks_instrument_and_uses_master_type(client):
     assert http.post("/holdings/buy", json={"operation_id": str(uuid4()), **body, "symbol": "999999.SH"}).status_code == 400
 
 
+def test_holdings_keep_trades_and_markers_without_engine_settings(client):
+    http, account_id = client
+    response = http.post("/holdings/buy", json={
+        "operation_id": str(uuid4()), "account_id": account_id,
+        "symbol": "600519.SH", "quantity": "100", "price": "10",
+    })
+    assert response.status_code == 200
+    position = response.json()
+    assert "trade_engine_enabled" not in position
+    position_id = position["id"]
+    assert http.patch(f"/holdings/positions/{position_id}", json={"trade_engine_enabled": True}).status_code == 405
+    assert "trade_engine_enabled" not in http.get(f"/holdings/positions/{position_id}").json()
+    assert http.get(f"/holdings/positions/{position_id}/operations").json()["items"][0]["side"] == "BUY"
+    assert http.get(f"/holdings/positions/{position_id}/markers").json()["items"][0]["type"] == "B"
+
+
 def test_api_requires_valid_key_and_returns_conflict_for_changed_request(client):
     http, account_id = client
     payload = {"account_id": account_id, "symbol": "600519.SH", "quantity": "1", "price": "4"}

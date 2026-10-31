@@ -17,7 +17,6 @@ async function mockMarkets(page: Page) {
     else if (path.endsWith('/watch-list/tags')) json = [];
     else if (path.endsWith('/watch-list')) json = { items: [], total: 0 };
     else if (path.endsWith('/holdings/summary')) json = { market, accounts: [], positions: [], cash: '0', market_value: '0', total_asset: '0', gross_exposure: null };
-    else if (path.endsWith('/trade-engine/positions')) json = { items: [] };
     else if (path.endsWith('/market-heatmap')) json = { status: 'empty', snapshot: null };
     else if (path.endsWith('/signal-center/daily')) json = { items: [], requested_dates: { CN: '2026-10-29', US: '2026-10-29' } };
     else if (path.endsWith('/signal-center/history')) json = [];

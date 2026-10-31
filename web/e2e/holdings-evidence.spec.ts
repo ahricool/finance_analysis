@@ -2,12 +2,11 @@ import { expect, test } from '@playwright/test';
 import { dashboardResponse } from '../tests/fixtures/dashboard';
 
 for (const width of [1280, 1440, 1920]) {
-  test(`holdings evidence and explicit engine error at ${width}px`, async ({ page }, testInfo) => {
+  test(`holdings records without retired engine at ${width}px`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width, height: 1000 });
     const errors: string[] = [];
     page.on('pageerror', error => errors.push(error.message));
     const requests: string[] = [];
-    let failEngine = true;
     await page.routeWebSocket('**/api/v1/market-data/ws**', socket => {
       socket.onMessage(() => socket.send(JSON.stringify({ type: 'snapshot', quotes: [] })));
     });
@@ -18,12 +17,8 @@ for (const width of [1280, 1440, 1920]) {
       if (path === '/api/v1/stocks/search') return route.fulfill({ json: { items: [] } });
       if (path === '/api/v1/holdings/summary') return route.fulfill({ json: {
         market: 'CN', accounts: [{ id: 1, name: 'A股账户', market: 'CN', cash: '90000', currency: 'CNY' }], cash: '90000', market_value: '12000', total_asset: '102000', gross_exposure: '0.1176',
-        positions: [{ id: 11, account_id: 1, market: 'CN', symbol: '600519.SH', name: '贵州茅台', asset_type: 'STOCK', quantity: '100', average_cost: '100', current_price: '120', market_value: '12000', weight: '0.1176', unrealized_pnl: '2000', trade_engine_enabled: true }],
+        positions: [{ id: 11, account_id: 1, market: 'CN', symbol: '600519.SH', name: '贵州茅台', asset_type: 'STOCK', quantity: '100', average_cost: '100', current_price: '120', market_value: '12000', weight: '0.1176', unrealized_pnl: '2000' }],
       } });
-      if (path === '/api/v1/trade-engine/positions') return route.fulfill(failEngine ? { status: 503, json: { detail: '建议服务暂不可用' } } : { json: { items: [] } });
-      if (path === '/api/v1/trade-engine/signals') return route.fulfill({ json: { items: [
-        { id: 1, symbol: '600519.SH', position_id: '11', evaluated_at: '2026-09-18T06:00:00Z', action: 'REDUCE', strategy_key: 'market_llm', strategy_version: '1', reason: '当时集中度过高', suggested_target_quantity: '80', evidence: { current_quantity: '100', target_quantity: '80', portfolio_reason: '控制单一标的集中度' } },
-      ] } });
       if (path.endsWith('/operations')) return route.fulfill({ json: { items: [{ executed_at: '2026-09-18T07:00:00Z', side: 'SELL', quantity: '20', price: '121' }] } });
       if (path.endsWith('/markers')) return route.fulfill({ json: { items: [] } });
       if (path === '/api/v1/trend-following/600519.SH') return route.fulfill({ json: { latest: { code: '600519.SH', trade_date: '2026-09-21', state: 'TRENDING', rank: 5, alpha_score: 81, reasons: ['趋势保持向上'] } } });
@@ -36,22 +31,19 @@ for (const width of [1280, 1440, 1920]) {
       return route.fulfill({ json: dashboardResponse(url) });
     });
     await page.goto('/market/holdings');
-    await expect(page.getByTestId('engine-error')).toContainText('Trade Engine 建议读取失败');
     await expect(page.getByTestId('cash')).toContainText('90,000');
-    failEngine = false;
-    await page.getByTestId('retry-engine').click();
-    await expect(page.getByTestId('engine-error')).toHaveCount(0);
     expect(requests.filter(path => path === '/api/v1/holdings/summary')).toHaveLength(1);
     await page.getByRole('button', { name: '600519.SH - 贵州茅台', exact: true }).click();
     const dialog = page.getByRole('dialog');
     await dialog.getByRole('tab', { name: '持仓', exact: true }).click();
     await expect(dialog.getByRole('tab', { name: '研究概览', exact: true })).toHaveCount(0);
-    await dialog.getByTestId('signal-evidence').locator('summary').click();
-    await expect(dialog.getByTestId('signal-evidence')).toContainText('当时集中度过高');
-    await expect(dialog.getByTestId('signal-evidence')).not.toContainText('趋势保持向上');
+    await expect(dialog).toContainText('2026-09-18T07:00:00Z SELL 20 @121');
+    await expect(dialog.getByText('交易提醒', { exact: true })).toHaveCount(0);
+    expect(requests.filter(path => path.startsWith('/api/v1/trade-engine/'))).toHaveLength(0);
     expect(requests.filter(path => path.startsWith('/api/v1/trend-following/'))).toHaveLength(0);
     expect(requests.filter(path => path.startsWith('/api/v1/quant/'))).toHaveLength(0);
     expect(requests.filter(path => path.endsWith('/600519.SH/context'))).toHaveLength(0);
+    await page.screenshot({ path: testInfo.outputPath(`holdings-records-${width}.png`), fullPage: true });
     await dialog.getByRole('tab', { name: '行业', exact: true }).click();
     await expect(dialog.getByTestId('industry-detail-panel')).toContainText('食品饮料');
     await expect(dialog.getByTestId('industry-detail-panel').getByRole('link')).toHaveAttribute('href', /industry=881101.TI.*tradeDate=2026-09-21/);

@@ -18,7 +18,7 @@ for (const width of [390, 768, 1024, 1280, 1440, 1920]) {
           cash: '90000', market_value: '12000', total_asset: '102000', gross_exposure: '0.1176',
           positions: [{ id: 11, account_id: 1, market: 'CN', symbol: '600519.SH', name: '贵州茅台', asset_type: 'STOCK',
             quantity: '100', average_cost: '100', current_price: '120', market_value: '12000', weight: '0.1176',
-            unrealized_pnl: '2000', trade_engine_enabled: true }],
+            unrealized_pnl: '2000' }],
         } });
         if (path.endsWith('/quote')) return route.fulfill({ status: 404, json: { detail: 'No quote' } });
         if (path.endsWith('/classification')) {
@@ -31,7 +31,7 @@ for (const width of [390, 768, 1024, 1280, 1440, 1920]) {
             { code: '881102.TI', name: '白酒', members_observed_at: '2026-10-11T02:00:00Z' },
           ] } } });
         }
-        if (path.startsWith('/api/v1/trade-engine/') || path.endsWith('/operations') || path.endsWith('/markers')) {
+        if (path.endsWith('/operations') || path.endsWith('/markers')) {
           return route.fulfill({ json: { items: [] } });
         }
         if (path.includes('/daily-bars/')) return route.fulfill({ json: { symbol: '600519.SH', bars: [], warnings: [] } });

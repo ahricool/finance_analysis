@@ -1,4 +1,4 @@
-"""Read-only display valuation; execution freshness rules remain in Trade Engine."""
+"""Read-only holdings display valuation with quote freshness labels."""
 
 from datetime import datetime, time, timedelta
 from decimal import Decimal

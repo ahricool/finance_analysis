@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""A-share snapshot breadth used by pre-close review, not Trade Engine."""
+"""A-share snapshot breadth used by pre-close review."""
 
 from datetime import date
 

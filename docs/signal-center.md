@@ -1,6 +1,6 @@
 # Unified Signal Center v2
 
-信号中心主动读取 PostgreSQL 当日正式研究结果，生成共享股票/ETF研究信号；不下单、不改持仓、不调用 Trade Engine。
+信号中心主动读取 PostgreSQL 当日正式研究结果，生成共享股票/ETF研究信号；不下单、不改持仓。
 每市场每天最多3个BUY，允许0个；CN/US合计最多6个。所有来源走同一初筛路径，不设直通名额。
 
 ## 候选范围

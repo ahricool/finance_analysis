@@ -49,8 +49,6 @@ class ResolvedPosition:
     lots: tuple[ResolvedLot, ...] = ()
     quote_price: Decimal | None = None
     name: str | None = None
-    trade_engine_enabled: bool = True
-    had_addon: bool = False
 
     @property
     def is_option(self) -> bool:
@@ -59,10 +57,6 @@ class ResolvedPosition:
     @property
     def valuation_eligible(self) -> bool:
         return (not self.is_option) and self.quantity > 0 and self.asset_type.upper() in {"STOCK", "ETF"}
-
-    @property
-    def trade_engine_eligible(self) -> bool:
-        return self.valuation_eligible and bool(self.trade_engine_enabled)
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,10 +83,6 @@ class ResolvedPortfolio:
     def valuation_positions(self, market: str | None = None) -> tuple[ResolvedPosition, ...]:
         rows = self.positions if market is None else self.positions_for_market(market)
         return tuple(item for item in rows if item.valuation_eligible)
-
-    def trade_engine_positions(self, market: str | None = None) -> tuple[ResolvedPosition, ...]:
-        rows = self.positions if market is None else self.positions_for_market(market)
-        return tuple(item for item in rows if item.trade_engine_eligible)
 
     def db_cash(self, market: str) -> Decimal:
         return sum((item.cash for item in self.accounts if item.market == market), start=Decimal("0"))

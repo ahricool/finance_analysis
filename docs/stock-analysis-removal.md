@@ -24,7 +24,7 @@
 | NotificationService | 全部研究消息、交易信号、任务错误 | 保留持久化/推送/降噪及图片转换，移除个股报告渲染继承 |
 | report language 配置 | 市场复盘与 Longbridge | 保留语言规范化，删除个股报告专属文案/信号本地化 |
 
-盘前新闻、美股收盘复盘、A 股 14:30 复核、Trade Engine、Signal Center、财报前瞻、Trend/ETF/Quant、日线同步和 Streamer 都保留。
+盘前新闻、美股收盘复盘、A 股 14:30 复核、Signal Center、财报前瞻、Trend/ETF/Quant、日线同步和 Streamer 都保留。
 `analysis` Celery 队列也继续承载其他研究任务，不能删除。
 
 ## 删除后停止生产或失去消费者的项目
@@ -39,7 +39,7 @@
 | `MarketDataService.get_fundamental_context` 聚合入口及聚合配置 | 当前已无应用业务调用方；Provider 离线契约测试仍覆盖 | 本次保留为无调度的行情能力，明确列为悬空聚合入口；后续如清理，需要单独核对原始 capability 的其他使用方 |
 | 历史 `data/reports/analysis`、导出/图片文件 | 不再由旧个股报告链生成；旧文件可能仍在 | 不删除本地/生产文件；没有新增清理任务 |
 
-`stock_daily`、Instrument、Universe、自选股和持仓不是这条任务独有的数据源，继续被行情、研究和交易引擎使用。
+`stock_daily`、Instrument、Universe、自选股和持仓不是这条任务独有的数据源，继续被行情与研究模块使用。
 扶摇原始财报/资金流/行业能力、Longbridge 新闻及共享 LLM 调用层也不随本任务删除。
 
 ## 发布与回滚
