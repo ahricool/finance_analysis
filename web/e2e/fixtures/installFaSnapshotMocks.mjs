@@ -57,7 +57,6 @@ function syntheticHoldingsSummary(market) {
       market_value: String(1_200_000 + i * 88_000),
       weight: String(0.12 - i * 0.003),
       unrealized_pnl: String(i % 2 === 0 ? 123456.78 : -98765.43),
-      trade_engine_enabled: i % 4 !== 0,
       lots: [],
     })),
   };

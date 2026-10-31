@@ -8,7 +8,7 @@ const portfolio = {
   positions: [{ id: 11, account_id: 1, market: 'CN', symbol: '600519.SH', name: '贵州茅台', asset_type: 'STOCK',
     quantity: '100', average_cost: '100', current_price: '120', market_value: '12000', weight: '0.1176',
     unrealized_pnl: '2000', unrealized_pnl_pct: '20', change_pct: '2.5', change_amount: '3', day_pnl: '300',
-    quote_time: '2026-10-14T02:41:09Z', quote_source: 'fuyao', quote_status: 'current', trade_engine_enabled: true }],
+    quote_time: '2026-10-14T02:41:09Z', quote_source: 'fuyao', quote_status: 'current' }],
 };
 
 for (const width of [390, 768, 1024, 1280, 1440, 1920]) {
@@ -24,7 +24,6 @@ for (const width of [390, 768, 1024, 1280, 1440, 1920]) {
     await page.route('**/api/v1/**', route => {
       const url = new URL(route.request().url());
       if (url.pathname === '/api/v1/holdings/summary') return route.fulfill({ json: portfolio });
-      if (url.pathname === '/api/v1/trade-engine/positions') return route.fulfill({ json: { items: [] } });
       if (url.pathname === '/api/v1/market-data/events') return route.fulfill({
         contentType: 'text/event-stream',
         body: `data: ${JSON.stringify({ type: 'quotes', generated_at: portfolio.generated_at, quotes: [], portfolio })}\n\n`,

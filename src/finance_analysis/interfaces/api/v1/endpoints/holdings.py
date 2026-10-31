@@ -8,7 +8,6 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from finance_analysis.interfaces.api.deps import get_effective_uid, require_current_user  # pragma: allowlist secret
 from finance_analysis.interfaces.api.v1.schemas.holdings import (  # pragma: allowlist secret
     CashRequest,
-    PositionUpdateRequest,
     TradeRequest,
 )
 from finance_analysis.portfolio.context import render_portfolio_context  # pragma: allowlist secret
@@ -64,31 +63,6 @@ def get_position(position_id: int, request: Request, response: Response, service
     if row is None:
         raise HTTPException(status_code=404, detail="持仓不存在")
     return _position_payload(row)
-
-
-@router.patch("/positions/{position_id}")
-def patch_position(
-    position_id: int,
-    body: PositionUpdateRequest,
-    request: Request,
-    response: Response,
-    service: PortfolioService = Depends(_portfolio),
-):
-    _private(response)
-    payload = body.model_dump(exclude_unset=True)
-    if not payload:
-        raise HTTPException(status_code=400, detail="没有可更新的字段")
-    try:
-        return _position_payload(
-            service.update_position(
-                get_effective_uid(request),
-                position_id,
-                trade_engine_enabled=payload.get("trade_engine_enabled"),
-            )
-        )
-    except PortfolioError as extra:
-        status = 404 if str(extra) == "持仓不存在" else 400
-        raise HTTPException(status_code=status, detail=str(extra)) from extra
 
 
 @router.post("/buy")

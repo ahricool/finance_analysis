@@ -31,7 +31,6 @@ class FakeRepo:
                 quantity=Decimal("100"),
                 average_cost=Decimal("190"),
                 opened_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
-                trade_engine_enabled=True,
             )
         ]
 

@@ -24,9 +24,6 @@ def _position_payload(item: dict) -> dict:
         "asset_type": item["asset_type"],
         "quantity": _json_dec(item["quantity"]),
         "average_cost": _json_dec(item["average_cost"]),
-        "trade_engine_enabled": (
-            True if item.get("trade_engine_enabled") is None else bool(item.get("trade_engine_enabled"))
-        ),
         "opened_at": item.get("opened_at"),
         "closed_at": item.get("closed_at"),
         "lots": [

@@ -69,7 +69,6 @@ export const metricLabels = {
   strategyChanges: { zh: '策略变化', en: 'Strategy Changes' },
   preview: { zh: '盘中预演', en: 'Preview' },
   officialClose: { zh: '正式收盘', en: 'Official Close' },
-  tradeEngine: { zh: '交易引擎', en: 'Trade Engine' },
   newBuy: { zh: '新增买入', en: 'NEW BUY' },
   newExit: { zh: '新增退出', en: 'NEW EXIT' },
   newEmerging: { zh: '新增萌芽', en: 'NEW EMERGING' },

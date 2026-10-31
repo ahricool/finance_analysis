@@ -1,162 +1,49 @@
-# 持仓与 Trade Engine
+# 持仓管理
 
-数据库是普通股票/ETF 实际持仓的唯一事实源。Trade Engine 是**中线持仓决策系统**：Strategy 机械地重新描述当前发生了什么，LLM 记住过去并决定整个 A 股或美股账户最终应该持有什么仓位。不自动下单。
-
-页面 `/market/holdings`。DB API `/api/v1/holdings`，Trade Engine `/api/v1/trade-engine`。
-
-```text
-                 DB Portfolio
-                 唯一持仓事实源
-                        │
-                        ▼
-              Market Portfolio Context
-                        │
-        ┌───────────────┼───────────────┐
-        ▼               ▼               ▼
-    Position Facts   Market Data    Trade History
-        │          15d Daily + Today      │
-        │               OHLCV             │
-        └───────────────┬─────────────────┘
-                        ▼
-              Stateless Strategies
-              ├─ exit_v1
-              ├─ add_v1
-              └─ entry_v1（未来）
-                        │
-                        ▼
-                 Strategy Signals
-                        │
-              Portfolio Risk Facts
-                        │
-             Previous LLM State
-                        │
-             One Market-level LLM
-                  + Web Search
-                        │
-               Target Positions
-                        │
-            Mechanical Validation
-                        │
-         BUY / ADD / REDUCE / EXIT
-              ┌─────────┴─────────┐
-         TradeSignal          LLM State
-         Notification           Update
-```
-
-CN / US 分别独立执行。
-
-## 数据模型
-
-- `portfolio_account`：每个市场一个默认账户。CN 与 US 的 cash / NAV / 仓位 / 风险 / LLM 状态必须分开，禁止混合。
-- `portfolio_position`：当前实际持仓。V1 只支持 STOCK/ETF。`trade_engine_enabled` 默认 true；关闭后该持仓不运行 Strategy，LLM target 强制等于 current，但仍计入账户 NAV、仓位和风险。
-- `position_lot`：CORE/ADDON 风险归因。第一次买入建 CORE，继续买入建 ADDON。只要本轮 position 曾经有过 ADDON（即使 remaining=0），`add_v1` 视为已经加仓过。
-- `trade_operation`：BUY/SELL。日K BST 由此动态聚合。
-- `cash_operation`：仅保留历史 DEPOSIT/WITHDRAW 记录，新操作不再写入。
-- `trade_llm_state`：每个 `uid + market` 一行。保存简洁交易记忆 `summary` 和上一轮 `last_decision`。
-- `trade_signal`：仅在 LLM 最终 `target ≠ current` 时写入 BUY/ADD/REDUCE/EXIT。
-
-市值、仓位、浮盈亏、high watermark、Stage、active stop 全部本轮重算，不作为 Strategy state 持久化。
+数据库是普通股票/ETF 实际持仓的唯一事实源。页面 `/market/holdings`，API `/api/v1/holdings`。
+A 股和美股账户分别维护现金、持仓与本币估值，不换汇。
 
 ## 买卖与现金
 
-同一事务：
+- 现金通过 `PATCH /holdings/cash` 独立设置，可为 0，不可为负。买卖记录不会自动改变现金，也不以现金余额限制买入录入。
+- 买入通过证券主数据校验市场及 STOCK/ETF 类型，写入 `trade_operation`、持仓数量与批次。
+  首次买入创建 CORE，继续买入创建 ADDON；平均成本按剩余批次数量加权计算。
+- 卖出不能超过当前持仓，优先扣减 ADDON，同类批次从最新买入开始扣减。全部卖出后关闭该持仓，再次买入创建新持仓。
+- 买卖不考虑手续费。`portfolio_mutation` 保存操作幂等凭证，同一请求重试不会重复记账。
+- `cash_operation` 只保留已有历史，新现金修改不再写入金/出金记录。
 
-- 通过 `PATCH /api/v1/holdings/cash` 按账户设置独立现金余额（可为 0，不可为负）。移除入金/出金入口；现金仅供 NAV、仓位、Trade Engine 与风险计算，买卖不自动改变现金，也不以现金余额限制买入录入。已有现金值原样保留。
-- BUY：写操作、创建/更新持仓、创建 CORE/ADDON、更新数量与剩余 lot 加权平均成本；不修改现金。买入复用证券搜索建议，并由后端校验 instrument 中的代码、市场及 STOCK/ETF 类型，以主数据类型为准。
-- SELL：数量不能超过当前持仓；newest-first 扣 lot；全部卖完后关闭当前 position。再次买入开新一轮。
+## 估值与行情
 
-不考虑手续费。
+HTTP `/holdings/summary?market=CN|US` 与 WS/SSE 的 `scope=holdings&market=CN|US`
+复用 `portfolio/valuation.py`。Streamer 采集自选与持仓并集；估值只读 Redis，不在缺价时补拉。
+页面先通过 HTTP 加载账户与持仓，再通过实时行情快照更新估值。
+WS 连续两次失败后固定回落 SSE，切市场使旧连接与旧请求失效。
 
-## Trade Engine 定位
+表格保留名称/代码、现价、报价来源/时间、当日涨跌、数量、成本、仓位、当日盈亏、
+持仓盈亏及实时趋势/形态。数据列表头支持排序，缺失值始终置后。
 
-Beat 每 30 分钟触发 `trade_engine_cn` / `trade_engine_us`。任务内再用交易日历判断 evaluation window：不在窗口则 skip。不要把调度频率理解成日内高频止损系统。
+- 市值为有效现价乘数量，总资产为现金加可估值持仓市值。
+- 持仓盈亏为剩余持仓的未实现盈亏，不包含已卖出部分。
+- 当日盈亏为当前数量×(现价−昨收)＋当日卖出数量×(卖价−昨收)−当日买入数量×(买价−昨收)。
+  只展示仍有持仓的记录，不包含手续费。
+- 超过 90 秒的报价标注延迟；未知报价时间或缺价不估值。缺少昨收只影响当日指标。
+- 缺价持仓不计入合计，并提示总资产与仓位估值不完整。
 
-Strategy 主要基于持仓事实、Lot、完整日线、中线结构、当前实时报价和 Portfolio Risk。今日盘中 OHLCV 同时给 LLM 作上下文；`add_v1` 在自己的局部 evaluation bars 中使用今日临时 K。
+统一股票详情中的持仓面板保留本人账户、实际持仓、买卖操作记录和日 K 的 B/S/T 标记。
+行业等研究面板仍按需读取各自正式研究结果，不合成交易指令。
 
-日线通过 `MarketDataService.get_daily_bars(..., source_policy="db_latest")` 读取，并过滤 `trade_date <= latest_completed_trading_day`。Strategy / PositionRisk 历史覆盖 `min(lot.entry_time) - 30 calendar days` 到最新完整交易日，不能为了 15d LLM 窗口截断 high watermark。LLM 只看到最近 15 根完整日 K。
+## 交易引擎已退役
 
-## Stateless Strategy
+`trade_engine_cn`、`trade_engine_us` 两个周期任务及管理员手动入口、领域模块、
+`exit_v1` / `add_v1` / `portfolio_risk_v1`、市场级 LLM、通知与 `/api/v1/trade-engine` 全部删除。
+前端不再展示建议列、保护价、盈利阶段、提醒开关或历史交易信号。
 
-`exit_v1` / `add_v1` 不保存、不读取任何 state。同样输入得到同样输出。每 30 分钟重复相同 REDUCE/ADD 是正确行为。
+迁移 `0087_retire_trade_engine`：
 
-- `exit_v1`：从 Position + Lots + 完整日线重算 lot high watermark、Stage A/B/C、capital / structure / profit stop，`active_stop = max(...)`。有效报价 `<= active_stop` 则 REDUCE 或 EXIT。
-- `add_v1`：历史完整日K + 今日临时K判断 BREAKOUT_CONTINUATION / PULLBACK_REENTRY。临时K日期取市场当地日期，O/H/L/volume 来自实时行情，C 为实时现价；只保留今日之前的完整历史，避免同日重复。所有 sizing（市值、仓位容量、风险和现金容量、建议入场价）使用该实时现价。MarketData 负责数值清洗与质量校验；Trade Engine 只检查报价、正价格、时间存在与 stale。ADD 信任标准 DTO，仅要求报价 valid/non-stale、OHLCV/时间齐全且属于当前市场当地日期，不重复检查 finite/OHLC 范围，不以昨日 close 替代。Streaming quote_time 使用 event_time 或 received_at，两者相同也有效。成功 realtime MarketQuote 必须有 UTC 时间：优先 provider 行情时间，缺失时使用 snapshot 获取时间；yfinance fast_info 直接使用 fetched_at，Longbridge/Fuyao 在 provider timestamp 缺失时回退获取时间，不增加额外请求。
-- 临时K只在 ADD 内存副本中使用，不进入 PositionRisk、EXIT high watermark/stage/stop，也不持久化。今日成交量是盘中累计量；突破仍保守要求累计量已经达到完整日历史中位量门槛，不预测全日量，早盘可能不发信号。回踩的缩量判断仍使用之前的完整日K。evidence 标注临时K和成交量口径。
-- 本轮不实现 `entry_v1`。没有 BUY Strategy Signal 时 LLM 不能凭空新开仓。
+- 删除 `trade_signal`、`trade_llm_state` 两张表及全部数据。
+- 删除 `portfolio_position.trade_engine_enabled`，从已有操作回执中移除相同字段，保留幂等凭证。
+- 清理专属任务记录、关联交易通知、任务错误通知、`trade_engine_market` LLM 用量与审计记录、任务日志。
+- 保留账户、现金、真实持仓、CORE/ADDON 批次、买卖记录、历史现金操作及其他模块的任务和通知。
 
-Strategy Signal 只存在于本轮内存，作为 LLM 输入。正式调仓时写入 TradeSignal evidence 便于审计。
-
-## Portfolio Risk Facts
-
-`portfolio_risk_v1` 每轮计算 NAV、cash、gross exposure、单票权重/open risk、总 open risk 及 policy limits。这些是客观事实，不直接通知，全部交给 LLM。
-
-## Market-level LLM
-
-每个市场每轮最多一次 LLM。只要该市场存在实际持仓就调用，即使本轮没有 Strategy Signal。空仓且没有 Entry Strategy 则 skip。
-
-增加仓位必须有对应 BUY/ADD Strategy Signal，且不能超过机械允许的最大 ADD。降低仓位可以因为 exit_v1、Portfolio Risk 或重大实时风险。disabled position 的 target 必须等于 current。
-
-LLM 主要输出 target_quantity。代码按 current vs target 派生 BUY/ADD/REDUCE/EXIT/NO_ACTION。`target == current` 不创建 TradeSignal、不发通知，但仍更新 `trade_llm_state`。
-
-Web Search 仅限当前市场已有持仓的重大公司事件。CLI backend 不支持真实搜索时标记 `web_search_available=false`，不得声称已经检索。
-
-## 串行决策与通知去重
-
-`evaluate_uid` 统一保护 scheduled / manual 两个入口。复用 PostgreSQL session advisory lock，稳定双整数 key 为 `(CN:20260921 / US:20260922, uid)`，不使用 Python hash。try-lock 失败立即返回 `SKIPPED_LOCKED`，不同市场/用户不互锁。锁覆盖持仓/行情/历史/state 读取、策略、风险计算、LLM、结果事务与提交后 push；异常也释放。锁连接 acquire 后立即 commit，不保持业务事务。
-
-读取 state / recent signals 使用短 session 并转为 DTO 后关闭；LLM/Web Search 在 session 外执行；随后短事务更新 state、写 TradeSignal 和 Notification，commit 后 push。
-
-LLM Prompt 要求综合当前现金及所有加仓合计支出、总/单票仓位和风险预算，竞争预算时主动取舍，超限时优先降风险。这些是建议约束，执行由用户决定；代码仅保留原有 target 非负、disabled 固定、增加必须有机械信号且不超过上限的边界，不增加组合硬优化。
-
-LLM 结合 previous state/decision、recent signals、真实持仓、行情和重大新闻判断重复建议价值；无实质变化优先 NO_ACTION，风险恶化允许再次建议。
-
-正式 TradeSignal 仍可保存重复决策。通知只包含当日未通知的 `(uid, market, symbol, action)`，只查询 `notification_id IS NOT NULL` 的信号；其余历史信号 notification_id 为空。全部重复则不创建消息、不 push，但策略/LLM/state 更新照常。日期使用市场当地日（CN Asia/Shanghai，US America/New_York），查询当地午夜到次日午夜的 UTC 半开区间，兼容 DST。通知意味着站内消息已持久化，不表示外部渠道成功送达。
-
-## 调度
-
-- `trade_engine_cn` / `trade_engine_us`：每 30 分钟，`alerts` 队列；cron 为 `*/30`，task 内再用交易日历校验 session / 半天市 / 假期。
-
-Alembic head 为 `0062_holdings_portfolio_risk`。
-
-## BST
-
-股票日K：同一交易日只有 BUY → B，只有 SELL → S，两者都有 → T。
-
-## 部署
-
-1. 跑 Alembic 至 `0062_holdings_portfolio_risk`。
-2. 普通 worker 已消费 `alerts`。
-3. 可选配置全局 Telegram/ntfy；没有渠道时引擎仍可用。
-
-## 持仓请求可靠性与研究证据
-
-- 买入、卖出和修改现金请求必须携带 UUID `operation_id`。前端每次打开新记账表单生成一个标识，同一表单超时重试复用该标识。
-- `portfolio_mutation` 按 `(uid, operation_id)` 唯一保存请求摘要和原始结果；回执与持仓变更在同一 PostgreSQL 事务中提交。并发重复请求等待首次事务结束后返回原结果，不重复修改 lot、数量或现金。同标识不同请求返回 HTTP 409；失败事务不保留回执。内部服务调用可省略标识，表示一次新的操作。
-- 现金仍为独立余额设置，买卖不改变现金；旧现金请求重试返回当时结果，不覆盖之后设置的新余额。前后端需一同升级到该请求契约，旧客户端缺少标识会得到 422。
-- 新迁移 `0063_portfolio_mutation` 仅新增操作回执表，不改历史成交。回滚会丢弃去重回执，不能在仍有旧请求重试时回滚后继续接受这些请求。
-- 持仓与 Trade Engine 分别加载并独立重试。市场切换、详情切换和卸载使旧请求失效；建议读取失败不再伪装成空结果。详情操作记录与提醒开关同样校验请求归属。
-- 持仓与自选股详情共用“研究证据”组件，只按需读取目标证券的正式 Trend、ETF、Quant 结果，以及 A 股当前行业成员对应的最新正式行业快照；不读取全量排名、不运行策略、不拉外部行情。
-- 行业背景通过 `GET /api/v1/industry-strength/stocks/{code}/context` 只读查询当前物化成员，显示成员观测时间。不能用于推断历史行业归属；没有当日行业快照时不回退拼接更早快照。
-- 各研究卡片显示各自交易日；日期不同显式提示，不合成统一买卖结论。来源链接携带证券/行业、市场及快照日期，直接打开对应正式详情。404 表示未覆盖/无快照，其他错误独立展示并允许重试。
-- 仅持仓详情读取本人该 `position_id` 的正式 TradeSignal，展示保存的策略版本、数量变化、LLM/组合理由和风险事实，并与实际操作记录按时间对照。当前研究结果不作为历史建议的生成依据；自选股不请求私人 TradeSignal。港股显示当前研究覆盖限制。
-
-## 持仓页面行情与损益
-
-`/api/v1/holdings/summary?market=CN|US` 与行情 WS/SSE 的 `scope=holdings&market=CN|US`
-复用 `portfolio/valuation.py`。持仓独立于自选股订阅，页面估值通过 `MarketDataService.get_cached_quotes` 按市场批量只读 Redis；
-Streamer 统一采集自选与持仓：A 股扶摇股票/指数每批100、ETF逐只，美股 Longbridge 批量订阅；页面缓存缺失不补拉。
-
-页面先以HTTP加载账户、持仓与正式建议，随后行情快照约每5秒更新持仓估值；正式建议仍经独立HTTP读取。
-WS连续两次连接或快照超时失败后停止WS重连，改用HTTP SSE；SSE失败每5秒重试SSE，
-鉴权失败停止重试。切市场取消旧连接，旧响应不能覆盖新市场。
-
-持仓表依次显示名称/代码、现价及报价来源/时间、当日涨跌幅/额、交易引擎状态、数量、
-平均成本、仓位、当日盈亏、持仓盈亏比例/金额。表格不显示市值列，顶部仍保留持仓市值汇总；
-数值表头可排序，缺失值始终置后。人民币与美元分别显示，不换汇。
-
-当日盈亏按报价对应交易日计算：当前数量×(现价−昨收)＋当日卖出数量×(卖价−昨收)
-−当日买入数量×(买价−昨收)，包含当前持仓记录的当日交易影响，不含费用。仅显示仍有持仓
-的记录，不汇总已清仓记录；行情延迟时为估算。持仓盈亏是剩余持仓的未实现盈亏，比例为
-(现价÷平均成本−1)×100%。未知时间/无报价不估值，未知昨收仅缺失当日指标；
-超过90秒的报价保留价格并明确标注延迟，**不改变交易引擎90秒有效期规则**。
-缺价持仓不计入估值合计，页面明确提示缺价数量与总资产/仓位不完整。
+历史删除不可逆。已有数据库须执行 `alembic upgrade head`；空库直接使用当前 metadata。
+删除代码本身不会修改尚未升级的运行环境。

@@ -88,12 +88,6 @@ describe('unified StockDetailDialog', () => {
     expect(wrapper.findAll('[role="tab"]').map(item => item.text())).toEqual(['行情', '持仓']);
     wrapper.unmount();
   });
-  it('forwards holding updates without closing the modal', async () => {
-    const wrapper = render('holdings'); await flushPromises();
-    await wrapper.get('[data-testid="holding-panel"] button').trigger('click');
-    expect(wrapper.emitted('holdings-updated')).toHaveLength(1);
-    expect(wrapper.find('[role="tabpanel"]').exists()).toBe(true); wrapper.unmount();
-  });
   it('loads a quote only when overview is active and prefers a matching supplied quote', async () => {
     const wrapper = render('trend'); await flushPromises();
     expect(stocksApi.quote).not.toHaveBeenCalled();

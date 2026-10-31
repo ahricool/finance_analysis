@@ -18,7 +18,7 @@ def test_migration_single_head_matches_models_and_reverses():
     root = Path(__file__).resolve().parents[2]
     cfg = Config(str(root / "alembic.ini"))
     cfg.set_main_option("script_location", str(root / "alembic"))
-    assert ScriptDirectory.from_config(cfg).get_current_head() == "0086_retire_news"
+    assert ScriptDirectory.from_config(cfg).get_current_head() == "0087_retire_trade_engine"
     spec = importlib.util.spec_from_file_location("stock_migration", root / "alembic/versions/0076_stock_strategies.py")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)

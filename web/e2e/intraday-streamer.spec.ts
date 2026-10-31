@@ -29,7 +29,7 @@ for (const scope of ['watch-list', 'holdings'] as const) {
         { id: 1, code: '600519.SH', name: '贵州茅台', market_type: 'CN', notes: '', tags: [], is_favorite: false },
         { id: 2, code: 'AAPL.US', name: 'Apple', market_type: 'US', notes: '', tags: [], is_favorite: false },
       ];
-      const position = { id: 1, account_id: 1, market: 'CN', symbol: '600519.SH', name: '贵州茅台', asset_type: 'STOCK', quantity: '100', average_cost: '100', current_price: '110', market_value: '11000', weight: '0.11', unrealized_pnl: '1000', unrealized_pnl_pct: '10', trade_engine_enabled: true };
+      const position = { id: 1, account_id: 1, market: 'CN', symbol: '600519.SH', name: '贵州茅台', asset_type: 'STOCK', quantity: '100', average_cost: '100', current_price: '110', market_value: '11000', weight: '0.11', unrealized_pnl: '1000', unrealized_pnl_pct: '10' };
       const signal = { timeframe: '1m', pattern_type: 'breakout_retest_continuation', pattern_name: '突破回踩延续', direction: 'bullish_continuation', stage: 'confirmed', quality_score: 83, occurred_at: '2026-10-21T02:15:00Z', confirmed_at: '2026-10-21T02:27:00Z', observed_at: '2026-10-21T02:28:03Z', trading_date: '2026-10-21', bars_ago: 2, session_minutes_ago: 2, reference_level: 109, invalidation_price: 106, reasons: ['突破后回踩守住参考位'], confirmed: true };
       const events = [
         { ...signal, direction: 'neutral_wait', stage: 'forming', confirmed: false, observed_at: '2026-10-21T02:26:03Z' },

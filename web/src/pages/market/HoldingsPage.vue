@@ -8,10 +8,8 @@ import PageHeader from '@/components/layout/PageHeader.vue';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import {
   holdingsApi,
-  tradeEngineApi,
   type PortfolioAccount,
   type PortfolioPosition,
-  type TradeEnginePosition,
   type HoldingsSummary,
 } from '@/api/holdings';
 import StockDetailDialog from '@/components/stocks/StockDetailDialog.vue';
@@ -54,17 +52,16 @@ const totalAsset = ref('0');
 const exposure = ref<string | null>(null);
 const missingQuotes = ref(0);
 const updatedAt = ref<string | null>(null);
-type SortKey = 'trend' | 'pattern' | 'intradayDirection' | 'symbol' | 'currentPrice' | 'changePct' | 'engine' | 'quantity' | 'averageCost' | 'weight' | 'dayPnl' | 'unrealizedPnlPct';
+type SortKey = 'trend' | 'pattern' | 'intradayDirection' | 'symbol' | 'currentPrice' | 'changePct' | 'quantity' | 'averageCost' | 'weight' | 'dayPnl' | 'unrealizedPnlPct';
 const sortKey = ref<SortKey>('weight');
 const sortDirection = ref<'asc' | 'desc'>('desc');
 const columns: Array<{ key: SortKey; label: string }> = [
   { key: 'symbol', label: '股票' }, { key: 'currentPrice', label: '现价' },
-  { key: 'changePct', label: '当日涨跌' }, { key: 'engine', label: '交易引擎' },
+  { key: 'changePct', label: '当日涨跌' },
   { key: 'quantity', label: '数量' }, { key: 'averageCost', label: '成本' },
   { key: 'weight', label: '仓位' }, { key: 'dayPnl', label: '当日盈亏' }, { key: 'unrealizedPnlPct', label: '盈亏' },
   { key: 'trend', label: '趋势持续' }, { key: 'pattern', label: '最近形态' }, { key: 'intradayDirection', label: '日内方向状态' },
 ];
-const engine = ref<TradeEnginePosition[]>([]);
 const formOpen = ref(false);
 const formKind = ref<'buy' | 'sell' | 'cash'>('buy');
 const formSymbol = ref('');
@@ -77,36 +74,25 @@ const formAmount = ref('');
 const formPositionId = ref<number | null>(null);
 const saving = ref(false);
 const detail = ref<PortfolioPosition | null>(null);
-const engineLoading = ref(false);
-const engineError = ref<ParsedApiError | null>(null);
 const formError = ref<ParsedApiError | null>(null);
 const operationId = ref('');
 let listRequest = 0;
-let engineRequest = 0;
 let formRequest = 0;
 let stopped = false;
 onBeforeUnmount(() => {
   stopped = true;
-  listRequest++; engineRequest++; formRequest++;
+  listRequest++; formRequest++;
 });
 const account = computed(() => accounts.value[0] || null);
 
 onMounted(() => {
   void load();
 });
-const engineByPosition = computed(() => Object.fromEntries(engine.value.map(item => [item.positionId, item])));
 function numeric(value?: string | null): number | null {
   return value == null || value === '' || !Number.isFinite(Number(value)) ? null : Number(value);
 }
-function engineLabel(row: PortfolioPosition) {
-  if (row.tradeEngineEnabled === false) return '已关闭';
-  if (engineLoading.value) return '加载中';
-  if (engineError.value) return '读取失败';
-  return engineByPosition.value[String(row.id)]?.action || '暂无正式信号';
-}
 function positionSortValue(row: PortfolioPosition, key: SortKey) {
   if (key === 'symbol') return row.name || row.symbol;
-  if (key === 'engine') return engineLabel(row);
   const quote = getQuote(row.symbol, market.value);
   if (key === 'trend') return trendSortValue(quote?.trend1m);
   if (key === 'pattern') return patternSortValue(quote?.pattern1m);
@@ -124,7 +110,7 @@ const sortedPositions = computed(() => [...positions.value].sort((a, b) => {
 }));
 function sort(key: SortKey) {
   if (sortKey.value === key) sortDirection.value = sortDirection.value === 'asc' ? 'desc' : 'asc';
-  else { sortKey.value = key; sortDirection.value = key === 'symbol' || key === 'engine' ? 'asc' : 'desc'; }
+  else { sortKey.value = key; sortDirection.value = key === 'symbol' ? 'asc' : 'desc'; }
 }
 function signed(value?: string | null, suffix = '') {
   const number = numeric(value);
@@ -173,24 +159,8 @@ async function loadSummary() {
   }
 }
 
-async function loadEngine() {
-  const request = ++engineRequest;
-  const requestedMarket = market.value;
-  engineLoading.value = true;
-  engineError.value = null;
-  engine.value = [];
-  try {
-    const views = await tradeEngineApi.positions(requestedMarket);
-    if (!stopped && request === engineRequest && requestedMarket === market.value) engine.value = views;
-  } catch (err) {
-    if (!stopped && request === engineRequest) engineError.value = getParsedApiError(err);
-  } finally {
-    if (!stopped && request === engineRequest) engineLoading.value = false;
-  }
-}
-
 async function load() {
-  await Promise.all([loadSummary(), loadEngine()]);
+  await loadSummary();
 }
 
 watch(market, () => {
@@ -300,23 +270,6 @@ function closeDetail() {
     >
       重试持仓
     </Button>
-    <div
-      v-if="engineError"
-      data-testid="engine-error"
-      class="space-y-2"
-    >
-      <p class="text-sm font-medium">
-        Trade Engine 建议读取失败
-      </p>
-      <ApiErrorAlert :error="engineError" />
-      <Button
-        data-testid="retry-engine"
-        variant="outline"
-        @click="loadEngine"
-      >
-        重试建议
-      </Button>
-    </div>
 
     <div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
       <Card>
@@ -432,7 +385,7 @@ function closeDetail() {
                 scope="holdings"
                 :active="sortKey === column.key"
                 :direction="sortDirection"
-                :align="column.key === 'symbol' || column.key === 'engine' ? 'left' : 'right'"
+                :align="column.key === 'symbol' ? 'left' : 'right'"
                 @sort="sort(column.key)"
               />
 
@@ -491,9 +444,6 @@ function closeDetail() {
                   <span class="block font-medium">{{ signed(row.changePct, '%') }}</span>
                   <span class="block text-xs">{{ signed(row.changeAmount) }}</span>
                 </TableCell>
-                <TableCell class="whitespace-nowrap">
-                  {{ engineLabel(row) }}
-                </TableCell>
                 <TableCell class="text-right tabular-nums">
                   {{ fmt(row.quantity) }}
                 </TableCell>
@@ -550,7 +500,7 @@ function closeDetail() {
               </TableRow>
               <TableRow v-if="expandedId === row.id">
                 <TableCell
-                  :colspan="columns.length + 4"
+                  :colspan="columns.length + 1"
                   class="max-w-0 p-3"
                 >
                   <IntradayStockPanel
@@ -652,7 +602,6 @@ function closeDetail() {
       initial-tab="overview"
       :context="detail ? { accountId: detail.accountId, positionId: detail.id } : undefined"
       @update:open="value => { if (!value) closeDetail(); }"
-      @holdings-updated="load"
     />
   </div>
 </template>

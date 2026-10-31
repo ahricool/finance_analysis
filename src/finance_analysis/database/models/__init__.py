@@ -9,7 +9,6 @@ from finance_analysis.database.models.portfolio import (  # pragma: allowlist se
     PositionLot,
     TradeOperation,
 )
-from finance_analysis.database.models.trade_engine import TradeLLMState, TradeSignalRow  # pragma: allowlist secret
 from finance_analysis.database.models.industry_strength import (
     IndustryCatalog,
     IndustryMembership,
@@ -76,8 +75,6 @@ __all__ = [
     "PositionLot",
     "TradeOperation",
     "CashOperation",
-    "TradeLLMState",
-    "TradeSignalRow",
     "MarketSentimentSnapshot",
     "MarketSentimentSourceSnapshot",
     "IndustryStrengthSnapshot",

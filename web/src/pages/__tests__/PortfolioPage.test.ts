@@ -19,11 +19,6 @@ const mocks = vi.hoisted(() => ({
   setCash: vi.fn(),
   operations: vi.fn(),
   markers: vi.fn(),
-  updatePosition: vi.fn(),
-  positions: vi.fn(),
-  signals: vi.fn(),
-  strategies: vi.fn(),
-  run: vi.fn(),
 }));
 
 vi.mock('@/api/holdings', () => ({
@@ -34,13 +29,6 @@ vi.mock('@/api/holdings', () => ({
     setCash: mocks.setCash,
     operations: mocks.operations,
     markers: mocks.markers,
-    updatePosition: mocks.updatePosition,
-  },
-  tradeEngineApi: {
-    positions: mocks.positions,
-    signals: mocks.signals,
-    strategies: mocks.strategies,
-    run: mocks.run,
   },
 }));
 
@@ -64,7 +52,6 @@ const summary = {
       marketValue: '12000',
       weight: '0.12',
       unrealizedPnl: '2000',
-      tradeEngineEnabled: true,
     },
   ],
 };
@@ -92,7 +79,6 @@ async function mountPage() {
       plugins: [createPinia(), router],
       stubs: {
         DailyKLineCard: true,
-        TradeSignalHistory: true,
         StockAutocomplete: true,
         Dialog: { props: ['open'], template: '<div v-if="open"><slot /></div>' },
         DialogContent: { template: '<div><slot /></div>' },
@@ -110,12 +96,10 @@ describe('HoldingsPage', () => {
   beforeEach(() => {
     vi.resetAllMocks();
     mocks.summary.mockResolvedValue(summary);
-    mocks.positions.mockResolvedValue([{ symbol: '600519.SH', action: 'HOLD', profitStage: 'A', activeStop: '9.6' }]);
     mocks.setCash.mockResolvedValue({});
     mocks.buy.mockResolvedValue({});
     mocks.operations.mockResolvedValue([]);
     mocks.markers.mockResolvedValue([]);
-    mocks.updatePosition.mockResolvedValue({ ...summary.positions[0], tradeEngineEnabled: false });
   });
   afterEach(() => wrapper?.unmount());
 
@@ -124,6 +108,7 @@ describe('HoldingsPage', () => {
     expect(wrapper.get('[data-testid="cash"]').text()).toContain('90,000');
     expect(wrapper.get('[data-testid="total-asset"]').text()).toContain('100,000');
     expect(wrapper.text()).toContain('600519.SH');
+    expect(wrapper.findAll('thead th').map(header => header.text()).join()).not.toContain('交易引擎');
     await wrapper.get('[data-testid="action-cash"]').trigger('click');
     expect((wrapper.get('[data-testid="form-amount"]').element as HTMLInputElement).value).toBe('90000');
     expect(wrapper.text()).not.toMatch(/入金|出金/);
@@ -173,16 +158,6 @@ describe('HoldingsPage', () => {
     expect(mocks.buy).not.toHaveBeenCalled();
   });
 
-  it('toggles trade engine from the position detail', async () => {
-    await mountPage();
-    await wrapper.get('button.text-left').trigger('click');
-    await settleDetail();
-    await flushPromises();
-    expect(wrapper.text()).toContain('交易提醒');
-    await wrapper.get('[data-testid="trade-engine-enabled"]').setValue(false);
-    await flushPromises();
-    expect(mocks.updatePosition).toHaveBeenCalledWith(11, { tradeEngineEnabled: false });
-  });
 });
 
 function deferred<T>() {
@@ -196,40 +171,22 @@ describe('holdings request ownership', () => {
   beforeEach(() => {
     vi.resetAllMocks();
     mocks.summary.mockResolvedValue(summary);
-    mocks.positions.mockResolvedValue([]);
     mocks.operations.mockResolvedValue([]);
     mocks.markers.mockResolvedValue([]);
   });
   afterEach(() => wrapper?.unmount());
 
-  it('loads holdings without waiting for engine and exposes engine failures with independent retry', async () => {
-    const engine = deferred<unknown[]>();
-    mocks.positions.mockReturnValueOnce(engine.promise);
-    await mountPage();
-    expect(wrapper.get('[data-testid="cash"]').text()).toContain('90,000');
-    expect(wrapper.text()).toContain('加载中');
-    engine.reject(new Error('offline'));
-    await flushPromises();
-    expect(wrapper.get('[data-testid="engine-error"]').text()).toContain('Trade Engine 建议读取失败');
-    await wrapper.get('[data-testid="retry-engine"]').trigger('click');
-    await flushPromises();
-    expect(mocks.summary).toHaveBeenCalledTimes(1);
-    expect(mocks.positions).toHaveBeenCalledTimes(2);
-    expect(wrapper.find('[data-testid="engine-error"]').exists()).toBe(false);
-  });
 
   it('ignores old market successes, errors and finally callbacks', async () => {
     const cn = deferred<typeof summary>();
-    const cnEngine = deferred<unknown[]>();
     const us = { ...summary, market: 'US', cash: '222', accounts: [{ ...summary.accounts[0]!, id: 2, market: 'US' }],
       positions: [{ ...summary.positions[0]!, id: 12, market: 'US', symbol: 'AAPL.US' }] };
     mocks.summary.mockReturnValueOnce(cn.promise).mockResolvedValueOnce(us);
-    mocks.positions.mockReturnValueOnce(cnEngine.promise).mockResolvedValueOnce([]);
     await mountPage();
     expect(wrapper.get('[data-testid="action-buy"]').attributes('disabled')).toBeDefined();
     useMarketStore().market = 'US';
     await flushPromises();
-    cn.resolve(summary); cnEngine.reject(new Error('old market'));
+    cn.resolve(summary);
     await flushPromises();
     expect(wrapper.text()).toContain('AAPL.US');
     expect(wrapper.text()).not.toContain('600519.SH');
@@ -254,7 +211,7 @@ describe('holdings request ownership', () => {
     await wrapper.get('[data-testid="action-cash"]').trigger('click');
     ops.resolve([{ executedAt: 'old', side: 'BUY', quantity: '99', price: '1' }]); save.resolve({});
     await flushPromises();
-    expect(wrapper.find('[data-testid="trade-engine-enabled"]').exists()).toBe(false);
+    expect(wrapper.find('[data-testid="holdings-detail-panel"]').exists()).toBe(false);
     expect(wrapper.find('[data-testid="form-submit"]').exists()).toBe(true);
     expect(mocks.summary).toHaveBeenCalledTimes(3); // List, lazy holding panel, then new market.
     expect(wrapper.text()).not.toContain('old');
@@ -288,20 +245,6 @@ describe('holdings request ownership', () => {
     expect(wrapper.text()).not.toContain('old-operation');
   });
 
-  it('does not apply a delayed toggle to another position', async () => {
-    const toggle = deferred<unknown>();
-    mocks.summary.mockResolvedValue({ ...summary, positions: [...summary.positions, { ...summary.positions[0]!, id: 22, symbol: '510300.SH' }] });
-    mocks.updatePosition.mockReturnValueOnce(toggle.promise);
-    await mountPage();
-    await wrapper.findAll('button.text-left')[0]!.trigger('click');
-    await settleDetail();
-    await wrapper.get('[data-testid="trade-engine-enabled"]').setValue(false);
-    await wrapper.findAll('button.text-left')[1]!.trigger('click');
-    await settleDetail();
-    toggle.resolve({ ...summary.positions[0], tradeEngineEnabled: false });
-    await flushPromises();
-    expect((wrapper.get('[data-testid="trade-engine-enabled"]').element as HTMLInputElement).checked).toBe(true);
-  });
 });
 
 it('creates mutation ids on non-secure LAN origins without randomUUID', () => {

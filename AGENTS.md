@@ -105,7 +105,7 @@ static/                    Web 构建产物，由 `web/vite.config.ts` 生成
 ### 个股分析已退役
 
 个股决策仪表盘、单股分析入口、美股盘前分析任务及其 Prompt/pipeline 已删除。
-旧手动大盘复盘和盘前新闻抓取分析也已删除；定时美股收盘复盘、持仓复核和交易引擎继续独立运行。
+旧手动大盘复盘和盘前新闻抓取分析也已删除；定时美股收盘复盘、持仓复核继续独立运行。
 新闻退役迁移 `0086_retire_news` 删除新闻原文/关联/判断、任务历史及通知；时间线只保留宏观与财报。见 `docs/news-removal.md`。
 迁移 `0084_drop_stock_analysis_archive` 删除历史分析和基本面快照表及其全部数据；依赖迁移和残留清单见 `docs/stock-analysis-removal.md`。
 
@@ -146,7 +146,7 @@ Quant 0081：每日推理输入为任务级临时工件，不再创建 dataset �
 - `/calendar`：日历记录和财经事件。
 - `/tasks`：周期定义、手动触发及任务运行记录。
 - `/quant`、`/etf-rotation`、`/trend-following`：研究结果与运行入口；趋势预演为 `GET /trend-following/preview`。
-- `/holdings`：DB 持仓买卖/现金、`PATCH /positions/{id}` 交易提醒开关；页面 `/market/holdings`。`/trade-engine` 只读正式信号与管理员手动运行。
+- `/holdings`：DB 持仓买卖/现金、操作记录与日 K 买卖标记；页面 `/market/holdings`。
 - `/market-data/ws`、`/market-data/events`：用户自选股/持仓行情 WS 与 HTTP SSE；`scope=holdings&market=CN|US` 为持仓。WS连续两次失败固定回落SSE。
 - `/usage`：LLM 使用统计；`/celery` 是演示/诊断端点。
 
@@ -293,7 +293,7 @@ pnpm run test:smoke
 | 新通知渠道 | `notification/senders/` + config/routing/diagnostics |
 | 新前端功能 | 见 `web/AGENTS.md` |
 | 新 Qlib 模型/协议 | 见 `qlib_worker/AGENTS.md`，同时核对主应用 quant 边界 |
-| DB 持仓 / Trade Engine | `portfolio/`、`trade_engine/` |
+| DB 持仓 | `portfolio/` |
 
 ## 提交前检查
 
@@ -342,11 +342,12 @@ BTC 多策略以 `strategy_key + symbol` 隔离，代码注册表当前仅 `btc_
 个股详情通过只读 classification 显示所属行业。
 页面 `/research/industry-strength`，指标和口径见 `docs/industry-strength.md`。
 
-## Holdings / Trade Engine
+## Holdings
 
-`portfolio/` 是普通股票/ETF 唯一持仓事实源：账户现金、当前持仓、CORE/ADDON lot 和买卖操作写 PostgreSQL；现金通过修改余额独立设置，买卖不改现金，不再提供入金/出金。`trade_engine_enabled` 默认 true；关闭后该持仓不运行 Strategy，LLM target 必须等于 current，但仍计入账户 NAV 与 Portfolio Risk。`exit_v1` / `add_v1` 完全无状态，每 30 分钟可重复输出相同 Strategy Signal。`portfolio_risk_v1` 输出 Portfolio Risk Facts，不单独通知。每个市场每轮最多一次 LLM，结合持仓、15d K、今日 OHLCV、调仓历史、风险事实与 `trade_llm_state` 给出 Target Position。CN/US 现金、NAV、风险与 LLM 状态隔离。 <!-- pragma: allowlist secret -->
-`trade_engine/` Beat 每 30 分钟触发，不在 evaluation window 则 skip。有实际持仓就调用 Market-level LLM；空仓且无 Entry Strategy 则 skip LLM。正式 TradeSignal 只在 target ≠ current 时创建。任务复用 `alerts`（`trade_engine_cn/us`），不新增专用 worker。
-通知复用现有全局 Telegram/ntfy：先与 `trade_signal` 同事务写入站内消息，再 `push_existing`。`add_v1` 独立使用完整历史 + 实时临时日K，Risk/EXIT 仍只用完整日K形成 stop。Market LLM 按 uid+market 持 PostgreSQL session advisory lock，网络调用在业务事务外；通知按市场当地日期、股票、action 每日一次，不抑制 LLM/state/信号历史。详见 `docs/holdings-portfolio-risk.md`。
+`portfolio/` 是普通股票/ETF 唯一持仓事实源，账户现金、当前持仓、CORE/ADDON lot 和买卖操作写 PostgreSQL。
+现金独立设置，买卖不改现金；持仓页面与 Streamer 估值、买卖记录和日 K 标记继续保留。
+CN/US Trade Engine 已退役：不再执行盘中机械策略、组合风险计算或市场级 LLM，不生成调仓通知。
+迁移 `0087_retire_trade_engine` 删除交易信号、LLM 状态、提醒开关及专属任务/通知/用量历史；见 `docs/holdings-portfolio-risk.md`。
 
 ## Market Sentiment
 

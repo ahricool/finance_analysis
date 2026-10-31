@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Build the DB-only portfolio context used by Trade Engine and Holdings."""
+"""Build the DB-only holdings portfolio context."""
 
 from __future__ import annotations
 
@@ -55,7 +55,6 @@ class PortfolioResolver:
                     for lot in lots_map.get(row.id, [])
                     if _dec(lot.remaining_quantity) > 0
                 )
-                had_addon = any(lot.role == "ADDON" for lot in lots_map.get(row.id, []))
                 db_positions.append(
                     ResolvedPosition(
                         source="DB",
@@ -70,10 +69,6 @@ class PortfolioResolver:
                         average_cost=_dec(row.average_cost),
                         opened_at=row.opened_at,
                         lots=lots,
-                        had_addon=had_addon,
-                        trade_engine_enabled=True
-                        if getattr(row, "trade_engine_enabled", None) is None
-                        else bool(row.trade_engine_enabled),
                     )
                 )
         return ResolvedPortfolio(

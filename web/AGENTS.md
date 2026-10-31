@@ -107,7 +107,7 @@ layout（Shell / PageHeader / ModuleLayout）+ ui/app 组件
 
 要点：
 
-- `/market/holdings` 使用 `pages/market/HoldingsPage.vue`。DB 是普通股票/ETF 唯一真实持仓来源。现金独立修改，买卖不改变现金；买入复用 instrument 搜索建议并由后端校验证券主数据。API 为 `/api/v1/holdings` 与 `/api/v1/trade-engine`。个股详情可关闭 `trade_engine_enabled`（交易提醒），关闭后该持仓不进 Strategy / 主动 LLM 调仓，但仍计入账户 NAV 与 Portfolio Risk。页面展示最新正式 BUY/ADD/REDUCE/EXIT 与 LLM 最终判断。日K BST 来自 `trade_operation`，BTC BST 来自策略快照。
+- `/market/holdings` 使用 `pages/market/HoldingsPage.vue`。DB 是普通股票/ETF 唯一真实持仓来源。现金独立修改，买卖不改变现金；买入复用 instrument 搜索建议并由后端校验证券主数据。API 为 `/api/v1/holdings`。日 K BST 来自 `trade_operation`，BTC BST 来自策略快照。交易引擎及其建议与开关已删除。
 - `meta.public === true` 才是公开页（目前只有登录）。
 - `meta.title` 用于 `document.title`（`「页面名 - Finance Analysis」`）。嵌套路由取最近一层有 title 的记录。
 - ETF 轮动和趋势排名的「导出 Excel」在浏览器中导出当前筛选、排序后的完整数据（含虚拟滚动未渲染行），保留数值格式；文件名包含市场、快照日期和 official/preview。导出库按需加载，不调用后端导出接口。
@@ -370,3 +370,8 @@ Confluence V2.1表格“宏观适配”按行业评分，全市场卡片只展�
 V2历史仍标“宏观环境”并说明统一风险偏好语义，不用V2.1重算历史GET。
 
 信号中心 `/research/signal-center` 每市场0–3只股票/ETF，所有来源统一5桶初筛；逐只展示证据与evaluation，旧单推荐兼容投影，不把首只收益当市场合计。详见`docs/signal-center.md`。
+
+## 持仓交易引擎退役
+
+持仓页面与统一股票详情只展示实际持仓、估值、操作记录和日 K 买卖标记；不再请求 `/trade-engine`，
+不展示交易引擎建议、交易提醒开关或历史交易信号。买入/卖出/修改现金继续使用 `/holdings`。

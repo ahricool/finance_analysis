@@ -1,7 +1,7 @@
 # Options Intelligence
 
 独立美股低频期权研究模块，入口 `/research/options-intelligence`，现有股票详情弹窗新增「期权」Tab。
-不预测股价、不下单，不改个股分析、Trade Engine、股票日线维护或财经事件边界。
+不预测股价、不下单，不改股票日线维护或财经事件边界。
 
 ## 启用与运行
 
