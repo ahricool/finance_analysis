@@ -157,7 +157,11 @@ def test_scan_preserves_soft_time_limit_during_prefetch(repository, now, config)
     market.get_option_chain.assert_not_called()
 
 
-def test_intraday_anomaly_sends_notification_without_llm(repository, observation, now, config):
+@pytest.mark.parametrize("entry_point", ["scan_all", "scan_selected", "run"])
+def test_intraday_anomaly_is_saved_without_notification_or_llm(repository, observation, now, config, entry_point):
+    from finance_analysis.options_intelligence.preview_cache import load_preview
+    from tests.preview_database import preview_repository
+
     intraday = now.replace(hour=18)
     market = Mock()
     row = observation.model_copy(
@@ -173,18 +177,20 @@ def test_intraday_anomaly_sends_notification_without_llm(repository, observation
     market.get_daily_bars.return_value = SimpleNamespace(data={})
     llm = Mock()
     notifier = Mock()
-    preview_repo = Mock()
-    preview_repo.read.return_value = None
+    preview_repo = preview_repository()
+    repository.monitored_symbols = lambda uid=None: ["AAPL.US"]
     service = OptionsIntelligenceService(repository, market, config, llm=llm, preview_repository=preview_repo, notifier=notifier)
-    result = service.scan(["AAPL.US"], now=intraday, view="preview")
-    assert result["status_counts"]["success"] == 1
-    llm.complete_text.assert_not_called()
-    notifier.send.assert_called_once()
-    call_kwargs = notifier.send.call_args.kwargs
-    call_args = notifier.send.call_args.args
-    assert call_kwargs["route_type"] == "alert"
-    assert "AAPL.US" in call_args[0]
-    assert "成交量/OI 异常" in call_args[0]
+    if entry_point == "run":
+        service.run("AAPL.US", now=intraday, view="preview")
+    else:
+        symbols = None if entry_point == "scan_all" else ["AAPL.US"]
+        result = service.scan(symbols, now=intraday, view="preview")
+        assert result["status_counts"]["success"] == 1
+    preview = load_preview(repository=preview_repo, now=intraday, symbol="AAPL.US")
+    assert any(event["event_type"] == "VOLUME_OI_ANOMALY" for event in preview["events"])
+    assert repository.latest("AAPL.US") is None
+    assert llm.mock_calls == []
+    assert notifier.mock_calls == []
 
 
 def test_daily_scan_summarizes_with_llm_and_sends_notification(repository, observation, now, config):
