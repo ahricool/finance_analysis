@@ -437,23 +437,9 @@ class OptionsRepository:
             ]
 
     def context(self, symbol, now):
-        from finance_analysis.database.models import NewsIntel, NewsIntelUsage, FinanceEvent
+        from finance_analysis.database.models import FinanceEvent
 
         with self.db.get_session() as session:
-            news = session.scalars(
-                select(NewsIntel)
-                .join(NewsIntelUsage)
-                .where(
-                    NewsIntelUsage.symbol == symbol,
-                    NewsIntel.published_date <= now,
-                    NewsIntel.published_date >= now - timedelta(days=7),
-                    NewsIntel.fetched_at <= now,
-                    NewsIntel.provider == "longbridge",
-                )
-                .distinct()
-                .order_by(NewsIntel.published_date.desc())
-                .limit(10)
-            )
             events = session.scalars(
                 select(FinanceEvent)
                 .where(
@@ -465,7 +451,6 @@ class OptionsRepository:
                 .limit(10)
             )
             return {
-                "news": [{"title": r.title, "url": r.url, "published_at": r.published_date.isoformat()} for r in news],
                 "calendar": [
                     {"title": r.title, "date": r.event_date.isoformat(), "type": r.calendar_type} for r in events
                 ],

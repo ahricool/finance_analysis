@@ -301,7 +301,7 @@ BTC 多策略以 `strategy_key + symbol` 隔离，代码注册表当前仅 `btc_
 
 ## 消息中心
 
-`/notifications` 仅从头像菜单进入，使用 `/api/v1/notifications` 列表/详情，不显示 uid 或推送状态。Timeline 仅展示财经事件与新闻，不提供报告消息。
+`/notifications` 仅从头像菜单进入，使用 `/api/v1/notifications` 列表/详情，不显示 uid 或推送状态。Timeline 仅展示宏观与财报事件及财报研究，不提供新闻或报告消息。
 
 ## 行业强度
 

@@ -176,15 +176,3 @@ def test_llm_timeout_does_not_retry(monkeypatch, tmp_path, external_retry_waits)
         client.complete_text(LLMRequest("test"))
     assert operation.call_count == 1
     external_retry_waits[0].assert_not_called()
-
-
-def test_longbridge_news_retries_before_returning_empty(monkeypatch, external_retry_waits):
-    from finance_analysis.integrations.market_data.providers.longbridge.news import LongbridgeNewsFetcher
-
-    provider = object.__new__(LongbridgeNewsFetcher)
-    context = SimpleNamespace(news=Mock(side_effect=[TimeoutError(), []]))
-    monkeypatch.setattr(provider, "is_available", lambda: True)
-    monkeypatch.setattr(provider, "_get_ctx", lambda: context)
-    assert provider.fetch_news("AAPL.US") == []
-    assert context.news.call_count == 2
-    assert external_retry_waits[0].call_args_list == [call(2)]

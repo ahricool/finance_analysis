@@ -1,175 +1,56 @@
 # Investment Timeline / 投资时间线
 
-Investment Timeline 是一个**公共市场信息看板**：所有用户访问 `GET /api/v1/timeline` 看到的内容完全相同。
-它聚合财经事件（财报 / 宏观）和逐条新闻分析，没有用户笔记、没有用户隔离、没有
-Portfolio / WatchList 私人数据。盘中异动只发送 Notification，任务执行统计仍由 TaskRecord 保存。
+投资时间线是公共市场信息看板，所有用户读取相同内容；只展示宏观事件与财报日历及财报前瞻。
+新闻抓取、分析、历史存储和新闻页签已退役。市场报告在[消息中心](notifications.md)查看。
 
-## 数据来源
+## 数据与 API
 
-| 来源 | category | 说明 |
-| --- | --- | --- |
-| `finance_events`（`calendar_type = earnings`） | `event` | 财报日历 |
-| `finance_events`（`calendar_type = macro`） | `event` | 宏观事件 |
-| `news_analysis` JOIN `news_intel` | `news` | 每条新闻的结构化模型判断 |
+唯一事件源为 `finance_events`，`calendar_type` 为 `earnings` 或 `macro`。
+财报前瞻继续关联 `earnings_outlook` 的状态、研究版本和首日股价验证；相关表不受新闻退役影响。
+`timeline_entries` 是已停用的旧表，不读写。
 
-市场报告已迁入 [消息中心](notifications.md)。`timeline_entries` 表保留但不再读写；`0049_notification_center` 清空全部旧行，不迁入 notification。TimelineEntryRepo 已删除。
+`GET /api/v1/timeline` 支持 `end_date`、`timezone`、`market`、`category=event`、
+`calendar_type=earnings|macro`、`importance`、`high_confidence`、`cursor` 和 `limit`。
+旧 `category=news|analysis` 及旧新闻游标返回422，不查询已删除新闻表。
 
-## 排序：永远 event_time DESC
+响应只包含 `source_type=finance_event`、`category=event` 的条目。
+`detail_payload` 保留内容、事件日期、准确时间/全天标识、公司、盘前/盘后时段、报告期、币种、
+实际贡献来源、EPS预期/实际/惊喜比例及重要性依据。财报前瞻详情与管理员刷新接口保持不变。
 
-Timeline 只有一种顺序：
+## 排序、时间与分页
 
-```sql
-ORDER BY event_time DESC, source_type ASC, source_id DESC
-```
+排序固定为 `event_time DESC, source_type ASC, source_id DESC`。
+未来财报和宏观事件也按此顺序排列，前端保持API顺序，仅按展示日期分组。
+游标保存时间、来源及ID，按严格seek取下一页，顶部插入或删除已读锚点不影响翻页。
 
-未来事件（尚未发生的财报、宏观）**不做特殊处理**，时间戳越晚就越靠前。不存在 ASC 模式，也不存在
-“未来事件升序、新闻降序”的分支。前端不参与排序，只按 API 返回顺序追加。
+准确时间使用 `event_datetime`，仅有日期时以市场当地午夜为锚点：US为America/New_York，其余为Asia/Shanghai。
+持久化与DTO使用UTC，前端按用户展示时区渲染。
+CPI/FOMC、非农和利率决议等核心宏观事件为critical，其他事件复用重要性评分。
+重要性过滤包含所选等级及以上，不改变时间排序。
 
-Cursor 分页使用同一组排序键：`event_time / source_type / source_id` 的 JSON → base64url token，
-后续查询做严格 seek（时间更早，或同时间且来源更大，或同时间同来源且 ID 更小）。取 `limit + 1` 判断
-`has_more`。非法 token 返回 422。顶部插入不会推动已加载位置。
-
-## DatePicker：只是截止日期
-
-`end_date` 是 **cutoff**，不是范围起点，也不是“只看某一天”：
-
-```text
-event_time < (end_date 当天在展示时区的次日零点)
-```
-
-例如展示时区为 `Asia/Shanghai`、`end_date=2026-09-30` 时，`2026-10-01` 的事件被隐藏，`2026-09-30` 及更早
-全部保留，向过去继续由 cursor 分页加载。时区边界复用 `core/time.py::day_bounds_utc`，不重复实现。
-
-未提供 `end_date` 时**不设置任何时间上界**：未来 FinanceEvent、最新 News、最新 Analysis 都参与同一条
-DESC Timeline。API 没有隐藏的默认日期；Timeline 页面首次进入明确发送展示时区的今天作为 `end_date`。
-
-页面提供今天 / 未来7天 / 未来14天 / 未来30天快捷截止日期。`getTodayInDisplayTimezone()` 获取今天，
-已有 `@internationalized/date` 的 `parseDate(...).add({ days })` 按日历天相加，跨月和夏令时无需毫秒运算。
-四个 preset 与 DatePicker 共用 `endDate`；trigger 始终展示实际日期，`clearable=false` 禁止清空。
-手工选择后 preset 为 `custom`，所有快捷按钮取消选中。切换展示时区时，快捷日期重新计算，custom 日期保留。
-这些都是截止日期，不限制历史起点。
-
-## API
-
-- `GET /api/v1/timeline`：`end_date`、`timezone`、`market`、`category`、`calendar_type`、`importance`、`cursor`、`limit`。
-
-`importance` 指定最低等级，按 low < normal < high < critical 包含所选等级及以上，省略表示全部。
-例如 high 同时返回 high 和 critical。它与市场、类型、截止日期在统一 projection
-上组合过滤，不改变来源评分。页面任一查询条件或时区变化都会清空 cursor，重新请求第一页。
-
-不再存在 `date` / `start_date` 范围参数、`/timeline/summary`，以及 `POST|PUT|DELETE /timeline/notes*`。
-endpoint 是纯公共查询，不读取 `request.state.uid`，也不依赖 `get_effective_uid`。
-
-统一 item 字段：`id`、`source_type`（`finance_event` / `news`）、`source_id`、`event_time`、
-`category`（`event` / `news` / `analysis`）、`calendar_type`（`earnings` / `macro`，仅财经事件）、`market`、
-`title`、`summary`、`symbol`、`related_symbols`、`importance`、`actionability`、`importance_score`、`impact`、
-`impact_score`、`event_type`、`detail_type`、`detail_payload`。
-
-财经事件的 `detail_payload` 提供结构化字段：`all_day`、`event_date`、`counter_name`、`market_session`、
-`reporting_period`、`currency`、`provider`、`source_providers`、`eps_estimate`、`reported_eps`、
-`eps_surprise_pct`、`importance_reason`。`source_providers` 由后端读取合并后的 `raw_payload_json` key 得到，
-只有一个来源时退化为 primary provider；前端不解析 raw payload。
-
-## 时间规范
-
-- 报告：`finished_at` → `event_time`。
-- 新闻：`published_date`，缺失则 `news_analysis.analyzed_at`。
-- 财经事件：`event_datetime`；仅有日期时以市场当地午夜作为排序锚点（US: America/New_York；其他: Asia/Shanghai），
-  详情保留原始 `event_date` 和 `all_day`。
-- TIMESTAMPTZ 保存绝对时间，DTO 的 `event_time` 统一 UTC，前端按 `Asia/Shanghai` 或 `America/New_York` 展示。
-
-CPI/FOMC、非农和利率决议等核心宏观标题映射为 critical；其他财经事件参考已有 `importance_score`，
-未评分事件为 normal。本次没有引入新的评分系统。
+`end_date` 是截止日期，包含展示时区当天及更早事件，不限制历史起点；省略时保留全部未来事件。
+页面默认截止今天，提供未来7/14/30天和自定义日期。切换时区重算快捷日期，自定义日期保留。
+筛选或时区变化清空游标重新加载，后续使用IntersectionObserver追加服务端返回的页面。
 
 ## 前端
 
-`/timeline` 页面宽度跟随 Shell 的 `max-w-7xl` 主容器，桌面端明显比旧的 `max-w-3xl` 单列 Feed 宽。
+`/timeline` 仅保留“全部 / 财报 / 宏观”。财报和宏观分别使用
+`TimelineEarningsCard`、`TimelineMacroCard`，共享卡片外壳与现有详情Dialog。
+财报详情保留来源、EPS、研究证据、高置信度筛选和手动刷新；宏观详情继续展示事件内容。
+市场沿用全局开关；布局沿用响应式CSS columns，保持DOM与API顺序。
+Dashboard读取相同事件接口，不再展示新闻。
 
-一级 Tab 固定为：
+## 迁移与边界
 
-```text
-全部 | 财报 | 宏观 | 新闻
-```
-
-映射到后端 filter：财报 = `category=event & calendar_type=earnings`，宏观 = `category=event & calendar_type=macro`，
-新闻 = `category=news`，全部 = 无 filter。旧 `category=analysis` 查询返回空集。没有“财经事件”一级 Tab，
-没有财经事件二级筛选，没有笔记 Tab。
-
-筛选区包含高置信度/重要性、类型 Tab、截止日期 DatePicker。市场仅由顶栏头像左侧的全局 A 股／美股开关决定，每次请求显式传入 `market=CN|US`，不提供“全部市场”。类型按钮与 DatePicker 统一 `h-10`。
-
-每条消息都是独立圆角 Card（`rounded-xl` + 克制 border + 轻微 hover）。四种 Card 共享
-`TimelineCardShell.vue` 外壳（弱化的类型 / 市场 / 元信息 / 重要度 / 日期），内部布局不同：
-
-- `TimelineEarningsCard.vue`：代码、公司名、报告期 · BMO/AMC、日期、EPS 预期 / 实际 / Surprise；字段有值才显示。
-- `TimelineMacroCard.vue`：标题 + 日期时间 + 摘要，不套用 symbol / EPS / 报告期。
-- `TimelineNewsCard.vue`：标题、摘要（`line-clamp-4`）、impact 与相关标的。
-- `TimelineAnalysisCard.vue`：标题、摘要（`line-clamp-5`）、相关标的。
-
-Card 只负责展示，不自己请求 API；详情继续用现有 `Dialog` + `DialogScrollContent`，财经事件详情由
-`TimelineEventDetail.vue` 渲染并在底部显示 `source_providers`。
-
-距离时间（今天 / 明天 / 2天后 / 3天前）只是 UI 信息，不影响排序和 filter。只有后端提供
-`trading_days_to_event` 时才显示 `T-x`，否则使用日历天；前端不维护交易日历。
-
-每个日期 group 独立使用 `columns-3 gap-3 2xl:columns-4`：普通桌面 3 列，视口 ≥1536px 时 4 列。
-Card wrapper 使用 `mb-3 break-inside-avoid`，12px 间距；Shell 为 `block w-full`，高度由内容自然撑开，不强制等高、不拆列。
-DOM 仍按 API 顺序单次遍历，未排序、未按奇偶或高度分列，也没有新增第三方依赖。
-CSS Columns 按列流动而非逐行左右交替；追加数据或高度变化时浏览器可能重新平衡列，这是已知取舍。
-
-桌面筛选分为高置信度与重要性、类型、快捷日期与 DatePicker 三行。详情继续用可滚动 Dialog。
-
-![桌面 1440px](images/investment-timeline-desktop.png)
-![移动端 360px](images/investment-timeline-mobile.png)
-
-## 任务写入矩阵
-
-| 任务 | 长期业务写入 | 执行信息/通知 |
-| --- | --- | --- |
-| `analysis_a_share_pre_close_review` | notification | TaskRecord + 原聚合通知 |
-| `analysis_us_postmarket_review` | notification | TaskRecord + 原报告通知 |
-| `trade_engine_cn` / `trade_engine_us` | notification | 仅确认后的 TradeSignal |
-| 财经同步/重要度任务 | finance_events | TaskRecord；同步摘要不进入 Timeline |
-| `analysis_us_premarket_news` | news_intel + usage + news_analysis | TaskRecord 统计 + Top 新闻通知 |
-
-## 迁移
-
-- `0043_investment_timeline`：建表（历史）。
-- `0047_public_timeline`：`DELETE FROM timeline_entries WHERE entry_type = 'manual_note'` →
-  `DROP CONSTRAINT ck_timeline_type` → 重建不含 `manual_note` 的约束 → `DROP COLUMN uid`。
-
-迁移是确定性的、幂等的（表不存在或 `uid` 已删除时安全跳过），保留 `a_share_pre_close` /
-`us_premarket` / `us_postmarket` 全部历史报告。破坏性迁移不提供伪恢复 downgrade；回滚须恢复迁移前备份。
+`0086_retire_news` 删除新闻三张表及其数据、盘前新闻任务/通知/LLM用量和专属日志。
+宏观、财报、财报研究及其审计记录保留。详细范围与部署语义见[新闻退役说明](news-removal.md)。
+Longbridge行情和财经日历能力继续使用；财报与信号研究原有的专用联网证据流程保持不变。
+定时美股收盘复盘只使用自身结构化行情输入，不再读取新闻。
 
 ## 验证
 
-```bash
-env -u LLM_MODEL -u LLM_API_KEY -u LLM_BASE_URL uv run ./scripts/ci_gate.sh
-cd web && pnpm run build && pnpm run lint && pnpm run test
-```
-
-关键覆盖：Timeline 全链路无 uid / note 的源码断言；`manual_note` 被数据库约束拒绝；notes 路由与
-summary 路由返回 404；五个 Tab 全部 DESC（含未来事件）；cutoff 过滤 + 时区边界；无 cutoff 时保留未来消息；
-cutoff 与 cursor 联合分页无重复无遗漏；PostgreSQL 迁移删除笔记与 uid 并保留公共报告； <!-- pragma: allowlist secret -->
-前端 Tab 结构、Tab → filter 映射、DatePicker → `end_date`、四类圆角 Card 与财报详情 provider。
-
-## 新闻数据边界
-
-系统不维护通用互联网搜索；仅下文财报专用研究允许通过 LLMClient 搜索。其他模块不通过 LLM 或外部 Agent 自动补齐信息。
-Longbridge Content API 是唯一的外部新闻消息源，其他 Provider 只用于行情、基本面或财经事件。
-
-- 个股分析使用已有行情、技术、基本面。风险判断必须有输入依据；
-  业绩信息缺失时直接说明，不生成无来源的新闻摘要、利好催化或分析师评级。
-- 大盘复盘仅使用行情、市场宽度、板块和内部结构化数据；数据缺失直接说明，仍可生成报告。
-- 美股收盘复盘只读取已持久化的新闻，空列表是正常状态，不阻断 LLM、报告或通知。
-- 美股收盘复盘日线经 `MarketDataService` 使用 `db_latest`：DB 缺少目标日时临时请求 Provider，
-  DB 缺少前一交易日时也回退整段远程历史。远程数据仅用于本次计算，不写入 DB 或同步 Universe。
-  目标日或前一交易日仍不可用的证券标为缺失，不以旧日期行情生成目标日涨跌幅。
-- Longbridge 新闻由美股盘前新闻任务直接调用。
-  盘前任务持久化原文与使用关联，再写逐条结构化判断。
-- `NewsIntel` 保存原始新闻，`NewsIntelUsage` 保存使用关联，`NewsAnalysis` 保存逐条分析。
-  Timeline 读取新闻及逐条分析；美股盘前、收盘和历史关联查询继续使用新闻存储。
-- 新闻入库接收 `database.news.NewsItem` 列表和来源，保留 URL 去重与观察时间语义。
-  历史分析仅按真实 query_id 关联读取新闻，不再按附近时间推测关联；已有历史数据无需迁移。
+覆盖宏观/财报过滤、时区边界、未来事件、重要性、游标分页、财报详情和新闻退役迁移。
+离线测试与前端构建命令见仓库AGENTS指南。
 
 ## 美股财报前瞻与首日预测
 
@@ -317,4 +198,4 @@ total还包含事件锁连接、资格判断与业务持久化。这些阶段耗
 ### 个股决策分析已退役
 
 美股盘前个股分析、手动单股分析及决策仪表盘 Prompt/pipeline 已删除，不再生成新结果。
-盘前新闻、美股收盘复盘继续运行。历史数据删除与共享依赖处置见 [删除清单](stock-analysis-removal.md)。
+美股收盘复盘继续运行；盘前新闻及其历史由 `0086_retire_news` 删除。历史数据删除与共享依赖处置见 [删除清单](stock-analysis-removal.md)。

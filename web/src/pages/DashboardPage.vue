@@ -268,13 +268,9 @@ const number = (value: string | undefined) => value && Number.isFinite(Number(va
                 {{ feedSummary(item) }}
               </p>
               <div
-                v-if="item.relatedSymbols.length || item.impact"
+                v-if="item.relatedSymbols.length"
                 class="mt-2 flex gap-3 text-xs"
               >
-                <span
-                  v-if="item.impact"
-                  :class="item.impact === 'bullish' ? 'text-market-up' : item.impact === 'bearish' ? 'text-market-down' : 'text-muted-foreground'"
-                >{{ item.impact === 'bullish' ? '利多' : item.impact === 'bearish' ? '利空' : '中性' }}</span>
                 <span class="text-muted-foreground"><StockLink
                   v-for="symbol in item.relatedSymbols.slice(0, 4)"
                   :key="symbol"

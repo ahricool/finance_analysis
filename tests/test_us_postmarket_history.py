@@ -82,7 +82,7 @@ def test_default_recap_loader_uses_provider_fallback():
     from finance_analysis.tasks.celery.jobs.us_postmarket_review.domain_service import USPostmarketReviewService
 
     service, _, _ = market([], [bar(DAY - timedelta(days=1), 100), bar(DAY, 110)])
-    recap = USPostmarketReviewService(config=NS(), db=NS(), market_data_service=service)
+    recap = USPostmarketReviewService(config=NS(), market_data_service=service)
     performance = recap._fetch_daily_performance(SYMBOL, "TSM", DAY)
     assert performance.close == 110 and performance.change_pct == pytest.approx(10)
     assert performance.source == "yfinance"

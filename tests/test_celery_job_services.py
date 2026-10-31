@@ -7,54 +7,10 @@ from unittest.mock import MagicMock, patch
 
 from finance_analysis.tasks.celery.jobs.market_calendar_sync import service as calendar_module
 from finance_analysis.tasks.celery.jobs.us_postmarket_review import service as postmarket_module
-from finance_analysis.tasks.celery.jobs.us_premarket_news import service as premarket_news_module
 from finance_analysis.tasks.celery.jobs.scheduled_support import (
     INTRADAY_START_DELAY_MAX_SECONDS,
     sleep_random_start_delay,
 )
-
-
-def test_us_premarket_news_service_runs_domain_service():
-    summary = MagicMock(symbols_count=22)
-    domain_service = MagicMock()
-    domain_service.run.return_value = summary
-    with (
-        patch("finance_analysis.reporting.runtime.get_report_runtime_config", return_value=MagicMock()) as config,
-        patch(
-            "finance_analysis.database.repositories.watch_list.get_watch_list_codes_by_market",
-            return_value=["AAPL", "TSLA"],
-        ),
-        patch(
-            "finance_analysis.tasks.celery.jobs.us_premarket_news.domain_service.USPremarketNewsService",
-            return_value=domain_service,
-        ) as service_class,
-    ):
-        premarket_news_module.USPremarketNewsTaskService().run()
-
-    service_class.assert_called_once_with(config=config.return_value)
-    assert domain_service.run.call_args.args[0] == ["AAPL", "TSLA"]
-
-
-def test_premarket_news_retains_watch_validation_failure_after_report_success():
-    from finance_analysis.database.repositories.watch_list import WatchListCodes
-    from finance_analysis.tasks.outcomes import report_delivery_outcome
-
-    invalid = {"watch_list_id": 7, "code": "600519.SH", "market_type": "US", "error": "market conflict"}
-    codes = WatchListCodes(["MSFT.US"], validation_failures=[invalid])
-    summary = MagicMock(symbols_count=22, channel_results={"telegram": True, "ntfy": True})
-    domain_service = MagicMock()
-    domain_service.run.return_value = summary
-    with (
-        patch("finance_analysis.reporting.runtime.get_report_runtime_config", return_value=MagicMock()),
-        patch("finance_analysis.database.repositories.watch_list.get_watch_list_codes_by_market", return_value=codes),
-        patch("finance_analysis.tasks.celery.jobs.us_premarket_news.domain_service.USPremarketNewsService",
-              return_value=domain_service),
-    ):
-        result = premarket_news_module.USPremarketNewsTaskService().run()
-
-    assert domain_service.run.call_args.args[0] == ["MSFT.US"]
-    assert result["validation_failures"] == [invalid]
-    assert report_delivery_outcome(result).status.value == "partial"
 
 
 def test_us_postmarket_service_returns_domain_summary():
@@ -116,8 +72,7 @@ def test_market_calendar_service_runs_sync_and_submits_importance():
 
 def test_market_calendar_importance_submission_failure_is_non_fatal():
     with patch(
-        "finance_analysis.tasks.celery.jobs.market_calendar_importance.tasks."
-        "market_calendar_importance.apply_async",
+        "finance_analysis.tasks.celery.jobs.market_calendar_importance.tasks." "market_calendar_importance.apply_async",
         side_effect=RuntimeError("broker down"),
     ) as submit:
         calendar_module.MarketCalendarSyncTaskService._submit_importance_task([1, 2])

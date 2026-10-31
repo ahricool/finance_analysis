@@ -4,9 +4,9 @@ import { getDisplayTimezone } from '@/utils/format';
 
 export type Importance = 'low' | 'normal' | 'high' | 'critical';
 export type Actionability = 'none' | 'watch' | 'consider' | 'action_required';
-export type Category = 'event' | 'news' | 'analysis';
+export type Category = 'event';
 export type CalendarType = 'earnings' | 'macro';
-export type TimelineTab = 'all' | 'earnings' | 'macro' | 'news' | 'analysis';
+export type TimelineTab = 'all' | 'earnings' | 'macro';
 
 export interface TimelineEventPayload {
   content?: string;
@@ -64,11 +64,11 @@ export interface EarningsDetail {
 }
 
 export interface TimelineItem {
-  id: string; sourceType: 'finance_event' | 'news' | 'report'; sourceId: number;
+  id: string; sourceType: 'finance_event'; sourceId: number;
   eventTime: string; category: Category; calendarType: CalendarType | null;
   market: string | null; title: string; summary: string;
   symbol: string | null; relatedSymbols: string[]; importance: Importance; actionability: Actionability;
-  impact: string | null; impactScore: number | null; importanceScore: number | null;
+  importanceScore: number | null;
   eventType: string | null; detailType: string;
   outlook?: EarningsOutlook | null;
   detailPayload: TimelineEventPayload & Record<string, unknown>;

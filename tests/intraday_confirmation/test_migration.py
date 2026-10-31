@@ -21,9 +21,9 @@ def test_upgrade_downgrade_models_and_single_head():
     cfg = Config()
     cfg.set_main_option("script_location", str(root / "alembic"))
     script = ScriptDirectory.from_config(cfg)
-    assert script.get_heads() == ["0085_retire_market_review"]
+    assert script.get_heads() == ["0086_retire_news"]
     assert [r.revision for r in script.iterate_revisions("head", "0071_user_avatar")] == [
-        "0085_retire_market_review", "0084_drop_stock_analysis_archive", "0083_retire_stock_analysis", "0082_intraday_evaluation", "0081_quant_lifecycle", "0080_signal_center_v2", "0079_confluence_v2", "0078_research_preview", "0077_core_index_etf_sync", "0076_stock_strategies", "0075_watch_list_tags",
+        "0086_retire_news", "0085_retire_market_review", "0084_drop_stock_analysis_archive", "0083_retire_stock_analysis", "0082_intraday_evaluation", "0081_quant_lifecycle", "0080_signal_center_v2", "0079_confluence_v2", "0078_research_preview", "0077_core_index_etf_sync", "0076_stock_strategies", "0075_watch_list_tags",
         "0074_industry_reference", "0073_intraday_confirmation", "0072_trend_periods",
     ]
     assert not (root / "alembic/versions/0072_intraday_confirmation.py").exists()

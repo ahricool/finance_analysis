@@ -10,8 +10,6 @@ const sessionNames: Record<string, string> = {
 };
 
 export function kindLabel(item: TimelineItem): string {
-  if (item.category === 'news') return '新闻';
-  if (item.category === 'analysis') return '市场分析';
   return item.calendarType === 'earnings' ? '财报' : '宏观';
 }
 
@@ -92,6 +90,4 @@ export const tabQuery: Record<string, { category?: Category; calendar_type?: Cal
   all: {},
   earnings: { category: 'event', calendar_type: 'earnings' },
   macro: { category: 'event', calendar_type: 'macro' },
-  news: { category: 'news' },
-  analysis: { category: 'analysis' },
 };

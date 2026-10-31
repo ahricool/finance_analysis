@@ -1,13 +1,11 @@
-"""One public, paginated feed across finance events and news judgments."""
+"""Public, paginated earnings and macro events."""
 
 import logging
 
-from sqlalchemy import DateTime, String, and_, case, cast, func, literal, null, or_, select, union_all
+from sqlalchemy import DateTime, and_, case, cast, func, literal, or_, select
 
 from finance_analysis.core.time import coerce_aware_utc, day_bounds_utc, utc_now  # pragma: allowlist secret
 from finance_analysis.database.models.market_calendar import FinanceEvent
-from finance_analysis.database.models.news import NewsIntel
-from finance_analysis.database.models.news_analysis import NewsAnalysis
 from finance_analysis.database.session import DatabaseManager
 from finance_analysis.database.repositories.universe import UniverseRepository, UniverseResolver
 from finance_analysis.database.repositories.earnings_outlook import EarningsOutlookRepository
@@ -35,7 +33,7 @@ class TimelineService:
             return {}
 
     def _projection(self, session, *, end_date=None, timezone_name, **filters):
-        f, n, a = FinanceEvent, NewsIntel, NewsAnalysis
+        f = FinanceEvent
         critical_macro = (f.calendar_type == "macro") & (
             func.lower(f.title).like("%cpi%")
             | func.lower(f.title).like("%fomc%")
@@ -56,29 +54,16 @@ class TimelineService:
         else:
             all_day_time = func.datetime(f.event_date)  # SQLite is used only by offline tests.
         event_time = func.coalesce(f.event_datetime, all_day_time)
-        projection = union_all(
-            select(
-                literal("finance_event").label("source_type"),
-                f.id.label("source_id"),
-                event_time.label("event_time"),
-                literal("event").label("category"),
-                f.calendar_type.label("calendar_type"),
-                f.market,
-                fi.label("importance"),
-                literal("watch").label("actionability"),
-                func.coalesce(f.importance_score, 0).label("importance_score"),
-            ),
-            select(
-                literal("news"),
-                a.id,
-                func.coalesce(n.published_date, a.analyzed_at),
-                literal("news"),
-                cast(null(), String),
-                literal("US"),
-                a.importance,
-                a.actionability,
-                a.importance_score,
-            ).join(n, n.id == a.news_intel_id),
+        projection = select(
+            literal("finance_event").label("source_type"),
+            f.id.label("source_id"),
+            event_time.label("event_time"),
+            literal("event").label("category"),
+            f.calendar_type.label("calendar_type"),
+            f.market,
+            fi.label("importance"),
+            literal("watch").label("actionability"),
+            func.coalesce(f.importance_score, 0).label("importance_score"),
         ).subquery()
         stmt = select(projection)
         if filters.get("high_confidence"):
@@ -165,14 +150,6 @@ class TimelineService:
             if ids:
                 for item in session.scalars(select(model).where(model.id.in_(ids))):
                     entries[(source, item.id)] = item
-        ids = [row["source_id"] for row in rows if row["source_type"] == "news"]
-        if ids:
-            for analysis, news in session.execute(
-                select(NewsAnalysis, NewsIntel)
-                .join(NewsIntel, NewsIntel.id == NewsAnalysis.news_intel_id)
-                .where(NewsAnalysis.id.in_(ids))
-            ):
-                entries[("news", analysis.id)] = (analysis, news)
         return entries
 
     def _detail(self, entries, row):
@@ -180,64 +157,30 @@ class TimelineService:
         base = dict(row)
         base["id"] = f"{source}:{row['source_id']}"
         base["event_time"] = coerce_aware_utc(base["event_time"])
-        if source == "news":
-            analysis, news = entries[(source, row["source_id"])]
-            payload = {
-                key: getattr(analysis, key)
-                for key in (
-                    "importance_score",
-                    "importance_reason",
-                    "event_type",
-                    "time_sensitivity",
-                    "importance_confidence",
-                    "impact",
-                    "impact_score",
-                    "impact_reason",
-                    "impact_confidence",
-                    "watch_points",
-                    "risk_notes",
-                    "related_symbols",
-                    "model",
-                    "prompt_version",
-                    "analyzed_at",
-                )
-            }
-            payload.update(title=news.title, source=news.source, published_at=news.published_date, url=news.url)
-            base.update(
-                title=news.title,
-                summary=news.snippet or "",
-                related_symbols=analysis.related_symbols or [],
-                impact=analysis.impact,
-                impact_score=analysis.impact_score,
-                event_type=analysis.event_type,
-                detail_type="news",
-                detail_payload=payload,
-            )
-        else:
-            item = entries[(source, row["source_id"])]
-            base.update(
-                title=item.title,
-                summary=item.importance_reason or "",
-                symbol=item.symbol,
-                related_symbols=[item.symbol] if item.symbol else [],
-                event_type=item.calendar_type,
-                detail_type="event",
-                detail_payload={
-                    "content": item.content,
-                    "all_day": item.event_datetime is None,
-                    "event_date": item.event_date,
-                    "counter_name": item.counter_name,
-                    "market_session": item.market_session,
-                    "reporting_period": item.reporting_period,
-                    "currency": item.currency,
-                    "provider": item.provider,
-                    "source_providers": _source_providers(item),
-                    "eps_estimate": item.eps_estimate,
-                    "reported_eps": item.reported_eps,
-                    "eps_surprise_pct": item.eps_surprise_pct,
-                    "importance_reason": item.importance_reason,
-                },
-            )
+        item = entries[(source, row["source_id"])]
+        base.update(
+            title=item.title,
+            summary=item.importance_reason or "",
+            symbol=item.symbol,
+            related_symbols=[item.symbol] if item.symbol else [],
+            event_type=item.calendar_type,
+            detail_type="event",
+            detail_payload={
+                "content": item.content,
+                "all_day": item.event_datetime is None,
+                "event_date": item.event_date,
+                "counter_name": item.counter_name,
+                "market_session": item.market_session,
+                "reporting_period": item.reporting_period,
+                "currency": item.currency,
+                "provider": item.provider,
+                "source_providers": _source_providers(item),
+                "eps_estimate": item.eps_estimate,
+                "reported_eps": item.reported_eps,
+                "eps_surprise_pct": item.eps_surprise_pct,
+                "importance_reason": item.importance_reason,
+            },
+        )
         return TimelineItem(**base)
 
 

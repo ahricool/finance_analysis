@@ -21,7 +21,6 @@ from finance_analysis.tasks.celery.jobs.us_postmarket_review.domain_service impo
 )
 from finance_analysis.tasks.lifecycle import TaskSkipped
 
-
 TRADING_DATE = datetime(2026, 6, 23, 16, 45, tzinfo=ZoneInfo("America/New_York"))
 
 
@@ -41,7 +40,7 @@ risk_on：基于输入数据判断。
 自选股表现见输入。
 
 ## 5. 今日市场主要驱动
-仅引用输入新闻。
+仅依据结构化行情。
 
 ## 6. 风险信号
 关注回撤风险。
@@ -122,21 +121,6 @@ class FakeReporter:
         return NotificationResult(1, send_notification, send_notification and self.send_result)
 
 
-class EmptyDb:
-    class Session:
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *exc):
-            return False
-
-        def execute(self, stmt):
-            return SimpleNamespace(all=list, scalars=lambda: SimpleNamespace(all=list))
-
-    def get_session(self):
-        return self.Session()
-
-
 def _service(
     *,
     changes: dict[str, float] | None = None,
@@ -172,8 +156,9 @@ def _service(
         history_loader=FakeDataManager(default_changes, fail).load_history_df,
         llm_client=llm or FakeLLM(_complete_markdown()),
         reporter=reporter or FakeReporter(),
-        watch_symbols_provider=lambda: watch_symbols if watch_symbols is not None else ["AAPL.US", "NVDA.US", "TSLA.US"],
-        db=EmptyDb(),
+        watch_symbols_provider=lambda: (
+            watch_symbols if watch_symbols is not None else ["AAPL.US", "NVDA.US", "TSLA.US"]
+        ),
     )
 
 
@@ -339,7 +324,7 @@ def test_notification_failure_records_warning() -> None:
     assert summary.notification_id == 1
 
 
-def test_empty_persisted_news_completes() -> None:
+def test_structured_market_inputs_complete_without_news() -> None:
     summary = _service().run(now=TRADING_DATE)
 
     assert summary.benchmark_count == 4
@@ -373,30 +358,6 @@ def test_required_symbols_constants_are_complete() -> None:
     assert {"XLK.US", "SOXX.US", "XLF.US", "XLE.US", "XLRE.US"}.issubset(US_POSTMARKET_SECTOR_ETFS)
 
 
-def test_persisted_financial_news_is_used_without_a_minimum_count():
-    service = _service()
-    row = SimpleNamespace(
-        title="Company reports quarterly results",
-        snippet="Revenue rose compared with the prior year.",
-        source="longbridge",
-        provider="longbridge",
-        published_date=None,
-        url="https://example.com/quarterly-results",
-    )
-    session = EmptyDb.Session()
-    session.execute = lambda stmt: SimpleNamespace(all=lambda: [(row, "AAPL.US")])
-    service.db = SimpleNamespace(get_session=lambda: session)
-    warnings = []
-
-    news = service._load_news(["AAPL.US"], warnings)
-
-    assert len(news) == 1
-    assert news[0]["source"] == "longbridge"
-    assert news[0]["related_symbols"] == ["AAPL.US"]
-    assert news[0]["url"] == row.url
-    assert warnings == []
-
-
 def test_postmarket_uses_global_llm_budget():
     client = FakeLLM(_complete_markdown())
     _service(llm=client).run(now=TRADING_DATE)
@@ -423,9 +384,7 @@ def test_context_fetches_overlapping_symbols_once_and_does_not_share_mutable_res
     assert benchmark.relative_to_spy == 0
 
     service._build_context(TRADING_DATE.date())
-    assert Counter(call.args[0] for call in service.history_loader.call_args_list) == {
-        symbol: 2 for symbol in expected
-    }
+    assert Counter(call.args[0] for call in service.history_loader.call_args_list) == {symbol: 2 for symbol in expected}
 
 
 def test_context_failure_is_fetched_once_but_keeps_each_section_warning_and_retries_next_run():
@@ -448,9 +407,14 @@ def test_performance_cache_keeps_dates_and_canonical_markets_separate():
     from finance_analysis.tasks.celery.jobs.us_postmarket_review.models import InstrumentPerformance
 
     service = _service()
-    service._fetch_daily_performance = Mock(side_effect=lambda symbol, name, day: InstrumentPerformance(
-        symbol=symbol, name=name, close=100, change_pct=1,
-    ))
+    service._fetch_daily_performance = Mock(
+        side_effect=lambda symbol, name, day: InstrumentPerformance(
+            symbol=symbol,
+            name=name,
+            close=100,
+            change_pct=1,
+        )
+    )
     cache = {}
     day = TRADING_DATE.date()
     service._cached_daily_performance("SPY.US", "first", day, cache)

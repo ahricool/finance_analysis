@@ -41,7 +41,8 @@ def _exercise(connection, monkeypatch, present):
 
 def test_fresh_database_metadata_excludes_deleted_archives():
     assert not set(Base.metadata.tables).intersection(ARCHIVES)
-    assert set(SURVIVORS).issubset(Base.metadata.tables)
+    # The later news retirement also removes news_intel from fresh metadata.
+    assert (set(SURVIVORS) - {"news_intel"}).issubset(Base.metadata.tables)
 
 
 @pytest.mark.parametrize("present", PRESENT_CASES)

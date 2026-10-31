@@ -11,33 +11,19 @@ import { timelineApi, type TimelineItem } from '@/api/timeline';
 
 vi.mock('@/api/timeline', () => ({ timelineApi: { list: vi.fn(), earningsDetail: vi.fn().mockResolvedValue({ versions: [], summary: null }) } }));
 
-const news: TimelineItem = {
-  id: 'news:1', sourceType: 'news', sourceId: 1, category: 'news', calendarType: null, market: 'US',
-  eventTime: '2026-09-10T08:00:00Z', title: '芯片需求增长', summary: '订单展望上调', symbol: null,
-  relatedSymbols: ['NVDA', 'AMD'], importance: 'critical', actionability: 'watch', impact: 'bullish',
-  impactScore: 3, importanceScore: 9, eventType: 'guidance', detailType: 'news',
-  detailPayload: { importanceReason: '盈利变化', content: 'FULL REPORT SHOULD NOT APPEAR IN FEED' },
-};
 const earnings: TimelineItem = {
   id: 'finance_event:2', sourceType: 'finance_event', sourceId: 2, category: 'event', calendarType: 'earnings',
   market: 'US', eventTime: '2026-10-01T20:00:00Z', title: 'NVDA Earnings', summary: '', symbol: 'NVDA',
-  relatedSymbols: ['NVDA'], importance: 'high', actionability: 'watch', impact: null, impactScore: null,
+  relatedSymbols: ['NVDA'], importance: 'high', actionability: 'watch',
   importanceScore: 9, eventType: 'earnings', detailType: 'event',
   detailPayload: { counterName: 'NVIDIA', reportingPeriod: 'Q3', marketSession: 'amc', currency: 'USD', epsEstimate: 1.32, allDay: true },
 };
 const macro: TimelineItem = {
   id: 'finance_event:3', sourceType: 'finance_event', sourceId: 3, category: 'event', calendarType: 'macro',
   market: 'US', eventTime: '2026-09-20T12:30:00Z', title: '美国 CPI', summary: '', symbol: null,
-  relatedSymbols: [], importance: 'critical', actionability: 'watch', impact: null, impactScore: null,
+  relatedSymbols: [], importance: 'critical', actionability: 'watch',
   importanceScore: 10, eventType: 'macro', detailType: 'event', detailPayload: { allDay: false },
 };
-const analysis: TimelineItem = {
-  id: 'report:4', sourceType: 'report', sourceId: 4, category: 'analysis', calendarType: null, market: 'US',
-  eventTime: '2026-09-09T12:00:00Z', title: '美股盘前分析', summary: '等待趋势确认', symbol: null,
-  relatedSymbols: [], importance: 'high', actionability: 'consider', impact: null, impactScore: null,
-  importanceScore: null, eventType: 'us_premarket', detailType: 'report', detailPayload: { content: '# report' },
-};
-
 function respond(items: TimelineItem[]) {
   return { items, total: items.length, nextCursor: null, hasMore: false, limit: 20 };
 }
@@ -59,7 +45,7 @@ beforeEach(() => {
   localStorage.clear();
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(new Date('2026-09-09T08:00:00Z'));
-  vi.mocked(timelineApi.list).mockResolvedValue(respond([news]));
+  vi.mocked(timelineApi.list).mockResolvedValue(respond([macro]));
 });
 
 afterEach(() => { vi.useRealTimers(); globalThis.IntersectionObserver = originalIntersectionObserver; });
@@ -70,11 +56,11 @@ function clickTab(wrapper: ReturnType<typeof mount>, label: string) {
 }
 
 describe('Public investment timeline', () => {
-  it('offers only the five public tabs', async () => {
+  it('offers only earnings and macro tabs', async () => {
     const wrapper = mount(TimelinePage, { global: { plugins: [createPinia()] } });
     await flushPromises();
     const labels = wrapper.get('[aria-label="内容类型筛选"]').findAll('button').map(button => button.text());
-    expect(labels).toEqual(['全部', '财报', '宏观', '新闻']);
+    expect(labels).toEqual(['全部', '财报', '宏观']);
     expect(wrapper.text()).not.toContain('财经事件');
     expect(wrapper.text()).not.toContain('笔记');
     wrapper.unmount();
@@ -83,7 +69,6 @@ describe('Public investment timeline', () => {
   it.each([
     ['财报', { category: 'event', calendar_type: 'earnings' }],
     ['宏观', { category: 'event', calendar_type: 'macro' }],
-    ['新闻', { category: 'news' }],
   ])('maps the %s tab to a backend filter', async (label, expected) => {
     const wrapper = mount(TimelinePage, { global: { plugins: [createPinia()] } });
     await flushPromises();
@@ -126,32 +111,28 @@ describe('Public investment timeline', () => {
   });
 
   it('renders every type as its own rounded card in API order', async () => {
-    vi.mocked(timelineApi.list).mockResolvedValue(respond([earnings, macro, news, analysis]));
+    vi.mocked(timelineApi.list).mockResolvedValue(respond([earnings, macro]));
     const wrapper = mount(TimelinePage, { global: { plugins: [createPinia()] } });
     await flushPromises();
     const cards = wrapper.findAll('[data-testid="timeline-item"]');
-    expect(cards).toHaveLength(4);
+    expect(cards).toHaveLength(2);
     for (const card of cards) expect(card.classes()).toContain('rounded-xl');
     expect(cards.map(card => card.text())).toEqual([
       expect.stringContaining('NVIDIA'),
       expect.stringContaining('美国 CPI'),
-      expect.stringContaining('芯片需求增长'),
-      expect.stringContaining('美股盘前分析'),
     ]);
     expect(cards[0]!.text()).toContain('财报');
     expect(cards[0]!.text()).toContain('盘后 AMC');
     expect(cards[0]!.text()).toContain('EPS 预期 $1.32');
     expect(cards[1]!.text()).toContain('宏观');
-    expect(cards[2]!.text()).toContain('9/10');
-    expect(cards[2]!.text()).toContain('NVDA');
     expect(wrapper.text()).not.toContain('FULL REPORT');
     wrapper.unmount();
   });
 
   it('appends older pages in API order without re-sorting', async () => {
-    const older = { ...news, id: 'news:2', sourceId: 2, title: '较早的重要新闻', eventTime: '2026-09-06T07:00:00Z' };
+    const older = { ...macro, id: 'finance_event:20', sourceId: 2, title: '较早的宏观事件', eventTime: '2026-09-06T07:00:00Z' };
     vi.mocked(timelineApi.list)
-      .mockResolvedValueOnce({ items: [{ ...news, importance: 'normal' }], total: 2, nextCursor: 'older-position', hasMore: true, limit: 20 })
+      .mockResolvedValueOnce({ items: [{ ...macro, importance: 'normal' }], total: 2, nextCursor: 'older-position', hasMore: true, limit: 20 })
       .mockResolvedValueOnce({ items: [older], total: 2, nextCursor: null, hasMore: false, limit: 20 });
     const wrapper = mount(TimelinePage, { global: { plugins: [createPinia()] } });
     await flushPromises();
@@ -163,15 +144,15 @@ describe('Public investment timeline', () => {
     await flushPromises();
     expect(timelineApi.list).toHaveBeenLastCalledWith(expect.objectContaining({ cursor: 'older-position' }));
     expect(wrapper.findAll('[data-testid="timeline-item"]').map(row => row.text()))
-      .toEqual([expect.stringContaining(news.title), expect.stringContaining(older.title)]);
+      .toEqual([expect.stringContaining(macro.title), expect.stringContaining(older.title)]);
     wrapper.unmount();
   });
 
   it('continues filling the viewport and stops observing after the last page', async () => {
     vi.mocked(timelineApi.list)
-      .mockResolvedValueOnce({ ...respond([news]), nextCursor: 'page-2', hasMore: true })
-      .mockResolvedValueOnce({ ...respond([{ ...news, id: 'news:2' }]), nextCursor: 'page-3', hasMore: true })
-      .mockResolvedValueOnce(respond([{ ...news, id: 'news:3' }]));
+      .mockResolvedValueOnce({ ...respond([macro]), nextCursor: 'page-2', hasMore: true })
+      .mockResolvedValueOnce({ ...respond([{ ...macro, id: 'finance_event:20' }]), nextCursor: 'page-3', hasMore: true })
+      .mockResolvedValueOnce(respond([{ ...macro, id: 'finance_event:21' }]));
     const wrapper = mount(TimelinePage, { global: { plugins: [createPinia()] } });
     await flushPromises();
     reachBottom();
@@ -188,9 +169,9 @@ describe('Public investment timeline', () => {
 
   it('keeps loaded cards on failure and retries the same cursor without an automatic retry loop', async () => {
     vi.mocked(timelineApi.list)
-      .mockResolvedValueOnce({ ...respond([news]), nextCursor: 'page-2', hasMore: true })
+      .mockResolvedValueOnce({ ...respond([macro]), nextCursor: 'page-2', hasMore: true })
       .mockRejectedValueOnce(new Error('Network Error'))
-      .mockResolvedValueOnce(respond([{ ...news, id: 'news:2' }]));
+      .mockResolvedValueOnce(respond([{ ...macro, id: 'finance_event:20' }]));
     const wrapper = mount(TimelinePage, { global: { plugins: [createPinia()] } });
     await flushPromises();
     reachBottom();
@@ -206,7 +187,7 @@ describe('Public investment timeline', () => {
   });
 
   it('disconnects the bottom observer when leaving the page', async () => {
-    vi.mocked(timelineApi.list).mockResolvedValueOnce({ ...respond([news]), nextCursor: 'page-2', hasMore: true });
+    vi.mocked(timelineApi.list).mockResolvedValueOnce({ ...respond([macro]), nextCursor: 'page-2', hasMore: true });
     const wrapper = mount(TimelinePage, { global: { plugins: [createPinia()] } });
     await flushPromises();
     wrapper.unmount();
@@ -217,7 +198,7 @@ describe('Public investment timeline', () => {
     let finishOlder!: (value: Awaited<ReturnType<typeof timelineApi.list>>) => void;
     let finishFiltered!: (value: Awaited<ReturnType<typeof timelineApi.list>>) => void;
     vi.mocked(timelineApi.list)
-      .mockResolvedValueOnce({ items: [news], total: 3, nextCursor: 'old-position', hasMore: true, limit: 20 })
+      .mockResolvedValueOnce({ items: [macro], total: 3, nextCursor: 'old-position', hasMore: true, limit: 20 })
       .mockImplementationOnce(() => new Promise(resolve => { finishOlder = resolve; }))
       .mockImplementationOnce(() => new Promise(resolve => { finishFiltered = resolve; }));
     const wrapper = mount(TimelinePage, { global: { plugins: [createPinia()] } });
@@ -228,9 +209,9 @@ describe('Public investment timeline', () => {
     await clickTab(wrapper, '美股');
     expect(timelineApi.list).toHaveBeenLastCalledWith(expect.objectContaining({ market: 'US', cursor: undefined }));
     expect(wrapper.findAll('[data-testid="timeline-item"]')).toHaveLength(0);
-    finishFiltered({ items: [{ ...news, title: '筛选结果' }], total: 1, nextCursor: null, hasMore: false, limit: 20 });
+    finishFiltered({ items: [{ ...macro, title: '筛选结果' }], total: 1, nextCursor: null, hasMore: false, limit: 20 });
     await flushPromises();
-    finishOlder({ items: [{ ...news, title: '过期响应' }], total: 3, nextCursor: 'stale', hasMore: true, limit: 20 });
+    finishOlder({ items: [{ ...macro, title: '过期响应' }], total: 3, nextCursor: 'stale', hasMore: true, limit: 20 });
     await flushPromises();
     expect(wrapper.get('[data-testid="timeline-item"]').text()).toContain('筛选结果');
     expect(wrapper.text()).not.toContain('过期响应');
@@ -241,7 +222,7 @@ describe('Public investment timeline', () => {
   it.each(['market', 'tab', 'date', 'timezone', 'importance', 'preset'])('clears cursor on %s change', async (filter) => {
     let finish!: (value: Awaited<ReturnType<typeof timelineApi.list>>) => void;
     vi.mocked(timelineApi.list)
-      .mockResolvedValueOnce({ items: [news], total: 2, nextCursor: 'old-position', hasMore: true, limit: 20 })
+      .mockResolvedValueOnce({ items: [macro], total: 2, nextCursor: 'old-position', hasMore: true, limit: 20 })
       .mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
     const pinia = createPinia();
     const wrapper = mount(TimelinePage, { global: { plugins: [pinia] } });
@@ -336,14 +317,14 @@ describe('cutoff presets and columns', () => {
   });
 
   it('keeps one uninterrupted DOM sequence within each day columns container', async () => {
-    const sameDay = [earnings, macro, news, analysis].map((item, index) => ({ ...item, eventTime: `2026-09-09T0${7-index}:00:00Z` }));
+    const sameDay = [earnings, macro].map((item, index) => ({ ...item, eventTime: `2026-09-09T0${7-index}:00:00Z` }));
     vi.mocked(timelineApi.list).mockResolvedValue(respond(sameDay));
     const wrapper = mount(TimelinePage, { global: { plugins: [createPinia()] } });
     await flushPromises();
     const columns = wrapper.findAll('[data-testid="timeline-columns"]');
     expect(columns).toHaveLength(1);
     expect(columns[0]!.classes()).toEqual(expect.arrayContaining(['columns-1', 'md:columns-2']));
-    expect(columns[0]!.findAll('.break-inside-avoid')).toHaveLength(4);
+    expect(columns[0]!.findAll('.break-inside-avoid')).toHaveLength(2);
     expect(columns[0]!.findAll('[data-testid="timeline-item"]').map(card => card.attributes('aria-label'))).toEqual(sameDay.map(item => `查看${item.title}`));
     wrapper.unmount();
   });

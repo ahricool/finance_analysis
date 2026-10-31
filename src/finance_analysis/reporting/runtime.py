@@ -1,4 +1,4 @@
-"""Shared LLM/report language configuration for independent news and review jobs."""
+"""Shared LLM/report language configuration for independent market review jobs."""
 
 from dataclasses import dataclass
 from functools import lru_cache
