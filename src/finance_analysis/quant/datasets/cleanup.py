@@ -38,7 +38,7 @@ def cleanup_inputs(repository=None, inputs=None, *, dry_run=True):
             _mark_final_status(context, error=RuntimeError("任务超过24小时无心跳，已终止"))
     with repo.db.get_session() as session:
         for row in session.scalars(select(QuantExecution).where(QuantExecution.input_uri.is_not(None))):
-            terminal = row.status == 'complete' or (row.status == 'failed' and row.finished_at and row.finished_at < cutoff)
+            terminal = row.status in {'complete', 'failed'}
             if terminal:
                 candidates.append((row.id, row.input_uri))
     removed = []

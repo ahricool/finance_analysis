@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 import fcntl
 import os
+import shutil
+import tempfile
 import threading
 from contextlib import contextmanager
 from pathlib import Path
@@ -27,10 +29,11 @@ logger = logging.getLogger(__name__)
 
 
 @contextmanager
-def prediction_input_lease(dataset):
-    dataset = Path(dataset)
-    if dataset.parent.name != "temporary":
-        yield
+def prediction_input_lease(dataset, artifact_root):
+    dataset = Path(dataset).resolve()
+    temporary_root = Path(artifact_root).expanduser().resolve() / "temporary"
+    if dataset.parent != temporary_root:
+        yield dataset
         return
     # Missing directory is an error, never recreate an input already reclaimed.
     with (dataset / ".lease").open("a") as handle:
@@ -43,10 +46,21 @@ def prediction_input_lease(dataset):
         thread = threading.Thread(target=heartbeat, daemon=True)
         thread.start()
         try:
-            yield
+            if not dataset.is_dir():
+                raise FileNotFoundError(f"Prediction input was already consumed: {dataset}")
+            with tempfile.TemporaryDirectory(prefix=".predict-", dir=dataset) as temporary:
+                working = Path(temporary)
+                for entry in dataset.iterdir():
+                    if entry.name != ".lease" and entry != working:
+                        entry.rename(working / entry.name)
+                yield working
         finally:
             stop.set()
             thread.join(timeout=1)
+            # TemporaryDirectory owns all prediction files. Remove the empty handoff
+            # shell (and any partially moved files on an ownership-transfer error).
+            if dataset.exists():
+                shutil.rmtree(dataset)
             fcntl.flock(handle, fcntl.LOCK_UN)
 
 
@@ -134,9 +148,10 @@ def predict_model(self: Any, **raw_payload: Any) -> dict[str, Any]:
         payload.artifact_uri,
     )
     try:
-        store = ArtifactStore(get_worker_config().artifact_root)
+        config = get_worker_config()
+        store = ArtifactStore(config.artifact_root)
         dataset = store.path_for_uri(payload.dataset_uri)
-        with prediction_input_lease(dataset):
+        with prediction_input_lease(dataset, config.artifact_root) as dataset:
             manifest = load_manifest(dataset)
             dataset_price_mode = require_forward_adjusted_manifest(manifest)
             features = load_features(dataset, manifest, {"base": "Alpha158"})
@@ -163,9 +178,10 @@ def predict_daily(self: Any, **raw_payload: Any) -> dict[str, Any]:
         payload.dataset_uri,
     )
     try:
-        store = ArtifactStore(get_worker_config().artifact_root)
+        config = get_worker_config()
+        store = ArtifactStore(config.artifact_root)
         dataset = store.path_for_uri(payload.dataset_uri)
-        with prediction_input_lease(dataset):
+        with prediction_input_lease(dataset, config.artifact_root) as dataset:
             manifest = load_manifest(dataset)
             dataset_price_mode = require_forward_adjusted_manifest(manifest)
             features = load_features(dataset, manifest, {"base": "Alpha158"})

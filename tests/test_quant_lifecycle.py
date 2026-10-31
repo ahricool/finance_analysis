@@ -55,6 +55,32 @@ def test_prediction_input_has_no_persistent_dataset_or_source_copy(tmp_path):
     assert (root / 'manifest.json').exists()
     assert not (root / 'source/daily.csv').exists()
     assert list((root / 'features').glob('*/*.bin'))
+    assert not list(root.glob('.export-*'))
+
+
+@pytest.mark.parametrize('error', (RuntimeError, KeyboardInterrupt))
+def test_failed_export_cleans_temporary_directory_and_partial_handoff(tmp_path, monkeypatch, error):
+    from finance_analysis.quant.datasets.exporter import QlibDatasetExporter
+
+    dates = pd.bdate_range('2026-01-01', periods=2)
+    rows = [dict(instrument=code, datetime=day.date(), open=10., high=12., low=9., close=11.,
+                 volume=100., amount=1100., vwap=11.)
+            for code in ['AAPL.US', 'SPY.US', 'QQQ.US', 'IWM.US'] for day in dates]
+    frame = pd.DataFrame(rows).sort_values(['instrument', 'datetime']).reset_index(drop=True)
+    inputs = PredictionInputs(ArtifactStore(tmp_path))
+    working_dirs = []
+
+    def fail_export(_self, root, _frame, **_kwargs):
+        working_dirs.append(root)
+        (root / 'partial.bin').write_bytes(b'partial')
+        raise error('export interrupted')
+
+    monkeypatch.setattr(QlibDatasetExporter, '_write_qlib', fail_export)
+    with pytest.raises(error, match='export interrupted'):
+        inputs.build('failed', 'US', 'us_quant', SimpleNamespace(frame=frame, source_revision='test'),
+                     {'AAPL.US'}, dates[0].date(), dates[-1].date())
+    assert working_dirs and all(not path.exists() for path in working_dirs)
+    assert not (tmp_path / 'temporary/failed').exists()
 
 
 def test_training_admission_rejects_prediction_window_and_incomplete_fold():
@@ -163,7 +189,7 @@ def test_daily_batch_is_atomic_idempotent_and_fenced(pg_repo):
         repo.replace_signals_and_save_portfolio(*args, [], execution_id=other)
 
 
-def test_cleanup_respects_heartbeat_and_terminal_retention(pg_repo, tmp_path):
+def test_cleanup_respects_heartbeat_and_reclaims_abandoned_inputs(pg_repo, tmp_path):
     from finance_analysis.quant.datasets.cleanup import cleanup_inputs
     repo = pg_repo
     manager = PredictionInputs(ArtifactStore(tmp_path))
@@ -179,13 +205,27 @@ def test_cleanup_respects_heartbeat_and_terminal_retention(pg_repo, tmp_path):
     os.utime(heartbeat, (old, old))
     cleanup_inputs(repo, manager, dry_run=True)
     assert repo.execution(key).status == 'preparing'
-    cleanup_inputs(repo, manager, dry_run=False)
+    result = cleanup_inputs(repo, manager, dry_run=False)
+    assert result['execution_ids'] == result['abandoned_execution_ids'] == [key]
     assert repo.execution(key).status == 'failed'
-    assert root.exists()
-    with repo.db.session_scope() as session:
-        session.get(QuantExecution, key).finished_at = utc_now()-timedelta(days=2)
-    assert cleanup_inputs(repo, manager, dry_run=False)['execution_ids'] == [key]
+    assert repo.execution(key).input_uri is None
     assert not root.exists()
+
+
+@pytest.mark.parametrize('status', ('complete', 'failed'))
+def test_cleanup_reclaims_recent_terminal_inputs_without_retention(pg_repo, tmp_path, status):
+    from finance_analysis.quant.datasets.cleanup import cleanup_inputs
+
+    manager = PredictionInputs(ArtifactStore(tmp_path))
+    key = str(uuid4())
+    root = manager.store.directory(f'temporary/{key}')
+    (root / '.lease').touch()
+    pg_repo.create_execution(dict(id=key, market='US', universe_id=1, trade_date=date(2026, 1, 2),
+                                 input_uri=f'quant://temporary/{key}'))
+    pg_repo.update_execution(key, status=status, finished_at=utc_now())
+    assert cleanup_inputs(pg_repo, manager, dry_run=False)['execution_ids'] == [key]
+    assert not root.exists()
+    assert pg_repo.execution(key).input_uri is None
 
 
 def test_migration_bootstraps_production_pair_without_deleting_history(pg_repo):

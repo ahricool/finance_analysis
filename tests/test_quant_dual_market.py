@@ -210,13 +210,21 @@ def test_cn_pipeline_queries_only_cn_production_models(monkeypatch):
     ("market", "universe"),
     (("US", "us_quant"), ("CN", "cn_quant")),
 )
-def test_scheduled_daily_pipeline_dispatches_the_fixed_market_universe(monkeypatch, market, universe):
+@pytest.mark.parametrize("cleanup_error", (False, True))
+def test_scheduled_daily_pipeline_dispatches_the_fixed_market_universe(monkeypatch, market, universe, cleanup_error):
     captured = {}
+    def startup_cleanup(**_):
+        captured['cleanup'] = True
+        if cleanup_error:
+            raise OSError('old input cannot be deleted yet')
+
+    monkeypatch.setattr(quant_daily_tasks, "cleanup_inputs", startup_cleanup)
     monkeypatch.setattr("finance_analysis.market_review.trading_calendar.is_market_session_closed", lambda *a, **k: True)
 
     class Pipeline:
         @staticmethod
         def prepare(market, task_id=None):
+            assert captured.get("cleanup") is True
             return (
                 {
                     "schema_version": 1,

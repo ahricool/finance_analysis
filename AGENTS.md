@@ -133,7 +133,7 @@ static/                    Web 构建产物，由 `web/vite.config.ts` 生成
 4. 主 Worker 的 callback 完成信号融合、组合构建及 PostgreSQL 持久化；Redis 只缓存最新视图。 <!-- pragma: allowlist secret -->
 
 Quant 0081：每日推理输入为任务级临时工件，不再创建 dataset 记录；训练输入按实验复用。
-双模型成组发布/回滚，正式结果原子写入；临时输入成功后清理，失败保留24h，维护任务受心跳/文件锁保护。
+双模型成组发布/回滚，正式结果原子写入；导出/预测工作区由TemporaryDirectory管理，Qlib消费后成功/异常退出均清理；每日启动先回收历史残留，每6小时维护任务继续处理异常中断，受心跳/文件锁保护。
 前端移除数据集页，模型管理仅管理员可见。
 
 详细边界见 `docs/quant-research.md`，但调度时间等易变信息应以 `definitions.py` 为准。
