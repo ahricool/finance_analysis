@@ -23,16 +23,16 @@ def build_market_review_runtime(
     source_message: Optional[Any] = None,
 ) -> Tuple[Any, Any]:
     """
-    Build shared NotificationService, StockReportAnalyzer instances.
+    Build shared NotificationService, MarketReviewTextGenerator instances.
     """
-    from finance_analysis.analysis.stock_report_analyzer import StockReportAnalyzer
+    from finance_analysis.market_review.text_generator import MarketReviewTextGenerator
     from finance_analysis.notification.service import NotificationService
 
     notifier = NotificationService(source_message=source_message)
 
     analyzer = None
     if has_configured_llm_runtime(config):
-        analyzer = StockReportAnalyzer(config=config)
+        analyzer = MarketReviewTextGenerator(config=config)
         if not analyzer.is_available():
             logger.warning("LLM analyzer initialized but not available (check LLM_MODEL / LLM_API_KEY)")
 

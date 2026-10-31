@@ -129,16 +129,16 @@ def _record(task_id, *, uid, status="completed", scheduler_job_id=None, payload=
 
 
 def test_scheduled_tasks_include_latest_run_and_next_run_time():
-    repo = _FakeTaskRepo([_record("task-1", uid=None, scheduler_job_id="analysis_us_premarket")])
+    repo = _FakeTaskRepo([_record("task-1", uid=None, scheduler_job_id="analysis_us_postmarket_review")])
     service = ScheduledTaskService(
         repository=repo,
         beat_status_reader=lambda: "active",
     )
 
     items = service.list_scheduled_tasks()
-    premarket = next(item for item in items if item["job_id"] == "analysis_us_premarket")
+    premarket = next(item for item in items if item["job_id"] == "analysis_us_postmarket_review")
 
-    assert premarket["name"] == "美股盘前分析"
+    assert premarket["name"] == "美股收盘复盘"
     assert premarket["scheduler_status"] == "active"
     assert premarket["next_run_time"]
     assert premarket["latest_run"]["task_id"] == "task-1"
@@ -164,17 +164,17 @@ def test_manual_run_creates_pending_record_and_submits_via_celery():
     submitter = _RecordingSubmitter()
     service = ScheduledTaskService(repository=repo, task_submitter=submitter)
 
-    result = service.run_scheduled_task_now(job_id="analysis_us_premarket", triggered_by_uid=7)
+    result = service.run_scheduled_task_now(job_id="analysis_us_postmarket_review", triggered_by_uid=7)
 
     assert result["status"] == "pending"
     assert repo.records[0].trigger_source == "manual"
     assert repo.records[0].triggered_by_uid == 7
-    assert repo.records[0].scheduler_job_id == "analysis_us_premarket"
+    assert repo.records[0].scheduler_job_id == "analysis_us_postmarket_review"
     assert repo.records[0].source == "celery"
     assert len(submitter.calls) == 1
     assert submitter.calls[0]["task_id"] == result["task_id"]
     assert submitter.calls[0]["triggered_by_uid"] == 7
-    assert submitter.calls[0]["definition"].job_id == "analysis_us_premarket"
+    assert submitter.calls[0]["definition"].job_id == "analysis_us_postmarket_review"
     assert submitter.calls[0]["task_kwargs"] == {}
 
 
@@ -199,18 +199,18 @@ def test_manual_non_sync_task_rejects_sync_mode():
 
     with pytest.raises(ManualRunParameterError, match="不支持同步模式参数"):
         service.run_scheduled_task_now(
-            job_id="analysis_us_premarket",
+            job_id="analysis_us_postmarket_review",
             triggered_by_uid=7,
             sync_mode="full",
         )
 
 
 def test_manual_run_does_not_use_task_status_as_a_mutex():
-    active = _record("active-task", uid=None, status="processing", scheduler_job_id="analysis_us_premarket")
+    active = _record("active-task", uid=None, status="processing", scheduler_job_id="analysis_us_postmarket_review")
     submitter = _RecordingSubmitter()
     service = ScheduledTaskService(repository=_FakeTaskRepo([active]), task_submitter=submitter)
 
-    result = service.run_scheduled_task_now(job_id="analysis_us_premarket", triggered_by_uid=7)
+    result = service.run_scheduled_task_now(job_id="analysis_us_postmarket_review", triggered_by_uid=7)
 
     assert result["status"] == "pending"
     assert len(submitter.calls) == 1
@@ -221,14 +221,14 @@ def test_manual_run_marks_record_cancelled_when_submission_fails():
     service = ScheduledTaskService(repository=repo, task_submitter=_RecordingSubmitter(fail=True))
 
     with pytest.raises(SchedulerUnavailableError):
-        service.run_scheduled_task_now(job_id="analysis_us_premarket", triggered_by_uid=7)
+        service.run_scheduled_task_now(job_id="analysis_us_postmarket_review", triggered_by_uid=7)
 
     assert repo.updated
     assert repo.updated[-1]["status"] == "cancelled"
 
 
 def test_default_manual_submitter_uses_registered_task_for_definition():
-    definition = get_scheduled_task_definition("analysis_us_premarket")
+    definition = get_scheduled_task_definition("analysis_us_postmarket_review")
     assert definition is not None
     celery_app.loader.import_default_modules()
     celery_task = celery_app.tasks[definition.celery_task_name]
@@ -253,7 +253,7 @@ def test_task_run_list_scopes_regular_user_and_keeps_admin_unscoped():
         [
             _record("user-task", uid=10),
             _record("other-task", uid=11),
-            _record("system-task", uid=None, scheduler_job_id="analysis_us_premarket"),
+            _record("system-task", uid=None, scheduler_job_id="analysis_us_postmarket_review"),
         ]
     )
     service = TaskQueryService(repository=repo, db=SimpleNamespace())

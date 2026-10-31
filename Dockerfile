@@ -68,7 +68,6 @@ COPY alembic.ini ./
 COPY alembic/ ./alembic/
 COPY main.py ./
 COPY src/ ./src/
-COPY templates/ ./templates/
 
 # Preserve editable imports, distribution metadata and both project CLI commands.
 # Only project installation is added to this small layer, never a second full

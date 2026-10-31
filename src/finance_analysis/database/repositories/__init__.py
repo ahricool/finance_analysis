@@ -2,7 +2,6 @@
 """Database repository package with lazy imports to avoid cycles."""
 
 __all__ = [
-    "AnalysisRepository",
     "InstrumentRepository",
     "QuantRepository",
     "StockRepository",
@@ -15,10 +14,6 @@ __all__ = [
 
 
 def __getattr__(name: str):
-    if name == "AnalysisRepository":
-        from finance_analysis.database.repositories.analysis import AnalysisRepository
-
-        return AnalysisRepository
     if name == "QuantRepository":
         from finance_analysis.database.repositories.quant import QuantRepository
 

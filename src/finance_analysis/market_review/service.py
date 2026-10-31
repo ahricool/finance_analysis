@@ -13,7 +13,7 @@ Finance Analysis - 大盘复盘模块（支持 A 股 / 港股 / 美股）
 import logging
 from typing import Optional, Protocol
 
-from finance_analysis.analysis.pipeline_config import get_pipeline_config
+from finance_analysis.market_review.runtime_config import get_market_review_runtime_config
 from finance_analysis.notification.service import NotificationService
 from finance_analysis.market_review.analyzer import MarketAnalyzer
 from finance_analysis.reporting.localization import normalize_report_language
@@ -71,7 +71,7 @@ def run_market_review(
         复盘报告文本
     """
     logger.info("开始执行大盘复盘分析...")
-    config = get_pipeline_config()
+    config = get_market_review_runtime_config()
     review_text = _get_market_review_text(getattr(config, "report_language", "zh"))
     region = (
         override_region

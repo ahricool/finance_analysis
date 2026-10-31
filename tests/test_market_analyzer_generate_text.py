@@ -9,7 +9,6 @@ Covers:
   does NOT trigger AttributeError (regression guard for the old bypass bug)
 """
 import sys
-from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 # Stub heavy dependencies before project imports
@@ -18,61 +17,9 @@ for _mod in ("litellm", "google.generativeai", "google.genai", "anthropic"):
         sys.modules[_mod] = MagicMock()
 
 
-
 # ---------------------------------------------------------------------------
 # Analyzer.generate_text()
 # ---------------------------------------------------------------------------
-
-class TestAnalyzerGenerateText:
-    def _make_analyzer(self):
-        from finance_analysis.analysis.stock_report_analyzer import StockReportAnalyzer
-        return StockReportAnalyzer()
-
-    def test_parse_response_non_json_returns_failure(self):
-        """_parse_response must return success=False when LLM output is not valid JSON."""
-        analyzer = self._make_analyzer()
-        analyzer._config_override = SimpleNamespace(report_language="zh")
-
-        from finance_analysis.analysis.stock_report_analyzer import StockReportAnalyzer
-
-        result = StockReportAnalyzer._parse_response(analyzer, "这是一段纯文本分析，没有 JSON。", "600519", "贵州茅台")
-        assert result.success is False
-        assert result.error_message is not None
-        assert result.code == "600519"
-
-
-    def test_parse_response_malformed_json_returns_failure(self):
-        """_parse_response must return success=False when JSON extraction fails."""
-        analyzer = self._make_analyzer()
-        analyzer._config_override = SimpleNamespace(report_language="zh")
-
-        from finance_analysis.analysis.stock_report_analyzer import StockReportAnalyzer
-
-        malformed = "Here is the analysis: {broken json content without closing"
-        result = StockReportAnalyzer._parse_response(analyzer, malformed, "AAPL", "Apple")
-        assert result.success is False
-        assert result.error_message is not None
-
-
-    def test_parse_response_valid_json_returns_success(self):
-        """_parse_response must return success=True when LLM output contains valid JSON."""
-        analyzer = self._make_analyzer()
-        analyzer._config_override = SimpleNamespace(report_language="zh")
-
-        from finance_analysis.analysis.stock_report_analyzer import StockReportAnalyzer
-        import json
-
-        valid_response = json.dumps({
-            "sentiment_score": 75,
-            "trend_prediction": "看多",
-            "operation_advice": "持有",
-            "analysis_summary": "测试分析",
-        })
-        result = StockReportAnalyzer._parse_response(analyzer, valid_response, "600519", "贵州茅台")
-        assert result.success is True
-        assert result.error_message is None
-
-
 
 
 # ---------------------------------------------------------------------------
@@ -85,18 +32,16 @@ class TestMarketAnalyzerBypassFix:
         from finance_analysis.market_review.profile import CN_PROFILE
         from finance_analysis.market_review.strategy import get_market_strategy_blueprint
 
-        with patch("finance_analysis.analysis.stock_report_analyzer.get_pipeline_config") as mock_cfg, \
-             patch("finance_analysis.analysis.pipeline_config.get_pipeline_config") as mock_cfg2:
+        with patch("finance_analysis.market_review.runtime_config.get_market_review_runtime_config") as mock_cfg:
             cfg = MagicMock()
             cfg.market_review_region = "cn"
             cfg.report_language = "zh"
             mock_cfg.return_value = cfg
-            mock_cfg2.return_value = cfg
 
-            from finance_analysis.analysis.stock_report_analyzer import StockReportAnalyzer
+            from finance_analysis.market_review.text_generator import MarketReviewTextGenerator
             from finance_analysis.market_review.analyzer import MarketAnalyzer
 
-            analyzer = StockReportAnalyzer.__new__(StockReportAnalyzer)
+            analyzer = MarketReviewTextGenerator.__new__(MarketReviewTextGenerator)
             analyzer.generate_text = MagicMock(return_value=return_value)
 
             ma = MarketAnalyzer.__new__(MarketAnalyzer)
@@ -334,8 +279,6 @@ Sector text.
         assert "| 上证指数 | 3300.00 | 🟢 +0.36% | 3288.00 | 3312.00 | 3276.00 | 1.10% | 1450 |" in result
         assert "#### 领涨板块 Top 5" in result
         assert "| 1 | AI算力 | +3.25% |" in result
-
-
 
 
     def test_market_light_snapshot_marks_defensive_market_red(self):

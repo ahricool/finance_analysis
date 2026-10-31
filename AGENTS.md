@@ -75,7 +75,6 @@ src/finance_analysis/ <!-- pragma: allowlist secret -->
   config/                  `.env` 加载和类型化环境变量解析
   core/                    统一路径、UTC 时间和日志基础设施
   interfaces/api/          FastAPI 工厂、中间件、依赖、v1 endpoints/schemas
-  analysis/                个股分析流水线、技术分析、历史加载和报告完整性
   integrations/market_data 统一行情门面、Provider 注册/路由/校验、实时状态
   stocks/                  代码/市场规范化、证券查询、前端股票索引
   database/                ORM、仓储、连接、启动迁移和种子数据
@@ -86,14 +85,13 @@ src/finance_analysis/ <!-- pragma: allowlist secret -->
   trend_following/         多市场趋势跟踪领域模型与服务
   market_review/           市场复盘、交易日历、运行时配置
   llm/                     API / SSH CLI 调用、重试、审计日志与用量统计
-  reporting/               报告 schema、本地化、Jinja/Markdown/图片渲染
+  reporting/               报告语言配置与 Markdown 图片转换
   notification/            路由、降噪及 Telegram/ntfy 与消息持久化
   patches/                 受配置控制的第三方兼容补丁
   users/                   会话 JWT、用户配置和数据归属
 qlib_worker/               独立 Python 3.12 Qlib Celery 包及自身锁文件/测试
 web/                       Vue SPA、Vitest 与 Playwright
 alembic/                   PostgreSQL schema/data migrations <!-- pragma: allowlist secret -->
-templates/                 Jinja2 报告模板
 tests/                     主应用 pytest；`tests/market_stream/` 为 streamer 测试
 docs/                      专题说明；有些说明可能落后，修改前与源码核对
 data/                      默认运行时数据根，不是源码
@@ -104,14 +102,11 @@ static/                    Web 构建产物，由 `web/vite.config.ts` 生成
 
 ## 关键数据流
 
-### 个股分析
+### 个股分析已退役
 
-1. 按需个股分析由 `tasks/queue.py` 发布 `run_stock_analysis`；美股盘前分析等周期任务复用分析流水线。
-2. `StockAnalysisPipeline` 要求 PostgreSQL 已有目标前复权日线；普通分析不负责补写历史行情。 <!-- pragma: allowlist secret -->
-3. `MarketDataService` 聚合实时 Quote、证券信息及可选基本面；分析还会执行技术指标。
-4. StockReportAnalyzer 构造 prompt，经 LLMClient 调用并解析为 `AnalysisResult`。
-5. 分析历史、上下文和 LLM 用量写 PostgreSQL；报告经 `reporting/` 渲染，并可由 `notification/` 保存或推送。 <!-- pragma: allowlist secret -->
-6. 任务状态始终读 PostgreSQL `task` 记录，不从 Redis 推断。 <!-- pragma: allowlist secret -->
+个股决策仪表盘、单股分析入口、美股盘前分析任务及其 Prompt/pipeline 已删除。
+大盘复盘、盘前新闻、持仓复核和交易引擎继续独立运行。
+历史分析及基本面快照只保留存档；依赖迁移和残留清单见 `docs/stock-analysis-removal.md`。
 
 ### 市场数据
 
@@ -121,7 +116,7 @@ static/                    Web 构建产物，由 `web/vite.config.ts` 生成
 - 只有显式维护任务写 `instrument`、`stock_daily` 及 Universe。主数据/指数成分同步与日线同步是分离任务。
 - `database/core_index_etf.py` 为CN/US核心指数ETF维护直接日线同步成员，不扩大ETF/Trend策略池；
   迁移`0077_core_index_etf_sync`，见`docs/core-index-etf-sync.md`。
-- Streamer 的 Redis 实时状态可被分析流水线和 `/api/v1/market-data/ws` 读取；缺失时按 Provider 链降级。
+- Streamer 的 Redis 实时状态供 `/api/v1/market-data/ws`、SSE 与持仓行情使用。
 
 ### 周期任务
 
@@ -330,9 +325,9 @@ BTC 多策略以 `strategy_key + symbol` 隔离，代码注册表当前仅 `btc_
 
 ## 信息输入边界
 
-个股分析使用行情、技术、基本面，大盘复盘只使用市场结构化数据。
+个股决策分析已退役；大盘复盘只使用市场结构化数据。
 系统不负责通用互联网检索；`signal_center/`另允许通过LLMClient联网核查候选的公告/事件/风险并保存检索证据，见`docs/signal-center.md`。`earnings_outlook/` 是财报研究例外，仅对 Nasdaq-100 当前有效股票成员
-通过 LLMClient 执行有传输证据的搜索；不改变其他模块边界，详见 `docs/investment-timeline.md`。Longbridge 是唯一的外部新闻消息源，用于美股盘前新闻与盘中分析；
+通过 LLMClient 执行有传输证据的搜索；不改变其他模块边界，详见 `docs/investment-timeline.md`。Longbridge 是唯一的外部新闻消息源，用于美股盘前新闻；
 美股收盘复盘只读已持久化新闻，空新闻不阻断报告或通知。新闻存储与调用方见
 `docs/investment-timeline.md` 的“新闻数据边界”。
 

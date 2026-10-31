@@ -13,7 +13,6 @@ PROJECT_ROOT = SOURCE_ROOT.parent
 
 STATIC_DIR = PROJECT_ROOT / "static"
 WEB_DIR = PROJECT_ROOT / "web"
-TEMPLATES_DIR = PROJECT_ROOT / "templates"
 
 _RUNTIME_SUBDIRS = (
     "logs/llm",
@@ -164,7 +163,6 @@ __all__ = [
     "PROJECT_ROOT",
     "SOURCE_ROOT",
     "STATIC_DIR",
-    "TEMPLATES_DIR",
     "WEB_DIR",
     "clear_paths_cache",
     "ensure_data_directories",

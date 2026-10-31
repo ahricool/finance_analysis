@@ -107,7 +107,7 @@ class StockService:
             )
 
         try:
-            from finance_analysis.analysis.history.loader import load_history_df
+            from finance_analysis.stocks.history import load_history_df
             from finance_analysis.database.repositories.stock import InstrumentRepository
 
             df, source = load_history_df(stock_code, days=days)

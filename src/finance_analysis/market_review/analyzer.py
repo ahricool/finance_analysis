@@ -16,7 +16,7 @@ from typing import Dict, Any, List
 
 import pandas as pd
 
-from finance_analysis.analysis.pipeline_config import get_pipeline_config
+from finance_analysis.market_review.runtime_config import get_market_review_runtime_config
 from finance_analysis.reporting.localization import normalize_report_language
 from finance_analysis.market_review.profile import get_profile, MarketProfile
 from finance_analysis.market_review.strategy import get_market_strategy_blueprint
@@ -54,7 +54,7 @@ class MarketAnalyzer:
             analyzer: AI分析器实例（用于调用LLM）
             region: 市场区域 cn=A股 us=美股
         """
-        self.config = get_pipeline_config()
+        self.config = get_market_review_runtime_config()
         self.analyzer = analyzer
         self.data_manager = MarketDataService()
         self.region = region if region in ("cn", "us", "hk") else "cn"

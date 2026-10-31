@@ -21,7 +21,6 @@ SCHEDULE_TIMEZONE = "Asia/Shanghai"
 US_TIMEZONE = "America/New_York"
 
 EXPIRES_INTRADAY = 4 * 60
-EXPIRES_PREMARKET = 30 * 60
 EXPIRES_NEWS = 30 * 60
 EXPIRES_CALENDAR = 60 * 60
 EXPIRES_POSTMARKET_REVIEW = 90 * 60
@@ -36,7 +35,6 @@ EXPIRES_TREND_FOLLOWING_PREVIEW = 60 * 60
 JOB_CRYPTO_BTC_STRATEGY = "crypto_btc_strategy"
 JOB_MARKET_CALENDAR = "market_calendar"
 JOB_US_PREMARKET_NEWS = "analysis_us_premarket_news"
-JOB_US_PREMARKET_ANALYSIS = "analysis_us_premarket"
 JOB_US_POSTMARKET_REVIEW = "analysis_us_postmarket_review"
 JOB_REFERENCE_DATA_SYNC = "reference_data_sync"
 JOB_MARKET_DATA_SYNC_CN = "market_data_sync_cn"

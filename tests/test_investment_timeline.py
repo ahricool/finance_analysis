@@ -144,8 +144,6 @@ def test_timeline_domain_has_no_uid_or_note_left():
     for job in ("a_share_pre_close_review/reporter.py", "us_postmarket_review/reporter.py"):
         text = (TIMELINE_ROOT / "tasks/celery/jobs" / job).read_text()
         assert "ensure_default_admin" not in text and "UserRepository" not in text
-    premarket = (TIMELINE_ROOT / "tasks/celery/jobs/us_premarket_analysis/service.py").read_text()
-    assert "ensure_default_admin" not in premarket and "UserRepository" not in premarket
 
 
 def test_manual_note_entry_type_is_rejected_by_the_database(db):
@@ -372,26 +370,6 @@ def test_reporters_persist_public_reports_without_an_owner(
         notifier.send.call_args.kwargs["content"] if market == "CN" else notifier.send.call_args.args[0]
     ) == "# Full report"
     assert notifier.send.call_args.kwargs["push"] is False
-    with db.get_session() as session:
-        assert session.scalar(select(func.count()).select_from(TimelineEntry)) == 0
-
-
-def test_us_premarket_pipeline_persists_report_and_returns_task_statistics(db, monkeypatch):
-    from unittest.mock import MagicMock
-
-    from finance_analysis.tasks.celery.jobs.us_premarket_analysis.service import USPremarketAnalysisTaskService
-
-    pipeline = MagicMock()
-    pipeline.run.return_value = [SimpleNamespace(code="NVDA")]
-    pipeline._generate_aggregate_report.return_value = "# Full report"
-    monkeypatch.setattr("finance_analysis.analysis.pipeline.StockAnalysisPipeline", lambda **kwargs: pipeline)
-    monkeypatch.setattr("finance_analysis.analysis.pipeline_config.get_pipeline_config", lambda: SimpleNamespace())
-    monkeypatch.setattr(
-        "finance_analysis.database.repositories.watch_list.get_watch_list_codes_by_market", lambda market: ["NVDA"]
-    )
-    result = USPremarketAnalysisTaskService().run()
-    assert result["success_count"] == 1
-    pipeline.run.assert_called_once()
     with db.get_session() as session:
         assert session.scalar(select(func.count()).select_from(TimelineEntry)) == 0
 

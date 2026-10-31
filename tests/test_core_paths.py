@@ -13,7 +13,6 @@ from finance_analysis.core.paths import (
     PROJECT_ROOT,
     SOURCE_ROOT,
     STATIC_DIR,
-    TEMPLATES_DIR,
     WEB_DIR,
     clear_paths_cache,
     ensure_data_directories,
@@ -45,7 +44,6 @@ def test_project_root_layout() -> None:
 def test_standard_resource_directories() -> None:
     assert WEB_DIR == PROJECT_ROOT / "web"
     assert STATIC_DIR == PROJECT_ROOT / "static"
-    assert TEMPLATES_DIR == PROJECT_ROOT / "templates"
 
 
 def test_resolve_project_path() -> None:

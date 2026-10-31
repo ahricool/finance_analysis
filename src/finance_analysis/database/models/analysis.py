@@ -11,9 +11,9 @@ from finance_analysis.core.time import utc_isoformat, utc_now
 
 class AnalysisHistory(Base):
     """
-    分析结果历史记录模型
+    已退役个股分析的历史存档。
 
-    保存每次分析结果，支持按 query_id/股票代码检索
+    保留 ORM metadata 以保护已有数据；当前应用不再生成或写入这类报告。
     """
     __tablename__ = 'analysis_history'
 

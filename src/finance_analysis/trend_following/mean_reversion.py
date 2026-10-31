@@ -3,7 +3,7 @@
 import numpy as np
 import pandas as pd
 
-from finance_analysis.analysis.technical.indicators import rsi_series
+from finance_analysis.trend_following.indicators import rsi_series
 from .config import DEFAULT_CONFIG
 from .features import true_ranges
 from .scoring import gaussian, tanh_quality

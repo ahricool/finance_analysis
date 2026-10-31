@@ -5,9 +5,7 @@ Finance Analysis - 通知层
 ===================================
 
 职责：
-1. 汇总分析结果生成日报
-2. 支持 Markdown 格式输出
-3. 多渠道推送（自动识别）：
+支持消息持久化、Markdown 和多渠道推送：
    - Telegram Bot
    - ntfy
 """
@@ -15,12 +13,11 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import List, Dict, Any, Optional, Tuple, TYPE_CHECKING
+from typing import List, Dict, Optional
 from enum import Enum
 
 from finance_analysis.notification.config import get_notification_config  # pragma: allowlist secret
 from finance_analysis.reporting.config import get_report_config  # pragma: allowlist secret
-from finance_analysis.reporting.types import ReportType  # pragma: allowlist secret
 from finance_analysis.notification.routing import (  # pragma: allowlist secret
     get_notification_route_config,
     split_notification_route_channels,
@@ -31,29 +28,15 @@ from finance_analysis.notification.noise_control import (  # pragma: allowlist s
     record_notification_noise,
     release_notification_noise,
 )
-from finance_analysis.reporting.localization import (  # pragma: allowlist secret
-    get_localized_stock_name,
-    get_report_labels,
-    get_signal_level,
-    localize_chip_health,
-    localize_operation_advice,
-    localize_trend_prediction,
-    normalize_report_language,
-)
 from finance_analysis.notification.messages import BotMessage  # pragma: allowlist secret
-from finance_analysis.analysis.context_normalizer import normalize_model_used  # pragma: allowlist secret
 from finance_analysis.notification.senders import (  # pragma: allowlist secret
     NtfySender,
     TelegramSender,
     resolve_ntfy_endpoint,
 )
 from finance_analysis.llm.timing import append_timings, without_timings
-from finance_analysis.reporting.markdown_renderer import ReportRenderingMixin  # pragma: allowlist secret
 
 logger = logging.getLogger(__name__)
-
-if TYPE_CHECKING:
-    from finance_analysis.analysis.stock_report_analyzer import AnalysisResult  # pragma: allowlist secret
 
 
 @dataclass
@@ -90,7 +73,6 @@ class ChannelDetector:
 
 
 class NotificationService(
-    ReportRenderingMixin,
     NtfySender,
     TelegramSender,
 ):
@@ -98,9 +80,8 @@ class NotificationService(
     通知服务
     
     职责：
-    1. 生成 Markdown 格式的分析日报
-    2. 向所有已配置的渠道推送消息（多渠道并发）
-    3. 在外部推送之前独立持久化消息
+    1. 向所有已配置的渠道推送消息（多渠道并发）
+    2. 在外部推送之前独立持久化消息
     
     支持的渠道：
     - Telegram Bot
@@ -129,10 +110,6 @@ class NotificationService(
             report_config, 'markdown_to_image_max_chars', 15000
         )
 
-        # 仅分析结果摘要（Issue #262）：true 时只推送汇总，不含个股详情
-        self._report_summary_only = getattr(report_config, 'report_summary_only', False)
-        self._history_compare_cache: Dict[Tuple[int, Tuple[Tuple[str, str], ...]], Dict[str, List[Dict[str, Any]]]] = {}
-
         NtfySender.__init__(self, config)
         TelegramSender.__init__(self, config)
 
@@ -144,90 +121,7 @@ class NotificationService(
             channel_names = [ChannelDetector.get_channel_name(ch) for ch in self._available_channels]
             logger.info(f"已配置 {len(channel_names)} 个通知渠道：{', '.join(channel_names)}")
 
-    def _normalize_report_type(self, report_type: Any) -> ReportType:
-        """Normalize string/enum input into ReportType."""
-        if isinstance(report_type, ReportType):
-            return report_type
-        return ReportType.from_str(report_type)
 
-    def _get_report_language(self, payload: Optional[Any] = None) -> str:
-        """Resolve report language from result payload or global config."""
-        if isinstance(payload, list):
-            for item in payload:
-                language = getattr(item, "report_language", None)
-                if language:
-                    return normalize_report_language(language)
-        elif payload is not None:
-            language = getattr(payload, "report_language", None)
-            if language:
-                return normalize_report_language(language)
-
-        return normalize_report_language(get_report_config().report_language)
-
-    def _get_labels(self, payload: Optional[Any] = None) -> Dict[str, str]:
-        return get_report_labels(self._get_report_language(payload))
-
-    def _get_display_name(self, result: AnalysisResult, language: Optional[str] = None) -> str:
-        report_language = normalize_report_language(language or self._get_report_language(result))
-        return self._escape_md(
-            get_localized_stock_name(result.name, result.code, report_language)
-        )
-
-    def _get_history_compare_context(self, results: List[AnalysisResult]) -> Dict[str, Any]:
-        """Fetch and cache history comparison data for markdown rendering."""
-        config = get_report_config()
-        history_compare_n = getattr(config, 'report_history_compare_n', 0)
-        if history_compare_n <= 0 or not results:
-            return {"history_by_code": {}}
-
-        cache_key = (
-            history_compare_n,
-            tuple(sorted((r.code, getattr(r, 'query_id', '') or '') for r in results)),
-        )
-        if cache_key in self._history_compare_cache:
-            return {"history_by_code": self._history_compare_cache[cache_key]}
-
-        try:
-            from finance_analysis.analysis.history.comparison import get_signal_changes_batch  # pragma: allowlist secret
-
-            exclude_ids = {
-                r.code: r.query_id
-                for r in results
-                if getattr(r, 'query_id', None)
-            }
-            codes = list(dict.fromkeys(r.code for r in results))
-            history_by_code = get_signal_changes_batch(
-                codes,
-                limit=history_compare_n,
-                exclude_query_ids=exclude_ids,
-            )
-        except Exception as e:
-            logger.debug("History comparison skipped: %s", e)
-            history_by_code = {}
-
-        self._history_compare_cache[cache_key] = history_by_code
-        return {"history_by_code": history_by_code}
-
-    def generate_aggregate_report(
-        self,
-        results: List[AnalysisResult],
-        report_type: Any,
-        report_date: Optional[str] = None,
-    ) -> str:
-        """Generate the aggregate report content used by merge/save/push paths."""
-        normalized_type = self._normalize_report_type(report_type)
-        if normalized_type == ReportType.BRIEF:
-            return self.generate_brief_report(results, report_date=report_date)
-        return self.generate_dashboard_report(results, report_date=report_date)
-
-    def _collect_models_used(self, results: List[AnalysisResult]) -> List[str]:
-        models: List[str] = []
-        for result in results:
-            model = normalize_model_used(getattr(result, "model_used", None))
-            if model:
-                models.append(model)
-        return list(dict.fromkeys(models))
-    
     @staticmethod
     def detect_configured_channels(config: object) -> List[NotificationChannel]:
         """
@@ -546,46 +440,9 @@ class NotificationBuilder:
         
         return f"{emoji} **{title}**\n\n{content}"
     
-    @staticmethod
-    def build_stock_summary(results: List[AnalysisResult]) -> str:
-        """
-        构建股票摘要（简短版）
-        
-        适用于快速通知
-        """
-        report_language = normalize_report_language(
-            next((getattr(result, "report_language", None) for result in results if getattr(result, "report_language", None)), None)
-        )
-        labels = get_report_labels(report_language)
-        lines = [f"📊 **{labels['summary_heading']}**", ""]
-        
-        for r in sorted(results, key=lambda x: x.sentiment_score, reverse=True):
-            _, emoji, _ = get_signal_level(r.operation_advice, r.sentiment_score, report_language)
-            name = get_localized_stock_name(r.name, r.code, report_language)
-            lines.append(
-                f"{emoji} {name}({r.code}): {localize_operation_advice(r.operation_advice, report_language)} | "
-                f"{labels['score_label']} {r.sentiment_score}"
-            )
-        
-        return "\n".join(lines)
 
 
 # 便捷函数
 def get_notification_service() -> NotificationService:
     """获取通知服务实例"""
     return NotificationService()
-
-
-def send_daily_report(results: List[AnalysisResult]) -> NotificationResult:
-    """
-    发送每日报告的快捷方式
-    
-    自动识别渠道并推送
-    """
-    service = get_notification_service()
-    
-    # 生成报告
-    report = service.generate_daily_report(results)
-    
-    # 推送到配置的渠道（自动识别）
-    return service.send(report)

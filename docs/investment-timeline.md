@@ -126,7 +126,6 @@ CSS Columns 按列流动而非逐行左右交替；追加数据或高度变化�
 | 任务 | 长期业务写入 | 执行信息/通知 |
 | --- | --- | --- |
 | `analysis_a_share_pre_close_review` | notification | TaskRecord + 原聚合通知 |
-| `analysis_us_premarket` | notification | TaskRecord + 原分析流程通知 |
 | `analysis_us_postmarket_review` | notification | TaskRecord + 原报告通知 |
 | `trade_engine_cn` / `trade_engine_us` | notification | 仅确认后的 TradeSignal |
 | 财经同步/重要度任务 | finance_events | TaskRecord；同步摘要不进入 Timeline |
@@ -315,6 +314,7 @@ total还包含事件锁连接、资格判断与业务持久化。这些阶段耗
 结合现有LLM JSONL的attempt、search_evidence、ssh_ms、cli_execution_ms、api_ms定位瓶颈。
 本次保持模型回退和搜索证据要求，不基于模型自述判定搜索成功。实际生产加速幅度需由日志确认。
 
-### 美股盘前分析日 K 回退
+### 个股决策分析已退役
 
-盘前个股分析通过 MarketDataService.get_daily_bars 使用 db_latest + required_dates 读取完整60交易日前复权窗口。DB为空、尾部过期或窗口内部缺日时复用 Provider 回退；完整远程窗口只在当前股票的分析上下文中使用，趋势指标与 LLM 输入使用同一数据，不写入日线或改变 Universe。API仍无法提供完整数据时，只将该股票标记失败；其他证券继续执行。任务结果 failures 列出代码与原因，最终汇总消息附带失败说明，全部失败也生成说明。其他分析入口仍使用原有历史数据策略。
+美股盘前个股分析、手动单股分析及决策仪表盘 Prompt/pipeline 已删除，不再生成新结果。
+盘前新闻、美股收盘复盘继续运行。历史存档与共享依赖处置见 [删除清单](stock-analysis-removal.md)。

@@ -39,9 +39,9 @@ class NewsIntelUsage(Base):
 
 class FundamentalSnapshot(Base):
     """
-    基本面上下文快照（P0 write-only）。
+    已退役个股分析的基本面快照存档。
 
-    仅用于写入，主链路不依赖读取该表，便于后续回测/画像扩展。
+    当前应用不再写入；保留 ORM metadata 和已有数据用于审计。
     """
     __tablename__ = 'fundamental_snapshot'
 

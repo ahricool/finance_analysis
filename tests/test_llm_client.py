@@ -315,12 +315,12 @@ def test_long_unicode_prompt_stays_on_ssh_stdin(config, monkeypatch):
     assert len(channel.command) < 20000
 
 
-def test_stock_analyzer_uses_shared_client_and_preserves_owner(config, monkeypatch):
-    from finance_analysis.analysis.stock_report_analyzer import StockReportAnalyzer
+def test_market_review_generator_uses_shared_client_and_preserves_owner(config, monkeypatch):
+    from finance_analysis.market_review.text_generator import MarketReviewTextGenerator
 
     call = Mock(return_value=LLMResult("report", "api"))
     monkeypatch.setattr(LLMClient, "complete_text", call)
-    analyzer = StockReportAnalyzer(config=SimpleNamespace(llm=config), uid=42)
+    analyzer = MarketReviewTextGenerator(config=SimpleNamespace(llm=config), uid=42)
     assert analyzer.generate_text("review") == "report"
     request = call.call_args.args[0]
     assert request.uid == 42 and request.call_type == "market_review"

@@ -109,7 +109,7 @@ def test_nonblocking_lock_commits_acquire_and_unlock_and_release_allows_next_run
 
 def test_blocking_lock_uses_pg_advisory_lock_and_commits_acquire() -> None:
     database = _SharedAdvisoryDatabase()
-    lock = PostgreSQLAdvisoryLock(TaskAdvisoryLockId.STOCK_ANALYSIS, database, blocking=True)
+    lock = PostgreSQLAdvisoryLock(TaskAdvisoryLockId.TRADE_ENGINE_CN, database, blocking=True)
 
     assert lock.acquire() is True
     connection = database.connections[0]
@@ -121,7 +121,7 @@ def test_blocking_lock_uses_pg_advisory_lock_and_commits_acquire() -> None:
 
 def test_unlock_exception_invalidates_connection_before_close() -> None:
     database = _SharedAdvisoryDatabase()
-    lock = PostgreSQLAdvisoryLock(TaskAdvisoryLockId.STOCK_ANALYSIS, database, blocking=True)
+    lock = PostgreSQLAdvisoryLock(TaskAdvisoryLockId.TRADE_ENGINE_CN, database, blocking=True)
     assert lock.acquire() is True
     connection = database.connections[0]
     database.fail_unlock = True
@@ -199,7 +199,7 @@ def test_each_scheduled_lock_contention_marks_task_record_skipped(lock_id) -> No
     assert [event for event, _ in lifecycle.events] == ["processing", "skipped"]
 
 
-def test_different_stock_tasks_share_blocking_lock_and_execute_in_order() -> None:
+def test_same_lock_serializes_blocking_tasks() -> None:
     database = _SharedAdvisoryDatabase()
     lifecycle = _RecordingLifecycle()
     first_started = threading.Event()
@@ -207,11 +207,11 @@ def test_different_stock_tasks_share_blocking_lock_and_execute_in_order() -> Non
     calls: list[str] = []
 
     @track_task(
-        task_type="stock_analysis",
-        task_name="Stock analysis",
+        task_type="blocking_test",
+        task_name="Blocking task",
         source="celery",
         task_id_getter=lambda stock_code: f"task-{stock_code}",
-        advisory_lock_id=TaskAdvisoryLockId.STOCK_ANALYSIS,
+        advisory_lock_id=TaskAdvisoryLockId.TRADE_ENGINE_CN,
         advisory_lock_blocking=True,
     )
     def analyze(stock_code: str) -> str:
@@ -250,7 +250,6 @@ def test_lock_ids_are_stable_and_readable() -> None:
     assert {item.name: item.value for item in TaskAdvisoryLockId} == {
         "CN_DAILY_MARKET_DATA_SYNC": 1,
         "US_DAILY_MARKET_DATA_SYNC": 2,
-        "STOCK_ANALYSIS": 5,
         "REFERENCE_DATA_SYNC": 6,
         "CN_INDUSTRY_STRENGTH": 7,
         "CN_MARKET_SENTIMENT": 8,
@@ -267,9 +266,8 @@ def test_lock_ids_are_stable_and_readable() -> None:
     }
 
 
-def test_lock_declarations_are_exactly_nine_nonblocking_scheduled_and_one_blocking_stock() -> None:
+def test_scheduled_lock_declarations_remain_nonblocking() -> None:
     from finance_analysis.tasks.celery.app import celery_app
-    from finance_analysis.tasks.celery.metadata import STOCK_ANALYSIS_TASK
     from finance_analysis.tasks.celery.schedule import get_scheduled_task_definitions
 
     celery_app.loader.import_default_modules()
@@ -299,9 +297,6 @@ def test_lock_declarations_are_exactly_nine_nonblocking_scheduled_and_one_blocki
         "market_data_sync_cn": (TaskAdvisoryLockId.CN_DAILY_MARKET_DATA_SYNC, False),
         "market_data_sync_us": (TaskAdvisoryLockId.US_DAILY_MARKET_DATA_SYNC, False),
     }
-    stock_run = celery_app.tasks[STOCK_ANALYSIS_TASK.celery_name].run
-    assert stock_run._finance_advisory_lock_id is TaskAdvisoryLockId.STOCK_ANALYSIS
-    assert stock_run._finance_advisory_lock_blocking is True
 
 
 def test_no_scheduled_slot_or_legacy_task_lock_code_remains() -> None:

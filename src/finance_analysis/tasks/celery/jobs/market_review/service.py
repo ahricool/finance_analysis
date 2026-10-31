@@ -16,11 +16,11 @@ class MarketReviewTaskService:
         bot_message: Optional[Dict[str, Any]],
         owner_uid: Optional[int] = None,
     ) -> Dict[str, Any]:
-        from finance_analysis.analysis.pipeline_config import get_pipeline_config
+        from finance_analysis.market_review.runtime_config import get_market_review_runtime_config
         from finance_analysis.market_review.runtime import build_market_review_runtime
         from finance_analysis.market_review.service import run_market_review
 
-        config = get_pipeline_config()
+        config = get_market_review_runtime_config()
         notifier, analyzer = build_market_review_runtime(
             config,
             source_message=bot_message_from_payload(bot_message),

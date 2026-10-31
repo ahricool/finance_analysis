@@ -6,14 +6,6 @@ from typing import Any
 from finance_analysis.tasks.lifecycle import TaskExecutionStatus, TaskOutcome
 
 
-def analysis_batch_outcome(result: dict[str, Any]) -> TaskOutcome | None:
-    failed = result["failed_count"]
-    if not failed:
-        return None
-    status = TaskExecutionStatus.FAILED if failed == result["total_count"] else TaskExecutionStatus.PARTIAL
-    return TaskOutcome(status, f"分析失败 {failed}/{result['total_count']}；详见任务日志")
-
-
 def summarize_earnings_result(result: dict[str, Any]) -> dict[str, Any]:
     # Keep counters ahead of details, including the top-level item limit.
     counts = Counter(item["status"] for item in result["results"])

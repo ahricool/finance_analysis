@@ -28,10 +28,10 @@ class TestMarketReviewRuntimeCompatibility(unittest.TestCase):
         analyzer = MagicMock()
         analyzer.is_available.return_value = True
 
-        import finance_analysis.analysis.stock_report_analyzer
+        import finance_analysis.market_review.text_generator
         import finance_analysis.notification
 
-        with patch.object(finance_analysis.analysis.stock_report_analyzer, "StockReportAnalyzer", return_value=analyzer) as analyzer_cls, \
+        with patch.object(finance_analysis.market_review.text_generator, "MarketReviewTextGenerator", return_value=analyzer) as analyzer_cls, \
              patch.object(finance_analysis.notification.service, "NotificationService", return_value=notifier) as notifier_cls:
             runtime_notifier, runtime_analyzer = build_market_review_runtime(config)
 

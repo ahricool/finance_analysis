@@ -48,7 +48,7 @@ class ASharePreCloseReviewService:
         holdings_provider: Optional[Callable[[], Sequence[Any]]] = None,
         recent_results_provider: Optional[Callable[[], Sequence[dict[str, Any]]]] = None,
     ) -> None:
-        self.config = config or self._load_pipeline_config()
+        self.config = config or self._load_runtime_config()
         self.limits = limits
         self.data_source = data_source or ASharePreCloseDataSource()
         self.llm = llm or ASharePreCloseLLM(self.config, limits)
@@ -324,10 +324,10 @@ class ASharePreCloseReviewService:
             return Decimal("0")
 
     @staticmethod
-    def _load_pipeline_config() -> Any:
-        from finance_analysis.analysis.pipeline_config import get_pipeline_config
+    def _load_runtime_config() -> Any:
+        from finance_analysis.market_review.runtime_config import get_market_review_runtime_config
 
-        return get_pipeline_config()
+        return get_market_review_runtime_config()
 
 
 __all__ = ["ASharePreCloseReviewService"]

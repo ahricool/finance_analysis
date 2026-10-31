@@ -7,7 +7,7 @@ import pytest
 
 from finance_analysis.tasks.lifecycle import TaskExecutionStatus, TaskLifecycleMetadata, TaskLifecycleService, track_task
 from finance_analysis.tasks.outcomes import (
-    analysis_batch_outcome, earnings_batch_outcome, market_sync_outcome,
+    earnings_batch_outcome, market_sync_outcome,
     report_delivery_outcome, summarize_earnings_result,
 )
 from finance_analysis.database.repositories.task_record import TaskRecordRepository
@@ -19,7 +19,7 @@ def test_batch_return_is_preserved_without_retry_or_second_notification(tmp_path
     service = Mock()
     business = Mock(return_value={"total_count": 15, "success_count": success, "failed_count": failed})
     run = track_task(task_type="test", task_name="batch", source="celery",
-                     outcome_getter=analysis_batch_outcome)(business)
+                     outcome_getter=earnings_batch_outcome)(business)
     with patch("finance_analysis.tasks.lifecycle.get_task_lifecycle_service", return_value=service), \
             patch("finance_analysis.tasks.lifecycle._send_task_failure_notification") as notify:
         assert run() == business.return_value

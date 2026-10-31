@@ -4,45 +4,14 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 from finance_analysis.tasks.celery.jobs.market_calendar_sync import service as calendar_module
 from finance_analysis.tasks.celery.jobs.us_postmarket_review import service as postmarket_module
-from finance_analysis.tasks.celery.jobs.us_premarket_analysis import service as premarket_module
 from finance_analysis.tasks.celery.jobs.us_premarket_news import service as premarket_news_module
 from finance_analysis.tasks.celery.jobs.scheduled_support import (
     INTRADAY_START_DELAY_MAX_SECONDS,
     sleep_random_start_delay,
 )
-from finance_analysis.tasks.lifecycle import TaskSkipped
-
-
-def test_us_premarket_service_runs_pipeline_for_us_watch_list():
-    pipeline = MagicMock()
-    pipeline.run.return_value = []
-    with (
-        patch("finance_analysis.analysis.pipeline_config.get_pipeline_config", return_value=MagicMock()),
-        patch("finance_analysis.analysis.pipeline.StockAnalysisPipeline", return_value=pipeline),
-        patch(
-            "finance_analysis.database.repositories.watch_list.get_watch_list_codes_by_market",
-            return_value=["AAPL", "TSLA"],
-        ) as watchlist,
-    ):
-        premarket_module.USPremarketAnalysisTaskService().run()
-
-    watchlist.assert_called_once_with("US")
-    pipeline.run.assert_called_once_with(stock_codes=["AAPL", "TSLA"])
-
-
-def test_us_premarket_service_skips_empty_watch_list():
-    with (
-        patch(
-            "finance_analysis.database.repositories.watch_list.get_watch_list_codes_by_market",
-            return_value=[],
-        ),
-        pytest.raises(TaskSkipped),
-    ):
-        premarket_module.USPremarketAnalysisTaskService().run()
 
 
 def test_us_premarket_news_service_runs_domain_service():
@@ -50,7 +19,7 @@ def test_us_premarket_news_service_runs_domain_service():
     domain_service = MagicMock()
     domain_service.run.return_value = summary
     with (
-        patch("finance_analysis.analysis.pipeline_config.get_pipeline_config", return_value=MagicMock()) as config,
+        patch("finance_analysis.market_review.runtime_config.get_market_review_runtime_config", return_value=MagicMock()) as config,
         patch(
             "finance_analysis.database.repositories.watch_list.get_watch_list_codes_by_market",
             return_value=["AAPL", "TSLA"],
@@ -76,7 +45,7 @@ def test_premarket_news_retains_watch_validation_failure_after_report_success():
     domain_service = MagicMock()
     domain_service.run.return_value = summary
     with (
-        patch("finance_analysis.analysis.pipeline_config.get_pipeline_config", return_value=MagicMock()),
+        patch("finance_analysis.market_review.runtime_config.get_market_review_runtime_config", return_value=MagicMock()),
         patch("finance_analysis.database.repositories.watch_list.get_watch_list_codes_by_market", return_value=codes),
         patch("finance_analysis.tasks.celery.jobs.us_premarket_news.domain_service.USPremarketNewsService",
               return_value=domain_service),
@@ -92,7 +61,7 @@ def test_us_postmarket_service_returns_domain_summary():
     domain_service = MagicMock()
     domain_service.run.return_value.to_dict.return_value = {"market_regime": "risk_on"}
     with (
-        patch("finance_analysis.analysis.pipeline_config.get_pipeline_config", return_value=MagicMock()) as config,
+        patch("finance_analysis.market_review.runtime_config.get_market_review_runtime_config", return_value=MagicMock()) as config,
         patch(
             "finance_analysis.tasks.celery.jobs.us_postmarket_review.domain_service.USPostmarketReviewService",
             return_value=domain_service,
@@ -154,29 +123,3 @@ def test_market_calendar_importance_submission_failure_is_non_fatal():
         calendar_module.MarketCalendarSyncTaskService._submit_importance_task([1, 2])
 
     submit.assert_called_once()
-
-
-@pytest.mark.parametrize("valid", [True, False])
-def test_invalid_watch_row_is_counted_without_blocking_valid_analysis(valid):
-    from finance_analysis.database.repositories.watch_list import WatchListCodes
-    from finance_analysis.tasks.outcomes import analysis_batch_outcome
-
-    invalid = {"watch_list_id": 7, "code": "AAPL.US", "market_type": "CN", "error": "market conflict"}
-    codes = WatchListCodes(["MSFT.US"] if valid else [], validation_failures=[invalid])
-    pipeline = MagicMock()
-    pipeline.run.return_value = [MagicMock()] if valid else []
-    with (
-        patch("finance_analysis.analysis.pipeline_config.get_pipeline_config", return_value=MagicMock()),
-        patch("finance_analysis.analysis.pipeline.StockAnalysisPipeline", return_value=pipeline) as factory,
-        patch("finance_analysis.database.repositories.watch_list.get_watch_list_codes_by_market", return_value=codes),
-    ):
-        result = premarket_module.USPremarketAnalysisTaskService().run()
-    assert result["total_count"] == (2 if valid else 1)
-    assert result["success_count"] == (1 if valid else 0)
-    assert result["failed_count"] == 1
-    assert result["validation_failures"] == [invalid]
-    assert analysis_batch_outcome(result).status.value == ("partial" if valid else "failed")
-    if valid:
-        pipeline.run.assert_called_once_with(stock_codes=["MSFT.US"])
-    else:
-        factory.assert_not_called()

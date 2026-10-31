@@ -4,7 +4,7 @@ from datetime import date, timedelta
 import pandas as pd
 import pytest
 
-from finance_analysis.analysis.technical.indicators import rsi_series
+from finance_analysis.trend_following.indicators import rsi_series
 from finance_analysis.trend_following.features import calculate_features
 from finance_analysis.trend_following.mean_reversion import calculate_mean_reversion
 from finance_analysis.trend_following.models import DailyBar
