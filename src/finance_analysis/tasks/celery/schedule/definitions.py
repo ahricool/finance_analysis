@@ -569,15 +569,23 @@ SCHEDULED_TASK_DEFINITIONS = (
     ),
     ScheduledTaskDefinition(
         job_id=JOB_A_SHARE_PRE_CLOSE_REVIEW,
-        name="A股收盘前持仓与市场复核",
-        description="交易日14:30复核A股市场、强势板块和当前持仓，给出比例化调整建议",
+        name="A股持仓复盘",
+        description="收盘前50分钟按用户读取真实持仓、指数K线和精简预演，联网核验后保存结构化复盘",
         task_type="scheduled_a_share_pre_close_review",
         celery_task_name=celery_task_name(JOB_A_SHARE_PRE_CLOSE_REVIEW),
-        schedules=(CronSchedule(minute="30", hour="14", day_of_week="mon-fri"),),
-        schedule_text="A股交易日 14:30 Asia/Shanghai",
+        schedules=(CronSchedule(minute="10", hour="14", day_of_week="mon-fri"),),
+        schedule_text="A股交易日 14:10 Asia/Shanghai（收盘前50分钟）",
         timezone=SCHEDULE_TIMEZONE,
         queue=QUEUE_ANALYSIS,
         expires=EXPIRES_PRE_CLOSE_REVIEW,
+    ),
+    ScheduledTaskDefinition(
+        job_id="analysis_us_pre_close_review", name="美股持仓复盘",
+        description="收盘前50分钟按用户复盘已有美股持仓；提前收盘日12:10，正常15:10",
+        task_type="scheduled_us_pre_close_review", celery_task_name="scheduled.analysis_us_pre_close_review",
+        schedules=(CronSchedule(minute="10", hour="12,15", day_of_week="mon-fri", timezone=US_TIMEZONE),),
+        schedule_text="美股交易日15:10；提前收盘日12:10 America/New_York（实际收盘前50分钟）",
+        timezone=US_TIMEZONE, queue=QUEUE_ANALYSIS, expires=EXPIRES_PRE_CLOSE_REVIEW,
     ),
 )
 

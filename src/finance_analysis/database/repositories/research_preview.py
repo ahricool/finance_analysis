@@ -74,7 +74,7 @@ class PreviewRepository:
             current.observed_at, current.expires_at = observed_at, expires_at
         return True
 
-    def read(self, namespace, market, variant=0, *, kind=None, item_key=None, view="full", now=None):
+    def read(self, namespace, market, variant=0, *, kind=None, item_key=None, view="full", now=None, item_keys=None, limit=None):
         """Hold a shared batch lock so two bounded SELECTs see one publication."""
         batch, item = ResearchPreview, ResearchPreviewItem
         now = ensure_aware_utc(now or utc_now())
@@ -85,7 +85,7 @@ class PreviewRepository:
             ).with_for_update(read=True)).scalar_one_or_none()
             if current is None:
                 return None
-            result = {"header": deepcopy(current.header), "shared": deepcopy(current.shared), "items": []}
+            result = {"observed_at": current.observed_at.isoformat(), "header": deepcopy(current.header), "shared": deepcopy(current.shared), "items": []}
             if view == "header":
                 return result
             columns = [item.kind, item.item_key, item.has_name, Instrument.name.label("instrument_name")]
@@ -104,6 +104,10 @@ class PreviewRepository:
                 query = query.where(item.kind == kind)
             if item_key is not None:
                 query = query.where(item.item_key == item_key)
+            if item_keys is not None:
+                query = query.where(item.item_key.in_(list(item_keys)))
+            if limit is not None:
+                query = query.limit(limit)
             for row in session.execute(query).mappings():
                 data = ({key: row[key] for key in ("code", "name", "state", "rank", "alpha_score", "fragility_score")}
                         if view == "states" else deepcopy(row["summary"]))

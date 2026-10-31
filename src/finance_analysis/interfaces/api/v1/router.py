@@ -111,3 +111,6 @@ from .endpoints import market_heatmap
 router.include_router(market_heatmap.router, prefix="/market-heatmap", tags=["Market Heatmap"])
 
 router.include_router(stock_strategies.router, prefix="/stock-strategies", tags=["Stock Strategies"])
+
+from .endpoints import holdings_review
+router.include_router(holdings_review.router, prefix="/holdings-review", tags=["Holdings Review"])

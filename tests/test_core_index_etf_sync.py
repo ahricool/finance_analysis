@@ -110,7 +110,7 @@ def test_migration_preserves_existing_identity_memberships_and_history(database)
     resolver = UniverseResolver(UniverseRepository(database))
     before = {m: {i.code: i.id for i in resolver.resolve_universe(f"{m.lower()}_index_etf")} for m in ("CN", "US")}
     scripts = ScriptDirectory.from_config(Config("alembic.ini"))
-    assert scripts.get_heads() == ["0087_retire_trade_engine"]
+    assert scripts.get_heads() == ["0088_holdings_review"]
     migration = scripts.get_revision("0077_core_index_etf_sync").module
     assert migration.down_revision == "0076_stock_strategies"
     with database.engine.begin() as conn:

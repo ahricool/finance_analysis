@@ -22,6 +22,7 @@ from finance_analysis.tasks.celery.schedule.cron import (
 )  # pragma: allowlist secret
 
 EXPECTED_JOBS = {
+    "analysis_us_pre_close_review": ("scheduled_us_pre_close_review", "America/New_York"),
     "market_heatmap_cn": ("scheduled_market_heatmap_cn", "Asia/Shanghai"),
     "market_heatmap_us": ("scheduled_market_heatmap_us", "America/New_York"),
     "stock_strategies": ("scheduled_stock_strategies", "Asia/Shanghai"),
@@ -92,14 +93,14 @@ def test_beat_entries_carry_scheduler_kwargs_queue_and_expires():
     assert premarket["options"]["expires"] > 0
 
 
-def test_a_share_pre_close_review_runs_once_at_1430():
+def test_a_share_pre_close_review_runs_once_at_1410():
     definition = get_scheduled_task_definition("analysis_a_share_pre_close_review")
 
     assert definition.timezone == "Asia/Shanghai"
     assert {(item.hour, item.minute, item.day_of_week, item.timezone) for item in definition.schedules} == {
-        ("14", "30", "mon-fri", "Asia/Shanghai")
+        ("14", "10", "mon-fri", "Asia/Shanghai")
     }
-    assert "14:30" in definition.schedule_text
+    assert "14:10" in definition.schedule_text
 
 
 def test_all_scheduled_celery_tasks_are_registered():
