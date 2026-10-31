@@ -1,6 +1,5 @@
 """Low-frequency research orchestration; all price reads go through MarketDataService."""
 
-import hashlib
 import json
 import logging
 import os
@@ -80,12 +79,6 @@ class DailySummary(BaseModel):
     risk_notes: list[str]
 
 
-INTRADAY_ACTIVITY_EVENTS = {
-    "PUT_VOLUME_SPIKE",
-    "CALL_VOLUME_SPIKE",
-    "VOLUME_OI_ANOMALY",
-    "LARGE_PREMIUM_ACTIVITY",
-}
 EVENT_TITLES = {
     "PUT_VOLUME_SPIKE": "Put 成交异常",
     "CALL_VOLUME_SPIKE": "Call 成交异常",
@@ -118,80 +111,6 @@ class OptionsIntelligenceService:
 
             self.notifier = NotificationService()
         return self.notifier
-
-    def _notify_intraday_anomalies(self, items, trade_date):
-        notifier = self._get_notifier()
-        if notifier is None or not items:
-            return
-        anomalies = []
-        for item in items:
-            symbol = item.get("symbol", "")
-            events = [e for e in item.get("events", []) if e.get("event_type") in INTRADAY_ACTIVITY_EVENTS]
-            if not events:
-                continue
-            top = max(events, key=lambda e: (e.get("severity") or 0, e.get("value") or 0))
-            anomalies.append((symbol, item, top, len(events)))
-        if not anomalies:
-            return
-        anomalies.sort(
-            key=lambda row: (
-                row[2].get("severity") or 0,
-                ((row[1].get("scores") or {}).get("unusual_activity") or {}).get("value") or 0,
-            ),
-            reverse=True,
-        )
-        digest = hashlib.sha256(
-            "|".join(
-                sorted(
-                    f"{symbol}:{top.get('contract_symbol') or symbol}:{top.get('event_type')}"
-                    for symbol, _, top, _ in anomalies
-                )
-            ).encode()
-        ).hexdigest()[:16]
-        key = f"options_intraday_alert:{trade_date.isoformat()}:{digest}"
-        lines = [
-            f"# 【期权盘中成交异常】{trade_date.isoformat()}（共 {len(anomalies)} 只标的）",
-            "",
-            "盘中预演基于确定性规则检测成交活跃度异常（不调用 LLM、不推断买卖方向或净开仓）：",
-            "",
-        ]
-        for symbol, item, top, count in anomalies[:20]:
-            label = EVENT_TITLES.get(top.get("event_type"), top.get("event_type") or "成交异常")
-            contract = top.get("contract_symbol") or symbol
-            activity = ((item.get("scores") or {}).get("unusual_activity") or {}).get("value")
-            bearish = ((item.get("scores") or {}).get("bearish_demand") or {}).get("value")
-            pc = item.get("put_call_volume_ratio")
-            parts = [f"- **{symbol}**（`{contract}`）：{label}"]
-            if top.get("value") is not None:
-                parts.append(f"原值 `{round(float(top['value']), 2)}`")
-            if activity is not None:
-                parts.append(f"异常活动 `{activity}`")
-            if bearish is not None:
-                parts.append(f"看跌需求 `{bearish}`")
-            if pc is not None:
-                parts.append(f"22–45D P/C `{round(float(pc), 2)}`")
-            if count > 1:
-                parts.append(f"共 {count} 项成交异常")
-            lines.append("，".join(parts))
-        if len(anomalies) > 20:
-            lines.append(f"- ……另有 {len(anomalies) - 20} 只标的存在盘中成交异常。")
-        lines.extend(
-            [
-                "",
-                "> 说明：盘中成交仅使用当日绝对规则（Volume/OI、权利金估算等），不与全天历史成交分位数直接比较；高分不代表看空概率或真实净开仓。",
-            ]
-        )
-        try:
-            notifier.send(
-                "\n".join(lines),
-                title=f"期权盘中成交异常（{trade_date.isoformat()} · {len(anomalies)} 只）",
-                route_type="alert",
-                severity="warning",
-                dedup_key=key,
-                cooldown_key=key,
-            )
-        except Exception as exc:
-            logger.warning("Options intraday alert notification failed category=%s", type(exc).__name__)
 
     def summarize_daily(self, trade_date, total_count=None, failed_count=0, unfinished_count=0):
         notifier = self._get_notifier()
@@ -411,7 +330,6 @@ class OptionsIntelligenceService:
             metrics["view"] = "preview"
             if publish_preview:
                 self._publish_preview([metrics], now, merge=True)
-                self._notify_intraday_anomalies([metrics], day)
             return metrics
         snapshot_id = self.repo.save(chain, metrics, bucket, mode)
         previous_analysis = self.repo.analysis_history(symbol) if self.config.auto_explain else []
@@ -533,7 +451,6 @@ class OptionsIntelligenceService:
                 failures=failures,
                 trade_date=day,
             )
-            self._notify_intraday_anomalies(succeeded, day)
         elif symbols is None and succeeded:
             self.summarize_daily(
                 day,
