@@ -6,28 +6,10 @@ from unittest.mock import MagicMock, patch
 
 
 from finance_analysis.tasks.celery.jobs.market_calendar_sync import service as calendar_module
-from finance_analysis.tasks.celery.jobs.us_postmarket_review import service as postmarket_module
 from finance_analysis.tasks.celery.jobs.scheduled_support import (
     INTRADAY_START_DELAY_MAX_SECONDS,
     sleep_random_start_delay,
 )
-
-
-def test_us_postmarket_service_returns_domain_summary():
-    domain_service = MagicMock()
-    domain_service.run.return_value.to_dict.return_value = {"market_regime": "risk_on"}
-    with (
-        patch("finance_analysis.reporting.runtime.get_report_runtime_config", return_value=MagicMock()) as config,
-        patch(
-            "finance_analysis.tasks.celery.jobs.us_postmarket_review.domain_service.USPostmarketReviewService",
-            return_value=domain_service,
-        ) as service_class,
-    ):
-        result = postmarket_module.USPostmarketReviewTaskService().run()
-
-    service_class.assert_called_once_with(config=config.return_value)
-    domain_service.run.assert_called_once_with(send_notification=True)
-    assert result["market_regime"] == "risk_on"
 
 
 def test_intraday_start_delay_is_bounded():

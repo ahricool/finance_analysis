@@ -76,7 +76,7 @@ def test_engine_entrypoints_are_absent_and_holdings_remain():
     root = Path(__file__).resolve().parents[1] / "src/finance_analysis"
     assert not list((root / "trade_engine").rglob("*.py"))
     assert not list((root / "tasks/celery/jobs/trade_engine").rglob("*.py"))
-    for job in ("analysis_a_share_pre_close_review", "analysis_us_postmarket_review", "market_calendar"):
+    for job in ("analysis_a_share_pre_close_review", "analysis_us_pre_close_review", "market_calendar"):
         assert f"scheduled.{job}" in celery_app.tasks
 
 

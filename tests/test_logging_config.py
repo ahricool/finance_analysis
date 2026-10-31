@@ -138,12 +138,12 @@ def test_task_logging_context_writes_task_file(tmp_path, monkeypatch):
     clear_paths_cache()
 
     setup_backend_logging(service="server", log_prefix="web_server", debug=False)
-    with task_logging_context("analysis_us_postmarket_review", task_id="aps-123"):
+    with task_logging_context("market_structure_us", task_id="aps-123"):
         logging.getLogger("finance_analysis.sample").info("task log routing works")
 
-    task_log = get_task_log_file("analysis_us_postmarket_review", "aps-123")
+    task_log = get_task_log_file("market_structure_us", "aps-123")
     assert task_log.is_file()
-    assert task_log == log_root / "scheduler" / "analysis_us_postmarket_review_aps-123.log"
+    assert task_log == log_root / "scheduler" / "market_structure_us_aps-123.log"
     assert "task log routing works" in task_log.read_text(encoding="utf-8")
 
 
@@ -174,7 +174,7 @@ def test_overlapping_task_logging_contexts_do_not_cross_write(tmp_path, monkeypa
     barrier = threading.Barrier(2)
 
     def run_task(task_id: str, own_message: str, other_message: str) -> None:
-        with task_logging_context("analysis_us_postmarket_review", task_id=task_id):
+        with task_logging_context("market_structure_us", task_id=task_id):
             barrier.wait(timeout=5)
             logger.info(own_message)
             logger.info(other_message)
@@ -189,8 +189,8 @@ def test_overlapping_task_logging_contexts_do_not_cross_write(tmp_path, monkeypa
     assert not first.is_alive()
     assert not second.is_alive()
 
-    first_log = get_task_log_file("analysis_us_postmarket_review", "task-a")
-    second_log = get_task_log_file("analysis_us_postmarket_review", "task-b")
+    first_log = get_task_log_file("market_structure_us", "task-a")
+    second_log = get_task_log_file("market_structure_us", "task-b")
     first_text = first_log.read_text(encoding="utf-8")
     second_text = second_log.read_text(encoding="utf-8")
 

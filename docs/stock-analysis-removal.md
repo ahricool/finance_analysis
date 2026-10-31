@@ -1,6 +1,6 @@
 # 个股决策分析删除与依赖审计
 
-本文记录当时删除边界；后续盘前新闻及专属依赖已由 `0086_retire_news` 退役，见[新闻退役说明](news-removal.md)。
+本文记录当时删除边界；定时美股收盘复盘及最后失去调用方的 `reporting/runtime.py` 后续也已移除，见 [收盘复盘退役](us-postmarket-removal.md)。后续盘前新闻及专属依赖已由 `0086_retire_news` 退役，见[新闻退役说明](news-removal.md)。
 
 ## 删除范围
 

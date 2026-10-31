@@ -45,7 +45,6 @@ EXPECTED_JOBS = {
     "market_structure_cn": ("scheduled_market_structure_cn", "Asia/Shanghai"),
     "market_structure_us": ("scheduled_market_structure_us", "America/New_York"),
     "market_calendar": ("scheduled_market_calendar", "America/New_York"),
-    "analysis_us_postmarket_review": ("scheduled_us_postmarket_review", "America/New_York"),
     "reference_data_sync": ("scheduled_reference_data_sync", "Asia/Shanghai"),
     "market_data_sync_cn": ("scheduled_market_data_sync_cn", "Asia/Shanghai"),
     "market_data_sync_us": ("scheduled_market_data_sync_us", "America/New_York"),
@@ -86,11 +85,11 @@ def test_all_original_jobs_enter_beat_schedule():
 
 def test_beat_entries_carry_scheduler_kwargs_queue_and_expires():
     schedule = build_beat_schedule()
-    premarket = schedule["analysis_us_postmarket_review"]
-    assert premarket["kwargs"]["scheduler_job_id"] == "analysis_us_postmarket_review"
-    assert premarket["kwargs"]["_trigger_source"] == "scheduler"
-    assert premarket["options"]["queue"] == "analysis"
-    assert premarket["options"]["expires"] > 0
+    scheduled = schedule["market_structure_us"]
+    assert scheduled["kwargs"]["scheduler_job_id"] == "market_structure_us"
+    assert scheduled["kwargs"]["_trigger_source"] == "scheduler"
+    assert scheduled["options"]["queue"] == "analysis"
+    assert scheduled["options"]["expires"] > 0
 
 
 def test_a_share_pre_close_review_runs_once_at_1410():
@@ -142,25 +141,6 @@ def test_next_run_rolls_over_to_next_day():
     nxt = next_run_for_crontab(cron, "Asia/Shanghai", after=now)
     # Next 09:00 Shanghai is the following day == 01:00 UTC next day.
     assert nxt == datetime(2026, 6, 25, 1, 0, tzinfo=timezone.utc)
-
-
-def test_us_postmarket_review_follows_sync_and_new_york_dst():
-    review = get_scheduled_task_definition("analysis_us_postmarket_review")
-    sync = get_scheduled_task_definition("market_data_sync_us")
-
-    for now, expected in (
-        # EDT: 22:00 New York is 02:00 UTC on the next date.
-        (datetime(2026, 7, 1, 12, tzinfo=timezone.utc), datetime(2026, 7, 2, 2, tzinfo=timezone.utc)),
-        # EST: 22:00 New York is 03:00 UTC on the next date.
-        (datetime(2026, 1, 5, 12, tzinfo=timezone.utc), datetime(2026, 1, 6, 3, tzinfo=timezone.utc)),
-    ):
-        review_next = review.next_run_time(now=now)
-        sync_next = sync.next_run_time(now=now)
-        assert review_next == expected
-        assert (review_next - sync_next).total_seconds() == 3600
-        assert review_next.astimezone(ZoneInfo("America/New_York")).date() == (
-            sync_next.astimezone(ZoneInfo("America/New_York")).date()
-        )
 
 
 def test_market_data_sync_schedules_and_queue():
@@ -320,18 +300,18 @@ def test_before_publish_creates_single_pending_record_with_scheduler_metadata():
 
     with patch.object(app_module, "get_task_lifecycle_service", return_value=_RecordingService()):
         app_module._create_pending_task_record(
-            sender="scheduled.analysis_us_postmarket_review",
+            sender="scheduled.market_structure_us",
             headers={"id": "tid-1"},
-            body=([], {"scheduler_job_id": "analysis_us_postmarket_review", "_trigger_source": "scheduler"}, {}),
+            body=([], {"scheduler_job_id": "market_structure_us", "_trigger_source": "scheduler"}, {}),
         )
 
     assert len(events) == 1
     event = events[0]
     assert event["task_id"] == "tid-1"
     metadata = event["metadata"]
-    assert metadata.task_type == "scheduled_us_postmarket_review"
+    assert metadata.task_type == "scheduled_market_structure_us"
     assert metadata.source == "celery"
-    assert metadata.scheduler_job_id == "analysis_us_postmarket_review"
+    assert metadata.scheduler_job_id == "market_structure_us"
     assert metadata.trigger_source == "scheduler"
 
 
@@ -348,12 +328,12 @@ def test_before_publish_carries_manual_trigger_metadata():
 
     with patch.object(app_module, "get_task_lifecycle_service", return_value=_RecordingService()):
         app_module._create_pending_task_record(
-            sender="scheduled.analysis_us_postmarket_review",
+            sender="scheduled.market_structure_us",
             headers={"id": "tid-2"},
             body=(
                 [],
                 {
-                    "scheduler_job_id": "analysis_us_postmarket_review",
+                    "scheduler_job_id": "market_structure_us",
                     "_trigger_source": "manual",
                     "_triggered_by_uid": 42,
                 },

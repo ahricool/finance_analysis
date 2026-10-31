@@ -8,7 +8,7 @@ import pytest
 from finance_analysis.tasks.lifecycle import TaskExecutionStatus, TaskLifecycleMetadata, TaskLifecycleService, track_task
 from finance_analysis.tasks.outcomes import (
     earnings_batch_outcome, market_sync_outcome,
-    report_delivery_outcome, summarize_earnings_result,
+    summarize_earnings_result,
 )
 from finance_analysis.database.repositories.task_record import TaskRecordRepository
 
@@ -61,9 +61,6 @@ def test_expected_earnings_skips_and_market_fallbacks_are_not_failures():
     assert market_sync_outcome({"sync_status": "success", "fallback_reasons": ["provider unavailable"]}) is None
     outcome = market_sync_outcome({"sync_status": "partial", "partial_symbols": 5, "failed_symbols": 0})
     assert outcome.status == TaskExecutionStatus.PARTIAL
-    assert report_delivery_outcome({"fallback_used": True, "warnings": ["LLM failed"],
-                                    "channel_results": {"telegram": True, "ntfy": True}}) is None
-    assert report_delivery_outcome({"channel_results": {"telegram": True, "ntfy": False}}).status.value == "partial"
 
 
 def test_final_earnings_nontrading_day_is_an_expected_skip(monkeypatch):

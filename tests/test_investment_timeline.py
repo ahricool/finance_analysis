@@ -102,9 +102,6 @@ def test_timeline_domain_has_no_uid_or_note_left():
         text = path.read_text()
         for forbidden in (r"\buid\b", "manual_note", "NoteInput", r"\bnotes?\b", "get_effective_uid"):
             assert not re.search(forbidden, text), f"{path.name} still mentions {forbidden}"
-    for job in ("us_postmarket_review/reporter.py",):
-        text = (TIMELINE_ROOT / "tasks/celery/jobs" / job).read_text()
-        assert "ensure_default_admin" not in text and "UserRepository" not in text
 
 
 def test_manual_note_entry_type_is_rejected_by_the_database(db):
@@ -243,36 +240,6 @@ def test_api_serves_identical_content_regardless_of_session(db, monkeypatch):
     second = client.get("/api/v1/timeline", headers={"Cookie": "session=other-user"}).json()
     assert first == second
     assert [item["title"] for item in first["items"]] == ["公共事件"]
-
-
-@pytest.mark.parametrize(
-    "market,entry_type,module_name,reporter_name",
-    [
-        ("US", "us_postmarket", "us_postmarket_review", "USPostmarketReviewReporter"),
-    ],
-)
-def test_reporters_persist_public_reports_without_an_owner(
-    db, monkeypatch, market, entry_type, module_name, reporter_name
-):
-    import importlib
-
-    module = importlib.import_module(f"finance_analysis.tasks.celery.jobs.{module_name}.reporter")
-    from unittest.mock import Mock
-
-    summary = SimpleNamespace(trading_date=NOW.date(), risk_state="high", report="# Full report", warnings=[])
-    if market == "CN":
-        monkeypatch.setattr(module, "render_report", lambda summary: "# Full report")
-        monkeypatch.setattr(module, "render_notification", lambda summary: "Short push")
-    notifier = Mock()
-    reporter = getattr(module, reporter_name)(notifier=notifier)
-    reporter.send_notification(summary, send_notification=False)
-    notifier.send.assert_called_once()
-    assert (
-        notifier.send.call_args.kwargs["content"] if market == "CN" else notifier.send.call_args.args[0]
-    ) == "# Full report"
-    assert notifier.send.call_args.kwargs["push"] is False
-    with db.get_session() as session:
-        assert session.scalar(select(func.count()).select_from(TimelineEntry)) == 0
 
 
 def test_feed_chronology_overrides_importance_and_pagination_is_stable(db):

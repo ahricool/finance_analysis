@@ -134,9 +134,10 @@ def test_old_recap_history_is_purged_without_touching_scheduled_us_review(
         clear_paths_cache()
 
 
-def test_old_manual_review_not_registered_but_scheduled_review_still_registered():
+def test_retired_manual_and_scheduled_reviews_are_not_registered():
     from finance_analysis.tasks.celery.app import celery_app
 
     celery_app.loader.import_default_modules()
     assert "analysis.run_market_review" not in celery_app.tasks
-    assert "scheduled.analysis_us_postmarket_review" in celery_app.tasks
+    assert "scheduled.analysis_us_postmarket_review" not in celery_app.tasks
+    assert "scheduled.analysis_us_pre_close_review" in celery_app.tasks

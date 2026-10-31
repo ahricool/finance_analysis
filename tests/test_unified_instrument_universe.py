@@ -676,11 +676,11 @@ def test_daily_trend_and_market_structure_scopes_are_independent(setup, monkeypa
             from finance_analysis.database.core_index_etf import CORE_INDEX_ETFS
             sync_codes |= set(CORE_INDEX_ETFS[market])
         if setup == "seed" and market == "US":
-            from finance_analysis.market_review.us_postmarket_symbols import (
-                US_POSTMARKET_BENCHMARKS, US_POSTMARKET_SECTOR_ETFS,
+            from finance_analysis.market_review.us_research_symbols import (
+                US_BENCHMARK_ETFS, US_SECTOR_ETFS,
             )
 
-            sync_codes |= set(US_POSTMARKET_BENCHMARKS) | set(US_POSTMARKET_SECTOR_ETFS)
+            sync_codes |= set(US_BENCHMARK_ETFS) | set(US_SECTOR_ETFS)
         assert {item.code for item in sync.load_scope()} == sync_codes
         assert {item.code for item in resolver.resolve_universe(f"{prefix}_trend")} == {
             codes[key] for key in expected[f"{prefix}_trend"]
