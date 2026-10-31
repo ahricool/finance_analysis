@@ -13,10 +13,11 @@
 - 旧 `timeline_entries.entry_type=us_postmarket` 报告存档。
 - `call_type=us_postmarket_review` 的 LLM 用量及当前审计目录内对应 JSONL 行。
 - 日志根目录内关联的任务日志，以及该任务专属命名的日志；不删除根目录外文件，不跟随扫描到的符号链接。
+- 旧版本保存于 `data/reports/analysis/us_postmarket_review_YYYYMMDD.md` 的报告文件；仅匹配8位日期命名，保留其他报告和符号链接目标，目录不能解析到 DATA_DIR 外。
 
 混合审计文件保留其他调用和无法识别的行。`LLM_LOG_DIR` 支持独立目录及 `~`。
 迁移可重复运行，兼容有关表部分或全部不存在；历史删除不可逆，downgrade 明确拒绝。
-离线 PostgreSQL SQL 只清数据库；日志清理需要正常在线 Alembic 执行。
+离线 PostgreSQL SQL 只清数据库；日志及旧报告文件清理需要正常在线 Alembic 执行。
 
 ## 共享数据保留
 
@@ -36,4 +37,4 @@
 代码提交不代表生产迁移已执行，不在开发环境直接清理生产数据库。
 
 测试覆盖注册/调度删除、SQLite/PostgreSQL 及离线 SQL 清理、重复运行、部分表缺失、
-通知归属、混合审计、文件路径边界，以及共享 ETF 同步与财报/持仓复盘的保留。
+通知归属、混合审计、旧报告文件清理与路径边界，以及共享 ETF 同步与财报/持仓复盘的保留。

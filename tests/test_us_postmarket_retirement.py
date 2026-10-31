@@ -172,12 +172,26 @@ def test_cleanup_preserves_shared_facts_and_other_reports(connection, monkeypatc
     retained = b'{"call_type":"holdings_review"}\ninvalid line\n\xff\n'
     for suffix in ("log", "jsonl"):
         (audit / f"mixed.{suffix}").write_bytes(b'{"call_type":"us_postmarket_review"}\n' + retained)
+    reports = tmp_path / "data/reports/analysis"
+    reports.mkdir(parents=True)
+    old_report = reports / "us_postmarket_review_20260910.md"
+    kept_report = reports / "holdings_review_20261031.md"
+    similar_report = reports / "us_postmarket_review_notes.md"
+    for path in (old_report, kept_report, similar_report):
+        path.write_text("keep" if path != old_report else "old report")
+    outside_report = tmp_path / "outside.md"
+    outside_report.write_text("keep")
+    report_link = reports / "us_postmarket_review_20260911.md"
+    report_link.symlink_to(outside_report)
     tables = history_tables(connection)
     try:
         module.upgrade()
         module.upgrade()
         assert_cleaned(connection, tables)
         assert not linked.exists() and not old.exists()
+        assert not old_report.exists()
+        assert kept_report.read_text() == similar_report.read_text() == outside_report.read_text() == "keep"
+        assert report_link.is_symlink()
         assert kept.read_text() == outside.read_text() == "keep"
         assert (root / "celery/linked-symlink.log").is_symlink()
         assert (root / "celery/美股收盘复盘_symlink.log").is_symlink()
@@ -202,6 +216,24 @@ def test_empty_or_partial_database_cleanup_is_repeatable(connection, monkeypatch
         module.upgrade()
         module.upgrade()
         assert connection.scalar(sa.text("SELECT count(*) FROM holdings_review")) == 1
+    finally:
+        clear_paths_cache()
+
+
+def test_legacy_report_directory_symlink_preserves_files_outside_data_dir(monkeypatch, tmp_path):
+    monkeypatch.setenv("DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("LLM_LOG_DIR", str(tmp_path / "audit"))
+    clear_paths_cache()
+    outside = tmp_path / "external-reports"
+    outside.mkdir()
+    report = outside / "us_postmarket_review_20260910.md"
+    report.write_text("keep external report")
+    folder = tmp_path / "data/reports"
+    folder.mkdir(parents=True)
+    (folder / "analysis").symlink_to(outside, target_is_directory=True)
+    try:
+        migration()._purge_files([])
+        assert report.read_text() == "keep external report"
     finally:
         clear_paths_cache()
 

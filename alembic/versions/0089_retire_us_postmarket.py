@@ -3,6 +3,7 @@
 import fcntl
 import json
 import os
+import re
 from pathlib import Path
 
 from alembic import op
@@ -19,7 +20,7 @@ CALL_TYPES = ("us_postmarket_review",)
 
 
 def _purge_files(task_logs):
-    from finance_analysis.core.paths import get_log_dir
+    from finance_analysis.core.paths import get_data_dir, get_log_dir, get_report_analysis_dir
 
     root = get_log_dir().resolve()
     paths = []
@@ -39,6 +40,17 @@ def _purge_files(task_logs):
                     paths.append(path)
     for path in set(paths):
         path.unlink(missing_ok=True)
+    # Before notification-only delivery, this task saved one dated Markdown file per session.
+    report_root = get_report_analysis_dir()
+    if report_root.resolve().is_relative_to(get_data_dir()):
+        for path in report_root.glob("us_postmarket_review_*.md"):
+            if (
+                re.fullmatch(r"us_postmarket_review_[0-9]{8}\.md", path.name)
+                and not path.is_symlink()
+                and path.is_file()
+                and path.resolve().is_relative_to(report_root.resolve())
+            ):
+                path.unlink()
     audit_dir = Path(os.getenv("LLM_LOG_DIR") or root / "llm").expanduser()
     for path in (*audit_dir.glob("*.log"), *audit_dir.glob("*.jsonl")):
         if not path.is_file() or path.is_symlink():
@@ -85,7 +97,7 @@ def upgrade():
             WHERE json_typeof(payload -> 'notification_id') = 'number'
                 AND (payload ->> 'notification_id') ~ '^[1-9][0-9]{0,17}$'
         )""")
-        op.execute("-- Task/audit file cleanup requires normal online Alembic execution")
+        op.execute("-- Task/report/audit file cleanup requires normal online Alembic execution")
     elif "task" in tables:
         records = op.get_bind().execute(sa.select(tasks.c.task_log, tasks.c.result).where(owned_task)).all()
         for _, raw in records:
