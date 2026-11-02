@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, shallowRef, watch } from 'vue';
-import { BookOpen, ChartNoAxesCombined, SlidersHorizontal } from 'lucide-vue-next';
+import { BookOpen, ChartNoAxesCombined, SlidersHorizontal, ShoppingBag, ArrowLeftRight, Wallet } from 'lucide-vue-next';
 import { marketDataApi, type DailyBarsResponse } from '@/api/marketData';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import { dailyPatternMarketDate } from '@/utils/dailyPatterns';
 import { formatPercent } from '@/utils/number';
 import { OPTION_STRATEGIES, RISK_LABELS, strategyHint } from '@/utils/optionsStrategies/catalog';
+import { STRATEGY_GROUPS, STRATEGY_REQUIREMENTS, strategyGroup, type StrategyGroup } from '@/utils/optionsStrategies/requirements';
 import { HORIZONS, observeTrend, scoreStrategies, type StrategyHorizon } from '@/utils/optionsStrategies/scoring';
 import AppApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
 import AppPagination from '@/components/app/AppPagination.vue';
@@ -19,14 +20,20 @@ import { Skeleton } from '@/components/ui/skeleton';
 
 const props = defineProps<{ symbol: string; market: string; endDate?: string }>();
 const horizon = ref<StrategyHorizon>('swing');
+const group = ref<StrategyGroup>('buyer');
+const groupIcons = { buyer: ShoppingBag, seller: ArrowLeftRight, capital: Wallet };
+const groups = STRATEGY_GROUPS.map(settings => ({ ...settings,
+  count: OPTION_STRATEGIES.filter(row => strategyGroup(row.setup) === settings.id).length }));
 const data = shallowRef<DailyBarsResponse | null>(null);
 const loading = ref(false), query = ref(''), category = ref(''), order = ref('desc'), page = ref(1);
 const error = shallowRef<ParsedApiError | null>(null);
 const evaluatedAt = ref(new Date());
 const PAGE_SIZE = 8;
 const observation = computed(() => observeTrend(data.value?.items ?? [], props.market, horizon.value, props.endDate, evaluatedAt.value));
-const ranked = computed(() => scoreStrategies(observation.value).map((row, index) => ({ ...row, rank: index + 1 })));
-const categories = [{ value: '', label: '全部玩法' }, ...[...new Set(OPTION_STRATEGIES.map(s => s.category))].map(value => ({ value, label: value }))];
+const ranked = computed(() => scoreStrategies(observation.value).filter(row => strategyGroup(row.setup) === group.value)
+  .map((row, index) => ({ ...row, rank: index + 1 })));
+const categories = computed(() => [{ value: '', label: '全部结构' },
+  ...[...new Set(ranked.value.map(s => s.category))].map(value => ({ value, label: value }))]);
 const filtered = computed(() => ranked.value.filter(row => (!category.value || row.category === category.value)
   && `${row.name} ${row.english}`.toLowerCase().includes(query.value.trim().toLowerCase())).sort((a, b) => {
     if (a.score === null) return b.score === null ? a.id.localeCompare(b.id) : 1;
@@ -36,6 +43,7 @@ const filtered = computed(() => ranked.value.filter(row => (!category.value || r
 const pages = computed(() => Math.max(1, Math.ceil(filtered.value.length / PAGE_SIZE)));
 const visible = computed(() => filtered.value.slice((page.value - 1) * PAGE_SIZE, page.value * PAGE_SIZE));
 watch([query, category, order, horizon], () => { page.value = 1; });
+watch(group, () => { query.value = ''; category.value = ''; page.value = 1; });
 watch(pages, count => { page.value = Math.min(page.value, count); });
 let generation = 0;
 let controller: AbortController | undefined;
@@ -171,7 +179,38 @@ const scoringHelp = '固定规则，不调用LLM。短线使用最近5个交易�
         {{ observation.reason }}玩法目录和说明仍可查看。
       </p>
     </template>
-    <div class="grid grid-cols-2 items-center gap-2 border-t pt-4 sm:flex sm:flex-wrap">
+    <div
+      class="grid gap-2 border-t pt-4 sm:grid-cols-3"
+      role="group"
+      aria-label="策略交易前提分组"
+    >
+      <button
+        v-for="settings in groups"
+        :key="settings.id"
+        type="button"
+        class="min-w-0 rounded-xl border p-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        :class="group === settings.id ? 'border-foreground/35 bg-muted/50 shadow-sm' : 'border-border hover:bg-muted/25'"
+        :aria-pressed="group === settings.id"
+        :data-testid="`option-group-${settings.id}`"
+        @click="group = settings.id"
+      >
+        <span class="flex items-center gap-2 text-sm font-semibold">
+          <component
+            :is="groupIcons[settings.id]"
+            class="size-4 shrink-0 text-muted-foreground"
+            aria-hidden="true"
+          />
+          <span class="min-w-0">{{ settings.label }}</span>
+          <span class="ml-auto rounded-md bg-background px-1.5 py-0.5 text-xs tabular-nums text-muted-foreground">{{ settings.count }}</span>
+        </span>
+        <span class="mt-1 block text-[10px] text-muted-foreground">{{ settings.english }}</span>
+        <span class="mt-2 block text-[11px] leading-relaxed text-muted-foreground">{{ settings.description }}</span>
+      </button>
+    </div>
+    <p class="text-[11px] leading-relaxed text-muted-foreground">
+      持股、融券及预留本金的策略优先归入资金占用组。纯买方也可能权利金昂贵，实际成本取决于合约与数量。
+    </p>
+    <div class="grid grid-cols-2 items-center gap-2 sm:flex sm:flex-wrap">
       <SlidersHorizontal
         class="hidden size-4 text-muted-foreground sm:block"
         aria-hidden="true"
@@ -192,7 +231,7 @@ const scoringHelp = '固定规则，不调用LLM。短线使用最近5个交易�
         aria-label="玩法排序"
         class="min-w-0 sm:w-40"
         trigger-class="h-9"
-      /><span class="text-xs text-muted-foreground">{{ filtered.length }} / {{ OPTION_STRATEGIES.length }} 种</span>
+      /><span class="text-xs text-muted-foreground">本组 {{ filtered.length }} / {{ ranked.length }} 种</span>
     </div>
     <div
       class="grid gap-3 sm:grid-cols-2"
@@ -207,7 +246,10 @@ const scoringHelp = '固定规则，不调用LLM。短线使用最近5个交易�
         <div class="flex items-start justify-between gap-3">
           <div class="min-w-0">
             <div class="flex items-start gap-1">
-              <span class="mt-1 mr-1 text-[10px] tabular-nums text-muted-foreground">{{ row.score == null ? '—' : `#${row.rank}` }}</span><h4 class="min-w-0 text-sm font-semibold">
+              <span
+                class="mt-1 mr-1 text-[10px] tabular-nums text-muted-foreground"
+                :aria-label="row.score == null ? '本组暂无排名' : `本组第${row.rank}名`"
+              >{{ row.score == null ? '—' : `#${row.rank}` }}</span><h4 class="min-w-0 text-sm font-semibold">
                 {{ row.name }}
               </h4><MetricHint
                 :label="row.name"
@@ -234,6 +276,13 @@ const scoringHelp = '固定规则，不调用LLM。短线使用最近5个交易�
             {{ row.category }}
           </Badge><Badge :variant="row.risk === 'unlimited' ? 'warning' : 'outline'">
             {{ RISK_LABELS[row.risk] }}
+          </Badge>
+          <Badge
+            v-for="label in STRATEGY_REQUIREMENTS[row.setup].labels"
+            :key="label"
+            variant="outline"
+          >
+            {{ label }}
           </Badge>
         </div>
         <div

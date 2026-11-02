@@ -3,7 +3,6 @@ import { flushPromises, mount } from '@vue/test-utils';
 import { marketDataApi, type DailyBarsResponse } from '@/api/marketData';
 import { setFieldSelect } from '../../../../tests/helpers/fieldSelect';
 import OptionStrategyPanel from '../OptionStrategyPanel.vue';
-import { OPTION_STRATEGIES } from '@/utils/optionsStrategies/catalog';
 vi.mock('@/api/marketData', () => ({ marketDataApi: { dailyBars: vi.fn() } }));
 const response: DailyBarsResponse = { symbol: '600519.SH', market: 'CN', interval: '1d', adjustment: 'forward', source: 'test',
   items: Array.from({ length: 21 }, (_, i) => ({ tradeDate: `2026-10-${String(i + 10).padStart(2, '0')}`, open: 100 + i, high: 101 + i, low: 99 + i, close: 100 + i, volume: 1000, amount: null })) };
@@ -15,7 +14,8 @@ describe('OptionStrategyPanel', () => {
     expect(wrapper.get('[data-testid="option-horizon-swing"]').attributes('aria-pressed')).toBe('true');
     expect(wrapper.text()).toContain('近 10 日涨跌');
     expect(wrapper.text()).toContain('趋势适配分，不是获利概率');
-    expect(wrapper.findAll('[data-score]').length).toBe(8);
+    expect(wrapper.get('[data-testid="option-group-buyer"]').attributes('aria-pressed')).toBe('true');
+    expect(wrapper.findAll('[data-score]').length).toBe(4);
     const firstScores = wrapper.findAll('[data-score]').map(row => Number(row.attributes('data-score')));
     expect(firstScores).toEqual([...firstScores].sort((a, b) => b - a));
     await wrapper.get('[data-testid="option-horizon-short"]').trigger('click');
@@ -25,7 +25,9 @@ describe('OptionStrategyPanel', () => {
   });
   it('searches the full catalog, exposes rich named hints and keeps sorting before pagination', async () => {
     const wrapper = mount(OptionStrategyPanel, { props: { symbol: response.symbol, market: 'CN' } }); await flushPromises();
-    expect(wrapper.text()).toContain(`${OPTION_STRATEGIES.length} / ${OPTION_STRATEGIES.length} 种`);
+    expect(wrapper.text()).toContain('本组 4 / 4 种');
+    await wrapper.get('[data-testid="option-group-seller"]').trigger('click');
+    expect(wrapper.text()).toContain('本组 35 / 35 种');
     await wrapper.get('input[aria-label="搜索期权玩法"]').setValue('卖出铁鹰');
     const hint = wrapper.findComponent({ name: 'MetricHint' }); expect(hint.exists()).toBe(true);
     expect(wrapper.get('[data-testid="option-strategy-short-iron-condor"]').text()).toContain('Short Iron Condor');
@@ -38,6 +40,28 @@ describe('OptionStrategyPanel', () => {
     await setFieldSelect(wrapper, '[aria-label="玩法分类"]', '套利与融资');
     expect(wrapper.text()).toContain('无法由K线趋势评分');
     expect(wrapper.findAll('[data-score]').length).toBe(0); wrapper.unmount();
+  });
+  it('separates selling and capital requirements, resetting group filters and pagination without refetching', async () => {
+    const wrapper = mount(OptionStrategyPanel, { props: { symbol: response.symbol, market: 'CN' } }); await flushPromises();
+    expect(wrapper.find('[data-testid="option-strategy-bull-call-spread"]').exists()).toBe(false);
+    await wrapper.get('[data-testid="option-group-seller"]').trigger('click');
+    expect(wrapper.get('[data-testid="option-strategy-bull-call-spread"]').text()).toContain('含卖出腿');
+    wrapper.findComponent({ name: 'AppPagination' }).vm.$emit('page-change', 4);
+    await flushPromises();
+    await setFieldSelect(wrapper, '[aria-label="玩法分类"]', '垂直价差');
+    await wrapper.get('input').setValue('牛市');
+    await wrapper.get('[data-testid="option-group-capital"]').trigger('click');
+    expect(wrapper.get('input').element.value).toBe('');
+    expect(wrapper.text()).toContain('本组 14 / 14 种');
+    expect(wrapper.findComponent({ name: 'AppPagination' }).props('currentPage')).toBe(1);
+    await wrapper.get('input').setValue('备兑看跌');
+    expect(wrapper.get('[data-testid="option-strategy-covered-put"]').text()).toContain('需融券做空');
+    expect(wrapper.get('[data-testid="option-strategy-covered-put"]').text()).toContain('含卖出腿');
+    await wrapper.get('[data-testid="option-group-buyer"]').trigger('click');
+    expect(wrapper.text()).toContain('本组 4 / 4 种');
+    expect(wrapper.findAll('[data-score]').length).toBe(4);
+    expect(marketDataApi.dailyBars).toHaveBeenCalledTimes(1);
+    wrapper.unmount();
   });
   it('shows the complete catalog with missing scores when no Kline data exists', async () => {
     vi.mocked(marketDataApi.dailyBars).mockResolvedValue({ ...response, items: [] });
