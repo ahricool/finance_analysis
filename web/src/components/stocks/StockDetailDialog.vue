@@ -67,7 +67,7 @@ const isOpen = computed(() => props.open ?? Boolean(props.stock));
 const tabs = computed<Array<{ value: StockDetailTab; label: string }>>(() => [
   { value: 'overview', label: '行情' },
   { value: 'holdings', label: '持仓' },
-  ...(props.stock?.marketType === 'US' ? [{ value: 'options' as const, label: '期权' }] : []),
+  { value: 'options', label: '期权' },
   ...(props.stock?.marketType !== 'HK' ? [
     { value: 'trend' as const, label: '趋势' },
     { value: 'etf' as const, label: 'ETF 轮动' },
@@ -257,9 +257,10 @@ function movementClass(value: number | null | undefined): string {
             class="p-4 sm:p-6"
           />
           <OptionsPanel
-            v-else-if="activeTab === 'options' && stock.marketType === 'US'"
+            v-else-if="activeTab === 'options'"
             :key="stock.code"
             :symbol="stock.code"
+            :market="stock.marketType"
             :initial-view="optionsView ?? context?.view"
             :initial-date="optionsDate ?? context?.tradeDate"
             class="p-6"

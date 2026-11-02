@@ -197,3 +197,45 @@ API 自动模式在提交时冻结，避免排队后的预演转成正式采集�
 自审还补齐期权详情对 partial 任务的终止轮询处理，避免预算中止后一直显示执行中。
 
 本轮最终检查：相关后端208项、前端13项通过；后端syntax/flake8、期权相关文件严格F检查、TypeScript、相关ESLint及git diff --check通过。未重跑全量门禁，既有Pydantic弃用警告仍存在。
+
+## 个股详情：跨市场玩法适配
+
+统一证券详情对 CN/US/HK 均保留期权 Tab，默认「玩法适配」，原有期权链、指标、图表及显式刷新保留在「期权数据」。
+CN/HK 不请求 US 期权接口，显示暂无期权数据；US 未有快照、404 或所选日期无结果同样保留空态和玩法目录。
+不扩大采集池，不创建后台任务，不持久化此评分。玩法计算不调用 LLM；原数据页用户主动解释功能保持原边界。
+
+`web/src/utils/optionsStrategies/catalog.ts` 列出53种标准结构及常见扩展，覆盖 OIC 期权策略结构并合并指数Call/Put、
+持仓修复等别名；包括单腿、持仓与收益、保护、垂直价差、跨式/宽跨、蝶式/鹰式、日历/对角、比例、合成及套利/融资。
+0DTE等到期选择不另算独立玩法。名称旁hint解释各腿、适用情景、盈亏边界和履约/保证金等条件；不据此宣称标的存在可交易合约。
+定义参考 [OIC策略库](https://www.optionseducation.org/strategies/all-strategies-en)，
+[备兑Put](https://www.optionseducation.org/strategies/all-strategies/covered-put)、
+[Call比例价差](https://www.optionseducation.org/strategies/all-strategies/short-ratio-call-spread)及
+[Call反向比例价差](https://www.optionseducation.org/strategies/all-strategies/long-ratio-call-spread)用于核对易混淆结构。
+评分为本项目启发式，不是OIC评分或回测结论。
+
+默认波段最近10个交易日，短线5个交易日（分别需要11/6根日K），按可用日K观测，不补造缺日。
+行情走既有 `daily-bars` 只读接口，向前最多请求120日历天；周期切换复用已载入日K。
+显式历史日期在请求与计算两端截断，不读取该日期之后的价格；当日日K保守标为未确认收盘预览。
+最近窗口出现非法OHLC、零成交量、同日冲突或数量不足时保留全部玩法但不评分，未知市场日期不猜测。
+
+评分版本 `trend-fit-v1`：
+
+- 方向60：区间收益与对数收盘回归斜率分别按平均真实波幅/末收盘×√观察日数归一化、截断至[-1,1]，以60%/40%合成方向值。
+  各策略按偏多、温和偏多、偏空、温和偏空、整理、大幅移动或对应持仓保护目标计算匹配度。
+- 延续性25：净位移绝对值÷逐日绝对位移之和；方向型偏好较高延续性，整理/温和/日历型偏好较低延续性。
+- 位置15：末收盘在观察区间最高/最低内的位置；方向型按对应端、整理型按中心、大幅移动型按区间外缘评分。
+- 仅对可用价格窗口给0–100趋势适配分；套利/融资类依赖同步期权报价、利率、费用及借券条件，始终不硬凑分数。
+
+IV、权利金、成交成本、期限、真实持仓与可交易性不纳入该分数；保护型明确持仓前提，波动型不把已发生移动当成未来波动保证。
+默认分数降序、同分按稳定策略ID；缺失两方向排序均靠后。搜索/分类/排序作用于完整目录后再分页（每页8项）。
+两视图切换、证券/市场/日期变化及关闭均保留请求代次隔离；日K请求支持取消，失配证券/市场的响应拒绝评分。
+
+验证入口：
+
+```bash
+cd web
+pnpm exec vitest run src/utils/optionsStrategies/__tests__ src/components/options-intelligence/__tests__ src/components/stocks/__tests__/StockDetailDialog.test.ts
+pnpm exec playwright test e2e/option-strategies.spec.ts e2e/options-intelligence.spec.ts
+# 可选只读回放：外部JSON含samples[{code,name,market,bars,options}]；不提交生产样本。
+FA_OPTIONS_REPLAY_FIXTURE=/path/to/read-only-fixture.json pnpm exec playwright test e2e/option-strategies.spec.ts
+```

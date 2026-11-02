@@ -7,6 +7,9 @@ import { optionsIntelligenceApi, type OptionsDetail, type OptionsView } from '@/
 import { tasksApi } from '@/api/tasks';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import AppApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
+import BilingualLabel from '@/components/app/BilingualLabel.vue';
+import { Badge } from '@/components/ui/badge';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import LoadingButton from '@/components/app/LoadingButton.vue';
 import FieldSelect from '@/components/forms/FieldSelect.vue';
 import { Button } from '@/components/ui/button';
@@ -17,9 +20,14 @@ import OptionsDataControls from './OptionsDataControls.vue';
 import OptionHelp from './OptionHelp.vue';
 import { optionHelp } from './help';
 import OptionsCharts from './OptionsCharts.vue';
+import OptionStrategyPanel from './OptionStrategyPanel.vue';
 import { eventLabels, formatOptionNumber as num, formatOptionPct as pct, reasonLabel } from './labels';
 
-const props = defineProps<{ symbol: string; initialView?: OptionsView; initialDate?: string }>();
+const props = defineProps<{ symbol: string; market?: string; initialView?: OptionsView; initialDate?: string }>();
+const market = computed(() => props.market ?? (props.symbol.endsWith('.US') ? 'US' : props.symbol.endsWith('.HK') ? 'HK' : 'CN'));
+const supportsChain = computed(() => market.value === 'US');
+const activeSection = ref('strategies');
+watch([() => props.symbol, market], () => { activeSection.value = 'strategies'; });
 const mode = ref<OptionsView>(props.initialView ?? 'official'), requestedDate = ref(props.initialDate ?? '');
 const visibleDate = computed(() => data.value?.tradeDate ?? requestedDate.value);
 const dates = computed(() => data.value?.availableDates ?? []);
@@ -81,6 +89,11 @@ const coverageSummary = computed(() => {
 });
 
 async function load(version = generation) {
+  if (!supportsChain.value) {
+    loading.value = false;
+    data.value = { symbol: props.symbol, latest: null, dailyHistory: [], events: [], analyses: [], reason: '当前市场未接入期权链；玩法适配仍可根据标的K线查看。' };
+    return;
+  }
   loading.value = true;
   try {
     const response = await optionsIntelligenceApi.detail(props.symbol, {
@@ -92,7 +105,11 @@ async function load(version = generation) {
     if (!expirations.value.some(e => e.value === expiry.value)) expiry.value = expirations.value[0]?.value ?? '';
     if (!sources.value.some(s => s.value === source.value)) source.value = sources.value[0]?.value ?? 'yfinance';
   } catch (e) {
-    if (version === generation) error.value = getParsedApiError(e);
+    if (version === generation) {
+      const parsed = getParsedApiError(e);
+      if (parsed.status === 404) data.value = { symbol: props.symbol, latest: null, dailyHistory: [], events: [], analyses: [], reason: '暂无期权数据。' };
+      else error.value = parsed;
+    }
   } finally {
     if (version === generation) loading.value = false;
   }
@@ -118,6 +135,7 @@ async function poll(id: string, version: number) {
 }
 
 async function refresh(explain = false) {
+  if (!supportsChain.value) return;
   const version = generation;
   working.value = true;
   error.value = null;
@@ -142,7 +160,7 @@ watch(() => [props.initialView, props.initialDate], () => {
   requestedDate.value = props.initialDate ?? '';
 });
 
-watch(() => [props.symbol, mode.value, requestedDate.value], () => {
+watch(() => [props.symbol, market.value, mode.value, requestedDate.value], () => {
   generation++;
   clearTimeout(timer);
   expiry.value = '';
@@ -170,667 +188,722 @@ const historyTable = useTableSort(() => [...(data.value?.dailyHistory ?? [])].re
     class="w-full min-w-0 max-w-full space-y-5"
     data-testid="options-panel"
   >
-    <div class="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-card/70 px-4 py-3">
-      <div>
-        <h3 class="font-semibold">
-          期权情报 <span class="text-xs font-normal text-muted-foreground">Options Intelligence</span>
-        </h3>
-        <p class="mt-0.5 text-xs text-muted-foreground">
-          {{ latest?.evidenceGrade ? `证据 ${latest.evidenceGrade} · ${latest.status === 'warming_up' ? '历史预热' : '已采集'}` : '尚未采集' }} · {{ formatDateTimeInDisplayTimezone(latest?.observedAt) }}
-          <span
-            v-if="latest?.underlyingPrice != null"
-            class="ml-2 font-mono text-foreground"
-          >标的 ${{ num(latest.underlyingPrice) }}</span>
-        </p>
-      </div>
-      <div class="flex flex-wrap items-center gap-2">
-        <LoadingButton
-          :loading="working"
-          @click="refresh()"
-        >
-          刷新期权链
-        </LoadingButton>
-        <Button
-          variant="outline"
-          :disabled="working || !latest || mode === 'preview'"
-          @click="refresh(true)"
-        >
-          解释异常
-        </Button>
-      </div>
-    </div>
-
-    <div class="flex flex-wrap items-center justify-between gap-3">
-      <OptionsDataControls
-        :mode="mode"
-        :date="visibleDate"
-        :dates="dates"
-        @update:mode="mode = $event"
-        @update:date="requestedDate = $event"
+    <header class="flex flex-wrap items-center justify-between gap-3">
+      <BilingualLabel
+        zh="期权研究"
+        en="Options research"
+        class="text-base font-semibold"
       />
-      <p
-        v-if="mode === 'preview'"
-        class="text-xs text-muted-foreground"
+      <Badge
+        variant="outline"
+        data-testid="option-chain-status"
       >
-        盘中预演不写入正式事件表，需切换至「正式收盘」方可使用 LLM 解释异常。
-      </p>
-    </div>
-
-    <AppApiErrorAlert
-      v-if="error"
-      :error="error"
-      @dismiss="error = null"
-    />
-
-    <p
-      v-if="taskId"
-      class="rounded-lg border bg-muted/40 px-3 py-2 text-xs text-muted-foreground"
+        {{ loading ? '正在读取期权数据' : error ? '期权数据读取失败' : latest ? '已有期权快照' : '暂无期权数据' }}
+      </Badge>
+    </header>
+    <Tabs
+      v-model="activeSection"
+      class="min-w-0"
     >
-      {{ working ? '任务执行中，可离开页面稍后查看' : '任务已结束' }} · <RouterLink
-        class="font-mono underline"
-        :to="{ path: '/tasks/runs', query: { taskId } }"
-      >
-        查看任务 {{ taskId }}
-      </RouterLink>
-    </p>
-
-    <p
-      v-if="loading && !data"
-      class="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground"
-    >
-      加载期权数据…
-    </p>
-
-    <p
-      v-if="data && !latest"
-      class="rounded-xl border border-dashed p-6 text-center text-muted-foreground"
-    >
-      {{ data.reason }}
-    </p>
-
-    <template v-if="latest">
-      <p
-        v-if="latest.refreshStatus === 'failed'"
-        class="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-600 dark:text-amber-400"
-      >
-        刷新失败，显示上次预演：{{ latest.refreshReason }}
-      </p>
-
-      <OptionsScores :scores="latest.scores" />
-
-      <div class="rounded-xl border bg-muted/20 p-3.5 text-xs text-muted-foreground">
-        <p class="text-sm text-foreground/90">
-          {{ latest.riskSummary }}
-        </p>
-        <p
-          v-if="mode === 'preview'"
-          class="mt-1"
+      <TabsList class="mb-4">
+        <TabsTrigger
+          value="strategies"
+          data-testid="options-strategies-tab"
         >
-          盘中成交仅用当日绝对规则，不与全天成交比较；IV/Skew参考先前正式收盘样本，可信度较低。
-        </p>
-      </div>
+          玩法适配
+        </TabsTrigger>
+        <TabsTrigger
+          value="data"
+          data-testid="options-data-tab"
+        >
+          期权数据
+        </TabsTrigger>
+      </TabsList>
+      <TabsContent
+        v-show="activeSection === 'strategies'"
+        value="strategies"
+        force-mount
+        class="m-0 min-w-0 space-y-4"
+      >
+        <OptionStrategyPanel
+          :symbol="symbol"
+          :market="market"
+          :end-date="mode === 'official' ? requestedDate || undefined : undefined"
+        />
+      </TabsContent>
+      <TabsContent
+        value="data"
+        class="m-0 min-w-0 space-y-5"
+      >
+        <div class="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-card/70 px-4 py-3">
+          <div>
+            <h3 class="font-semibold">
+              期权情报 <span class="text-xs font-normal text-muted-foreground">Options Intelligence</span>
+            </h3>
+            <p class="mt-0.5 text-xs text-muted-foreground">
+              {{ latest?.evidenceGrade ? `证据 ${latest.evidenceGrade} · ${latest.status === 'warming_up' ? '历史预热' : '已采集'}` : '尚未采集' }} · {{ formatDateTimeInDisplayTimezone(latest?.observedAt) }}
+              <span
+                v-if="latest?.underlyingPrice != null"
+                class="ml-2 font-mono text-foreground"
+              >标的 ${{ num(latest.underlyingPrice) }}</span>
+            </p>
+          </div>
+          <div
+            v-if="supportsChain"
+            class="flex flex-wrap items-center gap-2"
+          >
+            <LoadingButton
+              :loading="working"
+              @click="refresh()"
+            >
+              刷新期权链
+            </LoadingButton>
+            <Button
+              variant="outline"
+              :disabled="working || !latest || mode === 'preview'"
+              @click="refresh(true)"
+            >
+              解释异常
+            </Button>
+          </div>
+        </div>
 
-      <details class="rounded-xl border bg-card/60 p-3.5 text-sm">
-        <summary class="cursor-pointer font-medium">
-          <OptionHelp
-            label="链覆盖与样本限制"
-            compact
-          /> · 历史 {{ latest.historyDays }} 个可比交易日
-          <span
-            v-if="latest.volumeHistoryDays != null"
-            class="ml-2 text-xs font-normal text-muted-foreground"
-          >（同阶段成交量样本 {{ latest.volumeHistoryDays }} 日）</span>
-        </summary>
         <div
-          v-if="coverageSummary?.length"
-          class="mt-2.5 flex flex-wrap gap-2 text-xs"
+          v-if="supportsChain"
+          class="flex flex-wrap items-center justify-between gap-3"
         >
-          <span
-            v-for="item in coverageSummary"
-            :key="item.source"
-            class="rounded-md border bg-muted/40 px-2 py-1 font-mono"
-          >
-            {{ item.source }}：保留 {{ item.retainedCount ?? '-' }} / 合格 {{ item.eligibleCount ?? '-' }} 张{{ item.truncated ? '（预算截断）' : '' }}
-          </span>
-        </div>
-        <ul class="mt-2 space-y-1 text-xs text-muted-foreground">
-          <li
-            v-for="note in latest.limitations"
-            :key="note"
-          >
-            · {{ reasonLabel(note) }}
-          </li>
-        </ul>
-        <p class="mt-2 text-xs text-muted-foreground">
-          默认观察有限期限与行权价范围，并排除已知调整合约；比率仅代表筛选范围。Expected Move 是市场隐含范围参考，不是保证或概率区间。
-        </p>
-      </details>
-
-      <section class="space-y-3.5 rounded-xl border bg-card/50 p-4">
-        <h4 class="font-semibold">
-          <OptionHelp
-            label="波动率与保护需求"
-            compact
+          <OptionsDataControls
+            :mode="mode"
+            :date="visibleDate"
+            :dates="dates"
+            @update:mode="mode = $event"
+            @update:date="requestedDate = $event"
           />
-        </h4>
-
-        <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <div
-            v-for="m in [
-              { label: '标准30D ATM IV', value: pct(latest.iv30D) },
-              { label: 'IV 分位数', value: latest.ivPercentile == null ? `N/A (${latest.ivSampleCount ?? 0} 样本)` : `${num(latest.ivPercentile)}%` },
-              { label: 'IV / RV (20D)', value: num(latest.ivRvRatio) },
-              { label: '25Δ Skew 变化', value: pct(latest.skewChange) },
-            ]"
-            :key="m.label"
-            class="rounded-xl border bg-card p-3"
+          <p
+            v-if="mode === 'preview'"
+            class="text-xs text-muted-foreground"
           >
-            <p class="text-xs text-muted-foreground">
-              <OptionHelp
-                :label="m.label"
-                compact
-              />
-            </p>
-            <p class="mt-2 font-mono text-lg font-semibold tabular-nums">
-              {{ m.value }}
-            </p>
-          </div>
+            盘中预演不写入正式事件表，需切换至「正式收盘」方可使用 LLM 解释异常。
+          </p>
         </div>
 
-        <p
-          v-if="latest.iv30D != null"
-          class="text-xs text-muted-foreground"
-        >
-          标准30D IV来源：{{ latest.ivSource?.join('/') ?? 'N/A' }}；{{ latest.iv30DMethod === 'exact_expiry' ? '实际30D到期日' : '两侧期限总方差插值' }}。
-        </p>
-        <p
-          v-if="latest.iv30D == null"
-          class="text-xs text-muted-foreground"
-        >
-          N/A · 需要有效 ATM Call/Put 与跨30D到期日；历史分位数至少20个同来源可比交易日。RV：20个完整日线对数收益，年化 √252；IV使用ACT/365。
-        </p>
-
-        <div class="flex flex-wrap gap-2.5 text-xs">
-          <div
-            v-for="skew in latest.skewTerms"
-            :key="skew.targetDte"
-            class="inline-flex items-center gap-1.5 rounded-lg border bg-card px-2.5 py-1.5"
-          >
-            <OptionHelp
-              :label="`${skew.targetDte}D Skew`"
-              compact
-            />:
-            <span class="font-mono font-medium">{{ pct(skew.value) }}</span>
-            <span class="text-muted-foreground">
-              · {{ skew.actualDte ? `实际 ${skew.actualDte}D (${skew.expiration}, ${skew.source}/${skew.feedType})` : '有效 Delta 不足' }}
-            </span>
-          </div>
-        </div>
-
-        <OptionsCharts
-          :latest="latest"
-          :history="data?.dailyHistory ?? []"
+        <AppApiErrorAlert
+          v-if="error"
+          :error="error"
+          @dismiss="error = null"
         />
 
-        <div class="min-w-0 max-w-full overflow-x-auto rounded-xl border bg-card">
-          <Table>
-            <TableHeader>
-              <TableRow class="bg-muted/30">
-                <SortableTableHeader
-                  label="实际期限"
-                  v-bind="termTable.header('dte')"
-                  :description="optionHelp['实际期限']"
-                />
-                <SortableTableHeader
-                  label="ATM IV"
-                  v-bind="termTable.header('atmIv')"
-                  :description="optionHelp['ATM IV']"
-                />
-                <SortableTableHeader
-                  label="Expected Move ($)"
-                  v-bind="termTable.header('expectedMove')"
-                  :description="optionHelp['Expected Move ($)']"
-                />
-                <SortableTableHeader
-                  label="计算方法"
-                  v-bind="termTable.header('expectedMoveMethod')"
-                  :description="optionHelp['计算方法']"
-                />
-                <SortableTableHeader
-                  label="来源"
-                  v-bind="termTable.header('source')"
-                  :description="(optionHelp['来源'] ?? '来源') + '；按数据源名称排序'"
-                />
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              <TableRow
-                v-for="term in termTable.sorted"
-                :key="term.expiration"
-              >
-                <TableCell class="font-mono">
-                  {{ term.expiration }} · {{ term.dte }}D
-                </TableCell>
-                <TableCell class="font-mono tabular-nums">
-                  {{ pct(term.atmIv) }}
-                </TableCell>
-                <TableCell class="font-mono tabular-nums">
-                  {{ num(term.expectedMove) }}
-                </TableCell>
-                <TableCell class="text-xs text-muted-foreground">
-                  {{ term.expectedMoveMethod === 'atm_straddle_mid' ? 'ATM Straddle Mid' : 'IV × 标的现价 × √(DTE/365)' }}
-                </TableCell>
-                <TableCell class="font-mono text-xs">
-                  {{ term.source }}/{{ term.feedType }}
-                </TableCell>
-              </TableRow>
-            </TableBody>
-          </Table>
-        </div>
-
-        <div
-          v-if="latest.putCallRatios?.length"
-          class="space-y-1.5 rounded-xl border bg-card p-3"
-        >
-          <p class="text-xs font-medium text-muted-foreground">
-            <OptionHelp
-              label="Put/Call 期限分布"
-              compact
-            />
-          </p>
-          <div class="flex flex-wrap gap-3 text-xs text-muted-foreground">
-            <span
-              v-for="r in latest.putCallRatios"
-              :key="r.dteMin"
-              class="rounded-md border bg-muted/30 px-2 py-1 font-mono"
-            >{{ r.dteMin }}–{{ r.dteMax }}D Put/Call: Volume {{ num(r.volumeRatio) }} · OI {{ num(r.oiRatio) }}</span>
-          </div>
-        </div>
-      </section>
-
-      <section class="space-y-3 rounded-xl border bg-card/50 p-4">
-        <div class="flex flex-wrap items-center justify-between gap-2">
-          <h4 class="font-semibold">
-            <OptionHelp
-              label="期权链"
-              compact
-            />
-          </h4>
-          <span class="text-xs text-muted-foreground">
-            <OptionHelp
-              label="数据来源（独立报价）"
-              compact
-            />
-          </span>
-        </div>
-
-        <div class="grid gap-3 sm:grid-cols-3">
-          <FieldSelect
-            v-model="expiry"
-            label="到期日"
-            :options="expirations"
-          />
-          <FieldSelect
-            v-model="kind"
-            label="合约类型"
-            :options="[{ value: 'all', label: 'Call / Put' }, { value: 'call', label: 'Call' }, { value: 'put', label: 'Put' }]"
-          />
-          <FieldSelect
-            v-model="source"
-            label="数据来源（独立报价）"
-            :options="sources"
-          />
-        </div>
-
-        <div class="min-w-0 max-w-full overflow-x-auto rounded-xl border bg-card">
-          <Table>
-            <TableHeader>
-              <TableRow class="bg-muted/30">
-                <SortableTableHeader
-                  label="类型/Strike"
-                  v-bind="chainTable.header('strike')"
-                  :description="(optionHelp['类型/Strike'] ?? '类型/Strike') + '；按行权价排序'"
-                />
-                <SortableTableHeader
-                  label="Bid / Ask"
-                  v-bind="chainTable.header('bid')"
-                  :description="(optionHelp['Bid / Ask'] ?? 'Bid / Ask') + '；按 Bid 排序'"
-                />
-                <SortableTableHeader
-                  label="最优可见 Size"
-                  v-bind="chainTable.header('bidSize')"
-                  :description="(optionHelp['最优可见 Size'] ?? '最优可见 Size') + '；按 Bid Size 排序'"
-                />
-                <SortableTableHeader
-                  label="Volume / OI"
-                  v-bind="chainTable.header('volume')"
-                  :description="(optionHelp['Volume / OI'] ?? 'Volume / OI') + '；按成交量排序'"
-                />
-                <SortableTableHeader
-                  label="OI日期"
-                  v-bind="chainTable.header('oiDate')"
-                  :description="optionHelp['OI日期']"
-                />
-                <SortableTableHeader
-                  label="IV / Delta"
-                  v-bind="chainTable.header('iv')"
-                  :description="(optionHelp['IV / Delta'] ?? 'IV / Delta') + '；按 IV 排序'"
-                />
-                <SortableTableHeader
-                  label="Spread / Vol:OI"
-                  v-bind="chainTable.header('spread')"
-                  :description="(optionHelp['Spread / Vol:OI'] ?? 'Spread / Vol:OI') + '；按价差比例排序'"
-                />
-                <SortableTableHeader
-                  label="风险与来源"
-                  v-bind="chainTable.header('risk')"
-                  :description="(optionHelp['风险与来源'] ?? '风险与来源') + '；按研究风险分数排序'"
-                />
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              <TableRow
-                v-for="c in chainTable.sorted"
-                :key="`${c.symbol}:${c.dataSource}`"
-              >
-                <TableCell>
-                  <p class="font-medium">
-                    <span :class="c.optionType === 'put' ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400'">
-                      {{ c.optionType }}
-                    </span>
-                    <span class="ml-1 font-mono">{{ num(c.strike) }}</span>
-                  </p>
-                  <p class="max-w-36 break-all font-mono text-xs text-muted-foreground">
-                    {{ c.symbol }}
-                  </p>
-                </TableCell>
-                <TableCell class="font-mono tabular-nums">
-                  {{ num(c.bid) }} / {{ num(c.ask) }}
-                </TableCell>
-                <TableCell class="font-mono tabular-nums">
-                  {{ num(c.bidSize, 0) }} / {{ num(c.askSize, 0) }}
-                </TableCell>
-                <TableCell class="font-mono tabular-nums">
-                  {{ num(c.volume, 0) }} / {{ num(c.openInterest, 0) }}
-                  <p class="font-sans text-xs text-muted-foreground">
-                    Volume 日期 {{ c.volumeDate ?? 'N/A' }}
-                  </p>
-                </TableCell>
-                <TableCell class="font-mono text-xs">
-                  {{ c.oiDate ?? 'N/A · 日期未知' }}
-                </TableCell>
-                <TableCell class="font-mono tabular-nums">
-                  {{ pct(c.iv) }} / {{ num(c.delta) }}
-                </TableCell>
-                <TableCell class="font-mono tabular-nums">
-                  {{ pct(c.spread) }} / {{ num(c.volumeOi) }}
-                </TableCell>
-                <TableCell class="max-w-48 whitespace-normal">
-                  <p class="font-medium text-orange-600 dark:text-orange-400">
-                    研究风险 {{ num(c.observedRisk?.value ?? c.risk.value) }}
-                  </p>
-                  <p class="text-xs">
-                    {{ c.feedType }} · {{ reasonLabel(c.quoteStatus) }}
-                  </p>
-                  <p
-                    v-if="!c.quoteTimestamp"
-                    class="text-xs text-muted-foreground"
-                  >
-                    报价时间 N/A
-                  </p>
-                  <p
-                    v-else
-                    class="text-xs text-muted-foreground"
-                  >
-                    {{ formatDateTimeInDisplayTimezone(c.quoteTimestamp) }}
-                  </p>
-                  <p
-                    v-if="c.notes.length"
-                    class="text-xs text-muted-foreground"
-                  >
-                    {{ c.notes.map(reasonLabel).join(' · ') }}
-                  </p>
-                </TableCell>
-              </TableRow>
-            </TableBody>
-          </Table>
-          <p
-            v-if="!chain.length"
-            class="p-6 text-center text-sm text-muted-foreground"
-          >
-            此筛选没有合约
-          </p>
-        </div>
-      </section>
-
-      <section class="space-y-3 rounded-xl border bg-card/50 p-4">
-        <h4 class="font-semibold">
-          <OptionHelp
-            label="异常合约与规则"
-            compact
-          />
-        </h4>
         <p
-          v-if="!anomalies.length"
-          class="text-sm text-muted-foreground"
+          v-if="taskId"
+          class="rounded-lg border bg-muted/40 px-3 py-2 text-xs text-muted-foreground"
         >
-          暂无满足规则的异常；不表示风险为零。
-        </p>
-        <details
-          v-for="e in anomalies"
-          :key="`${e.contractSymbol}:${e.eventType}:${e.source}`"
-          class="rounded-xl border bg-card p-3.5"
-        >
-          <summary class="cursor-pointer text-sm font-medium">
-            {{ eventLabels[e.eventType] }} · <span class="font-mono">{{ e.contractSymbol || symbol }}</span> · 异常程度 {{ num(e.severity) }} · 证据 {{ e.evidenceGrade }}
-          </summary>
-          <p class="mt-2 text-sm">
-            {{ e.explanation }}
-          </p>
-          <p class="mt-1 text-xs text-muted-foreground">
-            原值 {{ num(e.value) }} · {{ e.source }}/{{ e.feedType }} · {{ formatDateTimeInDisplayTimezone(e.dataTime) }}
-          </p>
-          <div
-            v-if="e.reference && Object.keys(e.reference).length"
-            class="mt-2.5 flex flex-wrap gap-2 text-xs"
+          {{ working ? '任务执行中，可离开页面稍后查看' : '任务已结束' }} · <RouterLink
+            class="font-mono underline"
+            :to="{ path: '/tasks/runs', query: { taskId } }"
           >
-            <span
-              v-for="[k, v] in Object.entries(e.reference)"
-              :key="k"
-              class="rounded-md border bg-muted/40 px-2 py-0.5 font-mono text-muted-foreground"
-            >
-              {{ refLabels[k] ?? k }}: {{ formatRefValue(v) }}
-            </span>
-          </div>
-        </details>
-      </section>
+            查看任务 {{ taskId }}
+          </RouterLink>
+        </p>
 
-      <section
-        v-if="latest.llmAnalysis"
-        class="space-y-2.5 rounded-xl border bg-card p-4"
-      >
-        <h4 class="font-semibold">
-          <OptionHelp
-            label="辅助解释"
-            compact
-          />
-        </h4>
-        <p class="text-sm leading-relaxed">
-          {{ latest.llmAnalysis.whyItMatters }}
-        </p>
-        <p class="text-sm text-muted-foreground">
-          {{ latest.llmAnalysis.protectionVsDirection }}
-        </p>
-        <div
-          v-for="group in [
-            { name: '可能事件', items: latest.llmAnalysis.possibleCatalysts },
-            { name: '其他解释', items: latest.llmAnalysis.alternativeExplanations },
-            { name: '数据限制', items: latest.llmAnalysis.dataLimits },
-            { name: '交易风险', items: latest.llmAnalysis.tradingRisks },
-          ]"
-          :key="group.name"
-        >
-          <p class="text-xs font-semibold">
-            {{ group.name }}
-          </p>
-          <ul class="mt-1 space-y-0.5 text-sm text-muted-foreground">
-            <li
-              v-for="text in group.items"
-              :key="text"
-            >
-              · {{ text }}
-            </li>
-          </ul>
-        </div>
-      </section>
-
-      <section class="space-y-3 rounded-xl border bg-card/50 p-4">
-        <h4 class="font-semibold">
-          <OptionHelp
-            label="历史异常与事后验证"
-            compact
-          />
-        </h4>
-        <p class="text-xs text-muted-foreground">
-          收益以首次可知时间后的首个有效开盘为基准（盘前可用当天），按1/3/5交易日精确对齐。缺失不顺延，事后结果不修改原始信号。
-        </p>
         <p
-          v-if="!data?.events.length"
-          class="text-sm text-muted-foreground"
+          v-if="loading && !data"
+          class="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground"
         >
-          暂无历史事件
+          加载期权数据…
         </p>
-        <details
-          v-for="e in data?.events"
-          :key="e.id"
-          class="rounded-xl border bg-card p-3.5"
+
+        <p
+          v-if="data && !latest"
+          class="rounded-xl border border-dashed p-6 text-center text-muted-foreground"
         >
-          <summary class="cursor-pointer text-sm font-medium">
-            {{ e.tradeDate }} · {{ eventLabels[e.eventType] }} · <span class="font-mono">{{ e.contractSymbol || symbol }}</span> · {{ e.dataSource }}/{{ e.feedType }}
-          </summary>
-          <p class="mt-2 text-sm">
-            {{ e.initialEvidence.explanation }}
-          </p>
-          <p class="mt-1 text-xs text-muted-foreground">
-            首次可知 {{ formatDateTimeInDisplayTimezone(e.occurredAt) }} · 最新 {{ formatDateTimeInDisplayTimezone(e.updatedAt) }} · 原值 {{ num(e.initialEvidence.value) }} / 最新 {{ num(e.latestEvidence.value) }}
-          </p>
+          暂无期权数据<span v-if="data.reason"> · {{ data.reason }}</span>
+        </p>
+
+        <template v-if="latest">
           <p
-            v-if="e.validation.oiConfirmation"
-            class="mt-2 text-sm"
+            v-if="latest.refreshStatus === 'failed'"
+            class="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-600 dark:text-amber-400"
           >
-            OI次日验证：{{ e.validation.oiConfirmation.oiDate }} {{ e.validation.oiConfirmation.change > 0 ? '+' : '' }}{{ num(e.validation.oiConfirmation.change, 0) }} · 可知时间 {{ formatDateTimeInDisplayTimezone(e.validation.oiConfirmation.knownAt) }}
+            刷新失败，显示上次预演：{{ latest.refreshReason }}
           </p>
-          <div class="mt-2 flex flex-wrap gap-4 font-mono text-sm">
-            <span
-              v-for="r in e.evaluation.returns"
-              :key="r.days"
-            >{{ r.days }}D: {{ pct(r.value) }} ({{ r.status }})</span>
-            <span>5D 最大不利波动 {{ pct(e.evaluation.maxAdverse5D) }}</span>
-            <span>后续RV {{ pct(e.evaluation.subsequentRv20D) }} / 变化 {{ pct(e.evaluation.rvChange) }}</span>
+
+          <OptionsScores :scores="latest.scores" />
+
+          <div class="rounded-xl border bg-muted/20 p-3.5 text-xs text-muted-foreground">
+            <p class="text-sm text-foreground/90">
+              {{ latest.riskSummary }}
+            </p>
+            <p
+              v-if="mode === 'preview'"
+              class="mt-1"
+            >
+              盘中成交仅用当日绝对规则，不与全天成交比较；IV/Skew参考先前正式收盘样本，可信度较低。
+            </p>
           </div>
-          <p
-            v-for="(returns, benchmark) in e.evaluation.benchmarks"
-            :key="benchmark"
-            class="mt-1 font-mono text-xs text-muted-foreground"
-          >
-            {{ benchmark }}: {{ returns.map(r => `${r.days}D ${pct(r.value)}`).join(' · ') }}
-          </p>
-        </details>
-      </section>
 
-      <section
-        v-if="data?.dailyHistory.length"
-        class="space-y-2 rounded-xl border bg-card/50 p-4"
-      >
-        <h4 class="font-semibold">
-          <OptionHelp
-            label="日度评分历史"
-            compact
-          />
-        </h4>
-        <div class="min-w-0 max-w-full overflow-x-auto rounded-xl border bg-card">
-          <Table>
-            <TableHeader>
-              <TableRow class="bg-muted/30">
-                <SortableTableHeader
-                  label="交易日"
-                  v-bind="historyTable.header('tradeDate')"
-                  :description="optionHelp['交易日']"
-                />
-                <SortableTableHeader
-                  label="看跌保护"
-                  v-bind="historyTable.header('scores.bearishDemand.value')"
-                  :description="optionHelp['看跌保护']"
-                />
-                <SortableTableHeader
-                  label="异常活动"
-                  v-bind="historyTable.header('scores.unusualActivity.value')"
-                  :description="optionHelp['异常活动']"
-                />
-                <SortableTableHeader
-                  label="流动性风险"
-                  v-bind="historyTable.header('scores.liquidityRisk.value')"
-                  :description="optionHelp['流动性风险']"
-                />
-                <SortableTableHeader
-                  label="证据"
-                  v-bind="historyTable.header('evidenceGrade')"
-                  :description="optionHelp['证据']"
-                />
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              <TableRow
-                v-for="h in historyTable.sorted"
-                :key="h.tradeDate"
+          <details class="rounded-xl border bg-card/60 p-3.5 text-sm">
+            <summary class="cursor-pointer font-medium">
+              <OptionHelp
+                label="链覆盖与样本限制"
+                compact
+              /> · 历史 {{ latest.historyDays }} 个可比交易日
+              <span
+                v-if="latest.volumeHistoryDays != null"
+                class="ml-2 text-xs font-normal text-muted-foreground"
+              >（同阶段成交量样本 {{ latest.volumeHistoryDays }} 日）</span>
+            </summary>
+            <div
+              v-if="coverageSummary?.length"
+              class="mt-2.5 flex flex-wrap gap-2 text-xs"
+            >
+              <span
+                v-for="item in coverageSummary"
+                :key="item.source"
+                class="rounded-md border bg-muted/40 px-2 py-1 font-mono"
               >
-                <TableCell class="font-mono">
-                  {{ h.tradeDate }}
-                </TableCell>
-                <TableCell class="font-mono tabular-nums text-red-600 dark:text-red-400">
-                  {{ num(h.scores?.bearishDemand.value) }}
-                </TableCell>
-                <TableCell class="font-mono tabular-nums text-amber-600 dark:text-amber-400">
-                  {{ num(h.scores?.unusualActivity.value) }}
-                </TableCell>
-                <TableCell class="font-mono tabular-nums text-orange-600 dark:text-orange-400">
-                  {{ num(h.scores?.liquidityRisk.value) }}
-                </TableCell>
-                <TableCell class="font-mono">
-                  {{ h.evidenceGrade }}
-                </TableCell>
-              </TableRow>
-            </TableBody>
-          </Table>
-        </div>
-      </section>
+                {{ item.source }}：保留 {{ item.retainedCount ?? '-' }} / 合格 {{ item.eligibleCount ?? '-' }} 张{{ item.truncated ? '（预算截断）' : '' }}
+              </span>
+            </div>
+            <ul class="mt-2 space-y-1 text-xs text-muted-foreground">
+              <li
+                v-for="note in latest.limitations"
+                :key="note"
+              >
+                · {{ reasonLabel(note) }}
+              </li>
+            </ul>
+            <p class="mt-2 text-xs text-muted-foreground">
+              默认观察有限期限与行权价范围，并排除已知调整合约；比率仅代表筛选范围。Expected Move 是市场隐含范围参考，不是保证或概率区间。
+            </p>
+          </details>
 
-      <section
-        v-if="data?.analyses.length"
-        class="space-y-2 rounded-xl border bg-card/50 p-4"
-      >
-        <h4 class="font-semibold">
-          <OptionHelp
-            label="解释历史"
-            compact
-          />
-        </h4>
-        <details
-          v-for="a in data.analyses"
-          :key="a.createdAt"
-          class="rounded-xl border bg-card p-3.5"
-        >
-          <summary class="cursor-pointer text-sm font-medium">
-            {{ formatDateTimeInDisplayTimezone(a.createdAt) }} · {{ a.model }}
-          </summary>
-          <p class="mt-2 text-sm">
-            {{ a.explanation.whyItMatters }}
-          </p>
-          <p class="mt-1 text-sm text-muted-foreground">
-            {{ a.explanation.protectionVsDirection }}
-          </p>
-        </details>
-      </section>
-    </template>
+          <section class="space-y-3.5 rounded-xl border bg-card/50 p-4">
+            <h4 class="font-semibold">
+              <OptionHelp
+                label="波动率与保护需求"
+                compact
+              />
+            </h4>
+
+            <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <div
+                v-for="m in [
+                  { label: '标准30D ATM IV', value: pct(latest.iv30D) },
+                  { label: 'IV 分位数', value: latest.ivPercentile == null ? `N/A (${latest.ivSampleCount ?? 0} 样本)` : `${num(latest.ivPercentile)}%` },
+                  { label: 'IV / RV (20D)', value: num(latest.ivRvRatio) },
+                  { label: '25Δ Skew 变化', value: pct(latest.skewChange) },
+                ]"
+                :key="m.label"
+                class="rounded-xl border bg-card p-3"
+              >
+                <p class="text-xs text-muted-foreground">
+                  <OptionHelp
+                    :label="m.label"
+                    compact
+                  />
+                </p>
+                <p class="mt-2 font-mono text-lg font-semibold tabular-nums">
+                  {{ m.value }}
+                </p>
+              </div>
+            </div>
+
+            <p
+              v-if="latest.iv30D != null"
+              class="text-xs text-muted-foreground"
+            >
+              标准30D IV来源：{{ latest.ivSource?.join('/') ?? 'N/A' }}；{{ latest.iv30DMethod === 'exact_expiry' ? '实际30D到期日' : '两侧期限总方差插值' }}。
+            </p>
+            <p
+              v-if="latest.iv30D == null"
+              class="text-xs text-muted-foreground"
+            >
+              N/A · 需要有效 ATM Call/Put 与跨30D到期日；历史分位数至少20个同来源可比交易日。RV：20个完整日线对数收益，年化 √252；IV使用ACT/365。
+            </p>
+
+            <div class="flex flex-wrap gap-2.5 text-xs">
+              <div
+                v-for="skew in latest.skewTerms"
+                :key="skew.targetDte"
+                class="inline-flex items-center gap-1.5 rounded-lg border bg-card px-2.5 py-1.5"
+              >
+                <OptionHelp
+                  :label="`${skew.targetDte}D Skew`"
+                  compact
+                />:
+                <span class="font-mono font-medium">{{ pct(skew.value) }}</span>
+                <span class="text-muted-foreground">
+                  · {{ skew.actualDte ? `实际 ${skew.actualDte}D (${skew.expiration}, ${skew.source}/${skew.feedType})` : '有效 Delta 不足' }}
+                </span>
+              </div>
+            </div>
+
+            <OptionsCharts
+              :latest="latest"
+              :history="data?.dailyHistory ?? []"
+            />
+
+            <div class="min-w-0 max-w-full overflow-x-auto rounded-xl border bg-card">
+              <Table>
+                <TableHeader>
+                  <TableRow class="bg-muted/30">
+                    <SortableTableHeader
+                      label="实际期限"
+                      v-bind="termTable.header('dte')"
+                      :description="optionHelp['实际期限']"
+                    />
+                    <SortableTableHeader
+                      label="ATM IV"
+                      v-bind="termTable.header('atmIv')"
+                      :description="optionHelp['ATM IV']"
+                    />
+                    <SortableTableHeader
+                      label="Expected Move ($)"
+                      v-bind="termTable.header('expectedMove')"
+                      :description="optionHelp['Expected Move ($)']"
+                    />
+                    <SortableTableHeader
+                      label="计算方法"
+                      v-bind="termTable.header('expectedMoveMethod')"
+                      :description="optionHelp['计算方法']"
+                    />
+                    <SortableTableHeader
+                      label="来源"
+                      v-bind="termTable.header('source')"
+                      :description="(optionHelp['来源'] ?? '来源') + '；按数据源名称排序'"
+                    />
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  <TableRow
+                    v-for="term in termTable.sorted"
+                    :key="term.expiration"
+                  >
+                    <TableCell class="font-mono">
+                      {{ term.expiration }} · {{ term.dte }}D
+                    </TableCell>
+                    <TableCell class="font-mono tabular-nums">
+                      {{ pct(term.atmIv) }}
+                    </TableCell>
+                    <TableCell class="font-mono tabular-nums">
+                      {{ num(term.expectedMove) }}
+                    </TableCell>
+                    <TableCell class="text-xs text-muted-foreground">
+                      {{ term.expectedMoveMethod === 'atm_straddle_mid' ? 'ATM Straddle Mid' : 'IV × 标的现价 × √(DTE/365)' }}
+                    </TableCell>
+                    <TableCell class="font-mono text-xs">
+                      {{ term.source }}/{{ term.feedType }}
+                    </TableCell>
+                  </TableRow>
+                </TableBody>
+              </Table>
+            </div>
+
+            <div
+              v-if="latest.putCallRatios?.length"
+              class="space-y-1.5 rounded-xl border bg-card p-3"
+            >
+              <p class="text-xs font-medium text-muted-foreground">
+                <OptionHelp
+                  label="Put/Call 期限分布"
+                  compact
+                />
+              </p>
+              <div class="flex flex-wrap gap-3 text-xs text-muted-foreground">
+                <span
+                  v-for="r in latest.putCallRatios"
+                  :key="r.dteMin"
+                  class="rounded-md border bg-muted/30 px-2 py-1 font-mono"
+                >{{ r.dteMin }}–{{ r.dteMax }}D Put/Call: Volume {{ num(r.volumeRatio) }} · OI {{ num(r.oiRatio) }}</span>
+              </div>
+            </div>
+          </section>
+
+          <section class="space-y-3 rounded-xl border bg-card/50 p-4">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <h4 class="font-semibold">
+                <OptionHelp
+                  label="期权链"
+                  compact
+                />
+              </h4>
+              <span class="text-xs text-muted-foreground">
+                <OptionHelp
+                  label="数据来源（独立报价）"
+                  compact
+                />
+              </span>
+            </div>
+
+            <div class="grid gap-3 sm:grid-cols-3">
+              <FieldSelect
+                v-model="expiry"
+                label="到期日"
+                :options="expirations"
+              />
+              <FieldSelect
+                v-model="kind"
+                label="合约类型"
+                :options="[{ value: 'all', label: 'Call / Put' }, { value: 'call', label: 'Call' }, { value: 'put', label: 'Put' }]"
+              />
+              <FieldSelect
+                v-model="source"
+                label="数据来源（独立报价）"
+                :options="sources"
+              />
+            </div>
+
+            <div class="min-w-0 max-w-full overflow-x-auto rounded-xl border bg-card">
+              <Table>
+                <TableHeader>
+                  <TableRow class="bg-muted/30">
+                    <SortableTableHeader
+                      label="类型/Strike"
+                      v-bind="chainTable.header('strike')"
+                      :description="(optionHelp['类型/Strike'] ?? '类型/Strike') + '；按行权价排序'"
+                    />
+                    <SortableTableHeader
+                      label="Bid / Ask"
+                      v-bind="chainTable.header('bid')"
+                      :description="(optionHelp['Bid / Ask'] ?? 'Bid / Ask') + '；按 Bid 排序'"
+                    />
+                    <SortableTableHeader
+                      label="最优可见 Size"
+                      v-bind="chainTable.header('bidSize')"
+                      :description="(optionHelp['最优可见 Size'] ?? '最优可见 Size') + '；按 Bid Size 排序'"
+                    />
+                    <SortableTableHeader
+                      label="Volume / OI"
+                      v-bind="chainTable.header('volume')"
+                      :description="(optionHelp['Volume / OI'] ?? 'Volume / OI') + '；按成交量排序'"
+                    />
+                    <SortableTableHeader
+                      label="OI日期"
+                      v-bind="chainTable.header('oiDate')"
+                      :description="optionHelp['OI日期']"
+                    />
+                    <SortableTableHeader
+                      label="IV / Delta"
+                      v-bind="chainTable.header('iv')"
+                      :description="(optionHelp['IV / Delta'] ?? 'IV / Delta') + '；按 IV 排序'"
+                    />
+                    <SortableTableHeader
+                      label="Spread / Vol:OI"
+                      v-bind="chainTable.header('spread')"
+                      :description="(optionHelp['Spread / Vol:OI'] ?? 'Spread / Vol:OI') + '；按价差比例排序'"
+                    />
+                    <SortableTableHeader
+                      label="风险与来源"
+                      v-bind="chainTable.header('risk')"
+                      :description="(optionHelp['风险与来源'] ?? '风险与来源') + '；按研究风险分数排序'"
+                    />
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  <TableRow
+                    v-for="c in chainTable.sorted"
+                    :key="`${c.symbol}:${c.dataSource}`"
+                  >
+                    <TableCell>
+                      <p class="font-medium">
+                        <span :class="c.optionType === 'put' ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400'">
+                          {{ c.optionType }}
+                        </span>
+                        <span class="ml-1 font-mono">{{ num(c.strike) }}</span>
+                      </p>
+                      <p class="max-w-36 break-all font-mono text-xs text-muted-foreground">
+                        {{ c.symbol }}
+                      </p>
+                    </TableCell>
+                    <TableCell class="font-mono tabular-nums">
+                      {{ num(c.bid) }} / {{ num(c.ask) }}
+                    </TableCell>
+                    <TableCell class="font-mono tabular-nums">
+                      {{ num(c.bidSize, 0) }} / {{ num(c.askSize, 0) }}
+                    </TableCell>
+                    <TableCell class="font-mono tabular-nums">
+                      {{ num(c.volume, 0) }} / {{ num(c.openInterest, 0) }}
+                      <p class="font-sans text-xs text-muted-foreground">
+                        Volume 日期 {{ c.volumeDate ?? 'N/A' }}
+                      </p>
+                    </TableCell>
+                    <TableCell class="font-mono text-xs">
+                      {{ c.oiDate ?? 'N/A · 日期未知' }}
+                    </TableCell>
+                    <TableCell class="font-mono tabular-nums">
+                      {{ pct(c.iv) }} / {{ num(c.delta) }}
+                    </TableCell>
+                    <TableCell class="font-mono tabular-nums">
+                      {{ pct(c.spread) }} / {{ num(c.volumeOi) }}
+                    </TableCell>
+                    <TableCell class="max-w-48 whitespace-normal">
+                      <p class="font-medium text-orange-600 dark:text-orange-400">
+                        研究风险 {{ num(c.observedRisk?.value ?? c.risk.value) }}
+                      </p>
+                      <p class="text-xs">
+                        {{ c.feedType }} · {{ reasonLabel(c.quoteStatus) }}
+                      </p>
+                      <p
+                        v-if="!c.quoteTimestamp"
+                        class="text-xs text-muted-foreground"
+                      >
+                        报价时间 N/A
+                      </p>
+                      <p
+                        v-else
+                        class="text-xs text-muted-foreground"
+                      >
+                        {{ formatDateTimeInDisplayTimezone(c.quoteTimestamp) }}
+                      </p>
+                      <p
+                        v-if="c.notes.length"
+                        class="text-xs text-muted-foreground"
+                      >
+                        {{ c.notes.map(reasonLabel).join(' · ') }}
+                      </p>
+                    </TableCell>
+                  </TableRow>
+                </TableBody>
+              </Table>
+              <p
+                v-if="!chain.length"
+                class="p-6 text-center text-sm text-muted-foreground"
+              >
+                此筛选没有合约
+              </p>
+            </div>
+          </section>
+
+          <section class="space-y-3 rounded-xl border bg-card/50 p-4">
+            <h4 class="font-semibold">
+              <OptionHelp
+                label="异常合约与规则"
+                compact
+              />
+            </h4>
+            <p
+              v-if="!anomalies.length"
+              class="text-sm text-muted-foreground"
+            >
+              暂无满足规则的异常；不表示风险为零。
+            </p>
+            <details
+              v-for="e in anomalies"
+              :key="`${e.contractSymbol}:${e.eventType}:${e.source}`"
+              class="rounded-xl border bg-card p-3.5"
+            >
+              <summary class="cursor-pointer text-sm font-medium">
+                {{ eventLabels[e.eventType] }} · <span class="font-mono">{{ e.contractSymbol || symbol }}</span> · 异常程度 {{ num(e.severity) }} · 证据 {{ e.evidenceGrade }}
+              </summary>
+              <p class="mt-2 text-sm">
+                {{ e.explanation }}
+              </p>
+              <p class="mt-1 text-xs text-muted-foreground">
+                原值 {{ num(e.value) }} · {{ e.source }}/{{ e.feedType }} · {{ formatDateTimeInDisplayTimezone(e.dataTime) }}
+              </p>
+              <div
+                v-if="e.reference && Object.keys(e.reference).length"
+                class="mt-2.5 flex flex-wrap gap-2 text-xs"
+              >
+                <span
+                  v-for="[k, v] in Object.entries(e.reference)"
+                  :key="k"
+                  class="rounded-md border bg-muted/40 px-2 py-0.5 font-mono text-muted-foreground"
+                >
+                  {{ refLabels[k] ?? k }}: {{ formatRefValue(v) }}
+                </span>
+              </div>
+            </details>
+          </section>
+
+          <section
+            v-if="latest.llmAnalysis"
+            class="space-y-2.5 rounded-xl border bg-card p-4"
+          >
+            <h4 class="font-semibold">
+              <OptionHelp
+                label="辅助解释"
+                compact
+              />
+            </h4>
+            <p class="text-sm leading-relaxed">
+              {{ latest.llmAnalysis.whyItMatters }}
+            </p>
+            <p class="text-sm text-muted-foreground">
+              {{ latest.llmAnalysis.protectionVsDirection }}
+            </p>
+            <div
+              v-for="group in [
+                { name: '可能事件', items: latest.llmAnalysis.possibleCatalysts },
+                { name: '其他解释', items: latest.llmAnalysis.alternativeExplanations },
+                { name: '数据限制', items: latest.llmAnalysis.dataLimits },
+                { name: '交易风险', items: latest.llmAnalysis.tradingRisks },
+              ]"
+              :key="group.name"
+            >
+              <p class="text-xs font-semibold">
+                {{ group.name }}
+              </p>
+              <ul class="mt-1 space-y-0.5 text-sm text-muted-foreground">
+                <li
+                  v-for="text in group.items"
+                  :key="text"
+                >
+                  · {{ text }}
+                </li>
+              </ul>
+            </div>
+          </section>
+
+          <section class="space-y-3 rounded-xl border bg-card/50 p-4">
+            <h4 class="font-semibold">
+              <OptionHelp
+                label="历史异常与事后验证"
+                compact
+              />
+            </h4>
+            <p class="text-xs text-muted-foreground">
+              收益以首次可知时间后的首个有效开盘为基准（盘前可用当天），按1/3/5交易日精确对齐。缺失不顺延，事后结果不修改原始信号。
+            </p>
+            <p
+              v-if="!data?.events.length"
+              class="text-sm text-muted-foreground"
+            >
+              暂无历史事件
+            </p>
+            <details
+              v-for="e in data?.events"
+              :key="e.id"
+              class="rounded-xl border bg-card p-3.5"
+            >
+              <summary class="cursor-pointer text-sm font-medium">
+                {{ e.tradeDate }} · {{ eventLabels[e.eventType] }} · <span class="font-mono">{{ e.contractSymbol || symbol }}</span> · {{ e.dataSource }}/{{ e.feedType }}
+              </summary>
+              <p class="mt-2 text-sm">
+                {{ e.initialEvidence.explanation }}
+              </p>
+              <p class="mt-1 text-xs text-muted-foreground">
+                首次可知 {{ formatDateTimeInDisplayTimezone(e.occurredAt) }} · 最新 {{ formatDateTimeInDisplayTimezone(e.updatedAt) }} · 原值 {{ num(e.initialEvidence.value) }} / 最新 {{ num(e.latestEvidence.value) }}
+              </p>
+              <p
+                v-if="e.validation.oiConfirmation"
+                class="mt-2 text-sm"
+              >
+                OI次日验证：{{ e.validation.oiConfirmation.oiDate }} {{ e.validation.oiConfirmation.change > 0 ? '+' : '' }}{{ num(e.validation.oiConfirmation.change, 0) }} · 可知时间 {{ formatDateTimeInDisplayTimezone(e.validation.oiConfirmation.knownAt) }}
+              </p>
+              <div class="mt-2 flex flex-wrap gap-4 font-mono text-sm">
+                <span
+                  v-for="r in e.evaluation.returns"
+                  :key="r.days"
+                >{{ r.days }}D: {{ pct(r.value) }} ({{ r.status }})</span>
+                <span>5D 最大不利波动 {{ pct(e.evaluation.maxAdverse5D) }}</span>
+                <span>后续RV {{ pct(e.evaluation.subsequentRv20D) }} / 变化 {{ pct(e.evaluation.rvChange) }}</span>
+              </div>
+              <p
+                v-for="(returns, benchmark) in e.evaluation.benchmarks"
+                :key="benchmark"
+                class="mt-1 font-mono text-xs text-muted-foreground"
+              >
+                {{ benchmark }}: {{ returns.map(r => `${r.days}D ${pct(r.value)}`).join(' · ') }}
+              </p>
+            </details>
+          </section>
+
+          <section
+            v-if="data?.dailyHistory.length"
+            class="space-y-2 rounded-xl border bg-card/50 p-4"
+          >
+            <h4 class="font-semibold">
+              <OptionHelp
+                label="日度评分历史"
+                compact
+              />
+            </h4>
+            <div class="min-w-0 max-w-full overflow-x-auto rounded-xl border bg-card">
+              <Table>
+                <TableHeader>
+                  <TableRow class="bg-muted/30">
+                    <SortableTableHeader
+                      label="交易日"
+                      v-bind="historyTable.header('tradeDate')"
+                      :description="optionHelp['交易日']"
+                    />
+                    <SortableTableHeader
+                      label="看跌保护"
+                      v-bind="historyTable.header('scores.bearishDemand.value')"
+                      :description="optionHelp['看跌保护']"
+                    />
+                    <SortableTableHeader
+                      label="异常活动"
+                      v-bind="historyTable.header('scores.unusualActivity.value')"
+                      :description="optionHelp['异常活动']"
+                    />
+                    <SortableTableHeader
+                      label="流动性风险"
+                      v-bind="historyTable.header('scores.liquidityRisk.value')"
+                      :description="optionHelp['流动性风险']"
+                    />
+                    <SortableTableHeader
+                      label="证据"
+                      v-bind="historyTable.header('evidenceGrade')"
+                      :description="optionHelp['证据']"
+                    />
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  <TableRow
+                    v-for="h in historyTable.sorted"
+                    :key="h.tradeDate"
+                  >
+                    <TableCell class="font-mono">
+                      {{ h.tradeDate }}
+                    </TableCell>
+                    <TableCell class="font-mono tabular-nums text-red-600 dark:text-red-400">
+                      {{ num(h.scores?.bearishDemand.value) }}
+                    </TableCell>
+                    <TableCell class="font-mono tabular-nums text-amber-600 dark:text-amber-400">
+                      {{ num(h.scores?.unusualActivity.value) }}
+                    </TableCell>
+                    <TableCell class="font-mono tabular-nums text-orange-600 dark:text-orange-400">
+                      {{ num(h.scores?.liquidityRisk.value) }}
+                    </TableCell>
+                    <TableCell class="font-mono">
+                      {{ h.evidenceGrade }}
+                    </TableCell>
+                  </TableRow>
+                </TableBody>
+              </Table>
+            </div>
+          </section>
+
+          <section
+            v-if="data?.analyses.length"
+            class="space-y-2 rounded-xl border bg-card/50 p-4"
+          >
+            <h4 class="font-semibold">
+              <OptionHelp
+                label="解释历史"
+                compact
+              />
+            </h4>
+            <details
+              v-for="a in data.analyses"
+              :key="a.createdAt"
+              class="rounded-xl border bg-card p-3.5"
+            >
+              <summary class="cursor-pointer text-sm font-medium">
+                {{ formatDateTimeInDisplayTimezone(a.createdAt) }} · {{ a.model }}
+              </summary>
+              <p class="mt-2 text-sm">
+                {{ a.explanation.whyItMatters }}
+              </p>
+              <p class="mt-1 text-sm text-muted-foreground">
+                {{ a.explanation.protectionVsDirection }}
+              </p>
+            </details>
+          </section>
+        </template>
+      </TabsContent>
+    </Tabs>
   </div>
 </template>

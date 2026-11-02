@@ -27,6 +27,7 @@ for (const width of [390, 768, 1024, 1280, 1440, 1920]) {
       await page.getByRole('button', { name: 'AAPL.US', exact: true }).click();
       const dialog = page.getByRole('dialog');
       await dialog.getByRole('tab', { name: '期权', exact: true }).click();
+      await dialog.getByTestId('options-data-tab').click();
       await expect(dialog.getByTestId('options-panel')).toBeVisible();
       await expect(dialog.getByRole('tab', { name: '期权', exact: true })).toHaveAttribute('data-state', 'active');
       await expect(dialog).toContainText('N/A');
@@ -76,6 +77,7 @@ test('preview mode reaches the stock detail and hints explain snapshot scores', 
   await page.getByRole('button', { name: 'AAPL.US', exact: true }).click();
   const dialog = page.getByRole('dialog');
   await dialog.getByRole('tab', { name: '期权', exact: true }).click();
+      await dialog.getByTestId('options-data-tab').click();
   await expect(dialog.getByTestId('research-mode-preview')).toHaveAttribute('aria-pressed', 'true');
   await expect(dialog.getByRole('button', { name: '解释异常', exact: true })).toBeDisabled();
   await dialog.getByTestId('research-mode-official').click();

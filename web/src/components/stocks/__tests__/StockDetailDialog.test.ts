@@ -76,16 +76,17 @@ describe('unified StockDetailDialog', () => {
     expect(wrapper.find('[data-testid="holding-panel"]').exists()).toBe(true);
     expect(wrapper.find('[data-testid="trend-panel"]').exists()).toBe(false); wrapper.unmount();
   });
-  it('does not keep unsupported US tabs when switching markets', async () => {
+  it('keeps the options tab for CN and HK while hiding market-specific research tabs', async () => {
     const wrapper = render('options'); await flushPromises();
     await wrapper.setProps({ stock: { code: '600519.SH', name: '贵州茅台', marketType: 'CN' } }); await flushPromises();
-    expect(wrapper.findComponent({ name: 'OptionsPanel' }).exists()).toBe(false);
+    expect(wrapper.findComponent({ name: 'OptionsPanel' }).exists()).toBe(true);
+    expect(wrapper.findAll('[role="tab"]').map(item => item.text())).toContain('期权');
     expect(wrapper.findAll('[role="tab"]').map(item => item.text())).toContain('龙虎榜');
     expect(wrapper.findAll('[role="tab"]').map(item => item.text())).toContain('行业');
     await tab(wrapper, '行业'); expect(wrapper.get('[data-testid="industry-panel"]').text()).toBe('600519.SH');
     await tab(wrapper, '龙虎榜'); expect(wrapper.get('[data-testid="dragon-panel"]').text()).toBe('600519.SH');
     await wrapper.setProps({ stock: { code: '00700.HK', name: '腾讯控股', marketType: 'HK' } }); await flushPromises();
-    expect(wrapper.findAll('[role="tab"]').map(item => item.text())).toEqual(['行情', '持仓']);
+    expect(wrapper.findAll('[role="tab"]').map(item => item.text())).toEqual(['行情', '持仓', '期权']);
     wrapper.unmount();
   });
   it('loads a quote only when overview is active and prefers a matching supplied quote', async () => {
