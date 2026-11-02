@@ -32,8 +32,8 @@ export const confluenceApi = {
     return toCamelCase((await apiClient.get(`${base}/ranking`, { params })).data);
   },
   async dates(market: Market): Promise<string[]> { return (await apiClient.get(`${base}/dates`, { params: { market } })).data; },
-  async detail(code: string, market: Market, tradeDate: string): Promise<{ market: Market; tradeDate: string; algorithmVersion: string; rules?: ConfluenceRanking['rules'] | null; item: ConfluenceItem }> {
-    return toCamelCase((await apiClient.get(`${base}/${encodeURIComponent(code)}`, { params: { market, trade_date: tradeDate } })).data);
+  async detail(code: string, market: Market, tradeDate: string, signal?: AbortSignal): Promise<{ market: Market; tradeDate: string; algorithmVersion: string; rules?: ConfluenceRanking['rules'] | null; item: ConfluenceItem }> {
+    return toCamelCase((await apiClient.get(`${base}/${encodeURIComponent(code)}`, { params: { market, trade_date: tradeDate }, ...(signal ? { signal } : {}) })).data);
   },
   async run(market: Market, tradeDate?: string): Promise<{ taskId: string }> {
     return toCamelCase((await apiClient.post(`${base}/run`, { market, trade_date: tradeDate })).data);

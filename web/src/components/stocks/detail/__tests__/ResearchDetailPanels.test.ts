@@ -19,7 +19,7 @@ import confluenceFixture from '../../../../../e2e/fixtures/confluence';
 import flowFixture from '../../../../../e2e/fixtures/dragonTigerFlow';
 
 vi.mock('@/api/confluence', () => ({ confluenceApi: { detail: vi.fn(), dates: vi.fn() } }));
-vi.mock('@/api/intradayConfirmation', () => ({ intradayConfirmationApi: { detail: vi.fn() } }));
+vi.mock('@/api/intradayConfirmation', () => ({ intradayConfirmationApi: { detail: vi.fn(), evaluations: vi.fn() } }));
 vi.mock('@/api/quant', () => ({ quantApi: { signal: vi.fn(), signalHistory: vi.fn() } }));
 vi.mock('@/api/dragonTigerFlow', async original => ({ ...await original<typeof import('@/api/dragonTigerFlow')>(), dragonTigerFlowApi: { overview: vi.fn() } }));
 const ranking = toCamelCase<ConfluenceRanking>(confluenceFixture);
@@ -36,6 +36,7 @@ beforeEach(() => {
   vi.mocked(confluenceApi.dates).mockResolvedValue(['2026-09-21', '2026-09-22']);
   vi.mocked(confluenceApi.detail).mockResolvedValue({ market: 'CN', tradeDate: '2026-09-22', algorithmVersion: 'v1', item: ranking.items[0]! });
   vi.mocked(intradayConfirmationApi.detail).mockResolvedValue(confirmation);
+  vi.mocked(intradayConfirmationApi.evaluations).mockResolvedValue({ items: [] });
   vi.mocked(dragonTigerFlowApi.overview).mockResolvedValue(flow);
   vi.mocked(quantApi.signal).mockResolvedValue(signal);
   vi.mocked(quantApi.signalHistory).mockResolvedValue([{ ...signal, id: 2, tradeDate: '2026-09-18' }]);
@@ -195,6 +196,22 @@ describe('preserved metric hints after detail extraction', () => {
 
 
 describe('intraday frozen baseline and history changes', () => {
+  it('shows the current snapshot while evaluations are pending and retries history independently', async () => {
+    const history = deferred<Awaited<ReturnType<typeof intradayConfirmationApi.evaluations>>>();
+    vi.mocked(intradayConfirmationApi.detail).mockResolvedValue({ ...confirmation, currentStatus: 'ACTIVE' });
+    vi.mocked(intradayConfirmationApi.evaluations).mockReturnValueOnce(history.promise);
+    const wrapper = mount(IntradayDetailPanel, { props: { symbol: 'AAPL.US', market: 'US' } }); await flushPromises();
+    expect(wrapper.get('[data-testid="intraday-status-overview"]').text()).toContain('确认有效');
+    expect(wrapper.get('[data-testid="intraday-selection-sources"]').text()).toContain('趋势前30');
+    history.resolve({ items: [] }); await flushPromises();
+    vi.mocked(intradayConfirmationApi.evaluations).mockRejectedValueOnce(new Error('offline'));
+    await wrapper.setProps({ context: { tradeDate: '2026-09-21' } }); await flushPromises();
+    const detailCalls = vi.mocked(intradayConfirmationApi.detail).mock.calls.length;
+    expect(wrapper.text()).toContain('评估轨迹暂时无法加载');
+    await wrapper.findAll('button').find(button => button.text() === '重试轨迹')!.trigger('click'); await flushPromises();
+    expect(intradayConfirmationApi.detail).toHaveBeenCalledTimes(detailCalls);
+    expect(wrapper.text()).toContain('暂无评估记录'); wrapper.unmount();
+  });
   it('shows first confirmation price and quote time and leaves immature return cells blank', async () => {
     vi.mocked(intradayConfirmationApi.detail).mockResolvedValue({ ...confirmation, firstConfirmedPrice: 101.25, firstConfirmedQuoteTime: '2026-09-21T13:35:00Z', firstConfirmedAt: '2026-09-21T13:36:00Z', return3D: -.05, return5D: 0, return10D: null });
     const wrapper = mount(IntradayDetailPanel, { props: { symbol: 'AAPL.US', market: 'US' } }); await flushPromises();
