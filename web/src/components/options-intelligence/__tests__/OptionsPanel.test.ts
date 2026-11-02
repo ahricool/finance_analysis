@@ -7,14 +7,29 @@ vi.mock('@/api/optionsIntelligence', () => ({ optionsIntelligenceApi: { detail: 
 vi.mock('@/api/tasks', () => ({ tasksApi: { getTaskRunDetail: vi.fn() } }));
 const mock = vi.mocked(optionsIntelligenceApi.detail);
 const score = { value: null, method: 'initial_absolute_rules', confidence: 'low', evidenceCount: 0, reason: 'insufficient_protection_demand_evidence' };
-const stubs = { OptionsCharts: true, RouterLink: true };
+const stubs = { OptionsCharts: true, OptionStrategyPanel: true, RouterLink: true };
+async function openData(wrapper: ReturnType<typeof mount>) {
+  await wrapper.get('[data-testid="options-data-tab"]').trigger('mousedown', { button: 0, ctrlKey: false });
+  await flushPromises();
+}
 describe('OptionsPanel', () => {
+  it('keeps the strategy panel and a neutral empty state for CN without US chain requests', async () => {
+    mock.mockClear();
+    const wrapper = mount(OptionsPanel, { props: { symbol: '600519.SH', market: 'CN' }, global: { stubs } });
+    await flushPromises();
+    expect(mock).not.toHaveBeenCalled();
+    expect(wrapper.text()).toContain('暂无期权数据');
+    expect(wrapper.findComponent({ name: 'OptionStrategyPanel' }).props()).toMatchObject({ symbol: '600519.SH', market: 'CN' });
+    expect(wrapper.findAll('button').some(button => button.text().includes('刷新期权链'))).toBe(false);
+    wrapper.unmount();
+  });
   it('keeps missing scores as N/A and shows source/time limitations', async () => {
     mock.mockResolvedValue({ symbol: 'AAPL.US', latest: { symbol: 'AAPL.US', status: 'warming_up',
       scores: { bearishDemand: score, unusualActivity: score, liquidityRisk: score }, evidenceGrade: 'C',
       historyDays: 0, ivSampleCount: 0, limitations: ['quote_timestamp_unknown', 'oi_as_of_unknown'],
       contracts: [], events: [], termStructure: [], skewTerms: [] }, dailyHistory: [], events: [], analyses: [], reason: null });
     const wrapper = mount(OptionsPanel, { props: { symbol: 'AAPL.US' }, global: { stubs } });
+    await openData(wrapper);
     await flushPromises();
     expect(wrapper.text()).toContain('N/A');
     expect(wrapper.text()).toContain('证据 C');
@@ -26,9 +41,10 @@ describe('OptionsPanel', () => {
   it('clears stale results when switching symbols', async () => {
     mock.mockResolvedValue({ symbol: 'AAPL.US', latest: null, dailyHistory: [], events: [], analyses: [], reason: '尚未采集 AAPL' });
     const wrapper = mount(OptionsPanel, { props: { symbol: 'AAPL.US' }, global: { stubs } });
+    await openData(wrapper);
     await flushPromises();
     mock.mockResolvedValue({ symbol: 'MSFT.US', latest: null, dailyHistory: [], events: [], analyses: [], reason: '尚未采集 MSFT' });
-    await wrapper.setProps({ symbol: 'MSFT.US' }); await flushPromises();
+    await wrapper.setProps({ symbol: 'MSFT.US' }); await openData(wrapper); await flushPromises();
     expect(wrapper.text()).toContain('尚未采集 MSFT');
     expect(wrapper.text()).not.toContain('尚未采集 AAPL');
     wrapper.unmount();
@@ -48,6 +64,7 @@ describe('OptionsPanel', () => {
     vi.mocked(optionsIntelligenceApi.refresh).mockResolvedValue({ taskId: 'refresh-task', status: 'pending' });
     vi.mocked(tasksApi.getTaskRunDetail).mockResolvedValue({ status: 'completed' } as Awaited<ReturnType<typeof tasksApi.getTaskRunDetail>>);
     const wrapper = mount(OptionsPanel, { props: { symbol: 'AAPL.US' }, global: { stubs } });
+    await openData(wrapper);
     await flushPromises();
     expect(wrapper.text()).toContain('AAPL261009P00100000');
     await wrapper.findAll('button').find(b => b.text().includes('刷新期权链'))!.trigger('click');
@@ -60,6 +77,7 @@ describe('OptionsPanel', () => {
     let finish: (response: Awaited<ReturnType<typeof optionsIntelligenceApi.detail>>) => void = () => {};
     mock.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
     const wrapper = mount(OptionsPanel, { props: { symbol: 'AAPL.US', initialView: 'official', initialDate: '2026-10-06' }, global: { stubs } });
+    await openData(wrapper);
     expect(mock).toHaveBeenLastCalledWith('AAPL.US', { view: 'official', tradeDate: '2026-10-06' });
     mock.mockResolvedValueOnce({ symbol: 'AAPL.US', latest: null, dailyHistory: [], events: [], analyses: [], reason: '今日预演暂无数据' });
     await wrapper.setProps({ initialView: 'preview', initialDate: undefined });
@@ -76,6 +94,7 @@ describe('OptionsPanel', () => {
       scores: null, limitations: [], contracts: [], refreshStatus: 'failed', refreshReason: 'provider timeout' },
     dailyHistory: [], events: [], analyses: [], reason: null });
     const wrapper = mount(OptionsPanel, { props: { symbol: 'AAPL.US', initialView: 'preview' }, global: { stubs } });
+    await openData(wrapper);
     await flushPromises();
     expect(wrapper.text()).toContain('刷新失败，显示上次预演');
     expect(wrapper.text()).toContain('provider timeout');
@@ -87,6 +106,7 @@ describe('OptionsPanel', () => {
     vi.mocked(optionsIntelligenceApi.refresh).mockResolvedValue({ taskId: 'partial-task', status: 'pending' });
     vi.mocked(tasksApi.getTaskRunDetail).mockResolvedValue({ status: 'partial', message: '未完成 1' } as Awaited<ReturnType<typeof tasksApi.getTaskRunDetail>>);
     const wrapper = mount(OptionsPanel, { props: { symbol: 'AAPL.US', initialView: 'preview' }, global: { stubs } });
+    await openData(wrapper);
     await flushPromises();
     const previousCalls = mock.mock.calls.length;
     await wrapper.findAll('button').find(b => b.text().includes('刷新期权链'))!.trigger('click');
