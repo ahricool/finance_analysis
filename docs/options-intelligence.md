@@ -207,6 +207,12 @@ CN/HK 不请求 US 期权接口，显示暂无期权数据；US 未有快照、4
 `web/src/utils/optionsStrategies/catalog.ts` 列出53种标准结构及常见扩展，覆盖 OIC 期权策略结构并合并指数Call/Put、
 持仓修复等别名；包括单腿、持仓与收益、保护、垂直价差、跨式/宽跨、蝶式/鹰式、日历/对角、比例、合成及套利/融资。
 0DTE等到期选择不另算独立玩法。名称旁hint解释各腿、适用情景、盈亏边界和履约/保证金等条件；不据此宣称标的存在可交易合约。
+交易前提分组独立于上述结构分类，默认展示「纯买方」4项（买Call/Put、买跨式/宽跨式）；
+「含卖出腿」35项包括价差、蝶式、日历、比例、合成等含卖出期权且无正股/预留全额本金前提的结构；
+「正股／资金占用」14项优先收纳持股、融券或预留行权/接股本金的结构，含备兑、保护、现金担保、Wheel、转换/反向转换。
+每项通过显式`setup`元数据分类，不按策略名称中的买/卖或有限风险标签推断。卡片展示卖出腿、持股/融券/本金前提。
+仅买期权不等于低成本；卖出腿组仍可能占用大量保证金，金额取决于合约乘数、报价、数量和账户规则，本页不估算金额。
+组内保留结构筛选、搜索、排序与分页（缺分靠后），名次为本组默认分数降序名次；切组清除搜索/结构筛选并回到首页，复用已读日K。
 定义参考 [OIC策略库](https://www.optionseducation.org/strategies/all-strategies-en)，
 [备兑Put](https://www.optionseducation.org/strategies/all-strategies/covered-put)、
 [Call比例价差](https://www.optionseducation.org/strategies/all-strategies/short-ratio-call-spread)及
