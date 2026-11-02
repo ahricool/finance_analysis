@@ -75,7 +75,6 @@ const rankingColumns = [
   { key: 'rank', label: 'rank', description: descriptions.rank },
   { key: 'name', label: 'etf', description: undefined },
   { key: 'state', label: 'state', description: descriptions.state },
-  ...forwardReturnColumns,
   { key: 'trendDurationDays', label: 'trendDuration', description: descriptions.trendDuration },
   { key: 'compositeScore', label: 'composite', description: descriptions.composite },
   { key: 'momentumStrengthScore', label: 'momentum', description: descriptions.momentum },
@@ -87,6 +86,7 @@ const rankingColumns = [
   { key: 'rankChange1D', label: 'rankChange1D', description: descriptions.rankChange },
   { key: 'rankChange3D', label: 'rankChange3D', description: descriptions.rankChange },
   { key: 'rankChange5D', label: 'rankChange5D', description: descriptions.rankChange },
+  ...forwardReturnColumns,
 ] as const;
 type SortKey = typeof rankingColumns[number]['key'] | 'entryScore';
 const sortKey = ref<SortKey>('compositeScore');
@@ -901,13 +901,6 @@ onMounted(async () => {
                       />
                     </Badge>
                   </TableCell>
-                  <TableCell
-                    v-for="column in forwardReturnColumns"
-                    :key="column.key"
-                    :data-column="column.key"
-                  >
-                    {{ pct(forwardReturn(item.code, column.key)) }}
-                  </TableCell>
                   <TableCell>{{ durationText(item.trendDurationDays) }}</TableCell>
                   <TableCell class="font-bold text-primary">
                     {{ score(item.compositeScore) }}
@@ -934,6 +927,13 @@ onMounted(async () => {
                     :key="key"
                   >
                     {{ rankChange(item[key]) }}
+                  </TableCell>
+                  <TableCell
+                    v-for="column in forwardReturnColumns"
+                    :key="column.key"
+                    :data-column="column.key"
+                  >
+                    {{ pct(forwardReturn(item.code, column.key)) }}
                   </TableCell>
                 </TableRow>
               </TableBody>
