@@ -5,9 +5,13 @@ export type State = 'WAIT' | 'CONFIRMED' | 'FAILED';
 export type CurrentStatus = 'ACTIVE' | 'PENDING_CONFIRMATION' | 'WAIT' | 'WEAKENING' | 'PENDING_FAILURE' | 'RECOVERED' | 'FAILED' | 'UNAVAILABLE' | 'PREOPEN' | 'PENDING' | 'LEGACY';
 export type Source = 'confluence' | 'trend' | 'etf' | 'quant';
 export interface Reason { code: string; text: string }
+export interface SourceEvidence {
+  source: Source; tradeDate: string; generatedAt: string; rank: number | null; reasons: string[];
+}
 export interface Confirmation {
   code: string; name: string; candidateSource: Source; candidateTradeDate: string;
   candidateSources?: Source[]; instrumentType?: string; currentStatus?: CurrentStatus; dataStatus?: string;
+  sourceEvidence?: SourceEvidence[];
   conditions?: Record<string, boolean | null>; proposedState?: State | null;
   candidateReason: string[]; sourceGeneratedAt: string; state: State; confirmationScore: number | null; availableScoreWeight: number;
   chaseRisk: 'LOW' | 'MEDIUM' | 'HIGH' | 'UNKNOWN'; reasons: Reason[]; stateReasons: Reason[];
