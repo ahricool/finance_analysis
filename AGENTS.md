@@ -393,6 +393,7 @@ Signal Confluence V2.1宏观15%使用`confluence/sector_macro.py`行业适配，
 `intraday_confirmation/` V2冻结前一交易日Confluence精选（eligible，非strong子集）、Trend20综合前30和ETF轮动综合前5，去重保留全部来源，不再读Quant。
 当地09:20/09:25盘前冻结，交易时段每5分钟读取开盘以来完整原生1min；CN腾讯报价+新浪→腾讯分钟降级，US yfinance。
 价格60/相对大盘25/Trend10/量能5，Trend与量能仅辅助；全天等权均价不依赖量，移除固定开盘15m门槛。
+V2.1新增与突破并列的今日温和回踩路线：昨日固定MA5≥MA10，今日从上方回踩MA5±0.5%且不破MA10，随后两根分钟收盘及报价收回MA5上方0.1%；复权均线对齐原始报价，仍需共同条件和两次稳定评估，旧池不混算。
 历史确认和当前观察分开，首次确认基准不可变；快照与版本化评估轨迹同事务保存（迁移0082），V1池不混算。
 GET只读及3/5/10D收益保留，详情可读评估轨迹；页面`/research/intraday-confirmation`，见`docs/intraday-confirmation.md`。
 

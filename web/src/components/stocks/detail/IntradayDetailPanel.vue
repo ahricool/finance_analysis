@@ -219,6 +219,21 @@ function marketTone(value: unknown) { return isFiniteNumber(value) ? value > 0 ?
         <p class="text-xs leading-relaxed text-muted-foreground">
           空值表示数据不足，不代表负向；趋势与量能仅作辅助。
         </p>
+        <div
+          v-if="'ma5Pullback' in (selected.conditions ?? {})"
+          class="space-y-2 rounded-lg bg-muted/25 p-3 text-xs leading-relaxed text-muted-foreground"
+          data-testid="intraday-pullback-evidence"
+        >
+          <p>突破与回踩为并列路线，满足任一后仍需通过其余价格条件及两次稳定评估。</p>
+          <p>温和回踩：昨日MA5 ≥ MA10；今日从上方回踩至MA5上下0.5%内，期间不破MA10；随后连续两根分钟收盘及当前价收回MA5上方0.1%。</p>
+          <p class="tabular-nums">
+            MA5 {{ num(selected.metrics.pullbackMa5) }} · MA10 {{ num(selected.metrics.pullbackMa10) }}（昨日固定均线，已对齐今日价格口径）
+          </p>
+          <p>回踩时间 {{ stamp(selected.metrics.pullbackTouchTime) }} · 当前收回证据 {{ stamp(selected.metrics.pullbackReclaimTime) }}</p>
+          <p v-if="selected.metrics.pullbackUnavailableReason">
+            {{ selected.metrics.pullbackUnavailableReason }}
+          </p>
+        </div>
       </section>
       <section class="space-y-3">
         <BilingualLabel

@@ -343,12 +343,13 @@ def test_permanently_missing_first_anchor_does_not_fill_pending_queue(store):
     assert store.pending_returns("US", DAY + timedelta(days=200)) == []
 
 
-def test_v2_evaluation_and_snapshot_commit_together_and_are_read_only(store):
-    first = store.save(TRADING, frozen(rule_version="intraday_v2"))
+@pytest.mark.parametrize("version", ["intraday_v2", "intraday_v2_1"])
+def test_v2_evaluation_and_snapshot_commit_together_and_are_read_only(store, version):
+    first = store.save(TRADING, frozen(rule_version=version))
     saved = store.save(TRADING, evaluation(first))
     rows = store.evaluations("US", DAY, "ABC.US")
     assert len(rows) == 1 and rows[0]["state"] == "CONFIRMED"
-    assert rows[0]["rule_version"] == "intraday_v2"
+    assert rows[0]["rule_version"] == version
     assert store.evaluations("CN", DAY, "ABC.US") == []
     assert store.evaluations("US", DAY, "OTHER.US") == []
     with pytest.raises(StaleConfirmationWrite):
@@ -357,9 +358,10 @@ def test_v2_evaluation_and_snapshot_commit_together_and_are_read_only(store):
     assert store.load("US", DAY) == saved
 
 
-def test_evaluation_write_failure_rolls_back_snapshot(store, monkeypatch):
+@pytest.mark.parametrize("version", ["intraday_v2", "intraday_v2_1"])
+def test_evaluation_write_failure_rolls_back_snapshot(store, monkeypatch, version):
     from sqlalchemy import event
-    first = store.save(TRADING, frozen(rule_version="intraday_v2"))
+    first = store.save(TRADING, frozen(rule_version=version))
     def fail(*args):
         raise RuntimeError("evaluation write failed")
     event.listen(IntradayConfirmationEvaluation, "before_insert", fail)

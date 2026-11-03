@@ -230,6 +230,8 @@ export const intradayLabels: Record<string, string> = {
   relative_strength: '跑赢大盘', no_gap_fade: '无明显高开低走',
   openingBreakout: '突破开盘区间', aboveSessionMean: '站上全天均价', positiveSessionReturn: '开盘至今非负',
   relativeStrength: '跑赢大盘', noGapFade: '无明显高开低走',
+  ma5_pullback: '温和回踩MA5后收回', price_setup: '突破或回踩任一路线满足',
+  ma5Pullback: '温和回踩MA5后收回', priceSetup: '突破或回踩任一路线满足',
 };
 export function intradayLabel(value: unknown): string {
   return typeof value === 'string' ? intradayLabels[value] ?? '暂无分类' : '暂无数据';

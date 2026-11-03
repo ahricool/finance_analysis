@@ -1,11 +1,11 @@
 import { expect, test } from '@playwright/test';
 const raw = {
   market: 'CN', trade_date: '2026-09-22', candidate_trade_date: '2026-09-21',
-  frozen_at: '2026-09-22T01:25:00Z', generated_at: '2026-09-22T02:00:00Z', status: 'evaluated', rule_version: 'intraday_v2', warnings: [],
+  frozen_at: '2026-09-22T01:25:00Z', generated_at: '2026-09-22T02:00:00Z', status: 'evaluated', rule_version: 'intraday_v2_1', warnings: [],
   summary: { total: 1, CONFIRMED: 1, WAIT: 0, FAILED: 0 }, rules_note: 'V1 启发式规则，未经回测验证',
   items: [{ code: '600001.SH', name: '测试候选', candidate_source: 'trend', candidate_trade_date: '2026-09-21',
     candidate_reason: ['昨日正式 CANDIDATE，趋势和相对强度达到观察阈值'], source_generated_at: '2026-09-21T12:00:00Z',
-    state: 'CONFIRMED', current_status: 'ACTIVE', candidate_sources: ['confluence', 'trend'], conditions: { opening_breakout: true, above_session_mean: true }, confirmation_score: 90, chase_risk: 'HIGH', generated_at: '2026-09-22T02:00:00Z',
+    state: 'CONFIRMED', current_status: 'ACTIVE', candidate_sources: ['confluence', 'trend'], conditions: { opening_breakout: true, ma5_pullback: true, price_setup: true, above_session_mean: true }, confirmation_score: 90, chase_risk: 'HIGH', generated_at: '2026-09-22T02:00:00Z',
     available_score_weight: 95,
     source_evidence: [
       { source: 'confluence', trade_date: '2026-09-21', generated_at: '2026-09-21T12:30:00Z', rank: null, reasons: ['昨日共振精选，趋势与行业方向一致'] },
@@ -17,6 +17,7 @@ const raw = {
     state_reasons: [], metrics: { quote_time: '2026-09-22T01:55:00Z', bar_time: '2026-09-22T01:55:00Z',
       price: 26.12, open: 25.24, intraday_return: .0348, session_mean_price: 25.10, session_mean_distance_pct: .0406,
       opening_range_low: 25.12, opening_range_high: 25.50, minute_count: 25, expected_minute_count: 25,
+      pullback_ma5: 25.1, pullback_ma10: 24.8, pullback_touch_time: '2026-09-22T01:36:00Z', pullback_reclaim_time: '2026-09-22T01:40:00Z',
       gap_pct: .07, return_5m: .01, return_15m: .02, return_30m: null, volume_ratio: 1.6,
       vwap_distance_pct: .04, relative_to_market: .014, benchmark_code: '510300.SH' },
     trend: { impact: 'intact', official_trend_state: 'CANDIDATE', temporary_trend_state: 'TRENDING',
@@ -65,6 +66,8 @@ for (const width of [390, 768, 1024, 1280, 1440, 1920]) {
       await page.getByRole('dialog').getByRole('tab', { name: '盘中确认', exact: true }).click();
       await expect(page.getByRole('dialog')).toContainText('形成期 → 扩张期');
       await expect(page.getByRole('dialog')).toContainText('站上全天均价');
+      await expect(page.getByTestId('intraday-pullback-evidence')).toContainText('突破与回踩为并列路线');
+      await expect(page.getByTestId('intraday-pullback-evidence')).toContainText('MA5 25.10');
       await expect(page.getByRole('dialog')).toContainText('评估轨迹');
       await expect(page.getByRole('dialog')).toContainText('历史：曾经确认 · 追高风险：高');
       await expect(page.getByTestId('intraday-selection-sources')).toContainText('共振精选');

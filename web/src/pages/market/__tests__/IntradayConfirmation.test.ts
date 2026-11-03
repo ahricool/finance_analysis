@@ -175,6 +175,17 @@ it('separates current weakness from the historical confirmation and retains ever
   wrapper.unmount();
 });
 
+it('recognizes V2.1 current observations and the two price routes', async () => {
+  vi.mocked(api.read).mockResolvedValue({ ...snapshot, ruleVersion: 'intraday_v2_1',
+    summary: { total: 1, confirmed: 1, wait: 0, failed: 0, active: 1, attention: 0 },
+  } as never);
+  const wrapper = mount(Page); await flushPromises();
+  expect(wrapper.text()).toContain('突破 / 温和回踩');
+  expect(wrapper.text()).toContain('每 5 分钟评估');
+  expect(fieldSelect(wrapper, '[aria-label="候选来源"]').props('options')).toHaveLength(4);
+  wrapper.unmount();
+});
+
 it('distinguishes pending directions and filters them independently', async () => {
   vi.mocked(api.read).mockResolvedValue({ ...snapshot, ruleVersion: 'intraday_v2', items: [
     { ...snapshot.items[0], code: 'UP.US', name: '走强样本', state: 'WAIT', currentStatus: 'PENDING_CONFIRMATION' },
