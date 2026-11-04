@@ -1,7 +1,7 @@
 // Sources: confluence/{v2,service}.py. Snapshot rules remain the authority for thresholds.
 export const confluenceHints: Record<string, string> = {
   strongConfluence: 'V2主要指标至少2个可用且至少2个正向，综合分≥75；每个市场每日最多10条。V1历史仍按保存的旧规则阅读。不是上涨概率。',
-  ignitionTopIndustry: '所选正式快照中行业正向且20日趋势为IGNITION的数量。',
+  ignitionTopIndustry: '所选正式快照中行业正向且10日趋势为IGNITION的数量。',
   topIndustryConfluence: '所选正式快照中行业排名前10的数量。',
   snapshotTradeDate: '目标交易日。V2股票指标只取同日正式结果；宏观按中美时点取已完成美股日，龙虎榜使用最近3个CN交易日。',
   confluence: 'V2.2精选门槛60分，每市场每天最多10个；研究排行最多50条，观察项不属于正式信号。V2主要权重：宏观15、行业ETF20、行业强度15、趋势30；辅助：Quant7、期权5、情绪4、龙虎榜4。缺失留空，不计分母，其他权重按比例归一。各核心支持度为0–100。V1历史保持原始规则。',

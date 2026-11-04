@@ -390,7 +390,7 @@ Signal Confluence V2.1宏观15%使用`confluence/sector_macro.py`行业适配，
 
 ## Intraday Confirmation
 
-`intraday_confirmation/` V2冻结前一交易日Confluence精选（eligible，非strong子集）、Trend20综合前30和ETF轮动综合前5，去重保留全部来源，不再读Quant。
+`intraday_confirmation/` V2冻结前一交易日Confluence精选（eligible，非strong子集）、Trend10综合前30和ETF轮动综合前5，去重保留全部来源，不再读Quant。
 当地09:20/09:25盘前冻结，交易时段每5分钟读取开盘以来完整原生1min；CN腾讯报价+新浪→腾讯分钟降级，US yfinance。
 价格60/相对大盘25/Trend10/量能5，Trend与量能仅辅助；全天等权均价不依赖量，移除固定开盘15m门槛。
 V2.1新增与突破并列的今日温和回踩路线：昨日固定MA5≥MA10，今日从上方回踩MA5±0.5%且不破MA10，随后两根分钟收盘及报价收回MA5上方0.1%；复权均线对齐原始报价，仍需共同条件和两次稳定评估，旧池不混算。
@@ -400,7 +400,7 @@ GET只读及3/5/10D收益保留，详情可读评估轨迹；页面`/research/in
 
 ## Unified Signal Center
 
-`signal_center/` 主动读取同日正式Trend20前30、Trend10/40各前10、ETF前10（ETF可推荐）、原行业候选与前端可见的完整正式Confluence批次（当前最多10只）。
+`signal_center/` 主动读取同日正式Trend10前30、Trend20/40各前10、ETF前10（ETF可推荐）、原行业候选与前端可见的完整正式Confluence批次（当前最多10只）。
 不直接读Quant候选/明细；共振保持上游整体含义，可能含Quant贡献，禁止把重复底层事实当独立共振。
 所有来源合并去重后固定5桶，每桶LLM选0–3，最终从0–15个中选0–3；CN/US每日合计最多6个，宁缺毋滥。
 复用LLMClient联网与transport检索证据；BUY结构化引用冻结字段/数值/日期，NO_TRADE有明确原因。
@@ -438,7 +438,8 @@ Streamer 页面行情只读 Redis；CN/US 共用日内方向状态，分钟线�
 首次运行冻结Universe，US广度为标普500成分；细节及适配差异见`docs/stock-strategies.md`。
 迁移`0076_stock_strategies`，页面`/strategies`，离线测试`tests/stock_strategies/`。
 10/23新增CN趋势质量/市场35退出与US均线市场开关/DD30暂停3交易日；独立观察起点不早于2026-10-23，
-只读同日正式Trend20及CN Trend40 Path/趋势条件，不请求外部API。
+只读同日正式Trend10及CN Trend40 Path/趋势条件，不请求外部API。
+11/04按原20→10、40→20、60→40映射，模拟ETF分支独立Trend20、股票Trend40；受影响市场开关/混合/回归/广度/趋势质量策略使用独立version=2与观察起点2026-11-04，旧状态和净值不拼接。
 
 ## Trend Entry
 

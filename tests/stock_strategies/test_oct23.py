@@ -29,7 +29,7 @@ def quality_inputs():
 )
 def test_cn_market_hysteresis_and_stock_only(score, buy, exit_):
     data = quality_inputs()
-    data.regimes[20]["score"] = score
+    data.regimes[10]["score"] = score
     result = decide(CN, initial_state(), data)
     assert bool(result["candidates"]) == buy
     assert bool(result["exits"]["A.US"]) == exit_
@@ -63,7 +63,7 @@ def test_us_market_gate_on_combined_pool(score, buy, exit_):
     data = inputs()
     data.etfs = ("SPY.US",)
     data.etf_regime = None
-    data.regimes[20]["score"] = score
+    data.regimes[10]["score"] = score
     result = decide(US, initial_state(), data)
     assert bool(result["candidates"]) == buy
     assert bool(result["exits"]["SPY.US"]) == exit_
@@ -74,10 +74,10 @@ def test_us_market_gate_on_combined_pool(score, buy, exit_):
 @pytest.mark.parametrize("spec", [CN, US])
 def test_market_score_missing_waits_and_missing_close_still_liquidates(spec):
     data = quality_inputs()
-    data.regimes[20]["score"] = 0
+    data.regimes[10]["score"] = 0
     data.features["A.US"]["valid"] = False
     assert decide(spec, initial_state(), data)["exits"]["A.US"]
-    data.regimes[20]["score"] = float("nan")
+    data.regimes[10]["score"] = float("nan")
     with pytest.raises(DataNotReady, match="市场分数"):
         decide(spec, initial_state(), data)
 
@@ -120,18 +120,18 @@ def test_new_strategy_does_not_backfill_before_selection_date(repository):
     class SessionLoader(Loader):
         def load(self, market, day, universe, anchor_dates=()):
             result = super().load(market, day, universe, anchor_dates)
-            result.next_day = date(2026, 10, 26)
+            result.next_day = date(2026, 11, 5)
             return result
 
     loader = SessionLoader()
     service = StockStrategyService(repository, loader, (US,), lock)
-    assert not service.run("US", now=datetime(2026, 10, 23, 2, tzinfo=timezone.utc))["results"]
+    assert not service.run("US", now=datetime(2026, 11, 4, 4, tzinfo=timezone.utc))["results"]
     assert not loader.loads
-    assert service.run("US", now=datetime(2026, 10, 24, 2, tzinfo=timezone.utc))["success"] == 1
+    assert service.run("US", now=datetime(2026, 11, 5, 4, tzinfo=timezone.utc))["success"] == 1
     state = repository.state(US, "US")
-    assert state["start_date"] == date(2026, 10, 23)
+    assert state["start_date"] == date(2026, 11, 4)
     assert state["payload"]["positions"] == {}
-    assert loader.loads == [date(2026, 10, 23)]
+    assert loader.loads == [date(2026, 11, 4)]
 
 
 def test_dd_pause_delayed_liquidation_waits_until_following_open():

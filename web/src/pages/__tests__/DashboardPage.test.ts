@@ -97,7 +97,7 @@ describe('public market dashboard', () => {
     await regime.findAll('button').find(button => button.text() === '重试')!.trigger('click');
     await flushPromises();
     expect(get.mock.calls.slice(callsBefore)).toEqual([
-      ['/api/v1/trend-following/dashboard', { params: { market, trend_period: 20 } }],
+      ['/api/v1/trend-following/dashboard', { params: { market, trend_period: 10 } }],
     ]);
     expect(regime.text()).not.toContain('请求失败');
     expect(changes.text()).not.toContain('请求失败');

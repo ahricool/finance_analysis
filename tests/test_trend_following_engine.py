@@ -50,7 +50,7 @@ def bars(*, count: int = 80, start: float = 100.0, step: float = 1.0, final: flo
 def test_weighted_slope_r_squared_returns_drawdown_and_atr():
     series = bars(step=1.0)
     slope, r_squared = weighted_log_regression([item.close for item in series])
-    features = calculate_features(series)
+    features = calculate_features(series, config=replace(DEFAULT_CONFIG, trend_period=20))
     assert slope > 0
     assert r_squared > 0.99
     assert features is not None

@@ -23,7 +23,7 @@ describe('trendFollowingApi', () => {
         horizons: [{ days: 20, excess_status: 'pending' }] }] } });
     const result = await trendFollowingApi.eventStudy('US', '2026-01-01', '2026-09-01', 'RISK_OFF', 'MEAN_REVERSION');
     expect(apiClient.get).toHaveBeenCalledWith('/api/v1/trend-following/event-study', {
-      params: { trend_period: 20, market: 'US', start_date: '2026-01-01', end_date: '2026-09-01', regime: 'RISK_OFF', strategy: 'MEAN_REVERSION', offset: 0, limit: 100 }, signal: undefined,
+      params: { trend_period: 10, market: 'US', start_date: '2026-01-01', end_date: '2026-09-01', regime: 'RISK_OFF', strategy: 'MEAN_REVERSION', offset: 0, limit: 100 }, signal: undefined,
     });
     expect(result.boxFeatureCoverage.continuousCompleteSince).toBe('2026-09-01');
     expect(result.events[0]?.context.distanceFromMa20Atr).toBe(-2);
@@ -34,12 +34,12 @@ describe('trendFollowingApi', () => {
     vi.mocked(apiClient.get).mockResolvedValueOnce({ data: { groups: [], event_count: 200 } });
     expect(await trendFollowingApi.eventStudySummary('CN', '2026-08-01', '2026-09-30', 'ALL')).toEqual({ groups: [], eventCount: 200 });
     expect(apiClient.get).toHaveBeenLastCalledWith('/api/v1/trend-following/event-study/summary', {
-      params: { trend_period: 20, market: 'CN', start_date: '2026-08-01', end_date: '2026-09-30', regime: 'ALL' }, signal: undefined,
+      params: { trend_period: 10, market: 'CN', start_date: '2026-08-01', end_date: '2026-09-30', regime: 'ALL' }, signal: undefined,
     });
     vi.mocked(apiClient.get).mockResolvedValueOnce({ data: { events: [], event_count: 200, offset: 100, limit: 100 } });
     expect(await trendFollowingApi.eventStudyEvents('CN', '2026-08-01', '2026-09-30', 'ALL', 'BOX_BREAKOUT', 100)).toEqual({ events: [], eventCount: 200, offset: 100, limit: 100 });
     expect(apiClient.get).toHaveBeenLastCalledWith('/api/v1/trend-following/event-study/events', {
-      params: { trend_period: 20, market: 'CN', start_date: '2026-08-01', end_date: '2026-09-30', regime: 'ALL', strategy: 'BOX_BREAKOUT', offset: 100, limit: 100 }, signal: undefined,
+      params: { trend_period: 10, market: 'CN', start_date: '2026-08-01', end_date: '2026-09-30', regime: 'ALL', strategy: 'BOX_BREAKOUT', offset: 100, limit: 100 }, signal: undefined,
     });
   });
 
@@ -65,7 +65,7 @@ describe('trendFollowingApi', () => {
     }) });
     const result = await trendFollowingApi.ranking('US', '2026-08-28');
     expect(apiClient.get).toHaveBeenCalledWith('/api/v1/trend-following/ranking/table', {
-      params: { trend_period: 20, market: 'US', trade_date: '2026-08-28' },
+      params: { trend_period: 10, market: 'US', trade_date: '2026-08-28' },
     });
     expect(result.items[0]).toMatchObject({ alphaScore: 82,
       features: {
@@ -91,19 +91,19 @@ describe('trendFollowingApi', () => {
     await trendFollowingApi.detail('000001.SZ', 'CN', 60, '2026-06-01');
     const result = await trendFollowingApi.run('CN', '2026-08-28');
     await trendFollowingApi.run('CN');
-    expect(apiClient.get).toHaveBeenCalledWith('/api/v1/trend-following/dates', { params: { trend_period: 20, market: 'CN' } });
+    expect(apiClient.get).toHaveBeenCalledWith('/api/v1/trend-following/dates', { params: { trend_period: 10, market: 'CN' } });
     expect(apiClient.get).toHaveBeenCalledWith('/api/v1/trend-following/candidates', {
-      params: { trend_period: 20, market: 'CN', trade_date: '2026-08-28' },
+      params: { trend_period: 10, market: 'CN', trade_date: '2026-08-28' },
     });
 
     expect(apiClient.get).toHaveBeenCalledWith('/api/v1/trend-following/000001.SZ', {
-      params: { trend_period: 20, market: 'CN', limit: 60, trade_date: '2026-06-01' },
+      params: { trend_period: 10, market: 'CN', limit: 60, trade_date: '2026-06-01' },
     });
     expect(apiClient.post).toHaveBeenCalledWith('/api/v1/trend-following/run', {
-      trend_period: 20, market: 'CN', trade_date: '2026-08-28',
+      trend_period: 10, market: 'CN', trade_date: '2026-08-28',
     });
     expect(apiClient.post).toHaveBeenCalledWith('/api/v1/trend-following/run', {
-      trend_period: 20, market: 'CN', trade_date: null,
+      trend_period: 10, market: 'CN', trade_date: null,
     });
     expect(result.taskId).toBe('task-1');
   });
@@ -151,7 +151,7 @@ it('loads preview snapshots through toCamelCase and treats 404 as null', async (
     snapshots: [{ code: 'AAPL.US', alpha_score: 82, market_regime: 'RISK_ON' }],
   } });
   const preview = await trendFollowingApi.preview('US');
-  expect(apiClient.get).toHaveBeenCalledWith('/api/v1/trend-following/preview', { params: { trend_period: 20, market: 'US' } });
+  expect(apiClient.get).toHaveBeenCalledWith('/api/v1/trend-following/preview', { params: { trend_period: 10, market: 'US' } });
   expect(preview).toMatchObject({
     tradeDate: '2026-09-10',
     previewTime: '2026-09-10T03:00:00Z',
@@ -169,7 +169,7 @@ it('loads lightweight preview status and preserves missing-cache null semantics'
     data_as_of: null, provider: 'yfinance', snapshot_count: 3794, warnings: [],
   } });
   const status = await trendFollowingApi.previewStatus('CN');
-  expect(apiClient.get).toHaveBeenLastCalledWith('/api/v1/trend-following/preview/status', { params: { trend_period: 20, market: 'CN' } });
+  expect(apiClient.get).toHaveBeenLastCalledWith('/api/v1/trend-following/preview/status', { params: { trend_period: 10, market: 'CN' } });
   expect(status).toMatchObject({ tradeDate: '2026-09-11', snapshotCount: 3794 });
   expect(status).not.toHaveProperty('snapshots');
   vi.mocked(apiClient.get).mockRejectedValueOnce({ response: { status: 404 } });
@@ -185,7 +185,7 @@ it('loads aggregated breadth with market, cutoff and preview mode', async () => 
   } });
   const result = await trendFollowingApi.breadthHistory('US', '2026-09-14', true);
   expect(apiClient.get).toHaveBeenLastCalledWith('/api/v1/trend-following/breadth-history', {
-    params: { trend_period: 20, market: 'US', days: 30, as_of: '2026-09-14', include_preview: true },
+    params: { trend_period: 10, market: 'US', days: 30, as_of: '2026-09-14', include_preview: true },
   });
   expect(result).toMatchObject({ officialCount: 1, previewDate: '2026-09-14',
     points: [{ tradeDate: '2026-09-14', trendBreadth: 0.5, isPreview: true, stateCounts: counts }] });
@@ -196,7 +196,7 @@ it('sends bounded transition filters and maps rank delta', async () => {
   vi.mocked(apiClient.get).mockResolvedValue({ data: { items: [{ rank_delta: 9, is_preview: false }] } });
   const result = await trendFollowingApi.transitions('CN', 5, 'deteriorating', '2026-09-14', true);
   expect(apiClient.get).toHaveBeenLastCalledWith('/api/v1/trend-following/transitions', {
-    params: { trend_period: 20, market: 'CN', days: 5, direction: 'deteriorating', limit: 20, as_of: '2026-09-14', include_preview: true },
+    params: { trend_period: 10, market: 'CN', days: 5, direction: 'deteriorating', limit: 20, as_of: '2026-09-14', include_preview: true },
   });
   expect(result.items[0]).toMatchObject({ rankDelta: 9, isPreview: false });
 });

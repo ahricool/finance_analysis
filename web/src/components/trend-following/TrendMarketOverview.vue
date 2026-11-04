@@ -29,7 +29,7 @@ async function load() {
   error.value = null;
   loading.value = true;
   try {
-    const result = await trendFollowingApi.breadthHistory(props.market, props.asOf, props.includePreview, props.trendPeriod ?? 20);
+    const result = await trendFollowingApi.breadthHistory(props.market, props.asOf, props.includePreview, props.trendPeriod ?? 10);
     if (current === requestId) history.value = result;
   } catch (reason) {
     if (current === requestId) error.value = getParsedApiError(reason);

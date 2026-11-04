@@ -54,13 +54,13 @@ for (const kind of ['trend', 'etf'] as const) {
     it('loads latest official data from any entry and preserves historical chart context', async () => {
       const wrapper = mountPanel();
       await flushPromises();
-      expect(api.detail).toHaveBeenCalledWith('AAPL.US', 'US', 60, undefined, ...(kind === 'trend' ? [20] : []));
+      expect(api.detail).toHaveBeenCalledWith('AAPL.US', 'US', 60, undefined, ...(kind === 'trend' ? [10] : []));
       expect(api.previewDetail).not.toHaveBeenCalled();
       expect(wrapper.text()).toContain('#1 · 前 0.5%');
       expect(wrapper.findComponent(DailyKLineCard).exists()).toBe(false);
       await wrapper.setProps({ context: { tradeDate: '2026-08-20', view: 'official' } });
       await flushPromises();
-      expect(api.detail).toHaveBeenLastCalledWith('AAPL.US', 'US', 60, '2026-08-20', ...(kind === 'trend' ? [20] : []));
+      expect(api.detail).toHaveBeenLastCalledWith('AAPL.US', 'US', 60, '2026-08-20', ...(kind === 'trend' ? [10] : []));
       await wrapper.setProps({ context: { tradeDate: '2026-08-20', view: 'official' } });
       await flushPromises();
       expect(api.detail).toHaveBeenCalledTimes(2);
@@ -88,8 +88,8 @@ for (const kind of ['trend', 'etf'] as const) {
       const wrapper = mountPanel({ view: 'preview', tradeDate: '2026-09-10' });
       await flushPromises();
       expect(api.detail).not.toHaveBeenCalled();
-      expect(api.previewDetail).toHaveBeenCalledWith('AAPL.US', 'US', '2026-09-10', ...(kind === 'trend' ? [20] : []));
-      expect(api.detailHistory).toHaveBeenCalledWith('AAPL.US', 'US', '2026-09-10', ...(kind === 'trend' ? [60, 20] : []));
+      expect(api.previewDetail).toHaveBeenCalledWith('AAPL.US', 'US', '2026-09-10', ...(kind === 'trend' ? [10] : []));
+      expect(api.detailHistory).toHaveBeenCalledWith('AAPL.US', 'US', '2026-09-10', ...(kind === 'trend' ? [60, 10] : []));
       expect(wrapper.text()).toContain('当前详情为 Preview');
       expect(wrapper.findComponent(DailyKLineCard).exists()).toBe(false);
       api.detailHistory.mockResolvedValueOnce({ history: [snapshot('AAPL.US', '2026-09-09'), snapshot()] });
@@ -159,7 +159,7 @@ it('preserves trend duration, lifecycle, risk, box and mean-reversion hint descr
     features: { riskSizing: { suggestedPositionPct: .1, stopLossPct: .05, stopPrice: 90, riskBudgetPct: .01 } },
     fragilityBreakdown: { trendDecay: 10 },
   } });
-  const wrapper = shallowMount(TrendDetailPanel, { props: { symbol: 'AAPL.US', market: 'US' }, global: { renderStubDefaultSlot: true } });
+  const wrapper = shallowMount(TrendDetailPanel, { props: { symbol: 'AAPL.US', market: 'US', context: { trendPeriod: 20 } }, global: { renderStubDefaultSlot: true } });
   await flushPromises();
   const actual = [...wrapper.findAllComponents(IndicatorHelpLabel), ...wrapper.findAllComponents(BilingualLabel)]
     .map(label => label.props().description);

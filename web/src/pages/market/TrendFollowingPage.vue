@@ -73,7 +73,7 @@ const emptySummary = (): TrendSummary => ({
 });
 const route = useRoute();
 const { market } = useMarket();
-const trendPeriod = ref<TrendPeriod>(20);
+const trendPeriod = ref<TrendPeriod>(10);
 const periodText = (text: string) => trendPeriodText(text, trendPeriod.value);
 const descriptions = new Proxy(trendIndicatorDescriptions, { get: (target, key: string) => target[key] == null ? undefined : key === 'entry' ? target[key].replaceAll('{period}', String(trendPeriod.value)) : periodText(target[key]) });
 const selectedDate = ref('');

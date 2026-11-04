@@ -86,7 +86,7 @@ def collect(repo, market, day):
         if r["code"] in stocks:
             industry.setdefault(r["code"], []).append(r)
     selections = {}
-    for period, limit in ((20, 30), (10, 10), (40, 10)):
+    for period, limit in ((10, 30), (20, 10), (40, 10)):
         ranked = sorted(
             (r for r in trends[period].values() if r.get("rank") is not None), key=lambda r: (r["rank"], r["code"])
         )
@@ -147,9 +147,9 @@ def collect(repo, market, day):
             screening_plan=screening_plan(candidates),
             market_regime=sources["regime"],
             selection_rules=dict(
-                trend20_top=30,
+                trend20_top=10,
                 trend40_top=10,
-                trend10_top=10,
+                trend10_top=30,
                 etf_top=10,
                 industry_top=5,
                 industry_per_group=3,

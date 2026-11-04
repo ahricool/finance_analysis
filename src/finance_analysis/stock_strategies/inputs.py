@@ -68,13 +68,13 @@ class InputLoader:
             raise DataNotReady(f"{day}ETF收盘覆盖不足98%")
         regimes, etf_regime, etf_generated, trend40 = self.repo.market_context(market, day)
         stock_codes, etf_codes = set(universe["stocks"]), set(universe["etfs"])
-        trend_scores = {}
+        trends = {}
         if trend40:
-            # ETF scores use the frozen stock+ETF cross-section; stock scores use formal Trend40.
-            trend_scores = {
-                code: row for code, row in etf_strength(features, BENCHMARKS[market]).items() if code in etf_codes
+            # Old ETF Trend40 becomes local Trend20; old stock Trend60 becomes formal Trend40.
+            trends = {
+                20: {code: row for code, row in etf_strength(features, BENCHMARKS[market]).items() if code in etf_codes},
+                40: {code: row for code, row in trend40.items() if code in stock_codes},
             }
-            trend_scores.update({code: row for code, row in trend40.items() if code in stock_codes})
         return DailyInputs(
             market=market,
             day=day,
@@ -86,7 +86,7 @@ class InputLoader:
             etfs=tuple(universe["etfs"]),
             breadth_codes=tuple(universe["breadth"]),
             prices=prices,
-            trends={40: trend_scores} if trend40 else {},
+            trends=trends,
             regimes=regimes,
             etf_regime=etf_regime,
             benchmark=BENCHMARKS[market],
@@ -100,7 +100,7 @@ class InputLoader:
                 etf_generated_at=etf_generated,
                 trend_regimes=regimes,
                 stock_trend_period=40,
-                etf_strength="discovery_Trend40_RS40_frozen_stock_ETF_cross_section",
+                etf_strength="discovery_Trend20_RS20_frozen_stock_ETF_cross_section",
                 benchmark=BENCHMARKS[market],
             ),
         )

@@ -44,6 +44,9 @@ def test_ten_day_constraint_upgrade_preserves_history_and_downgrade_removes_only
             with pytest.raises(IntegrityError):
                 with connection.begin_nested():
                     connection.execute(text(f"INSERT INTO {table} VALUES (30)"))
+            if column == "trend_period":
+                default = next(c["default"] for c in inspect(connection).get_columns(table) if c["name"] == column)
+                assert str(default).strip("\"'") == "10"
             assert "10" in next(c["sqltext"] for c in inspect(connection).get_check_constraints(table) if c["name"] == name)
         connection.execute(text("INSERT INTO research_preview_item VALUES (10), (60)"))
         migration.downgrade()

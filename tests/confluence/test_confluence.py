@@ -507,7 +507,7 @@ def test_v2_trend_reads_all_periods_same_date_with_compact_core_fields(repo):
     with repo.db.session_scope() as session:
         original = session.get(TrendFollowingSnapshot, 2)
         fields = {c.name: getattr(original, c.name) for c in TrendFollowingSnapshot.__table__.columns}
-        for identifier, period in [(4, 40), (5, 10), (6, 60)]:
+        for identifier, period in [(4, 40), (5, 20), (6, 60)]:
             session.add(TrendFollowingSnapshot(**dict(fields, id=identifier, trend_period=period,
                 features={"entry_type": "BREAKOUT", "entry_score": 80, "unused_large_payload": "x" * 10000})))
     rows = repo.trend_v2("CN", DAY)

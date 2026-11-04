@@ -26,7 +26,7 @@ async function load() {
   error.value = null;
   loading.value = true;
   try {
-    const result = await trendFollowingApi.transitions(props.market, days.value, direction.value, props.asOf, props.includePreview, props.trendPeriod ?? 20);
+    const result = await trendFollowingApi.transitions(props.market, days.value, direction.value, props.asOf, props.includePreview, props.trendPeriod ?? 10);
     if (id === requestId) data.value = result;
   } catch (reason) {
     if (id === requestId) error.value = getParsedApiError(reason);

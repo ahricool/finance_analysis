@@ -83,12 +83,12 @@ def indicators(rows, sessions):
     )
     from finance_analysis.trend_following.features import weighted_log_regression
 
-    visible = c.iloc[-41:].to_numpy()
-    if len(visible) == 41 and np.isfinite(visible).all() and np.all(visible > 0):
-        slope, r2 = weighted_log_regression(visible, 40)
-        dd = np.min(visible[-40:] / np.maximum.accumulate(visible[-40:]) - 1)
-        result.update(slope40=slope, r2_40=r2, dd40=dd)
-        for n in (10, 20, 40):
+    visible = c.iloc[-21:].to_numpy()
+    if len(visible) == 21 and np.isfinite(visible).all() and np.all(visible > 0):
+        slope, r2 = weighted_log_regression(visible, 20)
+        dd = np.min(visible[-20:] / np.maximum.accumulate(visible[-20:]) - 1)
+        result.update(slope20=slope, r2_20=r2, dd20=dd)
+        for n in (5, 10, 20):
             result[f"return{n}"] = visible[-1] / visible[-n - 1] - 1
     return result
 
@@ -136,28 +136,28 @@ class DailyInputs:
 
 
 def etf_strength(features, benchmark):
-    """Discovery Trend40/RS40 formula, one shared stock+ETF cross-section."""
+    """Discovery Trend20/RS20 formula, one shared stock+ETF cross-section."""
     rows = {
         c: f
         for c, f in features.items()
-        if c != benchmark and f.get("history_count", 0) >= 61 and finite(f.get("slope40"))
+        if c != benchmark and f.get("history_count", 0) >= 61 and finite(f.get("slope20"))
     }
     if not rows:
         return {}
-    slopes = pd.Series({c: f["slope40"] for c, f in rows.items()})
+    slopes = pd.Series({c: f["slope20"] for c, f in rows.items()})
     ranks = (slopes.rank(method="average") - 1) / (len(slopes) - 1) * 100 if len(slopes) > 1 else slopes * 0 + 100
     b = features.get(benchmark, {})
-    if not all(finite(b.get(f"return{n}")) for n in (10, 20, 40)):
+    if not all(finite(b.get(f"return{n}")) for n in (5, 10, 20)):
         return {}
     result = {}
     tq = lambda x, scale: 50 + 50 * np.tanh(x / scale)
     for code, f in rows.items():
-        r2q = 100 * f["r2_40"] / (1 + np.exp(-np.clip(f["slope40"] / 0.002, -700, 700)))
-        momentum = 0.6 * tq(f["return20"], 0.12) + 0.4 * tq(f["return40"], 0.18)
-        trend = 0.30 * ranks[code] + 0.30 * r2q + 0.25 * momentum + 0.15 * 100 * np.exp(-abs(f["dd40"]) / 0.15)
+        r2q = 100 * f["r2_20"] / (1 + np.exp(-np.clip(f["slope20"] / 0.002, -700, 700)))
+        momentum = 0.6 * tq(f["return10"], 0.12) + 0.4 * tq(f["return20"], 0.18)
+        trend = 0.30 * ranks[code] + 0.30 * r2q + 0.25 * momentum + 0.15 * 100 * np.exp(-abs(f["dd20"]) / 0.15)
         rs = sum(
             w * tq(f[f"return{n}"] - b[f"return{n}"], scale)
-            for n, w, scale in ((10, 0.25, 0.08), (20, 0.45, 0.12), (40, 0.30, 0.18))
+            for n, w, scale in ((5, 0.25, 0.08), (10, 0.45, 0.12), (20, 0.30, 0.18))
         )
         result[code] = dict(trend_score=float(trend), rs_score=float(rs))
     return result

@@ -174,7 +174,7 @@ def test_api_validates_period_and_scopes_repository(monkeypatch):
         assert client.get('/dates?trend_period=15').status_code == 422
         assert client.get('/dates?trend_period=30').status_code == 422
         assert client.get('/dates').status_code == 200
-    assert seen == [('US', 40), ('CN', 10), ('CN', 20)]
+    assert seen == [('US', 40), ('CN', 10), ('CN', 10)]
 
 
 def test_task_runs_three_independent_periods_with_shared_inputs(monkeypatch):

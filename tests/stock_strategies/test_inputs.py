@@ -66,7 +66,7 @@ def test_incomplete_etf_window_waits_instead_of_silently_shrinking_pool():
         InputLoader(repository=repo, resolver=SimpleNamespace()).load("US", date(2026, 10, 19), universe())
 
 
-def test_official_stock_trend40_does_not_replace_independent_etf_cross_section(monkeypatch):
+def test_official_stock_trend40_stays_separate_from_independent_etf_trend20(monkeypatch):
     repo = Repository()
     official = {"A.US": dict(trend_score=55, path_score=65), "QQQ.US": dict(trend_score=1)}
     repo.market_context = lambda *_: ({40: dict(regime="RISK_ON", score=80)}, "RISK_ON", None, official)
@@ -76,6 +76,28 @@ def test_official_stock_trend40_does_not_replace_independent_etf_cross_section(m
     )
     data = InputLoader(repository=repo, resolver=SimpleNamespace()).load("US", date(2026, 11, 4), universe())
     assert data.trends[40]["A.US"] == official["A.US"]
-    assert data.trends[40]["QQQ.US"] == dict(trend_score=70)
+    assert data.trends[20]["QQQ.US"] == dict(trend_score=70)
+    assert "QQQ.US" not in data.trends[40]
+    assert "A.US" not in data.trends[20]
     assert "B.US" not in data.trends[40]  # Missing official stocks cannot inherit local ETF scores.
     assert 60 not in data.trends
+
+
+def test_local_etf_trend20_ignores_prices_before_its_twenty_day_window():
+    from copy import deepcopy
+    from finance_analysis.stock_strategies.features import indicators, etf_strength
+
+    sessions = get_trading_days_between("us", date(2026, 1, 1), date(2026, 11, 4))[-80:]
+    rows = [dict(date=day, open=100 + i, high=101 + i, low=99 + i, close=100 + i,
+                 volume=1e6, amount=1e8) for i, day in enumerate(sessions)]
+    changed = deepcopy(rows)
+    changed[-30].update(open=1000, high=1001, low=999, close=1000)
+    original, outside_window = indicators(rows, sessions), indicators(changed, sessions)
+    assert original["return20"] == pytest.approx(rows[-1]["close"] / rows[-21]["close"] - 1)
+    assert original["slope20"] == outside_window["slope20"]
+    assert "slope40" not in original
+    baseline = {"SPY.US": original, "A.US": original, "QQQ.US": original}
+    alternative = {**baseline, "QQQ.US": outside_window}
+    before = etf_strength(baseline, "SPY.US")["QQQ.US"]
+    after = etf_strength(alternative, "SPY.US")["QQQ.US"]
+    assert after == pytest.approx(before)

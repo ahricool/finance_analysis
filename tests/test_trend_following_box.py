@@ -25,6 +25,7 @@ def box_bars(days=60, close=103.0):
 
 
 def calculate(bars, **kwargs):
+    kwargs.setdefault("config", replace(DEFAULT_CONFIG, trend_period=20))
     result = calculate_features(bars, **kwargs)
     assert result is not None
     json.dumps(result, allow_nan=False)
@@ -132,7 +133,7 @@ def test_history_is_sufficient_and_future_append_does_not_change_replay():
 def test_configuration_can_disable_windows_without_changing_existing_features():
     bars = box_bars()
     enabled = calculate(bars)
-    disabled = calculate(bars, config=replace(DEFAULT_CONFIG, box_forming_quality_min=101))
+    disabled = calculate(bars, config=replace(DEFAULT_CONFIG, trend_period=20, box_forming_quality_min=101))
     assert {k: v for k, v in enabled.items() if not k.startswith(("box_", "distance_to_box"))} == {
         k: v for k, v in disabled.items() if not k.startswith(("box_", "distance_to_box"))
     }
@@ -179,7 +180,7 @@ def test_service_preview_uses_official_history_and_replaces_today_without_lookah
     monkeypatch.setattr(
         "finance_analysis.trend_following.service.get_universe", lambda market: (UniverseMember("US", "BOX.US", "Box"),)
     )
-    service = TrendFollowingService("US", repository, market_data=market_data)
+    service = TrendFollowingService("US", repository, market_data=market_data, config=replace(DEFAULT_CONFIG, trend_period=20))
     official = service._run_single_date(today, persist=False)["snapshots"][0]["features"]
     assert official["box_window_days"] == 20
     assert official["box_state"] == "BOX_READY"
@@ -248,7 +249,7 @@ def test_flatness_rejects_directional_channel_independently_of_width(direction):
         close = 100 + direction * i * .1
         bars[i] = replace(bar, open=close, close=close, high=close + .15, low=close - .15)
     # Lower the admission threshold solely to inspect the rejected candidate's components.
-    config = replace(DEFAULT_CONFIG, box_forming_quality_min=0)
+    config = replace(DEFAULT_CONFIG, trend_period=20, box_forming_quality_min=0)
     measured = calculate(bars, config=config)
     assert measured['box_width_pct'] < DEFAULT_CONFIG.box_max_width_pct
     assert measured['box_flatness_quality'] < 10
@@ -294,7 +295,7 @@ def test_episode_survives_retest_and_rearms_only_for_new_structure():
 def test_no_candidate_does_not_reset_episode_and_preview_cannot_rearm():
     bars = episode_bars()
     prior = calculate(bars[:61])
-    no_box = calculate(bars[:62], previous_features=prior, config=replace(DEFAULT_CONFIG, box_forming_quality_min=101))
+    no_box = calculate(bars[:62], previous_features=prior, config=replace(DEFAULT_CONFIG, trend_period=20, box_forming_quality_min=101))
     assert no_box['box_state'] == 'NONE'
     assert no_box['box_episode_consumed'] is True
     assert no_box['box_episode_breakout_date'] == prior['box_episode_breakout_date']

@@ -116,8 +116,8 @@ def test_retest_uses_resistance_known_before_historical_breakout():
 
 def test_insufficient_history_and_missing_window_session_never_assume_eligibility():
     series = shallow()
-    assert not entry_context(series[-22:])["history_ready"]
-    assert entry_context(series[-22:])["pullbacks"]["ma5"]["status"] != "CONFIRMED"
+    assert not entry_context(series[-21:])["history_ready"]
+    assert entry_context(series[-21:])["pullbacks"]["ma5"]["status"] != "CONFIRMED"
     missing = series[:-5] + series[-4:]
     context = entry_context(missing, sessions=[b.trade_date for b in series[-11:]])
     assert not context["history_ready"] and context["pullbacks"]["ma5"]["status"] != "CONFIRMED"
@@ -130,7 +130,7 @@ def test_entry_is_pure_and_reproducible_from_frozen_context():
     replay = calculate_entry({**row, **result})
     assert replay == result
     assert row == original
-    assert TrendFollowingConfig().history_bars >= 32
+    assert TrendFollowingConfig().history_bars >= 22
 
 
 def test_earliest_window_pullback_can_use_the_already_known_prior_advance():

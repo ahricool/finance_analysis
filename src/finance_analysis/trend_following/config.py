@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 TREND_PERIODS = (10, 20, 40)
-DEFAULT_TREND_PERIOD = 20
+DEFAULT_TREND_PERIOD = 10
 
 TREND_UNIVERSE_KEYS = {"CN": "cn_trend", "US": "us_trend"}
 

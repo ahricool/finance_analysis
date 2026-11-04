@@ -9,7 +9,7 @@ for (const width of [390, 768, 1024, 1280, 1440, 1920]) {
     await page.route('**/api/v1/**', async route => {
       const url = new URL(route.request().url());
       const path = url.pathname;
-      const period = Number(url.searchParams.get('trend_period') ?? 20);
+      const period = Number(url.searchParams.get('trend_period') ?? 10);
       requested.push({ path, period: url.searchParams.get('trend_period') });
       if (path.endsWith('/preview') || path.endsWith('/preview/status')) {
         return route.fulfill({ status: 404, json: {} });
@@ -38,7 +38,7 @@ for (const width of [390, 768, 1024, 1280, 1440, 1920]) {
       return route.fulfill({ json: compactTrendResponse(new URL(route.request().url()).pathname, body) });
     });
     await page.goto('/research/trend-following');
-    await expect(page.getByTestId('trend-row')).toContainText('周期20');
+    await expect(page.getByTestId('trend-row')).toContainText('周期10');
     const periods = page.getByTestId('trend-period');
     await expect(periods.getByRole('button', { name: '60日', exact: true })).toHaveCount(0);
     const layout = await periods.evaluate(element => {
@@ -56,7 +56,7 @@ for (const width of [390, 768, 1024, 1280, 1440, 1920]) {
     expect(new Set(layout.buttonTops).size).toBe(1);
     await expect(page.getByTestId('trend-refresh')).toBeVisible();
     await expect(page.getByTestId('trend-run-latest')).toBeVisible();
-    for (const period of [10, 40]) {
+    for (const period of [20, 40]) {
       await page.getByTestId('trend-period').getByRole('button', { name: `${period}日`, exact: true }).click();
       await expect(page.getByTestId('trend-row')).toContainText(`周期${period}`);
       await expect(page.getByTestId('trend-period').getByRole('button', { name: `${period}日`, exact: true })).toHaveAttribute('aria-pressed', 'true');
@@ -67,6 +67,6 @@ for (const width of [390, 768, 1024, 1280, 1440, 1920]) {
     await page.getByTestId('trend-row').locator('td').last().click();
     await expect(page.getByTestId('trend-detail')).toContainText('MA20 / MA40');
     expect(requested.some(r => r.path.endsWith('/trend-following/000001.SZ') && r.period === '40')).toBe(true);
-    expect(requested.filter(r => r.path.endsWith('/trend-following/ranking/table')).map(r => r.period)).toEqual(['20', '10', '40']);
+    expect(requested.filter(r => r.path.endsWith('/trend-following/ranking/table')).map(r => r.period)).toEqual(['10', '20', '40']);
   });
 }

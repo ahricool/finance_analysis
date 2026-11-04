@@ -1,7 +1,7 @@
 # Trend Following Alpha V3
 
 当前已支持整套10/20/40日策略，周期映射、预热和部署重建见[多周期说明](trend-periods.md)。
-下文数字周期以默认20日为基准，40/60日按多周期映射展开。
+下文数字周期以20日示例为基准，10/40日按多周期映射展开；当前默认读取10日。
 
 适用于 `trend_following` 的 official / preview 共用计算链。参数事实源为
 [`TrendFollowingConfig`](../src/finance_analysis/trend_following/config.py)，实现为

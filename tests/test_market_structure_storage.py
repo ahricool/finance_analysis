@@ -98,7 +98,7 @@ def test_real_queries_are_constant_count_and_point_in_time():
         assert max(rankings) == DAY
         assert len(rankings) == 6
     statements.clear()
-    history = TrendFollowingRepository("US", db).health_history(DAY, {"A.US"})
+    history = TrendFollowingRepository("US", db, trend_period=20).health_history(DAY, {"A.US"})
     assert len(statements) == 1
     assert set(history["A.US"]) == {1, 2, 3, 4, 5}
     assert all(row["trade_date"] < DAY for row in history["A.US"].values())

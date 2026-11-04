@@ -24,6 +24,7 @@ def resume_bars():
 
 
 def ranked(series, **kwargs):
+    kwargs.setdefault("config", replace(DEFAULT_CONFIG, trend_period=20))
     row = calculate_features(series, **kwargs)
     row.update(code="AAA.US", rs_5d=.08, rs_10d=.12, rs_20d=.18)
     return rank_candidates([row])[0]
@@ -57,7 +58,7 @@ def test_legacy_resume_does_not_bypass_new_support_failure_rule():
     row = ranked(resume_bars())
     assert row["pullback_detected"] and row["ma10_reclaimed"] and row["pullback_structure_intact"]
     assert row["trend_resume"] and row["setup"] == "PULLBACK_RESUME"
-    result = calculate_entry(row, bars=resume_bars())
+    result = calculate_entry(row, bars=resume_bars(), config=replace(DEFAULT_CONFIG, trend_period=20))
     assert result["entry_type"] == "NONE"
     assert result["entry_ma10_status"] == "INVALIDATED"
     assert result["entry_score"] > 0
@@ -83,7 +84,7 @@ def test_clv_and_atr_percent(location, expected):
     last = series[-1]
     series[-1] = replace(last, high=last.close if location != "low" else last.close + 1,
                          low=last.close if location != "high" else last.close - 1)
-    row = calculate_features(series)
+    row = calculate_features(series, config=replace(DEFAULT_CONFIG, trend_period=20))
     assert row["close_location_value"] == expected
     assert row["atr_percent"] == pytest.approx(row["atr20"] / last.close)
     assert "trend_quality" not in row
@@ -94,7 +95,7 @@ def test_cumulative_downside_accounts_for_number_of_days():
         closes = [100.] * 30
         for r in returns:
             closes.append(closes[-1] * (1 + r))
-        return calculate_features(bars(closes))["downside_upside_ratio"]
+        return calculate_features(bars(closes), config=replace(DEFAULT_CONFIG, trend_period=20))["downside_upside_ratio"]
     assert ratio([.01] * 8 + [-.01] * 2) == pytest.approx(.25)
     assert ratio([.04] + [-.01] * 9) == pytest.approx(2.25)
 

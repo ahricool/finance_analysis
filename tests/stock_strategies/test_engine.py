@@ -229,8 +229,8 @@ def hybrid_data():
     data.features["QQQ.US"] = dict(data.features["B.US"], close=99)
     data.instruments["QQQ.US"] = dict(type="ETF", name="ETF")
     data.trends = {
-        40: {"QQQ.US": dict(trend_score=70, rs_score=60),
-             **{c: dict(trend_score=70, rs_score=60) for c in data.stocks}},
+        20: {"QQQ.US": dict(trend_score=70, rs_score=60)},
+        40: {c: dict(trend_score=70, rs_score=60) for c in data.stocks},
     }
     return data
 
@@ -240,12 +240,12 @@ def test_hybrid_stock_priority_etf_strength_and_independent_market_exit():
     spec = STRATEGIES[5]
     decision = decide(spec, initial_state(), data)
     assert [r["code"] for r in decision["candidates"]] == ["A.US", "B.US", "QQQ.US"]
-    data.regimes[20]["score"] = 59
+    data.regimes[10]["score"] = 59
     decision = decide(spec, initial_state(), data)
     assert "市场分数低于60或ETF非风险开启" in decision["exits"]["A.US"]
     assert not decision["exits"]["QQQ.US"]
     assert [r["code"] for r in decision["candidates"]] == ["QQQ.US"]
-    data.trends[40]["QQQ.US"]["trend_score"] = 59
+    data.trends[20]["QQQ.US"]["trend_score"] = 59
     assert not decide(spec, initial_state(), data)["candidates"]
 
 
@@ -324,3 +324,10 @@ def test_indicator_derived_state_and_snapshot_use_native_scalars():
         json.dumps(snapshot, allow_nan=False)
     assert state["positions"]
     assert snapshot["benchmark_return"] != 0
+
+
+def test_hybrid_etf_requires_mapped_twenty_day_scores_and_does_not_use_old_forty():
+    data = hybrid_data()
+    data.trends[40].update(data.trends.pop(20))
+    with pytest.raises(DataNotReady, match="Trend20"):
+        decide(STRATEGIES[5], initial_state(), data)

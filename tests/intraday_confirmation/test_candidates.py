@@ -52,7 +52,7 @@ def trend(i, rank, **updates):
                 market="US",
                 trade_date=DAY,
                 generated_at=GENERATED,
-                trend_period=20,
+                trend_period=10,
                 universe_key="us_trend",
                 state="WATCHING",
                 market_regime="NEUTRAL",
@@ -164,7 +164,7 @@ def test_exact_date_cutoff_active_and_period_boundaries():
                 trend(2, 2, trade_date=DAY - timedelta(days=1)),
                 trend(3, 3, generated_at=CUTOFF),
                 trend(4, 4, trend_period=40),
-                trend(5, 5, trend_period=60),
+                trend(5, 5, trend_period=20),
                 trend(6, 6),
             ]
         )

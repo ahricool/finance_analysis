@@ -46,7 +46,7 @@ class Previews:
         self.status, self.calls = status, []
 
     def read(self, namespace, market, variant, **kwargs):
-        self.calls.append((namespace, kwargs))
+        self.calls.append((namespace, {**kwargs, "variant": variant}))
         when = NOW - timedelta(minutes=10 if self.status == "fresh" else 40)
         payload = {"status": "completed", "trade_date": NOW.date().isoformat(), "preview_time": when.isoformat()}
         row = {
@@ -72,9 +72,10 @@ class Previews:
 def test_preview_whitelist_and_expiry(fresh):
     previews = Previews("fresh" if fresh else "old")
     builder = ReviewContextBuilder(market_data=NS(), resolver=NS(), previews=previews, instruments=NS())
-    result = builder._preview("trend_following", "CN", NOW, keys=["600519.SH"], limit=None, variant=20)
+    result = builder._preview("trend_following", "CN", NOW, keys=["600519.SH"], limit=None, variant=10)
     assert result["status"] == ("available" if fresh else "stale_or_unverified")
     assert previews.calls[0][1]["item_keys"] == ["600519.SH"]
+    assert previews.calls[0][1]["variant"] == 10
     if fresh:
         assert result["items"] == [{"code": "600519.SH", "state": "TRENDING", "alpha_score": 80}]
     else:
@@ -118,6 +119,8 @@ def test_real_portfolio_input_is_compact_and_does_not_include_today_history():
         instruments=NS(names_by_codes=lambda s: {"600519.SH": "茅台"}),
     )
     result = builder.build(1, "CN", NOW, NOW.replace(hour=15))
+    assert result["research"]["holding_trends"]["trend_period"] == 10
+    assert next(call for call in builder.previews.calls if call[0] == "trend_following")[1]["variant"] == 10
     holding = result["holdings"][0]
     assert holding["quantity"] == 100 and holding["current_price"] == 101
     assert len(holding["daily_bars"]) == 20 and len(holding["minute_bars"]) == 12

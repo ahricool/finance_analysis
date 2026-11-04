@@ -16,7 +16,7 @@ from finance_analysis.interfaces.api.v1.endpoints import trend_following, etf_ro
 from tests.preview_database import preview_repository
 
 
-def payload(period=20):
+def payload(period=10):
     return {
         "market": "CN", "trend_period": period, "trade_date": "2026-10-14", "status": "completed",
         "preview_time": "2026-10-14T06:00:00.000Z", "rankable_count": 1,

@@ -236,7 +236,7 @@ class StockStrategyRepository:
                     select(TrendFollowingSummary).where(
                         TrendFollowingSummary.market == market,
                         TrendFollowingSummary.trade_date == day,
-                        TrendFollowingSummary.trend_period.in_((20, 40)),
+                        TrendFollowingSummary.trend_period.in_((10, 40)),
                     )
                 )
                 if r.data_coverage >= 0.98

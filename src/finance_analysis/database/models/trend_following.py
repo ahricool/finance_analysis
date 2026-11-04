@@ -18,7 +18,7 @@ class TrendFollowingSnapshot(Base):
 
     id = Column(BigInteger, primary_key=True, autoincrement=True)
     market = Column(String(8), nullable=False)
-    trend_period = Column(Integer, nullable=False, default=20, server_default="20")
+    trend_period = Column(Integer, nullable=False, default=10, server_default="10")
     trade_date = Column(Date, nullable=False)
     code = Column(String(32), nullable=False)
     instrument_id = Column(Integer, ForeignKey("instrument.id", ondelete="CASCADE"), nullable=False)
@@ -73,7 +73,7 @@ class TrendFollowingSummary(Base):
 
     id = Column(BigInteger, primary_key=True, autoincrement=True)
     market = Column(String(8), nullable=False)
-    trend_period = Column(Integer, nullable=False, default=20, server_default="20")
+    trend_period = Column(Integer, nullable=False, default=10, server_default="10")
     trade_date = Column(Date, nullable=False)
     universe_key = Column(String(64), nullable=False)
     benchmark_code = Column(String(32), nullable=False)

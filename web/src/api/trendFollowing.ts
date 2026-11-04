@@ -61,33 +61,33 @@ function expandTable(table: TableDto): Record<string, unknown>[] {
 
 export const trendFollowingApi = {
   async eventStudySummary(market: TrendMarket, startDate: string, endDate: string, regime: StudyRegime,
-    signal?: AbortSignal, trendPeriod: TrendPeriod = 20): Promise<EventStudySummaryResponse> {
+    signal?: AbortSignal, trendPeriod: TrendPeriod = 10): Promise<EventStudySummaryResponse> {
     const { data } = await apiClient.get('/api/v1/trend-following/event-study/summary', {
       params: { trend_period: trendPeriod, market, start_date: startDate, end_date: endDate, regime }, signal,
     });
     return toCamelCase(data);
   },
   async eventStudyEvents(market: TrendMarket, startDate: string, endDate: string, regime: StudyRegime,
-    strategy: StrategyKey, offset = 0, signal?: AbortSignal, trendPeriod: TrendPeriod = 20): Promise<EventStudyEventsResponse> {
+    strategy: StrategyKey, offset = 0, signal?: AbortSignal, trendPeriod: TrendPeriod = 10): Promise<EventStudyEventsResponse> {
     const { data } = await apiClient.get('/api/v1/trend-following/event-study/events', {
       params: { trend_period: trendPeriod, market, start_date: startDate, end_date: endDate, regime, strategy, offset, limit: 100 }, signal,
     });
     return toCamelCase(data);
   },
   async eventStudy(market: TrendMarket, startDate: string, endDate: string, regime: StudyRegime,
-    strategy: StrategyKey | 'ALL' = 'ALL', offset = 0, signal?: AbortSignal, trendPeriod: TrendPeriod = 20): Promise<EventStudyResponse> {
+    strategy: StrategyKey | 'ALL' = 'ALL', offset = 0, signal?: AbortSignal, trendPeriod: TrendPeriod = 10): Promise<EventStudyResponse> {
     const { data } = await apiClient.get('/api/v1/trend-following/event-study', {
       params: { trend_period: trendPeriod, market, start_date: startDate, end_date: endDate, regime, strategy, offset, limit: 100 }, signal,
     });
     return toCamelCase(data);
   },
-  async dashboard(market: TrendMarket, trendPeriod: TrendPeriod = 20): Promise<TrendDashboardResponse> {
+  async dashboard(market: TrendMarket, trendPeriod: TrendPeriod = 10): Promise<TrendDashboardResponse> {
     const { data } = await apiClient.get('/api/v1/trend-following/dashboard', { params: { trend_period: trendPeriod, market } });
     const result = toCamelCase<TrendDashboardResponse>(data);
     result.changes.stateCounts = data.changes.state_counts;
     return result;
   },
-  async breadthHistory(market: TrendMarket, asOf?: string, includePreview = false, trendPeriod: TrendPeriod = 20): Promise<TrendBreadthResponse> {
+  async breadthHistory(market: TrendMarket, asOf?: string, includePreview = false, trendPeriod: TrendPeriod = 10): Promise<TrendBreadthResponse> {
     const { data } = await apiClient.get('/api/v1/trend-following/breadth-history', {
       params: { trend_period: trendPeriod, market, days: 30, include_preview: includePreview, ...(asOf ? { as_of: asOf } : {}) },
     });
@@ -97,20 +97,20 @@ export const trendFollowingApi = {
     return result;
   },
   async transitions(market: TrendMarket, days: 1 | 3 | 5 = 3, direction: TransitionDirection = 'all',
-    asOf?: string, includePreview = false, trendPeriod: TrendPeriod = 20): Promise<TrendTransitionsResponse> {
+    asOf?: string, includePreview = false, trendPeriod: TrendPeriod = 10): Promise<TrendTransitionsResponse> {
     const { data } = await apiClient.get('/api/v1/trend-following/transitions', {
       params: { trend_period: trendPeriod, market, days, direction, limit: 20, include_preview: includePreview, ...(asOf ? { as_of: asOf } : {}) },
     });
     return toCamelCase(data);
   },
-  async ranking(market: TrendMarket, tradeDate?: string, trendPeriod: TrendPeriod = 20): Promise<TrendRankingResponse> {
+  async ranking(market: TrendMarket, tradeDate?: string, trendPeriod: TrendPeriod = 10): Promise<TrendRankingResponse> {
     const { data } = await apiClient.get('/api/v1/trend-following/ranking/table', {
       params: { trend_period: trendPeriod, market, ...(tradeDate ? { trade_date: tradeDate } : {}) },
     });
     const { table, ...summary } = data;
     return rankingDto({ ...summary, items: expandTable(table) });
   },
-  async snapshotStatus(market: TrendMarket, trendPeriod: TrendPeriod = 20): Promise<{ tradeDate: string; generatedAt: string | null } | null> {
+  async snapshotStatus(market: TrendMarket, trendPeriod: TrendPeriod = 10): Promise<{ tradeDate: string; generatedAt: string | null } | null> {
     try {
       const { data } = await apiClient.get('/api/v1/trend-following/status', { params: { market, trend_period: trendPeriod } });
       return toCamelCase(data);
@@ -119,14 +119,14 @@ export const trendFollowingApi = {
       throw error;
     }
   },
-  async previewDetail(code: string, market: TrendMarket, tradeDate?: string, trendPeriod: TrendPeriod = 20,
+  async previewDetail(code: string, market: TrendMarket, tradeDate?: string, trendPeriod: TrendPeriod = 10,
     signal?: AbortSignal): Promise<TrendDetailResponse> {
     const { data } = await apiClient.get(`/api/v1/trend-following/preview/stocks/${encodeURIComponent(code)}`, {
       params: { market, trend_period: trendPeriod, ...(tradeDate ? { trade_date: tradeDate } : {}) }, signal,
     });
     return toCamelCase(data);
   },
-  async previewRanking(market: TrendMarket, trendPeriod: TrendPeriod = 20): Promise<TrendPreviewRankingResponse | null> {
+  async previewRanking(market: TrendMarket, trendPeriod: TrendPeriod = 10): Promise<TrendPreviewRankingResponse | null> {
     try {
       const { data } = await apiClient.get('/api/v1/trend-following/preview/ranking', { params: { market, trend_period: trendPeriod } });
       const { table, ...summary } = data;
@@ -136,29 +136,29 @@ export const trendFollowingApi = {
       throw error;
     }
   },
-  async candidates(market: TrendMarket, tradeDate?: string, trendPeriod: TrendPeriod = 20): Promise<TrendCandidatesResponse> {
+  async candidates(market: TrendMarket, tradeDate?: string, trendPeriod: TrendPeriod = 10): Promise<TrendCandidatesResponse> {
     const { data } = await apiClient.get('/api/v1/trend-following/candidates', {
       params: { trend_period: trendPeriod, market, ...(tradeDate ? { trade_date: tradeDate } : {}) },
     });
     return toCamelCase(data);
   },
-  async dates(market: TrendMarket, trendPeriod: TrendPeriod = 20): Promise<TrendDatesResponse> {
+  async dates(market: TrendMarket, trendPeriod: TrendPeriod = 10): Promise<TrendDatesResponse> {
     const { data } = await apiClient.get('/api/v1/trend-following/dates', { params: { trend_period: trendPeriod, market } });
     return toCamelCase(data);
   },
-  async detailHistory(code: string, market: TrendMarket, beforeTradeDate: string, limit = 60, trendPeriod: TrendPeriod = 20): Promise<Pick<TrendDetailResponse, 'history'>> {
+  async detailHistory(code: string, market: TrendMarket, beforeTradeDate: string, limit = 60, trendPeriod: TrendPeriod = 10): Promise<Pick<TrendDetailResponse, 'history'>> {
     const { data } = await apiClient.get(`/api/v1/trend-following/${encodeURIComponent(code)}`, {
       params: { trend_period: trendPeriod, market, limit, before_trade_date: beforeTradeDate },
     });
     return toCamelCase(data);
   },
-  async detail(code: string, market: TrendMarket, limit = 60, tradeDate?: string, trendPeriod: TrendPeriod = 20): Promise<TrendDetailResponse> {
+  async detail(code: string, market: TrendMarket, limit = 60, tradeDate?: string, trendPeriod: TrendPeriod = 10): Promise<TrendDetailResponse> {
     const { data } = await apiClient.get(`/api/v1/trend-following/${encodeURIComponent(code)}`, {
       params: { trend_period: trendPeriod, market, limit, ...(tradeDate ? { trade_date: tradeDate } : {}) },
     });
     return toCamelCase(data);
   },
-  async run(market: TrendMarket, tradeDate?: string | null, trendPeriod: TrendPeriod = 20): Promise<TrendRunAccepted> {
+  async run(market: TrendMarket, tradeDate?: string | null, trendPeriod: TrendPeriod = 10): Promise<TrendRunAccepted> {
     const { data } = await apiClient.post('/api/v1/trend-following/run', {
       market,
       trade_date: tradeDate ?? null,
@@ -166,7 +166,7 @@ export const trendFollowingApi = {
     });
     return toCamelCase(data);
   },
-  async previewStatus(market: TrendMarket, trendPeriod: TrendPeriod = 20): Promise<TrendPreviewStatusResponse | null> {
+  async previewStatus(market: TrendMarket, trendPeriod: TrendPeriod = 10): Promise<TrendPreviewStatusResponse | null> {
     try {
       const { data } = await apiClient.get('/api/v1/trend-following/preview/status', { params: { trend_period: trendPeriod, market } });
       return toCamelCase(data);
@@ -175,7 +175,7 @@ export const trendFollowingApi = {
       throw error;
     }
   },
-  async preview(market: TrendMarket, trendPeriod: TrendPeriod = 20): Promise<TrendPreviewResponse | null> {
+  async preview(market: TrendMarket, trendPeriod: TrendPeriod = 10): Promise<TrendPreviewResponse | null> {
     try {
       const { data } = await apiClient.get('/api/v1/trend-following/preview', { params: { trend_period: trendPeriod, market } });
       return toCamelCase(data);

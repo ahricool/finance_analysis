@@ -19,6 +19,8 @@ def upgrade():
     for table, name, column, periods in CONSTRAINTS:
         allowed = ", ".join(str(value) for value in sorted((*periods, 10)))
         with op.batch_alter_table(table) as batch:
+            if column == "trend_period":
+                batch.alter_column(column, existing_type=sa.Integer(), server_default="10")
             batch.drop_constraint(name, type_="check")
             batch.create_check_constraint(name, f"{column} IN ({allowed})")
 
@@ -33,5 +35,7 @@ def downgrade():
         op.execute(sa.text(f"DELETE FROM {table} WHERE {column} = 10"))
         allowed = ", ".join(str(value) for value in periods)
         with op.batch_alter_table(table) as batch:
+            if column == "trend_period":
+                batch.alter_column(column, existing_type=sa.Integer(), server_default="20")
             batch.drop_constraint(name, type_="check")
             batch.create_check_constraint(name, f"{column} IN ({allowed})")
