@@ -2,8 +2,9 @@
 
 from .box import BOX_NUMERIC_FIELDS, BOX_STRING_FIELDS
 from .mean_reversion import MR_NUMERIC_FIELDS
+from .entry_setups import ENTRY_NUMERIC_FIELDS, ENTRY_STRING_FIELDS
 
-STRING_FEATURE_FIELDS = (*BOX_STRING_FIELDS, "mr_state")
+STRING_FEATURE_FIELDS = (*BOX_STRING_FIELDS, "mr_state", *ENTRY_STRING_FIELDS)
 
 RANKING_FIELDS = (
     "code", "rank", "state", "trend_duration_days",
@@ -17,6 +18,7 @@ BOOLEAN_FEATURE_FIELDS = (
     "trend_candidate", "prior_compression", "compression_breakout", "trend_resume",
 )
 NUMERIC_FEATURE_FIELDS = (
+    *ENTRY_NUMERIC_FIELDS,
     "trend_period", *BOX_NUMERIC_FIELDS, *MR_NUMERIC_FIELDS, "return_3d",
     "alpha_version", "path_score", "setup_score", "weighted_r2",
     "positive_return_concentration", "atr_expansion_ratio",

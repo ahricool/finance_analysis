@@ -3,6 +3,7 @@
 from datetime import datetime, timedelta
 from math import isfinite
 from . import config as c
+from .pullback import pullback_metrics
 
 
 def pending_status(proposed):
@@ -157,6 +158,7 @@ def metrics(quote, bars, benchmark, history, session, now):
         benchmark_return=br,
         relative_to_market=m["intraday_return"] - br if br is not None and m["intraday_return"] is not None else None,
     )
+    m.update(pullback_metrics(quote if usable_quote else None, bars, history, session))
     return m
 
 
@@ -184,8 +186,10 @@ def decision(m, trend):
     weak_rs = rs is not None and rs <= c.RS_WEAK
     intact = trend.get("impact") in {"intact", "improving"}
     fail = bool(below and (weak_mean_distance or weak_rs or fade))
+    pullback = m.get("pullback_ready")
+    price_setup = bool(above or pullback)
     confirm = bool(
-        above
+        price_setup
         and mean_distance is not None
         and mean_distance > 0
         and positive_session
@@ -209,6 +213,10 @@ def decision(m, trend):
         reason("chase_unavailable", "当前数据不足，追高风险 不可评估")
     if above:
         reason("opening_breakout", f"连续{c.BREAK_BARS}根闭合1分钟线突破开盘区间高点（buffer {c.BREAK_BUFFER:.1%}）")
+    if pullback:
+        reason("ma5_pullback", "温和回踩MA5后连续两根分钟收盘及当前价收回其上0.1%，期间守住MA10")
+    elif m.get("pullback_unavailable_reason"):
+        reason("pullback_unavailable", m["pullback_unavailable_reason"])
     if below:
         reason("opening_breakdown", f"连续{c.BREAK_BARS}根闭合1分钟线跌破开盘区间低点")
     if mean_distance is not None:
@@ -237,7 +245,7 @@ def decision(m, trend):
     # Missing evidence contributes neither points nor denominator weight.
     components = {
         "price": [
-            None if above is None else float(above),
+            None if above is None and pullback is None else float(price_setup),
             None if mean_distance is None else float(mean_distance > 0),
             None if m["intraday_return"] is None else float(positive_session),
         ],
@@ -266,6 +274,8 @@ def decision(m, trend):
         trend_available=trend.get("impact") not in {None, "unavailable"},
         conditions={
             "opening_breakout": above,
+            "ma5_pullback": pullback,
+            "price_setup": price_setup if above is not None or pullback is not None else None,
             "above_session_mean": None if mean_distance is None else mean_distance > 0,
             "positive_session_return": None if m["intraday_return"] is None else positive_session,
             "relative_strength": None if rs is None or benchmark_self else rs >= c.RS_CONFIRM,

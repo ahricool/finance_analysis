@@ -192,3 +192,22 @@ it.each([40, 60] as const)('labels Entry evidence with the %s-session strategy w
   expect(mocks.trend.detail).toHaveBeenCalledWith('AAPL.US', 'US', 60, undefined, period);
   wrapper.unmount();
 });
+
+it.each([20, 40, 60] as const)('keeps MA5/MA10 Entry execution labels fixed in the %s-session detail', async period => {
+  vi.resetAllMocks();
+  const branch = { score: 82, qualityScore: 82, status: 'CONFIRMED', reason: '先上涨后回踩并收回',
+    components: { distance: 82 }, normalizedWeights: { distance: 1 }, contributions: { distance: 82 },
+    checks: { recentTrend: true, recovery: true },
+    evidence: { support: 100, distanceAtr: .5, advancedDate: '2026-09-08', touchDate: '2026-09-09' } };
+  mocks.trend.detail.mockResolvedValue({ ...detail(), latest: { ...snapshot(), entryType: 'BREAKOUT_AND_PULLBACK',
+    entryScore: 82, features: { entryVersion: 2, entryBreakdown: { breakout: branch, resume: branch,
+      pullbacks: { ma5: branch, ma10: { ...branch, status: 'PULLING_BACK', reason: '等待收回' }, retest: branch } } } } });
+  const wrapper = shallowMount(TrendDetailPanel, { props: { symbol: 'AAPL.US', market: 'US', context: { trendPeriod: period } },
+    global: { renderStubDefaultSlot: true } }); await flushPromises();
+  expect(wrapper.text()).toContain('MA5 浅回踩'); expect(wrapper.text()).toContain('MA10 回踩');
+  expect(wrapper.text()).toContain('突破位回测'); expect(wrapper.text()).toContain('突破 + 回踩');
+  expect(wrapper.text()).toContain('支撑距离质量 / ATR'); expect(wrapper.text()).toContain('已确认');
+  expect(wrapper.text()).toContain('回踩中'); expect(wrapper.text()).toContain('等待收回');
+  expect(wrapper.text()).not.toContain('Entry 为 0');
+  wrapper.unmount();
+});

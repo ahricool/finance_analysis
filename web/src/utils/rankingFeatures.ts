@@ -1,4 +1,5 @@
 import camelcaseKeys from 'camelcase-keys';
+import { entryBranches } from './trendEntry';
 import {
   RANKING_FEATURE_KEYS,
   type RankingFeatureKey,
@@ -107,6 +108,10 @@ export function mergeRankingFeatures(
   if ('boxStartDate' in features) result.boxStartDate = optionalText(features.boxStartDate);
   if ('boxEndDate' in features) result.boxEndDate = optionalText(features.boxEndDate);
   if ('boxEpisodeBreakoutDate' in features) result.boxEpisodeBreakoutDate = optionalText(features.boxEpisodeBreakoutDate);
+  for (const branch of entryBranches) {
+    if (branch.status in features) result[branch.status] = optionalText(features[branch.status]);
+    if (branch.reason in features) result[branch.reason] = optionalText(features[branch.reason]);
+  }
   return result;
 }
 

@@ -14,6 +14,7 @@ import {
 } from '@/components/trend-following/rankingColumns';
 import { createRankingTable, type RankingTableKind } from '@/components/trend-following/rankingTable';
 import { alphaVersionLabel } from '@/utils/trendFollowing';
+import { entryBranchForColumn, entryStatusPriority, entryStatusText, entryTextFeature, entryTypeText } from '@/utils/trendEntry';
 import { exportExcel, type ExcelColumn } from '@/utils/excelExport';
 import { useForwardReturns } from '@/composables/useForwardReturns';
 import { parseDate } from '@internationalized/date';
@@ -74,7 +75,7 @@ const route = useRoute();
 const { market } = useMarket();
 const trendPeriod = ref<TrendPeriod>(20);
 const periodText = (text: string) => trendPeriodText(text, trendPeriod.value);
-const descriptions = new Proxy(trendIndicatorDescriptions, { get: (target, key: string) => target[key] == null ? undefined : periodText(target[key]) });
+const descriptions = new Proxy(trendIndicatorDescriptions, { get: (target, key: string) => target[key] == null ? undefined : key === 'entry' ? target[key].replaceAll('{period}', String(trendPeriod.value)) : periodText(target[key]) });
 const selectedDate = ref('');
 const availableDates = ref<string[]>([]);
 const summary = ref<TrendSummary>(emptySummary());
@@ -115,6 +116,7 @@ function isRankingFeatureKey(key: SortKey): key is RankingColumnFeatureKey {
   return RANKING_FEATURE_KEYS.some(item => item === key);
 }
 function sortValue(item: TrendRankingSnapshot, key: SortKey): string | number | boolean | null {
+  if (entryBranchForColumn(key)) return entryStatusPriority(entryTextFeature(item.features, key));
   if (key === 'mrState') return mrPriority(item);
   if (key === 'boxState') return boxPriority(item);
   if (key.startsWith('forwardReturn')) return forwardReturn(item.code, key);
@@ -129,11 +131,13 @@ function sortValue(item: TrendRankingSnapshot, key: SortKey): string | number | 
   return isRankingFeatureKey(key) ? rankingFeatureValue(item, key) : null;
 }
 function columnLabel(column: RankingColumn) {
+  if (column.key.startsWith('entry')) return column.label;
   const label = metricLabel(column.label).zh;
   const translated = periodText(label);
   return column.key.startsWith('forwardReturn') || translated === label ? column.label : translated;
 }
 function rankingCell(item: TrendRankingSnapshot, column: RankingColumn) {
+  if (column.key === 'entryType') return entryTypeText(item.entryType);
   const value = sortValue(item, column.key);
   if (column.key === 'volumeRatio' && item.features.volumeProvisional) return '盘中估算 —';
   if (column.key === 'volumeQuality' && item.features.volumeProvisional) return `${value == null ? '—' : score(Number(value))}（暂定）`;
@@ -164,6 +168,7 @@ async function exportRanking(table: typeof tables[number]) {
       if (column.key === 'trendLifecycle') return [{ label: metricLabel('lifecycle').zh }, { label: '持续天数', format: '0' }];
       if (column.key === 'rankChange5D') return ['1D', '3D', '5D'].map(period => ({ label: `排名变化${period}`, format: '+0;-0;0' }));
       if (column.key === 'alphaScore') return [{ label: zh, format: '0.0' }, { label: 'Alpha 版本' }];
+      if (entryBranchForColumn(column.key)) return [{ label: zh }, { label: `${zh}原因` }];
       return [{ label: zh, format: column.format === 'percent' ? '0.0%'
         : column.format === 'r2' ? '0.000' : column.format === 'slope' ? '0.0000'
           : column.format === 'price' || column.format === 'ratio' ? '0.00' : column.key === 'rank' ? '0' : '0.0' }];
@@ -177,6 +182,9 @@ async function exportRanking(table: typeof tables[number]) {
       if (column.key === 'trendLifecycle') return [item.trendLifecycle, item.trendDurationDays];
       if (column.key === 'rankChange5D') return [item.rankChange1D, item.rankChange3D, item.rankChange5D];
       if (column.key === 'alphaScore') return [item.alphaScore, alphaVersionLabel(item.features.alphaVersion as number | null | undefined)];
+      if (column.key === 'entryType') return [entryTypeText(item.entryType)];
+      const entryBranch = entryBranchForColumn(column.key);
+      if (entryBranch) return [entryStatusText(entryTextFeature(item.features, entryBranch.status), entryBranch.key), entryTextFeature(item.features, entryBranch.reason)];
       if (column.key === 'volumeRatio' && item.features.volumeProvisional === true) return [null];
       return [sortValue(item, column.key)];
     }));
@@ -819,7 +827,7 @@ onMounted(async () => {
                       :label="columnLabel(column)"
                       class="min-w-32 whitespace-nowrap"
                       :class="column.key === 'name' ? 'sticky left-0 z-20 min-w-48 bg-background' : ''"
-                      :description="column.description && column.key !== 'rankChange5D' && !column.key.startsWith('forwardReturn') ? periodText(column.description) : column.description"
+                      :description="column.key.startsWith('entry') ? descriptions.entry : column.description && column.key !== 'rankChange5D' && !column.key.startsWith('forwardReturn') ? periodText(column.description) : column.description"
                       :active="table.sortKey === column.key"
                       :direction="table.sortDirection"
                       @sort="table.toggleSort(column.key)"
@@ -915,6 +923,13 @@ onMounted(async () => {
                       </template>
                       <template v-else-if="column.key === 'alphaScore'">
                         {{ score(item.alphaScore) }}<span class="block text-xs font-normal text-muted-foreground">{{ alphaVersionLabel(item.features.alphaVersion as number | null | undefined) }}</span>
+                      </template>
+                      <template v-else-if="entryBranchForColumn(column.key)">
+                        <span class="block text-xs font-medium">{{ entryStatusText(entryTextFeature(item.features, column.key), entryBranchForColumn(column.key)!.key) }}</span>
+                        <span
+                          class="block max-w-64 truncate text-xs text-muted-foreground"
+                          :aria-label="entryTextFeature(item.features, entryBranchForColumn(column.key)!.reason) ?? undefined"
+                        >{{ entryTextFeature(item.features, entryBranchForColumn(column.key)!.reason) ?? '旧快照未保存' }}</span>
                       </template>
                       <template v-else>
                         {{ rankingCell(item, column) }}

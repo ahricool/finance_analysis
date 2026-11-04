@@ -97,9 +97,26 @@ class TrendTransitionsResponse(BaseModel):
 
 
 BoxState = Literal["NONE", "BOX_FORMING", "BOX_READY", "BOX_BREAKOUT"]
+EntryStatus = Literal["WAITING_PULLBACK", "PULLING_BACK", "CONFIRMED", "EXTENDED", "INVALIDATED"]
 
 
 class TrendRankingFeatures(BaseModel):
+    entry_version: int | None = None
+    entry_execution_ma5: float | None = None
+    entry_execution_ma10: float | None = None
+    entry_recent_trend_age: int | None = None
+    entry_breakout_score: float | None = None
+    entry_breakout_status: EntryStatus | None = None
+    entry_breakout_reason: str | None = None
+    entry_ma5_score: float | None = None
+    entry_ma5_status: EntryStatus | None = None
+    entry_ma5_reason: str | None = None
+    entry_ma10_score: float | None = None
+    entry_ma10_status: EntryStatus | None = None
+    entry_ma10_reason: str | None = None
+    entry_retest_score: float | None = None
+    entry_retest_status: EntryStatus | None = None
+    entry_retest_reason: str | None = None
     trend_period: Literal[20, 40, 60] | None = None
     box_breakout_fresh: bool | None = None
     box_prior_breakout_confirmed: bool | None = None
@@ -199,7 +216,7 @@ class TrendRankingFeatures(BaseModel):
 
 class TrendRankingItem(BaseModel):
     entry_score: float | None = None
-    entry_type: Literal["BREAKOUT", "PULLBACK_RESUME", "NONE"] | None = None
+    entry_type: Literal["BREAKOUT", "PULLBACK_RESUME", "BREAKOUT_AND_PULLBACK", "NONE"] | None = None
     code: str
     name: str | None = None
     rank: int

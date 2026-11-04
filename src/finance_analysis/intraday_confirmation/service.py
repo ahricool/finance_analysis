@@ -70,7 +70,7 @@ class ConfirmationService:
             }
             for r in evaluated
         ]
-        if payload.get("rule_version") == c.RULE_VERSION and day == now.astimezone(tz).date():
+        if payload.get("rule_version") in c.OBSERVATION_VERSIONS and day == now.astimezone(tz).date():
             try:
                 session = resolve_session(market, now)
             except RuntimeError:
@@ -133,8 +133,9 @@ class ConfirmationService:
             "summary": summary,
             "rule_version": payload.get("rule_version", "intraday_v1"),
             "rules_note": (
-                "V2 · 1分钟线 / 每5分钟评估 · 价格60 / 相对强弱25 / 趋势10 / 量能5；不自动交易。"
-                if payload.get("rule_version") == c.RULE_VERSION
+                ("V2.1 · 突破或温和回踩收回 · " if payload.get("rule_version") == c.RULE_VERSION else "V2 · ")
+                + "1分钟线 / 每5分钟评估 · 价格60 / 相对强弱25 / 趋势10 / 量能5；不自动交易。"
+                if payload.get("rule_version") in c.OBSERVATION_VERSIONS
                 else "V1历史规则快照；不按新规则重算。"
             ),
         }
@@ -198,7 +199,7 @@ class ConfirmationService:
             if payload is None:
                 return dict(status="skipped", reason="缺少开盘前冻结池，禁止盘中重建")
             if payload.get("rule_version") != c.RULE_VERSION:
-                return dict(status="skipped", reason="当日池属于旧规则，保留原始证据；下一交易日启用V2")
+                return dict(status="skipped", reason="当日池属于旧规则，保留原始证据；下一交易日启用V2.1")
             if not session.active(now):
                 return dict(status="skipped", reason="午休")
             if not payload["items"]:

@@ -456,7 +456,10 @@ class TrendFollowingService:
         features: list[dict[str, Any]] = []
         sufficient_histories: dict[str, list[DailyBar]] = {}
         for code in sorted(ready_codes):
-            bars = histories.get(code, [])[-max(self.config.history_bars, max(self.config.box_windows) + 1) :]
+            # Entry's additional lookback must not change Wilder RSI initialization
+            # or any pre-existing Alpha/structure research window.
+            feature_history_bars = self.config.trend_period + self.config.trend_period // 4 + 2
+            bars = histories.get(code, [])[-max(feature_history_bars, max(self.config.box_windows) + 1) :]
             result = calculate_features(
                 bars, self.config.minimum_history_bars, self.config, preview=overlay_bars is not None,
                 previous_features=previous.get(code, {}).get("features"),
@@ -554,6 +557,9 @@ class TrendFollowingService:
         from .health_config import DEFAULT_CONFIG as HEALTH_CONFIG
 
         health_history = self.repository.health_history(effective_date, universe_codes)
+        entry_sessions = get_trading_days_between(
+            self.market.lower(), effective_date - timedelta(days=self.config.history_bars * 3 + 30), effective_date
+        )[-self.config.history_bars:]
         for snapshot in snapshots:
             snapshot["trend_duration_days"] = count_trend_duration_days(
                 histories.get(str(snapshot["code"]), []),
@@ -569,7 +575,10 @@ class TrendFollowingService:
             snapshot["features"]["rank_percentile"] = (snapshot["rank"] - 1) / max(len(ranked) - 1, 1)
             snapshot.update(calculate_fragility(snapshot, health_history.get(code, {}), as_of=effective_date))
             snapshot["trend_lifecycle"] = classify_lifecycle(snapshot)
-            entry = calculate_entry({**snapshot["features"], **snapshot}, self.config)
+            entry = calculate_entry(
+                {**snapshot["features"], **snapshot}, self.config,
+                bars=histories.get(code, [])[-self.config.history_bars:], sessions=entry_sessions,
+            )
             snapshot["features"].update(entry)
             snapshot.update({key: entry[key] for key in ("entry_score", "entry_type")})
             snapshot["features"]["risk_sizing"] = calculate_risk_sizing(

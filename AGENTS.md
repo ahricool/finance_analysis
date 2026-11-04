@@ -393,6 +393,7 @@ Signal Confluence V2.1宏观15%使用`confluence/sector_macro.py`行业适配，
 `intraday_confirmation/` V2冻结前一交易日Confluence精选（eligible，非strong子集）、Trend20综合前30和ETF轮动综合前5，去重保留全部来源，不再读Quant。
 当地09:20/09:25盘前冻结，交易时段每5分钟读取开盘以来完整原生1min；CN腾讯报价+新浪→腾讯分钟降级，US yfinance。
 价格60/相对大盘25/Trend10/量能5，Trend与量能仅辅助；全天等权均价不依赖量，移除固定开盘15m门槛。
+V2.1新增与突破并列的今日温和回踩路线：昨日固定MA5≥MA10，今日从上方回踩MA5±0.5%且不破MA10，随后两根分钟收盘及报价收回MA5上方0.1%；复权均线对齐原始报价，仍需共同条件和两次稳定评估，旧池不混算。
 历史确认和当前观察分开，首次确认基准不可变；快照与版本化评估轨迹同事务保存（迁移0082），V1池不混算。
 GET只读及3/5/10D收益保留，详情可读评估轨迹；页面`/research/intraday-confirmation`，见`docs/intraday-confirmation.md`。
 
@@ -438,6 +439,10 @@ Streamer 页面行情只读 Redis；CN/US 共用日内方向状态，分钟线�
 迁移`0076_stock_strategies`，页面`/strategies`，离线测试`tests/stock_strategies/`。
 10/23新增CN趋势质量/市场35退出与US均线市场开关/DD30暂停3交易日；独立观察起点不早于2026-10-23，
 只读同日正式Trend20及CN Trend60 Path/趋势条件，不请求外部API。
+
+## Trend Entry
+
+Trend Entry V2独立评估突破、MA5浅回踩、MA10回踩及历史确认突破位回测，可同日多分支确认；回踩复用此前10个真实交易日的绝对趋势门槛与当前健康结构，不要求当天Alpha≥67。执行均线固定MA5/10，ATR按20/40/60趋势周期，质量分与等待/回踩中/确认/延伸/失效状态分开保存。新增预热不改变Alpha/RSI原窗口，正式/Preview/API/导出同源，见`docs/trend-entry.md`。
 
 ## Research Preview 存储
 

@@ -55,7 +55,7 @@ export const metricLabels = {
   alphaRank: { zh: 'Alpha 排名', en: 'Alpha Rank' },
   setupScore: { zh: '形态得分', en: 'Setup Score' },
   pathScore: { zh: '路径得分', en: 'Path Score' },
-  entryScore: { zh: '入场分', en: 'Entry Score' },
+  entryScore: { zh: '买点质量分', en: 'Entry Quality' },
   entryType: { zh: '入场类型', en: 'Entry Type' },
   distanceFromMa20: { zh: '距 MA20', en: 'Distance From MA20' },
   atrPercent: { zh: 'ATR %', en: 'ATR %' },
@@ -230,6 +230,8 @@ export const intradayLabels: Record<string, string> = {
   relative_strength: '跑赢大盘', no_gap_fade: '无明显高开低走',
   openingBreakout: '突破开盘区间', aboveSessionMean: '站上全天均价', positiveSessionReturn: '开盘至今非负',
   relativeStrength: '跑赢大盘', noGapFade: '无明显高开低走',
+  ma5_pullback: '温和回踩MA5后收回', price_setup: '突破或回踩任一路线满足',
+  ma5Pullback: '温和回踩MA5后收回', priceSetup: '突破或回踩任一路线满足',
 };
 export function intradayLabel(value: unknown): string {
   return typeof value === 'string' ? intradayLabels[value] ?? '暂无分类' : '暂无数据';

@@ -469,3 +469,26 @@ def test_detail_history_denominator_tracks_date_market_and_period():
                          TrendFollowingSummary(**{**_summary(first), 'id': 3, 'trend_period': 40, 'rankable_count': 300})])
     rows = TrendFollowingRepository('US', db).snapshot_history('AAPL.US', limit=60)
     assert [row['rank_total'] for row in rows] == [200, 100]
+
+
+def test_entry_branch_strings_and_quality_survive_sql_projection_api_and_compact_tables():
+    from finance_analysis.interfaces.api.v1.schemas.trend_following import TrendRankingItem
+    from finance_analysis.trend_following.read_models import ranking_item
+    from finance_analysis.trend_following.table import table_rows
+
+    db = _Database()
+    day = date(2026, 8, 28)
+    with db.session_scope() as session:
+        session.add(Instrument(id=1, code="AAPL.US", name="Apple", market="US"))
+        row = _snapshot(snapshot_id=1, code="AAPL.US", instrument_id=1, trade_date=day)
+        row.features = dict(entry_version=2, entry_type="BREAKOUT_AND_PULLBACK", entry_score=88,
+                            entry_breakout_score=88, entry_breakout_status="CONFIRMED", entry_breakout_reason="突破确认",
+                            entry_ma5_score=82, entry_ma5_status="PULLING_BACK", entry_ma5_reason="等待收回")
+        session.add(row)
+    projected = ranking_item(TrendFollowingRepository("US", db_manager=db).dashboard_rows(day)[0])
+    item = TrendRankingItem.model_validate(projected)
+    assert item.entry_type == "BREAKOUT_AND_PULLBACK" and item.features.entry_ma5_score == 82
+    assert item.features.entry_ma5_status == "PULLING_BACK" and item.features.entry_ma5_reason == "等待收回"
+    table = table_rows([projected])
+    scalars = dict(zip(table["feature_columns"], table["rows"][0][len(table["columns"]):]))
+    assert scalars["entry_ma5_status"] == "PULLING_BACK" and scalars["entry_breakout_score"] == 88

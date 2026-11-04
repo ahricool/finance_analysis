@@ -15,6 +15,7 @@ import type { StockDetailPanelProps } from './types';
 import { trendFollowingApi } from '@/api/trendFollowing';
 import type { TrendAlphaBreakdown, TrendDetailResponse, TrendState } from '@/types/trendFollowing';
 import { alphaVersionLabel } from '@/utils/trendFollowing';
+import { entryStatusText, entryTypeText } from '@/utils/trendEntry';
 import { trendIndicatorDescriptions, trendPeriodText } from '@/components/trend-following/indicatorDescriptions';
 import { Badge } from '@/components/ui/badge';
 import TrendFragilityHistoryChart from '@/components/trend-following/TrendFragilityHistoryChart.vue';
@@ -23,7 +24,7 @@ import TrendRankHistoryChart from '@/components/trend-following/TrendRankHistory
 const props = defineProps<StockDetailPanelProps>();
 const trendPeriod = computed(() => props.context?.trendPeriod ?? 20);
 const periodText = (text: string) => trendPeriodText(text, trendPeriod.value);
-const descriptions = computed(() => Object.fromEntries(Object.entries(trendIndicatorDescriptions).map(([key, value]) => [key, periodText(value)])));
+const descriptions = computed(() => Object.fromEntries(Object.entries(trendIndicatorDescriptions).map(([key, value]) => [key, key === 'entry' ? value.replaceAll('{period}', String(trendPeriod.value)) : periodText(value)])));
 const detail = ref<TrendDetailResponse | null>(null);
 const detailLoading = ref(false);
 const detailError = ref<ParsedApiError | null>(null);
@@ -103,8 +104,16 @@ const alphaContributions = computed(() => {
 
 const entryBranches = computed(() => {
   const entry = detail.value?.latest.features.entryBreakdown;
-  return entry ? [{ label: 'BREAKOUT', data: entry.breakout }, { label: 'PULLBACK_RESUME', data: entry.resume }] : [];
+  if (!entry) return [];
+  return [{ kind: 'breakout', label: '突破', data: entry.breakout }, ...(entry.pullbacks
+    ? Object.entries(entry.pullbacks).map(([key, data]) => ({ kind: key, label: ({ ma5: 'MA5 浅回踩', ma10: 'MA10 回踩', retest: '突破位回测' } as Record<string, string>)[key] ?? key, data }))
+    : [{ kind: 'resume', label: '回踩恢复（历史）', data: entry.resume }])];
 });
+const entryV2 = computed(() => !!detail.value?.latest.features.entryBreakdown?.pullbacks);
+function entryEvidenceNumber(value: unknown, mode: 'price' | 'atr') {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return '—';
+  return mode === 'price' ? price(value) : formatFixed(value, { digits: 2 });
+}
 const entryComponentLabels: Record<string, string> = {
   breakout: 'Breakout Quality', extension: 'Extension Quality', clv: 'CLV Quality',
   volume: 'Volume Quality', rs: 'RS Quality', path: 'Path Quality', fragility: 'Fragility Quality',
@@ -114,6 +123,7 @@ const entryCheckLabels: Record<string, string> = {
   rsScore: 'RS门槛', alphaScore: 'Alpha门槛', pathScore: 'Path门槛', trendScore: 'Trend门槛',
   ma20Rising: 'MA20上升', rs10Positive: 'RS10为正', fragility: 'Fragility门槛',
   breakout: '突破形态', extension: 'MA20距离', clv: '收盘位置', resume: '回踩恢复', structure: '均线结构',
+  recentTrend: '近期绝对趋势资格', recovery: '支撑收回与恢复',
 };
 const boxDetailFields = [
   ['boxQuality', 'Box Quality', 'score'], ['boxWindowDays', '周期', 'days'],
@@ -615,7 +625,7 @@ function badgeVariant(value: string | null): 'default' | 'success' | 'warning' |
         <h3 class="mb-2 font-semibold">
           Entry 买点研究
         </h3>
-        <p>{{ detail.latest.entryType ?? '—' }} · {{ score(detail.latest.entryScore) }}</p>
+        <p>{{ entryTypeText(detail.latest.entryType) }} · 质量分 {{ score(detail.latest.entryScore) }}</p>
         <p class="text-sm text-muted-foreground">
           {{ descriptions.entry }}
         </p>
@@ -627,18 +637,36 @@ function badgeVariant(value: string | null): 'default' | 'success' | 'warning' |
           :key="branch.label"
           class="mt-3 rounded border p-3 text-sm"
         >
-          <strong>{{ branch.label }} · {{ score(branch.data.score) }}</strong>
-          <p>连续质量分 {{ score(branch.data.qualityScore) }}；条件未全部通过时 Entry 为 0。</p>
+          <strong>{{ branch.label }} · 质量分 {{ score(branch.data.qualityScore) }} · {{ entryStatusText(branch.data.status, branch.kind) }}</strong>
+          <p>{{ branch.data.reason ?? '历史规则未保存确认状态与原因；质量分沿用当时结果。' }}</p>
+          <p
+            v-if="branch.data.evidence?.support != null"
+            class="text-xs text-muted-foreground"
+          >
+            支撑 {{ entryEvidenceNumber(branch.data.evidence.support, 'price') }} · 距支撑 {{ entryEvidenceNumber(branch.data.evidence.distanceAtr, 'atr') }} ATR
+          </p>
+          <p
+            v-if="branch.data.evidence?.touchDate"
+            class="text-xs text-muted-foreground"
+          >
+            回踩 {{ branch.data.evidence.touchDate }} · 此前上涨 {{ branch.data.evidence.advancedDate ?? '—' }}
+          </p>
+          <p
+            v-if="branch.data.evidence?.breakoutDate"
+            class="text-xs text-muted-foreground"
+          >
+            已知突破日 {{ branch.data.evidence.breakoutDate }} · 冻结突破位 {{ branch.data.evidence.breakoutLevel }}
+          </p>
           <div
             v-for="(value, key) in branch.data.components"
             :key="key"
             class="flex justify-between gap-3"
           >
-            <span>{{ periodText(entryComponentLabels[key] ?? key) }}</span>
+            <span>{{ entryV2 && key === 'distance' ? '支撑距离质量 / ATR' : entryV2 && key === 'extension' ? '突破距离质量 / ATR' : periodText(entryComponentLabels[key] ?? key) }}</span>
             <span>{{ score(value) }} × {{ pct(branch.data.normalizedWeights[key]) }} = {{ score(branch.data.contributions[key]) }}</span>
           </div>
           <p class="mt-2 text-muted-foreground">
-            {{ Object.entries(branch.data.checks).map(([key, pass]) => `${periodText(entryCheckLabels[key] ?? key)}: ${pass ? '通过' : '未通过'}`).join(' · ') }}
+            {{ Object.entries(branch.data.checks).map(([key, pass]) => `${entryV2 && key === 'extension' ? '支撑距离 / ATR' : periodText(entryCheckLabels[key] ?? key)}: ${pass ? '通过' : '未通过'}`).join(' · ') }}
           </p>
         </div>
       </section>

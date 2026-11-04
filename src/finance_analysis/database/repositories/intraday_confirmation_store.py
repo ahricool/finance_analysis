@@ -9,6 +9,7 @@ from finance_analysis.database.models.intraday_confirmation import IntradayConfi
 from finance_analysis.database.models.intraday_confirmation import IntradayConfirmationEvaluation as Evaluation
 from finance_analysis.database.models.stock import Instrument, StockDaily
 from finance_analysis.trend_following.preview_cache import json_ready
+from finance_analysis.intraday_confirmation.config import OBSERVATION_VERSIONS
 
 ANCHOR_FIELDS = (
     "first_confirmed_at",
@@ -146,7 +147,7 @@ class ConfirmationStore:
                 )
                 if result.rowcount != 1:
                     raise StaleConfirmationWrite("Concurrent confirmation write")
-                if incoming.get("rule_version") == "intraday_v2" and incoming["status"] == "evaluated":
+                if incoming.get("rule_version") in OBSERVATION_VERSIONS and incoming["status"] == "evaluated":
                     fields = (
                         "code",
                         "state",

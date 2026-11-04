@@ -105,21 +105,30 @@ class TrendFollowingConfig:
     resume_lookback_days: int = field(init=False)
     resume_touch_atr: float = 0.5
     entry_trend_min: float = 62.0
-    entry_resume_trend_min: float = 60.0
     entry_rs_min: float = 60.0
     entry_alpha_min: float = 67.0
     entry_path_min: float = 50.0
     entry_fragility_max: float = 50.0
-    entry_extension_min: float = 0.02
-    entry_extension_max: float = 0.10
-    entry_resume_extension_max: float = 0.08
     entry_clv_min: float = 0.60
+    # Entry v2 initial research settings; execution MAs never follow trend_period.
+    entry_trend_lookback: int = 10
+    entry_touch_atr: float = 0.25
+    entry_support_failure_atr: float = 0.75
+    entry_advance_atr: float = 1.0
+    entry_approach_atr: float = 0.5
+    entry_pullback_decline_atr: float = 0.25
+    entry_recovery_atr: float = 0.10
+    entry_extended_atr: float = 2.0
+    entry_breakout_min_atr: float = 0.10
+    entry_breakout_max_atr: float = 3.0
+    entry_breakout_distance_center_atr: float = 0.75
+    entry_breakout_distance_width_atr: float = 1.0
+    entry_support_distance_center_atr: float = 0.5
+    entry_support_distance_width_atr: float = 1.0
     entry_reclaim_center_atr: float = 0.5
     entry_reclaim_width_atr: float = 0.75
     entry_pullback_center_atr: float = 0.25
     entry_pullback_width_atr: float = 0.75
-    entry_resume_distance_center: float = 0.03
-    entry_resume_distance_width: float = 0.04
     preview_volume_neutral_quality: float = 50.0
     breakout_entry_weights: dict[str, float] = field(default_factory=lambda: {
         "breakout": .30, "extension": .20, "clv": .15, "volume": .10,
@@ -171,7 +180,8 @@ class TrendFollowingConfig:
             "path_return_window": self.trend_period // 2,
             "volatility_atr_window": self.trend_period // 4,
             "concentration_top_count": self.trend_period // 10,
-            "history_bars": self.trend_period + self.trend_period // 4 + 2,
+            "history_bars": max(self.trend_period + self.trend_period // 4 + 2,
+                                self.trend_period + self.entry_trend_lookback + 2),
         }.items():
             object.__setattr__(self, name, value)
 
