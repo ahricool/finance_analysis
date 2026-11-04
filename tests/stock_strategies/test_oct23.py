@@ -18,7 +18,7 @@ US = definition("ma_market_dd30", "US")
 
 def quality_inputs():
     data = inputs(market="CN")
-    data.trends[60] = {c: dict(trend_score=55, rs_score=45, path_score=65, trend_candidate=True) for c in data.stocks}
+    data.trends[40] = {c: dict(trend_score=55, rs_score=45, path_score=65, trend_candidate=True) for c in data.stocks}
     data.etfs = ("SPY.US",)
     data.etf_regime = None  # Neither new strategy depends on ETF market state.
     return data
@@ -41,17 +41,17 @@ def test_cn_market_hysteresis_and_stock_only(score, buy, exit_):
 )
 def test_cn_quality_rejects_each_failed_condition(field, value):
     data = quality_inputs()
-    data.trends[60]["A.US"][field] = value
+    data.trends[40]["A.US"][field] = value
     assert [c["code"] for c in decide(CN, initial_state(), data)["candidates"]] == ["B.US"]
 
 
 def test_quality_sort_missing_evidence_and_ma_exit():
     data = quality_inputs()
-    data.trends[60]["B.US"]["trend_score"] = 60
+    data.trends[40]["B.US"]["trend_score"] = 60
     assert [c["code"] for c in decide(CN, initial_state(), data)["candidates"]] == ["B.US", "A.US"]
     data.features["B.US"]["ma20"] = 101
     assert decide(CN, initial_state(), data)["exits"]["B.US"] == ["收盘跌破MA20"]
-    del data.trends[60]["A.US"]["path_score"]
+    del data.trends[40]["A.US"]["path_score"]
     with pytest.raises(DataNotReady, match="路径质量"):
         decide(CN, initial_state(), data)
 
@@ -164,7 +164,7 @@ def test_market_context_projects_path_and_boolean_without_loading_feature_payloa
                 id=1,
                 instrument_id=1,
                 market="CN",
-                trend_period=60,
+                trend_period=40,
                 trade_date=day,
                 code="600000.SH",
                 universe_key="cn_trend",
@@ -214,5 +214,5 @@ def test_new_strategy_api_descriptions_are_available_without_starting_accounts(r
             body = response.json()
             assert body["strategy"]["source_id"] == spec.source_id(market)
             assert body["days"] == [] and body["start_date"] is None
-            assert any("2026-10-23" in r["text"] for r in body["strategy"]["rules"])
+            assert any(spec.observation_start.isoformat() in r["text"] for r in body["strategy"]["rules"])
             assert repository.state(spec, market) is None

@@ -227,7 +227,7 @@ def test_period_queries_and_etf_instruments_are_independent(repo):
                 )
             )
         session.flush()
-        for period in (20, 40, 60):
+        for period in (10, 20, 40):
             session.add(
                 TrendFollowingSnapshot(
                     market="CN",
@@ -250,6 +250,6 @@ def test_period_queries_and_etf_instruments_are_independent(repo):
                 )
             )
     assert {r["instrument_type"] for r in repo.instruments("CN")} == {"STOCK", "ETF"}
-    for period in (20, 40, 60):
+    for period in (10, 20, 40):
         rows = repo.trend_period("CN", day, period)
         assert len(rows) == 1 and rows[0]["rank"] == period and rows[0]["trend_period"] == period

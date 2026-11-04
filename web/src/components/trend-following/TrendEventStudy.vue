@@ -18,7 +18,7 @@ import { exportExcel } from '@/utils/excelExport';
 import { toast } from 'vue-sonner';
 import type { EventStudySummaryResponse, EventStudyEventsResponse, StrategyKey, StudyGroup, StudyEvent, StudyRegime, TrendMarket, EvaluationStatus } from '@/types/trendFollowing';
 
-const props = defineProps<{ market: TrendMarket; trendPeriod?: 20 | 40 | 60; endDate: string }>();
+const props = defineProps<{ market: TrendMarket; trendPeriod?: 10 | 20 | 40; endDate: string }>();
 const end = ref(props.endDate);
 const start = ref('');
 const range = ref<number | 'custom'>(60);

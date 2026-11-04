@@ -16,7 +16,7 @@ import TrendRecentTransitions from './TrendRecentTransitions.vue';
 import { signedTextClass } from '@/utils/marketTone';
 
 use([CanvasRenderer, LineChart, GridComponent, LegendComponent, TooltipComponent]);
-const props = defineProps<{ market: TrendMarket; trendPeriod?: 20 | 40 | 60; asOf?: string; includePreview: boolean; refreshKey: number }>();
+const props = defineProps<{ market: TrendMarket; trendPeriod?: 10 | 20 | 40; asOf?: string; includePreview: boolean; refreshKey: number }>();
 const emit = defineEmits<{ select: [value: { code: string; tradeDate: string; preview: boolean }] }>();
 const { resolvedTheme } = useTheme();
 const history = shallowRef<TrendBreadthResponse | null>(null);

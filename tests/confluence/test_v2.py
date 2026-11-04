@@ -74,7 +74,7 @@ def test_three_period_alternative_routes_and_inactive_versus_absent():
             ),
             dict(trend_period=40, state="TRENDING", alpha_score=70, features={}),
             dict(
-                trend_period=60,
+                trend_period=10,
                 state="TRENDING",
                 alpha_score=80,
                 features=dict(box_state="BOX_BREAKOUT", box_quality=90, mr_state="MR_NONE"),

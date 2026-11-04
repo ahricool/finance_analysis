@@ -43,7 +43,7 @@ MEANINGFUL_STATES = {"CANDIDATE", "TRENDING", "WEAKENING", "BROKEN"}
 class TrendFollowingRepository:
     def __init__(self, market: str, db_manager: Any = None, *, trend_period: int = DEFAULT_TREND_PERIOD) -> None:
         if trend_period not in TREND_PERIODS:
-            raise ValueError("trend_period must be 20, 40 or 60")
+            raise ValueError("trend_period must be 10, 20 or 40")
         self.trend_period = trend_period
         self.market = str(market).upper()
         if self.market not in {"CN", "US"}:

@@ -27,7 +27,7 @@ BUY时recommendations有1至3项且no_trade_reason=null；NO_TRADE时数组为�
 NO_CLEAR_EDGE/OVERHEATED/SIGNAL_CONFLICT/INSUFFICIENT_EVIDENCE。理由全部中文。只输出单个JSON对象。"""
 SCREEN_SYSTEM_PROMPT = """你负责股票与ETF候选初筛。所有来源统一比较，只选0至3个进入最终轮，宁缺毋滥。
 仅使用所给快照，可联网核查风险，但不可引入候选外代码、伪造检索或使用信号日期之后的信息。
-比较20/40/60日趋势、新变化、位置/追高风险、ETF过热、行业变化及市场环境。
+比较10/20/40日趋势、新变化、位置/追高风险、ETF过热、行业变化及市场环境。
 共振与各模块可能共享事实，不把重复事实当独立支持；Quant不直接参与。
 输出且仅输出JSON: {"symbols":[候选代码],"reason":"中文理由"}，允许空数组，最多3个，不可重复。"""
 

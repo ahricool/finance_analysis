@@ -17,7 +17,7 @@ def count_trend_duration_days(
     bars: Sequence[DailyBar],
     *,
     as_of: date,
-    minimum_bars: int = 21,
+    minimum_bars: int | None = None,
     config: TrendFollowingConfig = DEFAULT_CONFIG,
 ) -> int:
     """Count consecutive trading days, ending at ``as_of``, where trend_candidate holds.
@@ -34,7 +34,7 @@ def count_trend_duration_days(
         ordered = ordered[-DURATION_HISTORY_BARS:]
     if not ordered or ordered[-1].trade_date != as_of:
         return 0
-    minimum_bars = max(minimum_bars, config.trend_period + 1)
+    minimum_bars = max(minimum_bars or config.minimum_history_bars, config.trend_period + 1)
     duration = 0
     for end in range(len(ordered), 0, -1):
         start = max(0, end - minimum_bars)

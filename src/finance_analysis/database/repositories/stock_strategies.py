@@ -236,7 +236,7 @@ class StockStrategyRepository:
                     select(TrendFollowingSummary).where(
                         TrendFollowingSummary.market == market,
                         TrendFollowingSummary.trade_date == day,
-                        TrendFollowingSummary.trend_period.in_((20, 60)),
+                        TrendFollowingSummary.trend_period.in_((20, 40)),
                     )
                 )
                 if r.data_coverage >= 0.98
@@ -246,7 +246,7 @@ class StockStrategyRepository:
                     ETFMarketRotationSnapshot.market == market, ETFMarketRotationSnapshot.trade_date == day
                 )
             )
-            trend60 = {
+            trend40 = {
                 r.code: dict(
                     trend_score=r.trend_score,
                     rs_score=r.rs_score,
@@ -263,11 +263,11 @@ class StockStrategyRepository:
                     ).where(
                         TrendFollowingSnapshot.market == market,
                         TrendFollowingSnapshot.trade_date == day,
-                        TrendFollowingSnapshot.trend_period == 60,
+                        TrendFollowingSnapshot.trend_period == 40,
                     )
                 )
             }
-            return regimes, etf.regime if etf else None, etf.generated_at.isoformat() if etf else None, trend60
+            return regimes, etf.regime if etf else None, etf.generated_at.isoformat() if etf else None, trend40
 
     def anchor_prices(self, codes, dates):
         """Small exact-date bridge for suspended holdings older than the warmup window."""

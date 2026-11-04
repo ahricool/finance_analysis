@@ -378,7 +378,7 @@ Beat `dragon_tiger_flow_cn` 上海19:30，经 `MarketDataService` 的 CN `dragon
 
 `confluence/` V2只读正式DB结果并执行规则评分，不调用LLM/Provider或重算上游。
 主要宏观15/行业ETF20/行业强度15/Trend30，辅助Quant7/期权5/情绪4/龙虎榜4；缺失不入分母，其他指标按比例分摊。
-Trend读取同日20/40/60，分别比较趋势/突破/超跌反弹替代路线后聚合。行业ETF复用静态映射并校验当前轮动池，
+Trend读取同日10/20/40，分别比较趋势/突破/超跌反弹替代路线后聚合。行业ETF复用静态映射并校验当前轮动池，
 目标ETF资格以池配置为准，不依赖Instrument类型；目录粗标STOCK不能切断关联。见`docs/industry-etf-mapping.md`。
 CN/US当地20:30/23:30共用60分精选门槛，每日各最多10个；同批次最多50行研究排行，非精选eligible/strong均false，
 不得作为共振来源进入盘中确认。精选优先，其余按综合分排列；前端每页10行，低于60标注观察，同日重跑替换。
@@ -400,7 +400,7 @@ GET只读及3/5/10D收益保留，详情可读评估轨迹；页面`/research/in
 
 ## Unified Signal Center
 
-`signal_center/` 主动读取同日正式Trend20前30、Trend40/60各前10、ETF前10（ETF可推荐）、原行业候选与前端可见的完整正式Confluence批次（当前最多10只）。
+`signal_center/` 主动读取同日正式Trend20前30、Trend10/40各前10、ETF前10（ETF可推荐）、原行业候选与前端可见的完整正式Confluence批次（当前最多10只）。
 不直接读Quant候选/明细；共振保持上游整体含义，可能含Quant贡献，禁止把重复底层事实当独立共振。
 所有来源合并去重后固定5桶，每桶LLM选0–3，最终从0–15个中选0–3；CN/US每日合计最多6个，宁缺毋滥。
 复用LLMClient联网与transport检索证据；BUY结构化引用冻结字段/数值/日期，NO_TRADE有明确原因。
@@ -438,11 +438,11 @@ Streamer 页面行情只读 Redis；CN/US 共用日内方向状态，分钟线�
 首次运行冻结Universe，US广度为标普500成分；细节及适配差异见`docs/stock-strategies.md`。
 迁移`0076_stock_strategies`，页面`/strategies`，离线测试`tests/stock_strategies/`。
 10/23新增CN趋势质量/市场35退出与US均线市场开关/DD30暂停3交易日；独立观察起点不早于2026-10-23，
-只读同日正式Trend20及CN Trend60 Path/趋势条件，不请求外部API。
+只读同日正式Trend20及CN Trend40 Path/趋势条件，不请求外部API。
 
 ## Trend Entry
 
-Trend Entry V2独立评估突破、MA5浅回踩、MA10回踩及历史确认突破位回测，可同日多分支确认；回踩复用此前10个真实交易日的绝对趋势门槛与当前健康结构，不要求当天Alpha≥67。执行均线固定MA5/10，ATR按20/40/60趋势周期，质量分与等待/回踩中/确认/延伸/失效状态分开保存。新增预热不改变Alpha/RSI原窗口，正式/Preview/API/导出同源，见`docs/trend-entry.md`。
+Trend Entry V2独立评估突破、MA5浅回踩、MA10回踩及历史确认突破位回测，可同日多分支确认；回踩复用此前10个真实交易日的绝对趋势门槛与当前健康结构，不要求当天Alpha≥67。执行均线固定MA5/10，ATR按10/20/40趋势周期，质量分与等待/回踩中/确认/延伸/失效状态分开保存。新增预热不改变Alpha/RSI原窗口，正式/Preview/API/导出同源，见`docs/trend-entry.md`。
 
 ## Research Preview 存储
 

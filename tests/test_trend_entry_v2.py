@@ -39,7 +39,7 @@ def evaluate(series, period=20, **updates):
     return calculate_entry(row, config, bars=series), row
 
 
-@pytest.mark.parametrize("period", [20, 40, 60])
+@pytest.mark.parametrize("period", [10, 20, 40])
 def test_ma5_shallow_intraday_reclaim_survives_alpha_drop_and_uses_fixed_execution_ma(period):
     series = shallow()
     result, row = evaluate(series, period, alpha_score=40, rs_score=40, trend_score=40)
@@ -164,7 +164,7 @@ def test_failed_breakout_level_cannot_recover_by_arming_the_advance_later():
     assert context["pullbacks"]["retest"]["support_intact"] is False
 
 
-@pytest.mark.parametrize("period", [20, 40, 60])
+@pytest.mark.parametrize("period", [10, 20, 40])
 def test_official_and_preview_share_entry_logic_with_real_session_warmup(monkeypatch, period):
     from tests.test_trend_following_service import FakeRepository, TrendFollowingService, TRADE_DATE
     from finance_analysis.market_review.trading_calendar import get_trading_days_between

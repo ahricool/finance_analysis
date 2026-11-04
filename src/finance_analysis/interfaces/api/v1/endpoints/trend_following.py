@@ -11,6 +11,7 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import Response
+from pydantic import AfterValidator
 
 from finance_analysis.database.models.user import User  # pragma: allowlist secret
 from finance_analysis.database.repositories.trend_following import (  # pragma: allowlist secret
@@ -40,14 +41,22 @@ from finance_analysis.tasks.celery.schedule import (  # pragma: allowlist secret
 from finance_analysis.core.ranking import calculate_rank_changes  # pragma: allowlist secret
 from finance_analysis.trend_following.ranking_cache import RankingCache
 from finance_analysis.trend_following.read_models import CANDIDATE_FIELDS, ranking_item
-from finance_analysis.trend_following.config import DEFAULT_CONFIG  # pragma: allowlist secret
+from finance_analysis.trend_following.config import DEFAULT_CONFIG, TREND_PERIODS  # pragma: allowlist secret
 from finance_analysis.trend_following.preview_cache import load_preview, load_preview_view  # pragma: allowlist secret
 from finance_analysis.trend_following.universe import universe_by_code  # pragma: allowlist secret
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 Market = Literal["CN", "US"]
-TrendPeriod = Annotated[int, Query(ge=20, le=60, multiple_of=20)]
+
+
+def validate_trend_period(value: int) -> int:
+    if value not in TREND_PERIODS:
+        raise ValueError("trend_period must be 10, 20 or 40")
+    return value
+
+
+TrendPeriod = Annotated[int, Query(json_schema_extra={"enum": list(TREND_PERIODS)}), AfterValidator(validate_trend_period)]
 SortField = Literal[
     "box_quality", "box_window_days", "box_width_pct", "distance_to_box_high_pct",
     "distance_to_box_high_atr", "box_breakout_distance_atr",

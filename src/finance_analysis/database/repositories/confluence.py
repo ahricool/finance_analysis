@@ -212,7 +212,11 @@ class ConfluenceRepository:
             TrendFollowingSnapshot.fragility_score,
             TrendFollowingSnapshot.rank,
             *[TrendFollowingSnapshot.features[key].label(key) for key in feature_keys],
-        ).where(TrendFollowingSnapshot.market == market, TrendFollowingSnapshot.trade_date == day)
+        ).where(
+            TrendFollowingSnapshot.market == market,
+            TrendFollowingSnapshot.trade_date == day,
+            TrendFollowingSnapshot.trend_period.in_((10, 20, 40)),
+        )
         with self.db.get_session() as session:
             result = []
             for row in session.execute(query).mappings():

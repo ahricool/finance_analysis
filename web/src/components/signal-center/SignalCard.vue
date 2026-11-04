@@ -12,7 +12,7 @@ import { noTradeReasons, signalPicks, sourceUrl } from './picks';
 const props = defineProps<{ signal: SignalDetail }>();
 const picks = computed(() => signalPicks(props.signal));
 const statuses = { pending: '分析中', completed: '已完成', failed: '分析失败，未产生信号', skipped: '数据不足，跳过' };
-const sourceNames: Record<string, string> = { trend: '趋势', trend20: '20日趋势', trend40: '40日趋势', trend60: '60日趋势', quant: '量化（历史）', industry: '行业强度', etf: 'ETF轮动', confluence: '信号共振', regime: '市场环境' };
+const sourceNames: Record<string, string> = { trend: '趋势', trend10: '10日趋势', trend20: '20日趋势', trend40: '40日趋势', trend60: '60日趋势', quant: '量化（历史）', industry: '行业强度', etf: 'ETF轮动', confluence: '信号共振', regime: '市场环境' };
 const sourceStatuses: Record<string, string> = { available: '可用', missing: '缺失', stale: '过期', running: '运行中', failed: '读取失败', unsupported: '不适用' };
 const confidence: Record<string, string> = { high: '高', medium: '中', low: '低' };
 const searches: Record<string, string> = { confirmed: '已执行检索', unverified: '检索未获确认', unavailable: '检索不可用', not_requested: '未请求检索' };

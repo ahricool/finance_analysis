@@ -64,3 +64,18 @@ def test_incomplete_etf_window_waits_instead_of_silently_shrinking_pool():
     repo.missing_etf = True
     with pytest.raises(DataNotReady, match="ETF"):
         InputLoader(repository=repo, resolver=SimpleNamespace()).load("US", date(2026, 10, 19), universe())
+
+
+def test_official_stock_trend40_does_not_replace_independent_etf_cross_section(monkeypatch):
+    repo = Repository()
+    official = {"A.US": dict(trend_score=55, path_score=65), "QQQ.US": dict(trend_score=1)}
+    repo.market_context = lambda *_: ({40: dict(regime="RISK_ON", score=80)}, "RISK_ON", None, official)
+    monkeypatch.setattr(
+        "finance_analysis.stock_strategies.inputs.etf_strength",
+        lambda *_: {"A.US": dict(trend_score=99), "QQQ.US": dict(trend_score=70)},
+    )
+    data = InputLoader(repository=repo, resolver=SimpleNamespace()).load("US", date(2026, 11, 4), universe())
+    assert data.trends[40]["A.US"] == official["A.US"]
+    assert data.trends[40]["QQQ.US"] == dict(trend_score=70)
+    assert "B.US" not in data.trends[40]  # Missing official stocks cannot inherit local ETF scores.
+    assert 60 not in data.trends

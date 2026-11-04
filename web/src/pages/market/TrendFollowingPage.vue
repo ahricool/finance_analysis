@@ -502,7 +502,7 @@ onMounted(async () => {
           data-testid="trend-period"
         >
           <Button
-            v-for="period in ([20, 40, 60] as const)"
+            v-for="period in ([10, 20, 40] as const)"
             :key="period"
             :variant="trendPeriod === period ? 'default' : 'outline'"
             size="sm"

@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button';
 import type { TrendMarket, TrendTransitionsResponse, TransitionDirection } from '@/types/trendFollowing';
 import { describeTrendStateChange, TREND_TRANSITION_RANGES } from '@/utils/trendStateChange';
 
-const props = defineProps<{ market: TrendMarket; trendPeriod?: 20 | 40 | 60; asOf?: string; includePreview: boolean; refreshKey: number }>();
+const props = defineProps<{ market: TrendMarket; trendPeriod?: 10 | 20 | 40; asOf?: string; includePreview: boolean; refreshKey: number }>();
 const emit = defineEmits<{ select: [value: { code: string; tradeDate: string; preview: boolean }] }>();
 const days = ref<1 | 3 | 5>(3);
 const direction = ref<TransitionDirection>('all');

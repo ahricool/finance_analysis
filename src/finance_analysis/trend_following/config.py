@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-TREND_PERIODS = (20, 40, 60)
+TREND_PERIODS = (10, 20, 40)
 DEFAULT_TREND_PERIOD = 20
 
 TREND_UNIVERSE_KEYS = {"CN": "cn_trend", "US": "us_trend"}
@@ -172,7 +172,7 @@ class TrendFollowingConfig:
 
     def __post_init__(self):
         if self.trend_period not in TREND_PERIODS:
-            raise ValueError("trend_period must be 20, 40 or 60")
+            raise ValueError("trend_period must be 10, 20 or 40")
         for name, value in {
             "box_windows": (self.trend_period,), "box_min_days": self.trend_period,
             "mr_rsi_period": self.trend_period, "minimum_history_bars": self.trend_period + 1,

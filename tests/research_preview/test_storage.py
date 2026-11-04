@@ -66,7 +66,7 @@ def test_names_are_joined_from_instrument_without_losing_unknown_names(store):
 def test_replacement_scope_rollback_and_older_publication(store):
     data = payload()
     for market in ('CN', 'US'):
-        for period in (20, 40, 60):
+        for period in (10, 20, 40):
             trend.save_preview(market, {**data, 'trend_period': period}, repository=store)
     original = trend.load_preview('CN', repository=store)
 

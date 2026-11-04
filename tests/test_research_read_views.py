@@ -61,7 +61,7 @@ def test_views_read_only_requested_rows_and_preserve_diagnostics():
 
 def test_publication_replaces_removed_symbols_failed_results_and_periods():
     client = preview_repository()
-    for period in (20, 40, 60):
+    for period in (10, 20, 40):
         trend_cache.save_preview("CN", payload(period), repository=client)
     failed = {**payload(40), "status": "failed", "snapshots": [], "warnings": ["not ready"]}
     trend_cache.save_preview("CN", failed, repository=client)

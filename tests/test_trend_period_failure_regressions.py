@@ -21,7 +21,7 @@ from finance_analysis.tasks.celery.jobs.trend_following import tasks
 DAY = date(2026, 10, 12)
 
 
-@pytest.mark.parametrize("period", [20, 40, 60])
+@pytest.mark.parametrize("period", [10, 20, 40])
 def test_rolling_rsi_uses_one_seed_and_preserves_consumed_episode(period):
     config = replace(DEFAULT_CONFIG, trend_period=period)
     size = config.history_bars
@@ -59,12 +59,12 @@ def test_rolling_rsi_uses_one_seed_and_preserves_consumed_episode(period):
 
 from tests.preview_database import preview_repository
 
-@pytest.mark.parametrize("failure", [None, 20, 40, "collection", "benchmark"])
+@pytest.mark.parametrize("failure", [None, 10, 20, 40, "collection", "benchmark"])
 def test_preview_round_failure_isolation_cache_replacement_and_retry(monkeypatch, failure):
     client = preview_repository()
     calls, calculated = [], []
     mode = {"failure": failure}
-    for period in (20, 40, 60):
+    for period in (10, 20, 40):
         save_preview("US", {"market": "US", "trade_date": DAY.isoformat(), "status": "completed", "trend_period": period, "snapshots": [{"code": "OLD.US"}]}, repository=client)
 
     def collect(*args):
@@ -121,8 +121,8 @@ def test_preview_round_failure_isolation_cache_replacement_and_retry(monkeypatch
         results = json.loads(str(error.value).split(": ", 1)[1])
     assert calls == ["collect"]
     assert benchmark_calls == ([] if failure == "collection" else ["benchmark"])
-    assert calculated == ([] if failure == "collection" else [20, 40, 60])
-    for period in (20, 40, 60):
+    assert calculated == ([] if failure == "collection" else [10, 20, 40])
+    for period in (10, 20, 40):
         payload = load_preview("US", trend_period=period, repository=client)
         failed = failure in (period, "collection", "benchmark")
         assert payload["status"] == results[str(period)]["status"] == ("failed" if failed else "completed")
@@ -136,11 +136,11 @@ def test_preview_round_failure_isolation_cache_replacement_and_retry(monkeypatch
     result = tasks._run_periods("US", DAY, preview=True)
     assert calls == ["collect", "collect"]
     assert all(row["status"] == "completed" for row in result["periods"].values())
-    for period in (20, 40, 60):
+    for period in (10, 20, 40):
         assert load_preview("US", trend_period=period, repository=client)["snapshots"] == [{"code": "AAA.US", "alpha_score": period}]
 
 
-@pytest.mark.parametrize("period", [20, 40, 60])
+@pytest.mark.parametrize("period", [10, 20, 40])
 def test_service_preview_and_official_share_rsi_without_mutating_official_state(monkeypatch, period):
     from tests.test_trend_following_preview import PreviewRepository
 

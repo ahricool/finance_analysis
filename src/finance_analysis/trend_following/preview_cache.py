@@ -17,7 +17,7 @@ NAMESPACE = "trend_following"
 
 def _scope(market, period):
     if period not in TREND_PERIODS:
-        raise ValueError("trend_period must be 20, 40 or 60")
+        raise ValueError("trend_period must be 10, 20 or 40")
     return NAMESPACE, normalize_market(market), period
 
 
@@ -68,7 +68,8 @@ def save_preview(market, payload, *, repository=None):
 
 
 def _read(market, period, repository, **kwargs):
-    return (repository or PreviewRepository()).read(*_scope(market, period), **kwargs)
+    scope = _scope(market, period)
+    return (repository or PreviewRepository()).read(*scope, **kwargs)
 
 
 def _row(stored, row, *, summary_only=False):

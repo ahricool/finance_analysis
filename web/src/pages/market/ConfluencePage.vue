@@ -272,7 +272,7 @@ const detailInitialTab = ref<'overview' | 'confluence'>('confluence');
           </div>
         </div>
         <p class="border-t bg-muted/20 px-4 py-2.5 text-xs text-muted-foreground">
-          缺失留空，可用指标按基础权重比例重新归一。趋势包含 20 / 40 / 60 日的趋势、突破与超跌反弹；同周期替代形态不叠加。
+          缺失留空，可用指标按基础权重比例重新归一。趋势包含 10 / 20 / 40 日的趋势、突破与超跌反弹；同周期替代形态不叠加。
         </p>
       </section>
       <section class="space-y-3">

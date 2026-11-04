@@ -31,13 +31,13 @@ def calculate(bars, **kwargs):
     return result
 
 
-def test_sideways_uses_selected_sixty_day_window():
-    result = calculate(box_bars(), config=replace(DEFAULT_CONFIG, trend_period=60))
+def test_sideways_uses_selected_ten_day_window():
+    result = calculate(box_bars(days=10), config=replace(DEFAULT_CONFIG, trend_period=10))
     assert result["box_quality"] >= 70
     assert result["box_state"] == "BOX_READY"
-    assert result["box_window_days"] == 60
+    assert result["box_window_days"] == 10
     assert result["box_start_date"] == "2026-01-01"
-    assert result["box_end_date"] == "2026-03-01"
+    assert result["box_end_date"] == "2026-01-10"
     assert result["box_upper_touches"] >= 2
 
 
@@ -58,7 +58,7 @@ def test_wide_and_dead_ranges_rejected():
         assert calculate(bars)["box_state"] == "NONE"
 
 
-@pytest.mark.parametrize("days", [20, 40, 60])
+@pytest.mark.parametrize("days", [10, 20, 40])
 def test_selects_established_box_after_wider_history(days):
     bars = box_bars()
     for i in range(len(bars) - days - 1):

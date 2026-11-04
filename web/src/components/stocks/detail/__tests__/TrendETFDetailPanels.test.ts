@@ -173,7 +173,7 @@ it('preserves trend duration, lifecycle, risk, box and mean-reversion hint descr
   wrapper.unmount();
 });
 
-it.each([40, 60] as const)('labels Entry evidence with the %s-session strategy windows', async period => {
+it.each([10, 40] as const)('labels Entry evidence with the %s-session strategy windows', async period => {
   vi.resetAllMocks();
   const branch = { score: 80, qualityScore: 80, components: { distance: 80 },
     normalizedWeights: { distance: 1 }, contributions: { distance: 80 },
@@ -193,7 +193,7 @@ it.each([40, 60] as const)('labels Entry evidence with the %s-session strategy w
   wrapper.unmount();
 });
 
-it.each([20, 40, 60] as const)('keeps MA5/MA10 Entry execution labels fixed in the %s-session detail', async period => {
+it.each([10, 20, 40] as const)('keeps MA5/MA10 Entry execution labels fixed in the %s-session detail', async period => {
   vi.resetAllMocks();
   const branch = { score: 82, qualityScore: 82, status: 'CONFIRMED', reason: '先上涨后回踩并收回',
     components: { distance: 82 }, normalizedWeights: { distance: 1 }, contributions: { distance: 82 },

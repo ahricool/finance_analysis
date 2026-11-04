@@ -229,8 +229,8 @@ def hybrid_data():
     data.features["QQQ.US"] = dict(data.features["B.US"], close=99)
     data.instruments["QQQ.US"] = dict(type="ETF", name="ETF")
     data.trends = {
-        40: {"QQQ.US": dict(trend_score=70, rs_score=60)},
-        60: {c: dict(trend_score=70, rs_score=60) for c in data.stocks},
+        40: {"QQQ.US": dict(trend_score=70, rs_score=60),
+             **{c: dict(trend_score=70, rs_score=60) for c in data.stocks}},
     }
     return data
 
@@ -252,7 +252,7 @@ def test_hybrid_stock_priority_etf_strength_and_independent_market_exit():
 def test_hybrid_breakout_filters_original_top40_without_replenishing():
     data = hybrid_data()
     data.stocks = tuple(f"X{i:02d}.US" for i in range(41))
-    data.trends[60] = {c: dict(trend_score=90 - i / 10, rs_score=70) for i, c in enumerate(data.stocks)}
+    data.trends[40].update({c: dict(trend_score=90 - i / 10, rs_score=70) for i, c in enumerate(data.stocks)})
     for code in data.stocks:
         data.features[code] = dict(data.features["A.US"])
         data.instruments[code] = dict(type="STOCK", name=code)
@@ -271,14 +271,14 @@ def test_breadth_native_parent_parameters_are_separate():
 
 def test_regression_two_close_macro_exit_and_reset():
     data = inputs()
-    data.regimes[60] = dict(regime="RISK_OFF", score=20)
+    data.regimes[40] = dict(regime="RISK_OFF", score=20)
     data.etf_regime = "RISK_OFF"
     state = initial_state()
     first = decide(STRATEGIES[1], state, data)
     assert not first["exits"]["A.US"]
     state["macro_bad"] = 1
     second = decide(STRATEGIES[1], state, data)
-    assert "ETF与Trend60连续两日风险关闭" in second["exits"]["A.US"]
+    assert "ETF与Trend40连续两日风险关闭" in second["exits"]["A.US"]
     assert not second["candidates"]
     data.etf_regime = "NEUTRAL"
     assert decide(STRATEGIES[1], state, data)["macro_bad"] == 0

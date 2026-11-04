@@ -18,11 +18,11 @@ class Repo(LegacyRepo):
         for r in self.rows:
             r["instrument_type"] = "STOCK"
         self.rows.append(dict(id=101, code="510300.SH", name="沪深300ETF", instrument_type="ETF"))
-        self.periods = {p: [dict(r, trend_period=p) for r in self.sources["trend"]] for p in (20, 40, 60)}
+        self.periods = {p: [dict(r, trend_period=p) for r in self.sources["trend"]] for p in (10, 20, 40)}
         # Disjoint nominations prove the longer periods enter the union independently.
         for index, row in enumerate(self.periods[40]):
             row["rank"] = (index + 60) % 100 + 1
-        for index, row in enumerate(self.periods[60]):
+        for index, row in enumerate(self.periods[10]):
             row["rank"] = (index + 40) % 100 + 1
         self.sources["etf"] = [
             dict(
@@ -154,9 +154,9 @@ def test_union_has_fixed_period_limits_etf_and_all_published_confluence_without_
     candidates = snapshot["candidates"]
     counts = {
         source: sum(source in c["nominated_by"] for c in candidates)
-        for source in ("trend20", "trend40", "trend60", "etf", "confluence")
+        for source in ("trend20", "trend40", "trend10", "etf", "confluence")
     }
-    assert counts == dict(trend20=30, trend40=10, trend60=10, etf=1, confluence=1)
+    assert counts == dict(trend20=30, trend40=10, trend10=10, etf=1, confluence=1)
     assert next(c for c in candidates if c["symbol"] == "510300.SH")["instrument_type"] == "ETF"
     assert "secret_quant" not in json.dumps(snapshot)
     assert "quant" not in snapshot["source_availability"]
@@ -426,8 +426,8 @@ def test_numeric_json_evidence_accepts_equivalent_numbers_but_rejects_booleans()
     snapshot = inputs.collect(Repo(), "CN", DAY)
     value = output(snapshot, ["000001.SH"])
     fact = value["recommendations"][0]["evidence"][0]
-    assert fact["value"] == 1
-    fact["value"] = 1.0
+    assert fact["value"] == 41
+    fact["value"] = 41.0
     assert decision.parse_decision(json.dumps(value), snapshot)
     fact["value"] = True
     with pytest.raises(ValueError, match="value mismatch"):

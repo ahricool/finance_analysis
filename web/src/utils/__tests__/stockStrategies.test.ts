@@ -24,7 +24,7 @@ describe('strategy display calculations', () => {
   it('explains family-specific scores, including mixed stock and ETF scales', () => {
     const candidate = detail.latest!.payload.plan.candidates[0]!;
     expect(scoreLabel(detail.strategy, candidate)).toBe('MA20/MA50−1');
-    expect(scoreLabel({ ...detail.strategy, family: 'hybrid' }, candidate)).toBe('Trend60');
+    expect(scoreLabel({ ...detail.strategy, family: 'hybrid' }, candidate)).toBe('Trend40');
     expect(scoreLabel({ ...detail.strategy, family: 'hybrid' }, { ...candidate, type: 'ETF' })).toContain('126日动量');
   });
 });

@@ -86,7 +86,7 @@ def absolute_trend_passes(checks: Iterable[bool]) -> bool:
 
 def calculate_features(
     bars: Sequence[DailyBar],
-    minimum_bars: int = 21,
+    minimum_bars: int | None = None,
     config: TrendFollowingConfig = DEFAULT_CONFIG,
     *,
     preview: bool = False,
@@ -96,7 +96,7 @@ def calculate_features(
     short = config.short_window
     recent = config.recent_window
     ordered = sorted(bars, key=lambda item: item.trade_date)
-    if len(ordered) < max(minimum_bars, long + 1):
+    if len(ordered) < max(minimum_bars or config.minimum_history_bars, long + 1):
         return None
     closes = np.asarray([bar.close for bar in ordered], dtype=float)
     highs = np.asarray([bar.high for bar in ordered], dtype=float)
