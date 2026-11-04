@@ -84,8 +84,8 @@ export const trendIndicatorDescriptions: Record<string, string> = {
 
 
 /** Human-facing periods follow the selected strategy; scoring constants are unchanged. */
-export function trendPeriodText(text: string, period: 20 | 40 | 60): string {
-  const windows: Record<number, number> = { 3: period * 3 / 20, 5: period / 4, 7: period * 7 / 20,
+export function trendPeriodText(text: string, period: 10 | 20 | 40): string {
+  const windows: Record<number, number> = { 3: Math.floor(period * 3 / 20), 5: Math.floor(period / 4), 7: Math.floor(period * 7 / 20),
     10: period / 2, 14: period, 15: period, 20: period, 21: period + 1 };
   return text.replace(
     /(MA|ATR|RSI|Return|RS|DD|Vol|Slope|High|Low|R|z)(21|20|15|14|10|7|5|3)(?!\d)|(?<!\d)(21|20|15|14|10|7|5|3)(?=\s*(?:个交易日|交易日|个真实波幅|个TR|日|根日线|周期|D|d\b|\/\s*\d))/g,

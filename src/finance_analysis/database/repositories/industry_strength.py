@@ -155,7 +155,7 @@ class IndustryStrengthRepository:
 
     def latest_cn_trend_date(self):
         with self.db.get_session() as session:
-            return session.scalar(select(func.max(TrendSnapshot.trade_date)).where(TrendSnapshot.trend_period == 20, TrendSnapshot.market == "CN"))
+            return session.scalar(select(func.max(TrendSnapshot.trade_date)).where(TrendSnapshot.trend_period == 10, TrendSnapshot.market == "CN"))
 
     def latest_cn_trend_ranks(self, codes):
         return self.latest_cn_trend_rank_context(codes)[0]
@@ -166,12 +166,12 @@ class IndustryStrengthRepository:
         if not codes:
             return {}, None
         latest = select(func.max(TrendSnapshot.trade_date)).where(
-            TrendSnapshot.trend_period == 20, TrendSnapshot.market == "CN"
+            TrendSnapshot.trend_period == 10, TrendSnapshot.market == "CN"
         ).scalar_subquery()
         ranked = select(
             TrendSnapshot.code, TrendSnapshot.rank,
             func.count().filter(TrendSnapshot.rank > 0).over().label("rank_total"),
-        ).where(TrendSnapshot.trend_period == 20, TrendSnapshot.market == "CN",
+        ).where(TrendSnapshot.trend_period == 10, TrendSnapshot.market == "CN",
                 TrendSnapshot.trade_date == latest).subquery()
         with self.db.get_session() as session:
             rows = session.execute(select(ranked).where(ranked.c.code.in_(codes))).all()

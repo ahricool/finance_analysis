@@ -1,4 +1,4 @@
-export type TrendPeriod = 20 | 40 | 60;
+export type TrendPeriod = 10 | 20 | 40;
 export type TrendMarket = 'CN' | 'US';
 export type TrendRegime = 'RISK_ON' | 'NEUTRAL' | 'RISK_OFF';
 export type TrendState = 'IDLE' | 'WATCHING' | 'CANDIDATE' | 'TRENDING' | 'WEAKENING' | 'BROKEN';

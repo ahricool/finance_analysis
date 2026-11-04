@@ -11,6 +11,7 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import Response
+from pydantic import AfterValidator
 
 from finance_analysis.database.models.user import User  # pragma: allowlist secret
 from finance_analysis.database.repositories.trend_following import (  # pragma: allowlist secret
@@ -40,14 +41,22 @@ from finance_analysis.tasks.celery.schedule import (  # pragma: allowlist secret
 from finance_analysis.core.ranking import calculate_rank_changes  # pragma: allowlist secret
 from finance_analysis.trend_following.ranking_cache import RankingCache
 from finance_analysis.trend_following.read_models import CANDIDATE_FIELDS, ranking_item
-from finance_analysis.trend_following.config import DEFAULT_CONFIG  # pragma: allowlist secret
+from finance_analysis.trend_following.config import DEFAULT_CONFIG, TREND_PERIODS  # pragma: allowlist secret
 from finance_analysis.trend_following.preview_cache import load_preview, load_preview_view  # pragma: allowlist secret
 from finance_analysis.trend_following.universe import universe_by_code  # pragma: allowlist secret
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 Market = Literal["CN", "US"]
-TrendPeriod = Annotated[int, Query(ge=20, le=60, multiple_of=20)]
+
+
+def validate_trend_period(value: int) -> int:
+    if value not in TREND_PERIODS:
+        raise ValueError("trend_period must be 10, 20 or 40")
+    return value
+
+
+TrendPeriod = Annotated[int, Query(json_schema_extra={"enum": list(TREND_PERIODS)}), AfterValidator(validate_trend_period)]
 SortField = Literal[
     "box_quality", "box_window_days", "box_width_pct", "distance_to_box_high_pct",
     "distance_to_box_high_atr", "box_breakout_distance_atr",
@@ -173,7 +182,7 @@ def dashboard(
     trade_date: date | None = None,
     _: User = Depends(require_current_user),
     market: Market = "CN",
-    trend_period: TrendPeriod = 20,
+    trend_period: TrendPeriod = 10,
 ):
     from finance_analysis.trend_following.dashboard import dashboard_summary
 
@@ -188,7 +197,7 @@ def dashboard(
 @router.get("/event-study/summary", response_model=EventStudySummaryResponse)
 def event_study_summary(
     market: Market = "CN",
-    trend_period: TrendPeriod = 20,
+    trend_period: TrendPeriod = 10,
     start_date: date | None = None,
     end_date: date | None = None,
     regime: Literal["ALL", "RISK_ON", "NEUTRAL", "RISK_OFF"] = "ALL",
@@ -223,7 +232,7 @@ def event_study_summary(
 def event_study_events(
     strategy: Literal["TREND_FOLLOWING", "BOX_BREAKOUT", "PULLBACK_RESUME", "MEAN_REVERSION"],
     market: Market = "CN",
-    trend_period: TrendPeriod = 20,
+    trend_period: TrendPeriod = 10,
     start_date: date | None = None,
     end_date: date | None = None,
     regime: Literal["ALL", "RISK_ON", "NEUTRAL", "RISK_OFF"] = "ALL",
@@ -247,7 +256,7 @@ def event_study_events(
 @router.get("/event-study", response_model=EventStudyResponse)
 def event_study(
     market: Market = "CN",
-    trend_period: TrendPeriod = 20,
+    trend_period: TrendPeriod = 10,
     start_date: date | None = None,
     end_date: date | None = None,
     strategy: Literal["ALL", "TREND_FOLLOWING", "BOX_BREAKOUT", "PULLBACK_RESUME", "MEAN_REVERSION"] = "ALL",
@@ -277,7 +286,7 @@ def ranking(
     _: User = Depends(require_current_user),
     market: Market = "CN",
     box_state: BoxState | None = None,
-    trend_period: TrendPeriod = 20,
+    trend_period: TrendPeriod = 10,
 ):
     started = time.perf_counter()
     repository = TrendFollowingRepository(market, trend_period=trend_period)
@@ -325,7 +334,7 @@ def ranking_table(
     trade_date: date | None = None,
     user: User = Depends(require_current_user),
     market: Market = "CN",
-    trend_period: TrendPeriod = 20,
+    trend_period: TrendPeriod = 10,
 ):
     from finance_analysis.core.preview_views import encode
     from finance_analysis.trend_following.table import table_rows
@@ -345,7 +354,7 @@ def ranking_table(
 
 @router.get("/status", response_model=TrendSnapshotStatusResponse)
 def snapshot_status(
-    _: User = Depends(require_current_user), market: Market = "CN", trend_period: TrendPeriod = 20,
+    _: User = Depends(require_current_user), market: Market = "CN", trend_period: TrendPeriod = 10,
 ):
     repository = TrendFollowingRepository(market, trend_period=trend_period)
     resolved = _resolve_date(repository, None)
@@ -362,7 +371,7 @@ def breadth_history(
     include_preview: bool = False,
     _: User = Depends(require_current_user),
     market: Market = "CN",
-    trend_period: TrendPeriod = 20,
+    trend_period: TrendPeriod = 10,
 ):
     from finance_analysis.trend_following.breadth import get_breadth_history
 
@@ -381,7 +390,7 @@ def transitions(
     include_preview: bool = False,
     _: User = Depends(require_current_user),
     market: Market = "CN",
-    trend_period: TrendPeriod = 20,
+    trend_period: TrendPeriod = 10,
 ):
     from finance_analysis.trend_following.breadth import get_transitions
 
@@ -400,7 +409,7 @@ def candidates(
     limit: int = Query(default=100, ge=1, le=1000),
     _: User = Depends(require_current_user),
     market: Market = "CN",
-    trend_period: TrendPeriod = 20,
+    trend_period: TrendPeriod = 10,
 ):
     repository = TrendFollowingRepository(market, trend_period=trend_period)
     resolved = _resolve_date(repository, trade_date)
@@ -413,13 +422,13 @@ def candidates(
 
 
 @router.get("/dates")
-def dates(_: User = Depends(require_current_user), market: Market = "CN", trend_period: TrendPeriod = 20):
+def dates(_: User = Depends(require_current_user), market: Market = "CN", trend_period: TrendPeriod = 10):
     items = TrendFollowingRepository(market, trend_period=trend_period).available_trade_dates()
     return jsonable_encoder({"market": market, "latest": items[0] if items else None, "items": items})
 
 
 @router.get("/preview/status")
-def preview_status(_: User = Depends(require_current_user), market: Market = "CN", trend_period: TrendPeriod = 20):
+def preview_status(_: User = Depends(require_current_user), market: Market = "CN", trend_period: TrendPeriod = 10):
     body = load_preview_view(market, "status", trend_period=trend_period)
     if body is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Trend Following preview is not available")
@@ -427,7 +436,7 @@ def preview_status(_: User = Depends(require_current_user), market: Market = "CN
 
 
 @router.get("/preview/ranking", responses={200: {"model": TrendRankingTableResponse}})
-def preview_ranking(_: User = Depends(require_current_user), market: Market = "CN", trend_period: TrendPeriod = 20):
+def preview_ranking(_: User = Depends(require_current_user), market: Market = "CN", trend_period: TrendPeriod = 10):
     body = load_preview_view(market, "ranking", trend_period=trend_period)
     if body is None:
         raise HTTPException(404, "Trend Following preview is not available")
@@ -437,7 +446,7 @@ def preview_ranking(_: User = Depends(require_current_user), market: Market = "C
 @router.get("/preview/stocks/{code}")
 def preview_stock(
     code: str, trade_date: date | None = None, _: User = Depends(require_current_user),
-    market: Market = "CN", trend_period: TrendPeriod = 20,
+    market: Market = "CN", trend_period: TrendPeriod = 10,
 ):
     body = load_preview_view(market, f"stock:{code.strip().upper()}", trend_period=trend_period)
     if body is None or (trade_date is not None and json.loads(body)["trade_date"] != trade_date.isoformat()):
@@ -446,7 +455,7 @@ def preview_stock(
 
 
 @router.get("/preview")
-def preview(_: User = Depends(require_current_user), market: Market = "CN", trend_period: TrendPeriod = 20):
+def preview(_: User = Depends(require_current_user), market: Market = "CN", trend_period: TrendPeriod = 10):
     payload = load_preview(market, trend_period=trend_period)
     if payload is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Trend Following preview is not available")
@@ -488,7 +497,7 @@ def detail(
     trade_date: date | None = None,
     _: User = Depends(require_current_user),
     market: Market = "CN",
-    trend_period: TrendPeriod = 20,
+    trend_period: TrendPeriod = 10,
     before_trade_date: date | None = None,
 ):
     """Return exact-date detail, or official history only strictly before before_trade_date."""

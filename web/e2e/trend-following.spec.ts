@@ -101,7 +101,7 @@ for (const width of [1280, 1440, 1920]) {
       const downloadPromise = page.waitForEvent('download');
       await page.getByTestId('trend-export-excel').click();
       const download = await downloadPromise;
-      expect(download.suggestedFilename()).toBe(`趋势分析_CN_20日_${snapshot.tradeDate}_official.xlsx`);
+      expect(download.suggestedFilename()).toBe(`趋势分析_CN_10日_${snapshot.tradeDate}_official.xlsx`);
       expect(await download.failure()).toBeNull();
       await download.saveAs(testInfo.outputPath('ranking.xlsx'));
 

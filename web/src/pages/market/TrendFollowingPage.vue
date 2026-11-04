@@ -73,7 +73,7 @@ const emptySummary = (): TrendSummary => ({
 });
 const route = useRoute();
 const { market } = useMarket();
-const trendPeriod = ref<TrendPeriod>(20);
+const trendPeriod = ref<TrendPeriod>(10);
 const periodText = (text: string) => trendPeriodText(text, trendPeriod.value);
 const descriptions = new Proxy(trendIndicatorDescriptions, { get: (target, key: string) => target[key] == null ? undefined : key === 'entry' ? target[key].replaceAll('{period}', String(trendPeriod.value)) : periodText(target[key]) });
 const selectedDate = ref('');
@@ -502,7 +502,7 @@ onMounted(async () => {
           data-testid="trend-period"
         >
           <Button
-            v-for="period in ([20, 40, 60] as const)"
+            v-for="period in ([10, 20, 40] as const)"
             :key="period"
             :variant="trendPeriod === period ? 'default' : 'outline'"
             size="sm"

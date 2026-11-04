@@ -75,7 +75,7 @@ def _source(market, days, as_of, include_preview, trend_period):
     return repository, dates, preview, warnings
 
 
-def get_breadth_history(market: str, *, days=30, as_of: date | None = None, include_preview=False, trend_period=20):
+def get_breadth_history(market: str, *, days=30, as_of: date | None = None, include_preview=False, trend_period=10):
     repository, dates, preview, warnings = _source(market, days, as_of, include_preview, trend_period)
     counts = {day: Counter() for day in dates}
     summaries = {}
@@ -99,7 +99,7 @@ def get_breadth_history(market: str, *, days=30, as_of: date | None = None, incl
     }
 
 
-def get_transitions(market: str, *, days=3, direction="all", limit=20, as_of=None, include_preview=False, trend_period=20):
+def get_transitions(market: str, *, days=3, direction="all", limit=20, as_of=None, include_preview=False, trend_period=10):
     repository, dates, preview, warnings = _source(market, days + 1, as_of, include_preview, trend_period)
     by_date = {day: {} for day in dates}
     if dates:

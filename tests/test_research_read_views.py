@@ -16,7 +16,7 @@ from finance_analysis.interfaces.api.v1.endpoints import trend_following, etf_ro
 from tests.preview_database import preview_repository
 
 
-def payload(period=20):
+def payload(period=10):
     return {
         "market": "CN", "trend_period": period, "trade_date": "2026-10-14", "status": "completed",
         "preview_time": "2026-10-14T06:00:00.000Z", "rankable_count": 1,
@@ -61,7 +61,7 @@ def test_views_read_only_requested_rows_and_preserve_diagnostics():
 
 def test_publication_replaces_removed_symbols_failed_results_and_periods():
     client = preview_repository()
-    for period in (20, 40, 60):
+    for period in (10, 20, 40):
         trend_cache.save_preview("CN", payload(period), repository=client)
     failed = {**payload(40), "status": "failed", "snapshots": [], "warnings": ["not ready"]}
     trend_cache.save_preview("CN", failed, repository=client)

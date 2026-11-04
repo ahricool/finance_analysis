@@ -1,5 +1,6 @@
 """Alpha V3 curve, path and comparison regressions, entirely offline."""
 
+from dataclasses import replace
 from datetime import date, timedelta
 import json
 import math
@@ -48,7 +49,7 @@ def path_fixture(kind):
                 1000,
             )
         )
-    row = calculate_features(bars)
+    row = calculate_features(bars, config=replace(DEFAULT_CONFIG, trend_period=20))
     row.update(code=kind, rs_5d=row["return_5d"], rs_10d=row["return_10d"], rs_20d=row["return_20d"])
     return row
 
@@ -176,7 +177,7 @@ def test_no_positive_or_negative_returns_and_zero_atr_are_finite(step):
         )
         for i in range(30)
     ]
-    row = calculate_features(bars)
+    row = calculate_features(bars, config=replace(DEFAULT_CONFIG, trend_period=20))
     row.update(code="zero", rs_5d=0, rs_10d=0, rs_20d=0)
     ranked = rank_candidates([row])[0]
     json.dumps(ranked, allow_nan=False)
@@ -198,14 +199,14 @@ def test_path_features_use_ten_simple_returns_and_compression_excludes_today():
         DailyBar(date(2026, 1, 1) + timedelta(days=i), close, close + 1, close - 1, close, 1000)
         for i, close in enumerate(closes)
     ]
-    row = calculate_features(bars)
+    row = calculate_features(bars, config=replace(DEFAULT_CONFIG, trend_period=20))
     assert row["positive_return_concentration"] == pytest.approx(0.5)
     assert row["avg_positive_return"] == pytest.approx(0.02)
     assert row["avg_negative_return_abs"] == pytest.approx(0.015)
     assert row["downside_upside_ratio"] == pytest.approx(.03 / .14)
     last = bars[-1]
     bars[-1] = DailyBar(last.trade_date, last.open, last.high + 20, last.low - 20, last.close, last.volume)
-    expanded = calculate_features(bars)
+    expanded = calculate_features(bars, config=replace(DEFAULT_CONFIG, trend_period=20))
     assert expanded["atr_contraction_ratio"] == row["atr_contraction_ratio"]
     assert expanded["range_contraction_ratio"] == row["range_contraction_ratio"]
     assert expanded["atr_expansion_ratio"] > row["atr_expansion_ratio"]

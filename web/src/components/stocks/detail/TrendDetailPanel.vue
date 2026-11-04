@@ -22,7 +22,7 @@ import TrendFragilityHistoryChart from '@/components/trend-following/TrendFragil
 import TrendRankHistoryChart from '@/components/trend-following/TrendRankHistoryChart.vue';
 
 const props = defineProps<StockDetailPanelProps>();
-const trendPeriod = computed(() => props.context?.trendPeriod ?? 20);
+const trendPeriod = computed(() => props.context?.trendPeriod ?? 10);
 const periodText = (text: string) => trendPeriodText(text, trendPeriod.value);
 const descriptions = computed(() => Object.fromEntries(Object.entries(trendIndicatorDescriptions).map(([key, value]) => [key, key === 'entry' ? value.replaceAll('{period}', String(trendPeriod.value)) : periodText(value)])));
 const detail = ref<TrendDetailResponse | null>(null);

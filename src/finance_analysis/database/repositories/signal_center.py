@@ -30,7 +30,7 @@ class SignalCenterRepository(ConfluenceRepository):
         # Reuse the exact persisted generation displayed by the Confluence page, without another top-N filter.
         return self.read(market, day)
 
-    def trend(self, market, day, period=20):
+    def trend(self, market, day, period=10):
         with self.db.get_session() as session:
             fields = (
                 "id instrument_id code trend_period trade_date generated_at rank state setup alpha_score trend_score "
@@ -141,7 +141,7 @@ class SignalCenterRepository(ConfluenceRepository):
             ):
                 query = select(model).where(model.market == market, model.trade_date == day)
                 if model is TrendFollowingSummary:
-                    query = query.where(model.trend_period == 20)
+                    query = query.where(model.trend_period == 10)
                 row = session.scalar(query)
                 if row:
                     result.append(dict(values(row, "trade_date generated_at " + fields), source=source))

@@ -1,6 +1,6 @@
 """Frozen discovery identities; changing an economic rule requires a new version."""
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import date
 
 INITIAL_CAPITAL = 1_000_000.0
@@ -24,7 +24,7 @@ class StrategyDefinition:
     observation_start: date | None = None
 
     def source_id(self, market):
-        return SOURCE_IDS[(self.key, market)]
+        return SOURCE_IDS[(self.key, market)] + ("_trend_periods_v2" if self.version == "2" else "")
 
     def describe(self, market):
         regression = self.family == "regression" or (self.family == "breadth" and market == "US")
@@ -46,10 +46,10 @@ class StrategyDefinition:
             rules += [
                 (
                     "入场与排序",
-                    "仅股票：Trend60≥55、RS60≥45、Path60≥65，且收盘>MA30、MA30>MA60、"
-                    "30日收益>0、60日加权回归斜率>0四项全部成立；按Trend60降序，同分按代码。",
+                    "仅股票：Trend40≥55、RS40≥45、Path40≥65，且收盘>MA20、MA20>MA40、"
+                    "20日收益>0、40日加权回归斜率>0四项全部成立；按Trend40降序，同分按代码。",
                 ),
-                ("市场开关与退出", "20日市场分数≥60才新增；<35清仓；收盘<MA20退出。无ETF补位。"),
+                ("市场开关与退出", "10日市场分数≥60才新增；<35清仓；收盘<MA20退出。无ETF补位。"),
             ]
         elif regression:
             rules += [
@@ -61,20 +61,20 @@ class StrategyDefinition:
                 (
                     "退出与市场开关",
                     "每日收盘<MA100退出；月末最后交易日跌出合格排名前5退出，排名在市场门控前计算。"
-                    "ETF非RISK_OFF才允许新增；ETF和60日Trend连续两日均RISK_OFF则清仓。",
+                    "ETF非RISK_OFF才允许新增；ETF和40日Trend连续两日均RISK_OFF则清仓。",
                 ),
             ]
         elif hybrid:
             rules += [
                 (
                     "股票分支",
-                    "Trend60≥60、RS60≥50，ETF及20日Trend市场均RISK_ON时入场，按Trend60降序。"
-                    "跌破此前20日最低价，或20日市场分数<60，或ETF非RISK_ON时退出。",
+                    "Trend40≥60、RS40≥50，ETF及10日Trend市场均RISK_ON时入场，按Trend40降序。"
+                    "跌破此前20日最低价，或10日市场分数<60，或ETF非RISK_ON时退出。",
                 ),
                 (
                     "ETF分支",
                     "ForceIndex2<0、当日下跌，EMA50上行且收盘在EMA50和MA200上方、126日收益>0，"
-                    "Trend40≥60、RS40≥50（在冻结股票＋ETF横截面按研究公式计算）；基准亦在MA200上且126日收益>0。"
+                    "Trend20≥60、RS20≥50（在冻结股票＋ETF横截面按研究公式计算）；基准亦在MA200上且126日收益>0。"
                     "按126日收益/max(20日年化波动,0.10)降序；股票优先，ETF使用剩余槽位。"
                     "ForceIndex转正、收盘<EMA50或基准过滤失效退出，两分支各用ATR3。",
                 ),
@@ -93,7 +93,7 @@ class StrategyDefinition:
             rules.append(
                 (
                     "市场开关",
-                    "20日市场分数≥65才新增；<40清仓；40≤分数<65只持有，不新增。股票与ETF共同排名，排除CTVA.US。",
+                    "10日市场分数≥65才新增；<40清仓；40≤分数<65只持有，不新增。股票与ETF共同排名，排除CTVA.US。",
                 )
             )
         if self.observation_start:
@@ -137,21 +137,28 @@ class StrategyDefinition:
             (
                 "上线适配与限制",
                 "从本模块统一启动日期空仓开始，历史日线仅作指标预热。"
-                "复用对应日期正式Trend60/市场状态及ETF市场状态，ETF强度在本轮共享计算；缺依赖则等待。"
+                "复用对应日期正式Trend40/市场状态及ETF市场状态，ETF强度在本轮共享计算；缺依赖则等待。"
                 "指标最多270交易日预热，EMA/ATR从窗口连续样本重设种子，边界可能与研究全历史递推略有差异。"
                 "当前成分不代表历史成分，研究置信度及历史高收益不构成模拟收益。"
                 "MA/动量族允许股票及ETF，沿用统一流动性过滤和原研究CTVA排除规则。A股股票采用开盘涨跌幅限制代理，ETF不猜测涨跌幅类别（非实盘可成交证明）；前复权尺度变化按持仓估值桥接换算。",
             ),
         ]
-        if self.observation_start:
+        if self.observation_start and self.family in {"trend_quality", "ma_market"}:
             rules[-1] = (
                 "上线适配与限制",
                 f"不早于{self.observation_start.isoformat()}首个交易日空仓启动，历史日线仅作预热；沿用系统冻结Universe。"
-                "只读当日正式Trend20市场分数；A股另读正式Trend60的Trend、RS、Path和趋势条件。"
+                "只读当日正式Trend10市场分数；A股另读正式Trend40的Trend、RS、Path和趋势条件。"
                 "不依赖ETF市场开关，不请求外部API；缺少依赖则等待。"
                 "当前正式评分横截面、四位小数精度与研究冻结池可能有差异，不沿用历史CAGR。"
                 "最多270交易日预热，复权桥接与开盘成交限制沿用系统规则。",
             )
+        if self.version == "2":
+            rules.append((
+                "Trend周期调整",
+                "原Trend20市场开关改用Trend10，原Trend60评分/状态改用Trend40；原ETF Trend40/RS40改为独立20日横截面评分。"
+                f"自{self.observation_start.isoformat()}起以独立版本空仓观察，不拼接旧版本净值。"
+                "旧版历史保留，缺同日正式结果则等待；其他指标与阈值保持原定义。",
+            ))
         return dict(asdict(self), source_id=self.source_id(market), rules=[dict(label=k, text=v) for k, v in rules])
 
 
@@ -203,6 +210,12 @@ STRATEGIES = (
         risk_engine="20261023",
         observation_start=date(2026, 10, 23),
     ),
+)
+# Economic input changes start independent states/curves; keep legacy rows untouched.
+STRATEGIES = tuple(
+    replace(spec, version="2", observation_start=date(2026, 11, 4))
+    if spec.family in {"trend_quality", "ma_market", "hybrid", "regression", "breadth"} else spec
+    for spec in STRATEGIES
 )
 SOURCE_IDS = {
     ("trend_quality35", "CN"): "local60_t55_r45_p65_e60_x35_ma20_n1_a0",

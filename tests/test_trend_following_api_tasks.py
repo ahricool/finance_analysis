@@ -352,7 +352,7 @@ def test_trend_task_business_status_drives_existing_lifecycle(monkeypatch, marke
     monkeypatch.setattr(lifecycle, "_send_task_failure_notification", notification)
     task = tasks.run_trend_following_cn if market == "CN" else tasks.run_trend_following_us
     if status == "completed":
-        assert task.run(trade_date="2026-09-08") == {**result, "periods": {str(p): result for p in (20, 40, 60)}}
+        assert task.run(trade_date="2026-09-08") == {**result, "periods": {str(p): result for p in (10, 20, 40)}}
         service.mark_completed.assert_called_once()
         service.mark_failed.assert_not_called()
         notification.assert_not_called()

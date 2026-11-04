@@ -81,7 +81,7 @@ class ConfluenceService:
             industry_rows = sorted(index["industry"].get(code, []), key=lambda row: row.get("industry_code", ""))
             inputs = {}
             if trend_rows:
-                anchor = next((r for r in trend_rows if r.get("trend_period", 20) == 20), trend_rows[0])
+                anchor = next((r for r in trend_rows if r.get("trend_period", 10) == 10), trend_rows[0])
                 inputs["trend"] = dict(anchor, periods=trend_rows)
             if industry_rows:
                 inputs["industry"] = dict(industry_rows[0], industries=industry_rows)

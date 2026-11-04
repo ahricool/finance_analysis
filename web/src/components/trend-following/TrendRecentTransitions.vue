@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button';
 import type { TrendMarket, TrendTransitionsResponse, TransitionDirection } from '@/types/trendFollowing';
 import { describeTrendStateChange, TREND_TRANSITION_RANGES } from '@/utils/trendStateChange';
 
-const props = defineProps<{ market: TrendMarket; trendPeriod?: 20 | 40 | 60; asOf?: string; includePreview: boolean; refreshKey: number }>();
+const props = defineProps<{ market: TrendMarket; trendPeriod?: 10 | 20 | 40; asOf?: string; includePreview: boolean; refreshKey: number }>();
 const emit = defineEmits<{ select: [value: { code: string; tradeDate: string; preview: boolean }] }>();
 const days = ref<1 | 3 | 5>(3);
 const direction = ref<TransitionDirection>('all');
@@ -26,7 +26,7 @@ async function load() {
   error.value = null;
   loading.value = true;
   try {
-    const result = await trendFollowingApi.transitions(props.market, days.value, direction.value, props.asOf, props.includePreview, props.trendPeriod ?? 20);
+    const result = await trendFollowingApi.transitions(props.market, days.value, direction.value, props.asOf, props.includePreview, props.trendPeriod ?? 10);
     if (id === requestId) data.value = result;
   } catch (reason) {
     if (id === requestId) error.value = getParsedApiError(reason);

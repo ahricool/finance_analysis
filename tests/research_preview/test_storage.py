@@ -37,7 +37,7 @@ def test_full_roundtrip_factoring_and_all_views_are_lossless(store):
     for key, expected in preview_views(data).items():
         assert json.loads(trend.load_preview_view('CN', key, repository=store)) == expected
     with store.db.get_session() as session:
-        batch = session.get(ResearchPreview, ('trend_following', 'CN', 20))
+        batch = session.get(ResearchPreview, ('trend_following', 'CN', 10))
         assert 'snapshots' not in batch.header
         assert batch.shared['values']['features']['unused'] == [1] * 1000
         rows = session.scalars(select(ResearchPreviewItem)).all()
@@ -66,7 +66,7 @@ def test_names_are_joined_from_instrument_without_losing_unknown_names(store):
 def test_replacement_scope_rollback_and_older_publication(store):
     data = payload()
     for market in ('CN', 'US'):
-        for period in (20, 40, 60):
+        for period in (10, 20, 40):
             trend.save_preview(market, {**data, 'trend_period': period}, repository=store)
     original = trend.load_preview('CN', repository=store)
 
@@ -111,7 +111,7 @@ def test_expiry_and_bounded_queries(store):
     finally:
         event.remove(store.db.engine, 'before_cursor_execute', record)
     with store.db.session_scope() as session:
-        session.get(ResearchPreview, ('trend_following', 'CN', 20)).expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+        session.get(ResearchPreview, ('trend_following', 'CN', 10)).expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
     assert trend.load_preview('CN', repository=store) is None
 
 

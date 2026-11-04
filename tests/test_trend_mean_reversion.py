@@ -7,6 +7,7 @@ import pytest
 from finance_analysis.trend_following.indicators import rsi_series
 from finance_analysis.trend_following.features import calculate_features
 from finance_analysis.trend_following.mean_reversion import calculate_mean_reversion
+from finance_analysis.trend_following.config import DEFAULT_CONFIG
 from finance_analysis.trend_following.models import DailyBar
 
 
@@ -18,7 +19,8 @@ def history(closes):
 
 
 def evaluate(bars, **kwargs):
-    return calculate_mean_reversion(bars, calculate_features(bars), **kwargs)
+    kwargs.setdefault("config", replace(DEFAULT_CONFIG, trend_period=20))
+    return calculate_mean_reversion(bars, calculate_features(bars, config=replace(DEFAULT_CONFIG, trend_period=20)), **kwargs)
 
 
 def falling():
@@ -40,7 +42,7 @@ def test_wilder_seed_and_existing_rolling_rsi_preserved():
 
 def test_raw_features_oversold_and_normal_decline():
     bars = history(falling())
-    features = calculate_features(bars)
+    features = calculate_features(bars, config=replace(DEFAULT_CONFIG, trend_period=20))
     row = evaluate(bars)
     assert row["mr_state"] == "MR_OVERSOLD"
     assert row["rsi14"] <= 35
@@ -66,8 +68,8 @@ def test_future_append_and_preview_cannot_change_historical_state():
     original = evaluate(bars)
     appended = bars + history([200])
     assert evaluate(appended[: len(bars)]) == original
-    preview_features = calculate_features(bars, preview=True)
-    assert calculate_mean_reversion(bars, preview_features) == original
+    preview_features = calculate_features(bars, preview=True, config=replace(DEFAULT_CONFIG, trend_period=20))
+    assert calculate_mean_reversion(bars, preview_features, config=replace(DEFAULT_CONFIG, trend_period=20)) == original
 
 
 def test_official_consumed_episode_prevents_replay_reset():
@@ -83,9 +85,9 @@ def test_mean_reversion_does_not_mutate_alpha_entry_candidate_or_state():
     from finance_analysis.trend_following.state import transition_state
 
     bars = history(falling() + [89])
-    original = calculate_features(bars)
+    original = calculate_features(bars, config=replace(DEFAULT_CONFIG, trend_period=20))
     original.update(code="AAA.US", rs_5d=-0.1, rs_10d=-0.2, rs_20d=-0.1)
-    enriched = {**deepcopy(original), **calculate_mean_reversion(bars, original)}
+    enriched = {**deepcopy(original), **calculate_mean_reversion(bars, original, config=replace(DEFAULT_CONFIG, trend_period=20))}
     original, enriched = rank_candidates([original])[0], rank_candidates([enriched])[0]
     for key in ("alpha_score", "trend_score", "rs_score", "setup_score", "path_score", "is_candidate"):
         assert original[key] == enriched[key]

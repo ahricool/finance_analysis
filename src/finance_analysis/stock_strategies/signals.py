@@ -7,23 +7,23 @@ def decide(spec, state, data):
     candidates, exits = [], {}
     stock_codes = set(data.stocks)
     regime = (
-        data.require_context(20 if spec.family == "hybrid" else 60) if spec.family in {"hybrid", "regression"} else None
+        data.require_context(10 if spec.family == "hybrid" else 40) if spec.family in {"hybrid", "regression"} else None
     )
     if spec.family in {"trend_quality", "ma_market"}:
-        regime = data.regimes.get(20)
+        regime = data.regimes.get(10)
         if not regime or not finite(regime.get("score")):
-            raise DataNotReady(f"等待{data.day}正式Trend20市场分数")
+            raise DataNotReady(f"等待{data.day}正式Trend10市场分数")
     if spec.family == "trend_quality":
-        if not data.trends.get(60) or 60 not in data.regimes:
-            raise DataNotReady(f"等待{data.day}完整正式Trend60评分")
+        if not data.trends.get(40) or 40 not in data.regimes:
+            raise DataNotReady(f"等待{data.day}完整正式Trend40评分")
         for code in data.stocks:
-            trend = data.trends[60].get(code)
+            trend = data.trends[40].get(code)
             if data.stock_eligible(code) and (
                 not trend
                 or not all(finite(trend.get(k)) for k in ("trend_score", "rs_score", "path_score"))
                 or not isinstance(trend.get("trend_candidate"), bool)
             ):
-                raise DataNotReady(f"等待{code}正式Trend60路径质量与趋势条件")
+                raise DataNotReady(f"等待{code}正式Trend40路径质量与趋势条件")
     breadth, denominator = data.breadth50() if spec.breadth else (None, None)
     breadth_bad = state.get("breadth_bad", 0) + 1 if breadth is not None and breadth < 0.25 else 0
     macro_bad = (
@@ -39,9 +39,9 @@ def decide(spec, state, data):
         if not finite(b.get("ma200")) or not b.get("valid"):
             raise DataNotReady("等待基准完整MA200日线")
         benchmark_ok = b["close"] > b["ma200"] and b["mom126"] > 0
-        for period in (40, 60):
+        for period in (20, 40):
             if period not in data.trends:
-                raise DataNotReady(f"等待{data.day}正式Trend{period}排名")
+                raise DataNotReady(f"等待{data.day}Trend{period}排名")
     stock_candidates, etf_candidates = [], []
     rank_pool = []
     for code in (*data.stocks, *data.etfs, *state.get("positions", {})):
@@ -50,7 +50,7 @@ def decide(spec, state, data):
         f = data.features.get(code, {})
         if not f.get("valid"):
             exits[code] = (
-                ["20日市场分数触发清仓"]
+                ["10日市场分数触发清仓"]
                 if spec.family in {"trend_quality", "ma_market"}
                 and regime["score"] < (35 if spec.family == "trend_quality" else 40)
                 else []
@@ -69,9 +69,9 @@ def decide(spec, state, data):
             if c < f.get("ma20", 0):
                 reasons.append("收盘跌破MA20")
             if spec.family == "ma_market" and regime["score"] < 40:
-                reasons.append("20日市场分数低于40")
+                reasons.append("10日市场分数低于40")
         elif spec.family == "trend_quality":
-            trend = data.trends[60].get(code, {})
+            trend = data.trends[40].get(code, {})
             entry = (
                 code in stock_codes
                 and not is_etf
@@ -85,7 +85,7 @@ def decide(spec, state, data):
             if c < f.get("ma20", 0):
                 reasons.append("收盘跌破MA20")
             if regime["score"] < 35:
-                reasons.append("20日市场分数低于35")
+                reasons.append("10日市场分数低于35")
         elif spec.family == "momentum":
             entry = eligible and data.stock_eligible(code) and bull and f.get("mom60", 0) > 0
             score = f.get("mom60", 0)
@@ -103,11 +103,11 @@ def decide(spec, state, data):
             if c < f.get("ma100", 0):
                 reasons.append("收盘跌破MA100")
             if market_off:
-                reasons.append("ETF与Trend60连续两日风险关闭")
+                reasons.append("ETF与Trend40连续两日风险关闭")
         elif is_etf:
-            trend = data.trends[40].get(code)
+            trend = data.trends[20].get(code)
             if code in data.etfs and not trend:
-                raise DataNotReady(f"等待ETF {code} 当日Trend40评分")
+                raise DataNotReady(f"等待ETF {code} 当日Trend20评分")
             entry = (
                 eligible
                 and bull
@@ -125,7 +125,7 @@ def decide(spec, state, data):
             if not benchmark_ok:
                 reasons.append("基准长期趋势过滤关闭")
         else:
-            trend = data.trends[60].get(code)
+            trend = data.trends[40].get(code)
             entry = eligible and bool(trend) and trend["trend_score"] >= 60 and trend["rs_score"] >= 50
             score = trend["trend_score"] if trend else 0
             if c < f.get("low20", 0):

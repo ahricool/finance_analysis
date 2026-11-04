@@ -50,7 +50,7 @@ def bars(*, count: int = 80, start: float = 100.0, step: float = 1.0, final: flo
 def test_weighted_slope_r_squared_returns_drawdown_and_atr():
     series = bars(step=1.0)
     slope, r_squared = weighted_log_regression([item.close for item in series])
-    features = calculate_features(series)
+    features = calculate_features(series, config=replace(DEFAULT_CONFIG, trend_period=20))
     assert slope > 0
     assert r_squared > 0.99
     assert features is not None
@@ -146,10 +146,10 @@ def test_absolute_trend_rejects_incorrect_condition_count(checks):
         absolute_trend_passes(checks)
 
 
-@pytest.mark.parametrize("period", [20, 40, 60])
+@pytest.mark.parametrize("period", [10, 20, 40])
 def test_close_at_or_below_short_ma_fails_candidate_despite_other_three_conditions(period):
     config = replace(DEFAULT_CONFIG, trend_period=period)
-    features = calculate_features(bars(count=period + 4, final=100.0 + period * 0.8), config=config)
+    features = calculate_features(bars(count=period + 4, final=100.0 + period * 0.75 + 3), config=config)
     assert features is not None
     assert features["absolute_trend_checks"] == {
         "close_above_ma10": False,

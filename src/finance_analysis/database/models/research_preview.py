@@ -21,7 +21,7 @@ class ResearchPreview(Base):
 
     __table_args__ = (
         CheckConstraint("market IN ('CN', 'US')", name="ck_research_preview_market"),
-        CheckConstraint("variant IN (0, 20, 40, 60)", name="ck_research_preview_variant"),
+        CheckConstraint("variant IN (0, 10, 20, 40, 60)", name="ck_research_preview_variant"),
     )
 
 

@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 DEPENDENCIES = {
     "trend20": "trend_following",
     "trend40": "trend_following",
-    "trend60": "trend_following",
+    "trend10": "trend_following",
     "etf": "etf_rotation",
     "industry": "industry_strength",
     "confluence": "confluence",
@@ -79,14 +79,14 @@ def collect(repo, market, day):
             availability[key] = dict(status="failed", data_as_of=None, generated_at=None, count=0)
     trends = {
         period: {by_id[r["instrument_id"]]: r for r in sources[f"trend{period}"] if r["instrument_id"] in by_id}
-        for period in (20, 40, 60)
+        for period in (10, 20, 40)
     }
     industry = {}
     for r in sources["industry"]:
         if r["code"] in stocks:
             industry.setdefault(r["code"], []).append(r)
     selections = {}
-    for period, limit in ((20, 30), (40, 10), (60, 10)):
+    for period, limit in ((10, 30), (20, 10), (40, 10)):
         ranked = sorted(
             (r for r in trends[period].values() if r.get("rank") is not None), key=lambda r: (r["rank"], r["code"])
         )
@@ -147,9 +147,9 @@ def collect(repo, market, day):
             screening_plan=screening_plan(candidates),
             market_regime=sources["regime"],
             selection_rules=dict(
-                trend20_top=30,
+                trend20_top=10,
                 trend40_top=10,
-                trend60_top=10,
+                trend10_top=30,
                 etf_top=10,
                 industry_top=5,
                 industry_per_group=3,

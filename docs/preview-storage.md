@@ -7,7 +7,7 @@
 
 ## 范围与替换
 
-批次主键为 `(namespace, market, variant)`：Trend 的 variant 为 20/40/60，其他模块为 0。
+批次主键为 `(namespace, market, variant)`：Trend 的 variant 为 10/20/40，其他模块为 0。
 每个范围只有一条批次，明细主键额外包含 kind 和 item_key；没有时间版本历史。
 新结果在同一事务中锁定批次、DELETE 对应旧明细、插入本轮明细、更新摘要。
 使用范围 DELETE，避免 TRUNCATE 清掉其他市场、周期或模块。

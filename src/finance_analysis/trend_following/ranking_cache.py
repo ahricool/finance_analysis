@@ -7,7 +7,7 @@ class RankingCache(SnapshotRankingCache):
     namespace = "trend_following"
     schema_version = "v11"
 
-    def __init__(self, market, trade_date, trend_period=20, *, table=False):
+    def __init__(self, market, trade_date, trend_period=10, *, table=False):
         super().__init__(market, trade_date)
         self.key += f":{trend_period}"
         if table:

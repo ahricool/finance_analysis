@@ -1,4 +1,5 @@
 from datetime import date, timedelta
+from dataclasses import replace
 
 import pytest
 from sqlalchemy import select
@@ -54,3 +55,18 @@ def test_global_launch_anchor_survives_freeze_failure_and_stays_read_only(reposi
     with repository.db.get_session() as session:
         assert list(session.scalars(select(StockStrategyDay))) == []
         assert list(session.scalars(select(StockStrategyRun))) == []
+
+
+def test_trend40_version_keeps_legacy_account_and_curve_separate(repository):
+    current = next(spec for spec in STRATEGIES if spec.key == "trend_quality35")
+    legacy = replace(current, version="1", observation_start=date(2026, 10, 23))
+    repository.initialize(legacy, "CN", DAY)
+    repository.settle(legacy, "CN", DAY, None, lambda state: advance(SPEC, state, inputs(), DAY))
+    repository.initialize(current, "CN", current.observation_start)
+    assert current.version == "2"
+    assert repository.state(current, "CN")["payload"]["sessions"] == 0
+    assert repository.state(current, "CN")["payload"]["cash"] == 1e6
+    assert repository.curve(current, "CN") == []
+    assert repository.state(legacy, "CN")["last_date"] == DAY
+    assert len(repository.curve(legacy, "CN")) == 1
+    assert current.source_id("CN") != legacy.source_id("CN")

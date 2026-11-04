@@ -49,8 +49,8 @@ def inputs(day=date(2026, 10, 19), prices=None, previous=None, month_end=False, 
         prices={
             c: {(day - timedelta(days=1)).isoformat(): previous[c], day.isoformat(): p[1]} for c, p in prices.items()
         },
-        trends={40: {}, 60: {}},
-        regimes={20: dict(regime="RISK_ON", score=80), 60: dict(regime="RISK_ON", score=80)},
+        trends={40: {}},
+        regimes={10: dict(regime="RISK_ON", score=80), 40: dict(regime="RISK_ON", score=80)},
         etf_regime="RISK_ON",
         benchmark="SPY.US",
     )

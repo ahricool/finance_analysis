@@ -141,7 +141,7 @@ def evaluate(key, facts=None, reason="该日期无可用正式指标"):
     elif key == "trend":
         strength, evidence["matrix"] = trend_score(facts)
         reasons = [
-            "20/40/60日分别比较趋势、突破、超跌反弹三条替代路线，取各周期最强路线后等权平均",
+            "10/20/40日分别比较趋势、突破、超跌反弹三条替代路线，取各周期最强路线后等权平均",
             "同周期的替代形态不重复叠加；没有对应核心字段的单元留空",
         ]
     elif key == "quant":

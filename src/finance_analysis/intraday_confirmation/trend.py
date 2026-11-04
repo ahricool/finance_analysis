@@ -1,5 +1,7 @@
 """Reuse Trend Preview's pure features/state/health functions, with frozen cross-section."""
 
+from dataclasses import replace
+
 from finance_analysis.trend_following.features import calculate_features
 from finance_analysis.trend_following.scoring import calculate_trend_score, calculate_rs_score
 from finance_analysis.trend_following.state import transition_state
@@ -22,7 +24,12 @@ def temporary_trend(official, history, quote, benchmark_history, benchmark_quote
         impact="unavailable",
         calculation_basis="昨日横截面百分位固定；当日价格特征重算，不生成盘中排名；临时 lifecycle 不含完整衰减基线",
     )
-    if not official or len(history) < c.TREND_CONFIG.minimum_history_bars or not quote or not benchmark_quote:
+    # A previously frozen pool keeps its original period; new pools freeze Trend10.
+    period = (official or {}).get("trend_period") or ((official or {}).get("features") or {}).get(
+        "trend_period", c.TREND_CONFIG.trend_period
+    )
+    config = replace(c.TREND_CONFIG, trend_period=period)
+    if not official or len(history) < config.minimum_history_bars or not quote or not benchmark_quote:
         return result
     if (
         history[-1].trade_date != previous_day
@@ -51,9 +58,9 @@ def temporary_trend(official, history, quote, benchmark_history, benchmark_quote
 
     bars = overlay(history, quote)
     bench = overlay(benchmark_history, benchmark_quote)
-    if not bars or not bench or len(bench) < c.TREND_CONFIG.minimum_history_bars:
+    if not bars or not bench or len(bench) < config.minimum_history_bars:
         return result
-    features = calculate_features(bars, c.TREND_CONFIG.minimum_history_bars)
+    features = calculate_features(bars, config.minimum_history_bars, config)
     if features is None:
         return result
     frozen = official.get("features") or {}
@@ -61,17 +68,17 @@ def temporary_trend(official, history, quote, benchmark_history, benchmark_quote
     if percentile is None:
         return result
     features["weighted_slope_percentile"] = percentile
-    for window in (5, 10, 20):
-        features[f"rs_{window}d"] = features[f"return_{window}d"] - (bench[-1].close / bench[-window - 1].close - 1)
-    features["trend_score"] = calculate_trend_score(features)[0]
-    features["rs_score"] = calculate_rs_score(features)[0]
+    for key, window in ((5, config.recent_window), (10, config.short_window), (20, config.trend_period)):
+        features[f"rs_{key}d"] = features[f"return_{key}d"] - (bench[-1].close / bench[-window - 1].close - 1)
+    features["trend_score"] = calculate_trend_score(features, config)[0]
+    features["rs_score"] = calculate_rs_score(features, config)[0]
     # No new ranked candidacy. Previous formal candidates alone are evaluated here.
     features["is_candidate"] = official["state"] == "CANDIDATE"
-    state = transition_state(features, official).state
+    state = transition_state(features, official, config=config).state
     previous_duration = official.get("trend_duration_days")
     duration = (previous_duration + 1 if previous_duration is not None else None) if features["trend_candidate"] else 0
     temporary = dict(features=features, trend_duration_days=duration)
-    # Rank deterioration and 3D/5D health baselines are unavailable in this narrow pool.
+    # Rank deterioration and period-specific health baselines are unavailable in this narrow pool.
     # Do not fabricate a comparable official fragility delta from a different component set.
     temporary.update(calculate_fragility(temporary, {}, as_of=day))
     lifecycle = classify_lifecycle(temporary)
@@ -90,6 +97,6 @@ def temporary_trend(official, history, quote, benchmark_history, benchmark_quote
         temporary_lifecycle=lifecycle,
         trend_score_delta=round(delta, 2),
         impact=impact,
-        fragility_unavailable_reason="未重算盘中全市场排名与完整3D/5D脆弱度基线，保持 unavailable",
+        fragility_unavailable_reason="未重算盘中全市场排名与完整的对应周期脆弱度基线，保持 unavailable",
     )
     return result

@@ -17,14 +17,14 @@ NAMESPACE = "trend_following"
 
 def _scope(market, period):
     if period not in TREND_PERIODS:
-        raise ValueError("trend_period must be 20, 40 or 60")
+        raise ValueError("trend_period must be 10, 20 or 40")
     return NAMESPACE, normalize_market(market), period
 
 
 def save_preview(market, payload, *, repository=None):
     ready = json_ready(payload)
     rows = ready.pop("snapshots", [])
-    period = ready.get("trend_period", 20)
+    period = ready.get("trend_period", 10)
     scope = _scope(market, period)
     ready.update(market=scope[1], trend_period=period, snapshot_count=len(rows))
     aliases = {feature: top for feature, top in (
@@ -68,7 +68,8 @@ def save_preview(market, payload, *, repository=None):
 
 
 def _read(market, period, repository, **kwargs):
-    return (repository or PreviewRepository()).read(*_scope(market, period), **kwargs)
+    scope = _scope(market, period)
+    return (repository or PreviewRepository()).read(*scope, **kwargs)
 
 
 def _row(stored, row, *, summary_only=False):
@@ -95,12 +96,12 @@ def _row(stored, row, *, summary_only=False):
     return result
 
 
-def load_preview(market, *, trend_period=20, repository=None):
+def load_preview(market, *, trend_period=10, repository=None):
     stored = _read(market, trend_period, repository)
     return {**stored["header"], "snapshots": [_row(stored, row) for row in stored["items"]]} if stored else None
 
 
-def load_preview_view(market, field, *, trend_period=20, repository=None):
+def load_preview_view(market, field, *, trend_period=10, repository=None):
     from finance_analysis.core.preview_metadata import preview_metadata
     from .table import snapshot_item, table_rows
 
@@ -138,6 +139,6 @@ def load_preview_view(market, field, *, trend_period=20, repository=None):
     return encode({**stored["header"], "table": table_rows(projected)})
 
 
-def load_preview_states(market, *, trend_period=20, repository=None):
+def load_preview_states(market, *, trend_period=10, repository=None):
     body = load_preview_view(market, "states", trend_period=trend_period, repository=repository)
     return json.loads(body) if body else None

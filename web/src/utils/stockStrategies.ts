@@ -26,7 +26,7 @@ export function scoreLabel(s: Strategy, c: Candidate) {
   if (s.family === 'ma' || s.family === 'ma_market') return 'MA20/MA50−1';
   if (s.family === 'momentum') return '60日收益';
   if (s.family === 'regression') return '年化对数斜率 × R²';
-  if (s.family === 'trend_quality' || (s.family === 'hybrid' && c.type !== 'ETF')) return 'Trend60';
+  if (s.family === 'trend_quality' || (s.family === 'hybrid' && c.type !== 'ETF')) return 'Trend40';
   if (s.family === 'hybrid') return '126日动量 / max(波动率, 0.10)';
   return '本策略评分';
 }

@@ -164,6 +164,8 @@ class ReviewContextBuilder:
                 }[namespace]
                 rows.append(pick(row, fields))
             result = {"status": "available", "observed_at": utc_isoformat(observed), "items": rows}
+            if namespace == "trend_following":
+                result["trend_period"] = variant
             if keys is not None:
                 result["missing_symbols"] = sorted(set(keys) - {row.get("code") for row in rows})
             return result
@@ -212,7 +214,7 @@ class ReviewContextBuilder:
             quality.append("持仓分钟线获取失败")
         research = {
             "etf_rotation": self._preview("etf_rotation", market, now),
-            "holding_trends": self._preview("trend_following", market, now, keys=symbols, limit=None, variant=20),
+            "holding_trends": self._preview("trend_following", market, now, keys=symbols, limit=None, variant=10),
             "industry_strength": self._preview("industry_strength", market, now),
         }
         for key, value in research.items():

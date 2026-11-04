@@ -134,7 +134,7 @@ describe('TrendFollowingPage', { timeout: 30_000 }, () => {
     expect(toolbar.element.lastElementChild).toBe(periods.element);
     expect(toolbar.classes()).toContain('flex-wrap');
     expect(periods.classes()).toEqual(expect.arrayContaining(['ml-auto', 'shrink-0', 'flex-nowrap!']));
-    expect(periods.findAll('button').map(button => button.text())).toEqual(['20日', '40日', '60日']);
+    expect(periods.findAll('button').map(button => button.text())).toEqual(['10日', '20日', '40日']);
     expect(toolbar.find('[data-testid="trend-market"]').exists()).toBe(false);
     expect(toolbar.find('[data-testid="trend-refresh"]').exists()).toBe(true);
     expect(toolbar.find('[data-testid="trend-run-latest"]').exists()).toBe(mode === 'official');
@@ -184,17 +184,17 @@ describe('TrendFollowingPage', { timeout: 30_000 }, () => {
   it('switches complete strategy periods, ignores stale rankings, and carries the period into detail', async () => {
     const wrapper = mount(TrendFollowingPage);
     await flushPromises();
-    expect(apiMocks.ranking).toHaveBeenCalledWith('CN', undefined, 20);
-    let resolve60!: (value: TrendRankingResponse) => void;
-    apiMocks.ranking.mockImplementationOnce(() => new Promise(resolve => { resolve60 = resolve; }));
+    expect(apiMocks.ranking).toHaveBeenCalledWith('CN', undefined, 10);
+    let resolve20!: (value: TrendRankingResponse) => void;
+    apiMocks.ranking.mockImplementationOnce(() => new Promise(resolve => { resolve20 = resolve; }));
     const select = (label: string) => wrapper.get('[data-testid="trend-period"]').findAll('button').find(b => b.text() === label)!;
-    await select('60日').trigger('click');
+    await select('20日').trigger('click');
     await flushPromises();
     const forty = { ...ranking('CN'), items: [{ ...rankingSnapshot(), code: 'FORTY.US', name: 'Forty' }] };
     apiMocks.ranking.mockResolvedValueOnce(forty);
     await select('40日').trigger('click');
     await flushPromises();
-    resolve60({ ...ranking('CN'), items: [{ ...rankingSnapshot(), code: 'SIXTY.US', name: 'Sixty' }] });
+    resolve20({ ...ranking('CN'), items: [{ ...rankingSnapshot(), code: 'TWENTY.US', name: 'Twenty' }] });
     await flushPromises();
     expect(apiMocks.ranking).toHaveBeenLastCalledWith('CN', undefined, 40);
     expect(apiMocks.previewStatus).toHaveBeenLastCalledWith('CN', 40);
@@ -556,8 +556,8 @@ describe('TrendFollowingPage', { timeout: 30_000 }, () => {
   it.each([
     ['pathScore', '路径得分'], ['setupScore', '形态得分'], ['r2Quality', 'R² Quality'],
     ['concentrationQuality', 'Concentration Quality'], ['breakoutQuality', 'Breakout Quality'],
-    ['alphaTrendContribution', 'Trend Contribution'], ['weightedSlopePercentile', 'Slope Percentile 20D'],
-    ['rs10DQuality', 'RS 10D Quality'], ['drawdownQuality', 'Drawdown Quality'], ['trendCandidate', 'Trend Candidate'],
+    ['alphaTrendContribution', 'Trend Contribution'], ['weightedSlopePercentile', 'Slope Percentile 10D'],
+    ['rs10DQuality', 'RS 5D Quality'], ['drawdownQuality', 'Drawdown Quality'], ['trendCandidate', 'Trend Candidate'],
   ])('sorts all rows by %s without requesting detail', async (key, label) => {
     const items: TrendRankingSnapshot[] = Array.from({ length: 800 }, (_, index) => ({
       ...rankingSnapshot(), code: `V3${index}`, rank: index + 1,
@@ -681,18 +681,18 @@ describe('TrendFollowingPage', { timeout: 30_000 }, () => {
     apiMocks.ranking.mockResolvedValueOnce({ ...ranking('CN'), tradeDate: '2026-08-27' });
     await wrapper.get('[data-testid="trend-date-input"]').setValue('2026-08-27');
     await flushPromises();
-    expect(apiMocks.ranking.mock.calls).toEqual([['CN', '2026-08-27', 20]]);
+    expect(apiMocks.ranking.mock.calls).toEqual([['CN', '2026-08-27', 10]]);
     expect(apiMocks.breadthHistory.mock.calls).toEqual([
-      ['CN', '2026-08-28', false, 20], ['CN', '2026-08-27', false, 20],
+      ['CN', '2026-08-28', false, 10], ['CN', '2026-08-27', false, 10],
     ]);
     expect(apiMocks.previewRanking).not.toHaveBeenCalled();
     expect(apiMocks.candidates).not.toHaveBeenCalled();
     await wrapper.get('[data-testid="trend-row"]').trigger('click');
     await flushPromises();
-    expect(apiMocks.detail).toHaveBeenLastCalledWith('000001.SZ', 'CN', 60, '2026-08-27', 20);
+    expect(apiMocks.detail).toHaveBeenLastCalledWith('000001.SZ', 'CN', 60, '2026-08-27', 10);
     await wrapper.get('[data-testid="trend-refresh"]').trigger('click');
     await flushPromises();
-    expect(apiMocks.ranking).toHaveBeenLastCalledWith('CN', '2026-08-27', 20);
+    expect(apiMocks.ranking).toHaveBeenLastCalledWith('CN', '2026-08-27', 10);
     wrapper.unmount();
   });
 
@@ -701,7 +701,7 @@ describe('TrendFollowingPage', { timeout: 30_000 }, () => {
     apiMocks.dates.mockReturnValueOnce(new Promise(resolve => { resolveDates = resolve; }));
     const wrapper = mount(TrendFollowingPage);
     await flushPromises();
-    expect(apiMocks.ranking).toHaveBeenCalledWith('CN', undefined, 20);
+    expect(apiMocks.ranking).toHaveBeenCalledWith('CN', undefined, 10);
     resolveDates({ market: 'CN', latest: '2026-08-28', items: ['2026-08-28'] });
     await flushPromises();
     expect(wrapper.findAll('[data-testid="trend-row"]')).toHaveLength(1);
@@ -843,10 +843,10 @@ describe('TrendFollowingPage', { timeout: 30_000 }, () => {
     await flushPromises();
     useMarketStore().market = 'US';
     await flushPromises();
-    expect(apiMocks.dates).toHaveBeenLastCalledWith('US', 20);
-    expect(apiMocks.ranking).toHaveBeenLastCalledWith('US', undefined, 20);
+    expect(apiMocks.dates).toHaveBeenLastCalledWith('US', 10);
+    expect(apiMocks.ranking).toHaveBeenLastCalledWith('US', undefined, 10);
     expect(apiMocks.breadthHistory.mock.calls).toEqual([
-      ['CN', '2026-08-28', false, 20], ['US', '2026-08-28', false, 20],
+      ['CN', '2026-08-28', false, 10], ['US', '2026-08-28', false, 10],
     ]);
     expect(wrapper.text()).toContain('S&P 500');
     expect(wrapper.text()).toContain('Apple');
@@ -857,7 +857,7 @@ describe('TrendFollowingPage', { timeout: 30_000 }, () => {
     await flushPromises();
     (document.body.querySelector('[data-testid="trend-row"]') as HTMLElement).click();
     await flushPromises();
-    expect(apiMocks.detail).toHaveBeenCalledWith('000001.SZ', 'CN', 60, '2026-08-28', 20);
+    expect(apiMocks.detail).toHaveBeenCalledWith('000001.SZ', 'CN', 60, '2026-08-28', 10);
     expect(marketDataApi.dailyBars).not.toHaveBeenCalled();
     const dialog = document.body.querySelector('[data-testid="trend-detail"]')!;
     const shell = dialog.closest('[role="dialog"]')!;
@@ -867,9 +867,9 @@ describe('TrendFollowingPage', { timeout: 30_000 }, () => {
     expect(dialog.querySelector('[data-testid="rank-chart"]')).not.toBeNull();
     expect(dialog.querySelector('[data-testid="trend-rank-history"]')).not.toBeNull();
     expect(document.body.textContent).toContain('Alpha Score Breakdown');
-    expect(document.body.textContent).toContain('Weighted slope 20D');
-    expect(document.body.textContent).toContain('Return 5D / 10D / 20D');
-    expect(document.body.textContent).toContain('10D / 20D Breakout');
+    expect(document.body.textContent).toContain('Weighted slope 10D');
+    expect(document.body.textContent).toContain('Return 2D / 5D / 10D');
+    expect(document.body.textContent).toContain('5D / 10D Breakout');
     expect(document.body.textContent).not.toContain('55D');
     expect(dialog.textContent).not.toContain('60D');
     expect(document.body.querySelector('[data-testid="trend-history"]')).not.toBeNull();
@@ -880,7 +880,7 @@ describe('TrendFollowingPage', { timeout: 30_000 }, () => {
     await flushPromises();
     await wrapper.get('[data-testid="trend-run-latest"]').trigger('click');
     await flushPromises();
-    expect(apiMocks.run).toHaveBeenCalledWith('CN', undefined, 20);
+    expect(apiMocks.run).toHaveBeenCalledWith('CN', undefined, 10);
   });
 
   it('keeps every control in the snapshot action bar the same height', async () => {
@@ -930,8 +930,8 @@ describe('TrendFollowingPage', { timeout: 30_000 }, () => {
     const wrapper = mount(TrendFollowingPage);
     await flushPromises();
 
-    expect(apiMocks.previewRanking).toHaveBeenCalledWith('CN', 20);
-    expect(apiMocks.breadthHistory.mock.calls).toEqual([['CN', undefined, true, 20]]);
+    expect(apiMocks.previewRanking).toHaveBeenCalledWith('CN', 10);
+    expect(apiMocks.breadthHistory.mock.calls).toEqual([['CN', undefined, true, 10]]);
     expect(apiMocks.candidates).not.toHaveBeenCalled();
     expect(wrapper.get('[data-testid="trend-row"]').text()).toContain('贵州茅台');
     expect(wrapper.get('[data-testid="trend-row"]').text()).toContain('趋势候选');
@@ -980,7 +980,7 @@ describe('TrendFollowingPage', { timeout: 30_000 }, () => {
     await flushPromises();
 
     expect(apiMocks.detail).not.toHaveBeenCalled();
-    expect(apiMocks.detailHistory).toHaveBeenCalledWith('600519.SH', 'CN', '2026-09-10', 60, 20);
+    expect(apiMocks.detailHistory).toHaveBeenCalledWith('600519.SH', 'CN', '2026-09-10', 60, 10);
     const dialog = document.body.querySelector('[data-testid="trend-detail"]')!;
     expect(dialog.querySelector('[data-testid="trend-path-detail"]')!.textContent).toContain('Alpha V391.0');
     expect(dialog.textContent).toContain('"version": 3');
@@ -1036,13 +1036,13 @@ describe('TrendFollowingPage', { timeout: 30_000 }, () => {
     overview.vm.$emit('select', { code: '000001.SZ', tradeDate: '2026-08-28', preview: true });
     await flushPromises();
     expect(apiMocks.previewRanking).toHaveBeenCalledTimes(1);
-    expect(apiMocks.detailHistory).toHaveBeenCalledWith('000001.SZ', 'CN', '2026-08-28', 60, 20);
+    expect(apiMocks.detailHistory).toHaveBeenCalledWith('000001.SZ', 'CN', '2026-08-28', 60, 10);
     expect(document.body.querySelector('[data-testid="trend-detail"]')).not.toBeNull();
     resolvePreview({ ...payload, snapshots: payload.snapshots.map(asRankingSnapshot) });
     await flushPromises();
     expect(document.body.querySelector('[data-testid="trend-risk-sizing"]')!.textContent).toContain('盘中建议基于当前临时日线');
     expect(document.body.querySelector('[data-testid="trend-detail"]')!.textContent).toContain('平安银行');
-    expect(apiMocks.detailHistory).toHaveBeenCalledWith('000001.SZ', 'CN', '2026-08-28', 60, 20);
+    expect(apiMocks.detailHistory).toHaveBeenCalledWith('000001.SZ', 'CN', '2026-08-28', 60, 10);
     expect(apiMocks.detail).not.toHaveBeenCalled();
     wrapper.getComponent({ name: 'TrendMarketOverview' }).vm.$emit('select', { code: '000001.SZ', tradeDate: '2026-08-28', preview: true });
     await flushPromises();
@@ -1063,7 +1063,7 @@ describe('TrendFollowingPage', { timeout: 30_000 }, () => {
     expect(dialog.textContent).toContain('此证券在所选日期暂无趋势研究预演数据');
     expect(dialog.querySelector('[role="alert"]')).toBeNull();
     expect(apiMocks.previewRanking).not.toHaveBeenCalled();
-    expect(apiMocks.previewDetail).toHaveBeenCalledWith('MISSING.US', 'CN', '2026-08-28', 20);
+    expect(apiMocks.previewDetail).toHaveBeenCalledWith('MISSING.US', 'CN', '2026-08-28', 10);
     expect(apiMocks.detail).not.toHaveBeenCalled();
     wrapper.unmount();
   });
@@ -1072,7 +1072,7 @@ describe('TrendFollowingPage', { timeout: 30_000 }, () => {
     mockPreview({ ...ranking('CN'), status: 'completed', previewTime: '2026-08-28T10:00:00Z', dataAsOf: null, provider: 'yfinance', snapshots: [snapshot()] });
     const wrapper = mount(TrendFollowingPage);
     await flushPromises();
-    expect(apiMocks.ranking).toHaveBeenCalledWith('CN', undefined, 20);
+    expect(apiMocks.ranking).toHaveBeenCalledWith('CN', undefined, 10);
     expect(apiMocks.previewStatus).toHaveBeenCalledTimes(1);
     expect(apiMocks.previewRanking).not.toHaveBeenCalled();
     expect(wrapper.get('[data-testid="research-data-mode-badge"]').text()).toContain('正式收盘');
@@ -1132,7 +1132,7 @@ describe('TrendFollowingPage', { timeout: 30_000 }, () => {
     const overview = wrapper.findComponent({ name: 'TrendMarketOverview' });
     overview.vm.$emit('select', { code: '000001.SZ', tradeDate: '2026-08-27', preview: false });
     await flushPromises();
-    expect(apiMocks.detail).toHaveBeenLastCalledWith('000001.SZ', 'CN', 60, '2026-08-27', 20);
+    expect(apiMocks.detail).toHaveBeenLastCalledWith('000001.SZ', 'CN', 60, '2026-08-27', 10);
     expect(document.body.querySelector('[data-testid="trend-detail"]')).not.toBeNull();
     wrapper.unmount();
   });
@@ -1143,8 +1143,8 @@ describe('TrendFollowingPage', { timeout: 30_000 }, () => {
     await router.isReady();
     const wrapper = mount(TrendFollowingPage, { global: { plugins: [router] } });
     await flushPromises();
-    expect(apiMocks.ranking).toHaveBeenCalledWith('CN', '2026-08-28', 20);
-    expect(apiMocks.detail).toHaveBeenCalledWith('000001.SZ', 'CN', 60, '2026-08-28', 20);
+    expect(apiMocks.ranking).toHaveBeenCalledWith('CN', '2026-08-28', 10);
+    expect(apiMocks.detail).toHaveBeenCalledWith('000001.SZ', 'CN', 60, '2026-08-28', 10);
     expect(apiMocks.previewRanking).not.toHaveBeenCalled();
     wrapper.unmount();
   });

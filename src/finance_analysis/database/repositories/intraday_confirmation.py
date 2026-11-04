@@ -1,4 +1,4 @@
-"""Freeze prior-session selected confluence, Trend 20D top 30 and ETF top 5."""
+"""Freeze prior-session selected confluence, Trend 10D top 30 and ETF top 5."""
 
 from sqlalchemy import select
 from finance_analysis.database.models.stock import Instrument
@@ -26,7 +26,7 @@ class CandidateRepository:
                 (
                     TrendFollowingSnapshot,
                     "trend",
-                    (TrendFollowingSnapshot.trend_period == 20)
+                    (TrendFollowingSnapshot.trend_period == 10)
                     & (TrendFollowingSnapshot.rank <= c.TREND_TOP)
                     & (TrendFollowingSnapshot.rank > 0),
                     TrendFollowingSnapshot.rank.asc(),
@@ -59,7 +59,7 @@ class CandidateRepository:
                         [f"ETF轮动正式综合排名第 {row.rank}"]
                         if source == "etf"
                         else (
-                            [f"20日趋势正式综合排名第 {row.rank}", *(row.reasons or [])]
+                            [f"10日趋势正式综合排名第 {row.rank}", *(row.reasons or [])]
                             if source == "trend"
                             else row.reasons or ["昨日共振精选"]
                         )
@@ -95,11 +95,11 @@ class CandidateRepository:
             official = (
                 {
                     row.code: values(
-                        row, "state trend_lifecycle trend_score fragility_score features trend_duration_days trade_date"
+                        row, "trend_period state trend_lifecycle trend_score fragility_score features trend_duration_days trade_date"
                     )
                     for row in session.scalars(
                         select(TrendFollowingSnapshot).where(
-                            TrendFollowingSnapshot.trend_period == 20,
+                            TrendFollowingSnapshot.trend_period == 10,
                             TrendFollowingSnapshot.market == market,
                             TrendFollowingSnapshot.trade_date == day,
                             TrendFollowingSnapshot.code.in_(codes),

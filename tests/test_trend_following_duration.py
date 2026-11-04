@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import date, timedelta
 
 from finance_analysis.trend_following.config import DEFAULT_CONFIG  # pragma: allowlist secret
@@ -28,26 +29,26 @@ def _bars(closes: list[float]) -> list[DailyBar]:
 
 def _duration(closes: list[float]) -> int:
     history = _bars(closes)
-    return count_trend_duration_days(history, as_of=history[-1].trade_date)
+    return count_trend_duration_days(history, as_of=history[-1].trade_date, config=replace(DEFAULT_CONFIG, trend_period=20))
 
 
 def test_trend_duration_counts_consecutive_trend_candidate_days() -> None:
     closes = [100.0 + index for index in range(23)]
     history = _bars(closes)
-    features = calculate_features(history)
+    features = calculate_features(history, config=replace(DEFAULT_CONFIG, trend_period=20))
     assert features is not None
     assert features["trend_candidate"] is True
-    assert count_trend_duration_days(history, as_of=history[-1].trade_date) == 3
-    assert count_trend_duration_days(history[:22], as_of=history[21].trade_date) == 2
-    assert count_trend_duration_days(history[:21], as_of=history[20].trade_date) == 1
+    assert count_trend_duration_days(history, as_of=history[-1].trade_date, config=replace(DEFAULT_CONFIG, trend_period=20)) == 3
+    assert count_trend_duration_days(history[:22], as_of=history[21].trade_date, config=replace(DEFAULT_CONFIG, trend_period=20)) == 2
+    assert count_trend_duration_days(history[:21], as_of=history[20].trade_date, config=replace(DEFAULT_CONFIG, trend_period=20)) == 1
 
 
 def test_trend_duration_resets_to_zero_when_candidate_breaks() -> None:
     history = _bars([100.0 + index for index in range(23)] + [40.0])
-    features = calculate_features(history)
+    features = calculate_features(history, config=replace(DEFAULT_CONFIG, trend_period=20))
     assert features is not None
     assert features["trend_candidate"] is False
-    assert count_trend_duration_days(history, as_of=history[-1].trade_date) == 0
+    assert count_trend_duration_days(history, as_of=history[-1].trade_date, config=replace(DEFAULT_CONFIG, trend_period=20)) == 0
 
 
 def test_trend_duration_restarts_at_one_after_a_break() -> None:
@@ -68,35 +69,35 @@ def test_trend_duration_restarts_at_one_after_a_break() -> None:
 def test_trend_duration_is_repeatable_and_ignores_future_bars() -> None:
     history = _bars([100.0 + index for index in range(30)])
     as_of = history[22].trade_date
-    first = count_trend_duration_days(history[:23], as_of=as_of)
-    rerun = count_trend_duration_days(history[:23], as_of=as_of)
-    with_future = count_trend_duration_days(history, as_of=as_of)
+    first = count_trend_duration_days(history[:23], as_of=as_of, config=replace(DEFAULT_CONFIG, trend_period=20))
+    rerun = count_trend_duration_days(history[:23], as_of=as_of, config=replace(DEFAULT_CONFIG, trend_period=20))
+    with_future = count_trend_duration_days(history, as_of=as_of, config=replace(DEFAULT_CONFIG, trend_period=20))
     assert first == 3
     assert first == rerun == with_future
-    assert count_trend_duration_days(history[:22], as_of=as_of) == 0
+    assert count_trend_duration_days(history[:22], as_of=as_of, config=replace(DEFAULT_CONFIG, trend_period=20)) == 0
 
 
 def test_trend_duration_is_not_truncated_by_strategy_history_bars() -> None:
     history = _bars([100.0 + index for index in range(120)])
     as_of = history[-1].trade_date
-    features = calculate_features(history)
+    features = calculate_features(history, config=replace(DEFAULT_CONFIG, trend_period=20))
     assert features is not None
     assert features["trend_candidate"] is True
-    truncated = count_trend_duration_days(history[-DEFAULT_CONFIG.history_bars :], as_of=as_of)
-    full = count_trend_duration_days(history, as_of=as_of)
-    assert DEFAULT_CONFIG.history_bars == 32  # Entry's 10-session eligibility needs additional warmup.
-    assert DEFAULT_CONFIG.minimum_history_bars == 21
-    assert truncated == DEFAULT_CONFIG.history_bars - DEFAULT_CONFIG.minimum_history_bars + 1
+    truncated = count_trend_duration_days(history[-replace(DEFAULT_CONFIG, trend_period=20).history_bars :], as_of=as_of, config=replace(DEFAULT_CONFIG, trend_period=20))
+    full = count_trend_duration_days(history, as_of=as_of, config=replace(DEFAULT_CONFIG, trend_period=20))
+    assert replace(DEFAULT_CONFIG, trend_period=20).history_bars == 32  # Entry's 10-session eligibility needs additional warmup.
+    assert replace(DEFAULT_CONFIG, trend_period=20).minimum_history_bars == 21
+    assert truncated == replace(DEFAULT_CONFIG, trend_period=20).history_bars - replace(DEFAULT_CONFIG, trend_period=20).minimum_history_bars + 1
     assert truncated <= 40
     assert full > 40
-    assert full == len(history) - DEFAULT_CONFIG.minimum_history_bars + 1
+    assert full == len(history) - replace(DEFAULT_CONFIG, trend_period=20).minimum_history_bars + 1
 
 
 def test_trend_duration_resets_on_one_failed_condition_and_restarts() -> None:
     closes = [100.0 + index for index in range(23)]
     assert _duration(closes) == 3
     closes.append(116.0)  # Below MA10; the other three trend checks still pass.
-    features = calculate_features(_bars(closes))
+    features = calculate_features(_bars(closes), config=replace(DEFAULT_CONFIG, trend_period=20))
     assert features is not None
     assert features["absolute_trend_count"] == 3
     assert features["trend_candidate"] is False

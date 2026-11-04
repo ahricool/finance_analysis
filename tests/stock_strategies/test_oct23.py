@@ -18,7 +18,7 @@ US = definition("ma_market_dd30", "US")
 
 def quality_inputs():
     data = inputs(market="CN")
-    data.trends[60] = {c: dict(trend_score=55, rs_score=45, path_score=65, trend_candidate=True) for c in data.stocks}
+    data.trends[40] = {c: dict(trend_score=55, rs_score=45, path_score=65, trend_candidate=True) for c in data.stocks}
     data.etfs = ("SPY.US",)
     data.etf_regime = None  # Neither new strategy depends on ETF market state.
     return data
@@ -29,7 +29,7 @@ def quality_inputs():
 )
 def test_cn_market_hysteresis_and_stock_only(score, buy, exit_):
     data = quality_inputs()
-    data.regimes[20]["score"] = score
+    data.regimes[10]["score"] = score
     result = decide(CN, initial_state(), data)
     assert bool(result["candidates"]) == buy
     assert bool(result["exits"]["A.US"]) == exit_
@@ -41,17 +41,17 @@ def test_cn_market_hysteresis_and_stock_only(score, buy, exit_):
 )
 def test_cn_quality_rejects_each_failed_condition(field, value):
     data = quality_inputs()
-    data.trends[60]["A.US"][field] = value
+    data.trends[40]["A.US"][field] = value
     assert [c["code"] for c in decide(CN, initial_state(), data)["candidates"]] == ["B.US"]
 
 
 def test_quality_sort_missing_evidence_and_ma_exit():
     data = quality_inputs()
-    data.trends[60]["B.US"]["trend_score"] = 60
+    data.trends[40]["B.US"]["trend_score"] = 60
     assert [c["code"] for c in decide(CN, initial_state(), data)["candidates"]] == ["B.US", "A.US"]
     data.features["B.US"]["ma20"] = 101
     assert decide(CN, initial_state(), data)["exits"]["B.US"] == ["收盘跌破MA20"]
-    del data.trends[60]["A.US"]["path_score"]
+    del data.trends[40]["A.US"]["path_score"]
     with pytest.raises(DataNotReady, match="路径质量"):
         decide(CN, initial_state(), data)
 
@@ -63,7 +63,7 @@ def test_us_market_gate_on_combined_pool(score, buy, exit_):
     data = inputs()
     data.etfs = ("SPY.US",)
     data.etf_regime = None
-    data.regimes[20]["score"] = score
+    data.regimes[10]["score"] = score
     result = decide(US, initial_state(), data)
     assert bool(result["candidates"]) == buy
     assert bool(result["exits"]["SPY.US"]) == exit_
@@ -74,10 +74,10 @@ def test_us_market_gate_on_combined_pool(score, buy, exit_):
 @pytest.mark.parametrize("spec", [CN, US])
 def test_market_score_missing_waits_and_missing_close_still_liquidates(spec):
     data = quality_inputs()
-    data.regimes[20]["score"] = 0
+    data.regimes[10]["score"] = 0
     data.features["A.US"]["valid"] = False
     assert decide(spec, initial_state(), data)["exits"]["A.US"]
-    data.regimes[20]["score"] = float("nan")
+    data.regimes[10]["score"] = float("nan")
     with pytest.raises(DataNotReady, match="市场分数"):
         decide(spec, initial_state(), data)
 
@@ -120,18 +120,18 @@ def test_new_strategy_does_not_backfill_before_selection_date(repository):
     class SessionLoader(Loader):
         def load(self, market, day, universe, anchor_dates=()):
             result = super().load(market, day, universe, anchor_dates)
-            result.next_day = date(2026, 10, 26)
+            result.next_day = date(2026, 11, 5)
             return result
 
     loader = SessionLoader()
     service = StockStrategyService(repository, loader, (US,), lock)
-    assert not service.run("US", now=datetime(2026, 10, 23, 2, tzinfo=timezone.utc))["results"]
+    assert not service.run("US", now=datetime(2026, 11, 4, 4, tzinfo=timezone.utc))["results"]
     assert not loader.loads
-    assert service.run("US", now=datetime(2026, 10, 24, 2, tzinfo=timezone.utc))["success"] == 1
+    assert service.run("US", now=datetime(2026, 11, 5, 4, tzinfo=timezone.utc))["success"] == 1
     state = repository.state(US, "US")
-    assert state["start_date"] == date(2026, 10, 23)
+    assert state["start_date"] == date(2026, 11, 4)
     assert state["payload"]["positions"] == {}
-    assert loader.loads == [date(2026, 10, 23)]
+    assert loader.loads == [date(2026, 11, 4)]
 
 
 def test_dd_pause_delayed_liquidation_waits_until_following_open():
@@ -164,7 +164,7 @@ def test_market_context_projects_path_and_boolean_without_loading_feature_payloa
                 id=1,
                 instrument_id=1,
                 market="CN",
-                trend_period=60,
+                trend_period=40,
                 trade_date=day,
                 code="600000.SH",
                 universe_key="cn_trend",
@@ -214,5 +214,5 @@ def test_new_strategy_api_descriptions_are_available_without_starting_accounts(r
             body = response.json()
             assert body["strategy"]["source_id"] == spec.source_id(market)
             assert body["days"] == [] and body["start_date"] is None
-            assert any("2026-10-23" in r["text"] for r in body["strategy"]["rules"])
+            assert any(spec.observation_start.isoformat() in r["text"] for r in body["strategy"]["rules"])
             assert repository.state(spec, market) is None

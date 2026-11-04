@@ -31,7 +31,7 @@ def bars(count=130):
             for i, c in enumerate(closes)]
 
 
-@pytest.mark.parametrize('period', [20, 40, 60])
+@pytest.mark.parametrize('period', [10, 20, 40])
 def test_every_price_window_and_rsi_follow_period(period):
     config = replace(DEFAULT_CONFIG, trend_period=period)
     history = bars()
@@ -60,7 +60,7 @@ def test_every_price_window_and_rsi_follow_period(period):
     assert calculate_features(history[-period - 1:], config=config) is not None
 
 
-@pytest.mark.parametrize('period', [20, 40, 60])
+@pytest.mark.parametrize('period', [10, 20, 40])
 def test_duration_uses_selected_period_and_excludes_future(period):
     history = [replace(bar, close=100 + i, high=102 + i, low=99 + i) for i, bar in enumerate(bars(100))]
     config = replace(DEFAULT_CONFIG, trend_period=period)
@@ -70,7 +70,7 @@ def test_duration_uses_selected_period_and_excludes_future(period):
 
 def test_period_changes_complete_alpha_scoring_not_only_regression():
     scores = []
-    for period in (20, 40, 60):
+    for period in (10, 20, 40):
         config = replace(DEFAULT_CONFIG, trend_period=period)
         rows = []
         for code, history in [('A.US', bars()), ('B.US', [replace(b, close=100 + i) for i, b in enumerate(bars())])]:
@@ -88,7 +88,7 @@ def test_snapshots_history_replacement_and_invalidation_never_cross_periods(monk
     day = date(2026, 8, 28)
     with database.session_scope() as session:
         session.add(Instrument(id=1, market='US', code='AAA.US', name='AAA'))
-    repositories = {p: TrendFollowingRepository('US', database, trend_period=p) for p in (20, 40, 60)}
+    repositories = {p: TrendFollowingRepository('US', database, trend_period=p) for p in (10, 20, 40)}
     for period, repo in repositories.items():
         row = _snapshot(snapshot_id=1, code='AAA.US', instrument_id=1, trade_date=day)
         payload = {col.name: getattr(row, col.name) for col in TrendFollowingSnapshot.__table__.columns}
@@ -100,10 +100,10 @@ def test_snapshots_history_replacement_and_invalidation_never_cross_periods(monk
         assert repo.previous_snapshots(day + timedelta(days=1), ['AAA.US'])['AAA.US']['trend_period'] == period
         assert len(repo.dashboard_rows(day)) == 1
     repositories[40].replace_day(day, [], _summary(day))
-    repositories[60].invalidate_from(day)
+    repositories[10].invalidate_from(day)
     assert len(repositories[20].snapshots_by_date(day)) == 1
     assert repositories[40].snapshots_by_date(day) == []
-    assert repositories[60].summary_by_date(day) is None
+    assert repositories[10].summary_by_date(day) is None
     assert repositories[20].historical_composite_ranks(day + timedelta(days=1), ['AAA.US']) == {'AAA.US': {1: 1}}
 
 
@@ -169,10 +169,12 @@ def test_api_validates_period_and_scopes_repository(monkeypatch):
     app.dependency_overrides[require_current_user] = lambda: SimpleNamespace(id=1)
     with TestClient(app) as client:
         assert client.get('/dates?market=US&trend_period=40').status_code == 200
+        assert client.get('/dates?trend_period=10').status_code == 200
+        assert client.get('/dates?trend_period=60').status_code == 422
         assert client.get('/dates?trend_period=15').status_code == 422
         assert client.get('/dates?trend_period=30').status_code == 422
         assert client.get('/dates').status_code == 200
-    assert seen == [('US', 40), ('CN', 20)]
+    assert seen == [('US', 40), ('CN', 10), ('CN', 10)]
 
 
 def test_task_runs_three_independent_periods_with_shared_inputs(monkeypatch):
@@ -183,8 +185,8 @@ def test_task_runs_three_independent_periods_with_shared_inputs(monkeypatch):
         return SimpleNamespace(run=lambda day: {'status': 'completed', 'trend_period': config.trend_period})
     monkeypatch.setattr(tasks, 'TrendFollowingService', service)
     result = tasks._run('CN', None)
-    assert list(result['periods']) == ['20', '40', '60']
-    assert [p for p, _ in calls] == [20, 40, 60]
+    assert list(result['periods']) == ['10', '20', '40']
+    assert [p for p, _ in calls] == [10, 20, 40]
     assert all(cache is calls[0][1] for _, cache in calls)
 
 
@@ -197,11 +199,27 @@ def test_preview_and_read_caches_are_isolated_by_period():
 
     client = preview_repository()
     day = date(2026, 10, 12)
-    for period in (20, 40, 60):
+    for period in (10, 20, 40):
         save_preview('US', {'trend_period': period, 'snapshots': [{'code': 'AAPL.US', 'alpha_score': period}]}, repository=client)
-    for period in (20, 40, 60):
+    for period in (10, 20, 40):
         payload = load_preview('US', trend_period=period, repository=client)
         assert payload['trend_period'] == period
         assert payload['snapshots'][0]['alpha_score'] == period
-    assert len({RankingCache('US', day, period).key for period in (20, 40, 60)}) == 3
-    assert len({EventStudyCache('US', day, day, 'ALL', period).key for period in (20, 40, 60)}) == 3
+    assert len({RankingCache('US', day, period).key for period in (10, 20, 40)}) == 3
+    assert len({EventStudyCache('US', day, day, 'ALL', period).key for period in (10, 20, 40)}) == 3
+
+
+def test_retired_period_rejected_by_configuration_repository_preview_and_run_request():
+    from pydantic import ValidationError
+    from finance_analysis.interfaces.api.v1.schemas.trend_following import TrendFollowingRunRequest
+    from finance_analysis.trend_following.preview_cache import load_preview
+
+    with pytest.raises(ValueError, match="10, 20 or 40"):
+        replace(DEFAULT_CONFIG, trend_period=60)
+    with pytest.raises(ValueError, match="10, 20 or 40"):
+        TrendFollowingRepository('US', _Database(), trend_period=60)
+    with pytest.raises(ValueError, match="10, 20 or 40"):
+        load_preview('US', trend_period=60)
+    with pytest.raises(ValidationError):
+        TrendFollowingRunRequest(market='US', trend_period=60)
+    assert TrendFollowingRunRequest(market='US', trend_period=10).trend_period == 10

@@ -18,7 +18,7 @@ class TrendFollowingSnapshot(Base):
 
     id = Column(BigInteger, primary_key=True, autoincrement=True)
     market = Column(String(8), nullable=False)
-    trend_period = Column(Integer, nullable=False, default=20, server_default="20")
+    trend_period = Column(Integer, nullable=False, default=10, server_default="10")
     trade_date = Column(Date, nullable=False)
     code = Column(String(32), nullable=False)
     instrument_id = Column(Integer, ForeignKey("instrument.id", ondelete="CASCADE"), nullable=False)
@@ -46,7 +46,8 @@ class TrendFollowingSnapshot(Base):
     instrument = relationship("Instrument", lazy="joined")
 
     __table_args__ = (
-        CheckConstraint("trend_period IN (20, 40, 60)", name="ck_trend_following_snapshot_period"),
+        # 60 remains valid storage for immutable legacy rows; active periods are configured separately.
+        CheckConstraint("trend_period IN (10, 20, 40, 60)", name="ck_trend_following_snapshot_period"),
         UniqueConstraint("market", "trend_period", "trade_date", "code", name="uix_trend_following_market_date_code"),
         CheckConstraint("market IN ('CN', 'US')", name="ck_trend_following_market"),
         CheckConstraint("market_regime IN ('RISK_ON', 'NEUTRAL', 'RISK_OFF')", name="ck_trend_following_regime"),
@@ -72,7 +73,7 @@ class TrendFollowingSummary(Base):
 
     id = Column(BigInteger, primary_key=True, autoincrement=True)
     market = Column(String(8), nullable=False)
-    trend_period = Column(Integer, nullable=False, default=20, server_default="20")
+    trend_period = Column(Integer, nullable=False, default=10, server_default="10")
     trade_date = Column(Date, nullable=False)
     universe_key = Column(String(64), nullable=False)
     benchmark_code = Column(String(32), nullable=False)
@@ -89,7 +90,7 @@ class TrendFollowingSummary(Base):
     generated_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
 
     __table_args__ = (
-        CheckConstraint("trend_period IN (20, 40, 60)", name="ck_trend_following_summary_period"),
+        CheckConstraint("trend_period IN (10, 20, 40, 60)", name="ck_trend_following_summary_period"),
         UniqueConstraint("market", "trend_period", "trade_date", name="uix_trend_following_summary_market_date"),
         CheckConstraint("market IN ('CN', 'US')", name="ck_trend_following_summary_market"),
         CheckConstraint("market_regime IN ('RISK_ON', 'NEUTRAL', 'RISK_OFF')", name="ck_trend_summary_regime"),
