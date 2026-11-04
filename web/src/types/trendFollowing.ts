@@ -60,10 +60,17 @@ export interface MeanReversionFeatures {
   mrReversalQuality?: number | null;
   mrPreviousRsi14?: number | null;
 }
-export interface TrendFeatures extends BoxFeatures, MeanReversionFeatures {
+export interface EntryFeatures {
+  entryBreakoutStatus?: string | null; entryBreakoutReason?: string | null;
+  entryMa5Status?: string | null; entryMa5Reason?: string | null;
+  entryMa10Status?: string | null; entryMa10Reason?: string | null;
+  entryRetestStatus?: string | null; entryRetestReason?: string | null;
+}
+export interface TrendFeatures extends BoxFeatures, MeanReversionFeatures, EntryFeatures {
   riskSizing?: TrendRiskSizing | null;
   previousLow10?: number | null;
-  entryBreakdown?: { breakout: EntryBranchBreakdown; resume: EntryBranchBreakdown } | null;
+  entryBreakdown?: { breakout: EntryBranchBreakdown; resume: EntryBranchBreakdown;
+    pullbacks?: Record<string, EntryBranchBreakdown> } | null;
   alphaVersion?: number | null;
   pathScore?: number | null;
   setupScore?: number | null;
@@ -127,12 +134,14 @@ export interface TrendFeatures extends BoxFeatures, MeanReversionFeatures {
 }
 
 export interface EntryBranchBreakdown {
+  status?: string; reason?: string;
+  evidence?: Record<string, unknown>;
   components: Record<string, number | null>;
   normalizedWeights: Record<string, number>;
   contributions: Record<string, number>;
   checks: Record<string, boolean>;
-  qualityScore: number;
-  score: number;
+  qualityScore: number | null;
+  score: number | null;
 }
 
 export interface TrendAlphaBreakdown {
@@ -177,6 +186,8 @@ export interface TrendSnapshot {
 export type TrendCandidate = Pick<TrendSnapshot, 'code' | 'name' | 'rank' | 'state' | 'alphaScore'>;
 
 export const RANKING_FEATURE_KEYS = [
+  'entryVersion', 'entryBreakoutScore', 'entryMa5Score', 'entryMa10Score', 'entryRetestScore',
+  'entryExecutionMa5', 'entryExecutionMa10', 'entryRecentTrendAge',
   'trendPeriod',
   'boxBreakoutFresh', 'boxPriorBreakoutConfirmed', 'boxEpisodeConsumed', 'mrEpisodeConsumed', 'rsi14', 'distanceFromMa20Atr', 'return3D',
   'mrQuality', 'mrOversoldQuality', 'mrDistanceQuality', 'mrShockQuality', 'mrReversalQuality', 'mrPreviousRsi14',
@@ -196,7 +207,7 @@ export const RANKING_FEATURE_KEYS = [
   'alphaTrendContribution', 'alphaRsContribution', 'alphaSetupContribution', 'alphaPathContribution',
 ] as const;
 export type RankingFeatureKey = typeof RANKING_FEATURE_KEYS[number];
-export type TrendRankingFeatures = Partial<Record<RankingFeatureKey, number | boolean | null>> & BoxFeatures & MeanReversionFeatures;
+export type TrendRankingFeatures = Partial<Record<RankingFeatureKey, number | boolean | null>> & BoxFeatures & MeanReversionFeatures & EntryFeatures;
 
 export interface TrendRankingSnapshot extends Pick<TrendSnapshot,
   'code' | 'name' | 'rank' | 'trendDurationDays' | 'trendLifecycle' | 'fragilityScore' | 'alphaScore' | 'entryScore' | 'entryType'> {

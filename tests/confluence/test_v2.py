@@ -280,3 +280,19 @@ def test_selected_signals_remain_visible_when_outside_observation_score_top_fift
     assert [r["instrument_id"] for r in rows if r["eligible"]]==list(range(1,11))
     assert all(r["confluence_score"]==60 for r in rows[:10])
     assert all(r["confluence_score"]>90 and not r["strong_confluence"] for r in rows[10:])
+
+
+def test_simultaneous_entry_routes_use_breakout_quality_not_the_other_route_maximum():
+    from finance_analysis.confluence.v2 import trend_score
+    _, periods = trend_score({"periods": [{"trend_period": 20, "alpha_score": 40, "state": "WATCHING", "features": {
+        "entry_type": "BREAKOUT_AND_PULLBACK", "entry_score": 95, "entry_breakout_score": 70,
+    }}]})
+    assert periods[0]["routes"]["breakout"] == 70
+
+
+def test_old_entry_null_projection_keeps_legacy_breakout_contribution():
+    from finance_analysis.confluence.v2 import trend_score
+    _, periods = trend_score({"alpha_score": 40, "state": "WATCHING", "features": {
+        "entry_type": "BREAKOUT", "entry_score": 80, "entry_breakout_score": None,
+    }})
+    assert periods[0]["routes"]["breakout"] == 80

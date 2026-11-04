@@ -591,3 +591,17 @@ def test_box_episode_daily_runs_and_historical_rebuild_are_identical(monkeypatch
     assert feature['box_episode_consumed'] is True
     assert feature['box_breakout_fresh'] is False
     assert repo.saved == before
+
+
+def test_entry_warmup_does_not_change_alpha_or_other_research_windows(monkeypatch):
+    monkeypatch.setattr(
+        "finance_analysis.trend_following.service.get_universe",
+        lambda market: (UniverseMember("US", "AAA.US", "AAA"), UniverseMember("US", "BBB.US", "BBB")),
+    )
+    baseline, extended = FakeRepository(), FakeRepository()
+    TrendFollowingService("US", baseline, config=replace(DEFAULT_CONFIG, entry_trend_lookback=3)).run(TRADE_DATE)
+    TrendFollowingService("US", extended, config=replace(DEFAULT_CONFIG, entry_trend_lookback=20)).run(TRADE_DATE)
+    def without_entry(snapshot):
+        return {key: ({k: v for k, v in value.items() if not k.startswith("entry_")} if key == "features" else value)
+                for key, value in snapshot.items() if not key.startswith("entry_")}
+    assert [without_entry(row) for row in baseline.snapshots] == [without_entry(row) for row in extended.snapshots]

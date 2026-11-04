@@ -440,6 +440,10 @@ Streamer 页面行情只读 Redis；CN/US 共用日内方向状态，分钟线�
 10/23新增CN趋势质量/市场35退出与US均线市场开关/DD30暂停3交易日；独立观察起点不早于2026-10-23，
 只读同日正式Trend20及CN Trend60 Path/趋势条件，不请求外部API。
 
+## Trend Entry
+
+Trend Entry V2独立评估突破、MA5浅回踩、MA10回踩及历史确认突破位回测，可同日多分支确认；回踩复用此前10个真实交易日的绝对趋势门槛与当前健康结构，不要求当天Alpha≥67。执行均线固定MA5/10，ATR按20/40/60趋势周期，质量分与等待/回踩中/确认/延伸/失效状态分开保存。新增预热不改变Alpha/RSI原窗口，正式/Preview/API/导出同源，见`docs/trend-entry.md`。
+
 ## Research Preview 存储
 
 Trend、ETF、行业和期权研究 preview 使用独立 `research_preview` / `research_preview_item` 表，只保留各范围最新批次。

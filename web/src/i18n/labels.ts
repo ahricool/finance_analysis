@@ -55,7 +55,7 @@ export const metricLabels = {
   alphaRank: { zh: 'Alpha 排名', en: 'Alpha Rank' },
   setupScore: { zh: '形态得分', en: 'Setup Score' },
   pathScore: { zh: '路径得分', en: 'Path Score' },
-  entryScore: { zh: '入场分', en: 'Entry Score' },
+  entryScore: { zh: '买点质量分', en: 'Entry Quality' },
   entryType: { zh: '入场类型', en: 'Entry Type' },
   distanceFromMa20: { zh: '距 MA20', en: 'Distance From MA20' },
   atrPercent: { zh: 'ATR %', en: 'ATR %' },

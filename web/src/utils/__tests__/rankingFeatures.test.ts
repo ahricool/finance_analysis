@@ -134,3 +134,15 @@ it('maps Box snake case scalars and preserves string states for official and pre
     breakoutScore: 50, setup: 'NONE', atr: 2, referencePrice: 100 });
   expect(preview.features).toEqual(row.features);
 });
+
+it('preserves independent Entry scores, status strings and reasons through the list DTO', () => {
+  const row = rankingSnapshotFromDto({ code: 'TEST.US', rank: 1, alpha_score: 40,
+    entry_type: 'BREAKOUT_AND_PULLBACK', entry_score: 88,
+    features: { entry_version: 2, entry_breakout_score: 88, entry_breakout_status: 'CONFIRMED',
+      entry_breakout_reason: '突破已确认', entry_ma5_score: 84, entry_ma5_status: 'PULLING_BACK',
+      entry_ma5_reason: '等待收回', entry_execution_ma5: 100, entry_execution_ma10: 98 } });
+  expect(row.features).toMatchObject({ entryVersion: 2, entryBreakoutScore: 88, entryBreakoutStatus: 'CONFIRMED',
+    entryBreakoutReason: '突破已确认', entryMa5Score: 84, entryMa5Status: 'PULLING_BACK', entryMa5Reason: '等待收回',
+    entryExecutionMa5: 100, entryExecutionMa10: 98 });
+  expect(row.entryType).toBe('BREAKOUT_AND_PULLBACK');
+});

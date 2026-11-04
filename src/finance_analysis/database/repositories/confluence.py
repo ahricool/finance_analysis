@@ -195,7 +195,10 @@ class ConfluenceRepository:
 
     def trend_v2(self, market, day):
         # One bounded query for all three same-date periods; no strategy reruns.
-        feature_keys = ("path_score", "entry_type", "entry_score", "box_state", "box_quality", "mr_state", "mr_quality")
+        feature_keys = (
+            "path_score", "entry_type", "entry_score", "entry_breakout_score",
+            "box_state", "box_quality", "mr_state", "mr_quality",
+        )
         query = select(
             TrendFollowingSnapshot.instrument_id,
             TrendFollowingSnapshot.code,

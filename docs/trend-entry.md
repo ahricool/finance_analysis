@@ -1,131 +1,111 @@
-# Trend Following Entry
+# Trend Entry 买点评估 V2
 
-Alpha Score 用于选股（stock selection）；Entry Score 用于买点研究（entry timing）。
-Alpha 一级权重保持 `0.40 Trend + 0.25 RS + 0.15 Setup + 0.20 Path`。
-Entry 在排名、状态和 Fragility 完成后计算，不参与 Alpha、rank、Candidate、state、仓位或交易动作。
-市场环境只提供上下文，不作为 Entry 条件。
+Entry 在 Alpha 排名、候选/趋势状态及 Fragility 之后独立计算，不改变它们的规则或默认排名。
+突破、MA5 浅回踩、MA10 回踩、已确认突破位回测分别识别、评分和保存；同一天允许多个分支确认。
+质量分与状态分离：未确认、延伸、失效仍保留连续质量分，不能将质量分视为确认信号或成功概率。
 
-实现：[features.py](../src/finance_analysis/trend_following/features.py)、
-[entry.py](../src/finance_analysis/trend_following/entry.py)、
-[config.py](../src/finance_analysis/trend_following/config.py)。
+代码入口为 `trend_following/entry.py`，过程证据在 `entry_setups.py`，参数集中在 `TrendFollowingConfig`。
+这些参数是待回测的初始设置；本次未验证或宣称收益提升。
 
-## 结构与条件
+## 近期资格与当前结构
 
-两类 Entry 共用：RS≥60、Alpha≥67、Path≥50、MA20 slope>0、RS10>0；
-Fragility 有值时必须<50，为空时不否决。
+回踩资格严格排除今日，在此前10个交易所交易日中至少一天达到现有四项绝对趋势门槛：
+当日 Close > MA(N/2)、MA(N/2) > MA(N)、N/2 日收益 > 0、N 日加权对数斜率 > 0。
+每一天只使用截至该日的价格，不把今日横截面百分位或 Alpha 回填到过去。
 
-### BREAKOUT
+当前要求 MA(N) 高于昨日 MA(N)、Close ≥ MA(N)，且对应回踩过程的支撑没有失效。
+回踩不再要求当天 Alpha≥67，也不再用当天 Trend/RS/Path/Fragility 分数硬性否决；这些值可继续参与质量或风险观察。
+原 `trend_resume`、`setup` 是 Alpha V3 的旧解释特征，保持既有含义；新 Entry 的三个回踩分支独立保存，不依赖旧特征的互斥优先级。
+既有事件研究的PULLBACK_RESUME样本仍按旧`trend_resume`定义，不能用其统计评价本次Entry V2规则的收益。
 
-存在 COMPRESSION_BREAKOUT、BREAKOUT_20D 或 BREAKOUT_10D；Trend≥62；
-Close/MA20−1 在闭区间 [2%,10%]；CLV≥0.60。CLV 缺失时无法确认突破收盘位置，Entry 不成立。
-复用 Alpha V3 的 Gaussian BreakoutQuality，不增加第二套突破距离公式。
+## 过程与支撑
 
-### PULLBACK_RESUME
+执行均线固定为**截至上一交易日**的 MA5/MA10，不随20/40/60日趋势周期变化。
+ATR 使用所选趋势周期 N 的前一交易日 ATR(N)，每个观察日各自计算，不让当日大波幅扩大自己的容差。
 
-此前5个交易日（不含今天）至少一天 Close≤当日MA10，或者距当日MA10≤0.5倍当日ATR20。
-每一天必须具备完整 MA20 slope / ATR 历史；样本不足时不推定结构完好。
-这5天 MA20 slope 均>0、收盘均≥MA20，且不能触发状态机同一个 `structure_broken` 纯函数：
-收盘低于此前10日最低价，或收盘低于不再上升的MA20。
-这里保守检查整个回踩观察窗口，拒绝短暂跌破MA20后立即恢复的样本。
+1. 此前上涨：回踩前已经存在趋势资格，上一收盘比支撑高至少0.5 ATR，
+   并比此前10日内最低收盘上涨至少1 ATR。上涨证据必须先于触及日；当日高点不能证明先涨后跌的顺序。
+2. 随后回踩：最低价到达支撑上方0.25 ATR以内，日内最高价仍可到达支撑下方0.25 ATR以上，
+   且相对此前上涨收盘至少回落0.25 ATR。MA5 和 MA10 的过程各自观察。
+3. 恢复确认：已触及支撑，当前参考收盘/Preview最新价高于支撑0.1 ATR，
+   并高于昨日收盘或今日开盘，CLV≥0.60。允许同一天低点触及、尾部价格收回，无须昨日收于均线下方。
+4. 失效：上涨过程已具备后，观察过程任一低点低于当日支撑0.75 ATR，或者当前长期均线结构转弱。
+   单独触碰支撑不构成确认。
+5. 延伸：已经发生回踩，但当前价高于支撑超过2 ATR；保留质量分并标记执行窗口已延伸。
 
-今日：昨日Close≤昨日MA10，今日Close>今日MA10，今日Close>昨日Close，
-MA10>MA20、MA20 slope>0、raw weighted slope>0、RS10>0。
-不再要求Return10 percentile≥60或用3D收益代替reclaim。
+突破位回测仅使用此前10个交易日中已经确认的突破。
+对历史突破日 b，先以 b 之前 N/2 或 N 根日线最高价分别冻结阻力（重复价位去重）；b 日收盘至少超出该阻力0.1 ATR，CLV≥0.60才视为价格突破确认。
+最早在 b+1 日观察回测，不使用今日高点或事后枢轴重画历史阻力。
+多个历史突破位分别评估，依次优先已确认、回踩中、已延伸、等待、已失效，同优先级按时间先后稳定选择。
 
-Setup优先级：COMPRESSION_BREAKOUT > BREAKOUT_20D > BREAKOUT_10D > PULLBACK_RESUME > NONE。
-`trend_resume` bool保留，但语义为上述真实回踩恢复。
-Resume Entry另要求Trend≥60、MA20乖离在(0,8%]；不要求突破新高。
+## 突破分支
 
-## 连续分数
+保留当天 RS≥60、Alpha≥67、Path≥50、Trend≥62、长期均线上升、短期RS为正、CLV≥0.60；
+Fragility 有值时必须<50，缺失时不单独否决。
+当前收盘必须突破此前 N/2 或 N 日高点，距对应原阻力0.1–3 ATR。距离不再以 MA(N) 乖离百分比硬限制。
+突破和回踩没有互斥条件；同时满足时 `entry_type=BREAKOUT_AND_PULLBACK`。
+突破形成但其余条件不足时，状态及简短原因明确提示待确认。
 
-令 `G(x,c,w)=exp(-0.5*((x-c)/w)^2)`，`Q(x,s)=50+50*tanh(x/s)`。
-以下组件均为0–100；布尔条件只决定资格，不累加得分。
+## 质量与状态
+
+保留既有 Gaussian / tanh、CLV、相对强弱、路径质量和 Fragility 评分组件；缺失分量移出分母后归一化：
 
 ```text
-Breakout = .30 BreakoutQuality + .20 ExtensionQuality + .15 CLVQuality
+Breakout = .30 BreakoutQuality + .20 ATRDistanceQuality + .15 CLVQuality
          + .10 VolumeQuality + .10 RSQuality + .10 PathScore + .05 FragilityQuality
-Resume   = .30 ReclaimQuality + .20 PullbackDepthQuality + .15 RSQuality
-         + .15 DistanceQuality + .10 CLVQuality + .10 FragilityQuality
+Pullback = .30 ReclaimQuality + .20 PullbackDepthQuality + .15 RSQuality
+         + .15 ATRDistanceQuality + .10 CLVQuality + .10 FragilityQuality
 ```
 
-- BreakoutQuality、ExtensionQuality、VolumeQuality复用[Alpha V3](trend-alpha-v3.md)。
-- CLVQuality = 100×CLV。
-- RSQuality = Q(RS10,.12)。
-- FragilityQuality = 100−Fragility。
-- ReclaimQuality = 100×G((Close−MA10)/ATR20,.5,.75)。
-- PullbackDepthQuality = 100×G(depth,.25,.75)，depth为回踩触及日 `(MA10−Close)/ATR20` 的最大值。
-- DistanceQuality = 100×G(Close/MA20−1,.03,.04)。
+各回踩分支使用自身支撑、恢复距离及触及后的最大下探深度，单位均为 ATR。
+Gaussian 复用既有函数；恢复距离中心/宽度0.5/0.75，深度中心/宽度0.25/0.75；
+支撑距离中心/宽度0.5/1.0；突破距离中心/宽度0.75/1.0。
+没有触及证据时深度分量不可用，而非伪造为0分。
+没有已知支撑参照（例如尚无历史确认突破位）时，整个分支质量留空，不能仅凭RS/CLV制造高分形态。
 
-缺失Fragility、Resume的CLV或Preview投影量时，剔除对应组件后将可用权重归一化。
-满足全部条件才输出对应Entry Type与分数；否则 `NONE / 0`。
-`quality_score`保留条件过滤前的连续分，`checks`解释为何无有效Entry。
-因此资格边界允许跳变，质量曲线本身连续；高Alpha但过度延伸或低CLV可以得到NONE/0。
+| 状态 | 含义 |
+| --- | --- |
+| WAITING_PULLBACK | 等待回踩、上涨资格/预热或突破形态 |
+| PULLING_BACK | 已触及但没有满足恢复确认；突破分支表示形态已有、尚待其他确认条件 |
+| CONFIRMED | 当前分支条件满足 |
+| EXTENDED | 已超出执行距离 |
+| INVALIDATED | 长期均线结构或支撑失效 |
 
-## 参数
+`entry_score` 为四个分支最高质量分，任何状态都不强制归零；`entry_type` 仅汇总已经确认的分支，未确认仍为 NONE。
+列表保留四套独立质量/状态/短原因，详情包含完整评分拆解和过程日期、支撑与ATR距离，Excel导出对应独立列及原因。
+状态列按确认、回踩中、等待、延伸、失效排序；缺失值在两个方向均靠后。Alpha仍为默认排序。
+Confluence读取已确认突破时使用其独立突破质量，避免把其他回踩分支的质量当作突破分数。
 
-所有阈值与曲线位于TrendFollowingConfig：
+## 默认参数与预热
 
 | 参数 | 默认值 |
 | --- | --- |
-| slope_direction_scale | .002（日log斜率） |
-| resume_lookback_days / resume_touch_atr | 5 / .5 |
-| entry_trend_min / entry_resume_trend_min | 62 / 60 |
-| entry_rs_min / entry_alpha_min / entry_path_min | 60 / 67 / 50 |
-| entry_fragility_max | 50（严格小于） |
-| entry_extension_min / entry_extension_max | .02 / .10 |
-| entry_resume_extension_max / entry_clv_min | .08 / .60 |
-| entry_reclaim_center_atr / entry_reclaim_width_atr | .5 / .75 |
-| entry_pullback_center_atr / entry_pullback_width_atr | .25 / .75 |
-| entry_resume_distance_center / entry_resume_distance_width | .03 / .04 |
-| preview_volume_neutral_quality | 50 |
-| breakout_entry_weights / resume_entry_weights | 上述权重 |
+| entry_trend_lookback | 10个交易日，不含今天 |
+| entry_approach_atr / entry_advance_atr | 0.5 / 1.0 |
+| entry_touch_atr / entry_pullback_decline_atr | 0.25 / 0.25 |
+| entry_support_failure_atr | 0.75 |
+| entry_recovery_atr / entry_clv_min | 0.10 / 0.60 |
+| entry_extended_atr | 2.0 |
+| entry_breakout_min_atr / entry_breakout_max_atr | 0.10 / 3.0 |
 
-## 新特征与统计修正
+Entry需要至少 N+10+2 根日线预热，并核对真实交易所日期，不能用更早的有效数据行跳过缺日。
+读取窗口为 max(N+N/4+2, N+10+2)，20/40/60周期分别读取32/52/77根；
+原Alpha、箱体和超跌反弹等计算仍使用原N+N/4+2窗口，防止新增Entry预热改变Wilder RSI初始化等其他规则。
+股票/基准历史仍复用现有批量输入，不增加逐股请求，不写行情。
+预热不足或窗口缺日只禁止新回踩确认并说明原因，不阻断已有趋势计算。
 
-- CLV = (Close−Low)/(High−Low)，High=Low返回null。
-- ATR% = ATR20/Close；底层ATR20与详情绝对值保留。
-- R²Quality = 100×weighted_r2×sigmoid(raw_weighted_slope/.002)。原始R²和斜率不变，横截面斜率排名不变。
-- Downside/Upside = 最近10个简单日收益中负收益绝对值之和 / 正收益之和。
-  无正收益为null；有正收益而无负收益为0。质量仍为100×exp(−ratio)。
-- 删除重复Trend Quality展示与Ranking投影。存储JSON保留旧字段作为Confluence/Signal Center
-  的内部兼容别名，不作为独立研究指标展示，不修改这两个模块。生命周期/Fragility的旧拟合质量语义保持：
-  直接使用raw weighted_r2×100，不再回退读取旧trend_quality。
+## 正式、Preview、API与兼容
 
-## Official / Preview
+正式和Preview共用同一个Entry函数。Preview使用截至采集时已知的临时OHLC，不表示收盘确认；
+盘中触及、收回或状态变化均可能继续改变。原始累计量比不冒充全天量，Preview无投影量时质量评分排除成交量项。
 
-两者经过相同features、Alpha、Resume、Entry函数；只有成交量处理不同。
-现有CN快照与US当日5分钟聚合没有可靠的历史同时刻参与率，本次不新增请求或量能数据库。
+新增结果保存在现有features JSON，`entry_version=2`，无schema迁移。
+排名API/紧凑表格、Preview列表、详情及导出均读取保存的结果，GET不重算。
+旧快照没有分支状态时显示缺失，不按新规则补造确认；已有质量分维持原值。
+重新运行对应日期的正式计算可生成V2证据，没有自动改写全部历史。
 
-- Official：volume_ratio=当日全天量/前20个交易日全天均量。
-- Preview：raw_volume_ratio保留累计量/前20日全天均量；旧volume_ratio字段保留同一原始语义。
-- projected_volume_ratio=null，volume_provisional=true。不把raw ratio作为全天量信号。
-- Alpha Setup的VolumeQuality暂用50，明确标为暂定；因此不调整原Alpha权重。
-- Entry排除缺失的VolumeQuality，重新归一化，不用盘中raw量硬否决。
-- UI标为“盘中估算 —”和“暂定”；该降级并非预测全天成交量。
-
-Preview依旧只读此前official状态，只写独立PostgreSQL最新预演表；不写正式快照、不影响后续正式运行。
-由于成交量处理不同，即使OHLC一致，Official/Preview的Setup和Alpha也可能不同。
-
-## 存储、API与兼容
-
-Entry存入现有features JSON：entry_score、entry_type、entry_breakdown；无migration。
-Ranking、detail和Preview同时投影一级entry_score / entry_type，不要求前端解析breakdown。
-Ranking仅取标量，详情提供组件、归一化权重、贡献、条件与参数。
-新增atr_percent、close_location_value、raw_volume_ratio、projected_volume_ratio、
-pullback_detected、ma10_reclaimed、volume_provisional。支持entry_score排序，默认仍按Alpha。
-
-上线后统一重算全部历史快照为Alpha V3；不保留旧公式或跨版本处理。Ranking缓存保持v7，
-重算正常触发失效和重建。Excel使用统一版本formatter，Preview的正式Volume Ratio单元格留空，
-Official仍导出完整volume_ratio。
-修正R²、Path统计与Resume定义会改变Alpha或Candidate结果，这是规则修正的直接影响；
-Entry自身不参与这些计算。历史重算由上线流程执行；本次未做历史收益回测或阈值校准。
-
-## 已知数据边界
-
-现有Trend Preview直接拼接DB前复权历史与原始盘中报价，没有像独立盘中确认模块那样
-用昨收锚点调整历史价格尺度。若除权日DB前复权基准尚未刷新，MA/ATR、突破与Entry
-可能失真。本次保持行情链路边界，未引入复权因子请求；此问题需独立修复与验证。
-
+已知行情边界：Trend Preview沿用现有DB前复权历史与原始盘中日K拼接方式。
+若除权日数据库基准尚未刷新，均线、ATR及Entry可能失真；本次不扩大到行情复权链路改造。
 
 ## Detail 风险仓位建议
 

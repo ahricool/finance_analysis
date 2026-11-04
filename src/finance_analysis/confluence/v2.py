@@ -75,8 +75,11 @@ def trend_score(facts):
         box = None
         if f.get("box_state") is not None:
             box = clamp(f.get("box_quality")) if f["box_state"] == "BOX_BREAKOUT" else 0.0
-        if f.get("entry_type") == "BREAKOUT" and number(f.get("entry_score")):
-            box = max(box or 0, clamp(f["entry_score"]))
+        entry_breakout = f.get("entry_breakout_score")
+        if not number(entry_breakout):
+            entry_breakout = f.get("entry_score")
+        if f.get("entry_type") in {"BREAKOUT", "BREAKOUT_AND_PULLBACK"} and number(entry_breakout):
+            box = max(box or 0, clamp(entry_breakout))
         rebound = None
         if f.get("mr_state") is not None:
             rebound = clamp(f.get("mr_quality")) if f["mr_state"] == "MR_REBOUND" else 0.0

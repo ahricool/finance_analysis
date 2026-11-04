@@ -26,8 +26,8 @@ def count_trend_duration_days(
     ``as_of`` are ignored.  If ``as_of`` itself is missing or ineligible the result
     is 0; a later eligible day restarts at 1.
 
-    Each session only needs the existing feature warmup.  ``history_bars`` used by
-    strategy scoring stays unchanged; this lookback is duration-only.
+    Each session only needs the existing feature warmup. Entry has a separate
+    extended warmup; duration still uses its own full-history lookback.
     """
     ordered = [item for item in sorted(bars, key=lambda bar: bar.trade_date) if item.trade_date <= as_of]
     if len(ordered) > DURATION_HISTORY_BARS:

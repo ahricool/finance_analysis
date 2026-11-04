@@ -35,6 +35,7 @@ def entry_row(**updates):
                ma20_slope=.01, distance_from_ma20=.05, fragility_score=None,
                breakout_20d=True, close_location_value=.9)
     row["score_breakdown"]["setup"].update(breakout_quality=99, volume_quality=90)
+    row["previous_high_20"] = row["reference_price"] - .75 * row["atr20"]
     row.update(updates)
     return row
 
@@ -52,13 +53,14 @@ def test_r2_direction_is_continuous_and_keeps_raw_values():
     assert quality(1e-8) - quality(-1e-8) < .001
 
 
-def test_actual_pullback_reclaims_ma10_and_produces_resume_entry():
+def test_legacy_resume_does_not_bypass_new_support_failure_rule():
     row = ranked(resume_bars())
     assert row["pullback_detected"] and row["ma10_reclaimed"] and row["pullback_structure_intact"]
     assert row["trend_resume"] and row["setup"] == "PULLBACK_RESUME"
-    result = calculate_entry(row)
-    assert result["entry_type"] == "PULLBACK_RESUME"
-    assert result["entry_score"] > 75
+    result = calculate_entry(row, bars=resume_bars())
+    assert result["entry_type"] == "NONE"
+    assert result["entry_ma10_status"] == "INVALIDATED"
+    assert result["entry_score"] > 0
 
 
 def test_continuing_trend_is_not_resume_and_broken_pullback_is_rejected():
@@ -102,11 +104,11 @@ def test_breakout_gates_priority_and_missing_fragility():
     good = calculate_entry(row)
     assert good["entry_type"] == "BREAKOUT" and good["entry_score"] > 85
     assert "fragility" not in good["entry_breakdown"]["breakout"]["normalized_weights"]
-    for updates in [dict(distance_from_ma20=.25), dict(close_location_value=.1),
+    for updates in [dict(previous_high_20=row["reference_price"] - 4 * row["atr20"]), dict(close_location_value=.1),
                     dict(close_location_value=None), dict(fragility_score=50),
                     dict(breakout_20d=False, breakout_10d=False, compression_breakout=False, trend_resume=False)]:
         result = calculate_entry({**row, **updates})
-        assert result["entry_type"] == "NONE" and result["entry_score"] == 0
+        assert result["entry_type"] == "NONE" and result["entry_score"] > 0
     actual = ranked(resume_bars()[:-1] + [replace(resume_bars()[-1], close=152, high=153)])
     assert actual["breakout_20d"] and not actual["trend_resume"]
     assert actual["setup"] == "BREAKOUT_LONG"
@@ -139,7 +141,8 @@ def test_entry_does_not_mutate_alpha_rank_candidate_or_state():
     assert row == before
     row.update(result)
     assert transition_state(row, None) == decision
-    assert calculate_entry(before, replace(DEFAULT_CONFIG, entry_alpha_min=101))["entry_score"] == 0
+    rejected = calculate_entry(before, replace(DEFAULT_CONFIG, entry_alpha_min=101))
+    assert rejected["entry_type"] == "NONE" and rejected["entry_score"] > 0
     assert all(row[key] == before[key] for key in ("alpha_score", "rank", "is_candidate"))
 
 

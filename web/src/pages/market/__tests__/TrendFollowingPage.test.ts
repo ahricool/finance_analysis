@@ -486,7 +486,7 @@ describe('TrendFollowingPage', { timeout: 30_000 }, () => {
     expect(wrapper.get('[data-code="A.US"] [data-column="atrPercent"]').text()).toBe('3.0%');
     expect(wrapper.get('[data-code="B.US"] [data-column="volumeRatio"]').text()).toContain('盘中估算');
     expect(wrapper.find('[data-column="trendQuality"]').exists()).toBe(false);
-    const header = wrapper.findAll('button').find(button => button.text().includes('入场分'))!;
+    const header = wrapper.findAll('button').find(button => button.text().includes('买点质量分'))!;
     await header.trigger('click');
     expect(wrapper.findAll('[data-testid="trend-row"]')[0]!.attributes('data-code')).toBe('B.US');
     wrapper.unmount();
@@ -1169,5 +1169,37 @@ it.each(['strong', '.font-mono'])('opens market data from ranking identity %s wh
   await wrapper.get('[data-testid="trend-row"]').trigger('click');
   await flushPromises();
   expect(document.body.querySelector('[role="tab"][data-state="active"]')?.textContent).toBe('趋势');
+  wrapper.unmount();
+});
+
+it('keeps all Entry routes visible, sorts them independently and exports their status and reasons', async () => {
+  apiMocks.ranking.mockResolvedValueOnce({ ...ranking('CN'), items: [
+    { ...rankingSnapshot(), code: 'BOTH.US', name: '双重确认', rank: 1, entryType: 'BREAKOUT_AND_PULLBACK', entryScore: 88,
+      features: { entryVersion: 2, entryBreakoutScore: 88, entryBreakoutStatus: 'CONFIRMED', entryBreakoutReason: '突破确认',
+        entryMa5Score: 85, entryMa5Status: 'CONFIRMED', entryMa5Reason: '回踩收回' } },
+    { ...rankingSnapshot(), code: 'WAIT.US', name: '等待样本', rank: 2, entryType: 'NONE', entryScore: 92,
+      features: { entryVersion: 2, entryMa5Score: 92, entryMa5Status: 'PULLING_BACK', entryMa5Reason: '尚未收回支撑' } },
+  ] });
+  const wrapper = mount(TrendFollowingPage); await flushPromises();
+  expect(wrapper.get('[data-code="BOTH.US"] [data-column="entryType"]').text()).toContain('突破 + 回踩');
+  expect(wrapper.get('[data-code="BOTH.US"] [data-column="entryMa5Status"]').text()).toContain('回踩收回');
+  expect(wrapper.get('[data-code="WAIT.US"] [data-column="entryMa5Score"]').text()).toBe('92.0');
+  expect(wrapper.get('[data-code="WAIT.US"] [data-column="entryMa5Status"]').text()).toContain('回踩中');
+  const header = (text: string) => wrapper.findAll('th').find(th => th.text().includes(text))!.get('button');
+  await header('MA5 回踩质量').trigger('click');
+  expect(wrapper.findAll('[data-testid="trend-row"]')[0]!.attributes('data-code')).toBe('WAIT.US');
+  await header('MA5 回踩状态').trigger('click');
+  expect(wrapper.findAll('[data-testid="trend-row"]')[0]!.attributes('data-code')).toBe('BOTH.US');
+  await wrapper.get('[data-testid="trend-export-excel"]').trigger('click'); await flushPromises();
+  const [, , columns, rows] = vi.mocked(exportExcel).mock.calls.at(-1)!;
+  const scoreIndex = columns.findIndex(c => c.label === 'MA5 回踩质量');
+  const stateIndex = columns.findIndex(c => c.label === 'MA5 回踩状态');
+  const reasonIndex = columns.findIndex(c => c.label === 'MA5 回踩状态原因');
+  expect(rows[0]![scoreIndex]).toBe(85);
+  expect(rows[0]![stateIndex]).toBe('已确认');
+  expect(rows[0]![reasonIndex]).toBe('回踩收回');
+  expect(rows[1]![scoreIndex]).toBe(92);
+  expect(rows[1]![stateIndex]).toBe('回踩中');
+  expect(rows.every(row => row.length === columns.length)).toBe(true);
   wrapper.unmount();
 });
