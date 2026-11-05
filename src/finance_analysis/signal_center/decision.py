@@ -13,6 +13,9 @@ SYSTEM_PROMPT = GUIDANCE.format(objective="本轮为最终决策：从已入围�
 
 ## 证据要求
 每个BUY至少引用两条不同字段的非空输入事实；原样复制value，不得引用未提供的上游明细。
+顶层evidence最多12项；每只推荐的evidence必须为2–12项，同一field不得重复。
+每只推荐的positive_signals、risks、invalidations各1–12项，external_sources最多8项。
+同一条证据可用supports同时支持多个主张；通过合并表述、复用证据控制数量，不为每个主张重复建立证据。
 说明其支持何种推断（interpretation）。事实可机检，解释仍是模型判断，引用相同底层事实不代表独立共振。
 BUY必须有明确优势、主要反对证据、风险和可观察失效条件；不明确则不推荐，绝不补足三个名额。
 
