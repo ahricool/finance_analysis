@@ -15,7 +15,7 @@ from finance_analysis.llm import LLMClient, LLMRequest
 from finance_analysis.llm.json_parse import parse_llm_json_response
 from .config import OutlookConfig, PROMPT_VERSION, CALENDAR_LOOKAHEAD_DAYS
 from .context import ContextCollector, consensus, raw_facts, research_context, outlook_context
-from .prompts import RESEARCH, OUTLOOK
+from .prompts import RESEARCH, OUTLOOK, render_input
 from .rules import (
     NY,
     automatic_stage,
@@ -217,7 +217,7 @@ class EarningsOutlookService:
         if research is None:
             result = self.forecast_call(
                 event_id, LLMRequest(
-                    prompt=json.dumps(research_context(context), ensure_ascii=False, default=str),
+                    prompt=render_input(research_context(context), RESEARCH),
                     system_prompt=RESEARCH,
                     call_type="earnings_research",
                     web_search=True,
@@ -319,7 +319,7 @@ class EarningsOutlookService:
             return dict(event_id=event_id, status="frozen_or_changed")
         result = self.forecast_call(
             event_id, LLMRequest(
-                prompt=json.dumps(frozen, ensure_ascii=False), system_prompt=OUTLOOK, call_type="earnings_outlook"
+                prompt=render_input(frozen, OUTLOOK), system_prompt=OUTLOOK, call_type="earnings_outlook"
             ),
         )
         prediction = normalize_prediction(parse_json_object(result.text), context, self.config)

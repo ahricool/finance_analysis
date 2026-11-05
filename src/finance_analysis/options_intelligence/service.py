@@ -1,6 +1,5 @@
 """Low-frequency research orchestration; all price reads go through MarketDataService."""
 
-import json
 import logging
 import os
 import re
@@ -16,6 +15,7 @@ from finance_analysis.integrations.options.service import attach_reference, quot
 from finance_analysis.integrations.options.providers import number
 from finance_analysis.database.repositories.options_intelligence import OptionsRepository
 from finance_analysis.llm import LLMClient, LLMRequest, parse_llm_json_response
+from finance_analysis.options_intelligence.prompts import SUMMARY, EXPLANATION, render_input, explanation_payload
 from .config import get_options_config
 from .engine import analyze
 from .metrics import oi_change
@@ -171,13 +171,8 @@ class OptionsIntelligenceService:
                     "anomalous_stock_count": sum(1 for r in scored if r["event_count"] > 0),
                     "top_candidates": scored[:15],
                 }
-                prompt = json.dumps(payload, ensure_ascii=False, default=str)
-                system = (
-                    "你汇总美股盘后期权情报扫描结果，只做结构化研究总结，不预测股价、不输出买卖建议。"
-                    "不得编造大单、机构流向、主动买卖方向或净空头；Indicative不是NBBO；Put成交与Skew升高只代表保护需求或成交活跃证据。"
-                    "输出中文JSON，字段为market_overview(str),notable_symbols(list[str]),protection_vs_direction(str),"
-                    "data_limits(list[str]),risk_notes(list[str])。"
-                )
+                system = SUMMARY
+                prompt = render_input(payload, system)
 
                 def validate(text):
                     DailySummary.model_validate(parse_llm_json_response(text))
@@ -485,10 +480,7 @@ class OptionsIntelligenceService:
         # Explain the selected snapshot with only context available at its computation,
         # including when a user requests an old date long after it was published.
         now = coerce_aware_utc(datetime.fromisoformat(latest["computed_at"]))
-        payload = {k: v for k, v in latest.items() if k not in {"contracts", "llm_analysis"}}
-        payload["anomalous_contracts"] = sorted(
-            [r for r in latest["contracts"] if r["events"]], key=lambda r: r["volume_percentile"] or 0, reverse=True
-        )[:12]
+        payload = explanation_payload(latest)
         payload["context"] = self.repo.context(symbol, now)
         bars = self.market.get_daily_bars(
             [symbol],
@@ -500,14 +492,8 @@ class OptionsIntelligenceService:
         payload["recent_prices"] = [
             {"date": b.trade_date.isoformat(), "close": b.close} for b in bars.data.get(symbol, [])
         ]
-        prompt = json.dumps(payload, ensure_ascii=False, default=str)
-        system = (
-            "你解释已计算期权风险，不计算评分、不预测价格、不建议自动交易。仅使用提供的数据。"
-            "不得编造大单、机构仓位、主动买卖、净开仓；Indicative不是NBBO。Put成交、OI和Skew不能证明净空头。"
-            "权利金估算不是真实成交额；公开事件只有上下文提供证据时才可确认，否则写可能或未知。"
-            "输出中文JSON，字段为why_it_matters(str),possible_catalysts(list[str]),protection_vs_direction(str),"
-            "alternative_explanations(list[str]),data_limits(list[str]),trading_risks(list[str])。"
-        )
+        system = EXPLANATION
+        prompt = render_input(payload, system)
 
         def validate(text):
             Explanation.model_validate(parse_llm_json_response(text))

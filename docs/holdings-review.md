@@ -32,8 +32,8 @@
 预演只接受当日、观察时间不晚于任务时点、数据时间不超过20分钟的批次；缺失/过期不回退旧正式结果。
 股票报价需属于当日且不超过180秒；主动建议还要求至少10根历史日K且最新日为上一交易日，
 至少6根完整5min线且尾部新鲜。缺失时主动建议被程序降为WATCH。
-K线使用一次声明的 `[time, open, high, low, close, volume]` 紧凑数组；不传成员全集、诊断明细或完整评分拆解。
-输入超过160,000字符时明确降级，不静默丢弃部分持仓。
+完整冻结记录保留 `[time, open, high, low, close, volume]` 紧凑K线数组；LLM只接收窗口根数、首尾日期/收盘、最高最低及涨跌幅摘要。
+不传成员全集、诊断明细或完整评分拆解。系统指令及输入合计超过40,000字符时明确降级，不静默丢弃部分持仓。
 
 ## LLM 与结构化建议
 
@@ -72,3 +72,7 @@ transport检索证据、模型/状态/时间及通知关联。旧全局A股报�
 
 离线回归：`tests/holdings_review/`；真实PostgreSQL用 `HOLDINGS_REVIEW_TEST_DATABASE_URL` 指向隔离测试库。
 前端：`HoldingsReviewPage.test.ts`、`e2e/holdings-review.spec.ts`（6种宽度与深浅色）。
+
+## Prompt 展示约定
+
+LLM 输入采用 Markdown 任务说明与结论 CSV 多表；表格关联、精度、FA 参考边界及历史缓存兼容见 [LLM Prompt 约定](llm-prompts.md)。

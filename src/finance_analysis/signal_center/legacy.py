@@ -11,6 +11,7 @@ from finance_analysis.signal_center.prompt import (
     parse_decision,
     SCREEN_SYSTEM_PROMPT,
     parse_screen,
+    render_legacy_input,
 )
 from finance_analysis.signal_center.snapshot import collect, ready, sufficient
 from finance_analysis.tasks.advisory_lock import PostgreSQLAdvisoryLock
@@ -64,12 +65,12 @@ class SignalCenterService:
                     # Publish recovery before any slow LLM call; keep the frozen evidence and completed buckets.
                     self.repo.finish(market, day, status="pending", error=None)
                 final_snapshot = self.screen(market, day, run)
-                final_prompt = json.dumps(final_snapshot, ensure_ascii=False, allow_nan=False)
-                self.repo.finish(market, day, final_prompt=final_prompt)
+                final_prompt = render_legacy_input(final_snapshot, SYSTEM_PROMPT)
+                self.repo.finish(market, day, final_prompt=final_prompt, system_prompt=SYSTEM_PROMPT)
                 result = self.client.complete_text(
                     LLMRequest(
                         prompt=final_prompt,
-                        system_prompt=run["system_prompt"],
+                        system_prompt=SYSTEM_PROMPT,
                         call_type="signal_center",
                         web_search=False,
                         api_first=True,
@@ -120,15 +121,14 @@ class SignalCenterService:
             if not batch or index < len(audit):
                 continue
             evidence = [dict(symbol=c["symbol"], name=c["name"], trend=candidate_context(c)["trend"]) for c in batch]
-            prompt = json.dumps(
+            prompt = render_legacy_input(
                 dict(
                     market=market,
                     signal_date=day.isoformat(),
                     market_regime=snapshot["market_regime"],
                     candidates=evidence,
                 ),
-                ensure_ascii=False,
-                allow_nan=False,
+                SCREEN_SYSTEM_PROMPT,
             )
             symbols = [c["symbol"] for c in batch]
             result = self.client.complete_text(

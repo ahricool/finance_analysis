@@ -245,3 +245,7 @@ pnpm exec playwright test e2e/option-strategies.spec.ts e2e/options-intelligence
 # 可选只读回放：外部JSON含samples[{code,name,market,bars,options}]；不提交生产样本。
 FA_OPTIONS_REPLAY_FIXTURE=/path/to/read-only-fixture.json pnpm exec playwright test e2e/option-strategies.spec.ts
 ```
+
+## Prompt 展示约定
+
+LLM 输入采用 Markdown 任务说明与结论 CSV 多表；表格关联、精度、FA 参考边界及历史缓存兼容见 [LLM Prompt 约定](llm-prompts.md)。

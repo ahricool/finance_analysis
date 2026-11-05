@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from tests.prompt_tables import read_reference
+
 import json
 from datetime import date, datetime, timezone
 from types import SimpleNamespace
@@ -248,7 +250,7 @@ def test_service_uses_unified_quote_context():
 
     assert quote_fetcher.context_calls == ["NVDA.US"]
     assert quote_fetcher.realtime_calls == []
-    assert '"market_cap": 1000.0' in llm.requests[0].prompt
+    assert read_reference(llm.requests[0].prompt)["events"][0]["market_cap"] == 1000.0
 
 
 def test_market_cap_failure_still_scores_with_null_market_cap():
@@ -264,7 +266,7 @@ def test_market_cap_failure_still_scores_with_null_market_cap():
     )
 
     assert result["scored"] == 1
-    assert '"market_cap": null' in llm.requests[0].prompt
+    assert read_reference(llm.requests[0].prompt)["events"][0]["market_cap"] is None
 
 
 def test_single_batch_failure_does_not_block_other_batches():

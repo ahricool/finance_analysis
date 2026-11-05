@@ -45,7 +45,7 @@ def research_context(context):
 
 
 def outlook_context(context):
-    """Keep company bars, but use existing summaries for shared market series.
+    """Use existing statistics instead of repeated raw company/market bars.
 
     Copy nested mappings: concurrent events share the original public snapshot.
     The returned projection is both sent to the model and persisted as its input.
@@ -57,7 +57,11 @@ def outlook_context(context):
                 symbol: {key: value for key, value in series.items() if key != "bars"}
                 for symbol, series in market[group].items()
             }
-    return {**context, "market": market}
+    technical = context.get("technical")
+    return {
+        **context, "market": market,
+        "technical": {k: v for k, v in technical.items() if k != "bars"} if technical else None,
+    }
 
 
 class ContextCollector:

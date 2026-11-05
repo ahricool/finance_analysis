@@ -1,6 +1,9 @@
 """Human-readable input contract shared by screening and final decisions."""
 
-GUIDANCE = """# 背景
+from finance_analysis.llm.prompting import FA_REFERENCE
+
+GUIDANCE = (
+    """# 背景
 
 你是短中期股票/ETF研究员。系统已将当日正式研究结果冻结为候选名单、市场背景及各来源结论，见“参考数据”。
 候选经过多来源提名，但提名次数不等于独立支持票数。共振是已发布整体结论，与趋势、行业、ETF可能共享底层事实，不重新推导或相加评分。
@@ -31,12 +34,16 @@ GUIDANCE = """# 背景
 - 信息发布日期不得晚于signal_date；历史重试不可使用后见信息。日期不明应说明，不能据此认定事件发生在截止日前。
 - 搜索失败不等于没有风险，不伪造检索。网络信息可改变风险判断，但不能替换冻结排名或引入候选外代码。
 
+"""
+    + FA_REFERENCE
+    + """
 ## 4. 形成判断
 
 比较优势与主要反对证据，说明关键风险和可观察失效条件；证据不足或冲突未解决时降低信心或放弃。
 输出简洁判断依据，不复述全部表格，不输出内部逐步推理过程。
 
 """
+)
 
 TABLE_GUIDE = """# 参考数据
 
