@@ -291,6 +291,7 @@ class SignalCenterRepository(ConfluenceRepository):
                     "completed_at",
                     "screening",
                     "final_prompt",
+                    "system_prompt",  # Unfinished retries may use a new template over the same frozen evidence.
                     "search_evidence",
                 }:
                     raise ValueError("Cannot mutate frozen input")
