@@ -1,6 +1,7 @@
 """Offline contract, freshness, screening and immutable retry tests."""
 
 import json
+from tests.prompt_tables import read_reference
 from contextlib import contextmanager
 from copy import deepcopy
 from datetime import date, datetime, timedelta, timezone
@@ -107,7 +108,7 @@ class Client:
 
     def complete_text(self, request, validator):
         self.calls.append(request)
-        payload = json.loads(request.prompt)
+        payload = read_reference(request.prompt)
         if request.call_type == "signal_center_screen":
             value = dict(symbols=[c["symbol"] for c in payload["candidates"][:2]], reason="初筛")
         else:
@@ -273,10 +274,10 @@ def test_batched_screening_covers_every_top_five_percent_candidate():
     repo, client = Repo(size=1900), Client()
     service = SignalCenterService(repo, client, lock)
     service.run("CN", DAY, deadline=True)
-    calls = [json.loads(c.prompt) for c in client.calls if c.call_type == "signal_center_screen"]
+    calls = [read_reference(c.prompt) for c in client.calls if c.call_type == "signal_center_screen"]
     assert [len(c["candidates"]) for c in calls] == [19] * 5
     assert len(repo.run_record["screening"]) == 5
-    assert len(json.loads(repo.run_record["final_prompt"])["candidates"]) == 13  # ten screened + Quant3
+    assert len(read_reference(repo.run_record["final_prompt"])["candidates"]) == 13  # ten screened + Quant3
 
 
 @pytest.mark.parametrize("size", [0, 1, 3, 5, 6, 51, 210])
@@ -336,7 +337,7 @@ def test_failed_bucket_resumes_frozen_plan_and_skips_completed_buckets():
     client.fail = False
     service.run("CN", DAY, deadline=True)
     assert repo.run_record["candidate_snapshot"] == frozen
-    calls = [json.loads(c.prompt) for c in client.calls if c.call_type == "signal_center_screen"]
+    calls = [read_reference(c.prompt) for c in client.calls if c.call_type == "signal_center_screen"]
     assert [[c["symbol"] for c in p["candidates"]] for p in calls] == frozen["screening_plan"]["buckets"]
     assert len(repo.run_record["screening"]) == 5
 
@@ -358,7 +359,7 @@ def test_legacy_frozen_run_retains_original_batches():
     service = SignalCenterService(repo, client, lock)
     with pytest.raises(RuntimeError):
         service.run("CN", DAY, deadline=True)
-    assert [len(json.loads(c.prompt)["candidates"]) for c in client.calls if c.call_type == "signal_center_screen"] == [
+    assert [len(read_reference(c.prompt)["candidates"]) for c in client.calls if c.call_type == "signal_center_screen"] == [
         40,
         40,
         15,

@@ -9,7 +9,7 @@ from finance_analysis.llm.types import LLMRequest
 from finance_analysis.signal_center import decision as contract
 from finance_analysis.signal_center import inputs
 from finance_analysis.signal_center.legacy import SignalCenterService as LegacyService, model_identity
-from finance_analysis.signal_center.llm_context import PromptTooLarge, conclusions, serialize
+from finance_analysis.signal_center.llm_context import conclusions, serialize
 from finance_analysis.signal_center.notification import render
 from finance_analysis.tasks.advisory_lock import PostgreSQLAdvisoryLock
 
@@ -78,7 +78,7 @@ class SignalCenterService:
                 if run["status"] == "failed":
                     self.repo.finish(market, day, status="pending", error=None)
                 final = self.screen(market, day, run)
-                prompt = serialize(final, contract.SYSTEM_PROMPT)
+                prompt = serialize(final)
                 self.repo.finish(market, day, final_prompt=prompt, system_prompt=contract.SYSTEM_PROMPT)
                 if final["candidates"]:
                     result = self.client.complete_text(
@@ -124,7 +124,7 @@ class SignalCenterService:
             except Exception as exc:
                 error = (
                     str(exc)
-                    if isinstance(exc, (LLMError, PromptTooLarge))
+                    if isinstance(exc, LLMError)
                     else f"LLM synthesis failed ({type(exc).__name__})"
                 )
                 self.repo.finish(market, day, status="failed", error=error)
@@ -160,7 +160,7 @@ class SignalCenterService:
             if not symbols or index in completed:
                 continue
             batch = conclusions(snapshot, symbols)
-            prompt = serialize(batch, contract.SCREEN_SYSTEM_PROMPT)
+            prompt = serialize(batch)
             result = self.client.complete_text(
                 LLMRequest(
                     prompt=prompt,

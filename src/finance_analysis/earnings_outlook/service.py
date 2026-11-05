@@ -14,8 +14,8 @@ from finance_analysis.database.repositories.earnings_outlook import EarningsOutl
 from finance_analysis.llm import LLMClient, LLMRequest
 from finance_analysis.llm.json_parse import parse_llm_json_response
 from .config import OutlookConfig, PROMPT_VERSION, CALENDAR_LOOKAHEAD_DAYS
-from .context import ContextCollector, consensus, raw_facts, research_context, outlook_context
-from .prompts import RESEARCH, OUTLOOK
+from .context import ContextCollector, consensus, raw_facts, research_context
+from .prompts import RESEARCH, OUTLOOK, render_input
 from .rules import (
     NY,
     automatic_stage,
@@ -217,7 +217,7 @@ class EarningsOutlookService:
         if research is None:
             result = self.forecast_call(
                 event_id, LLMRequest(
-                    prompt=json.dumps(research_context(context), ensure_ascii=False, default=str),
+                    prompt=render_input(research_context(context)),
                     system_prompt=RESEARCH,
                     call_type="earnings_research",
                     web_search=True,
@@ -303,7 +303,7 @@ class EarningsOutlookService:
         ]
         context["run_date"] = str(now.astimezone(NY).date())
         context["research_id"] = research.id
-        context = json_value(outlook_context(context))
+        context = json_value(context)  # Persist full audit context; prompt projection is independent.
         analysis_bundle = {k: v for k, v in bundle.items() if k != "unverified_sources"}
         frozen = dict(context=context, research=analysis_bundle)
         hash_context = {k: v for k, v in context.items() if k != "data_cutoff"}
@@ -319,7 +319,7 @@ class EarningsOutlookService:
             return dict(event_id=event_id, status="frozen_or_changed")
         result = self.forecast_call(
             event_id, LLMRequest(
-                prompt=json.dumps(frozen, ensure_ascii=False), system_prompt=OUTLOOK, call_type="earnings_outlook"
+                prompt=render_input(frozen), system_prompt=OUTLOOK, call_type="earnings_outlook"
             ),
         )
         prediction = normalize_prediction(parse_json_object(result.text), context, self.config)

@@ -104,10 +104,11 @@ Longbridge行情和财经日历能力继续使用；财报与信号研究原有�
 
 1. `earnings_research`：逐个事件研究，查询必须含公司名、代码、季度及财报词。
    输入只保留事件身份、公司、截止时间、预期、指引、分析师修正与历史财报；不携带股价、原始K线或大盘行情。
-   第二阶段 `earnings_outlook` 保留个股最多30日完整K线；公共SPY/QQQ和板块ETF只传既有
-   return_pct、volatility、atr14、sessions、as_of等摘要，去掉重复公共OHLCV数组。
-   宏观、市场结构、缺失说明和来源不裁剪。压缩后的上下文同时用于模型输入、input_hash和预测快照，
+   第二阶段 `earnings_outlook` 对个股、公共SPY/QQQ和板块ETF统一只传既有
+   return_pct、volatility、atr14、sessions、as_of等摘要，不传原始OHLCV数组。
+   宏观、市场结构、缺失说明和来源不裁剪。完整上下文用于input_hash和审计预测快照，独立展示投影移除原始K线、对完全相同事实建立fact_id引用；
    不修改线程间共享公共快照，也不减少批次事件数或提高并发上限。
+   guidance_evidence/operating_evidence/research.facts在展示时共享唯一facts表，source_ids引用sources；财季/口径/时间/来源不同或冲突的事实不合并。缓存版本为earnings-v3-fact-refs，历史审计内容不重写。
    通常只用近30天资料，最近一季官方指引可更早。保存来源、发布时间、检索时间、事实引用及冲突采用理由。
    一致预期与个别分析师观点分开，不平均混合季度/单位/GAAP口径。
 2. `earnings_outlook`：不搜索，输入冻结的context和research bundle，分别判断经营表现与价格反应。
@@ -199,3 +200,7 @@ total还包含事件锁连接、资格判断与业务持久化。这些阶段耗
 
 美股盘前个股分析、手动单股分析及决策仪表盘 Prompt/pipeline 已删除，不再生成新结果。
 美股收盘复盘及其历史由 `0089_retire_us_postmarket` 删除；盘前新闻及其历史由 `0086_retire_news` 删除。历史数据删除与共享依赖处置见 [删除清单](stock-analysis-removal.md)。
+
+## Prompt 展示约定
+
+LLM 输入采用 Markdown 任务说明与结论 CSV 多表；表格关联、精度、FA 参考边界及历史缓存兼容见 [LLM Prompt 约定](llm-prompts.md)。

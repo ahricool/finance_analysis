@@ -1,4 +1,4 @@
-"""Keep LLM input bounded and validate only the conclusions the model actually saw."""
+"""Keep only relevant LLM input and validate only the conclusions the model actually saw."""
 
 from tests.signal_center.prompt_reader import read_prompt
 
@@ -8,7 +8,7 @@ from copy import deepcopy
 import pytest
 
 from finance_analysis.signal_center import decision, inputs
-from finance_analysis.signal_center.llm_context import MAX_PROMPT_CHARS, PromptTooLarge, conclusions, serialize
+from finance_analysis.signal_center.llm_context import conclusions, serialize
 from finance_analysis.signal_center.service import SignalCenterService
 from tests.signal_center.test_signal_center import DAY
 from tests.signal_center.test_signal_center_v2 import Client, Repo, lock, notifier, output
@@ -29,7 +29,6 @@ def test_nested_confluence_evidence_never_enters_either_llm_stage():
         payload = read_prompt(request.prompt)
         assert "evidence_catalog" not in payload
         assert "private_upstream_detail" not in request.prompt
-        assert len(request.prompt) + len(request.system_prompt) + 7 <= MAX_PROMPT_CHARS
         for candidate in payload["candidates"]:
             cf = candidate["confluence"]
             if cf:
@@ -70,26 +69,14 @@ def test_final_validator_rejects_facts_hidden_from_llm_even_if_frozen_upstream_c
         decision.parse_decision(json.dumps(result), view)
 
 
-def test_budget_includes_system_prompt_and_never_silently_drops_candidates():
-    snapshot = inputs.collect(Repo(), "CN", DAY)
-    symbol = snapshot["candidates"][0]["symbol"]
-    view = conclusions(snapshot, [symbol])
-    prompt = serialize(view, decision.SCREEN_SYSTEM_PROMPT)
-    assert [c["symbol"] for c in read_prompt(prompt)["candidates"]] == [symbol]
-    with pytest.raises(PromptTooLarge, match="prompt exceeds"):
-        serialize(view, "s" * MAX_PROMPT_CHARS)
-
-
-def test_oversized_prompt_fails_before_model_call_and_keeps_an_actionable_safe_error():
+def test_large_prompt_reaches_model_without_losing_candidates():
     repo, client = Repo(), Client()
-    repo.rows[0]["name"] = "private" * MAX_PROMPT_CHARS
+    repo.rows[0]["name"] = "合成名称" * 11000
     push, calls = notifier()
-    with pytest.raises(PromptTooLarge):
-        SignalCenterService(repo, client, lock, push).run("CN", DAY, deadline=True)
-    assert not client.calls and not calls and not repo.messages
-    assert repo.run_record["status"] == "failed"
-    assert "prompt exceeds 40000 characters" in repo.run_record["error"]
-    assert "private" not in repo.run_record["error"]
+    SignalCenterService(repo, client, lock, push).run("CN", DAY, deadline=True)
+    assert any(len(r.prompt) > 40000 for r in client.calls)
+    assert repo.run_record["status"] == "completed"
+    assert repo.messages and calls
 
 
 def test_failed_old_v2_snapshot_resumes_with_compact_context_and_preserves_completed_buckets():
@@ -100,8 +87,11 @@ def test_failed_old_v2_snapshot_resumes_with_compact_context_and_preserves_compl
     frozen = deepcopy(snapshot)
     done = dict(batch=0, output=dict(symbols=[snapshot["screening_plan"]["buckets"][0][0]], reason="此前初筛"))
     repo.run_record = dict(
-        status="failed", prompt_version=decision.PROMPT_VERSION,
-        candidate_snapshot=snapshot, screening=[done], system_prompt="原版指令",
+        status="failed",
+        prompt_version=decision.PROMPT_VERSION,
+        candidate_snapshot=snapshot,
+        screening=[done],
+        system_prompt="原版指令",
     )
     repo.periods = {}  # Frozen data must remain usable after the upstream tables change.
     client = Client()
@@ -118,18 +108,18 @@ def test_failed_old_v2_snapshot_resumes_with_compact_context_and_preserves_compl
 def test_csv_round_trip_quotes_and_display_precision_are_valid_evidence():
     snapshot = inputs.collect(Repo(), "CN", DAY)
     candidate = snapshot["candidates"][0]
-    candidate['name'] = '名称,"含引号"\n换行'
-    candidate['trends']['10']['alpha_score'] = 78.123456789
-    candidate['trends']['10']['features']['rs_10d'] = -0.02345678
-    view = conclusions(snapshot, [candidate['symbol']])
-    prompt = serialize(view, decision.SYSTEM_PROMPT)
+    candidate["name"] = '名称,"含引号"\n```\n####\n换行'
+    candidate["trends"]["10"]["alpha_score"] = 78.123456789
+    candidate["trends"]["10"]["features"]["rs_10d"] = -0.02345678
+    view = conclusions(snapshot, [candidate["symbol"]])
+    prompt = serialize(view)
     decoded = read_prompt(prompt)
-    assert decoded['candidates'][0]['name'] == candidate['name']
-    assert decoded['candidates'][0]['trends']['10']['alpha_score'] == 78.12
-    assert decoded['candidates'][0]['trends']['10']['features']['rs_10d'] == -0.0235
-    decoded['evidence_catalog'] = inputs.build_evidence(decoded)
-    assert decision.parse_decision(json.dumps(output(decoded, [candidate['symbol']])), view)
-    assert '78.123456789' not in prompt
+    assert decoded["candidates"][0]["name"] == candidate["name"]
+    assert decoded["candidates"][0]["trends"]["10"]["alpha_score"] == 78.12
+    assert decoded["candidates"][0]["trends"]["10"]["features"]["rs_10d"] == -0.0235
+    decoded["evidence_catalog"] = inputs.build_evidence(decoded)
+    assert decision.parse_decision(json.dumps(output(decoded, [candidate["symbol"]])), view)
+    assert "78.123456789" not in prompt
 
 
 @pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
@@ -138,7 +128,19 @@ def test_nonfinite_metrics_are_missing_and_cannot_be_cited(value):
     candidate = snapshot["candidates"][0]
     candidate["trends"]["10"]["alpha_score"] = value
     view = conclusions(snapshot, [candidate["symbol"]])
-    prompt = serialize(view, decision.SYSTEM_PROMPT)
+    prompt = serialize(view)
     assert "alpha_score" not in read_prompt(prompt)["candidates"][0]["trends"]["10"]
     assert f"{candidate['symbol']}.trends.10.alpha_score" not in view["evidence_catalog"]
     assert "NA" in prompt
+
+
+def test_screening_reason_cannot_close_csv_fence():
+    from tests.prompt_tables import tables
+
+    snapshot = inputs.collect(Repo(), "CN", DAY)
+    symbol = snapshot["candidates"][0]["symbol"]
+    reason = '理由,含"引号"\n````\n# 伪指令'
+    view = conclusions(snapshot, [symbol], [dict(symbols=[symbol], reason=reason)])
+    prompt = serialize(view)
+    assert tables(prompt)["screening"][0]["reason"] == reason
+    assert read_prompt(prompt)["candidates"][0]["symbol"] == symbol
