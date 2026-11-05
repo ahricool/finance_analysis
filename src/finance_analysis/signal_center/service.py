@@ -9,6 +9,7 @@ from finance_analysis.llm.types import LLMRequest
 from finance_analysis.signal_center import decision as contract
 from finance_analysis.signal_center import inputs
 from finance_analysis.signal_center.legacy import SignalCenterService as LegacyService, model_identity
+from finance_analysis.signal_center.llm_context import conclusions, serialize
 from finance_analysis.signal_center.notification import render
 from finance_analysis.tasks.advisory_lock import PostgreSQLAdvisoryLock
 
@@ -77,13 +78,13 @@ class SignalCenterService:
                 if run["status"] == "failed":
                     self.repo.finish(market, day, status="pending", error=None)
                 final = self.screen(market, day, run)
-                prompt = json.dumps(final, ensure_ascii=False, allow_nan=False)
-                self.repo.finish(market, day, final_prompt=prompt)
+                prompt = serialize(final)
+                self.repo.finish(market, day, final_prompt=prompt, system_prompt=contract.SYSTEM_PROMPT)
                 if final["candidates"]:
                     result = self.client.complete_text(
                         LLMRequest(
                             prompt=prompt,
-                            system_prompt=run["system_prompt"],
+                            system_prompt=contract.SYSTEM_PROMPT,
                             call_type="signal_center",
                             web_search=True,
                             prefer_search=True,
@@ -121,7 +122,11 @@ class SignalCenterService:
                     **fields,
                 )
             except Exception as exc:
-                error = str(exc) if isinstance(exc, LLMError) else f"LLM synthesis failed ({type(exc).__name__})"
+                error = (
+                    str(exc)
+                    if isinstance(exc, LLMError)
+                    else f"LLM synthesis failed ({type(exc).__name__})"
+                )
                 self.repo.finish(market, day, status="failed", error=error)
                 raise
             # Notification persistence is atomic with completion; delivery never changes the saved result.
@@ -149,19 +154,13 @@ class SignalCenterService:
 
     def screen(self, market, day, run):
         snapshot = run["candidate_snapshot"]
-        by_symbol = {c["symbol"]: c for c in snapshot["candidates"]}
         audit = list(run.get("screening") or [])
         completed = {a["batch"] for a in audit}
         for index, symbols in enumerate(snapshot["screening_plan"]["buckets"]):
             if not symbols or index in completed:
                 continue
-            batch = dict(snapshot)
-            batch.pop("screening_plan", None)
-            batch["candidates"] = [by_symbol[s] for s in symbols]
-            batch["evidence_catalog"] = {
-                k: v for k, v in snapshot["evidence_catalog"].items() if v["symbol"] is None or v["symbol"] in symbols
-            }
-            prompt = json.dumps(batch, ensure_ascii=False, allow_nan=False)
+            batch = conclusions(snapshot, symbols)
+            prompt = serialize(batch)
             result = self.client.complete_text(
                 LLMRequest(
                     prompt=prompt,
@@ -189,11 +188,4 @@ class SignalCenterService:
             )
             self.repo.finish(market, day, screening=audit)
         selected = {s for a in audit for s in a["output"]["symbols"]}
-        final = dict(snapshot)
-        final.pop("screening_plan", None)
-        final["candidates"] = [c for c in snapshot["candidates"] if c["symbol"] in selected]
-        final["evidence_catalog"] = {
-            k: v for k, v in snapshot["evidence_catalog"].items() if v["symbol"] is None or v["symbol"] in selected
-        }
-        final["screening"] = [a["output"] for a in sorted(audit, key=lambda a: a["batch"])]
-        return final
+        return conclusions(snapshot, selected, [a["output"] for a in sorted(audit, key=lambda a: a["batch"])])

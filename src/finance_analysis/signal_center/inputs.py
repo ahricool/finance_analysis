@@ -106,7 +106,7 @@ def collect(repo, market, day):
     selections["industry"] = list(
         dict.fromkeys(r["code"] for group in groups for r in [v for v in members if v["industry_code"] == group][:3])
     )
-    # The manifest and stored rows are the frontend-visible formal generation (currently at most ten).
+    # The frontend-visible formal research generation includes up to fifty rows and ten selected signals.
     confluence = {r["code"]: r for r in sources["confluence"] if r.get("code") in stocks}
     selections["confluence"] = list(confluence)
     candidates = []

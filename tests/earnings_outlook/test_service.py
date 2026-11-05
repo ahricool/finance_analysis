@@ -1,6 +1,7 @@
 """Offline end-to-end transactions with real SQL, fake market/LLM and deterministic locks."""
 
 import json
+from tests.prompt_tables import read_reference
 from contextlib import contextmanager
 from datetime import date, datetime, timedelta, timezone
 from types import SimpleNamespace as NS
@@ -156,7 +157,7 @@ def test_cache_final_snapshot_and_failed_refresh_preserves_success(setup):
         assert s.scalar(select(func.count()).select_from(EarningsPrediction)) == 2
 
 
-def test_search_is_bounded_and_outlook_compacts_market_but_keeps_company_bars(setup):
+def test_search_is_bounded_and_outlook_uses_company_and_market_summaries(setup):
     service, db, repo, llm, members = setup
     collect = service.collector.collect.side_effect
     market = {"benchmarks": {"SPY.US": {"bars": [{"close": 100}] * 4000}}}
@@ -168,24 +169,25 @@ def test_search_is_bounded_and_outlook_compacts_market_but_keeps_company_bars(se
     service.collector.collect.side_effect = with_price_context
     assert service.refresh(1, "daily", members, {})["status"] == "success"
     research, outlook = [call.args[0] for call in llm.complete_text.call_args_list]
-    search_input = json.loads(research.prompt)
-    forecast_input = json.loads(outlook.prompt)["context"]
+    search_input = read_reference(research.prompt)
+    forecast_input = read_reference(outlook.prompt)["context"]
     assert search_input["event"]["symbol"] == "A.US"
     assert search_input["event"]["reporting_period"] == "2026-Q2"
     assert search_input["company"] == members["A.US"]
     assert search_input["consensus"] == forecast_input["consensus"]
-    assert search_input["guidance_evidence"] == forecast_input["guidance_evidence"]
+    assert "guidance_evidence" not in forecast_input
+    assert "guidance_fact_ids" in forecast_input
     assert search_input["data_cutoff"] == forecast_input["data_cutoff"]
     assert "market" not in search_input and "technical" not in search_input and "reference_price" not in search_input
-    assert len(research.prompt) < 2000 and len(outlook.prompt) < 10000
+    assert len(research.prompt) < 6000 and len(outlook.prompt) < 10000
     assert research.web_search and research.prefer_search
     assert research.timeout is None and outlook.timeout is None  # Both retain the unified global budget.
-    assert forecast_input["market"] == {"benchmarks": {"SPY.US": {}}}
-    assert forecast_input["technical"] == technical
+    assert forecast_input["market"] == {"benchmarks": {"SPY": {"US": {}}}}  # Empty objects remain explicit.
+    assert forecast_input["technical"] == {"return_pct": 2}
     assert len(market["benchmarks"]["SPY.US"]["bars"]) == 4000
     with db.get_session() as session:
         prediction = session.get(EarningsPrediction, repo.state(1).latest_prediction_id)
-        assert prediction.context["market"] == forecast_input["market"]
+        assert prediction.context["market"] == market
         assert prediction.context["technical"] == technical
     assert service.refresh(1, "daily", members, {})["status"] == "cached"
     assert llm.complete_text.call_count == 2
@@ -755,7 +757,7 @@ def test_context_projection_preserves_summaries_and_shared_input():
     before = deepcopy(original)
     compact = outlook_context(original)
     assert original == before
-    assert compact["technical"] == series
+    assert compact["technical"] == {k: v for k, v in series.items() if k != "bars"}
     for group in ("benchmarks", "sector_performance"):
         for symbol, value in compact["market"][group].items():
             assert value == {k: v for k, v in original["market"][group][symbol].items() if k != "bars"}
