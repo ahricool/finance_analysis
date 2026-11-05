@@ -400,13 +400,16 @@ GET只读及3/5/10D收益保留，详情可读评估轨迹；页面`/research/in
 
 ## Unified Signal Center
 
-`signal_center/` 主动读取同日正式Trend10前30、Trend20/40各前10、ETF前10（ETF可推荐）、原行业候选与前端可见的完整正式Confluence批次（当前最多10只）。
+`signal_center/` 主动读取同日正式Trend10前30、Trend20/40各前10、ETF前10（ETF可推荐）、原行业候选与前端可见的完整正式Confluence研究批次（最多50行、精选最多10只）。
 不直接读Quant候选/明细；共振保持上游整体含义，可能含Quant贡献，禁止把重复底层事实当独立共振。
 所有来源合并去重后固定5桶，每桶LLM选0–3，最终从0–15个中选0–3；CN/US每日合计最多6个，宁缺毋滥。
 复用LLMClient联网与transport检索证据；BUY结构化引用冻结字段/数值/日期，NO_TRADE有明确原因。
 正式结果与全局notification同事务保存，随后复用report路由push_existing。GET只读，逐只使用DB日线计算后续价格表现。
 CN20:40–21:50，US23:40至次日00:30每10分钟检查并等待共振，午夜仍归属前交易日。复用analysis队列与advisory lock。
 迁移`0080_signal_center_v2`，旧历史与未完成旧任务保持原版本。页面`/research/signal-center`。详见`docs/signal-center.md`。
+
+信号中心LLM使用结论投影：共振仅传整体结论，不传signals分项/原始证据；其余来源保留关键摘要。
+初筛/最终轮含系统指令每次最多40,000字符，证据索引仅服务端生成；既有V2冻结输入重试也先投影，保留成功桶。
 
 ## Options Intelligence
 

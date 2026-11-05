@@ -133,6 +133,7 @@ class Client:
         else:
             if self.fail_final:
                 raise RuntimeError("final failed")
+            snapshot["evidence_catalog"] = inputs.build_evidence(snapshot)
             symbols = [c["symbol"] for c in snapshot["candidates"]]
             if self.choose_etf:
                 symbols.sort(key=lambda s: s != "510300.SH")
