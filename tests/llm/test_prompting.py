@@ -2,9 +2,9 @@
 
 from copy import deepcopy
 
-import pytest
+import json
 
-from finance_analysis.llm.prompting import bounded, cell, reference_tables
+from finance_analysis.llm.prompting import cell, reference_tables
 from finance_analysis.holdings_review.prompt import render_input as holdings_input
 from finance_analysis.options_intelligence.prompts import explanation_payload
 from tests.prompt_tables import tables
@@ -32,9 +32,6 @@ def test_numeric_precision_preserves_small_values_and_missingness():
     assert cell(0.000012345678) == "1.235e-05"
     assert cell(0) == "0" and cell(False) == "false"
     assert cell(None) == cell(float("nan")) == cell(float("inf")) == "NA"
-    with pytest.raises(ValueError, match="40000"):
-        bounded("x" * 39994, "")
-    assert bounded("x" * 39993, "")
 
 
 def test_holdings_projection_keeps_every_position_and_summarizes_bars_without_mutation():
@@ -82,13 +79,16 @@ def test_option_explanation_does_not_send_raw_chain_or_unrelated_payload():
     assert "private_raw" not in result and "raw_debug" not in result["anomalous_contracts"][0]
 
 
-def test_oversized_holdings_never_calls_model_or_drops_positions():
+def test_large_holdings_reaches_model_without_dropping_positions():
     from unittest.mock import Mock
     from finance_analysis.holdings_review.decision import ReviewDecisionMaker
+    from finance_analysis.llm import LLMResult
+    from tests.holdings_review.test_decision import context, output
 
     client = Mock()
-    context = dict(holdings=[dict(position_id="p1", symbol="AAA.US", name="x" * 40000)])
-    decision, _, _ = ReviewDecisionMaker(client).decide(1, context)
-    client.complete_text.assert_not_called()
-    assert decision["degraded"] and len(decision["positions"]) == 1
-    assert "40,000" in decision["risks"][0]["detail"]
+    client.complete_text.return_value = LLMResult(text=json.dumps(output("HOLD")), backend="api")
+    snapshot = context()
+    snapshot["data_quality"] = ["合成观察资料" * 10000]
+    decision, _, _ = ReviewDecisionMaker(client).decide(1, snapshot)
+    assert len(client.complete_text.call_args.args[0].prompt) > 40000
+    assert not decision["degraded"] and len(decision["positions"]) == 1

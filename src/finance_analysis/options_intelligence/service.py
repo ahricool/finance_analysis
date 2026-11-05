@@ -172,7 +172,7 @@ class OptionsIntelligenceService:
                     "top_candidates": scored[:15],
                 }
                 system = SUMMARY
-                prompt = render_input(payload, system)
+                prompt = render_input(payload)
 
                 def validate(text):
                     DailySummary.model_validate(parse_llm_json_response(text))
@@ -493,7 +493,7 @@ class OptionsIntelligenceService:
             {"date": b.trade_date.isoformat(), "close": b.close} for b in bars.data.get(symbol, [])
         ]
         system = EXPLANATION
-        prompt = render_input(payload, system)
+        prompt = render_input(payload)
 
         def validate(text):
             Explanation.model_validate(parse_llm_json_response(text))

@@ -65,7 +65,7 @@ class SignalCenterService:
                     # Publish recovery before any slow LLM call; keep the frozen evidence and completed buckets.
                     self.repo.finish(market, day, status="pending", error=None)
                 final_snapshot = self.screen(market, day, run)
-                final_prompt = render_legacy_input(final_snapshot, SYSTEM_PROMPT)
+                final_prompt = render_legacy_input(final_snapshot)
                 self.repo.finish(market, day, final_prompt=final_prompt, system_prompt=SYSTEM_PROMPT)
                 result = self.client.complete_text(
                     LLMRequest(
@@ -128,7 +128,6 @@ class SignalCenterService:
                     market_regime=snapshot["market_regime"],
                     candidates=evidence,
                 ),
-                SCREEN_SYSTEM_PROMPT,
             )
             symbols = [c["symbol"] for c in batch]
             result = self.client.complete_text(

@@ -48,7 +48,7 @@ def outlook_context(context):
     """Use existing statistics instead of repeated raw company/market bars.
 
     Copy nested mappings: concurrent events share the original public snapshot.
-    The returned projection is both sent to the model and persisted as its input.
+    The returned projection is for display only; the service retains the full audit context.
     """
     market = dict(context.get("market") or {})
     for group in ("benchmarks", "sector_performance"):

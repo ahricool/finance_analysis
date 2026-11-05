@@ -8,7 +8,6 @@ from pydantic import BaseModel, ConfigDict, Field
 from finance_analysis.llm import LLMClient, LLMRequest
 from finance_analysis.llm.json_parse import parse_llm_json_response
 from finance_analysis.holdings_review.prompt import SYSTEM, render_input
-from finance_analysis.llm.prompting import PromptBudgetExceeded
 
 
 class StrictModel(BaseModel):
@@ -166,8 +165,6 @@ class ReviewDecisionMaker:
             decision = validate_decision(parse_llm_json_response(result.text), context)
             evidence = result.search_evidence or evidence
             return decision, evidence, {"model": result.model, "backend": result.backend}
-        except PromptBudgetExceeded:
-            return fallback(context, "持仓输入含系统指令超过40,000字符，未截断或遗漏持仓来生成建议"), evidence, {}
         except Exception as exc:
             # No provider payload, prompt or credentials in user-facing errors.
             return fallback(context, f"结构化模型复盘不可用（{type(exc).__name__}）"), evidence, {}

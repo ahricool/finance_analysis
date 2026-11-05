@@ -1,6 +1,8 @@
-"""Two-stage earnings research contracts and bounded reference tables."""
+"""Two-stage earnings research contracts and reference tables."""
 
-from finance_analysis.llm.prompting import FA_REFERENCE, FROZEN_ONLY, bounded, reference_tables
+from .prompt_context import project_input
+
+from finance_analysis.llm.prompting import FA_REFERENCE, FROZEN_ONLY, reference_tables
 
 RESEARCH = (
     """# 背景
@@ -73,12 +75,13 @@ uncertainties:[字符串]。三个情景均给出，不编造概率。价格缺�
 TABLES = """## 表格用途
 - data：事件身份、财季、截止时间、共识及其币种/单位/口径；最终轮context前缀是冻结背景，research前缀是已核验研究资料。
 - 历史财报、guidance_evidence、analyst_revisions：比较经营趋势与预期修正；通过父行关联目标公司，不混用不同财季。
-- research.sources/facts/conflicts：来源、事实及口径冲突；source_ids关联sources的source_id，不把冲突数值直接平均。
+- facts：唯一事实定义表；research.fact_ids及context.guidance_fact_ids/operating_fact_ids引用fact_id。同一事实只展示一次，身份包含财季、口径、时间和来源。
+- research.sources/conflicts：来源及口径冲突；source_ids关联source_id，未解析来源标为unresolved，不视为可验证证据；不同财季/口径/来源的矛盾证据不合并。
 - market/technical：市场及个股已有统计摘要，用于价格反应，不替代经营证据；return_pct以百分数表示，volatility为日收益标准差（小数），atr14为价格单位。
 - missing_data/uncertainties：判断缺口；缺资料时保持null。reference_price_at/data_cutoff界定可用时点；tolerance是经营判断的meet容差。
 只展示当前阶段有数据的表；source_ids列表为引用关系，不能当作额外独立证据。
 """
 
 
-def render_input(context, system):
-    return bounded(reference_tables(context, TABLES), system)
+def render_input(context):
+    return reference_tables(project_input(context), TABLES)

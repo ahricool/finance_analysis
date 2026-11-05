@@ -1,14 +1,15 @@
-"""Bounded conclusions for the LLM; full upstream evidence stays in the frozen snapshot."""
+"""Selected conclusions for the LLM; full upstream evidence stays in the frozen snapshot."""
 
 import csv
 import io
 import math
 
+from finance_analysis.llm.prompting import fenced_csv
+
 from finance_analysis.signal_center.prompt_template import TABLE_GUIDE
 
 from finance_analysis.signal_center.inputs import build_evidence
 
-MAX_PROMPT_CHARS = 40_000
 TREND_FIELDS = (
     "trade_date rank rank_change state setup alpha_score trend_lifecycle trend_duration_days "
     "fragility_score reference_price"
@@ -24,10 +25,6 @@ CONFLUENCE_FIELDS = (
     "available_signal_count available_weight"
 )
 REGIME_FIELDS = "trade_date source market_regime market_score data_coverage regime benchmark_trend"
-
-
-class PromptTooLarge(ValueError):
-    """A safe size diagnostic that can be persisted without exposing prompt contents."""
 
 
 def project(row, fields):
@@ -66,8 +63,7 @@ def conclusions(snapshot, symbols, screening=None):
         market=snapshot["market"],
         signal_date=snapshot["signal_date"],
         source_availability={
-            key: project(row, "status data_as_of")
-            for key, row in snapshot.get("source_availability", {}).items()
+            key: project(row, "status data_as_of") for key, row in snapshot.get("source_availability", {}).items()
         },
         market_regime=[project(row, REGIME_FIELDS) for row in snapshot["market_regime"]],
         candidates=candidates,
@@ -89,8 +85,15 @@ def rounded(value, key=""):
     if isinstance(value, float):
         if not math.isfinite(value):
             return None
-        ratios = {"rs_10d", "distance_from_ma20", "breakout_distance", "drawdown_20d",
-                  "ret_5d", "ret_10d", "data_coverage"}
+        ratios = {
+            "rs_10d",
+            "distance_from_ma20",
+            "breakout_distance",
+            "drawdown_20d",
+            "ret_5d",
+            "ret_10d",
+            "data_coverage",
+        }
         return round(value, 4 if key in ratios else 2)
     return value
 
@@ -101,26 +104,38 @@ def table(name, rows):
     writer = csv.writer(stream, lineterminator="\n")
     writer.writerow(columns)
     for row in rows:
-        writer.writerow([
-            "NA" if row.get(key) is None else
-            str(row[key]).lower() if isinstance(row[key], bool) else row[key]
-            for key in columns
-        ])
-    return f"\n## {name}\n```csv\n{stream.getvalue()}```\n"
+        writer.writerow(
+            [
+                "NA" if row.get(key) is None else str(row[key]).lower() if isinstance(row[key], bool) else row[key]
+                for key in columns
+            ]
+        )
+    return f"\n## {name}\n\n" + fenced_csv(stream.getvalue())
 
 
-def serialize(view, system_prompt):
+def serialize(view):
     prompt = TABLE_GUIDE + table("metadata", [{"market": view["market"], "signal_date": view["signal_date"]}])
     prompt += table("source_availability", [dict(source=k, **v) for k, v in view["source_availability"].items()])
     prompt += table("market_regime", [dict(ref=f"market_regime.{i}", **v) for i, v in enumerate(view["market_regime"])])
-    prompt += table("candidates", [dict(symbol=c["symbol"], name=c["name"],
-                    instrument_type=c["instrument_type"], nominated_by="|".join(c["nominated_by"]))
-                    for c in view["candidates"]])
+    prompt += table(
+        "candidates",
+        [
+            dict(
+                symbol=c["symbol"],
+                name=c["name"],
+                instrument_type=c["instrument_type"],
+                nominated_by="|".join(c["nominated_by"]),
+            )
+            for c in view["candidates"]
+        ],
+    )
     for source in ("trends", "etf", "industry", "confluence"):
         rows = []
         for c in view["candidates"]:
             value = c[source]
-            entries = value.items() if source == "trends" else enumerate(value) if source == "industry" else [(None, value)]
+            entries = (
+                value.items() if source == "trends" else enumerate(value) if source == "industry" else [(None, value)]
+            )
             for index, row in entries:
                 if not row:
                     continue
@@ -130,8 +145,7 @@ def serialize(view, system_prompt):
                 rows.append(dict(ref=ref, **flat))
         prompt += table(source, rows)
     if "screening" in view:
-        prompt += table("screening", [dict(symbols="|".join(r["symbols"]), reason=r["reason"]) for r in view["screening"]])
-    length = len(system_prompt) + 7 + len(prompt)
-    if length > MAX_PROMPT_CHARS:
-        raise PromptTooLarge(f"Signal Center prompt exceeds {MAX_PROMPT_CHARS} characters ({length})")
+        prompt += table(
+            "screening", [dict(symbols="|".join(r["symbols"]), reason=r["reason"]) for r in view["screening"]]
+        )
     return prompt

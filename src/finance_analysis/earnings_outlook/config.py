@@ -3,7 +3,7 @@
 import os
 from dataclasses import dataclass
 
-PROMPT_VERSION = "earnings-v2-tables"
+PROMPT_VERSION = "earnings-v3-fact-refs"
 UNIVERSES = ("us_nasdaq100",)
 CALENDAR_LOOKAHEAD_DAYS = 30
 

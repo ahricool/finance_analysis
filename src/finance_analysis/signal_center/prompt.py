@@ -1,7 +1,7 @@
 """Versioned synthesis contract; no composite score or external research."""
 
 import json
-from finance_analysis.llm.prompting import FROZEN_ONLY, bounded, reference_tables
+from finance_analysis.llm.prompting import FROZEN_ONLY, reference_tables
 from datetime import date
 from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -123,7 +123,7 @@ def parse_screen(text, symbols):
     return value
 
 
-def render_legacy_input(snapshot, system):
+def render_legacy_input(snapshot):
     view = {
         k: snapshot[k]
         for k in ("market", "signal_date", "candidates", "market_regime", "etf_context", "screening", "limitations")
@@ -137,4 +137,4 @@ def render_legacy_input(snapshot, system):
 - screening：初筛判断及已选代码，不是独立事实；limitations是缺失与口径限制。
 Quant为模型预测不是保证收益；趋势与行业评分保留来源量纲，不相加。缺失不是中性。
 """
-    return bounded(reference_tables(view, guide), system)
+    return reference_tables(view, guide)

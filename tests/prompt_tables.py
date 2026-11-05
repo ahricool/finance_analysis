@@ -9,7 +9,7 @@ import re
 def tables(prompt):
     return {
         name: list(csv.DictReader(io.StringIO(body)))
-        for name, fence, body in re.findall(r"## ([^\n]+)\n\n(`{3,})csv\n(.*?)\2\n", prompt, re.S)
+        for name, fence, body in re.findall(r"^## ([^\n]+)\n\n?(`{3,})csv\n(.*?)^\2\n", prompt, re.S | re.M)
     }
 
 
@@ -25,6 +25,8 @@ def read_reference(prompt):
                     value = None if value == "NA" else json.loads(value)
                 except ValueError:
                     pass
+                if isinstance(value, str) and value.startswith("@data/"):
+                    continue
                 target = row
                 bits = field.split(".")
                 for bit in bits[:-1]:

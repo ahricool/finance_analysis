@@ -175,19 +175,20 @@ def test_search_is_bounded_and_outlook_uses_company_and_market_summaries(setup):
     assert search_input["event"]["reporting_period"] == "2026-Q2"
     assert search_input["company"] == members["A.US"]
     assert search_input["consensus"] == forecast_input["consensus"]
-    assert search_input["guidance_evidence"] == forecast_input["guidance_evidence"]
+    assert "guidance_evidence" not in forecast_input
+    assert "guidance_fact_ids" in forecast_input
     assert search_input["data_cutoff"] == forecast_input["data_cutoff"]
     assert "market" not in search_input and "technical" not in search_input and "reference_price" not in search_input
     assert len(research.prompt) < 6000 and len(outlook.prompt) < 10000
     assert research.web_search and research.prefer_search
     assert research.timeout is None and outlook.timeout is None  # Both retain the unified global budget.
-    assert "market" not in forecast_input  # Empty market series are not transmitted.
+    assert forecast_input["market"] == {"benchmarks": {"SPY": {"US": {}}}}  # Empty objects remain explicit.
     assert forecast_input["technical"] == {"return_pct": 2}
     assert len(market["benchmarks"]["SPY.US"]["bars"]) == 4000
     with db.get_session() as session:
         prediction = session.get(EarningsPrediction, repo.state(1).latest_prediction_id)
-        assert prediction.context["market"] == {"benchmarks": {"SPY.US": {}}}
-        assert prediction.context["technical"] == {"return_pct": 2}
+        assert prediction.context["market"] == market
+        assert prediction.context["technical"] == technical
     assert service.refresh(1, "daily", members, {})["status"] == "cached"
     assert llm.complete_text.call_count == 2
 

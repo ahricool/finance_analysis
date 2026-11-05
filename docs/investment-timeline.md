@@ -106,8 +106,9 @@ Longbridge行情和财经日历能力继续使用；财报与信号研究原有�
    输入只保留事件身份、公司、截止时间、预期、指引、分析师修正与历史财报；不携带股价、原始K线或大盘行情。
    第二阶段 `earnings_outlook` 对个股、公共SPY/QQQ和板块ETF统一只传既有
    return_pct、volatility、atr14、sessions、as_of等摘要，不传原始OHLCV数组。
-   宏观、市场结构、缺失说明和来源不裁剪。压缩后的上下文同时用于模型输入、input_hash和预测快照，
+   宏观、市场结构、缺失说明和来源不裁剪。完整上下文用于input_hash和审计预测快照，独立展示投影移除原始K线、对完全相同事实建立fact_id引用；
    不修改线程间共享公共快照，也不减少批次事件数或提高并发上限。
+   guidance_evidence/operating_evidence/research.facts在展示时共享唯一facts表，source_ids引用sources；财季/口径/时间/来源不同或冲突的事实不合并。缓存版本为earnings-v3-fact-refs，历史审计内容不重写。
    通常只用近30天资料，最近一季官方指引可更早。保存来源、发布时间、检索时间、事实引用及冲突采用理由。
    一致预期与个别分析师观点分开，不平均混合季度/单位/GAAP口径。
 2. `earnings_outlook`：不搜索，输入冻结的context和research bundle，分别判断经营表现与价格反应。

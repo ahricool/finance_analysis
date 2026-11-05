@@ -1,6 +1,8 @@
 """Portfolio-only research input; full bars remain in the persisted context."""
 
-from finance_analysis.llm.prompting import FA_REFERENCE, bounded, reference_tables
+import math
+
+from finance_analysis.llm.prompting import FA_REFERENCE, reference_tables
 
 SYSTEM = (
     """# 背景
@@ -15,7 +17,7 @@ SYSTEM = (
 3. change_pct是相对该笔当前数量的增减百分比，不是总账户仓位；BUY须有明确条件。CN为T+1，当日买入不可卖；登记现金不保证等于券商可用资金。
 4. 日线来自完成交易日，分钟摘要来自闭合5分钟线；今日OHLCV仍在变化。预演只代表观察时点，不当作正式收盘结论。
 5. 针对已有持仓、主要指数及相关板块，主动搜索近期公告、财报、监管与重大风险，优先原始公告/交易所。只使用as_of前可获得资料，不编造未检索的事实或来源。
-6. 不重复计算已有指标；资料缺失保持未知，行情不完整时WATCH，搜索不可用时说明局限并降低相关置信度。
+6. 摘要仅支持方向、位置和量能比较，不能据此声称突破确认、回踩确认或重建逐根形态；资料缺失保持未知，行情不完整时WATCH，搜索不可用时说明局限并降低相关置信度。
 """
     + FA_REFERENCE
     + """
@@ -35,6 +37,9 @@ TABLES = """## 表格用途
 - data：市场、trade_date/as_of、收盘时间和portfolio现金/净值，确定复盘范围、时点及加仓上限。
 - holdings：仅此表是真实持仓，通过position_id定位建议；quantity/today_buy_quantity为数量，market_value/average_cost/current_price按组合本币，*_pct=百分数。
 - holdings的daily_summary/minute_summary：窗口首尾日期、首尾收盘、最高/最低及收盘变化，用于位置/方向；count是实际根数，不是完整交易日长度。
+  last_bar_change_pct为最近一根收盘变化，recent_3_change_pct为最近3根的收盘变化（至少4根）；ma5_deviation_pct为末收盘相对最后5根均价偏离。
+  from_window_high_pct为末收盘相对整个窗口最高价偏离；以上均为百分数。volume_last3_vs_prior3为最后3根成交量均值/此前3根均值（倍数，至少6根，分母为0或缺量则NA）。
+  daily_summary每根为已完成交易日，minute_summary每根为闭合5分钟窗口，截止end；有缺口只描述已存序列，不称连续交易时长。各指标所需价格缺失、非有限或样本不足则NA，不填0。
 - indices：指数环境，与持仓共用时间截止；指数是原生点位，股票日线前复权。window_high/low是窗口极值，不是已经确认的支撑阻力。
 - research及子表：已有趋势/ETF/行业预演结论，用于比较行业支持及冲突，不能据此引入新持仓或重复计票。
 - data_quality：缺口及降级原因；data_complete/valuation_complete是主动建议的必要约束。
@@ -43,18 +48,47 @@ TABLES = """## 表格用途
 
 
 def bar_summary(rows):
+    """A few path/volume features from frozen closed bars, never pattern confirmation."""
     if not rows:
         return None
-    first, last = rows[0], rows[-1]
+
+    def value(row, column, *, volume=False):
+        if len(row) <= column or isinstance(row[column], bool):
+            return None
+        number = row[column]
+        if not isinstance(number, (int, float)) or not math.isfinite(number):
+            return None
+        return number if number >= 0 and (volume or number > 0) else None
+
+    closes = [value(row, 4) for row in rows]
+    highs, lows = [value(row, 2) for row in rows], [value(row, 3) for row in rows]
+    volumes = [value(row, 5, volume=True) for row in rows]
+
+    def change(end, start):
+        return (end / start - 1) * 100 if end is not None and start else None
+
+    high = max(highs) if all(v is not None for v in highs) else None
+    low = min(lows) if all(v is not None for v in lows) else None
+    ma5 = sum(closes[-5:]) / 5 if len(closes) >= 5 and all(v is not None for v in closes[-5:]) else None
+    volume_ratio = None
+    if len(volumes) >= 6 and all(v is not None for v in volumes[-6:]) and sum(volumes[-6:-3]) > 0:
+        volume_ratio = sum(volumes[-3:]) / sum(volumes[-6:-3])
     return dict(
         count=len(rows),
-        start=first[0],
-        end=last[0],
-        first_close=first[4],
-        last_close=last[4],
-        window_high=max(r[2] for r in rows),
-        window_low=min(r[3] for r in rows),
-        close_change_pct=(last[4] / first[4] - 1) * 100 if first[4] else None,
+        start=rows[0][0],
+        end=rows[-1][0],
+        first_close=closes[0],
+        last_close=closes[-1],
+        window_high=high,
+        window_low=low,
+        close_change_pct=change(closes[-1], closes[0]),
+        last_bar_change_pct=change(closes[-1], closes[-2]) if len(closes) >= 2 else None,
+        recent_3_change_pct=(
+            change(closes[-1], closes[-4]) if len(closes) >= 4 and all(v is not None for v in closes[-4:]) else None
+        ),
+        ma5_deviation_pct=change(closes[-1], ma5),
+        from_window_high_pct=change(closes[-1], high),
+        volume_last3_vs_prior3=volume_ratio,
     )
 
 
@@ -68,4 +102,4 @@ def render_input(context):
                 if f"{kind}_bars" in row:
                     item[f"{kind}_summary"] = bar_summary(row[f"{kind}_bars"])
             view[group].append(item)
-    return bounded(reference_tables(view, TABLES), SYSTEM)
+    return reference_tables(view, TABLES)
