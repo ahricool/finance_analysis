@@ -1,5 +1,7 @@
 """Keep LLM input bounded and validate only the conclusions the model actually saw."""
 
+from tests.signal_center.prompt_reader import read_prompt
+
 import json
 from copy import deepcopy
 
@@ -24,7 +26,7 @@ def test_nested_confluence_evidence_never_enters_either_llm_stage():
     assert "private_upstream_detail" in json.dumps(frozen)
     assert len(client.calls) == 6
     for request in client.calls:
-        payload = json.loads(request.prompt)
+        payload = read_prompt(request.prompt)
         assert "evidence_catalog" not in payload
         assert "private_upstream_detail" not in request.prompt
         assert len(request.prompt) + len(request.system_prompt) + 7 <= MAX_PROMPT_CHARS
@@ -47,11 +49,11 @@ def test_projection_preserves_values_dates_missingness_and_original_frozen_input
     view = conclusions(snapshot, [candidate["symbol"]])
     assert snapshot == before
     trend = view["candidates"][0]["trends"]["10"]
-    assert trend["alpha_score"] == 78.123456789
+    assert trend["alpha_score"] == 78.12
     assert trend["features"] == {"rs_10d": 0}
     fact = view["evidence_catalog"][f"{candidate['symbol']}.trends.10.alpha_score"]
     assert fact["data_as_of"] == "2026-09-21"
-    assert fact["value"] == 78.123456789
+    assert fact["value"] == 78.12
 
 
 def test_final_validator_rejects_facts_hidden_from_llm_even_if_frozen_upstream_contains_them():
@@ -73,7 +75,7 @@ def test_budget_includes_system_prompt_and_never_silently_drops_candidates():
     symbol = snapshot["candidates"][0]["symbol"]
     view = conclusions(snapshot, [symbol])
     prompt = serialize(view, decision.SCREEN_SYSTEM_PROMPT)
-    assert [c["symbol"] for c in json.loads(prompt)["candidates"]] == [symbol]
+    assert [c["symbol"] for c in read_prompt(prompt)["candidates"]] == [symbol]
     with pytest.raises(PromptTooLarge, match="prompt exceeds"):
         serialize(view, "s" * MAX_PROMPT_CHARS)
 
@@ -109,5 +111,34 @@ def test_failed_old_v2_snapshot_resumes_with_compact_context_and_preserves_compl
     assert repo.run_record["candidate_snapshot"] == frozen
     assert repo.run_record["screening"][0] == done
     assert repo.run_record["system_prompt"] == decision.SYSTEM_PROMPT
-    assert all("evidence_catalog" not in json.loads(r.prompt) for r in client.calls)
+    assert all("evidence_catalog" not in read_prompt(r.prompt) for r in client.calls)
     assert len(repo.messages) == len(calls) == 1
+
+
+def test_csv_round_trip_quotes_and_display_precision_are_valid_evidence():
+    snapshot = inputs.collect(Repo(), "CN", DAY)
+    candidate = snapshot["candidates"][0]
+    candidate['name'] = '名称,"含引号"\n换行'
+    candidate['trends']['10']['alpha_score'] = 78.123456789
+    candidate['trends']['10']['features']['rs_10d'] = -0.02345678
+    view = conclusions(snapshot, [candidate['symbol']])
+    prompt = serialize(view, decision.SYSTEM_PROMPT)
+    decoded = read_prompt(prompt)
+    assert decoded['candidates'][0]['name'] == candidate['name']
+    assert decoded['candidates'][0]['trends']['10']['alpha_score'] == 78.12
+    assert decoded['candidates'][0]['trends']['10']['features']['rs_10d'] == -0.0235
+    decoded['evidence_catalog'] = inputs.build_evidence(decoded)
+    assert decision.parse_decision(json.dumps(output(decoded, [candidate['symbol']])), view)
+    assert '78.123456789' not in prompt
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
+def test_nonfinite_metrics_are_missing_and_cannot_be_cited(value):
+    snapshot = inputs.collect(Repo(), "CN", DAY)
+    candidate = snapshot["candidates"][0]
+    candidate["trends"]["10"]["alpha_score"] = value
+    view = conclusions(snapshot, [candidate["symbol"]])
+    prompt = serialize(view, decision.SYSTEM_PROMPT)
+    assert "alpha_score" not in read_prompt(prompt)["candidates"][0]["trends"]["10"]
+    assert f"{candidate['symbol']}.trends.10.alpha_score" not in view["evidence_catalog"]
+    assert "NA" in prompt

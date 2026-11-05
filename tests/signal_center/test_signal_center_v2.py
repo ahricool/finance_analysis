@@ -1,5 +1,7 @@
 """V2 union coverage, evidence integrity, abstention, checkpointing and notification boundaries."""
 
+from tests.signal_center.prompt_reader import read_prompt
+
 import json
 from copy import deepcopy
 from datetime import timedelta
@@ -123,7 +125,7 @@ class Client:
 
     def complete_text(self, request, validator):
         self.calls.append(request)
-        snapshot = json.loads(request.prompt)
+        snapshot = read_prompt(request.prompt)
         if request.call_type == "signal_center_screen":
             if len(self.calls) == self.fail_batch:
                 raise RuntimeError("screen failed")
@@ -195,7 +197,7 @@ def test_five_buckets_choose_at_most_fifteen_then_three_and_notify_once():
     assert len(client.calls) == 6
     assert all(r.web_search and r.prefer_search for r in client.calls)
     assert all(r.api_first for r in client.calls)
-    final = json.loads(client.calls[-1].prompt)
+    final = read_prompt(client.calls[-1].prompt)
     assert len(final["candidates"]) == 15
     assert all(len(a["output"]["symbols"]) <= 3 for a in repo.run_record["screening"])
     assert len(repo.messages) == len(calls) == 1

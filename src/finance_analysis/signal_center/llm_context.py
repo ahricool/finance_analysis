@@ -1,6 +1,10 @@
 """Bounded conclusions for the LLM; full upstream evidence stays in the frozen snapshot."""
 
-import json
+import csv
+import io
+import math
+
+from finance_analysis.signal_center.prompt_template import TABLE_GUIDE
 
 from finance_analysis.signal_center.inputs import build_evidence
 
@@ -58,11 +62,11 @@ def conclusions(snapshot, symbols, screening=None):
             )
         )
     view = dict(
-        context_version="conclusions_v1",
+        context_version="tables_v2",
         market=snapshot["market"],
         signal_date=snapshot["signal_date"],
         source_availability={
-            key: project(row, "status data_as_of count")
+            key: project(row, "status data_as_of")
             for key, row in snapshot.get("source_availability", {}).items()
         },
         market_regime=[project(row, REGIME_FIELDS) for row in snapshot["market_regime"]],
@@ -72,13 +76,61 @@ def conclusions(snapshot, symbols, screening=None):
         view["screening"] = screening
     # Only facts visible to this request may pass the final evidence validator.
     # Do not send this expanded index: the input already contains every value.
+    view = rounded(view)
     view["evidence_catalog"] = build_evidence(view)
     return view
 
 
+def rounded(value, key=""):
+    if isinstance(value, dict):
+        return {k: rounded(v, k) for k, v in value.items()}
+    if isinstance(value, list):
+        return [rounded(v, key) for v in value]
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            return None
+        ratios = {"rs_10d", "distance_from_ma20", "breakout_distance", "drawdown_20d",
+                  "ret_5d", "ret_10d", "data_coverage"}
+        return round(value, 4 if key in ratios else 2)
+    return value
+
+
+def table(name, rows):
+    columns = list(dict.fromkeys(key for row in rows for key in row))
+    stream = io.StringIO(newline="")
+    writer = csv.writer(stream, lineterminator="\n")
+    writer.writerow(columns)
+    for row in rows:
+        writer.writerow([
+            "NA" if row.get(key) is None else
+            str(row[key]).lower() if isinstance(row[key], bool) else row[key]
+            for key in columns
+        ])
+    return f"\n## {name}\n```csv\n{stream.getvalue()}```\n"
+
+
 def serialize(view, system_prompt):
-    payload = {key: value for key, value in view.items() if key != "evidence_catalog"}
-    prompt = json.dumps(payload, ensure_ascii=False, allow_nan=False, separators=(",", ":"))
+    prompt = TABLE_GUIDE + table("metadata", [{"market": view["market"], "signal_date": view["signal_date"]}])
+    prompt += table("source_availability", [dict(source=k, **v) for k, v in view["source_availability"].items()])
+    prompt += table("market_regime", [dict(ref=f"market_regime.{i}", **v) for i, v in enumerate(view["market_regime"])])
+    prompt += table("candidates", [dict(symbol=c["symbol"], name=c["name"],
+                    instrument_type=c["instrument_type"], nominated_by="|".join(c["nominated_by"]))
+                    for c in view["candidates"]])
+    for source in ("trends", "etf", "industry", "confluence"):
+        rows = []
+        for c in view["candidates"]:
+            value = c[source]
+            entries = value.items() if source == "trends" else enumerate(value) if source == "industry" else [(None, value)]
+            for index, row in entries:
+                if not row:
+                    continue
+                ref = f"{c['symbol']}.{source}" + (f".{index}" if index is not None else "")
+                flat = {k: v for k, v in row.items() if k != "features"}
+                flat.update({f"features.{k}": v for k, v in row.get("features", {}).items()})
+                rows.append(dict(ref=ref, **flat))
+        prompt += table(source, rows)
+    if "screening" in view:
+        prompt += table("screening", [dict(symbols="|".join(r["symbols"]), reason=r["reason"]) for r in view["screening"]])
     length = len(system_prompt) + 7 + len(prompt)
     if length > MAX_PROMPT_CHARS:
         raise PromptTooLarge(f"Signal Center prompt exceeds {MAX_PROMPT_CHARS} characters ({length})")
