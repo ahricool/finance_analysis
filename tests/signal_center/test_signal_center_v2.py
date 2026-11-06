@@ -435,3 +435,113 @@ def test_numeric_json_evidence_accepts_equivalent_numbers_but_rejects_booleans()
     fact["value"] = True
     with pytest.raises(ValueError, match="value mismatch"):
         decision.parse_decision(json.dumps(value), snapshot)
+
+
+@pytest.mark.parametrize("scope", ["decision", "recommendation"])
+@pytest.mark.parametrize(
+    "expected,received",
+    [
+        (8, "8"),
+        (8, "8.0"),
+        (-65, " -65 "),
+        (0.094, "0.094"),
+        (1.86, "1.86e0"),
+        (8, 8.0),
+        (8.0, 8),
+        (False, "false"),
+        (True, "true"),
+        ("001", "001"),
+    ],
+)
+def test_evidence_scalar_types_are_normalized_in_returned_decision(scope, expected, received):
+    snapshot = inputs.collect(Repo(), "CN", DAY)
+    payload = output(snapshot, ["000001.SH"] if scope == "recommendation" else [])
+    evidence = (payload["evidence"] if scope == "decision" else payload["recommendations"][0]["evidence"])[0]
+    snapshot["evidence_catalog"][evidence["field"]]["value"] = expected
+    evidence["value"] = received
+    frozen = deepcopy(snapshot)
+    result = decision.parse_decision(json.dumps(payload), snapshot)
+    parsed = (result["evidence"] if scope == "decision" else result["recommendations"][0]["evidence"])[0]
+    assert parsed["value"] == expected and type(parsed["value"]) is type(expected)
+    assert snapshot == frozen
+    assert evidence["value"] == received  # Original response remains available for audit.
+
+
+@pytest.mark.parametrize(
+    "expected,received",
+    [
+        (8, "9"),
+        (8, "8.1"),
+        (8, "8.0000000000000000001"),
+        (8, True),
+        (0, False),
+        (False, 0),
+        (True, "1"),
+        (False, "0"),
+        (False, "False"),
+        (False, "no"),
+        (0.094, "9.4%"),
+        (1.86, "1.86倍"),
+        (1000, "1,000"),
+        (8, "08"),
+        (8, "NaN"),
+        (8, "Infinity"),
+        (8, "1e999"),
+        (8, "1e99999999999999999999"),
+        (8, float("nan")),
+        (8, float("inf")),
+        (8, None),
+        (8, "null"),
+        (8, [8]),
+        (8, {"value": 8}),
+        (8, "[8]"),
+        (8, ""),
+        ("001", 1),
+        ("false", False),
+        (None, None),
+    ],
+)
+def test_evidence_conversion_never_repairs_changed_or_invalid_facts(expected, received):
+    snapshot = inputs.collect(Repo(), "CN", DAY)
+    payload = output(snapshot, ["000001.SH"])
+    evidence = payload["recommendations"][0]["evidence"][0]
+    snapshot["evidence_catalog"][evidence["field"]]["value"] = expected
+    evidence["value"] = received
+    with pytest.raises(ValueError, match="Evidence value mismatch"):
+        decision.parse_decision(json.dumps(payload), snapshot)
+
+
+def test_resumed_final_decision_persists_normalized_values_and_keeps_raw_response():
+    class StringValueClient(Client):
+        def complete_text(self, request, validator):
+            result = super().complete_text(request, lambda _: None)
+            if request.call_type == "signal_center":
+                payload = json.loads(result.text)
+                for recommendation in payload["recommendations"]:
+                    for evidence in recommendation["evidence"]:
+                        if type(evidence["value"]) in (int, float, bool):
+                            evidence["value"] = json.dumps(evidence["value"])
+                result.text = json.dumps(payload)
+            validator(result.text)
+            return result
+
+    repo, client = Repo(), StringValueClient(fail_final=True)
+    push, calls = notifier()
+    service = SignalCenterService(repo, client, lock, push)
+    with pytest.raises(RuntimeError, match="final failed"):
+        service.run("CN", DAY, deadline=True)
+    frozen = deepcopy(repo.run_record["candidate_snapshot"])
+    checkpoints = deepcopy(repo.run_record["screening"])
+    client.fail_final = False
+    assert service.run("CN", DAY, deadline=True)["status"] == "completed"
+    assert repo.run_record["candidate_snapshot"] == frozen
+    assert repo.run_record["screening"] == checkpoints
+    assert len(client.calls) == 7 and len(calls) == 1
+    raw = json.loads(repo.run_record["raw_response"])
+    converted = 0
+    for original, parsed in zip(raw["recommendations"], repo.run_record["analysis"]["recommendations"]):
+        for before, after in zip(original["evidence"], parsed["evidence"]):
+            if type(after["value"]) in (int, float, bool):
+                assert isinstance(before["value"], str)
+                converted += 1
+    assert converted > 0
