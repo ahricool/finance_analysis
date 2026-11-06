@@ -79,7 +79,7 @@ candidates以symbol标识证券，trends/etf/industry/confluence通过ref中的�
 - nominated_by（|分隔）仅表示入池来源；多个来源或行业归属不能重复计票。screening.reason是此前判断，不是独立事实。
 
 ## 证据引用
-field=ref+"."+列名，保留features.前缀；value复制表中显示值，data_as_of取该行trade_date，缺失时取signal_date。
+field=ref+"."+列名，保留features.前缀；value复制表中显示值并保持JSON类型：数值不加引号，布尔用true/false，文本用字符串；不得引用NA。data_as_of取该行trade_date，缺失时取signal_date。
 例如ref=600519.SH.trends.10、列rank，对应field=600519.SH.trends.10.rank。
 只引用非空指标，不引用ref、名称或日期本身。
 """

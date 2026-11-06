@@ -1,6 +1,9 @@
 """V2 research decisions with exact snapshot evidence references and explicit abstention."""
 
+import json
+import math
 from datetime import date
+from decimal import Decimal, DecimalException
 from typing import Any, Literal
 from urllib.parse import urlparse
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -21,15 +24,43 @@ BUY必须有明确优势、主要反对证据、风险和可观察失效条件�
 
 ## 输出格式
 
-只输出一个JSON对象，不使用代码围栏或额外正文，不添加契约外字段。
-最终JSON严格为：market, signal_date, decision(BUY|NO_TRADE), thesis, no_trade_reason, evidence, recommendations。
-顶层evidence用于解释整体结论；有最终候选时NO_TRADE必须引用至少一条事实，supports为["thesis"]。BUY可留空。
-recommendations数组每项严格为：symbol, confidence(low|medium|high), thesis, positive_signals(字符串数组),
-risks(非空字符串数组), invalidations(非空字符串数组), evidence(数组), external_sources(数组)。
-evidence项严格为{field,value,data_as_of,interpretation,supports}；external_sources项严格为{url,title,published_date,excerpt}。
-每条正向依据、风险、失效条件必须有事实引用：supports列出对应数组下标，如["positive_signals.0","invalidations.0"]。
-BUY时recommendations有1至3项且no_trade_reason=null；NO_TRADE时数组为空，no_trade_reason为
-NO_CLEAR_EDGE/OVERHEATED/SIGNAL_CONFLICT/INSUFFICIENT_EVIDENCE。理由全部中文。只输出单个JSON对象。"""
+只输出一个合法JSON对象，不使用代码围栏、注释或额外正文；以下字段必须全部提供，不添加契约外字段。
+理由、解释使用中文，字段名和枚举值保持下面的英文拼写。
+
+### 1. 顶层对象
+- market：字符串，CN或US；signal_date：YYYY-MM-DD字符串，均与输入一致。
+- decision：字符串，BUY或NO_TRADE；thesis：非空字符串，说明整体结论。
+- no_trade_reason：BUY时为JSON null；NO_TRADE时为字符串
+  NO_CLEAR_EDGE、OVERHEATED、SIGNAL_CONFLICT或INSUFFICIENT_EVIDENCE之一。
+- evidence：证据对象数组，最多12项。BUY可为[]；有最终候选时NO_TRADE至少引用一条事实。
+- recommendations：推荐对象数组。BUY为1–3项；NO_TRADE为[]，不得用null或字符串代替数组。
+
+### 2. 推荐对象
+每项严格包含：symbol（候选代码字符串）、confidence（low/medium/high字符串）、thesis（非空字符串）、
+positive_signals、risks、invalidations（各1–12项非空字符串数组）、
+evidence（2–12项证据对象数组）、external_sources（0–8项来源对象数组）。
+
+### 3. 证据对象与value类型
+每项严格包含：field（字段路径字符串）、value（原始事实标量）、data_as_of（YYYY-MM-DD字符串）、
+interpretation（非空解释字符串）、supports（非空字符串数组）。同一证据数组中field不得重复。
+value必须同时保持输入显示值和JSON类型，CSV是展示格式，不代表所有单元格都是字符串：
+- 排名、分数、价格、比率、倍数等数值使用JSON number，不加引号：例如8、-65、0.094、1.86；
+  不得写成"8"或"0.094"，不得添加百分号、千分位逗号、单位或将0.094改成9.4。
+- 布尔指标使用JSON boolean：true或false，不加引号；不得使用"true"、"false"、1或0代替。
+- 状态、行业代码等文本使用JSON string，例如"TRENDING"；文本代码保留前导零，不转成数字。
+- 不引用NA、null或缺失事实；value不得为null、数组、对象、NaN或Infinity，不把缺失值填成0或false。
+例如数值证据写"value":8，布尔证据写"value":false，文本证据写"value":"TRENDING"。
+data_as_of使用对应输入行trade_date，缺失时使用signal_date；不使用检索日期替代。
+顶层evidence的supports只能为["thesis"]。
+推荐项evidence的supports只能引用该推荐实际存在的positive_signals、risks、invalidations数组下标，
+例如["positive_signals.0","invalidations.0"]；此处不得使用"thesis"或不存在的下标。
+每条正向依据、风险、失效条件均须被至少一条证据支持，同一事实可支持多个主张。
+
+### 4. 外部来源对象
+每项严格包含：url（HTTP/HTTPS字符串）、title（非空字符串）、
+published_date（YYYY-MM-DD字符串；未知时为JSON null，不是"null"）、excerpt（非空摘录字符串）。
+发布日期不得晚于signal_date。没有来源时external_sources为[]，不得虚构来源。
+只输出单个JSON对象。"""
 SCREEN_SYSTEM_PROMPT = GUIDANCE.format(objective="本轮为候选初筛：从本批候选中选择0–3个进入最终比较，允许空选；入围不等于最终BUY推荐。") + """# 交付
 
 只输出一个JSON对象，不使用代码围栏或额外正文，不添加其他字段：
@@ -115,6 +146,30 @@ class Decision(StrictModel):
         return self
 
 
+def normalize_evidence_value(actual, expected):
+    """Accept only lossless scalar encodings of the referenced frozen fact."""
+    if type(expected) in (int, float, bool) and isinstance(actual, str):
+        try:
+            actual = json.loads(actual, parse_float=Decimal)
+        except (ValueError, DecimalException):
+            raise ValueError("Evidence value mismatch") from None
+        if type(expected) in (int, float) and type(actual) in (int, Decimal):
+            # Decimal avoids accepting a changed string value after float rounding.
+            if not Decimal(str(expected)).is_finite() or actual != Decimal(str(expected)):
+                raise ValueError("Evidence value mismatch")
+            return expected
+    numeric = type(expected) in (int, float) and type(actual) in (int, float)
+    if numeric:
+        if any(isinstance(v, float) and not math.isfinite(v) for v in (actual, expected)):
+            raise ValueError("Evidence value mismatch")
+    elif type(expected) not in (str, bool) or type(actual) is not type(expected):
+        raise ValueError("Evidence value mismatch")
+    if actual != expected:
+        raise ValueError("Evidence value mismatch")
+    # Equality was checked before canonicalizing; never repair a different fact.
+    return expected
+
+
 def parse_decision(text, snapshot, search_evidence=None):
     result = Decision.model_validate(parse_object(text))
     if (result.market, result.signal_date) != (snapshot["market"], snapshot["signal_date"]):
@@ -126,11 +181,7 @@ def parse_decision(text, snapshot, search_evidence=None):
         fact = catalog.get(evidence.field)
         if not fact or fact["symbol"] not in allowed_symbols:
             raise ValueError("Unknown or cross-symbol evidence")
-        # JSON has a single number type: 80 and 80.0 are equal, but True cannot stand in for 1.
-        expected, actual = fact["value"], evidence.value
-        numbers = all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in (expected, actual))
-        if expected != actual or (not numbers and type(expected) is not type(actual)):
-            raise ValueError("Evidence value mismatch")
+        evidence.value = normalize_evidence_value(evidence.value, fact["value"])
         if fact["data_as_of"] != evidence.data_as_of:
             raise ValueError("Evidence date mismatch")
         if not evidence.interpretation.strip() or len(set(evidence.supports)) != len(evidence.supports):
