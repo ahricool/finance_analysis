@@ -22,7 +22,7 @@ def test_publisher_and_read_only_snapshot_latest_cache_only():
         now = START + timedelta(minutes=60, seconds=5)
         await publisher.publish("SPY.US", bars, now)
         original = await repo.redis.get(result_key("SPY.US"))
-        await publisher.publish("SPY.US", candles([-0.0004] * 60), now)
+        await publisher.publish("SPY.US", candles([0.0004] * 60), now)
         assert await repo.redis.get(result_key("SPY.US")) == original
         await repo.write_quote(
             QuoteState(

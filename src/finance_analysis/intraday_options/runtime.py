@@ -8,7 +8,7 @@ import logging
 from datetime import datetime, timedelta
 
 from finance_analysis.core.time import utc_now
-from finance_analysis.intraday_options.config import CONFIG, SYMBOLS, VERSION
+from finance_analysis.intraday_options.config import CONFIG, SYMBOLS, VERSION, WINDOWS
 from finance_analysis.intraday_options.scoring import calculate, closed_session_bars
 from finance_analysis.market_stream.config import market_trading_date
 from finance_analysis.market_stream.session import cache_ttl, display_day, in_session, session_bounds
@@ -21,11 +21,12 @@ def result_key(symbol: str) -> str:
 
 
 class Publisher:
-    """One shared computation per closed minute, independent of browser connections."""
+    """Publish changed scoring inputs, independent of browser connections."""
 
     def __init__(self, repository):
         self.repository = repository
         self.published: dict[str, datetime] = {}
+        self._published_inputs: dict[str, tuple] = {}
 
     async def publish(self, symbol, bars, now):
         if symbol not in SYMBOLS:
@@ -35,7 +36,19 @@ class Publisher:
         if not closed:
             return
         latest = closed[-1].bar_time
-        if symbol in self.published and latest <= self.published[symbol]:
+        previous = self.published.get(symbol)
+        if previous is not None and latest < previous:
+            return
+        # Compare values, not CandleState identity or receipt time: warmup can replace
+        # objects, and closed candles can be mutated/revised without advancing time.
+        # Only the trailing scoring horizon matters; timestamps capture missing bars.
+        start = latest - timedelta(minutes=max(WINDOWS) - 1)
+        inputs = tuple(
+            (bar.bar_time, bar.open, bar.high, bar.low, bar.close, bar.volume >= 0, bar.partial, bar.sampled)
+            for bar in closed
+            if bar.bar_time >= start
+        )
+        if latest == previous and inputs == self._published_inputs.get(symbol):
             return
         result = calculate(symbol, closed, now)
         if result is None:
@@ -44,7 +57,9 @@ class Publisher:
         await self.repository.redis.set(
             result_key(symbol), json.dumps(result, allow_nan=False), ex=cache_ttl("US", day, now)
         )
+        # Failed writes must remain retryable with the same input.
         self.published[symbol] = latest
+        self._published_inputs[symbol] = inputs
 
     async def run(self, bars_by_symbol, stop_event):
         while not stop_event.is_set():
