@@ -22,7 +22,6 @@ from finance_analysis.integrations.market_data.realtime_state.models import Cand
 from finance_analysis.integrations.market_data.realtime_state.repository import RealtimeStateRepository
 from finance_analysis.market_stream.config import (
     MarketStreamConfig,
-    completed_regular_minutes,
     is_regular_session_minute,
     is_regular_trade_session,
     latest_completed_bar_time,
@@ -45,7 +44,7 @@ from finance_analysis.market_stream.symbol_state import (
     SymbolStatus,
 )
 from finance_analysis.market_stream.trend import calculate_ma_trend
-from finance_analysis.market_stream.warmup import LongbridgeHistoryLoader, merge_warmup_bars
+from finance_analysis.market_stream.warmup import LongbridgeHistoryLoader, merge_warmup_bars, warmup_bar_starts
 from finance_analysis.market_stream.watchlist_monitor import WatchListMonitor
 from finance_analysis.stocks.markets import MarketType
 
@@ -652,26 +651,17 @@ class MarketStreamService:
         now: datetime | None = None,
     ) -> bool:
         now = now or utc_now()
-        expected = latest_completed_bar_time(now, market_type)
-        if not bars or expected is None:
-            return False
-        current_date = market_trading_date(now, market_type)
-        completed = [
-            bar
+        expected = set(warmup_bar_starts(now, market_type))
+        available = {
+            bar.bar_time
             for bar in bars
-            if market_trading_date(bar.bar_time, market_type) == current_date and bar.bar_time <= expected
-        ]
-        if not completed:
-            return False
-        newest = max(bar.bar_time for bar in completed)
-        gap = expected - newest
-        if gap.total_seconds() < 0 or gap > market_spec(market_type).cache_gap_tolerance:
-            return False
-        required = min(
-            self.config.minimum_history_bars,
-            completed_regular_minutes(now, market_type),
-        )
-        return required > 0 and len(completed) >= required
+            if bar.confirmed
+            and bar.is_valid()
+            and not bar.partial
+            and not bar.sampled
+            and is_regular_trade_session(bar.trade_session)
+        }
+        return bool(expected) and expected <= available
 
     async def _apply_warmup(
         self,
