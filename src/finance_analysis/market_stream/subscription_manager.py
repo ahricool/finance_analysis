@@ -64,6 +64,7 @@ class SubscriptionManager:
         desired_loader: DesiredLoader | None = None,
         connection_cleanup_callback: ConnectionCleanupCallback | None = None,
         minimum_history_bars: int = 15,
+        isolated_symbols: frozenset[str] = frozenset(),
     ) -> None:
         self.client_factory = client_factory
         self.event_sink = event_sink
@@ -74,6 +75,7 @@ class SubscriptionManager:
         self.desired_loader = desired_loader
         self.connection_cleanup_callback = connection_cleanup_callback
         self.minimum_history_bars = minimum_history_bars
+        self.isolated_symbols = isolated_symbols
         self.commands: asyncio.Queue[SubscriptionCommand] = asyncio.Queue()
         self.desired_targets: dict[str, SubscriptionTarget] = {}
         self.active_symbols: set[str] = set()
@@ -231,7 +233,7 @@ class SubscriptionManager:
                 if hasattr(client, "prepare_quotes"):
                     await self._prepare_quotes(set(self.desired_targets))
                 for target in sorted(self.desired_targets.values(), key=lambda item: item.symbol):
-                    await self._add_target(target)
+                    await self._add_isolated_target(target)
                 self.connection_status = ConnectionStatus.READY
                 return True
             except Exception as exc:
@@ -280,7 +282,7 @@ class SubscriptionManager:
         if self.client is not None and hasattr(self.client, "prepare_quotes"):
             await self._prepare_quotes(set(to_add))
         for symbol in sorted(to_add):
-            await self._add_target(self.desired_targets[symbol])
+            await self._add_isolated_target(self.desired_targets[symbol])
         return bool(to_add or to_remove)
 
     async def _prepare_quotes(self, symbols):
@@ -289,7 +291,28 @@ class SubscriptionManager:
             target = self.desired_targets[symbol]
             state = self.symbol_states.setdefault(symbol, SymbolRuntimeState(symbol, target.market_type))
             state.status = SymbolStatus.WARMING
-        await self.client.prepare_quotes(symbols)
+        ordinary = symbols - self.isolated_symbols
+        isolated = symbols & self.isolated_symbols
+        if ordinary:
+            await self.client.prepare_quotes(ordinary)
+        if isolated:
+            try:
+                await self.client.prepare_quotes(isolated)
+            except Exception:
+                # A bad optional code must not reconnect every healthy subscription.
+                # A real connection failure still propagates into normal reconnect handling.
+                await self.client.health_check()
+                logger.warning("固定观察池批量订阅失败，逐标的隔离重试", exc_info=True)
+
+    async def _add_isolated_target(self, target: SubscriptionTarget) -> None:
+        try:
+            await self._add_target(target)
+        except Exception:
+            state = self.symbol_states.get(target.symbol)
+            if target.symbol not in self.isolated_symbols or state is None or state.status != SymbolStatus.ERROR:
+                raise
+            await self.client.health_check()
+            logger.warning("固定观察标的订阅失败，保留ERROR并继续其他标的: %s", target.symbol, exc_info=True)
 
     async def _refresh_quotes(self, symbols: set[str], *, reference_only: bool) -> set[str]:
         if self.client is None:

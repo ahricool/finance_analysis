@@ -73,10 +73,19 @@ class WatchListSnapshot:
     removed: dict[str, SubscriptionTarget]
 
 
+def load_stream_targets() -> dict[str, SubscriptionTarget]:
+    """Personal subscriptions plus the shared fixed intraday options universe."""
+    from finance_analysis.intraday_options.config import SYMBOLS
+
+    targets = load_watchlist_targets()
+    targets.update({symbol: SubscriptionTarget(symbol=symbol, market_type="US") for symbol in SYMBOLS})
+    return targets
+
+
 class WatchListMonitor:
     def __init__(
         self,
-        loader: Callable[[], Mapping[str, SubscriptionTarget]] = load_watchlist_targets,
+        loader: Callable[[], Mapping[str, SubscriptionTarget]] = load_stream_targets,
     ) -> None:
         self.loader = loader
         self.last_targets: dict[str, SubscriptionTarget] = {}

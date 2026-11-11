@@ -1,6 +1,6 @@
 # 实时行情 Streamer
 
-`finance-analysis-stream` 独立于 FastAPI / Celery 运行。采集池是所有用户自选股与未清仓持仓的去重并集，
+`finance-analysis-stream` 独立于 FastAPI / Celery 运行。采集池是所有用户自选股、未清仓持仓与日内期权固定30标的的去重并集，
 从 PostgreSQL 只读加载；报价、分钟线、趋势、形态和观测事件只写 Redis，不写行情数据库。
 
 ## 两条独立采集链
@@ -94,3 +94,8 @@ pnpm exec playwright test e2e/intraday-streamer.spec.ts
 REALTIME_REDIS_URL 留空时回退 REDIS_URL，读写两侧保持一致。凭证沿用 LONGBRIDGE_* 和 FUYAO_API_KEY。
 其余频率和容量由 MarketStreamConfig 定义，并非任意 MARKET_STREAM_* 环境变量。
 使用 lock:market_stream:leader 保证单写者，失锁退出；正常部署仍使用生产目录的 bash deploy.sh。
+
+## 日内期权观察
+
+固定US观察池额外纳入Streamer，后端每根闭合分钟计算15/30/60分钟趋势机会分，只存Redis最新结果，不归档历史。
+页面 `/market/intraday-options` 只读缓存；共享分钟接口允许已登录用户读取该固定白名单，不修改个人自选。见 [intraday-options.md](intraday-options.md)。

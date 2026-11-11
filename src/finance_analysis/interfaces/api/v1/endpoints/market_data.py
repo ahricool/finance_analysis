@@ -71,8 +71,11 @@ async def intraday_bars(symbol: str, request: Request, since: datetime | None = 
     except ValueError as exc:
         raise HTTPException(422, "证券或时间格式无效") from exc
     uid = get_effective_uid(request)
-    tracked = await asyncio.to_thread(_load_tracked_stocks, uid, market)
-    if code not in {stock.symbol for stock in tracked}:
+    from finance_analysis.intraday_options.config import SYMBOLS
+
+    # Shared, explicitly allowlisted research symbols need no personal WatchList mutation.
+    tracked = [] if code in SYMBOLS else await asyncio.to_thread(_load_tracked_stocks, uid, market)
+    if code not in SYMBOLS and code not in {stock.symbol for stock in tracked}:
         held = await asyncio.to_thread(PortfolioService().list_positions, uid, market=market)
         if code not in {row["symbol"] for row in held}:
             raise HTTPException(404, "证券不在本人的自选股或持仓中")

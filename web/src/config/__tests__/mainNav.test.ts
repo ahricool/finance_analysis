@@ -51,6 +51,7 @@ describe('main navigation', () => {
       'watch-list',
       'holdings',
       'holdings-review',
+      'intraday-options',
       'heatmap',
       'timeline',
       'options-intelligence',

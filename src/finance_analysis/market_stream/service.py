@@ -15,6 +15,7 @@ from decimal import Decimal
 from typing import Any, Iterable
 
 from finance_analysis.core.time import utc_now
+from finance_analysis.intraday_options.config import SYMBOLS as INTRADAY_OPTION_SYMBOLS
 from finance_analysis.integrations.market_data.providers.longbridge.normalizer import MarketEvent, event_to_candle
 from finance_analysis.integrations.market_data.providers.longbridge.streaming import LongbridgeStreamingClient
 from finance_analysis.integrations.market_data.realtime_state.models import CandleState, QuoteState, TrendState
@@ -131,6 +132,7 @@ class MarketStreamService:
             desired_loader=self._reload_desired_targets,
             connection_cleanup_callback=self._cleanup_connection_buffers,
             minimum_history_bars=self.config.minimum_history_bars,
+            isolated_symbols=frozenset(INTRADAY_OPTION_SYMBOLS),
         )
         from finance_analysis.market_stream.cn_feed import CnQuoteFeed
 
@@ -160,7 +162,11 @@ class MarketStreamService:
             return False
         logger.info("Leader Lock 获取成功")
 
+        from finance_analysis.intraday_options.runtime import Publisher
+
+        options_publisher = Publisher(self.repository)
         tasks = [
+            asyncio.create_task(options_publisher.run(self.bars_1m, self.stop_event), name="intraday-options"),
             asyncio.create_task(self._renew_leader_lock(), name="market-stream-lock"),
             asyncio.create_task(self._consume_events(), name="market-stream-events"),
             asyncio.create_task(

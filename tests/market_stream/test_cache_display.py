@@ -118,5 +118,5 @@ async def test_intraday_does_not_expose_other_users_collected_symbols(monkeypatc
     monkeypatch.setattr(PortfolioService, "__init__", lambda self: None)
     monkeypatch.setattr(PortfolioService, "list_positions", lambda self, uid, market: [])
     with pytest.raises(HTTPException) as error:
-        await market_data.intraday_bars("AAPL.US", SimpleNamespace())
+        await market_data.intraday_bars("KO.US", SimpleNamespace())
     assert error.value.status_code == 404
