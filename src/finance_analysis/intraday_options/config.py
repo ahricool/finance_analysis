@@ -37,7 +37,7 @@ SYMBOLS = tuple(
         "META",
     )
 )
-VERSION = "intraday_options_v1"
+VERSION = "intraday_options_v2"
 WINDOWS = (15, 30, 60)
 WINDOW_WEIGHTS = (0.30, 0.45, 0.25)
 

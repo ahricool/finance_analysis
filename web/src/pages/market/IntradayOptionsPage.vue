@@ -26,7 +26,7 @@ const columns = [
   { key: 'symbol', label: '标的', description: '按代码排序；名称与代码均可搜索。' },
   { key: 'lastPrice', label: '最新价' }, { key: 'changePct', label: '当日涨跌幅', description: '相对昨收；不参与当前趋势评分。' },
   ...[15, 30, 60].map(n => ({ key: `w${n}`, label: `${n}分钟`, description: '按窗口质量分排序；箭头表示方向，第二行是该窗口涨跌幅。' })),
-  { key: 'direction', label: '当前方向' }, { key: 'score', label: '趋势机会分', description: '0–100规则分，不是盈利概率；完整60分钟窗口后显示。' },
+  { key: 'direction', label: '当前方向' }, { key: 'score', label: '趋势机会分', description: '0–100规则分，不是盈利概率；开盘满60分钟后显示；缺线或延迟仍展示并标注。' },
   { key: 'state', label: '当前状态', description: '趋势质量与进场位置分开：高分仍可能处于短线延伸。' },
 ];
 const filters: Array<{ key: typeof filter.value; label: string }> = [
@@ -54,7 +54,7 @@ function refreshOrder() { sortSnapshot.value = [...(snapshot.value?.items ?? [])
 function toggleSort(key: string) { refreshOrder(); table.toggle(key); }
 watch([filter, search], () => { refreshOrder(); expanded.value = null; });
 function windowOf(row: IntradayOptionRow, minutes: number) { return row.result?.windows.find(w => w.minutes === minutes); }
-function valid(row: IntradayOptionRow) { return !disconnected.value && usable(row); }
+function valid(row: IntradayOptionRow) { return usable(row); }
 function rowDirection(row: IntradayOptionRow) { return valid(row) && row.result?.direction ? directions[row.result.direction] : '—'; }
 function arrow(value: number | null | undefined) { return value === 1 ? '↑' : value === -1 ? '↓' : '→'; }
 function toggleRow(symbol: string) { expanded.value = expanded.value === symbol ? null : symbol; }
@@ -95,7 +95,7 @@ onBeforeUnmount(() => { stopped = true; controller?.abort(); clearTimeout(timer)
         <span
           v-if="disconnected"
           class="text-destructive"
-        >连接中断或响应过期，暂停当前评分</span>
+        >连接中断或响应过期，保留上次评分，仅供参考</span>
       </div>
       <Button
         variant="outline"
@@ -222,6 +222,12 @@ onBeforeUnmount(() => { stopped = true; controller?.abort(); clearTimeout(timer)
                   <p class="text-xs text-muted-foreground">
                     {{ pct(windowOf(row, n)?.returnPct) }}
                   </p>
+                  <p
+                    v-if="windowOf(row, n)?.dataStatus === 'gap'"
+                    class="text-xs text-amber-600 dark:text-amber-400"
+                  >
+                    缺{{ windowOf(row, n)?.missingBars ?? '部分' }}根 · 参考分
+                  </p>
                 </template>
                 <template v-else>
                   —<p class="text-xs text-muted-foreground">
@@ -240,6 +246,12 @@ onBeforeUnmount(() => { stopped = true; controller?.abort(); clearTimeout(timer)
                 data-testid="opportunity-score"
               >
                 {{ valid(row) ? fmt(row.result?.score, 0) : '—' }}
+                <p
+                  v-if="row.result && (disconnected || row.dataStatus === 'delayed' || row.result.windows.some(w => w.dataStatus === 'gap'))"
+                  class="text-xs font-normal text-amber-600 dark:text-amber-400"
+                >
+                  参考分 · 截至 {{ clock(row.result.asOf) }}
+                </p>
               </TableCell>
               <TableCell class="whitespace-nowrap text-sm">
                 {{ valid(row) && row.result?.state ? stages[row.result.state] : '—' }}
@@ -253,7 +265,7 @@ onBeforeUnmount(() => { stopped = true; controller?.abort(); clearTimeout(timer)
                 <TrendPanel
                   :symbol="row.symbol"
                   :result="row.result"
-                  :stale="!valid(row)"
+                  :stale="disconnected || row.dataStatus === 'delayed' || !valid(row)"
                 />
               </TableCell>
             </TableRow>

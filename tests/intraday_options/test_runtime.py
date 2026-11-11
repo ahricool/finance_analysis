@@ -45,6 +45,8 @@ def test_publisher_and_read_only_snapshot_latest_cache_only():
         assert len([k for k in repo.redis.strings if k.startswith("rt:intraday-options")]) == 1
         delayed = await read_snapshot(repo, {}, now + timedelta(minutes=2))
         assert delayed["items"][0]["data_status"] == "delayed"
+        assert delayed["items"][0]["result"]["score"] == row.result.score
+        assert delayed["items"][0]["result"]["as_of"] == row.result.as_of.isoformat()
         assert delayed["items"][0]["quote_status"] == "delayed"
         # New session must not expose yesterday's score or quote as current.
         tomorrow = await read_snapshot(repo, {}, START + timedelta(days=1, minutes=1))

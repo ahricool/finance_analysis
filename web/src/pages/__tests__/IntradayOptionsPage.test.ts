@@ -61,7 +61,7 @@ describe('intraday options table', () => {
     expect(symbols()).toEqual(['AAA.US', 'BBB.US', 'CCC.US']);
   });
 
-  it('filters by direction and searches names; pauses scores on failed refresh and cancels on unmount', async () => {
+  it('filters by direction and searches names; retains annotated scores on failed refresh and cancels on unmount', async () => {
     await start();
     await page.findAll('button').find(b => b.text() === '偏空')!.trigger('click');
     expect(symbols()).toEqual(['BBB.US']);
@@ -69,10 +69,25 @@ describe('intraday options table', () => {
     await page.get('input').setValue('名称'); expect(symbols()).toEqual(['BBB.US']);
     vi.mocked(fetchIntradayOptions).mockRejectedValueOnce(new Error('offline'));
     await vi.advanceTimersByTimeAsync(5000); await flushPromises();
-    expect(page.get('[data-testid="opportunity-score"]').text()).toBe('—');
-    expect(page.text()).toContain('暂停当前评分');
+    expect(page.get('[data-testid="opportunity-score"]').text()).toContain('90');
+    expect(page.text()).toContain('保留上次评分');
     const calls = vi.mocked(fetchIntradayOptions).mock.calls.length;
     page.unmount(); await vi.advanceTimersByTimeAsync(10000);
     expect(fetchIntradayOptions).toHaveBeenCalledTimes(calls);
   });
+  it('shows and sorts delayed scores with missing-minute annotations', async () => {
+    const target = data.items[1]!;
+    target.dataStatus = 'delayed';
+    target.result!.windows[0]!.dataStatus = 'gap';
+    target.result!.windows[0]!.missingBars = 1;
+    target.result!.windows[0]!.availableBars = 14;
+    await start();
+    const displayed = page.get(`[data-testid="options-row-${target.symbol}"]`);
+    expect(displayed.text()).toContain('分钟行情延迟');
+    expect(displayed.text()).toContain('缺1根 · 参考分');
+    expect(displayed.text()).toContain('参考分 · 截至');
+    expect(displayed.get('[data-testid="opportunity-score"]').text()).toContain(String(target.result!.score));
+    expect(symbols()[0]).toBe(target.symbol);
+  });
+
 });

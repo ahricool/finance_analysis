@@ -137,9 +137,9 @@ onBeforeUnmount(() => { stopped = true; generation++; controller?.abort(); clear
           v-if="w.dataStatus !== 'ready'"
           class="text-muted-foreground"
         >
-          {{ w.dataStatus === 'gap' ? '分钟缺失，暂停此窗口评分' : '等待窗口预热' }}
+          {{ w.dataStatus === 'gap' ? `缺${w.missingBars ?? '部分'}根 · 可用${w.availableBars ?? '—'}根 · ${w.score == null ? '数据过少，无法计算' : '参考分'}` : '等待窗口预热' }}
         </p>
-        <template v-else>
+        <template v-if="w.score != null">
           <p>稳定度 {{ fmt(w.stability) }} · 路径效率 {{ fmt(w.efficiency) }}</p>
           <p>移动强度 {{ fmt(w.strength) }} · 扰动控制 {{ fmt(w.disturbance) }}</p>
           <p>标准化移动 {{ fmt(w.normalizedMove, 2) }} · 逆向幅度 {{ fmt(w.adverseMove, 2) }}</p>

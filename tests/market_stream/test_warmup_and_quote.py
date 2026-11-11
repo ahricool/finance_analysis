@@ -1264,7 +1264,7 @@ async def test_restart_repairs_recent_hour_before_publishing(monkeypatch, missin
     publisher = Publisher(app.repository)
     await publisher.publish('AAPL.US', cached, now)
     initial = json.loads(await app.repository.redis.get(result_key('AAPL.US')))
-    assert (initial['score'] is None) == (missing != 104)
+    assert (initial['windows'][-1]['data_status'] == "gap") == (missing != 104)
     state = set_warming(app)
     result = await app._load_warmup('AAPL.US', 'US', state.generation, app.manager.connection_generation)
     assert calls == ['AAPL.US']
@@ -1272,7 +1272,7 @@ async def test_restart_repairs_recent_hour_before_publishing(monkeypatch, missin
     restored = list(app.bars_1m['AAPL.US'])
     await publisher.publish('AAPL.US', restored, now)
     score = json.loads(await app.repository.redis.get(result_key('AAPL.US')))
-    assert (score['score'] is not None) == (history_complete or missing == 104)
+    assert (score['windows'][-1]['data_status'] == 'ready') == (history_complete or missing == 104)
     assert score['as_of'] == (BASE + timedelta(minutes=105 if history_complete or missing != 104 else 104)).isoformat()
     assert app._cache_has_current_session(restored, 'US', now=now) == history_complete
     redis_bars = await app.repository.get_recent_bars('AAPL.US', 420)

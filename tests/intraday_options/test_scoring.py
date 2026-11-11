@@ -78,7 +78,8 @@ def test_only_closed_same_session_contiguous_minutes_count():
         assert [w["score"] is not None for w in result["windows"]] == [count >= n for n in (15, 30, 60)]
     gap = score(bars[:35] + bars[36:])
     assert [w["data_status"] for w in gap["windows"]] == ["ready", "gap", "gap"]
-    assert gap["score"] is None
+    assert gap["score"] is not None
+    assert gap["windows"][-1]["missing_bars"] == 1
     yesterday = candles([0.0004] * 60, start=START - timedelta(days=1))
     assert score(yesterday + bars[:14])["score"] is None
     preview = replace(bars[59], confirmed=False)
@@ -93,7 +94,7 @@ def test_bad_minutes_are_not_filled(field, value):
     bars = candles([0.0004] * 60)
     bars[55] = replace(bars[55], **{field: value})
     result = score(bars)
-    assert result["score"] is None
+    assert result["score"] is not None
     assert all(w["data_status"] == "gap" for w in result["windows"])
 
 
@@ -118,3 +119,17 @@ def test_alignment_direction_and_state_are_separate():
     assert conflict["direction"] == "conflict" and conflict["state"] == "conflict"
     assert conflict["score"] <= 55
     assert combine([{**w, "direction": 0} for w in windows], bars)["score"] <= 35
+
+
+def test_sparse_windows_use_real_time_and_require_two_valid_bars():
+    bars = candles([0.0004] * 60)
+    sparse = score([bars[0], bars[20], bars[59]])
+    assert sparse["score"] is None  # short windows have only one observation
+    long = sparse["windows"][-1]
+    assert long["score"] is not None and long["missing_bars"] == 57
+    assert long["stability"] == pytest.approx(100)
+    assert "仅供参考" in sparse["explanation"]
+    gap = score(bars[:45] + bars[46:])
+    assert gap["score"] is not None
+    assert gap["windows"][0]["available_bars"] == 14
+    assert gap["windows"][0]["start_at"] == bars[46].bar_time.isoformat()
