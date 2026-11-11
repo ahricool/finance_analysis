@@ -114,3 +114,7 @@ router.include_router(stock_strategies.router, prefix="/stock-strategies", tags=
 
 from .endpoints import holdings_review
 router.include_router(holdings_review.router, prefix="/holdings-review", tags=["Holdings Review"])
+
+from .endpoints import intraday_options
+
+router.include_router(intraday_options.router, prefix="/intraday-options", tags=["Intraday Options"])

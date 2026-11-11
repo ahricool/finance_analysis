@@ -126,6 +126,9 @@ class FakeRedis:
     async def ttl(self, key: str) -> int:
         return self.expires.get(key, -1)
 
+    async def get(self, key: str):
+        return self.strings.get(key)
+
     async def set(self, key: str, value: str, nx: bool = False, ex: int | None = None) -> bool:
         if nx and key in self.strings:
             return False

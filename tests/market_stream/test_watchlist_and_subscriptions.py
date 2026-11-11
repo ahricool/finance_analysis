@@ -365,3 +365,31 @@ async def test_cancelled_to_thread_result_cannot_modify_new_generation() -> None
     assert applied_connections == [new_connection]
     assert manager.symbol_states["AAPL.US"].status == SymbolStatus.ACTIVE
     await manager.stop()
+
+
+@pytest.mark.asyncio
+async def test_optional_fixed_symbol_failure_does_not_block_personal_or_other_fixed_symbols():
+    manager, clients, _, _ = build_manager()
+
+    class OptionalFailureClient(FakeStreamingClient):
+        async def prepare_quotes(self, symbols):
+            if "SPCX.US" in symbols:
+                raise RuntimeError("unknown symbol")
+
+        async def subscribe(self, symbols):
+            await self.prepare_quotes(symbols)
+            await super().subscribe(symbols)
+
+    manager.client_factory = OptionalFailureClient
+    manager.isolated_symbols = frozenset({"SPCX.US", "SPY.US"})
+    manager.desired_targets = targets(("KO.US", "US"), ("SPCX.US", "US"), ("SPY.US", "US"))
+    try:
+        await manager.start()
+        await wait_until(lambda: manager.active_symbols == {"KO.US", "SPY.US"})
+        assert manager.symbol_states["SPCX.US"].status == SymbolStatus.ERROR
+        assert manager.connection_generation == 1
+        await manager.reconcile(manager.desired_targets)
+        assert manager.active_symbols == {"KO.US", "SPY.US"}
+        assert manager.symbol_states["SPCX.US"].status == SymbolStatus.ERROR
+    finally:
+        await manager.stop()
