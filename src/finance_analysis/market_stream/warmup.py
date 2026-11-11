@@ -4,15 +4,29 @@ from __future__ import annotations
 
 import asyncio
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any, Iterable
 
 from finance_analysis.integrations.market_data.providers.longbridge.normalizer import longbridge_datetime_to_utc
 from finance_analysis.integrations.market_data import MarketDataService
 from finance_analysis.integrations.market_data.realtime_state.models import CandleState
-from finance_analysis.market_stream.config import latest_completed_bar_time, market_trading_date
+from finance_analysis.market_stream.config import is_regular_session_minute, latest_completed_bar_time, market_trading_date
 from finance_analysis.stocks.markets import MarketType
+
+
+def warmup_bar_starts(now: datetime, market_type: MarketType) -> list[datetime]:
+    """Last 60 closed session minutes; never pad today's opening with yesterday."""
+    from finance_analysis.market_stream.session import display_day, session_bounds
+
+    start, close = session_bounds(market_type, display_day(market_type, now))
+    cursor = min(now.replace(second=0, microsecond=0), close) - timedelta(minutes=1)
+    expected = []
+    while cursor >= start and len(expected) < 60:
+        if is_regular_session_minute(cursor, market_type):
+            expected.append(cursor)
+        cursor -= timedelta(minutes=1)
+    return list(reversed(expected))
 
 
 def _parse_time(value: Any) -> datetime:
@@ -62,6 +76,7 @@ class LongbridgeHistoryLoader:
             start,
             end,
             interval="1m",
+            required_bar_starts=warmup_bar_starts(received_at, market_type),
         )
         values = next(iter(result.data.values()), [])
         raw = [

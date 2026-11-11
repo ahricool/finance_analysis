@@ -11,7 +11,7 @@ export const dataLabels: Record<IntradayOptionRow['dataStatus'], string> = {
 };
 export const directionOrder = { bullish: 4, bearish: 3, conflict: 2, neutral: 1 };
 export const stageOrder = { continuing: 5, pullback: 4, extended: 3, conflict: 2, waiting: 1 };
-export function usable(row: IntradayOptionRow) { return ['ready', 'warming', 'gap'].includes(row.dataStatus); }
+export function usable(row: IntradayOptionRow) { return ['ready', 'warming', 'gap', 'delayed'].includes(row.dataStatus); }
 export function fmt(value: number | null | undefined, digits = 1) {
   return value == null ? '—' : value.toLocaleString('zh-CN', { minimumFractionDigits: digits, maximumFractionDigits: digits });
 }

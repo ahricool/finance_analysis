@@ -124,8 +124,8 @@ def test_cn_and_hk_lunch_are_not_treated_as_cache_gaps() -> None:
     cn_end = latest_completed_bar_time(cn_now, "CN")
     hk_end = latest_completed_bar_time(hk_now, "HK")
     assert cn_end is not None and hk_end is not None
-    cn_bars = [candle("600519.SH", cn_end - timedelta(minutes=index)) for index in range(15)]
-    hk_bars = [candle("0700.HK", hk_end - timedelta(minutes=index)) for index in range(15)]
+    cn_bars = [candle("600519.SH", cn_end - timedelta(minutes=index)) for index in range(60)]
+    hk_bars = [candle("0700.HK", hk_end - timedelta(minutes=index)) for index in range(60)]
     assert service._cache_has_current_session(cn_bars, "CN", now=cn_now)
     assert service._cache_has_current_session(hk_bars, "HK", now=hk_now)
 
@@ -148,7 +148,7 @@ def test_market_local_cross_day_clears_old_in_memory_bars() -> None:
 @pytest.mark.asyncio
 async def test_history_loader_preserves_multiple_market_trading_dates() -> None:
     class Fetcher:
-        def get_minute_bars(self, symbols, start_time, end_time, interval):
+        def get_minute_bars(self, symbols, start_time, end_time, interval, required_bar_starts):
             bars = [
                 MarketBar(
                     symbol="600519.SH", market=Market.CN, interval="1m", trade_date=timestamp.date(),
@@ -169,3 +169,44 @@ async def test_history_loader_preserves_multiple_market_trading_dates() -> None:
         "2026-06-26",
     ]
     assert all(bar.bar_time.tzinfo is not None for bar in bars)
+
+
+@pytest.mark.asyncio
+async def test_history_loader_falls_through_incomplete_streaming_cache(monkeypatch):
+    from finance_analysis.integrations.market_data.registry import MINUTE_BARS, ProviderRegistry
+    from finance_analysis.integrations.market_data.service import MarketDataService
+    from finance_analysis.market_stream import warmup
+
+    now = datetime(2026, 6, 26, 15, 15, 5, tzinfo=timezone.utc)
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return now
+
+    monkeypatch.setattr(warmup, 'datetime', Clock)
+    required = warmup.warmup_bar_starts(now, 'US')
+    calls = []
+
+    class Provider:
+        def __init__(self, name, missing):
+            self.name, self.missing = name, missing
+
+        def fetch_minute_bars(self, request):
+            calls.append(self.name)
+            assert request.required_bar_starts == tuple(required)
+            bars = [MarketBar(
+                symbol='AAPL.US', market=Market.US, interval='1m', trade_date=t.date(),
+                bar_time=t, bar_start=t, bar_end=t + timedelta(minutes=1),
+                open=10, high=11, low=9, close=10, volume=1, amount=None, currency='USD',
+                adjustment=Adjustment.RAW, provider=self.name,
+            ) for t in required if t != self.missing]
+            return BatchBarResult(data={'AAPL.US': bars})
+
+    registry = ProviderRegistry()
+    for name, missing in [('streaming', required[30]), ('longbridge', None)]:
+        registry.register(name, Provider(name, missing), capabilities={MINUTE_BARS})
+    bars = await LongbridgeHistoryLoader(MarketDataService(registry)).fetch('AAPL.US', 'US', 420)
+    assert calls == ['streaming', 'longbridge']
+    assert [b.bar_time for b in bars] == required
+    assert all(b.confirmed for b in bars)

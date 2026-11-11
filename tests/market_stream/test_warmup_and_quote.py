@@ -1239,3 +1239,88 @@ async def test_reconnect_cancellation_releases_semaphore_and_cleans_old_buffer()
     assert started[1] != old_connection
     gate.set()
     await app.manager.stop()
+
+
+@pytest.mark.parametrize('missing', [45, 75, 104])
+@pytest.mark.parametrize('history_complete', [True, False])
+@pytest.mark.asyncio
+async def test_restart_repairs_recent_hour_before_publishing(monkeypatch, missing, history_complete):
+    from finance_analysis.intraday_options.runtime import Publisher, result_key
+    import json
+
+    app = service()
+    now = BASE + timedelta(minutes=105, seconds=5)
+    monkeypatch.setattr('finance_analysis.market_stream.service.utc_now', lambda: now)
+    cached = [bar(i) for i in range(105) if i != missing]
+    await app.repository.upsert_bars('AAPL.US', cached)
+    calls = []
+
+    class History:
+        async def fetch(self, symbol, market_type, count):
+            calls.append(symbol)
+            return [bar(i, received=30) for i in range(105)] if history_complete else []
+
+    app.history_loader = History()
+    publisher = Publisher(app.repository)
+    await publisher.publish('AAPL.US', cached, now)
+    initial = json.loads(await app.repository.redis.get(result_key('AAPL.US')))
+    assert (initial['windows'][-1]['data_status'] == "gap") == (missing != 104)
+    state = set_warming(app)
+    result = await app._load_warmup('AAPL.US', 'US', state.generation, app.manager.connection_generation)
+    assert calls == ['AAPL.US']
+    assert await app._apply_warmup(state, app.manager.connection_generation, result, None, lambda *args: None)
+    restored = list(app.bars_1m['AAPL.US'])
+    await publisher.publish('AAPL.US', restored, now)
+    score = json.loads(await app.repository.redis.get(result_key('AAPL.US')))
+    assert (score['windows'][-1]['data_status'] == 'ready') == (history_complete or missing == 104)
+    assert score['as_of'] == (BASE + timedelta(minutes=105 if history_complete or missing != 104 else 104)).isoformat()
+    assert app._cache_has_current_session(restored, 'US', now=now) == history_complete
+    redis_bars = await app.repository.get_recent_bars('AAPL.US', 420)
+    assert (BASE + timedelta(minutes=missing) in {b.bar_time for b in redis_bars}) == history_complete
+
+
+@pytest.mark.parametrize('changes', [
+    {'confirmed': False}, {'partial': True}, {'sampled': True},
+    {'high': Decimal('1')}, {'trade_session': 'Post'},
+])
+def test_cache_rejects_ineligible_minutes(changes):
+    app = service()
+    bars = [bar(i) for i in range(105)]
+    bars[75] = replace(bars[75], **changes)
+    assert not app._cache_has_current_session(bars, 'US', now=BASE + timedelta(minutes=105))
+
+
+@pytest.mark.asyncio
+async def test_complete_recent_hour_skips_remote_even_with_older_gap(monkeypatch):
+    app = service()
+    now = BASE + timedelta(minutes=105)
+    monkeypatch.setattr('finance_analysis.market_stream.service.utc_now', lambda: now)
+    cached = [bar(i) for i in range(105) if i != 44]
+    await app.repository.upsert_bars('AAPL.US', cached)
+
+    class History:
+        async def fetch(self, *args):
+            raise AssertionError('complete recent hour must use cache')
+
+    app.history_loader = History()
+    result = await app._load_warmup('AAPL.US', 'US', 1, 1)
+    assert not result.historical
+    assert len(result.cached) == 104
+
+
+@pytest.mark.parametrize('now,market,count,first,last', [
+    ('2026-06-26T13:40:30+00:00', 'US', 10, '2026-06-26T13:30:00+00:00', '2026-06-26T13:39:00+00:00'),
+    ('2026-06-26T21:00:00+00:00', 'US', 60, '2026-06-26T19:00:00+00:00', '2026-06-26T19:59:00+00:00'),
+    ('2026-11-27T20:00:00+00:00', 'US', 60, '2026-11-27T17:00:00+00:00', '2026-11-27T17:59:00+00:00'),
+    ('2026-06-27T14:00:00+00:00', 'US', 60, '2026-06-26T19:00:00+00:00', '2026-06-26T19:59:00+00:00'),
+    ('2026-06-26T13:30:00+00:00', 'US', 0, None, None),
+    ('2026-06-26T05:15:00+00:00', 'HK', 60, '2026-06-26T03:15:00+00:00', '2026-06-26T05:14:00+00:00'),
+])
+def test_warmup_required_minutes_follow_actual_session(now, market, count, first, last):
+    from finance_analysis.market_stream.warmup import warmup_bar_starts
+
+    times = warmup_bar_starts(datetime.fromisoformat(now), market)
+    assert len(times) == count
+    if times:
+        assert times[0] == datetime.fromisoformat(first)
+        assert times[-1] == datetime.fromisoformat(last)

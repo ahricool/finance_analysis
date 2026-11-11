@@ -35,9 +35,9 @@ def log_ranges(bars: Sequence[CandleState]) -> np.ndarray:
 
 
 def window_score(bars: Sequence[CandleState], minutes: int) -> dict:
-    """Exactly N bars and N moves: first open anchors the N closes, not yesterday's close."""
+    """Use observed prices at actual minute offsets; never synthesize missing candles."""
     y = np.log([float(bars[0].open), *[float(b.close) for b in bars]])
-    x = np.arange(len(y), dtype=float)
+    x = np.array([0.0, *[(b.bar_time - bars[0].bar_time).total_seconds() / 60 + 1 for b in bars]])
     centered = y - y.mean()
     slope = float(np.dot(x - x.mean(), centered) / np.sum((x - x.mean()) ** 2))
     fitted = y.mean() + slope * (x - x.mean())
@@ -66,8 +66,8 @@ def window_score(bars: Sequence[CandleState], minutes: int) -> dict:
     drawdowns = np.maximum.accumulate(oriented) - oriented
     adverse = float(drawdowns.max()) / scale if scale > 1e-12 else 0.0
     longest = run = 0
-    for distance in drawdowns:
-        run = run + 1 if distance > 1e-10 else 0
+    for distance, elapsed in zip(drawdowns[1:], np.diff(x)):
+        run = run + elapsed if distance > 1e-10 else 0
         longest = max(longest, run)
     duration = longest / minutes
     disturbance = 0.7 * (1 - unit(adverse)) + 0.3 * (1 - unit(duration))
@@ -89,7 +89,8 @@ def window_score(bars: Sequence[CandleState], minutes: int) -> dict:
     )
     quality = raw * gate
     concentration = float(np.max(np.abs(moves))) / travel if travel > 1e-12 else 0.0
-    recent = float(y[-1] - y[-6]) * sign
+    recent_index = int(np.searchsorted(x, x[-1] - 5, side="left"))
+    recent = float(y[-1] - y[recent_index]) * sign
     stalled_impulse = (
         concentration >= CONFIG.impulse_concentration and recent < abs(net) * CONFIG.recent_extension_fraction
     )
@@ -135,7 +136,7 @@ def combine(windows: list[dict], bars: Sequence[CandleState]) -> dict:
             "base_score": None,
             "alignment": None,
             "extension_atr": None,
-            "explanation": "等待连续完整的15、30、60分钟窗口。",
+            "explanation": "等待15、30、60分钟窗口预热及至少2根有效分钟线。",
         }
     directions = [w["direction"] for w in windows]
     short, main, long = directions
@@ -150,7 +151,7 @@ def combine(windows: list[dict], bars: Sequence[CandleState]) -> dict:
         direction = "conflict"
     else:
         direction = "neutral"
-    recent = bars[-20:]
+    recent = [b for b in bars if b.bar_time >= bars[-1].bar_time - MINUTE * 19]
     logs = np.log([float(b.close) for b in recent])
     ema = float(logs[0])
     for value in logs[1:]:
@@ -222,12 +223,25 @@ def calculate(symbol: str, bars: Sequence[CandleState], now: datetime) -> dict |
         times = [latest - MINUTE * i for i in reversed(range(minutes))]
         if times[0] < start:
             windows.append({"minutes": minutes, "data_status": "warming", "score": None})
-        elif any(
-            t not in by_time or not by_time[t].is_valid() or by_time[t].partial or by_time[t].sampled for t in times
-        ):
-            windows.append({"minutes": minutes, "data_status": "gap", "score": None})
         else:
-            windows.append(window_score([by_time[t] for t in times], minutes))
+            usable = [by_time[t] for t in times if t in by_time and by_time[t].is_valid()
+                      and not by_time[t].partial and not by_time[t].sampled]
+            missing = minutes - len(usable)
+            quality = {"available_bars": len(usable), "missing_bars": missing}
+            if len(usable) < 2:
+                windows.append({"minutes": minutes, "data_status": "gap", "score": None, **quality,
+                                "reasons": ["有效分钟线少于2根，无法计算趋势"]})
+                continue
+            window = window_score(usable, minutes)
+            window.update(quality)
+            if missing:
+                window["data_status"] = "gap"
+                window["reasons"].append(f"窗口缺少{missing}根有效分钟线，按现有{len(usable)}根计算，仅供参考")
+            windows.append(window)
+    usable = [b for b in ordered if b.is_valid() and not b.partial and not b.sampled]
+    combined = combine(windows, usable)
+    if any(w["data_status"] == "gap" for w in windows):
+        combined["explanation"] = "分钟数据不完整，按现有K线计算，仅供参考。" + combined["explanation"]
     return {
         "version": VERSION,
         "symbol": symbol,
@@ -235,5 +249,5 @@ def calculate(symbol: str, bars: Sequence[CandleState], now: datetime) -> dict |
         "as_of": (latest + MINUTE).isoformat(),
         "observed_at": now.isoformat(),
         "windows": windows,
-        **combine(windows, ordered),
+        **combined,
     }
