@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 
 
 class WindowScore(BaseModel):
-    minutes: Literal[15, 30, 60]
+    minutes: Literal[5, 15, 30, 60]
     data_status: Literal["ready", "warming", "gap"]
     available_bars: int | None = None
     missing_bars: int | None = None

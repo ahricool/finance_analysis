@@ -5,7 +5,7 @@ export type TrendDirection = 'bullish' | 'bearish' | 'neutral' | 'conflict';
 export type TrendStage = 'continuing' | 'pullback' | 'extended' | 'conflict' | 'waiting';
 export interface WindowScore {
   availableBars?: number | null; missingBars?: number | null;
-  minutes: 15 | 30 | 60; dataStatus: 'ready' | 'warming' | 'gap'; score: number | null;
+  minutes: 5 | 15 | 30 | 60; dataStatus: 'ready' | 'warming' | 'gap'; score: number | null;
   direction: -1 | 0 | 1 | null; returnPct: number | null; startAt: string | null; endAt: string | null;
   stability: number | null; efficiency: number | null; strength: number | null; disturbance: number | null;
   normalizedMove: number | null; adverseMove: number | null; adverseDuration: number | null;

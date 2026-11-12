@@ -41,7 +41,7 @@ N分钟按真实时间范围取已闭合的原生1分钟K：第一根有效K的�
 
 ## 窗口指标和公式
 
-评分缓存版本为intraday_options_v2；所有阈值都是可解释规则假设，尚未经历史收益校准，不代表统计显著性。
+评分缓存版本为intraday_options_v3；所有阈值都是可解释规则假设，尚未经历史收益校准，不代表统计显著性。
 令 `y0=ln(首根open)`，`yi=ln(第i根close)`，`r=yN-y0`，`clip(x)=min(1,max(0,x))`。
 
 - **稳定度 S**：等权线性回归 `y ~ 实际经过分钟数` 的 `100×R²`；零方差为0。
@@ -103,3 +103,11 @@ N分钟按真实时间范围取已闭合的原生1分钟K：第一根有效K的�
 
 检查：`uv run pytest tests/intraday_options tests/market_stream tests/test_realtime_market_websocket.py -q`；
 Web `pnpm run build`、`pnpm run lint`、`pnpm run test`、`pnpm exec playwright test e2e/intraday-options.spec.ts`。
+
+
+## 5分钟短线窗口
+
+表格新增可排序5分钟列，展开详情支持5分钟范围高亮和同一组指标。开盘满5分钟即可计算，
+缺线/延迟继续显示参考分及数据标记。5分钟只用于短线观察，不参与综合方向、状态或综合分；
+综合仍使用15/30/60分钟的30%/45%/25%权重并等待60分钟预热。
+5分钟的单根脉冲停滞检查使用最近2分钟，15/30/60分钟仍使用最近5分钟；其余窗口评分公式一致。

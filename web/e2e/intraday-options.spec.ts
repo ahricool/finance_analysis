@@ -19,7 +19,7 @@ for (const width of [390, 768, 1024, 1280, 1440, 1920]) {
         as_of: '2026-11-12T16:00:00Z', observed_at: now, score: 95 - i, base_score: 95 - i, alignment: 1, extension_atr: 1.5,
         direction: i % 2 ? 'bearish' : 'bullish', state: i === 0 ? 'extended' : 'continuing',
         explanation: i === 0 ? '方向仍有延续，但偏离短期趋势参考线较远，标记短线延伸。' : '多个窗口方向一致，近期仍在延续。',
-        windows: [15, 30, 60].map(minutes => ({ minutes, data_status: 'ready', score: 95 - i, direction: i % 2 ? -1 : 1,
+        windows: [5, 15, 30, 60].map(minutes => ({ minutes, data_status: 'ready', score: 95 - i, direction: i % 2 ? -1 : 1,
           return_pct: (i % 2 ? -1 : 1) * 0.65, start_at: new Date(Date.parse('2026-11-12T16:00:00Z') - minutes * 60000).toISOString(),
           end_at: '2026-11-12T16:00:00Z', stability: 82, efficiency: 90, strength: 85, disturbance: 80,
           normalized_move: 1.6, adverse_move: .2, adverse_duration: .1, movement_gate: 1, concentration: .1,
@@ -56,6 +56,8 @@ for (const width of [390, 768, 1024, 1280, 1440, 1920]) {
     await expect(panel).toBeVisible();
     await expect(panel.getByRole('img', { name: /1m K线/ })).toBeVisible();
     await expect(panel).toContainText('近似VWAP');
+    await panel.getByRole('button', { name: '5分钟', exact: true }).click();
+    await expect(panel).toContainText('5分钟 ·');
     await panel.getByRole('button', { name: '60分钟', exact: true }).click();
     await panel.getByRole('button', { name: '等权均价', exact: true }).click();
     await expect(panel).toContainText('已采集分钟收盘价等权均价');

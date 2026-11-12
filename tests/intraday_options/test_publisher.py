@@ -39,7 +39,7 @@ def test_close_gap_repaired_by_reconnect_warmup_with_same_latest_time(monkeypatc
         await publisher.publish(SYMBOL, missing, CLOSE)
         first = await cached(repo)
         assert first["score"] is not None
-        assert all(w["data_status"] == "gap" for w in first["windows"])
+        assert [w["data_status"] for w in first["windows"]] == ["ready", "gap", "gap", "gap"]
         # Reconnection replaces objects and receipt timestamps, and fills the missing bar.
         recovery_time = CLOSE + timedelta(minutes=5)
         restored = [replace(b, received_at=recovery_time) for b in complete]

@@ -12,7 +12,7 @@ function row(symbol: string, score: number | null, direction: 'bullish' | 'beari
     quoteTime: new Date().toISOString(), quoteStatus: 'ready', dataStatus: score == null ? 'warming' : 'ready', issues: [],
     result: { version: 'v1', symbol, tradingDate: '2026-11-12', asOf: new Date().toISOString(), observedAt: new Date().toISOString(),
       score, direction: score == null ? null : direction, state: score == null ? null : 'continuing', baseScore: score,
-      alignment: 1, extensionAtr: 1, explanation: '趋势一致', windows: ([15, 30, 60] as const).map(minutes => ({
+      alignment: 1, extensionAtr: 1, explanation: '趋势一致', windows: ([5, 15, 30, 60] as const).map(minutes => ({
         minutes, score, direction: direction === 'bullish' ? 1 : -1, dataStatus: score == null ? 'warming' : 'ready',
         returnPct: 0.5, reasons: [], startAt: null, endAt: null, stability: null, efficiency: null,
         strength: null, disturbance: null, normalizedMove: null, adverseMove: null, adverseDuration: null,
@@ -37,7 +37,7 @@ describe('intraday options table', () => {
   it('defaults to opportunity order and sorts all numeric headers with nulls always last', async () => {
     await start();
     expect(symbols()).toEqual(['BBB.US', 'AAA.US', 'CCC.US']);
-    for (const label of ['最新价', '当日涨跌幅', '15分钟', '30分钟', '60分钟', '趋势机会分']) {
+    for (const label of ['最新价', '当日涨跌幅', '5分钟', '15分钟', '30分钟', '60分钟', '趋势机会分']) {
       await header(label); expect(symbols()).toEqual(['AAA.US', 'BBB.US', 'CCC.US']);
       await header(label); expect(symbols()).toEqual(['BBB.US', 'AAA.US', 'CCC.US']);
     }

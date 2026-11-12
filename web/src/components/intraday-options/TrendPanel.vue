@@ -84,7 +84,7 @@ onBeforeUnmount(() => { stopped = true; generation++; controller?.abort(); clear
     <div class="flex flex-wrap items-center gap-2">
       <span class="text-xs text-muted-foreground">观察范围</span>
       <Button
-        v-for="n in [15, 30, 60]"
+        v-for="n in [5, 15, 30, 60]"
         :key="n"
         size="sm"
         :variant="selected === n ? 'secondary' : 'ghost'"
@@ -123,7 +123,7 @@ onBeforeUnmount(() => { stopped = true; generation++; controller?.abort(); clear
     <p class="text-xs text-muted-foreground">
       {{ referenceLabel }}。紫色区域仅标记所选窗口；窗口尚未完整时不标记。
     </p>
-    <div class="grid gap-3 md:grid-cols-3">
+    <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
       <article
         v-for="w in result?.windows ?? []"
         :key="w.minutes"
@@ -170,7 +170,7 @@ onBeforeUnmount(() => { stopped = true; generation++; controller?.abort(); clear
         评分截至 {{ clock(result?.asOf) }} · 基础分 {{ fmt(result?.baseScore) }} · 方向一致性 {{ fmt(result?.alignment, 2) }} · 短线偏离 {{ fmt(result?.extensionAtr, 2) }} ATR
       </p>
       <p class="text-xs text-muted-foreground">
-        窗口权重：稳定度30% / 路径效率30% / 移动强度25% / 扰动控制15%；综合窗口权重15m/30m/60m = 30%/45%/25%。趋势机会分不是盈利概率。
+        窗口权重：稳定度30% / 路径效率30% / 移动强度25% / 扰动控制15%；综合窗口权重15m/30m/60m = 30%/45%/25%。5分钟仅作短线观察，不参与综合分。趋势机会分不是盈利概率。
       </p>
     </div>
   </section>
