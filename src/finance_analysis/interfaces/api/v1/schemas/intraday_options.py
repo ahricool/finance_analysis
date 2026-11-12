@@ -29,7 +29,39 @@ class WindowScore(BaseModel):
     reasons: list[str] = Field(default_factory=list)
 
 
+class StructurePivot(BaseModel):
+    kind: Literal["high", "low"]
+    at: datetime
+    confirmed_at: datetime
+    price: float
+
+
+class StructureBox(BaseModel):
+    upper: float
+    lower: float
+    start_at: datetime
+    end_at: datetime
+    atr: float
+
+
+class IntradayStructure(BaseModel):
+    kind: Literal["uptrend", "downtrend", "range", "breakout_up", "breakout_down", "failed_up",
+                  "failed_down", "rebound", "pullback", "unclear"]
+    phase: Literal["waiting", "forming", "confirmed", "retest", "failed", "continuing", "pullback", "inside", "warming"]
+    background: Literal["bullish", "bearish", "neutral"]
+    since: datetime
+    as_of: datetime
+    oversold: bool
+    reference: bool
+    available_bars: int
+    missing_bars: int
+    box: StructureBox | None
+    pivots: list[StructurePivot]
+    reasons: list[str]
+
+
 class TrendResult(BaseModel):
+    structure: IntradayStructure | None = None
     version: str
     symbol: str
     trading_date: date

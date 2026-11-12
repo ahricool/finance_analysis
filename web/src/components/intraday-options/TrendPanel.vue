@@ -7,8 +7,8 @@ import AppApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
 import MarketKLineChart from '@/components/market-data/MarketKLineChart.vue';
 import { Button } from '@/components/ui/button';
 import { useTheme } from '@/composables/useTheme';
-import { clock, fmt, pct } from './labels';
-import { referenceSeries, trendOverlays } from './overlays';
+import { clock, directions, fmt, pct, structureName, structurePhases } from './labels';
+import { referenceSeries, structureOverlays, trendOverlays } from './overlays';
 
 const props = defineProps<{ symbol: string; result: TrendResult | null; stale: boolean }>();
 const selected = ref(30);
@@ -35,7 +35,8 @@ const current = computed(() => {
   return b ? { ...b, turnover: b.turnover ?? undefined } : null;
 });
 const window = computed(() => props.result?.windows.find(w => w.minutes === selected.value));
-const overlays = computed(() => trendOverlays(closed.value, window.value, mode.value, resolvedTheme.value === 'dark'));
+const overlays = computed(() => [...trendOverlays(closed.value, window.value, mode.value, resolvedTheme.value === 'dark'),
+  ...structureOverlays(props.result?.structure)]);
 const referenceLabel = computed(() => mode.value === 'off' ? '参考线已隐藏' : referenceSeries(closed.value, mode.value).label);
 let controller: AbortController | null = null;
 let timer: ReturnType<typeof setTimeout> | undefined;
@@ -123,6 +124,34 @@ onBeforeUnmount(() => { stopped = true; generation++; controller?.abort(); clear
     <p class="text-xs text-muted-foreground">
       {{ referenceLabel }}。紫色区域仅标记所选窗口；窗口尚未完整时不标记。
     </p>
+    <article
+      v-if="result?.structure"
+      class="space-y-1 rounded border p-3 text-sm"
+      data-testid="structure-detail"
+    >
+      <p class="font-medium">
+        日内结构：{{ structureName(result.structure) }} · {{ structurePhases[result.structure.phase] }}
+      </p>
+      <p class="text-xs text-muted-foreground">
+        {{ directions[result.structure.background] }}背景 · 截至 {{ clock(result.structure.asOf) }} · 可用{{ result.structure.availableBars }}根 / 缺{{ result.structure.missingBars }}根
+      </p>
+      <p
+        v-if="result.structure.box"
+        class="text-xs"
+      >
+        固定箱体 {{ fmt(result.structure.box.lower, 2) }}–{{ fmt(result.structure.box.upper, 2) }} · 形成区间 {{ clock(result.structure.box.startAt) }}–{{ clock(result.structure.box.endAt) }}
+      </p>
+      <p
+        v-for="reason in result.structure.reasons"
+        :key="reason"
+        class="text-xs"
+      >
+        {{ reason }}
+      </p>
+      <p class="text-xs text-muted-foreground">
+        图中橙线为箱体边界，圆点为已确认高低点，◆为突破阶段的确认/触发位置；拐点需右侧2根K闭合才确认。结构独立于机会分，不代表买卖指令。
+      </p>
+    </article>
     <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
       <article
         v-for="w in result?.windows ?? []"

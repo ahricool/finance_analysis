@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { IntradayBar } from '@/api/intradayMarket';
-import { referenceSeries } from '../overlays';
+import { referenceSeries, structureOverlays } from '../overlays';
 vi.mock('klinecharts', () => ({ registerOverlay: vi.fn() }));
 const bars: IntradayBar[] = [
   { timestamp: 0, open: 10, high: 12, low: 8, close: 10, volume: 100, turnover: 1000, confirmed: true, partial: false, sampled: false, sampleCount: 0 },
@@ -16,4 +16,18 @@ describe('reference line semantics', () => {
     expect(referenceSeries(bars.map(b => ({ ...b, volume: 0, turnover: null })), 'vwap').points).toEqual([]);
     expect(referenceSeries([bars[0]!, { ...bars[1]!, timestamp: 120_000 }], 'mean').points).toEqual([]);
   });
+});
+
+
+it('draws fixed box bounds and only confirmed supplied pivots', () => {
+  const value = structureOverlays({ kind: 'breakout_up', phase: 'confirmed', background: 'bullish',
+    since: '2026-11-12T16:00:00Z', asOf: '2026-11-12T16:00:00Z', oversold: false, reference: false,
+    availableBars: 60, missingBars: 0, reasons: [],
+    box: { upper: 101, lower: 99, startAt: '2026-11-12T15:20:00Z', endAt: '2026-11-12T15:50:00Z', atr: .5 },
+    pivots: [{ kind: 'high', at: '2026-11-12T15:40:00Z', confirmedAt: '2026-11-12T15:43:00Z', price: 101 }],
+  });
+  expect(value).toHaveLength(4);
+  expect(value.find(v => v.id === 'structure-event')?.points?.[0]?.timestamp).toBe(Date.parse('2026-11-12T15:59:00Z'));
+  expect(value.find(v => v.id === 'structure-box-upper')?.points?.map(p => p.value)).toEqual([101, 101]);
+  expect(structureOverlays(null)).toEqual([]);
 });

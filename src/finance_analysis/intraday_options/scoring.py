@@ -10,6 +10,7 @@ import numpy as np
 
 from finance_analysis.integrations.market_data.realtime_state.models import CandleState
 from finance_analysis.intraday_options.config import COMPOSITE_WINDOWS, CONFIG, VERSION, WINDOW_WEIGHTS, WINDOWS
+from finance_analysis.intraday_options.structure import calculate_structure
 from finance_analysis.market_stream.config import is_regular_trade_session, market_trading_date
 from finance_analysis.market_stream.session import session_bounds
 
@@ -252,5 +253,6 @@ def calculate(symbol: str, bars: Sequence[CandleState], now: datetime) -> dict |
         "as_of": (latest + MINUTE).isoformat(),
         "observed_at": now.isoformat(),
         "windows": windows,
+        "structure": calculate_structure(ordered),
         **combined,
     }

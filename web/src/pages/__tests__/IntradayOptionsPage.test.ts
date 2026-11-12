@@ -90,4 +90,24 @@ describe('intraday options table', () => {
     expect(symbols()[0]).toBe(target.symbol);
   });
 
+  it('places sortable structure before 5m and annotates reference and delayed results', async () => {
+    const target = data.items[0]!;
+    target.dataStatus = 'delayed';
+    target.result!.structure = { kind: 'breakout_up', phase: 'confirmed', background: 'bearish',
+      since: '2026-11-12T16:00:00Z', asOf: '2026-11-12T16:00:00Z', oversold: false, reference: true,
+      availableBars: 59, missingBars: 1, box: null, pivots: [], reasons: ['固定箱体突破'] };
+    await start();
+    const headers = page.findAll('thead th').map(h => h.text());
+    expect(headers.findIndex(h => h.includes('日内结构'))).toBe(headers.findIndex(h => h.includes('5分钟')) - 1);
+    const cell = page.get('[data-testid="options-row-AAA.US"] [data-testid="intraday-structure"]');
+    expect(cell.text()).toContain('箱体向上突破');
+    expect(cell.text()).toContain('已确认 · 偏空背景');
+    expect(cell.text()).toContain('参考结构 · 缺1根');
+    expect(cell.text()).toContain('延迟 · 截至');
+    await header('日内结构');
+    expect(symbols()[0]).toBe('AAA.US');
+    await header('日内结构');
+    expect(symbols()[0]).toBe('AAA.US');
+  });
+
 });
