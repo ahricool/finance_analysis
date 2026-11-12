@@ -81,56 +81,70 @@ def box(bars, end):
 
 
 def box_event(bars, end):
-    # Search only recent events. Each candidate's bounds are frozen before its breakout.
-    for age in range(1, 16):
-        boundary = end - age * MINUTE
-        bounds = box(bars, boundary)
+    """Replay in time order; an active event owns its pre-trigger box for 15 minutes."""
+    event = None
+    triggered = None
+    previous = None
+    side = 0
+    for bar in bars:
+        if bar.bar_time > end:
+            break
+        when = bar.bar_time + MINUTE
+        if triggered is not None and bar.bar_time - triggered >= 15 * MINUTE:
+            event, triggered = None, None
+        # Only discover a new box when no event owns one. Breakout candles can
+        # never move the bounds/ATR of a forming, confirmed, retest or failed event.
+        bounds = event["box"] if event is not None else box(bars, bar.bar_time - MINUTE)
         if bounds is None:
+            previous = bar
             continue
-        following = [b for b in bars if boundary < b.bar_time <= end]
-        side = 0
-        confirmed = None
-        phase = "forming"
-        occurred = None
-        previous = None
-        failed = None
-        for b in following:
-            price = float(b.close)
-            above = price > bounds["upper"] + .2 * bounds["atr"]
-            below = price < bounds["lower"] - .2 * bounds["atr"]
-            direction = 1 if above else -1 if below else 0
-            adjacent = previous is not None and b.bar_time - previous.bar_time == MINUTE
-            if side == 0:
-                if direction:
-                    side, occurred = direction, b.bar_time + MINUTE
-            elif confirmed is None:
-                if direction == side and adjacent:
-                    confirmed, phase = b.bar_time + MINUTE, "confirmed"
-                elif direction != side:
-                    side, occurred = direction, b.bar_time + MINUTE if direction else None
+        price = float(bar.close)
+        direction = (1 if price > bounds["upper"] + .2 * bounds["atr"] else
+                     -1 if price < bounds["lower"] - .2 * bounds["atr"] else 0)
+        adjacent = previous is not None and bar.bar_time - previous.bar_time == MINUTE
+        if event is None or event["phase"] == "failed":
+            if direction:
+                side, triggered = direction, bar.bar_time
+                event = {
+                    "kind": "breakout_up" if side > 0 else "breakout_down", "phase": "forming",
+                    "since": when.isoformat(), "confirmed_at": None, "box": bounds,
+                    "reasons": ["突破前30分钟形成多次触碰的横向箱体，边界与ATR已固定",
+                                "尚未连续两根闭合K确认突破"],
+                }
+        elif event["confirmed_at"] is None:
+            previous_direction = (
+                previous is not None
+                and (float(previous.close) - (bounds["upper"] if side > 0 else bounds["lower"])) * side
+                > .2 * bounds["atr"]
+            )
+            if direction == side and adjacent and previous_direction:
+                event.update(phase="confirmed", since=when.isoformat(), confirmed_at=when.isoformat())
+                event["reasons"][1] = "连续两根闭合K越过固定边界0.2 ATR"
+            elif direction == -side:
+                # A direct opposite attempt starts on this candle; it still needs
+                # a second adjacent close and cannot reuse the first confirmation.
+                side, triggered = direction, bar.bar_time
+                event.update(kind="breakout_up" if side > 0 else "breakout_down", since=when.isoformat())
+            elif direction == 0:
+                event, triggered = None, None
+        else:
+            level = bounds["upper"] if side > 0 else bounds["lower"]
+            inside = (price - level) * side <= 0
+            prev_inside = previous is not None and (float(previous.close) - level) * side <= 0
+            if inside and prev_inside and adjacent:
+                event.update(kind="failed_up" if side > 0 else "failed_down", phase="failed",
+                             since=when.isoformat(),
+                             reasons=["突破后连续两根闭合K收回突破边界内侧，突破失效"])
             else:
-                level = bounds["upper"] if side > 0 else bounds["lower"]
-                inside = (price - level) * side <= 0
-                prev_inside = previous is not None and (float(previous.close) - level) * side <= 0
-                if inside and prev_inside and adjacent:
-                    failed = {"kind": "failed_up" if side > 0 else "failed_down", "phase": "failed",
-                            "since": (b.bar_time + MINUTE).isoformat(), "box": bounds,
-                            "reasons": ["突破后连续两根闭合K收回突破边界内侧，突破失效"]}
-                    side, confirmed, phase, previous = 0, None, "forming", b
-                    continue
-                level = bounds["upper"] if side > 0 else bounds["lower"]
-                extreme = float(b.low if side > 0 else b.high)
-                if adjacent and abs(extreme - level) <= .3 * bounds["atr"] and (price - level) * side > .2 * bounds["atr"]:
-                    phase = "retest"
-            previous = b
-        if side and occurred:
-            return {"kind": "breakout_up" if side > 0 else "breakout_down", "phase": phase,
-                    "since": (confirmed or occurred).isoformat(), "box": bounds,
-                    "reasons": ["突破前30分钟形成多次触碰的横向箱体，边界已固定",
-                                "连续两根闭合K越过边界0.2 ATR" if confirmed else "尚未连续两根闭合K确认突破"]}
-        if failed:
-            return failed
-    return None
+                extreme = float(bar.low if side > 0 else bar.high)
+                if (event["phase"] != "retest" and adjacent and abs(extreme - level) <= .3 * bounds["atr"]
+                        and (price - level) * side > .2 * bounds["atr"]):
+                    event.update(phase="retest", since=when.isoformat())
+                    event["reasons"].append("回踩固定边界后收于边界外0.2 ATR，标记回踩守住")
+        previous = bar
+    if triggered is not None and end - triggered >= 15 * MINUTE:
+        return None
+    return event
 
 
 def raw_structure(bars, end):
@@ -142,7 +156,7 @@ def raw_structure(bars, end):
     background_move = abs(float(background[-1].close / background[0].close) - 1) if background else 0
     bias = ("bullish" if slope60 > 0 else "bearish") if background_move >= .0002 else "neutral"
     result = {"kind": "unclear", "phase": "waiting", "since": (end + MINUTE).isoformat(),
-              "background": bias, "box": None, "pivots": points, "reasons": [], "oversold": False}
+              "background": bias, "confirmed_at": None, "box": None, "pivots": points, "reasons": [], "oversold": False}
     if len(main) < 2:
         result["reasons"] = ["有效分钟数据不足，等待结构"]
         return result

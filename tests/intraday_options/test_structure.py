@@ -125,3 +125,72 @@ def test_tiny_motion_is_not_a_directional_trend():
 def test_direct_opposite_break_cannot_remain_confirmed_up():
     result = structure(prices(oscillation() + [102, 102.2, 98, 97.8]))
     assert result['kind'] == 'failed_up' and result['phase'] == 'failed'
+
+
+@pytest.mark.parametrize('side', [1, -1])
+def test_mild_breakout_keeps_trigger_box_and_atr_while_continuing(side):
+    values = [100 + side * (v - 100) for v in oscillation() + [101.18, 101.18, 101.48]]
+    first = structure(prices(values[:-2]))
+    confirmed = structure(prices(values[:-1]))
+    continued = structure(prices(values))
+    assert first['phase'] == 'forming'
+    assert confirmed['phase'] == 'confirmed'
+    assert continued['phase'] in {'confirmed', 'retest'}
+    assert continued['kind'] == ('breakout_up' if side > 0 else 'breakout_down')
+    assert first['box'] == confirmed['box'] == continued['box']
+    assert confirmed['confirmed_at'] == continued['confirmed_at']
+
+
+def test_retest_stage_time_preserves_confirmation_and_does_not_drift():
+    values = oscillation() + [102, 102.2, 101.1, 101.3]
+    confirmed = structure(prices(values[:42]))
+    retest = structure(prices(values))
+    later = structure(prices(values + [101.4]))
+    assert retest['phase'] == later['phase'] == 'retest'
+    assert retest['confirmed_at'] == confirmed['since'] == confirmed['confirmed_at']
+    assert retest['since'] == (START + timedelta(minutes=44)).isoformat().replace('+00:00', 'Z')
+    assert retest['since'] != retest['confirmed_at']
+    assert later['since'] == retest['since']
+    assert later['confirmed_at'] == retest['confirmed_at']
+
+
+def test_failure_time_stays_fixed_and_rebreak_has_new_confirmation():
+    values = oscillation() + [102, 102.2, 100, 100]
+    failed = structure(prices(values))
+    waiting = structure(prices(values + [100]))
+    again = structure(prices(values + [102, 102.3]))
+    assert failed['phase'] == waiting['phase'] == 'failed'
+    assert failed['since'] == waiting['since']
+    assert failed['confirmed_at'] == waiting['confirmed_at']
+    assert again['phase'] == 'confirmed'
+    assert again['confirmed_at'] > failed['confirmed_at']
+    assert again['box'] == failed['box']
+
+
+def test_event_expires_fifteen_minutes_after_trigger_not_confirmation():
+    values = oscillation() + [102 + .3 * i for i in range(16)]
+    active = structure(prices(values[:-1]))
+    expired = structure(prices(values))
+    assert active['kind'] == 'breakout_up'
+    assert active['confirmed_at'] is not None
+    assert expired['kind'] != 'breakout_up'
+    assert expired['confirmed_at'] is None
+
+
+def test_missing_minute_does_not_confirm_failure_or_retest():
+    full = prices(oscillation() + [102, 102.2, 100, 100])
+    result = structure(full[:42] + full[43:])
+    assert result['phase'] == 'confirmed'
+    retest = prices(oscillation() + [102, 102.2, 101.1, 101.3])
+    assert structure(retest[:42] + retest[43:])['phase'] == 'confirmed'
+
+
+@pytest.mark.parametrize('side', [1, -1])
+def test_unconfirmed_attempt_can_switch_side_but_needs_adjacent_confirmation(side):
+    values = [100 + side * (v - 100) for v in oscillation() + [102, 98, 97.8]]
+    first = structure(prices(values[:-1]))
+    confirmed = structure(prices(values))
+    assert first['phase'] == 'forming' and first['confirmed_at'] is None
+    assert confirmed['phase'] == 'confirmed'
+    assert confirmed['kind'] == ('breakout_down' if side > 0 else 'breakout_up')
+    assert first['box'] == confirmed['box']

@@ -31,3 +31,16 @@ it('draws fixed box bounds and only confirmed supplied pivots', () => {
   expect(value.find(v => v.id === 'structure-box-upper')?.points?.map(p => p.value)).toEqual([101, 101]);
   expect(structureOverlays(null)).toEqual([]);
 });
+
+it('marks the retest candle rather than the original breakout confirmation', () => {
+  const structure = { kind: 'breakout_up' as const, phase: 'retest' as const, background: 'bullish' as const,
+    confirmedAt: '2026-11-12T15:12:00Z', since: '2026-11-12T15:14:00Z', asOf: '2026-11-12T15:14:00Z',
+    oversold: false, reference: false, availableBars: 44, missingBars: 0, reasons: [], pivots: [],
+    box: { upper: 101.05, lower: 98.95, startAt: '2026-11-12T14:40:00Z', endAt: '2026-11-12T15:09:00Z', atr: .6 },
+  };
+  for (const asOf of ['2026-11-12T15:14:00Z', '2026-11-12T15:15:00Z']) {
+    const marker = structureOverlays({ ...structure, asOf }).find(v => v.id === 'structure-event');
+    expect(marker?.points?.[0]?.timestamp).toBe(Date.parse('2026-11-12T15:13:00Z'));
+    expect(marker?.points?.[0]?.value).toBe(101.05);
+  }
+});

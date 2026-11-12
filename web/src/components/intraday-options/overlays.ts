@@ -73,8 +73,10 @@ export function structureOverlays(structure: import('@/api/intradayOptions').Int
   if (structure.box) {
     const box = structure.box;
     if (['breakout_up', 'breakout_down', 'failed_up', 'failed_down'].includes(structure.kind)) {
+      // since is the current phase close time, not the original breakout confirmation.
+      const phaseBarTime = Date.parse(structure.since) - 60_000;
       result.push({ name: 'optionsStructureEvent', id: 'structure-event', lock: true,
-        points: [{ timestamp: Date.parse(structure.since) - 60_000, value: structure.kind.endsWith('_up') ? box.upper : box.lower }] });
+        points: [{ timestamp: phaseBarTime, value: structure.kind.endsWith('_up') ? box.upper : box.lower }] });
     }
     for (const [key, value] of [['upper', box.upper], ['lower', box.lower]] as const) {
       result.push({ name: 'optionsStructure', id: `structure-box-${key}`, lock: true,

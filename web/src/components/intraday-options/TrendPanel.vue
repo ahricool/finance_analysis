@@ -142,6 +142,12 @@ onBeforeUnmount(() => { stopped = true; generation++; controller?.abort(); clear
         固定箱体 {{ fmt(result.structure.box.lower, 2) }}–{{ fmt(result.structure.box.upper, 2) }} · 形成区间 {{ clock(result.structure.box.startAt) }}–{{ clock(result.structure.box.endAt) }}
       </p>
       <p
+        v-if="result.structure.confirmedAt"
+        class="text-xs text-muted-foreground"
+      >
+        突破首次确认 {{ clock(result.structure.confirmedAt) }} · 当前阶段发生 {{ clock(result.structure.since) }}
+      </p>
+      <p
         v-for="reason in result.structure.reasons"
         :key="reason"
         class="text-xs"

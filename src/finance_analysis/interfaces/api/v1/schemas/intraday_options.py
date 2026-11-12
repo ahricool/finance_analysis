@@ -49,7 +49,8 @@ class IntradayStructure(BaseModel):
                   "failed_down", "rebound", "pullback", "unclear"]
     phase: Literal["waiting", "forming", "confirmed", "retest", "failed", "continuing", "pullback", "inside", "warming"]
     background: Literal["bullish", "bearish", "neutral"]
-    since: datetime
+    since: datetime  # Breakout phase occurrence (candle close), stable within the event phase.
+    confirmed_at: datetime | None = None  # First confirmation of this breakout attempt.
     as_of: datetime
     oversold: bool
     reference: bool
