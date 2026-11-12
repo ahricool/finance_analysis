@@ -9,7 +9,8 @@ from typing import Sequence
 import numpy as np
 
 from finance_analysis.integrations.market_data.realtime_state.models import CandleState
-from finance_analysis.intraday_options.config import CONFIG, VERSION, WINDOW_WEIGHTS, WINDOWS
+from finance_analysis.intraday_options.config import COMPOSITE_WINDOWS, CONFIG, VERSION, WINDOW_WEIGHTS, WINDOWS
+from finance_analysis.intraday_options.structure import calculate_structure
 from finance_analysis.market_stream.config import is_regular_trade_session, market_trading_date
 from finance_analysis.market_stream.session import session_bounds
 
@@ -89,7 +90,8 @@ def window_score(bars: Sequence[CandleState], minutes: int) -> dict:
     )
     quality = raw * gate
     concentration = float(np.max(np.abs(moves))) / travel if travel > 1e-12 else 0.0
-    recent_index = int(np.searchsorted(x, x[-1] - 5, side="left"))
+    recent_minutes = min(5, max(2, minutes // 3))
+    recent_index = int(np.searchsorted(x, x[-1] - recent_minutes, side="left"))
     recent = float(y[-1] - y[recent_index]) * sign
     stalled_impulse = (
         concentration >= CONFIG.impulse_concentration and recent < abs(net) * CONFIG.recent_extension_fraction
@@ -100,7 +102,7 @@ def window_score(bars: Sequence[CandleState], minutes: int) -> dict:
     if stalled_impulse:
         quality = min(quality, CONFIG.impulse_cap)
         direction = 0
-        reasons.append("移动集中于单根分钟线，最近5分钟延续不足，方向暂按中性")
+        reasons.append(f"移动集中于单根分钟线，最近{recent_minutes}分钟延续不足，方向暂按中性")
     if direction == 0:
         quality = min(quality, 35.0)
         if not stalled_impulse:
@@ -128,6 +130,8 @@ def window_score(bars: Sequence[CandleState], minutes: int) -> dict:
 
 
 def combine(windows: list[dict], bars: Sequence[CandleState]) -> dict:
+    by_minutes = {w["minutes"]: w for w in windows}
+    windows = [by_minutes.get(n, {"minutes": n, "score": None}) for n in COMPOSITE_WINDOWS]
     if any(w.get("score") is None for w in windows):
         return {
             "score": None,
@@ -168,7 +172,7 @@ def combine(windows: list[dict], bars: Sequence[CandleState]) -> dict:
     elif short != main:
         state, score = "pullback", min(score, 65.0)
         explanation = "30/60分钟主趋势仍在，最近15分钟转弱或反向，处于回撤观察。"
-    elif extension >= CONFIG.extension_atr and float(logs[-1] - logs[-6]) * sign > 0:
+    elif extension >= CONFIG.extension_atr and float(logs[-1] - logs[max(0, len(logs) - 6)]) * sign > 0:
         state = "extended"
         explanation = "方向仍有延续，但偏离短期趋势参考线较远，标记短线延伸；高分不代表适合追入。"
     else:
@@ -249,5 +253,6 @@ def calculate(symbol: str, bars: Sequence[CandleState], now: datetime) -> dict |
         "as_of": (latest + MINUTE).isoformat(),
         "observed_at": now.isoformat(),
         "windows": windows,
+        "structure": calculate_structure(ordered),
         **combined,
     }

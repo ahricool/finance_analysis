@@ -48,3 +48,41 @@ export function trendOverlays(bars: IntradayBar[], window: WindowScore | undefin
   }
   return result;
 }
+
+let structureRegistered = false;
+export function structureOverlays(structure: import('@/api/intradayOptions').IntradayStructure | null | undefined): OverlayCreate[] {
+  if (!structure) return [];
+  if (!structureRegistered) {
+    registerOverlay({ name: 'optionsStructure', totalStep: 1, needDefaultPointFigure: false,
+      needDefaultXAxisFigure: false, needDefaultYAxisFigure: false,
+      createPointFigures: ({ coordinates }) => coordinates.length === 1
+        ? [{ type: 'circle', ignoreEvent: true, attrs: { x: coordinates[0]!.x, y: coordinates[0]!.y, r: 3 }, styles: { color: '#f59e0b', style: 'fill' } }]
+        : [{ type: 'line', ignoreEvent: true, attrs: { coordinates }, styles: { color: '#f59e0b', size: 1 } }],
+    });
+    registerOverlay({ name: 'optionsStructureEvent', totalStep: 1, needDefaultPointFigure: false,
+      needDefaultXAxisFigure: false, needDefaultYAxisFigure: false,
+      createPointFigures: ({ coordinates }) => coordinates[0] ? [{ type: 'text', ignoreEvent: true,
+        attrs: { x: coordinates[0].x, y: coordinates[0].y - 12, text: '◆' }, styles: { color: '#f59e0b', size: 12 } }] : [],
+    });
+    structureRegistered = true;
+  }
+  const result: OverlayCreate[] = structure.pivots.map((pivot, i) => ({
+    name: 'optionsStructure', id: `structure-pivot-${i}`, lock: true,
+    points: [{ timestamp: Date.parse(pivot.at), value: pivot.price }],
+  }));
+  if (structure.box) {
+    const box = structure.box;
+    if (['breakout_up', 'breakout_down', 'failed_up', 'failed_down'].includes(structure.kind)) {
+      // since is the current phase close time, not the original breakout confirmation.
+      const phaseBarTime = Date.parse(structure.since) - 60_000;
+      result.push({ name: 'optionsStructureEvent', id: 'structure-event', lock: true,
+        points: [{ timestamp: phaseBarTime, value: structure.kind.endsWith('_up') ? box.upper : box.lower }] });
+    }
+    for (const [key, value] of [['upper', box.upper], ['lower', box.lower]] as const) {
+      result.push({ name: 'optionsStructure', id: `structure-box-${key}`, lock: true,
+        points: [{ timestamp: Date.parse(box.startAt), value }, { timestamp: Date.parse(structure.asOf) - 60_000, value }],
+      });
+    }
+  }
+  return result;
+}

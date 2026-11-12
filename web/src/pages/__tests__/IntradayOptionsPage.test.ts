@@ -12,7 +12,7 @@ function row(symbol: string, score: number | null, direction: 'bullish' | 'beari
     quoteTime: new Date().toISOString(), quoteStatus: 'ready', dataStatus: score == null ? 'warming' : 'ready', issues: [],
     result: { version: 'v1', symbol, tradingDate: '2026-11-12', asOf: new Date().toISOString(), observedAt: new Date().toISOString(),
       score, direction: score == null ? null : direction, state: score == null ? null : 'continuing', baseScore: score,
-      alignment: 1, extensionAtr: 1, explanation: '趋势一致', windows: ([15, 30, 60] as const).map(minutes => ({
+      alignment: 1, extensionAtr: 1, explanation: '趋势一致', windows: ([5, 15, 30, 60] as const).map(minutes => ({
         minutes, score, direction: direction === 'bullish' ? 1 : -1, dataStatus: score == null ? 'warming' : 'ready',
         returnPct: 0.5, reasons: [], startAt: null, endAt: null, stability: null, efficiency: null,
         strength: null, disturbance: null, normalizedMove: null, adverseMove: null, adverseDuration: null,
@@ -37,7 +37,7 @@ describe('intraday options table', () => {
   it('defaults to opportunity order and sorts all numeric headers with nulls always last', async () => {
     await start();
     expect(symbols()).toEqual(['BBB.US', 'AAA.US', 'CCC.US']);
-    for (const label of ['最新价', '当日涨跌幅', '15分钟', '30分钟', '60分钟', '趋势机会分']) {
+    for (const label of ['最新价', '当日涨跌幅', '5分钟', '15分钟', '30分钟', '60分钟', '趋势机会分']) {
       await header(label); expect(symbols()).toEqual(['AAA.US', 'BBB.US', 'CCC.US']);
       await header(label); expect(symbols()).toEqual(['BBB.US', 'AAA.US', 'CCC.US']);
     }
@@ -88,6 +88,26 @@ describe('intraday options table', () => {
     expect(displayed.text()).toContain('参考分 · 截至');
     expect(displayed.get('[data-testid="opportunity-score"]').text()).toContain(String(target.result!.score));
     expect(symbols()[0]).toBe(target.symbol);
+  });
+
+  it('places sortable structure before 5m and annotates reference and delayed results', async () => {
+    const target = data.items[0]!;
+    target.dataStatus = 'delayed';
+    target.result!.structure = { kind: 'breakout_up', phase: 'confirmed', background: 'bearish',
+      since: '2026-11-12T16:00:00Z', asOf: '2026-11-12T16:00:00Z', oversold: false, reference: true,
+      availableBars: 59, missingBars: 1, box: null, pivots: [], reasons: ['固定箱体突破'] };
+    await start();
+    const headers = page.findAll('thead th').map(h => h.text());
+    expect(headers.findIndex(h => h.includes('日内结构'))).toBe(headers.findIndex(h => h.includes('5分钟')) - 1);
+    const cell = page.get('[data-testid="options-row-AAA.US"] [data-testid="intraday-structure"]');
+    expect(cell.text()).toContain('箱体向上突破');
+    expect(cell.text()).toContain('已确认 · 偏空背景');
+    expect(cell.text()).toContain('参考结构 · 缺1根');
+    expect(cell.text()).toContain('延迟 · 截至');
+    await header('日内结构');
+    expect(symbols()[0]).toBe('AAA.US');
+    await header('日内结构');
+    expect(symbols()[0]).toBe('AAA.US');
   });
 
 });

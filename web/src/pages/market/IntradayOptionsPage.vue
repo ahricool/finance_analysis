@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHeader, TableRow } from '@/components/ui/table';
 import { useTableSort } from '@/composables/useTableSort';
 import { useCurrentTime } from '@/composables/useCurrentTime';
-import { clock, dataLabels, directionOrder, directions, fmt, pct, stageOrder, stages, tone, usable } from '@/components/intraday-options/labels';
+import { clock, dataLabels, directionOrder, directions, fmt, pct, stageOrder, stages, structureName, structurePhases, tone, usable } from '@/components/intraday-options/labels';
 
 const TrendPanel = defineAsyncComponent(() => import('@/components/intraday-options/TrendPanel.vue'));
 const snapshot = shallowRef<IntradayOptionsSnapshot | null>(null);
@@ -25,7 +25,8 @@ const disconnected = computed(() => !!error.value || (!!snapshot.value && now.va
 const columns = [
   { key: 'symbol', label: '标的', description: '按代码排序；名称与代码均可搜索。' },
   { key: 'lastPrice', label: '最新价' }, { key: 'changePct', label: '当日涨跌幅', description: '相对昨收；不参与当前趋势评分。' },
-  ...[15, 30, 60].map(n => ({ key: `w${n}`, label: `${n}分钟`, description: '按窗口质量分排序；箭头表示方向，第二行是该窗口涨跌幅。' })),
+  { key: 'structure', label: '日内结构', description: '最近60分钟背景、30分钟结构、5分钟变化；独立于趋势机会分。' },
+  ...[5, 15, 30, 60].map(n => ({ key: `w${n}`, label: `${n}分钟`, description: '按窗口质量分排序；箭头表示方向，第二行是该窗口涨跌幅。' })),
   { key: 'direction', label: '当前方向' }, { key: 'score', label: '趋势机会分', description: '0–100规则分，不是盈利概率；开盘满60分钟后显示；缺线或延迟仍展示并标注。' },
   { key: 'state', label: '当前状态', description: '趋势质量与进场位置分开：高分仍可能处于短线延伸。' },
 ];
@@ -41,6 +42,7 @@ function sortValue(row: IntradayOptionRow, key: string): unknown {
   if (key === 'symbol') return row.symbol;
   if (key === 'lastPrice' || key === 'changePct') return row[key];
   if (!usable(row)) return null;
+  if (key === 'structure') return row.result?.structure ? structureName(row.result.structure) : null;
   if (key.startsWith('w')) return row.result?.windows.find(w => w.minutes === Number(key.slice(1)))?.score;
   if (key === 'direction') return row.result?.direction ? directionOrder[row.result.direction] : null;
   if (key === 'state') return row.result?.state ? stageOrder[row.result.state] : null;
@@ -136,7 +138,7 @@ onBeforeUnmount(() => { stopped = true; controller?.abort(); clearTimeout(timer)
       />
     </div>
     <p class="text-xs text-muted-foreground">
-      数值持续更新，排序及筛选名单保持不动；点击表头、切换筛选或“更新排序”时重新排列。三个窗口完整前可点击单窗口表头观察。
+      数值持续更新，排序及筛选名单保持不动；点击表头、切换筛选或“更新排序”时重新排列。15/30/60分钟窗口预热完成前可点击单窗口表头观察。
     </p>
     <div class="overflow-hidden rounded-lg border">
       <Table>
@@ -156,7 +158,7 @@ onBeforeUnmount(() => { stopped = true; controller?.abort(); clearTimeout(timer)
         <TableBody>
           <TableRow v-if="!rows.length">
             <TableCell
-              :colspan="9"
+              :colspan="columns.length"
               class="py-12 text-center text-muted-foreground"
             >
               {{ loading ? '加载固定观察池…' : error ? '行情连接失败，请等待重试。' : '没有符合筛选条件的标的。' }}
@@ -213,7 +215,33 @@ onBeforeUnmount(() => { stopped = true; controller?.abort(); clearTimeout(timer)
                 {{ pct(row.changePct) }}
               </TableCell>
               <TableCell
-                v-for="n in [15, 30, 60]"
+                class="whitespace-nowrap text-sm"
+                data-testid="intraday-structure"
+              >
+                <template v-if="valid(row) && row.result?.structure">
+                  <p class="font-medium">
+                    {{ structureName(row.result.structure) }}
+                  </p>
+                  <p class="text-xs text-muted-foreground">
+                    {{ structurePhases[row.result.structure.phase] }} · {{ directions[row.result.structure.background] }}背景
+                  </p>
+                  <p
+                    v-if="row.result.structure.reference"
+                    class="text-xs text-amber-600 dark:text-amber-400"
+                  >
+                    参考结构 · 缺{{ row.result.structure.missingBars }}根
+                  </p>
+                  <p
+                    v-if="disconnected || row.dataStatus === 'delayed'"
+                    class="text-xs text-amber-600 dark:text-amber-400"
+                  >
+                    延迟 · 截至 {{ clock(row.result.structure.asOf) }}
+                  </p>
+                </template>
+                <span v-else>—</span>
+              </TableCell>
+              <TableCell
+                v-for="n in [5, 15, 30, 60]"
                 :key="n"
                 class="whitespace-nowrap tabular-nums"
               >
@@ -259,7 +287,7 @@ onBeforeUnmount(() => { stopped = true; controller?.abort(); clearTimeout(timer)
             </TableRow>
             <TableRow v-if="expanded === row.symbol">
               <TableCell
-                :colspan="9"
+                :colspan="columns.length"
                 class="p-3"
               >
                 <TrendPanel

@@ -63,7 +63,7 @@ def test_flat_tiny_moves_and_chop_are_not_high_quality():
 
 def test_single_impulse_then_stall_is_capped_and_explained():
     result = score(candles([0.02] + [0] * 59))
-    long = result["windows"][2]
+    long = result["windows"][-1]
     assert long["efficiency"] == pytest.approx(100)
     assert long["stalled_impulse"] and long["score"] <= 35
     assert any("单根" in reason for reason in long["reasons"])
@@ -72,12 +72,12 @@ def test_single_impulse_then_stall_is_capped_and_explained():
 
 def test_only_closed_same_session_contiguous_minutes_count():
     bars = candles([0.0004] * 60)
-    for count in (14, 15, 29, 30, 59, 60):
+    for count in (4, 5, 14, 15, 29, 30, 59, 60):
         result = score(bars[:count])
         assert (result["score"] is not None) == (count == 60)
-        assert [w["score"] is not None for w in result["windows"]] == [count >= n for n in (15, 30, 60)]
+        assert [w["score"] is not None for w in result["windows"]] == [count >= n for n in (5, 15, 30, 60)]
     gap = score(bars[:35] + bars[36:])
-    assert [w["data_status"] for w in gap["windows"]] == ["ready", "gap", "gap"]
+    assert [w["data_status"] for w in gap["windows"]] == ["ready", "ready", "gap", "gap"]
     assert gap["score"] is not None
     assert gap["windows"][-1]["missing_bars"] == 1
     yesterday = candles([0.0004] * 60, start=START - timedelta(days=1))
@@ -109,7 +109,7 @@ def test_afterhours_and_early_close_are_excluded():
 
 def test_alignment_direction_and_state_are_separate():
     bars = candles([0.0003] * 60)
-    windows = score(bars)["windows"]
+    windows = score(bars)["windows"][1:]
     same = combine(windows, bars)
     pullback = combine([{**windows[0], "direction": -1}, *windows[1:]], bars)
     conflict = combine([{**windows[0], "direction": -1}, {**windows[1], "direction": -1}, windows[2]], bars)
@@ -131,5 +131,28 @@ def test_sparse_windows_use_real_time_and_require_two_valid_bars():
     assert "仅供参考" in sparse["explanation"]
     gap = score(bars[:45] + bars[46:])
     assert gap["score"] is not None
-    assert gap["windows"][0]["available_bars"] == 14
-    assert gap["windows"][0]["start_at"] == bars[46].bar_time.isoformat()
+    assert gap["windows"][1]["available_bars"] == 14
+    assert gap["windows"][1]["start_at"] == bars[46].bar_time.isoformat()
+
+
+def test_five_minute_window_is_independent_of_composite_and_detects_stall():
+    bars = candles([0.0004] * 60)
+    result = score(bars)
+    assert result["windows"][0]["minutes"] == 5
+    assert result["windows"][0]["start_at"] == bars[-5].bar_time.isoformat()
+    assert result["windows"][0]["score"] > 0
+    windows = result["windows"]
+    baseline = combine(windows[1:], bars)
+    assert combine(windows, bars) == baseline
+    assert combine([{**windows[0], "score": None, "direction": -1}, *windows[1:]], bars) == baseline
+    impulse = score(candles([0.02, 0, 0, 0, 0]))["windows"][0]
+    assert impulse["stalled_impulse"] and impulse["score"] <= 35
+    assert "最近2分钟" in impulse["reasons"][0]
+
+
+def test_sparse_recent_bars_do_not_break_extension_check():
+    bars = candles([0.0004] * 60)
+    sparse = bars[:40] + [bars[40], bars[45], bars[50], bars[59]]
+    result = score(sparse)
+    assert result["score"] is not None
+    assert result["windows"][0]["score"] is None
