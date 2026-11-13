@@ -4,9 +4,11 @@
 本期只做公开数据拉取与展示，不提供股票匹配、证券关联或个股详情页签，不调用 LLM。
 它是公共事件研究，不交易、不接钱包、不通知，不影响任何策略评分、finance_events 或投资时间线。
 
-## 启用与运行
+## 运行
 
-默认 `POLYMARKET_ENABLED=false`。启用后重启 server、worker、Beat；迁移 `0091_prediction_markets` 接续 `0090_trend_ten_day`，遵循现有空库 bootstrap。
+功能与目录同步任务始终开启，无需配置功能开关。旧环境中的 `POLYMARKET_ENABLED` 不再读取，可以删除。
+部署后 Beat 按周期发布目录同步任务，也可由管理员手动启动首次同步。
+迁移 `0091_prediction_markets` 接续 `0090_trend_ten_day`，遵循现有空库 bootstrap。
 管理员可在共享配置管理区或任务中心启动目录同步。配置修改影响所有用户，不增加个人收藏或关注来源展示。
 
 - `scheduled.polymarket_catalog_sync`：上海时间每6小时第10分钟，ingestion；枚举标签、发现事件、刷新已存事件明确状态、重算规则。使用 PostgreSQL session advisory lock 19，外部请求不占业务写事务。

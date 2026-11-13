@@ -15,7 +15,6 @@ from sqlalchemy.orm import Session
 
 from finance_analysis.database.models.prediction_markets import PredictionEvent, PredictionTag
 from finance_analysis.database.repositories.prediction_markets import Repository
-from finance_analysis.prediction_markets.config import Config
 from finance_analysis.prediction_markets.rules import project_event
 from finance_analysis.prediction_markets.service import Service
 
@@ -129,7 +128,7 @@ def test_catalog_dedup_partial_and_missing_is_not_closed(repo):
         def event(self, event_id):
             raise RuntimeError("404")
 
-    service = Service(repo=repo, client=Upstream(), config=Config(enabled=True))
+    service = Service(repo=repo, client=Upstream())
     result = service.catalog()
     assert result["status"] == "partial" and result["deduplicated"] == 1
     assert repo.list_events()["total"] == 1
@@ -178,7 +177,6 @@ def test_dynamic_and_catalog_gets_execute_no_business_writes(repo, monkeypatch):
     app.include_router(api.router)
     app.dependency_overrides[api.repository] = lambda: repo
     app.dependency_overrides[require_current_user] = lambda: SimpleNamespace(id=7)
-    monkeypatch.setattr(api, "get_config", lambda: Config(enabled=True))
 
     class Live:
         def live(self, event_id):

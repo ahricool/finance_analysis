@@ -1,22 +1,18 @@
 """Synchronize the public catalog without LLM or securities access."""
 
 from finance_analysis.integrations.polymarket.client import Client
-from finance_analysis.prediction_markets.config import get_config
 from finance_analysis.prediction_markets.rules import project_event, import_slug
 
 
 class Service:
-    def __init__(self, repo=None, client=None, config=None):
+    def __init__(self, repo=None, client=None):
         if repo is None:
             from finance_analysis.database.repositories.prediction_markets import Repository
 
             repo = Repository()
         self.repo, self.client = repo, client or Client()
-        self.config = config or get_config()
 
     def catalog(self, slug=None):
-        if not self.config.enabled:
-            return {"status": "disabled"}
         stats = dict(scanned=0, deduplicated=0, retained=0, excluded=0, updated=0, failed=0)
         seen, successes = set(), 0
         try:

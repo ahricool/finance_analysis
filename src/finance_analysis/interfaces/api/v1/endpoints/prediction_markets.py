@@ -13,7 +13,6 @@ from finance_analysis.interfaces.api.v1.schemas.prediction_markets import (
     LiveResponse,
     HistoryResponse,
 )
-from finance_analysis.prediction_markets.config import get_config
 from finance_analysis.prediction_markets.live import get_live_service
 from finance_analysis.prediction_markets.rules import import_slug
 
@@ -24,22 +23,13 @@ def repository():
     return Repository()
 
 
-def enabled():
-    if not get_config().enabled:
-        raise HTTPException(409, "事件预测功能未启用")
-
-
 @router.get("/tags")
 def tags(repo=Depends(repository)):
-    if not get_config().enabled:
-        return {"status": "disabled", "items": []}
     items = repo.tags()
     return {"status": "ready" if items else "not_synced", "items": items}
 
 
 def listing(repo, **kwargs):
-    if not get_config().enabled:
-        return dict(status="disabled", items=[], total=0, page=kwargs["page"], page_size=kwargs["page_size"])
     result = repo.list_events(**kwargs)
     return dict(status="ready" if result["total"] else "empty" if repo.tags(admin=True) else "not_synced", **result)
 
@@ -55,15 +45,13 @@ def events(
     repo=Depends(repository),
 ):
     # Hidden tags must not become a public filtering channel.
-    visible = {t["tag_id"] for t in repo.tags()} if get_config().enabled else set()
+    visible = {t["tag_id"] for t in repo.tags()}
     if set(tag_ids) - visible:
         raise HTTPException(422, "只能筛选可见标签")
     return listing(repo, page=page, page_size=page_size, keyword=keyword, tag_ids=tag_ids, closed=closed, sort=sort)
 
 
 def stored(repo, event_id):
-    if not get_config().enabled:
-        return {"status": "disabled"}
     event = repo.event(event_id)
     if not event or not event["retained"]:
         return {"status": "not_synced"}
@@ -124,7 +112,6 @@ def override_event(event_id: str, body: EventOverride, repo=Depends(repository))
 
 @router.post("/admin/run", status_code=202)
 def run(body: RunRequest, admin=Depends(require_admin)):
-    enabled()
     from finance_analysis.tasks.celery.jobs.polymarket.tasks import polymarket_catalog_sync
 
     try:

@@ -1,4 +1,4 @@
-"""Opt-in feature and disposable-cache limits."""
+"""Disposable-cache limits."""
 
 import os
 from dataclasses import dataclass
@@ -7,7 +7,6 @@ from functools import lru_cache
 
 @dataclass(frozen=True)
 class Config:
-    enabled: bool = False
     live_ttl: int = 60
     history_ttl: int = 300
     stale_seconds: int = 300
@@ -22,7 +21,6 @@ def get_config():
 
     load_env()
     return Config(
-        enabled=os.getenv("POLYMARKET_ENABLED", "false").lower() in {"true", "1", "yes"},
         live_ttl=max(10, int(os.getenv("POLYMARKET_LIVE_TTL", "60"))),
         history_ttl=max(60, int(os.getenv("POLYMARKET_HISTORY_TTL", "300"))),
     )
