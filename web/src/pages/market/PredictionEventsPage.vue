@@ -118,9 +118,6 @@ function refresh() { selected.value = []; void loadTags(); void load(); }
       action-label="重试"
       @action="load"
     />
-    <p v-else-if="data?.status === 'disabled'">
-      事件预测功能未启用。
-    </p>
     <p v-else-if="!data?.items.length">
       {{ data?.status === 'not_synced' ? '官方目录尚未同步。' : '暂无符合筛选条件的话题。' }}
     </p>

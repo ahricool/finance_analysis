@@ -1,11 +1,10 @@
 """Catalog task using a session advisory lock, with no long write transaction."""
 
 from finance_analysis.prediction_markets.service import Service
-from finance_analysis.prediction_markets.config import get_config
 from finance_analysis.tasks.advisory_lock import TaskAdvisoryLockId
 from finance_analysis.tasks.celery.app import celery_app
 from finance_analysis.tasks.celery.schedule import require_scheduled_task_definition
-from finance_analysis.tasks.lifecycle import track_task, TaskOutcome, TaskExecutionStatus, TaskSkipped
+from finance_analysis.tasks.lifecycle import track_task, TaskOutcome, TaskExecutionStatus
 
 CATALOG = require_scheduled_task_definition("polymarket_catalog_sync")
 
@@ -30,8 +29,6 @@ def outcome(result):
     outcome_getter=outcome,
 )
 def polymarket_catalog_sync(slug=None, **kwargs):
-    if not get_config().enabled:
-        raise TaskSkipped("事件预测功能未启用")
     service = Service()
     try:
         result = service.catalog(slug)
