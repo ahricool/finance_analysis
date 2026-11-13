@@ -70,23 +70,30 @@ def test_single_impulse_then_stall_is_capped_and_explained():
     assert result["score"] < 35
 
 
-def test_only_closed_same_session_contiguous_minutes_count():
+def test_partial_opening_windows_score_only_closed_same_session_minutes():
     bars = candles([0.0004] * 60)
-    for count in (4, 5, 14, 15, 29, 30, 59, 60):
+    for count in (1, 2, 4, 5, 14, 15, 29, 30, 59, 60):
         result = score(bars[:count])
-        assert (result["score"] is not None) == (count == 60)
-        assert [w["score"] is not None for w in result["windows"]] == [count >= n for n in (5, 15, 30, 60)]
+        assert (result["score"] is not None) == (count >= 2)
+        assert [w["score"] is not None for w in result["windows"]] == [count >= 2] * 4
+        for window in result["windows"]:
+            assert window["available_bars"] == min(count, window["minutes"])
+            assert window["missing_bars"] == max(0, window["minutes"] - count)
+            assert window["data_status"] == ("warming" if count < window["minutes"] else "ready")
     gap = score(bars[:35] + bars[36:])
     assert [w["data_status"] for w in gap["windows"]] == ["ready", "ready", "gap", "gap"]
     assert gap["score"] is not None
     assert gap["windows"][-1]["missing_bars"] == 1
     yesterday = candles([0.0004] * 60, start=START - timedelta(days=1))
-    assert score(yesterday + bars[:14])["score"] is None
+    assert score(yesterday + bars[:14]) == score(bars[:14])
     preview = replace(bars[59], confirmed=False)
-    assert calculate("SPY.US", bars[:59] + [preview], START + timedelta(minutes=60))["score"] is None
+    preview_result = calculate("SPY.US", bars[:59] + [preview], START + timedelta(minutes=60))
+    assert preview_result["as_of"] == (START + timedelta(minutes=59)).isoformat()
+    assert preview_result["windows"][-1]["missing_bars"] == 1
+    assert preview_result["score"] == score(bars[:59])["score"]
     future = calculate("SPY.US", bars, START + timedelta(minutes=30))
     assert future["as_of"] == (START + timedelta(minutes=30)).isoformat()
-    assert future["score"] is None
+    assert future["score"] == score(bars[:30])["score"]
 
 
 @pytest.mark.parametrize("field,value", [("partial", True), ("sampled", True), ("close", Decimal("0"))])
@@ -124,7 +131,10 @@ def test_alignment_direction_and_state_are_separate():
 def test_sparse_windows_use_real_time_and_require_two_valid_bars():
     bars = candles([0.0004] * 60)
     sparse = score([bars[0], bars[20], bars[59]])
-    assert sparse["score"] is None  # short windows have only one observation
+    assert sparse["score"] is not None  # usable long window alone still contributes
+    assert sparse["base_score"] == sparse["windows"][-1]["score"]
+    assert sparse["alignment"] == abs(sparse["windows"][-1]["direction"])
+    assert "归一化权重" in sparse["explanation"]
     long = sparse["windows"][-1]
     assert long["score"] is not None and long["missing_bars"] == 57
     assert long["stability"] == pytest.approx(100)
@@ -156,3 +166,52 @@ def test_sparse_recent_bars_do_not_break_extension_check():
     result = score(sparse)
     assert result["score"] is not None
     assert result["windows"][0]["score"] is None
+
+
+def test_opening_with_gaps_keeps_reference_scores_and_no_fabricated_bars():
+    bars = candles([0.0004] * 10)
+    result = score(bars[:3] + bars[5:])
+    long = result["windows"][-1]
+    assert long["data_status"] == "gap"
+    assert long["available_bars"] == 8 and long["missing_bars"] == 52
+    assert any("开盘仅10分钟" in reason for reason in long["reasons"])
+    assert any("缺少2根" in reason for reason in long["reasons"])
+    assert result["score"] is not None and "仅供参考" in result["explanation"]
+    # A single valid candle and all-invalid observations cannot fabricate a score.
+    assert score([bars[-1]])["score"] is None
+    assert score([replace(b, sampled=True) for b in bars])["score"] is None
+
+
+def test_opening_window_uses_elapsed_time_scale_without_changing_full_windows():
+    result = score(candles([0.0004] * 5))
+    assert len({w["score"] for w in result["windows"]}) == 1
+    assert len({w["normalized_move"] for w in result["windows"]}) == 1
+    assert result["windows"][-1]["minutes"] == 60
+    assert result["windows"][-1]["missing_bars"] == 55
+
+
+def test_composite_renormalizes_available_windows_and_does_not_treat_missing_as_neutral():
+    bars = candles([0.0004] * 60)
+    windows = score(bars)["windows"][1:]
+    mixed = [{**windows[0], "score": 80, "direction": 1},
+             {**windows[1], "score": None}, {**windows[2], "score": 40, "direction": -1}]
+    result = combine(mixed, bars)
+    assert result["base_score"] == pytest.approx((80 * .30 + 40 * .25) / .55, abs=.01)
+    assert result["alignment"] == pytest.approx(.05 / .55)
+    assert result["direction"] == "conflict"
+    assert result["state"] == "conflict"
+    only_long = combine([{**w, "score": None} for w in windows[:2]] + [windows[2]], bars)
+    assert only_long["score"] == windows[2]["score"]
+    assert only_long["direction"] == "bullish"
+
+
+@pytest.mark.parametrize("direction", [1, -1])
+def test_missing_window_does_not_override_observed_neutral_direction(direction):
+    bars = candles([0.0004] * 60)
+    windows = score(bars)["windows"][1:]
+    mixed = [{**windows[0], "score": None},
+             {**windows[1], "direction": 0}, {**windows[2], "direction": direction}]
+    result = combine(mixed, bars)
+    assert result["direction"] == "neutral"
+    assert result["state"] == "waiting"
+    assert result["score"] <= 35

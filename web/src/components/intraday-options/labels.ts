@@ -7,7 +7,7 @@ export const stages: Record<TrendStage, string> = {
   continuing: '趋势持续', pullback: '回撤观察', extended: '短线延伸', conflict: '方向分歧', waiting: '等待方向',
 };
 export const dataLabels: Record<IntradayOptionRow['dataStatus'], string> = {
-  ready: '', waiting: '等待采集', warming: '窗口预热', gap: '分钟缺失', delayed: '分钟行情延迟', invalid_time: '时间异常',
+  ready: '', waiting: '等待采集', warming: '开盘不足 · 数据不全', gap: '分钟缺失', delayed: '分钟行情延迟', invalid_time: '时间异常',
 };
 export const directionOrder = { bullish: 4, bearish: 3, conflict: 2, neutral: 1 };
 export const stageOrder = { continuing: 5, pullback: 4, extended: 3, conflict: 2, waiting: 1 };
@@ -27,7 +27,7 @@ export const structureLabels: Record<IntradayStructure['kind'], string> = {
 };
 export const structurePhases: Record<IntradayStructure['phase'], string> = {
   waiting: '等待结构', forming: '待确认', confirmed: '已确认', retest: '回踩守住', failed: '已失效',
-  continuing: '延续中', pullback: '回撤观察', inside: '区间内', warming: '结构预热',
+  continuing: '延续中', pullback: '回撤观察', pausing: '短线停顿', inside: '区间内', warming: '结构预热',
 };
 export function structureName(value: IntradayStructure | null | undefined) {
   return value ? value.oversold && value.kind === 'rebound' ? '超跌反弹' : structureLabels[value.kind] : '—';

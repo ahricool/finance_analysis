@@ -37,7 +37,7 @@ describe('intraday options table', () => {
   it('defaults to opportunity order and sorts all numeric headers with nulls always last', async () => {
     await start();
     expect(symbols()).toEqual(['BBB.US', 'AAA.US', 'CCC.US']);
-    for (const label of ['最新价', '当日涨跌幅', '5分钟', '15分钟', '30分钟', '60分钟', '趋势机会分']) {
+    for (const label of ['最新价 / 涨跌幅', '5分钟', '15分钟', '30分钟', '60分钟', '趋势机会分']) {
       await header(label); expect(symbols()).toEqual(['AAA.US', 'BBB.US', 'CCC.US']);
       await header(label); expect(symbols()).toEqual(['BBB.US', 'AAA.US', 'CCC.US']);
     }
@@ -45,6 +45,38 @@ describe('intraday options table', () => {
     await header('标的'); expect(symbols()).toEqual(['AAA.US', 'BBB.US', 'CCC.US']);
     await header('当前方向'); expect(symbols()).toEqual(['BBB.US', 'AAA.US', 'CCC.US']);
     await header('当前状态'); expect(symbols().at(-1)).toBe('CCC.US');
+  });
+
+  it('merges price and change, sorts by change rather than price and keeps the requested column order', async () => {
+    data.items[0]!.lastPrice = 500;
+    data.items[0]!.changePct = -2;
+    data.items[1]!.lastPrice = 10;
+    data.items[1]!.changePct = 3;
+    await start();
+    expect(page.findAll('thead th button').map(b => b.text())).toEqual([
+      '标的', '最新价 / 涨跌幅', '趋势机会分', '当前方向', '5分钟', '15分钟', '30分钟', '60分钟', '短线结构', '当前状态',
+    ]);
+    const cells = page.get('[data-testid="options-row-AAA.US"]').findAll('td');
+    expect(cells).toHaveLength(10);
+    expect(cells[1]!.text()).toContain('500.00');
+    expect(cells[1]!.text()).toContain('-2.00%');
+    await header('最新价 / 涨跌幅'); expect(symbols()).toEqual(['AAA.US', 'BBB.US', 'CCC.US']);
+    await header('最新价 / 涨跌幅'); expect(symbols()).toEqual(['BBB.US', 'AAA.US', 'CCC.US']);
+  });
+
+  it('displays opening reference scores, direction and missing counts before a full window', async () => {
+    const target = data.items[0]!;
+    target.dataStatus = 'warming';
+    for (const w of target.result!.windows) {
+      w.dataStatus = 'warming'; w.availableBars = 2; w.missingBars = w.minutes - 2;
+    }
+    await start();
+    const displayed = page.get('[data-testid="options-row-AAA.US"]');
+    expect(displayed.text()).toContain('开盘不足');
+    expect(displayed.text()).toContain('缺58根 · 参考分');
+    expect(displayed.text()).toContain('偏多');
+    expect(displayed.get('[data-testid="opportunity-score"]').text()).toContain('70');
+    expect(displayed.get('[data-testid="opportunity-score"]').text()).toContain('参考分');
   });
 
   it('updates cells without jumping rows or closing the expanded chart; explicitly refreshes order', async () => {
@@ -90,7 +122,7 @@ describe('intraday options table', () => {
     expect(symbols()[0]).toBe(target.symbol);
   });
 
-  it('places sortable structure before 5m and annotates reference and delayed results', async () => {
+  it('places sortable structure after 60m and annotates reference and delayed results', async () => {
     const target = data.items[0]!;
     target.dataStatus = 'delayed';
     target.result!.structure = { kind: 'breakout_up', phase: 'confirmed', background: 'bearish',
@@ -98,16 +130,27 @@ describe('intraday options table', () => {
       availableBars: 59, missingBars: 1, box: null, pivots: [], reasons: ['固定箱体突破'] };
     await start();
     const headers = page.findAll('thead th').map(h => h.text());
-    expect(headers.findIndex(h => h.includes('日内结构'))).toBe(headers.findIndex(h => h.includes('5分钟')) - 1);
+    expect(headers.findIndex(h => h.includes('短线结构'))).toBe(headers.findIndex(h => h.includes('60分钟')) + 1);
     const cell = page.get('[data-testid="options-row-AAA.US"] [data-testid="intraday-structure"]');
     expect(cell.text()).toContain('箱体向上突破');
     expect(cell.text()).toContain('已确认 · 偏空背景');
     expect(cell.text()).toContain('参考结构 · 缺1根');
     expect(cell.text()).toContain('延迟 · 截至');
-    await header('日内结构');
+    await header('短线结构');
     expect(symbols()[0]).toBe('AAA.US');
-    await header('日内结构');
+    await header('短线结构');
     expect(symbols()[0]).toBe('AAA.US');
+  });
+
+  it('shows a short pause without changing the independent opportunity state', async () => {
+    data.items[0]!.result!.structure = { kind: 'uptrend', phase: 'pausing', background: 'bullish',
+      since: '2026-11-12T16:00:00Z', asOf: '2026-11-12T16:00:00Z', oversold: false, reference: false,
+      availableBars: 60, missingBars: 0, box: null, pivots: [], reasons: ['最近5分钟缺乏有效推进'] };
+    await start();
+    const displayed = page.get('[data-testid="options-row-AAA.US"]');
+    expect(displayed.get('[data-testid="intraday-structure"]').text()).toContain('持续走强');
+    expect(displayed.get('[data-testid="intraday-structure"]').text()).toContain('短线停顿');
+    expect(displayed.findAll('td').at(-1)!.text()).toBe('趋势持续');
   });
 
 });

@@ -6,7 +6,7 @@ import math
 import pytest
 
 from finance_analysis.intraday_options.scoring import calculate
-from finance_analysis.intraday_options.structure import box, pivots
+from finance_analysis.intraday_options.structure import box, pivots, raw_structure
 from finance_analysis.interfaces.api.v1.schemas.intraday_options import IntradayStructure
 from tests.intraday_options.test_scoring import START, candles
 
@@ -194,3 +194,56 @@ def test_unconfirmed_attempt_can_switch_side_but_needs_adjacent_confirmation(sid
     assert confirmed['phase'] == 'confirmed'
     assert confirmed['kind'] == ('breakout_down' if side > 0 else 'breakout_up')
     assert first['box'] == confirmed['box']
+
+
+def test_sparse_main_window_cannot_confirm_a_trend_from_three_prices():
+    bars = candles([.0004] * 60)
+    result = structure([bars[30], bars[58], bars[59]])
+    assert result['kind'] == 'unclear'
+    assert result['phase'] == 'waiting'
+    assert result['reference']
+    assert any('24根' in reason for reason in result['reasons'])
+
+
+@pytest.mark.parametrize('side', [1, -1])
+def test_tiny_counter_move_is_a_pause_not_a_pullback(side):
+    result = structure(candles([side * .0004] * 54 + [-side * .0000001] * 6))
+    assert result['kind'] == ('uptrend' if side == 1 else 'downtrend')
+    assert result['phase'] == 'pausing'
+
+
+@pytest.mark.parametrize('side', [1, -1])
+def test_meaningful_counter_move_remains_a_pullback(side):
+    result = structure(candles([side * .0004] * 54 + [-side * .0001] * 6))
+    assert result['kind'] == ('uptrend' if side == 1 else 'downtrend')
+    assert result['phase'] == 'pullback'
+
+
+def test_sparse_recent_window_does_not_claim_continuation():
+    bars = candles([.0004] * 60)
+    result = structure(bars[:55] + bars[58:])
+    assert result['kind'] == 'uptrend'
+    assert result['phase'] == 'forming'
+    assert result['reference']
+    assert any('5分钟' in reason and '不足' in reason for reason in result['reasons'])
+
+
+def test_main_coverage_floor_allows_six_gaps_but_not_seven():
+    bars = candles([.0004] * 60)
+    enough = bars[:29] + bars[36:]
+    too_few = bars[:30] + bars[37:]
+    assert raw_structure(enough, bars[-1].bar_time)['kind'] == 'uptrend'
+    assert raw_structure(too_few, bars[-1].bar_time)['kind'] == 'unclear'
+    # Recovery still needs two adjacent main-structure evaluations.
+    assert structure(enough)['phase'] == 'forming'
+    extended = candles([.0004] * 61)
+    recovered = structure(extended[:29] + extended[36:])
+    assert recovered['kind'] == 'uptrend' and recovered['reference']
+
+
+def test_one_missing_recent_minute_still_allows_reference_continuation():
+    bars = candles([.0004] * 60)
+    result = structure(bars[:56] + bars[57:])
+    assert result['kind'] == 'uptrend'
+    assert result['phase'] == 'continuing'
+    assert result['reference'] and result['missing_bars'] == 1

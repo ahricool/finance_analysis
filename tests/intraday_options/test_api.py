@@ -26,9 +26,9 @@ def test_snapshot_contract_requires_auth_and_never_fetches_remote(monkeypatch):
         assert response.headers["cache-control"] == "private, no-store"
         body = response.json()
         assert len(body["items"]) == 30
-        assert body["items"][7]["symbol"] == "SPCX.US"
-        assert body["items"][7]["data_status"] == "waiting"
-        assert body["items"][7]["result"] is None
+        missing = next(item for item in body["items"] if item["symbol"] == "SPCX.US")
+        assert missing["data_status"] == "waiting"
+        assert missing["result"] is None
 
 
 def test_shared_pool_chart_does_not_require_personal_watchlist(monkeypatch):

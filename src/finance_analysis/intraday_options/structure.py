@@ -8,6 +8,10 @@ from finance_analysis.market_stream.session import session_bounds
 from finance_analysis.market_stream.patterns.features import swing_high_indices, swing_low_indices, true_ranges
 
 MINUTE = timedelta(minutes=1)
+MIN_MAIN_BARS = 24  # Same 80% coverage floor as the existing 30-minute box detector.
+MIN_RECENT_BARS = 4
+SHORT_MOVE_ATR = .2
+SHORT_EFFICIENCY = .35
 LABELS = {
     "uptrend": "持续走强", "downtrend": "持续走弱", "range": "震荡横盘",
     "breakout_up": "箱体向上突破", "breakout_down": "箱体向下突破",
@@ -64,7 +68,7 @@ def box(bars, end):
     values = segment(bars, end, 30)
     if not bars or end - bars[0].bar_time < 29 * MINUTE:
         return None
-    if len(values) < 24 or not values or values[-1].bar_time != end:
+    if len(values) < MIN_MAIN_BARS or not values or values[-1].bar_time != end:
         return None
     scale = atr(values)
     if scale <= 0:
@@ -157,8 +161,8 @@ def raw_structure(bars, end):
     bias = ("bullish" if slope60 > 0 else "bearish") if background_move >= .0002 else "neutral"
     result = {"kind": "unclear", "phase": "waiting", "since": (end + MINUTE).isoformat(),
               "background": bias, "confirmed_at": None, "box": None, "pivots": points, "reasons": [], "oversold": False}
-    if len(main) < 2:
-        result["reasons"] = ["有效分钟数据不足，等待结构"]
+    if len(main) < MIN_MAIN_BARS:
+        result["reasons"] = [f"最近30分钟仅{len(main)}根有效K，至少需要{MIN_MAIN_BARS}根，等待结构"]
         return result
     scale = atr(main)
     if scale <= 0:
@@ -168,13 +172,21 @@ def raw_structure(bars, end):
         return {**result, **event}
     slope, stability, efficiency = metrics(main)
     short, _, short_efficiency = metrics(recent)
+    recent_complete = len(recent) >= MIN_RECENT_BARS and recent[-1].bar_time == end
+    short_move = float(recent[-1].close - recent[0].close) if recent else 0.0
+    short_direction = (
+        (1 if short > 0 else -1)
+        if recent_complete and short * short_move > 0
+        and abs(short_move) >= SHORT_MOVE_ATR * scale and short_efficiency >= SHORT_EFFICIENCY
+        else 0
+    )
     highs = [p for p in points if p["kind"] == "high"]
     lows = [p for p in points if p["kind"] == "low"]
     price = float(main[-1].close)
     # Reversal means reversal of the short leg, not a confirmed change in the long trend.
     for direction, kind, prior_points in ((1, "rebound", highs), (-1, "pullback", lows)):
         if (slope * direction < 0 and slope60 * direction < 0 and short * direction > 0
-                and short_efficiency >= .35 and prior_points
+                and short_direction == direction and prior_points
                 and (price - prior_points[-1]["price"]) * direction > .2 * scale):
             before = [b for b in main if b.bar_time <= end - 5 * MINUTE]
             if len(before) < 5:
@@ -197,9 +209,18 @@ def raw_structure(bars, end):
         smooth = stability >= .85 and efficiency >= .7
         meaningful = abs(price - float(main[0].close)) >= max(.5 * scale, .0002 * price)
         if meaningful and slope * direction > 0 and stability >= .6 and efficiency >= .35 and (stepping or smooth):
-            return {**result, "kind": kind, "phase": "continuing" if short * direction > 0 else "pullback",
+            if not recent_complete:
+                phase, detail = "forming", "最近5分钟有效K不足4根或末根缺失，短线阶段待确认"
+            elif short_direction == direction:
+                phase, detail = "continuing", "最近5分钟沿主趋势有效推进"
+            elif short_direction == -direction:
+                phase, detail = "pullback", "最近5分钟反向移动至少0.2 ATR且路径效率至少35%，回撤观察"
+            else:
+                phase, detail = "pausing", "最近5分钟缺乏有效单向推进，短线停顿，不把微小反向波动当作回撤"
+            return {**result, "kind": kind, "phase": phase,
                     "reasons": [f"30分钟稳定度{stability:.0%}、路径效率{efficiency:.0%}",
-                                "确认高低点同向推进" if stepping else "平滑单向推进，尚无足够交替拐点"]}
+                                "确认高低点同向推进" if stepping else "平滑单向推进，尚无足够交替拐点",
+                                detail]}
     bounds = box(bars, end)
     if efficiency <= .25 and abs(slope) * 30 * price <= scale:
         return {**result, "kind": "range", "phase": "inside", "box": bounds,
@@ -219,7 +240,7 @@ def calculate_structure(ordered):
     result = raw_structure(bars, end)
     if end - opening < 29 * MINUTE:
         result.update(kind="unclear", phase="warming", reasons=["结构观察等待当日30分钟背景"])
-    elif result["kind"] not in {"breakout_up", "breakout_down", "failed_up", "failed_down"}:
+    elif result["kind"] not in {"unclear", "breakout_up", "breakout_down", "failed_up", "failed_down"}:
         previous = raw_structure([b for b in bars if b.bar_time < end], end - MINUTE)
         if result["kind"] != previous["kind"] or not {end, end - MINUTE} <= {b.bar_time for b in bars}:
             candidate = LABELS[result["kind"]]
