@@ -12,7 +12,7 @@ for (const width of [390, 768, 1024, 1280, 1440, 1920]) {
     let changed = false;
     let chartRequests = 0;
     const items = codes.map((code, i) => ({ symbol: `${code}.US`, name: code === 'SPCX' ? null : `${code}观察标的`,
-      last_price: code === 'SPCX' ? null : 100 + i, change_pct: (i % 2 ? -1 : 1) * i / 10,
+      last_price: code === 'SPCX' ? null : 100 + i, change_pct: code === 'SPCX' ? null : (i % 2 ? -1 : 1) * i / 10,
       quote_time: now, quote_status: code === 'SPCX' ? 'missing' : 'ready',
       data_status: code === 'SPCX' ? 'waiting' : 'ready', issues: code === 'SPCX' ? ['主数据未识别，保留原代码'] : [],
       result: code === 'SPCX' ? null : { version: 'intraday_options_v1', symbol: `${code}.US`, trading_date: '2026-11-12',
@@ -74,9 +74,9 @@ for (const width of [390, 768, 1024, 1280, 1440, 1920]) {
     await page.screenshot({ path: testInfo.outputPath(`intraday-options-${width}.png`), fullPage: true });
     await page.getByTestId('options-refresh-order').click();
     await expect(rows.first()).toHaveAttribute('data-testid', 'options-row-QQQ.US');
-    await page.getByRole('button', { name: '最新价', exact: true }).click();
+    await page.getByRole('button', { name: '最新价 / 涨跌幅', exact: true }).click();
     await expect(rows.last()).toHaveAttribute('data-testid', 'options-row-SPCX.US');
-    await page.getByRole('button', { name: '最新价', exact: true }).click();
+    await page.getByRole('button', { name: '最新价 / 涨跌幅', exact: true }).click();
     await expect(rows.last()).toHaveAttribute('data-testid', 'options-row-SPCX.US');
     await page.getByRole('group', { name: '方向筛选' }).getByRole('button', { name: '偏空', exact: true }).click();
     await expect(rows).toHaveCount(15);

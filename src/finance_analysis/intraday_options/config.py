@@ -38,7 +38,7 @@ SYMBOLS = tuple(
         "SMCI",
     )
 )
-VERSION = "intraday_options_v5"
+VERSION = "intraday_options_v7"
 WINDOWS = (5, 15, 30, 60)
 COMPOSITE_WINDOWS = (15, 30, 60)
 WINDOW_WEIGHTS = (0.30, 0.45, 0.25)

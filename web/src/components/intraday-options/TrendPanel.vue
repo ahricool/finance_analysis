@@ -130,7 +130,7 @@ onBeforeUnmount(() => { stopped = true; generation++; controller?.abort(); clear
       data-testid="structure-detail"
     >
       <p class="font-medium">
-        日内结构：{{ structureName(result.structure) }} · {{ structurePhases[result.structure.phase] }}
+        短线结构：{{ structureName(result.structure) }} · {{ structurePhases[result.structure.phase] }}
       </p>
       <p class="text-xs text-muted-foreground">
         {{ directions[result.structure.background] }}背景 · 截至 {{ clock(result.structure.asOf) }} · 可用{{ result.structure.availableBars }}根 / 缺{{ result.structure.missingBars }}根
@@ -172,7 +172,7 @@ onBeforeUnmount(() => { stopped = true; generation++; controller?.abort(); clear
           v-if="w.dataStatus !== 'ready'"
           class="text-muted-foreground"
         >
-          {{ w.dataStatus === 'gap' ? `缺${w.missingBars ?? '部分'}根 · 可用${w.availableBars ?? '—'}根 · ${w.score == null ? '数据过少，无法计算' : '参考分'}` : '等待窗口预热' }}
+          {{ w.dataStatus === 'warming' ? '开盘不足 · ' : '分钟缺失 · ' }}缺{{ w.missingBars ?? '部分' }}根 · 可用{{ w.availableBars ?? '—' }}根 · {{ w.score == null ? '数据过少，无法计算' : '参考分' }}
         </p>
         <template v-if="w.score != null">
           <p>稳定度 {{ fmt(w.stability) }} · 路径效率 {{ fmt(w.efficiency) }}</p>

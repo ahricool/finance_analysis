@@ -47,7 +47,9 @@ class StructureBox(BaseModel):
 class IntradayStructure(BaseModel):
     kind: Literal["uptrend", "downtrend", "range", "breakout_up", "breakout_down", "failed_up",
                   "failed_down", "rebound", "pullback", "unclear"]
-    phase: Literal["waiting", "forming", "confirmed", "retest", "failed", "continuing", "pullback", "inside", "warming"]
+    phase: Literal[
+        "waiting", "forming", "confirmed", "retest", "failed", "continuing", "pullback", "pausing", "inside", "warming"
+    ]
     background: Literal["bullish", "bearish", "neutral"]
     since: datetime  # Breakout phase occurrence (candle close), stable within the event phase.
     confirmed_at: datetime | None = None  # First confirmation of this breakout attempt.

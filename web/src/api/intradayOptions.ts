@@ -13,7 +13,7 @@ export interface WindowScore {
 }
 export interface IntradayStructure {
   kind: 'uptrend' | 'downtrend' | 'range' | 'breakout_up' | 'breakout_down' | 'failed_up' | 'failed_down' | 'rebound' | 'pullback' | 'unclear';
-  phase: 'waiting' | 'forming' | 'confirmed' | 'retest' | 'failed' | 'continuing' | 'pullback' | 'inside' | 'warming';
+  phase: 'waiting' | 'forming' | 'confirmed' | 'retest' | 'failed' | 'continuing' | 'pullback' | 'pausing' | 'inside' | 'warming';
   background: 'bullish' | 'bearish' | 'neutral'; since: string; confirmedAt?: string | null; asOf: string;
   oversold: boolean; reference: boolean; availableBars: number; missingBars: number;
   box: { upper: number; lower: number; startAt: string; endAt: string; atr: number } | null;

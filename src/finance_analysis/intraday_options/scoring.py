@@ -132,7 +132,8 @@ def window_score(bars: Sequence[CandleState], minutes: int) -> dict:
 def combine(windows: list[dict], bars: Sequence[CandleState]) -> dict:
     by_minutes = {w["minutes"]: w for w in windows}
     windows = [by_minutes.get(n, {"minutes": n, "score": None}) for n in COMPOSITE_WINDOWS]
-    if any(w.get("score") is None for w in windows):
+    available = [(w, weight) for w, weight in zip(windows, WINDOW_WEIGHTS) if w.get("score") is not None]
+    if not available:
         return {
             "score": None,
             "direction": None,
@@ -140,14 +141,25 @@ def combine(windows: list[dict], bars: Sequence[CandleState]) -> dict:
             "base_score": None,
             "alignment": None,
             "extension_atr": None,
-            "explanation": "等待15、30、60分钟窗口预热及至少2根有效分钟线。",
+            "explanation": "15、30、60分钟窗口均不足2根有效分钟线，等待有效数据。",
         }
-    directions = [w["direction"] for w in windows]
-    short, main, long = directions
-    base = sum(w["score"] * weight for w, weight in zip(windows, WINDOW_WEIGHTS))
-    alignment = abs(sum(d * weight for d, weight in zip(directions, WINDOW_WEIGHTS)))
+    directions = [w["direction"] for w, _ in available]
+    short, main, long = [w.get("direction") if w.get("score") is not None else None for w in windows]
+    weight_sum = sum(weight for _, weight in available)
+    base = sum(w["score"] * weight for w, weight in available) / weight_sum
+    alignment = abs(sum(w["direction"] * weight for w, weight in available)) / weight_sum
     score = base * (0.4 + 0.6 * alignment)
-    if main != 0 and main == long:
+    if len(available) < len(COMPOSITE_WINDOWS):
+        active_directions = set(directions)
+        if 1 in active_directions and -1 in active_directions:
+            direction = "conflict"
+        elif active_directions == {1}:
+            direction = "bullish"
+        elif active_directions == {-1}:
+            direction = "bearish"
+        else:
+            direction = "neutral"
+    elif main != 0 and main == long:
         direction = "bullish" if main > 0 else "bearish"
     elif main != 0 and short == main and long == 0:
         direction = "bullish" if main > 0 else "bearish"
@@ -169,7 +181,7 @@ def combine(windows: list[dict], bars: Sequence[CandleState]) -> dict:
     elif direction == "neutral":
         state, score = "waiting", min(score, 35.0)
         explanation = "多个窗口缺乏有效方向，当前更接近震荡，等待方向。"
-    elif short != main:
+    elif len(available) == len(COMPOSITE_WINDOWS) and short != main:
         state, score = "pullback", min(score, 65.0)
         explanation = "30/60分钟主趋势仍在，最近15分钟转弱或反向，处于回撤观察。"
     elif extension >= CONFIG.extension_atr and float(logs[-1] - logs[max(0, len(logs) - 6)]) * sign > 0:
@@ -178,7 +190,13 @@ def combine(windows: list[dict], bars: Sequence[CandleState]) -> dict:
     else:
         state = "continuing"
         explanation = "多个窗口方向一致，近期仍在延续。"
-    if any(w["stalled_impulse"] for w in windows):
+    if len(available) < len(COMPOSITE_WINDOWS):
+        included = "、".join(str(w["minutes"]) for w, _ in available)
+        explanation = (
+            f"仅{included}分钟窗口可计算，按可用窗口归一化权重；方向与状态仅供参考。"
+            + explanation.replace("多个窗口", "可用窗口")
+        )
+    if any(w["stalled_impulse"] for w, _ in available):
         explanation += " 部分窗口移动集中于单根急涨/急跌，后续延续不足，已限制窗口分数。"
     return {
         "score": round(score, 2),
@@ -224,27 +242,36 @@ def calculate(symbol: str, bars: Sequence[CandleState], now: datetime) -> dict |
     start, _ = session_bounds("US", day)
     windows = []
     for minutes in WINDOWS:
-        times = [latest - MINUTE * i for i in reversed(range(minutes))]
-        if times[0] < start:
-            windows.append({"minutes": minutes, "data_status": "warming", "score": None})
-        else:
-            usable = [by_time[t] for t in times if t in by_time and by_time[t].is_valid()
-                      and not by_time[t].partial and not by_time[t].sampled]
-            missing = minutes - len(usable)
-            quality = {"available_bars": len(usable), "missing_bars": missing}
-            if len(usable) < 2:
-                windows.append({"minutes": minutes, "data_status": "gap", "score": None, **quality,
-                                "reasons": ["有效分钟线少于2根，无法计算趋势"]})
-                continue
-            window = window_score(usable, minutes)
-            window.update(quality)
-            if missing:
-                window["data_status"] = "gap"
-                window["reasons"].append(f"窗口缺少{missing}根有效分钟线，按现有{len(usable)}根计算，仅供参考")
-            windows.append(window)
+        elapsed = min(minutes, int((latest + MINUTE - start).total_seconds() // 60))
+        times = [latest - MINUTE * i for i in reversed(range(elapsed))]
+        usable = [
+            by_time[t] for t in times
+            if t in by_time and by_time[t].is_valid() and not by_time[t].partial and not by_time[t].sampled
+        ]
+        missing = minutes - len(usable)
+        gaps = elapsed - len(usable)
+        status = "gap" if gaps else "warming" if elapsed < minutes else "ready"
+        quality = {"available_bars": len(usable), "missing_bars": missing}
+        reasons = []
+        if elapsed < minutes:
+            reasons.append(f"开盘仅{elapsed}分钟，距完整{minutes}分钟窗口还差{minutes - elapsed}根")
+        if gaps:
+            reasons.append(f"已开盘区间缺少{gaps}根有效分钟线")
+        if len(usable) < 2:
+            windows.append({
+                "minutes": minutes, "data_status": status, "score": None, **quality,
+                "reasons": [*reasons, "有效分钟线少于2根，无法计算趋势"],
+            })
+            continue
+        # Before a full window exists, scale by elapsed session minutes, not future minutes.
+        window = window_score(usable, elapsed)
+        window.update(minutes=minutes, data_status=status, **quality)
+        if missing:
+            window["reasons"].extend([*reasons, f"按现有{len(usable)}根计算，仅供参考"])
+        windows.append(window)
     usable = [b for b in ordered if b.is_valid() and not b.partial and not b.sampled]
     combined = combine(windows, usable)
-    if any(w["data_status"] == "gap" for w in windows):
+    if any(w["data_status"] != "ready" for w in windows):
         combined["explanation"] = "分钟数据不完整，按现有K线计算，仅供参考。" + combined["explanation"]
     return {
         "version": VERSION,

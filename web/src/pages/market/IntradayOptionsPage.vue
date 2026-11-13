@@ -24,10 +24,11 @@ const now = useCurrentTime(1000);
 const disconnected = computed(() => !!error.value || (!!snapshot.value && now.value.getTime() - Date.parse(snapshot.value.generatedAt) > 20_000));
 const columns = [
   { key: 'symbol', label: '标的', description: '按代码排序；名称与代码均可搜索。' },
-  { key: 'lastPrice', label: '最新价' }, { key: 'changePct', label: '当日涨跌幅', description: '相对昨收；不参与当前趋势评分。' },
-  { key: 'structure', label: '日内结构', description: '最近60分钟背景、30分钟结构、5分钟变化；独立于趋势机会分。' },
+  { key: 'changePct', label: '最新价 / 涨跌幅', description: '按当日涨跌幅排序；涨跌幅相对昨收，不参与趋势评分。' },
+  { key: 'score', label: '趋势机会分', description: '0–100规则分，不是盈利概率；开盘不足完整窗口或缺线时也按可用K线计算并标注参考分。' },
+  { key: 'direction', label: '当前方向' },
   ...[5, 15, 30, 60].map(n => ({ key: `w${n}`, label: `${n}分钟`, description: '按窗口质量分排序；箭头表示方向，第二行是该窗口涨跌幅。' })),
-  { key: 'direction', label: '当前方向' }, { key: 'score', label: '趋势机会分', description: '0–100规则分，不是盈利概率；开盘满60分钟后显示；缺线或延迟仍展示并标注。' },
+  { key: 'structure', label: '短线结构', description: '开盘满30分钟后判断；最近30分钟结构、5分钟变化，最多60分钟背景；独立于趋势机会分。' },
   { key: 'state', label: '当前状态', description: '趋势质量与进场位置分开：高分仍可能处于短线延伸。' },
 ];
 const filters: Array<{ key: typeof filter.value; label: string }> = [
@@ -40,7 +41,7 @@ const matches = computed(() => sortSnapshot.value.filter(row => {
 }));
 function sortValue(row: IntradayOptionRow, key: string): unknown {
   if (key === 'symbol') return row.symbol;
-  if (key === 'lastPrice' || key === 'changePct') return row[key];
+  if (key === 'changePct') return row.changePct;
   if (!usable(row)) return null;
   if (key === 'structure') return row.result?.structure ? structureName(row.result.structure) : null;
   if (key.startsWith('w')) return row.result?.windows.find(w => w.minutes === Number(key.slice(1)))?.score;
@@ -138,7 +139,7 @@ onBeforeUnmount(() => { stopped = true; controller?.abort(); clearTimeout(timer)
       />
     </div>
     <p class="text-xs text-muted-foreground">
-      数值持续更新，排序及筛选名单保持不动；点击表头、切换筛选或“更新排序”时重新排列。15/30/60分钟窗口预热完成前可点击单窗口表头观察。
+      数值持续更新，排序及筛选名单保持不动；点击表头、切换筛选或“更新排序”时重新排列。开盘不足完整窗口或分钟缺失时按可用K线计算参考分，并标注缺失；少于2根有效K线时等待数据。
     </p>
     <div class="overflow-hidden rounded-lg border">
       <Table>
@@ -201,7 +202,14 @@ onBeforeUnmount(() => { stopped = true; controller?.abort(); clearTimeout(timer)
                 </p>
               </TableCell>
               <TableCell class="tabular-nums">
-                {{ fmt(row.lastPrice, 2) }}<p
+                {{ fmt(row.lastPrice, 2) }}
+                <p
+                  class="text-xs"
+                  :class="tone(row.changePct)"
+                >
+                  {{ pct(row.changePct) }}
+                </p>
+                <p
                   v-if="row.quoteStatus !== 'ready'"
                   class="text-xs text-muted-foreground"
                 >
@@ -209,10 +217,45 @@ onBeforeUnmount(() => { stopped = true; controller?.abort(); clearTimeout(timer)
                 </p>
               </TableCell>
               <TableCell
-                class="tabular-nums"
-                :class="tone(row.changePct)"
+                class="text-lg font-semibold tabular-nums"
+                data-testid="opportunity-score"
               >
-                {{ pct(row.changePct) }}
+                {{ valid(row) ? fmt(row.result?.score, 0) : '—' }}
+                <p
+                  v-if="row.result && (disconnected || row.dataStatus === 'delayed' || row.result.windows.some(w => w.dataStatus !== 'ready'))"
+                  class="text-xs font-normal text-amber-600 dark:text-amber-400"
+                >
+                  参考分 · 截至 {{ clock(row.result.asOf) }}
+                </p>
+              </TableCell>
+              <TableCell
+                class="whitespace-nowrap"
+                :class="valid(row) ? tone(row.result?.direction === 'bullish' ? 1 : row.result?.direction === 'bearish' ? -1 : 0) : ''"
+              >
+                {{ rowDirection(row) }}
+              </TableCell>
+              <TableCell
+                v-for="n in [5, 15, 30, 60]"
+                :key="n"
+                class="whitespace-nowrap tabular-nums"
+              >
+                <template v-if="valid(row) && windowOf(row, n)?.score != null">
+                  <span :class="tone(windowOf(row, n)?.direction)">{{ arrow(windowOf(row, n)?.direction) }} {{ fmt(windowOf(row, n)?.score, 0) }}分</span>
+                  <p class="text-xs text-muted-foreground">
+                    {{ pct(windowOf(row, n)?.returnPct) }}
+                  </p>
+                  <p
+                    v-if="windowOf(row, n)?.dataStatus !== 'ready'"
+                    class="text-xs text-amber-600 dark:text-amber-400"
+                  >
+                    {{ windowOf(row, n)?.dataStatus === 'warming' ? '开盘不足' : '分钟缺失' }} · 缺{{ windowOf(row, n)?.missingBars ?? '部分' }}根 · 参考分
+                  </p>
+                </template>
+                <template v-else>
+                  —<p class="text-xs text-muted-foreground">
+                    {{ valid(row) && windowOf(row, n) ? `有效${windowOf(row, n)?.availableBars ?? 0}根 · 数据过少` : '等待有效数据' }}
+                  </p>
+                </template>
               </TableCell>
               <TableCell
                 class="whitespace-nowrap text-sm"
@@ -239,47 +282,6 @@ onBeforeUnmount(() => { stopped = true; controller?.abort(); clearTimeout(timer)
                   </p>
                 </template>
                 <span v-else>—</span>
-              </TableCell>
-              <TableCell
-                v-for="n in [5, 15, 30, 60]"
-                :key="n"
-                class="whitespace-nowrap tabular-nums"
-              >
-                <template v-if="valid(row) && windowOf(row, n)?.score != null">
-                  <span :class="tone(windowOf(row, n)?.direction)">{{ arrow(windowOf(row, n)?.direction) }} {{ fmt(windowOf(row, n)?.score, 0) }}分</span>
-                  <p class="text-xs text-muted-foreground">
-                    {{ pct(windowOf(row, n)?.returnPct) }}
-                  </p>
-                  <p
-                    v-if="windowOf(row, n)?.dataStatus === 'gap'"
-                    class="text-xs text-amber-600 dark:text-amber-400"
-                  >
-                    缺{{ windowOf(row, n)?.missingBars ?? '部分' }}根 · 参考分
-                  </p>
-                </template>
-                <template v-else>
-                  —<p class="text-xs text-muted-foreground">
-                    {{ windowOf(row, n)?.dataStatus === 'gap' ? '分钟缺失' : valid(row) ? '预热中' : '等待有效数据' }}
-                  </p>
-                </template>
-              </TableCell>
-              <TableCell
-                class="whitespace-nowrap"
-                :class="valid(row) ? tone(row.result?.direction === 'bullish' ? 1 : row.result?.direction === 'bearish' ? -1 : 0) : ''"
-              >
-                {{ rowDirection(row) }}
-              </TableCell>
-              <TableCell
-                class="text-lg font-semibold tabular-nums"
-                data-testid="opportunity-score"
-              >
-                {{ valid(row) ? fmt(row.result?.score, 0) : '—' }}
-                <p
-                  v-if="row.result && (disconnected || row.dataStatus === 'delayed' || row.result.windows.some(w => w.dataStatus === 'gap'))"
-                  class="text-xs font-normal text-amber-600 dark:text-amber-400"
-                >
-                  参考分 · 截至 {{ clock(row.result.asOf) }}
-                </p>
               </TableCell>
               <TableCell class="whitespace-nowrap text-sm">
                 {{ valid(row) && row.result?.state ? stages[row.result.state] : '—' }}
