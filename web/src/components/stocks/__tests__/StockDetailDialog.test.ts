@@ -1,4 +1,3 @@
-vi.mock('../detail/PredictionDetailPanel.vue', () => ({ __esModule: true, default: { name: 'PredictionDetailPanel', props: ['symbol', 'market', 'context'], template: '<div data-testid="prediction-panel">{{ symbol }}</div>' } }));
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushPromises, mount } from '@vue/test-utils';
 import StockDetailDialog from '../StockDetailDialog.vue';
@@ -28,14 +27,14 @@ describe('unified StockDetailDialog', () => {
   it('preserves legacy stock-driven opening and presents accessible responsive tabs', () => {
     const wrapper = render();
     expect(wrapper.text()).toContain('Apple');
-    expect(wrapper.findAll('[role="tab"]').map(item => item.text())).toEqual(['行情', '持仓', '期权', '事件预测', '趋势', 'ETF 轮动', '共振', '盘中确认', '量化']);
+    expect(wrapper.findAll('[role="tab"]').map(item => item.text())).toEqual(['行情', '持仓', '期权', '趋势', 'ETF 轮动', '共振', '盘中确认', '量化']);
     expect(wrapper.get('[role="tabpanel"]').attributes('aria-labelledby')).toBe(wrapper.get('[role="tab"][data-state="active"]').attributes('id'));
     expect(wrapper.get('[data-testid="stock-detail-tabs"]').element.parentElement?.classList.contains('overflow-x-auto')).toBe(true);
     wrapper.unmount();
   });
   it('switches between every supported research panel without changing the stock', async () => {
     const wrapper = render();
-    for (const [label, testid] of [['持仓', 'holding'], ['事件预测', 'prediction'], ['趋势', 'trend'], ['ETF 轮动', 'etf'], ['共振', 'confluence'], ['盘中确认', 'intraday'], ['量化', 'quant']]) {
+    for (const [label, testid] of [['持仓', 'holding'], ['趋势', 'trend'], ['ETF 轮动', 'etf'], ['共振', 'confluence'], ['盘中确认', 'intraday'], ['量化', 'quant']]) {
       await tab(wrapper, label!);
       expect(wrapper.get(`[data-testid="${testid}-panel"]`).text()).toContain(stock.code);
       expect(wrapper.get('[role="tabpanel"]').findAll('[data-testid$="-panel"]')).toHaveLength(1);
@@ -87,7 +86,7 @@ describe('unified StockDetailDialog', () => {
     await tab(wrapper, '行业'); expect(wrapper.get('[data-testid="industry-panel"]').text()).toBe('600519.SH');
     await tab(wrapper, '龙虎榜'); expect(wrapper.get('[data-testid="dragon-panel"]').text()).toBe('600519.SH');
     await wrapper.setProps({ stock: { code: '00700.HK', name: '腾讯控股', marketType: 'HK' } }); await flushPromises();
-    expect(wrapper.findAll('[role="tab"]').map(item => item.text())).toEqual(['行情', '持仓', '期权', '事件预测']);
+    expect(wrapper.findAll('[role="tab"]').map(item => item.text())).toEqual(['行情', '持仓', '期权']);
     wrapper.unmount();
   });
   it('loads a quote only when overview is active and prefers a matching supplied quote', async () => {

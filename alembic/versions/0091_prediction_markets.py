@@ -1,4 +1,4 @@
-"""Shared prediction catalog and security links; never persist prices."""
+"""Shared prediction catalog; never persist prices."""
 
 from alembic import op
 import sqlalchemy as sa
@@ -42,34 +42,12 @@ def upgrade():
         sa.Column("rule_reason", sa.String(80), nullable=False),
         sa.Column("rule_version", sa.String(32), nullable=False),
         sa.Column("manual_retained", sa.Boolean()),
-        sa.Column("semantic_hash", sa.String(64), nullable=False),
-        sa.Column("match_status", sa.String(24), nullable=False),
-        sa.Column("match_progress", JSONB(), nullable=False),
-        sa.Column("match_version", sa.String(64)),
-        sa.Column("retry_at", sa.DateTime(timezone=True)),
-        sa.Column("retry_count", sa.Integer(), nullable=False),
-        sa.Column("match_error", sa.String(200)),
         sa.Column("synced_at", sa.DateTime(timezone=True), nullable=False),
         sa.UniqueConstraint("provider", "event_id", name="uq_prediction_event_provider"),
     )
     op.create_index("ix_prediction_event_list", "prediction_event", ["retained", "closed", "synced_at"])
-    op.create_table(
-        "prediction_instrument_link",
-        sa.Column("id", sa.Integer(), primary_key=True),
-        sa.Column("event_id", sa.Integer(), sa.ForeignKey("prediction_event.id", ondelete="CASCADE"), nullable=False),
-        sa.Column("instrument_id", sa.Integer(), sa.ForeignKey("instrument.id", ondelete="CASCADE"), nullable=False),
-        sa.Column("relation_type", sa.String(16), nullable=False),
-        sa.Column("relevance", sa.String(16), nullable=False),
-        sa.Column("reason", sa.Text(), nullable=False),
-        sa.Column("source", sa.String(16), nullable=False),
-        sa.Column("blocked", sa.Boolean(), nullable=False),
-        sa.Column("input_version", sa.String(64), nullable=False),
-        sa.Column("judged_at", sa.DateTime(timezone=True), nullable=False),
-        sa.UniqueConstraint("event_id", "instrument_id", name="uq_prediction_link"),
-    )
 
 
 def downgrade():
-    op.drop_table("prediction_instrument_link")
     op.drop_table("prediction_event")
     op.drop_table("prediction_tag")

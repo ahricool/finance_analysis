@@ -56,10 +56,3 @@
 完整context仍写审计快照并参与input_hash（仍排除滚动data_cutoff）；研究bundle继续由research_id关联保存，缓存版本随投影协议更新。
 
 代表性完整Prompt的前后统计及证据核对见 [PR493样本对比](pr493-prompt-comparison.md)。
-
-## Polymarket 股票匹配
-
-`prediction_markets/service.py::matching_prompt`，call_type=`polymarket_stock_matching`，web_search=False。
-只解释冻结事件标题/说明/日期/官方标签与已召回证券公开名称、别名和行业。Markdown章节+CSV表，
-无赔率、选项、用户或仓位数据；不查FA/网络，不筛话题，不预测价格。输出事件ID和候选股票关联，允许空数组。
-每事件按完整候选组串行调用；进度与空匹配持久化，新增证券仅评估新增关系，人工关联优先。见 `prediction-markets.md`。

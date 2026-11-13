@@ -398,6 +398,6 @@ V2历史仍标“宏观环境”并说明统一风险偏好语义，不用V2.1�
 ## 事件预测
 
 `/market/prediction-events` 为跨资产共享页面，禁用全局市场开关且不改变偏好。
-`PredictionEventCard`/`PredictionHistory`供共享页和唯一证券详情的事件预测页签复用；仅当前页加载live，展开才加载历史。
-无轮询，切股票/页签/卸载取消请求并作废迟到响应；变化用中性色和百分点，0与缺失区分，不提供实时全局排序。
-管理覆盖影响所有用户，仅管理员可见。见 `../docs/prediction-markets.md`。
+`PredictionEventCard`/`PredictionHistory`供共享页展示；仅当前页加载live，展开才加载历史。
+无股票匹配/关联界面或个股详情页签；无轮询，卸载取消请求并作废迟到响应。
+变化用中性色和百分点，0与缺失区分，不提供实时全局排序。管理覆盖影响所有用户，仅管理员可见。见 `../docs/prediction-markets.md`。

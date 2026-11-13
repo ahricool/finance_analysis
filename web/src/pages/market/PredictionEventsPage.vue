@@ -39,7 +39,7 @@ function refresh() { selected.value = []; void loadTags(); void load(); }
     <PageHeader
       title="事件预测"
       en="Prediction Events"
-      description="官方话题按规则展示；LLM只匹配股票。隐含概率与变化不代表股票涨跌方向。"
+      description="按规则筛选官方话题，按需查看选项、隐含概率及历史变化。"
     />
     <div
       class="flex flex-wrap gap-2"

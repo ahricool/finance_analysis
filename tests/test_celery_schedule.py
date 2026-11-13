@@ -23,7 +23,6 @@ from finance_analysis.tasks.celery.schedule.cron import (
 
 EXPECTED_JOBS = {
     "polymarket_catalog_sync": ("scheduled_polymarket_catalog_sync", "Asia/Shanghai"),
-    "polymarket_stock_matching": ("scheduled_polymarket_stock_matching", "Asia/Shanghai"),
     "analysis_us_pre_close_review": ("scheduled_us_pre_close_review", "America/New_York"),
     "market_heatmap_cn": ("scheduled_market_heatmap_cn", "Asia/Shanghai"),
     "market_heatmap_us": ("scheduled_market_heatmap_us", "America/New_York"),

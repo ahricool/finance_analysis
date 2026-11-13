@@ -282,7 +282,6 @@ def test_scheduled_lock_declarations_remain_nonblocking() -> None:
 
     assert locked == {
         "polymarket_catalog_sync": (TaskAdvisoryLockId.POLYMARKET, False),
-        "polymarket_stock_matching": (TaskAdvisoryLockId.POLYMARKET, False),
         "market_heatmap_cn": (TaskAdvisoryLockId.MARKET_HEATMAP_CN, False),
         "market_heatmap_us": (TaskAdvisoryLockId.MARKET_HEATMAP_US, False),
         "options_intelligence_intraday": (TaskAdvisoryLockId.OPTIONS_INTELLIGENCE, False),

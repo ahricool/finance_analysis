@@ -5,11 +5,9 @@ import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import AppApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
 import AppPagination from '@/components/app/AppPagination.vue';
 import FieldInput from '@/components/forms/FieldInput.vue';
-import FieldSelect from '@/components/forms/FieldSelect.vue';
 import { Button } from '@/components/ui/button';
 const emit = defineEmits<{ changed: [] }>();
 const tags = ref<PredictionTag[]>([]); const events = ref<EventPage>(); const search = ref(''); const keyword = ref(''); const slug = ref(''); const page = ref(1);
-const eventId = ref(''); const symbol = ref(''); const reason = ref(''); const action = ref('add');
 const error = ref<ParsedApiError | null>(null); const message = ref(''); const busy = ref(false);
 const controller = new AbortController();
 const tagPage = ref(1);
@@ -23,7 +21,7 @@ async function perform(fn: () => Promise<unknown>) {
   catch (cause) { if (!controller.signal.aborted) error.value = getParsedApiError(cause); }
   finally { busy.value = false; }
 }
-async function run(job: 'catalog' | 'matching', value?: string) {
+async function run(job: 'catalog', value?: string) {
   await perform(async () => { const result = await predictionApi.run(job, value); message.value = `已提交任务 ${result.taskId}，请在任务中心查看结果。`; });
 }
 onMounted(() => { void perform(async () => {}); });
@@ -66,13 +64,6 @@ onBeforeUnmount(() => controller.abort());
         @click="run('catalog')"
       >
         同步目录
-      </Button>
-      <Button
-        variant="outline"
-        :disabled="busy"
-        @click="run('matching')"
-      >
-        重试匹配
       </Button>
     </div>
     <FieldInput
@@ -147,50 +138,13 @@ onBeforeUnmount(() => controller.abort());
           @click="perform(() => predictionApi.setEvent(event.eventId, null))"
         >
           恢复规则
-        </Button><Button
-          size="sm"
-          variant="ghost"
-          @click="eventId = event.eventId"
-        >
-          纠正关联
         </Button>
       </div>
-      <p
-        v-for="link in event.links"
-        :key="link.symbol"
-      >
-        {{ link.symbol }} · {{ link.blocked ? '已屏蔽' : link.source }} · {{ link.reason }}
-      </p>
     </div>
     <AppPagination
       :current-page="page"
       :total-pages="Math.ceil((events?.total ?? 0) / 10)"
       @page-change="page = $event; perform(async () => {})"
     />
-    <div class="grid gap-3 sm:grid-cols-2">
-      <FieldInput
-        v-model="eventId"
-        label="事件 ID"
-      /><FieldInput
-        v-model="symbol"
-        label="规范证券代码（支持已有港股）"
-        placeholder="NVDA.US"
-      />
-      <FieldSelect
-        v-model="action"
-        label="关联纠错"
-        :options="[{ value: 'add', label: '人工添加' }, { value: 'block', label: '人工屏蔽' }, { value: 'restore', label: '恢复自动匹配' }]"
-      />
-      <FieldInput
-        v-model="reason"
-        label="中文关联理由"
-      />
-    </div>
-    <Button
-      :disabled="busy || !eventId || !symbol || !reason.trim()"
-      @click="perform(() => predictionApi.setLink(eventId, symbol, action, reason))"
-    >
-      保存共享关联
-    </Button>
   </section>
 </template>

@@ -12,7 +12,6 @@ from finance_analysis.tasks.lifecycle import is_tracked_callable  # pragma: allo
 
 EXPECTED_CUSTOM_TASKS = {
     "scheduled.polymarket_catalog_sync",
-    "scheduled.polymarket_stock_matching",
     "scheduled.analysis_us_pre_close_review",
     "quant.experiment.prepare",
     "scheduled.quant_cleanup",
@@ -96,7 +95,6 @@ def test_each_task_package_has_one_explicit_tasks_module_and_expected_tasks():
                 "intraday_confirmation",
                 "signal_center",
                 "market_heatmap",
-                "polymarket",
             )
         ):
             expected_count = 2
@@ -113,7 +111,7 @@ def test_all_custom_task_names_and_job_ids_are_unique():
     celery_names.extend(item.celery_task_name for item in scheduled)
     job_ids = [item.job_id for item in scheduled]
 
-    assert len(celery_names) == len(set(celery_names)) == 47
+    assert len(celery_names) == len(set(celery_names)) == 46
     assert len(job_ids) == len(set(job_ids))
 
 

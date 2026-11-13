@@ -409,12 +409,3 @@ def test_failed_transport_diagnostics_reach_audit(config, monkeypatch, backend):
     else:
         assert diagnostics["api_ms"] >= 0
         assert "private provider error" not in content
-
-
-def test_prediction_matching_disables_cli_search(config, monkeypatch):
-    channel = Channel()
-    ssh_client(monkeypatch, channel)
-    command = Mock(return_value='safe-supervisor')
-    monkeypatch.setattr(remote_cli, 'supervised_command', command)
-    remote_cli.complete(config, LLMRequest('frozen event', call_type='polymarket_stock_matching', web_search=False))
-    assert command.call_args.args[2:] == (False, True)

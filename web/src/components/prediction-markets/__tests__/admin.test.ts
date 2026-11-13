@@ -9,6 +9,7 @@ vi.mock('@/api/predictionMarkets', () => ({ predictionApi: {
 it('paginates the full tag catalog and searches across all pages', async () => {
   const wrapper = mount(PredictionAdmin); await flushPromises();
   expect(wrapper.findAll('[data-testid="prediction-admin-tag"]')).toHaveLength(50);
+  expect(wrapper.text()).not.toMatch(/匹配|关联|证券代码/);
   await wrapper.findAll('button').find(b => b.attributes('aria-label') === '下一页')!.trigger('click');
   expect(wrapper.text()).toContain('slug50');
   wrapper.findAllComponents(FieldInput).find(c => c.props('label') === '全量官方标签搜索')!.vm.$emit('update:modelValue', 'slug119');

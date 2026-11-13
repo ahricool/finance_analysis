@@ -71,4 +71,3 @@ JOB_SIGNAL_CENTER_US = "signal_center_us"
 JOB_STOCK_STRATEGIES = "stock_strategies"
 
 JOB_POLYMARKET_CATALOG = "polymarket_catalog_sync"
-JOB_POLYMARKET_MATCHING = "polymarket_stock_matching"

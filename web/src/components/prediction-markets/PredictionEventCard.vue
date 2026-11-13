@@ -3,7 +3,6 @@ import { computed, defineAsyncComponent, onBeforeUnmount, ref, watch } from 'vue
 import { predictionApi, type PredictionEvent, type LiveData } from '@/api/predictionMarkets';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import AppApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
-import StockLink from '@/components/stocks/StockLink.vue';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { formatDateTimeInDisplayTimezone as dateTime } from '@/utils/format';
@@ -26,8 +25,6 @@ async function load() {
 watch(() => props.event.eventId, () => { data.value = undefined; history.value = undefined; expanded.value = false; void load(); }, { immediate: true });
 onBeforeUnmount(() => { ++generation; controller?.abort(); });
 const markets = computed(() => expanded.value ? data.value?.markets : data.value?.markets?.slice(0, 2));
-const statuses: Record<string, string> = { pending: '待匹配', failed: '匹配失败，话题仍可查看', no_candidates: '暂无候选股票', no_match: '暂无相关股票', matched: '已关联' };
-const relevance: Record<string, string> = { high: '高', medium: '中', low: '低' };
 </script>
 <template>
   <article
@@ -57,22 +54,8 @@ const relevance: Record<string, string> = { high: '高', medium: '中', low: '�
       >{{ event.title }} ↗</a>
     </h3>
     <p class="text-xs text-muted-foreground">
-      截止 {{ event.endAt ? dateTime(event.endAt) : '未提供' }} · {{ (data?.closed ?? event.closed) ? '已关闭（不等于已结算）' : '未关闭' }} · {{ statuses[event.matchStatus] ?? event.matchStatus }}
+      截止 {{ event.endAt ? dateTime(event.endAt) : '未提供' }} · {{ (data?.closed ?? event.closed) ? '已关闭（不等于已结算）' : '未关闭' }}
     </p>
-    <div
-      v-for="link in event.links"
-      :key="link.symbol"
-      class="space-y-1 rounded-md bg-muted/40 p-2 text-sm"
-    >
-      <StockLink
-        :code="link.symbol"
-        :name="link.name"
-      /> · {{ relevance[link.relevance] }}相关 · {{ link.relationType === 'direct' ? '直接' : '行业' }}
-      <p>{{ link.reason }}</p>
-      <p class="text-xs text-muted-foreground">
-        {{ link.source === 'manual' ? '人工' : 'LLM' }}关联 · {{ dateTime(link.judgedAt) }}{{ link.stale ? ' · 输入已变化，等待重评' : '' }}
-      </p>
-    </div>
     <div class="border-t pt-3">
       <p
         v-if="loading"
@@ -150,7 +133,7 @@ const relevance: Record<string, string> = { high: '高', medium: '中', low: '�
         v-else
         class="text-sm"
       >
-        动态选项暂不可用，话题与股票关联仍可查看。<Button
+        动态选项暂不可用，话题信息仍可查看。<Button
           variant="link"
           @click="load"
         >

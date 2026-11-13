@@ -16,18 +16,6 @@ class TagView(BaseModel):
     event_count: int = 0
 
 
-class LinkView(BaseModel):
-    symbol: str
-    name: str
-    relation_type: str
-    relevance: str
-    reason: str
-    source: str
-    blocked: bool
-    judged_at: datetime
-    stale: bool
-
-
 class EventView(BaseModel):
     event_id: str
     title: str
@@ -43,9 +31,7 @@ class EventView(BaseModel):
     rule_retained: bool
     rule_reason: str
     manual_retained: bool | None
-    match_status: str
     synced_at: datetime
-    links: list[LinkView]
 
 
 class EventPage(BaseModel):
@@ -64,18 +50,9 @@ class EventOverride(BaseModel):
     retained: bool | None
 
 
-class LinkOverride(BaseModel):
-    symbol: str = Field(min_length=1, max_length=32)
-    action: Literal["add", "block", "restore"]
-    relation_type: Literal["direct", "industry"] = "direct"
-    relevance: Literal["high", "medium", "low"] = "high"
-    reason: str = Field(default="人工关联", min_length=1, max_length=2000)
-
-
 class RunRequest(BaseModel):
-    job: Literal["catalog", "matching"]
+    job: Literal["catalog"]
     slug: str | None = Field(default=None, max_length=600)
-    event_id: str | None = None
 
 
 class OutcomeView(BaseModel):

@@ -1,1 +1,1 @@
-"""Catalog and matching only: no scheduled probability collection."""
+"""Catalog synchronization only: no LLM or scheduled probability collection."""

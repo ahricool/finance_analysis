@@ -9,7 +9,6 @@ from finance_analysis.interfaces.api.v1.schemas.prediction_markets import (
     EventPage,
     TagOverride,
     EventOverride,
-    LinkOverride,
     RunRequest,
     LiveResponse,
     HistoryResponse,
@@ -60,11 +59,6 @@ def events(
     if set(tag_ids) - visible:
         raise HTTPException(422, "只能筛选可见标签")
     return listing(repo, page=page, page_size=page_size, keyword=keyword, tag_ids=tag_ids, closed=closed, sort=sort)
-
-
-@router.get("/stocks/{symbol}", response_model=EventPage)
-def stock(symbol: str, page: int = Query(1, ge=1), page_size: int = Query(5, ge=1, le=30), repo=Depends(repository)):
-    return listing(repo, page=page, page_size=page_size, symbol=symbol.upper(), closed=None)
 
 
 def stored(repo, event_id):
@@ -128,31 +122,16 @@ def override_event(event_id: str, body: EventOverride, repo=Depends(repository))
     return {"status": "updated"}
 
 
-@router.put("/admin/events/{event_id}/links", dependencies=[Depends(require_admin)])
-def override_link(event_id: str, body: LinkOverride, repo=Depends(repository)):
-    try:
-        repo.set_link(event_id, **{**body.model_dump(), "symbol": body.symbol.upper()})
-    except ValueError as exc:
-        raise HTTPException(422, str(exc)) from None
-    return {"status": "updated"}
-
-
 @router.post("/admin/run", status_code=202)
 def run(body: RunRequest, admin=Depends(require_admin)):
     enabled()
-    from finance_analysis.tasks.celery.jobs.polymarket.tasks import polymarket_catalog_sync, polymarket_stock_matching
+    from finance_analysis.tasks.celery.jobs.polymarket.tasks import polymarket_catalog_sync
 
     try:
         slug = import_slug(body.slug) if body.slug else None
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from None
-    if body.job == "catalog":
-        task, queue, kwargs = polymarket_catalog_sync, "ingestion", {"slug": slug}
-    else:
-        if slug:
-            raise HTTPException(422, "手动导入使用目录任务")
-        task, queue, kwargs = polymarket_stock_matching, "analysis", {"retry": True, "retry_event_id": body.event_id}
-    result = task.apply_async(
-        queue=queue, kwargs={**kwargs, "_trigger_source": "manual", "_triggered_by_uid": admin.id}
+    result = polymarket_catalog_sync.apply_async(
+        queue="ingestion", kwargs={"slug": slug, "_trigger_source": "manual", "_triggered_by_uid": admin.id}
     )
     return {"status": "queued", "task_id": result.id}

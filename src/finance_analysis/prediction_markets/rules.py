@@ -1,13 +1,10 @@
 """Deterministic, deliberately conservative rules. Never calls an LLM."""
 
-import hashlib
-import json
 import re
 from datetime import datetime, timezone
 from urllib.parse import urlsplit
 
 RULE_VERSION = "catalog-1"
-MATCH_VERSION = "matching-1"
 TAG_GROUPS = {
     "finance": {"finance", "financials", "stocks", "stock-market", "markets", "fed", "interest-rates"},
     "business": {"business", "ipos", "ipo", "earnings", "companies", "mergers"},
@@ -19,10 +16,6 @@ EXCLUDED_TAGS = {"sports", "nba", "nfl", "soccer", "tennis", "entertainment", "m
 POLICY = re.compile(r"\b(tariff|trade|export|import|regulat|tax|fiscal|monetary|rate|inflation|sanction)", re.I)
 MICRO_CRYPTO = re.compile(r"(bitcoin|btc|ethereum|eth|solana|xrp).*(up or down|\d+\s*(minute|min)\b)", re.I)
 PRICE = re.compile(r"\b(stock price|share price|market cap|close above|close below|reach \$)", re.I)
-
-
-def digest(value):
-    return hashlib.sha256(json.dumps(value, ensure_ascii=False, sort_keys=True, default=str).encode()).hexdigest()
 
 
 def tag_group(slug, label=""):
@@ -71,7 +64,6 @@ def project_event(raw):
         closed=raw.get("closed") if isinstance(raw.get("closed"), bool) else None,
         archived=raw.get("archived") if isinstance(raw.get("archived"), bool) else None,
     )
-    result["semantic_hash"] = digest({k: result[k] for k in ("title", "description", "tag_ids", "start_at", "end_at")})
     return result
 
 
@@ -91,30 +83,3 @@ def import_slug(value):
     if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", value):
         raise ValueError("无效的事件 slug")
     return value
-
-
-def recalls(event, profile):
-    text = (event["title"] + " " + event["description"]).casefold()
-    # Public-name normalization only, never an invented business description.
-    company = re.sub(
-        r"(?i)[, .]+(?:incorporated|inc|corporation|corp|limited|ltd|plc)\.?$", "", profile["name"]
-    ).strip()
-    terms = [profile["name"], company, *profile.get("aliases", []), *profile.get("industries", [])]
-    # Short ticker words such as AI/ON are never arbitrary substring matches.
-    ticker = profile["symbol"].split(".")[0]
-    if len(ticker) >= 3:
-        terms.append(ticker)
-    for term in terms:
-        term = str(term).strip().casefold()
-        if len(term) < 3 and term.isascii():
-            continue
-        if term and (
-            re.search(r"(?<![a-z0-9])" + re.escape(term) + r"(?![a-z0-9])", text) if term.isascii() else term in text
-        ):
-            return True
-    return False
-
-
-def matching_version(event, tags):
-    public_tags = sorted((t["tag_id"], t["slug"], t["label"]) for t in tags if t["tag_id"] in event["tag_ids"])
-    return digest([event["semantic_hash"], MATCH_VERSION, public_tags])

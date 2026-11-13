@@ -1,14 +1,11 @@
 """Offline official-contract fixtures; no real API or LLM calls."""
 
-import json
-
 import httpx
 import pytest
 
 from finance_analysis.integrations.polymarket.client import Client, PolymarketError
-from finance_analysis.prediction_markets.rules import project_event, tag_group, decide, import_slug, recalls
+from finance_analysis.prediction_markets.rules import project_event, tag_group, decide, import_slug
 from finance_analysis.prediction_markets.live import live_projection, changes
-from finance_analysis.prediction_markets.service import parse_match, matching_prompt
 
 
 def client(handler):
@@ -183,32 +180,3 @@ def test_history_changes_same_series_tolerances_and_closed():
     assert changes(points, now, closed=True)["24h"]["percentage_points"] is None
     points[1]["resolution_seconds"] = 43200
     assert changes(points, now)["24h"]["percentage_points"] is None
-
-
-def test_matching_contract_and_public_frozen_prompt():
-    e = project_event(event())
-    p = dict(symbol="NVDA.US", name="Nvidia", aliases=[], industries=["Semiconductors"])
-    assert recalls(e, p)
-    assert not recalls(
-        {**e, "title": "chairperson opinion", "description": ""},
-        dict(symbol="AI.US", name="AI", aliases=[], industries=[]),
-    )
-    prompt = matching_prompt(e, [p], [])
-    assert "csv" in prompt and "不重新查询" in prompt
-    assert "outcomePrices" not in prompt and "uid" not in prompt
-    assert parse_match(json.dumps({"event_id": e["event_id"], "associations": []}), e["event_id"], [p]) == []
-    with pytest.raises(ValueError):
-        parse_match(
-            json.dumps(
-                {
-                    "event_id": e["event_id"],
-                    "associations": [dict(symbol="AAPL.US", relation_type="direct", relevance="high", reason="x")],
-                }
-            ),
-            e["event_id"],
-            [p],
-        )
-
-
-def test_public_company_suffix_normalization():
-    assert recalls(project_event(event()), dict(symbol="NVDA.US", name="Nvidia Corporation", aliases=[], industries=[]))

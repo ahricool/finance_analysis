@@ -487,6 +487,6 @@ GET本人历史不重算，默认今日或上一交易日；手动触发仅当�
 ## Prediction Markets
 
 `prediction_markets/` 为共享「事件预测」，`integrations/polymarket/` 独立公开API，不接股票Provider。
-仅持久化 prediction_tag/event/instrument_link；标签全枚举、规则筛选，LLM仅冻结输入股票匹配。
-动态GET允许上游只读与短Redis缓存，不写业务库/赔率、不派任务/LLM。仅目录6h与匹配30m两任务，默认关闭。
-CN/US自动匹配公开证券并集，HK支持人工关联。唯一StockDetailHost复用事件卡片；见 `docs/prediction-markets.md`。
+仅持久化 prediction_tag/event；标签全枚举、规则筛选。仅做公开数据拉取与展示，不调用LLM、不读取自选/持仓、不做股票关联。
+动态GET允许上游只读与短Redis缓存，不写业务库/赔率、不派任务。仅目录6h一个任务，默认关闭。
+页面 `/market/prediction-events`；无个股详情页签，见 `docs/prediction-markets.md`。
