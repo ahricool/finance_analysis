@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 
+# OCC five-session equity-option volume through 2026-11-12; see docs/intraday-options.md.
 SYMBOLS = tuple(
     f"{code}.US"
     for code in (
@@ -10,31 +11,31 @@ SYMBOLS = tuple(
         "NVDA",
         "IWM",
         "TSLA",
-        "AMD",
-        "TLT",
-        "SPCX",
-        "AAPL",
         "MU",
-        "AMZN",
-        "CRWV",
-        "HYG",
-        "MSFT",
-        "IBIT",
-        "GLD",
+        "AAPL",
+        "AMD",
+        "SPCX",
         "INTC",
-        "IREN",
-        "SOXL",
-        "AVGO",
-        "GFL",
-        "TQQQ",
-        "SOFI",
+        "AMZN",
+        "IBIT",
+        "CRWV",
+        "TLT",
         "GOOGL",
-        "SLV",
-        "MARA",
-        "MSTR",
-        "RIOT",
-        "HIMS",
         "META",
+        "MSFT",
+        "SOXL",
+        "IREN",
+        "GLD",
+        "AVGO",
+        "TQQQ",
+        "MSTR",
+        "SMH",
+        "HYG",
+        "SOFI",
+        "SLV",
+        "DRAM",
+        "WULF",
+        "SMCI",
     )
 )
 VERSION = "intraday_options_v5"

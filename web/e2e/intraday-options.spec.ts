@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 
-const codes = 'SPY QQQ NVDA IWM TSLA AMD TLT SPCX AAPL MU AMZN CRWV HYG MSFT IBIT GLD INTC IREN SOXL AVGO GFL TQQQ SOFI GOOGL SLV MARA MSTR RIOT HIMS META'.split(' ');
+const codes = 'SPY QQQ NVDA IWM TSLA MU AAPL AMD SPCX INTC AMZN IBIT CRWV TLT GOOGL META MSFT SOXL IREN GLD AVGO TQQQ MSTR SMH HYG SOFI SLV DRAM WULF SMCI'.split(' ');
 const now = '2026-11-12T16:00:05Z';
 for (const width of [390, 768, 1024, 1280, 1440, 1920]) {
   test(`intraday options sorting, stable live rows and minute panel at ${width}px`, async ({ page }, testInfo) => {
@@ -79,8 +79,8 @@ for (const width of [390, 768, 1024, 1280, 1440, 1920]) {
     await page.getByRole('button', { name: '最新价', exact: true }).click();
     await expect(rows.last()).toHaveAttribute('data-testid', 'options-row-SPCX.US');
     await page.getByRole('group', { name: '方向筛选' }).getByRole('button', { name: '偏空', exact: true }).click();
-    await expect(rows).toHaveCount(14);
-    await page.getByRole('textbox', { name: '搜索标的' }).fill('GOOGL');
+    await expect(rows).toHaveCount(15);
+    await page.getByRole('textbox', { name: '搜索标的' }).fill('INTC');
     await expect(rows).toHaveCount(1);
     expect(errors).toEqual([]);
   });

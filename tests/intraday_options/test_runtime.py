@@ -40,8 +40,9 @@ def test_publisher_and_read_only_snapshot_latest_cache_only():
         row = parsed.items[0]
         assert row.symbol == "SPY.US" and row.data_status == "ready"
         assert row.result.direction == "bullish" and row.change_pct < 0  # day return never sets direction
-        assert parsed.items[7].symbol == "SPCX.US" and parsed.items[7].issues
-        assert parsed.items[7].result is None
+        missing = next(item for item in parsed.items if item.symbol == "SPCX.US")
+        assert missing.issues
+        assert missing.result is None
         assert len([k for k in repo.redis.strings if k.startswith("rt:intraday-options")]) == 1
         delayed = await read_snapshot(repo, {}, now + timedelta(minutes=2))
         assert delayed["items"][0]["data_status"] == "delayed"

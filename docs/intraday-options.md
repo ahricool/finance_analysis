@@ -7,9 +7,16 @@
 ## 固定观察池和页面
 
 唯一注册表 `src/finance_analysis/intraday_options/config.py`，固定30个canonical `.US` 标的：
-SPY、QQQ、NVDA、IWM、TSLA、AMD、TLT、SPCX、AAPL、MU、AMZN、CRWV、HYG、MSFT、IBIT、GLD、INTC、IREN、SOXL、AVGO、GFL、TQQQ、SOFI、GOOGL、SLV、MARA、MSTR、RIOT、HIMS、META。
+SPY、QQQ、NVDA、IWM、TSLA、MU、AAPL、AMD、SPCX、INTC、AMZN、IBIT、CRWV、TLT、GOOGL、META、MSFT、SOXL、IREN、GLD、AVGO、TQQQ、MSTR、SMH、HYG、SOFI、SLV、DRAM、WULF、SMCI。
 不随成交量排名变化；名称批量读Instrument，缺失显示“主数据未识别”，订阅错误另行标记，不替换代码。固定池订阅失败逐标的隔离；连接健康检查失败仍走原有重连，不能把连接故障误当个别代码问题。
 观察池不修改任何用户的自选股或持仓。
+
+2026-11-14人工更新依据：[OCC逐日合约成交量文件](https://www.theocc.com/market-data/market-data-reports/other-market-data-info/batch-processing/contract-volume-download-batch-processing)，
+统计2026-11-06、09、10、11、12五个完整交易日（13日文件当时尚不可用）。仅取OSTK股票/ETF期权，
+按Underlying汇总全部交易所、到期日和Call/Put；Customer、Firm、Market Maker合计除以2，消除双边重复计数，
+按五日成交张数降序取前30。11月12日汇总66,953,360张，与OCC官方Equity总量核对一致。
+本次加入SMH、DRAM、WULF、SMCI，移除RIOT、MARA、HIMS、GFL；注册表顺序同步为本次成交量排名。
+该名单仍为人工维护的固定观察池，不自动刷新；全链成交量排名不代表0DTE或具体合约的点差、深度与可交易性。
 
 表格一页展示全部标的，含名称/代码、最新价、当日涨跌幅、15/30/60分钟质量分与带符号收益、当前方向、机会分、当前状态。
 每个数据列表头支持升降序，空值始终最后；周期列按质量分，方向/状态按明确枚举顺序。
