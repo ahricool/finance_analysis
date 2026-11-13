@@ -158,6 +158,7 @@ const router = createRouter({
             { path: '', redirect: { name: 'market-watch-list' } },
             { path: 'holdings-review', name: 'market-holdings-review', component: () => import('@/pages/market/HoldingsReviewPage.vue'), meta: { title: '持仓复盘', marketScope: 'selectable' } },
             { path: 'intraday-options', name: 'market-intraday-options', component: () => import('@/pages/market/IntradayOptionsPage.vue'), meta: { title: '日内期权交易', marketScope: 'US' } },
+            { path: 'prediction-events', name: 'market-prediction-events', component: () => import('@/pages/market/PredictionEventsPage.vue'), meta: { title: '事件预测' } },
             { path: 'heatmap', name: 'market-heatmap', component: () => import('@/pages/market/MarketHeatmapPage.vue'), meta: { title: '热力图', marketScope: 'selectable' } },
             {
               path: 'watch-list',

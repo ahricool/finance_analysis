@@ -261,6 +261,7 @@ def test_lock_ids_are_stable_and_readable() -> None:
         "STOCK_STRATEGIES_US": 16,
         "MARKET_HEATMAP_CN": 17,
         "MARKET_HEATMAP_US": 18,
+        "POLYMARKET": 19,
     }
 
 
@@ -280,6 +281,7 @@ def test_scheduled_lock_declarations_remain_nonblocking() -> None:
             )
 
     assert locked == {
+        "polymarket_catalog_sync": (TaskAdvisoryLockId.POLYMARKET, False),
         "market_heatmap_cn": (TaskAdvisoryLockId.MARKET_HEATMAP_CN, False),
         "market_heatmap_us": (TaskAdvisoryLockId.MARKET_HEATMAP_US, False),
         "options_intelligence_intraday": (TaskAdvisoryLockId.OPTIONS_INTELLIGENCE, False),

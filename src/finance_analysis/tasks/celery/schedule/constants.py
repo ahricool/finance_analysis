@@ -69,3 +69,5 @@ JOB_SIGNAL_CENTER_CN = "signal_center_cn"
 JOB_SIGNAL_CENTER_US = "signal_center_us"
 
 JOB_STOCK_STRATEGIES = "stock_strategies"
+
+JOB_POLYMARKET_CATALOG = "polymarket_catalog_sync"
