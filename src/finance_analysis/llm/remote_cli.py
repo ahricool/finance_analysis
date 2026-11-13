@@ -147,7 +147,7 @@ def complete(config: LLMConfig, request: LLMRequest) -> LLMResult:
         execution_started = time.monotonic()
         launched = True
         channel.exec_command(
-            supervised_command(config, remaining, request.web_search, request.call_type == "earnings_outlook")
+            supervised_command(config, remaining, request.web_search, request.call_type in {"earnings_outlook", "polymarket_stock_matching"})
         )
         # Interleave writes and both output streams to avoid SSH window deadlocks.
         data = prompt.encode("utf-8")

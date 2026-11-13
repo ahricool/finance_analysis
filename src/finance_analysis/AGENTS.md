@@ -303,3 +303,9 @@ Fuyao 定向报价和日线批量复用 DB Instrument 类型，未知类型不�
 只读精简Preview，过期/跨日不回退正式结果；K线与持仓输入冻结在`holdings_review`表（0088）。
 LLM允许web_search，但只能建议已有position；BUY为加仓，数量不执行。个人结果与notification原子保存。
 默认GET本人今日/上一交易日，只读历史，禁止历史日期套用当前行情生成报告。详见根目录`docs/holdings-review.md`。
+
+## Prediction Markets
+
+仅三张目录/关联表，不持久化市场选项、赔率、结果ID映射或历史。GET live/history可访问固定公开上游并写短缓存，
+不得写业务库/派任务/LLM；catalog无LLM，matching使用统一LLMClient且web_search=False，不含私有关注来源。
+任务共用session advisory lock，业务写事务不跨外部请求；逐组版本校验与人工覆盖见 `../../docs/prediction-markets.md`。

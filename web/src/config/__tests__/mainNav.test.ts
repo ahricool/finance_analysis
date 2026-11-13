@@ -52,6 +52,7 @@ describe('main navigation', () => {
       'holdings',
       'holdings-review',
       'intraday-options',
+      'prediction-events',
       'heatmap',
       'timeline',
       'options-intelligence',

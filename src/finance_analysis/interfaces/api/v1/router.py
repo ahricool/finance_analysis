@@ -118,3 +118,6 @@ router.include_router(holdings_review.router, prefix="/holdings-review", tags=["
 from .endpoints import intraday_options
 
 router.include_router(intraday_options.router, prefix="/intraday-options", tags=["Intraday Options"])
+
+from .endpoints import prediction_markets
+router.include_router(prediction_markets.router, prefix='/prediction-markets', tags=['Prediction Markets'])

@@ -43,6 +43,7 @@ export const marketNavItems: NavDestination[] = [
   { key: 'holdings', label: '投资组合', to: '/market/holdings', icon: Wallet },
   { key: 'holdings-review', label: '持仓复盘', to: '/market/holdings-review', icon: ClipboardCheck },
   { key: 'intraday-options', label: '日内期权交易', to: '/market/intraday-options', icon: Star },
+  { key: 'prediction-events', label: '事件预测', to: '/market/prediction-events', icon: LayoutGrid },
   { key: 'heatmap', label: '热力图', to: '/market/heatmap', icon: LayoutGrid },
 ];
 

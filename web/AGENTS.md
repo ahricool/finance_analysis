@@ -394,3 +394,10 @@ V2历史仍标“宏观环境”并说明统一风险偏好语义，不用V2.1�
 
 `/market/intraday-options` 固定US观察池，指标与解释均来自后端最新缓存；前端只计算图表参考线。所有数据列表头排序，默认机会分降序，行情更新不重排；显式表头/筛选/更新排序才改变顺序。
 展开复用MarketKLineChart，参考线明确VWAP/近似VWAP/等权口径。数据异常独立标记；不保存历史，不请求具体合约。见 `../docs/intraday-options.md`。
+
+## 事件预测
+
+`/market/prediction-events` 为跨资产共享页面，禁用全局市场开关且不改变偏好。
+`PredictionEventCard`/`PredictionHistory`供共享页和唯一证券详情的事件预测页签复用；仅当前页加载live，展开才加载历史。
+无轮询，切股票/页签/卸载取消请求并作废迟到响应；变化用中性色和百分点，0与缺失区分，不提供实时全局排序。
+管理覆盖影响所有用户，仅管理员可见。见 `../docs/prediction-markets.md`。

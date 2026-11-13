@@ -9,7 +9,11 @@ from typing import Literal, Optional
 
 from celery.schedules import crontab
 
+from finance_analysis.prediction_markets.config import get_config as prediction_config
+
 from .constants import (
+    JOB_POLYMARKET_CATALOG,
+    JOB_POLYMARKET_MATCHING,
     JOB_STOCK_STRATEGIES,
     JOB_SIGNAL_CENTER_CN,
     JOB_SIGNAL_CENTER_US,
@@ -103,6 +107,18 @@ class ScheduledTaskDefinition:
 
 
 SCHEDULED_TASK_DEFINITIONS = (
+    ScheduledTaskDefinition(
+        job_id=JOB_POLYMARKET_CATALOG, name="事件预测目录同步", description="全量官方标签、规则筛选话题与状态；不采集赔率",
+        task_type="scheduled_polymarket_catalog_sync", celery_task_name=celery_task_name(JOB_POLYMARKET_CATALOG),
+        schedules=(CronSchedule(minute="10", hour="*/6"),), schedule_text="每6小时",
+        timezone=SCHEDULE_TIMEZONE, queue=QUEUE_INGESTION, expires=3600, enabled=prediction_config().enabled,
+    ),
+    ScheduledTaskDefinition(
+        job_id=JOB_POLYMARKET_MATCHING, name="事件预测股票匹配", description="只解释冻结事件与候选公开证券资料",
+        task_type="scheduled_polymarket_stock_matching", celery_task_name=celery_task_name(JOB_POLYMARKET_MATCHING),
+        schedules=(CronSchedule(minute="*/30"),), schedule_text="每30分钟",
+        timezone=SCHEDULE_TIMEZONE, queue=QUEUE_ANALYSIS, expires=1800, enabled=prediction_config().enabled,
+    ),
     ScheduledTaskDefinition(
         job_id="quant_cleanup", name="量化临时输入清理", description="清理已完成或终止任务的临时输入，不删除训练证据",
         task_type="scheduled_quant_cleanup", celery_task_name="scheduled.quant_cleanup",
