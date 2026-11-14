@@ -139,6 +139,28 @@ class TaskLifecycleDecoratorTestCase(unittest.TestCase):
         self.assertEqual(kwargs["dedup_key"], "task_failure:task-123")
         self.assertEqual(kwargs["cooldown_key"], "task_failure:task-123")
 
+    def test_heatmap_failures_are_recorded_without_notifications(self) -> None:
+        from finance_analysis.tasks.celery.jobs.market_heatmap.tasks import (
+            refresh_market_heatmap_cn,
+            refresh_market_heatmap_us,
+        )
+
+        for task in (refresh_market_heatmap_cn, refresh_market_heatmap_us):
+            with self.subTest(task=task.name):
+                service = _RecordingLifecycleService()
+                with patch("finance_analysis.tasks.lifecycle.get_task_lifecycle_service", return_value=service), \
+                     patch("finance_analysis.tasks.lifecycle.PostgreSQLAdvisoryLock") as lock, \
+                     patch("finance_analysis.tasks.celery.jobs.market_heatmap.tasks.HeatmapService") as heatmap, \
+                     patch("finance_analysis.notification.service.NotificationService") as notification_service:
+                    lock.return_value.acquire.return_value = True
+                    heatmap.return_value.refresh.side_effect = RuntimeError("snapshot unavailable")
+                    with self.assertRaisesRegex(RuntimeError, "snapshot unavailable"):
+                        task.run()
+
+                self.assertEqual([event[0] for event in service.events], ["processing", "failed"])
+                notification_service.assert_not_called()
+                lock.return_value.release.assert_called_once()
+
     def test_notification_failure_does_not_replace_task_exception(self) -> None:
         service = _RecordingLifecycleService()
 
