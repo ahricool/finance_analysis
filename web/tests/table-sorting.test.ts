@@ -19,7 +19,6 @@ const backendPaged: Record<string, string> = {
   'pages/TasksPage.vue:1': 'Task runs use backend page/size.',
   'pages/market/SignalCenterPage.vue:0': 'Signal history uses backend offsets.',
   'components/market-sentiment/PoolTable.vue:0': 'Sentiment pools use backend page/size.',
-  'components/trend-following/TrendEventStudy.vue:2': 'Event details use backend offsets.',
 };
 
 describe('application table sorting policy', () => {

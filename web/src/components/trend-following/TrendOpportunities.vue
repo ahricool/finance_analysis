@@ -106,7 +106,7 @@ async function download() {
               OHLCV · V1
             </Badge>
           </CardTitle>
-          <CardDescription>从完整趋势池识别价格结构，独立于 Alpha 排名。质量为规则匹配度，不代表胜率。</CardDescription>
+          <CardDescription>汇总 10 / 20 / 40 日趋势背景，同票合并展示，不受下方趋势周期切换影响。质量为规则匹配度，不代表胜率。</CardDescription>
         </div>
         <Button
           variant="outline"

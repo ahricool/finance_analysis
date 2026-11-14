@@ -8,7 +8,7 @@ import TrendFragilityHistoryChart from '@/components/trend-following/TrendFragil
 import TrendRankHistoryChart from '@/components/trend-following/TrendRankHistoryChart.vue';
 import { flushPromises, mount } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { TrendMarket, TrendSnapshot, TrendRankingSnapshot, TrendRankingResponse, TrendPreviewRankingResponse } from '@/types/trendFollowing';
+import type { TrendMarket, TrendSnapshot, TrendRankingSnapshot, TrendRankingResponse } from '@/types/trendFollowing';
 import { trendIndicatorDescriptions } from '@/components/trend-following/indicatorDescriptions';
 import TrendFollowingPage from '../TrendFollowingPage.vue';
 
@@ -121,7 +121,7 @@ describe('TrendFollowingPage', { timeout: 30_000 }, () => {
   });
   afterEach(() => { document.body.innerHTML = ''; vi.clearAllMocks(); });
 
-  it.each(['official', 'preview'] as const)('keeps the period selector at the right end of the wrapping %s toolbar', async (mode) => {
+  it.each(['official', 'preview'] as const)('scopes the period selector and run action to analysis in %s mode', async (mode) => {
     mockPreview({ ...ranking('CN'), status: 'completed',
       previewTime: '2026-08-28T10:00:00Z', snapshots: [snapshot()] });
     const wrapper = mount(TrendFollowingPage);
@@ -131,15 +131,78 @@ describe('TrendFollowingPage', { timeout: 30_000 }, () => {
 
     const toolbar = wrapper.get('.research-toolbar');
     const periods = wrapper.get('[data-testid="trend-period"]');
-    expect(toolbar.element.lastElementChild).toBe(periods.element);
+    expect(toolbar.find('[data-testid="trend-period"]').exists()).toBe(false);
+    expect(wrapper.get('[data-testid="trend-analysis"]').element.contains(periods.element)).toBe(true);
     expect(toolbar.classes()).toContain('flex-wrap');
-    expect(periods.classes()).toEqual(expect.arrayContaining(['ml-auto', 'shrink-0', 'flex-nowrap!']));
+    expect(periods.classes()).toEqual(expect.arrayContaining(['shrink-0', 'flex-nowrap!']));
     expect(periods.findAll('button').map(button => button.text())).toEqual(['10日', '20日', '40日']);
     expect(toolbar.find('[data-testid="trend-market"]').exists()).toBe(false);
     expect(toolbar.find('[data-testid="trend-refresh"]').exists()).toBe(true);
-    expect(toolbar.find('[data-testid="trend-run-latest"]').exists()).toBe(mode === 'official');
+    expect(wrapper.get('[data-testid="trend-analysis-controls"]').find('[data-testid="trend-run-latest"]').exists()).toBe(mode === 'official');
     expect(toolbar.find('[data-testid="trend-date-input"]').exists()).toBe(mode === 'official');
     expect(toolbar.find('[data-testid="trend-date-readonly"]').exists()).toBe(mode === 'preview');
+    wrapper.unmount();
+  });
+
+  it('keeps the historical opportunity context mounted when only the trend period changes', async () => {
+    apiMocks.ranking.mockImplementation(async (market, day) => ({ ...ranking(market), tradeDate: day || '2026-08-28' }));
+    const wrapper = mount(TrendFollowingPage, { global: { stubs: { TrendOpportunities: {
+      name: 'TrendOpportunities', props: ['market', 'tradeDate', 'mode', 'refreshKey'], template: '<div data-testid="opportunity-stub" />',
+    } } } });
+    await flushPromises();
+    await wrapper.get('[data-testid="trend-date-input"]').setValue('2026-08-27');
+    await flushPromises();
+    const opportunities = wrapper.getComponent({ name: 'TrendOpportunities' });
+    const instance = opportunities.vm;
+    const before = opportunities.props();
+    await wrapper.get('[data-testid="trend-period"]').findAll('button')[1]!.trigger('click');
+    await flushPromises();
+    expect(apiMocks.ranking).toHaveBeenLastCalledWith('CN', '2026-08-27', 20);
+    expect(wrapper.getComponent({ name: 'TrendOpportunities' }).vm).toBe(instance);
+    expect(opportunities.props()).toEqual(before);
+    expect(wrapper.get('[data-testid="trend-date-input"]').element).toHaveProperty('value', '2026-08-27');
+    wrapper.unmount();
+  });
+
+  it('keeps shared Preview and opportunities when a selected period has no Preview payload', async () => {
+    mockPreview({ ...ranking('CN'), status: 'completed', tradeDate: '2026-09-10',
+      previewTime: '2026-09-10T06:00:00Z', snapshots: [snapshot()] });
+    const wrapper = mount(TrendFollowingPage, { global: { stubs: { TrendOpportunities: {
+      name: 'TrendOpportunities', props: ['market', 'tradeDate', 'mode', 'refreshKey'], template: '<div />',
+    } } } });
+    await flushPromises();
+    const opportunities = wrapper.getComponent({ name: 'TrendOpportunities' });
+    const before = opportunities.props();
+    expect(before.mode).toBe('preview');
+    expect(before.tradeDate).toBe('2026-09-10');
+    apiMocks.previewRanking.mockResolvedValueOnce(null);
+    await wrapper.get('[data-testid="trend-period"]').findAll('button')[1]!.trigger('click');
+    await flushPromises();
+    expect(apiMocks.previewRanking).toHaveBeenLastCalledWith('CN', 20);
+    expect(apiMocks.ranking).not.toHaveBeenCalled();
+    expect(opportunities.props()).toEqual(before);
+    expect(wrapper.get('[data-testid="trend-date-readonly"]').text()).toContain('2026-09-10');
+    expect(wrapper.get('[data-testid="research-mode-preview"]').attributes('disabled')).toBeUndefined();
+    wrapper.unmount();
+  });
+
+  it('never requests removed tables even when their endpoints would time out', async () => {
+    const timeout = { response: { status: 504, data: { detail: 'upstream timeout' } } };
+    apiMocks.eventStudySummary.mockRejectedValue(timeout);
+    apiMocks.eventStudyEvents.mockRejectedValue(timeout);
+    apiMocks.transitions.mockRejectedValue(timeout);
+    const wrapper = mount(TrendFollowingPage);
+    await flushPromises();
+    await wrapper.get('[data-testid="trend-refresh"]').trigger('click');
+    await flushPromises();
+    await wrapper.get('[data-testid="trend-period"]').findAll('button')[2]!.trigger('click');
+    await flushPromises();
+    expect(apiMocks.eventStudySummary).not.toHaveBeenCalled();
+    expect(apiMocks.eventStudyEvents).not.toHaveBeenCalled();
+    expect(apiMocks.transitions).not.toHaveBeenCalled();
+    expect(wrapper.text()).not.toMatch(/历史策略研究|趋势状态变更|连接上游服务超时/);
+    expect(wrapper.findAll('[data-testid="trend-row"]')).toHaveLength(1);
+    expect(wrapper.find('[data-testid="trend-opportunities"]').exists()).toBe(true);
     wrapper.unmount();
   });
 
@@ -196,8 +259,8 @@ describe('TrendFollowingPage', { timeout: 30_000 }, () => {
     await flushPromises();
     resolve20({ ...ranking('CN'), items: [{ ...rankingSnapshot(), code: 'TWENTY.US', name: 'Twenty' }] });
     await flushPromises();
-    expect(apiMocks.ranking).toHaveBeenLastCalledWith('CN', undefined, 40);
-    expect(apiMocks.previewStatus).toHaveBeenLastCalledWith('CN', 40);
+    expect(apiMocks.ranking).toHaveBeenLastCalledWith('CN', '2026-08-28', 40);
+    expect(apiMocks.previewStatus).toHaveBeenLastCalledWith('CN', 10);
     expect(wrapper.get('[data-testid="trend-row"]').attributes('data-code')).toBe('FORTY.US');
     expect(wrapper.text()).toContain('MA40');
     expect(wrapper.text()).not.toContain('15D');
@@ -323,7 +386,9 @@ describe('TrendFollowingPage', { timeout: 30_000 }, () => {
     await wrapper.get('[data-testid="research-mode-preview"]').trigger('click');
     await flushPromises();
     expect(wrapper.get('[data-testid="mr-row"]').text()).toContain('反弹确认');
-    expect(wrapper.get('[data-testid="study-preview-disabled"]').text()).toContain('仅基于 Official 正式快照');
+    expect(wrapper.find('#section-study').exists()).toBe(false);
+    expect(apiMocks.eventStudySummary).not.toHaveBeenCalled();
+    expect(apiMocks.transitions).not.toHaveBeenCalled();
     expect(apiMocks.eventStudyEvents).not.toHaveBeenCalled();
     wrapper.unmount();
   });
@@ -754,7 +819,7 @@ describe('TrendFollowingPage', { timeout: 30_000 }, () => {
   it('renders CN scope, regime, ranking, trend state in a compact desktop table', async () => {
     const wrapper = mount(TrendFollowingPage, { attachTo: document.body });
     await flushPromises();
-    expect(wrapper.text()).toContain('沪深300 + 中证500');
+    expect(wrapper.text()).toContain('A 股趋势池');
     expect(wrapper.text()).toContain('RISK_ON');
     expect(wrapper.get('[data-testid="trend-rank-changes"]').text()).toContain('0');
     expect(wrapper.text()).toContain('平安银行');
@@ -848,7 +913,7 @@ describe('TrendFollowingPage', { timeout: 30_000 }, () => {
     expect(apiMocks.breadthHistory.mock.calls).toEqual([
       ['CN', '2026-08-28', false, 10], ['US', '2026-08-28', false, 10],
     ]);
-    expect(wrapper.text()).toContain('S&P 500');
+    expect(wrapper.text()).toContain('美股趋势池');
     expect(wrapper.text()).toContain('Apple');
   });
 
@@ -1021,52 +1086,7 @@ describe('TrendFollowingPage', { timeout: 30_000 }, () => {
     await header!.trigger('click');
     expect(order()).toEqual(['C.US', 'A.US', 'B.US', 'D.US']);
   });
-  it('loads transition Preview independently while the page Preview is in flight', async () => {
-    const payload = { ...ranking('CN'), status: 'completed', previewTime: '2026-08-28T10:00:00Z',
-      dataAsOf: null, provider: 'yfinance', snapshots: [snapshot()] };
-    mockPreview(payload);
-    let resolvePreview!: (value: TrendPreviewRankingResponse) => void;
-    apiMocks.previewRanking.mockReturnValueOnce(new Promise(resolve => { resolvePreview = resolve; }));
-    apiMocks.detailHistory.mockResolvedValue({ history: [] });
-    const wrapper = mount(TrendFollowingPage);
-    await flushPromises();
-    const overview = wrapper.getComponent({ name: 'TrendMarketOverview' });
-    // Deliver the transition click during the mode switch, before the loading render.
-    void wrapper.get('[data-testid="research-mode-preview"]').trigger('click');
-    overview.vm.$emit('select', { code: '000001.SZ', tradeDate: '2026-08-28', preview: true });
-    await flushPromises();
-    expect(apiMocks.previewRanking).toHaveBeenCalledTimes(1);
-    expect(apiMocks.detailHistory).toHaveBeenCalledWith('000001.SZ', 'CN', '2026-08-28', 60, 10);
-    expect(document.body.querySelector('[data-testid="trend-detail"]')).not.toBeNull();
-    resolvePreview({ ...payload, snapshots: payload.snapshots.map(asRankingSnapshot) });
-    await flushPromises();
-    expect(document.body.querySelector('[data-testid="trend-risk-sizing"]')!.textContent).toContain('盘中建议基于当前临时日线');
-    expect(document.body.querySelector('[data-testid="trend-detail"]')!.textContent).toContain('平安银行');
-    expect(apiMocks.detailHistory).toHaveBeenCalledWith('000001.SZ', 'CN', '2026-08-28', 60, 10);
-    expect(apiMocks.detail).not.toHaveBeenCalled();
-    wrapper.getComponent({ name: 'TrendMarketOverview' }).vm.$emit('select', { code: '000001.SZ', tradeDate: '2026-08-28', preview: true });
-    await flushPromises();
-    expect(apiMocks.previewRanking).toHaveBeenCalledTimes(1);
-    wrapper.unmount();
-  });
 
-  it('reports neutral unavailability when Preview has no matching transition stock', async () => {
-    mockPreview({ ...ranking('CN'), status: 'completed', previewTime: '2026-08-28T10:00:00Z',
-      dataAsOf: null, provider: 'yfinance', snapshots: [snapshot()] });
-    const wrapper = mount(TrendFollowingPage);
-    await flushPromises();
-    wrapper.getComponent({ name: 'TrendMarketOverview' }).vm.$emit('select', {
-      code: 'MISSING.US', tradeDate: '2026-08-28', preview: true,
-    });
-    await flushPromises();
-    const dialog = document.body.querySelector('[data-testid="trend-detail"]')!;
-    expect(dialog.textContent).toContain('此证券在所选日期暂无趋势研究预演数据');
-    expect(dialog.querySelector('[role="alert"]')).toBeNull();
-    expect(apiMocks.previewRanking).not.toHaveBeenCalled();
-    expect(apiMocks.previewDetail).toHaveBeenCalledWith('MISSING.US', 'CN', '2026-08-28', 10);
-    expect(apiMocks.detail).not.toHaveBeenCalled();
-    wrapper.unmount();
-  });
 
   it('loads only status for official, lazily downloads Preview once, and refreshes the visible mode', async () => {
     mockPreview({ ...ranking('CN'), status: 'completed', previewTime: '2026-08-28T10:00:00Z', dataAsOf: null, provider: 'yfinance', snapshots: [snapshot()] });
@@ -1121,21 +1141,6 @@ describe('TrendFollowingPage', { timeout: 30_000 }, () => {
     wrapper.unmount();
   });
 
-  it('opens the existing detail at the transition date instead of the selected table date', async () => {
-    apiMocks.ranking.mockResolvedValue(ranking('CN'));
-    apiMocks.dates.mockResolvedValue({ items: ['2026-08-28'] });
-    apiMocks.previewStatus.mockResolvedValue(null);
-    apiMocks.transitions.mockResolvedValue({ items: [], warnings: [] });
-    apiMocks.breadthHistory.mockResolvedValue({ points: [], dates: [], officialCount: 0, warnings: [] });
-    const wrapper = mount(TrendFollowingPage);
-    await flushPromises();
-    const overview = wrapper.findComponent({ name: 'TrendMarketOverview' });
-    overview.vm.$emit('select', { code: '000001.SZ', tradeDate: '2026-08-27', preview: false });
-    await flushPromises();
-    expect(apiMocks.detail).toHaveBeenLastCalledWith('000001.SZ', 'CN', 60, '2026-08-27', 10);
-    expect(document.body.querySelector('[data-testid="trend-detail"]')).not.toBeNull();
-    wrapper.unmount();
-  });
   it('opens a dated official source link without switching to Preview', async () => {
     const { createMemoryHistory, createRouter } = await import('vue-router');
     const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/source', component: TrendFollowingPage }] });

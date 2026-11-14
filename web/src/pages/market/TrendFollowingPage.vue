@@ -8,7 +8,6 @@ import StockDetailDialog from '@/components/stocks/StockDetailDialog.vue';
 import type { StockDetailContext } from '@/components/stocks/detail/types';
 import PageHeader from '@/components/layout/PageHeader.vue';
 import TrendOpportunities from '@/components/trend-following/TrendOpportunities.vue';
-import TrendEventStudy from '@/components/trend-following/TrendEventStudy.vue';
 import {
   boxColumns, boxFilters, boxPriority, boxStateText, mrColumns, mrFilters, mrPriority, mrText,
   stateFilters, trendColumns, type RankingColumn, type SortKey,
@@ -90,10 +89,12 @@ const dataMode = ref<ResearchDataMode>('official');
 const modeChosenByUser = ref(false);
 const { previewStatus, previewPayload, previewLoading, previewError, refreshPreviewStatus, loadPreview, resetPreview } =
   useLazyResearchPreview<TrendMarket, TrendPreviewStatusResponse, TrendPreviewRankingResponse>(() => market.value, {
-    previewStatus: market => trendFollowingApi.previewStatus(market, trendPeriod.value),
+    previewStatus: market => trendFollowingApi.previewStatus(market, 10),
     preview: market => trendFollowingApi.previewRanking(market, trendPeriod.value),
   });
 const previewInfo = computed(() => previewPayload.value ?? previewStatus.value);
+// Shared controls use the canonical batch, never the selected period's payload.
+const sharedPreviewInfo = shallowRef<TrendPreviewStatusResponse | null>(null);
 const officialLatest = shallowRef<{ tradeDate: string; generatedAt: string | null } | null>(null);
 const officialSelected = shallowRef<TrendRankingResponse | null>(null);
 const detailOpen = ref(false);
@@ -103,9 +104,9 @@ const rankingDetailTrigger = ref<{ code: string; el: HTMLElement | null } | null
 let generation = 0;
 const marketOverviewRefreshKey = ref(0);
 const marketOverviewReady = ref(false);
-const studyContextReady = ref(false);
+const pageContextReady = ref(false);
 
-const scope = computed(() => market.value === 'CN' ? '沪深300 + 中证500' : 'S&P 500');
+const scope = computed(() => market.value === 'CN' ? 'A 股趋势池' : '美股趋势池');
 const ITEM_SORT_KEYS = ['rank', 'name', 'state', 'setup', 'alphaScore', 'trendScore', 'rsScore',
   'referencePrice', 'fragilityScore', 'entryScore', 'entryType'] as const;
 type ItemSortKey = Extract<SortKey, typeof ITEM_SORT_KEYS[number]>;
@@ -214,7 +215,7 @@ const cards = computed(() => [
   ['rankable', summary.value.rankableCount, descriptions.rankable, 'text'],
   ['candidate', summary.value.candidateCount, descriptions.candidate, 'text'],
 ]);
-const previewAvailable = computed(() => previewStatus.value != null);
+const previewAvailable = computed(() => sharedPreviewInfo.value != null);
 const showingPreview = computed(() => dataMode.value === 'preview' && !previewLoading.value && isPreviewCompleted(previewPayload.value?.status));
 const showingStrategyBody = computed(() => dataMode.value === 'official' || showingPreview.value);
 
@@ -284,7 +285,7 @@ async function showPreview() {
     applyPreviewPayload(previewPayload.value);
   }
 }
-async function load(refreshDates = false, options: { autoSelectMode?: boolean } = {}) {
+async function load(refreshDates = false, options: { autoSelectMode?: boolean; refreshPreview?: boolean } = {}) {
   const current = ++generation;
   // Mount history only after the anchor date and automatic data mode have settled.
   marketOverviewReady.value = false;
@@ -297,14 +298,18 @@ async function load(refreshDates = false, options: { autoSelectMode?: boolean } 
   const auxiliary = refreshDates || !availableDates.value.length;
   const refreshVisiblePreview = refreshDates && dataMode.value === 'preview';
   // Auxiliaries update independently; a slow/failed preview must not block official data.
-  if (auxiliary) void trendFollowingApi.dates(requestedMarket, trendPeriod.value).then(result => {
+  if (auxiliary) void trendFollowingApi.dates(requestedMarket, 10).then(result => {
     if (current === generation) availableDates.value = result.items;
   }).catch(() => undefined);
-  const previewTask = auxiliary ? refreshPreviewStatus(refreshVisiblePreview) : Promise.resolve();
+  const previewTask = auxiliary || options.refreshPreview
+    ? refreshPreviewStatus(refreshVisiblePreview || options.refreshPreview === true).then(() => {
+      if (current === generation && !options.refreshPreview) sharedPreviewInfo.value = previewStatus.value;
+    })
+    : Promise.resolve();
   try {
     if (autoSelectMode && !modeChosenByUser.value) {
       let metadataFailed = false;
-      const statusTask = trendFollowingApi.snapshotStatus(requestedMarket, trendPeriod.value)
+      const statusTask = trendFollowingApi.snapshotStatus(requestedMarket, 10)
         .catch(() => { metadataFailed = true; return null; });
       const [official] = await Promise.all([statusTask, previewTask]);
       if (current !== generation) return;
@@ -337,7 +342,7 @@ async function load(refreshDates = false, options: { autoSelectMode?: boolean } 
   } finally {
     if (current === generation) {
       marketOverviewReady.value = true;
-      studyContextReady.value = true;
+      pageContextReady.value = true;
       loading.value = false;
       refreshing.value = false;
     }
@@ -408,8 +413,9 @@ function openDetail(item: Pick<TrendSnapshot, 'code'> & { name?: string; tradeDa
   };
   detailOpen.value = true;
 }
-watch([market, trendPeriod], () => {
-  studyContextReady.value = false;
+watch(market, () => {
+  pageContextReady.value = false;
+  sharedPreviewInfo.value = null;
   selectedDate.value = '';
   tables.forEach(table => { table.search = ''; });
   tables.forEach(table => { table.filter = table.kind === 'box' ? 'opportunities' : 'all'; });
@@ -424,6 +430,17 @@ watch([market, trendPeriod], () => {
   summary.value = { ...emptySummary(), market: market.value };
   modeChosenByUser.value = false;
   void load(true, { autoSelectMode: true });
+});
+
+// The period belongs to trend analysis. Preserve the shared date/mode and the
+// mounted opportunity view (including its filters, expansion and request state).
+watch(trendPeriod, () => {
+  officialSelected.value = null;
+  items.value = [];
+  changes.value = null;
+  detailOpen.value = false;
+  rankingDetailTrigger.value = null;
+  void load(false, { autoSelectMode: false, refreshPreview: true });
 });
 
 let entryDisposed = false;
@@ -450,7 +467,7 @@ onMounted(async () => {
       variant="section"
       title="趋势跟踪"
       en="Trend Following"
-      :description="`${scope} · ${trendPeriod}日策略 · 跟踪股票趋势强弱、排名变化与风险指标，观察趋势延续和转弱。`"
+      :description="`${scope} · 先发现买点机会，再结合趋势强弱与市场广度研判。`"
     >
       <template #actions>
         <ResearchDataModeToggle
@@ -475,7 +492,7 @@ onMounted(async () => {
           class="flex h-10 items-center text-sm text-muted-foreground"
           data-testid="trend-date-readonly"
         >
-          今日 · {{ previewInfo?.tradeDate || '—' }}
+          今日 · {{ sharedPreviewInfo?.tradeDate || '—' }}
         </p>
         <Button
           variant="outline"
@@ -486,528 +503,526 @@ onMounted(async () => {
         >
           <RefreshCcw class="size-4" />刷新
         </Button>
-        <LoadingButton
-          v-if="dataMode === 'official'"
-          class="h-10"
-          :loading="running"
-          loading-text="提交中…"
-          data-testid="trend-run-latest"
-          @click="runLatest"
-        >
-          运行最新数据
-        </LoadingButton>
-        <div
-          class="ml-auto flex shrink-0 flex-nowrap! items-center gap-1"
-          role="group"
-          aria-label="趋势周期"
-          data-testid="trend-period"
-        >
-          <Button
-            v-for="period in ([10, 20, 40] as const)"
-            :key="period"
-            :variant="trendPeriod === period ? 'default' : 'outline'"
-            size="sm"
-            :aria-pressed="trendPeriod === period"
-            @click="trendPeriod = period"
-          >
-            {{ period }}日
-          </Button>
-        </div>
       </template>
     </PageHeader>
-    <ResearchDataStatusBar
+    <TrendOpportunities
+      v-if="pageContextReady"
+      :refresh-key="marketOverviewRefreshKey"
+      :market="market"
+      :trade-date="dataMode === 'official' ? selectedDate || undefined : sharedPreviewInfo?.tradeDate"
       :mode="dataMode"
-      :trade-date="dataMode === 'preview' ? previewInfo?.tradeDate : summary.tradeDate"
-      :data-as-of="previewInfo?.dataAsOf"
-      :preview-time="previewInfo?.previewTime"
-      :generated-at="dataMode === 'official' ? summary.generatedAt : previewInfo?.previewTime"
-      :provider="previewInfo?.provider"
-      :official-trade-date="officialLatest?.tradeDate"
-      :preview-status="previewInfo?.status"
-      :reason="previewInfo?.warnings?.join('；') || null"
     />
-    <AppApiErrorAlert
-      v-if="error"
-      :error="error"
-    />
-    <AppApiErrorAlert
-      v-if="dataMode === 'preview' && previewError"
-      :error="previewError"
-    />
-    <p
-      v-if="dataMode === 'preview' && previewLoading"
-      role="status"
-      class="text-sm text-muted-foreground"
-    >
-      正在加载盘中预演…
-    </p>
-    <div
-      v-if="summary.warnings.length && showingStrategyBody"
-      role="alert"
-      class="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200"
-    >
-      {{ summary.warnings.join('；') }}
-    </div>
-    <div
-      v-if="loading || (dataMode === 'preview' && previewLoading)"
-      class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4"
-    >
-      <Skeleton
-        v-for="index in 8"
-        :key="index"
-        class="h-20"
-      />
-    </div>
-    <div
-      v-else
-      class="relative space-y-4"
-      :class="refreshing ? 'opacity-70' : ''"
-    >
-      <div
-        v-if="showingStrategyBody"
-        class="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-6"
-        data-testid="trend-summary"
-      >
-        <Card
-          v-for="card in cards"
-          :key="String(card[0])"
-          class="gap-0 py-2.5! shadow-none"
-        >
-          <CardContent class="min-w-0 space-y-1 px-3 py-0">
-            <IndicatorLabel
-              :label="String(card[0])"
-              :description="String(card[2])"
-              wrap
-            />
-            <BilingualEnum
-              v-if="card[3] === 'enum'"
-              :value="String(card[1] ?? '')"
-              size="large"
-              class="w-full"
-            />
-            <strong
-              v-else
-              class="block truncate text-lg tabular-nums"
-            >{{ card[1] }}</strong>
-          </CardContent>
-        </Card>
-      </div>
-
-
-      <TrendMarketOverview
-        v-if="!loading && marketOverviewReady"
-        :key="`${market}-${trendPeriod}`"
-        :trend-period="trendPeriod"
-        :market="market"
-        :as-of="dataMode === 'official' ? selectedDate || undefined : undefined"
-        :include-preview="dataMode === 'preview'"
-        :refresh-key="marketOverviewRefreshKey"
-        @select="openDetail"
-      />
-
-      <Card v-if="dataMode === 'official' && showingStrategyBody">
-        <CardHeader>
-          <CardTitle>市场与分数变化</CardTitle>
-          <CardDescription>相对 {{ changes?.previousTradeDate || '上一可用交易日' }} 的市场和显著分数变化。</CardDescription>
-        </CardHeader>
-        <CardContent class="space-y-4">
-          <div class="grid gap-3 sm:grid-cols-2">
-            <div
-              class="rounded border p-3"
-              data-testid="trend-market-score-change"
-            >
-              <IndicatorLabel
-                label="marketScoreDelta"
-                :description="descriptions.marketScoreChange"
-              />
-              <strong class="mt-1 block text-lg">{{ scoreDelta(changes?.marketScoreChange) }}</strong>
-            </div>
-            <div
-              class="rounded border p-3"
-              data-testid="trend-breadth-score-change"
-            >
-              <IndicatorLabel
-                label="breadthScoreDelta"
-                :description="descriptions.breadthScoreChange"
-              />
-              <strong class="mt-1 block text-lg">{{ scoreDelta(changes?.breadthScoreChange) }}</strong>
-            </div>
-          </div>
-          <div
-            class="max-h-[32rem] space-y-4 overflow-y-auto pr-2"
-            data-testid="trend-changes-scroll"
-            tabindex="0"
-            aria-label="市场与分数变化 明细"
-          >
-            <section>
-              <h3 class="mb-2 text-sm font-semibold">
-                排名 / 分数变动
-              </h3>
-              <div class="flex flex-wrap gap-2">
-                <div
-                  v-for="change in changes?.movers ?? []"
-                  :key="change.code"
-                  data-testid="trend-mover"
-                  class="rounded border px-3 py-2 text-left text-xs hover:bg-muted/50"
-                  tabindex="0"
-                  role="button"
-                  @keydown.enter.self.prevent="openDetail(change)"
-                  @keydown.space.self.prevent="openDetail(change)"
-                  @click="openDetail(change)"
-                >
-                  <StockLink
-                    :code="change.code"
-                    :name="change.name"
-                    :market="market"
-                    @select="openDetail(change, 'overview')"
-                  />
-                  <span class="ml-2">Rank {{ rankDelta(change.rankChange) }}</span>
-                  <span class="ml-2">Trend {{ scoreDelta(change.trendScoreChange) }}</span>
-                  <span class="ml-2">RS {{ scoreDelta(change.rsScoreChange) }}</span>
-                  <span class="ml-2">Alpha {{ scoreDelta(change.alphaScoreChange) }}</span>
-                </div>
-                <span
-                  v-if="!changes?.movers?.length"
-                  class="text-xs text-muted-foreground"
-                >无显著变化</span>
-              </div>
-            </section>
-          </div>
-        </CardContent>
-      </Card>
-
-      <TrendOpportunities
-        v-if="!loading && showingStrategyBody"
-        :refresh-key="marketOverviewRefreshKey"
-        :market="market"
-        :trade-date="dataMode === 'official' ? selectedDate || summary.tradeDate : undefined"
-        :mode="dataMode"
-      />
-      <template v-if="showingStrategyBody">
-        <Card
-          v-for="table in tables"
-          :id="`section-${table.kind}`"
-          :key="table.kind"
-          :data-testid="`${table.kind}-section`"
-        >
-          <component :is="table.kind === 'box' ? 'details' : 'div'">
-            <summary
-              v-if="table.kind === 'box'"
-              class="cursor-pointer px-6 py-4 text-sm font-medium"
-            >
-              周期箱体 · 旧口径 <span class="ml-2 text-xs font-normal text-muted-foreground">展开对照历史定义</span>
-            </summary>
-            <CardHeader class="flex flex-row flex-wrap items-center justify-between gap-3">
-              <div><CardTitle>{{ table.title }}</CardTitle><CardDescription>{{ table.description }}</CardDescription></div>
-              <LoadingButton
-                variant="outline"
-                size="sm"
-                :loading="table.exporting"
-                loading-text="导出中…"
-                :disabled="loading || refreshing || previewLoading || forwardLoading || !table.sortedItems.length"
-                :data-testid="`${table.kind}-export-excel`"
-                @click="exportRanking(table)"
-              >
-                导出 Excel
-              </LoadingButton>
-              <div
-                v-if="table.kind === 'trend'"
-                class="flex max-w-full flex-wrap gap-1"
-                aria-label="按趋势状态筛选"
-                data-testid="trend-state-filter"
-              >
-                <Button
-                  v-for="item in stateFilters"
-                  :key="item.value"
-                  size="sm"
-                  :variant="table.filter === item.value ? 'secondary' : 'ghost'"
-                  :aria-pressed="table.filter === item.value"
-                  @click="table.filter = item.value"
-                >
-                  {{ item.label }}
-                </Button>
-              </div>
-              <div
-                v-if="table.kind === 'box'"
-                class="flex max-w-full flex-wrap gap-1"
-                data-testid="box-state-filter"
-                aria-label="按箱体状态筛选"
-              >
-                <Button
-                  v-for="item in boxFilters"
-                  :key="item.value"
-                  size="sm"
-                  :variant="table.filter === item.value ? 'secondary' : 'ghost'"
-                  :aria-pressed="table.filter === item.value"
-                  @click="table.filter = item.value"
-                >
-                  {{ table.searchAll && item.value === 'opportunities' ? '全部股票' : item.label }}
-                </Button>
-              </div>
-              <p
-                v-if="table.kind === 'box'"
-                class="w-full text-xs text-muted-foreground"
-              >
-                旧版周期箱体研究，不与新版机会合并计分。详情前端结构也属于独立研究定义；新版机会绘制保存的后台证据。
-              </p>
-              <div
-                v-if="table.kind === 'mr'"
-                data-testid="mr-state-filter"
-                class="flex gap-1"
-              >
-                <Button
-                  v-for="item in mrFilters"
-                  :key="item.value"
-                  :variant="table.filter === item.value ? 'secondary' : 'ghost'"
-                  :aria-pressed="table.filter === item.value"
-                  @click="table.filter = item.value"
-                >
-                  {{ table.searchAll && item.value === 'all' ? '全部股票' : item.label }}
-                </Button>
-              </div>
-              <p
-                v-if="table.kind !== 'trend'"
-                class="w-full text-xs text-muted-foreground"
-                :data-testid="`${table.kind}-search-scope`"
-              >
-                {{ table.searchAll ? '正在搜索当前快照全部股票，含未出现机会或缺少指标的股票。' : '默认仅展示机会股票；搜索可查看当前快照全部股票，具体状态筛选仍生效。' }}
-              </p>
-              <label class="flex items-center gap-2 text-sm text-muted-foreground">搜索
-                <input
-                  v-model="table.search"
-                  type="search"
-                  :aria-label="`按名称或代码搜索${table.title}股票`"
-                  placeholder="股票名称或代码"
-                  class="h-9 w-56 rounded-md border bg-background px-3 text-foreground"
-                  :data-testid="`${table.kind}-ranking-search`"
-                >
-              </label>
-              <label class="flex items-center gap-2 text-sm text-muted-foreground">排序指标
-                <FieldSelect
-                  :model-value="table.sortKey"
-                  :options="table.columns.map(column => ({ value: column.key, label: metricLabel(column.label).zh }))"
-                  :aria-label="`${table.title}排序指标`"
-                  class="w-44"
-                  trigger-class="h-9"
-                  @update:model-value="table.sortKey = $event as SortKey"
-                />
-              </label>
-            </CardHeader>
-            <CardContent class="px-0">
-              <p
-                v-if="table.kind !== 'mr' && forwardLoading"
-                class="p-2 text-xs text-muted-foreground"
-                role="status"
-              >
-                未来收益率加载中…
-              </p>
-              <AppApiErrorAlert
-                v-if="table.kind !== 'mr' && forwardError"
-                :error="forwardError"
-                action-label="重试收益率"
-                @action="retryForward"
-              />
-              <Empty v-if="!loading && !items.length">
-                <EmptyHeader><EmptyTitle>暂无趋势快照</EmptyTitle><EmptyDescription>请确认所选日期已完成收盘行情同步和策略计算。</EmptyDescription></EmptyHeader>
-              </Empty>
-              <div
-                v-else
-                :ref="element => { table.viewport = element as HTMLElement | null; }"
-                :class="table.kind === 'trend' ? 'max-h-[60vh]' : 'max-h-[32rem]'"
-                class="w-full overflow-auto [&_[data-slot=table-container]]:overflow-visible"
-                :data-testid="`${table.kind}-ranking-scroll`"
-                tabindex="0"
-                aria-label="完整趋势排名，滚动查看全部股票"
-                @scroll="table.scrollTop = ($event.target as HTMLElement).scrollTop"
-              >
-                <Table
-                  class="w-full"
-                  :aria-rowcount="table.sortedItems.length + 2"
-                >
-                  <TableHeader class="sticky top-0 z-30 bg-background">
-                    <TableRow>
-                      <th
-                        v-for="group in table.groups"
-                        :key="group.label"
-                        :colspan="group.count"
-                        class="border-r px-4 py-2 text-left text-xs text-muted-foreground"
-                      >
-                        {{ group.label }}
-                      </th>
-                    </TableRow>
-                    <TableRow>
-                      <SortableTableHeader
-                        v-for="column in table.columns"
-                        :key="column.key"
-                        :label="columnLabel(column)"
-                        class="min-w-32 whitespace-nowrap"
-                        :class="column.key === 'name' ? 'sticky left-0 z-20 min-w-48 bg-background' : ''"
-                        :description="column.key.startsWith('entry') ? descriptions.entry : column.description && column.key !== 'rankChange5D' && !column.key.startsWith('forwardReturn') ? periodText(column.description) : column.description"
-                        :active="table.sortKey === column.key"
-                        :direction="table.sortDirection"
-                        @sort="table.toggleSort(column.key)"
-                      />
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    <tr
-                      v-if="table.range.topSpace"
-                      aria-hidden="true"
-                      :style="{ height: `${table.range.topSpace}px` }"
-                    >
-                      <td
-                        :colspan="table.columns.length"
-                        class="p-0"
-                      />
-                    </tr>
-                    <TableRow
-                      v-for="(item, index) in table.renderedRows"
-                      :key="item.code"
-                      class="cursor-pointer focus-visible:bg-muted/80 focus-visible:outline-none"
-                      :data-testid="`${table.kind}-row`"
-                      :data-code="item.code"
-                      tabindex="0"
-                      :aria-rowindex="table.range.start + index + 3"
-                      :aria-haspopup="'dialog'"
-                      :aria-label="`打开 ${item.name} ${item.code} 趋势详情`"
-                      :style="table.virtual ? { height: `${table.rowHeight}px` } : undefined"
-                      @click="openRankingDetail(item, $event)"
-                      @keydown="onRankingRowKeydown(item, $event)"
-                    >
-                      <TableCell
-                        v-for="column in table.columns"
-                        :key="column.key"
-                        class="min-w-32 whitespace-nowrap tabular-nums"
-                        :class="column.key === 'name' ? 'sticky left-0 z-10 min-w-48 bg-background' : column.key === 'alphaScore' ? 'font-bold text-primary' : ''"
-                        :data-column="column.key"
-                      >
-                        <template v-if="column.key === 'rank'">
-                          {{ formatRank(item.rank, summary.rankableCount) }}
-                        </template>
-                        <template v-else-if="column.key === 'name'">
-                          <StockLink
-                            :code="item.code"
-                            :name="item.name"
-                            :market="market"
-                            @select="openDetail(item, 'overview')"
-                          />
-                        </template>
-                        <Badge
-                          v-else-if="column.key === 'mrState'"
-                          :variant="item.features.mrState === 'MR_REBOUND' ? 'success' : item.features.mrState === 'MR_OVERSOLD' ? 'warning' : 'outline'"
-                        >
-                          {{ mrText(item.features.mrState) }}
-                        </Badge>
-                        <Badge
-                          v-else-if="column.key === 'boxState'"
-                          :variant="item.features.boxState === 'BOX_BREAKOUT' ? 'success' : item.features.boxState === 'BOX_READY' ? 'info' : 'outline'"
-                        >
-                          {{ boxStateText(item.features.boxState) }}
-                        </Badge>
-                        <Badge
-                          v-else-if="column.key === 'state'"
-                          :variant="badgeVariant(item.state)"
-                        >
-                          <BilingualEnum
-                            :value="item.state"
-                            size="badge"
-                          />
-                        </Badge>
-                        <template v-else-if="column.key === 'trendLifecycle'">
-                          <BilingualEnum
-                            :value="item.trendLifecycle"
-                            size="badge"
-                          /><span class="block text-xs text-muted-foreground">{{ item.trendDurationDays == null ? '—' : `${item.trendDurationDays}D` }}</span>
-                        </template>
-                        <template v-else-if="column.key === 'rankChange5D'">
-                          <div
-                            class="flex gap-3 whitespace-nowrap"
-                            data-testid="trend-rank-changes"
-                          >
-                            <span
-                              v-for="[label, value] in ([['1D', item.rankChange1D], ['3D', item.rankChange3D], ['5D', item.rankChange5D]] as const)"
-                              :key="label"
-                              class="text-xs"
-                            >
-                              <span class="text-muted-foreground">{{ label }}</span>
-                              <span :class="value == null || value === 0 ? 'text-muted-foreground' : value > 0 ? 'text-market-up' : 'text-market-down'">
-                                {{ rankDelta(value) }}
-                              </span>
-                            </span>
-                          </div>
-                        </template>
-                        <template v-else-if="column.key === 'alphaScore'">
-                          {{ score(item.alphaScore) }}<span class="block text-xs font-normal text-muted-foreground">{{ alphaVersionLabel(item.features.alphaVersion as number | null | undefined) }}</span>
-                        </template>
-                        <template v-else-if="entryBranchForColumn(column.key)">
-                          <span class="block text-xs font-medium">{{ entryStatusText(entryTextFeature(item.features, column.key), entryBranchForColumn(column.key)!.key) }}</span>
-                          <span
-                            class="block max-w-64 truncate text-xs text-muted-foreground"
-                            :aria-label="entryTextFeature(item.features, entryBranchForColumn(column.key)!.reason) ?? undefined"
-                          >{{ entryTextFeature(item.features, entryBranchForColumn(column.key)!.reason) ?? '旧快照未保存' }}</span>
-                        </template>
-                        <template v-else>
-                          {{ rankingCell(item, column) }}
-                        </template>
-                      </TableCell>
-                    </TableRow>
-                    <tr
-                      v-if="table.range.bottomSpace"
-                      aria-hidden="true"
-                      :style="{ height: `${table.range.bottomSpace}px` }"
-                    >
-                      <td
-                        :colspan="table.columns.length"
-                        class="p-0"
-                      />
-                    </tr>
-                  </TableBody>
-                </Table>
-              </div>
-              <p
-                v-if="items.length && !table.sortedItems.length"
-                class="px-6 pt-4 text-sm text-muted-foreground"
-                role="status"
-              >
-                没有匹配的股票，请尝试其他名称、代码或 State 筛选。
-              </p>
-              <p
-                v-if="items.length"
-                class="px-6 pt-4 text-sm text-muted-foreground"
-                :data-testid="`${table.kind}-ranking-count`"
-              >
-                显示 {{ table.sortedItems.length }} / {{ items.length }} 条
-              </p>
-            </CardContent>
-          </component>
-        </Card>
-      </template>
-    </div>
 
     <section
-      id="section-study"
-      class="space-y-3"
+      class="min-w-0 space-y-4 border-t pt-6"
+      data-testid="trend-analysis"
+      aria-labelledby="trend-analysis-title"
     >
-      <h2 class="text-xl font-semibold">
-        历史策略研究
-      </h2>
-      <p class="text-sm text-muted-foreground">
-        比较旧版事件与各新版买点分支的 5/10/20D 表现；分支和同票合并口径分开，不代表实际成交收益。
-      </p>
-      <TrendEventStudy
-        v-if="dataMode === 'official' && studyContextReady && (selectedDate || summary.tradeDate)"
-        :key="`${market}-${trendPeriod}`"
-        :trend-period="trendPeriod"
-        :market="market"
-        :end-date="selectedDate || summary.tradeDate"
+      <div class="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+        <div class="space-y-1">
+          <h2
+            id="trend-analysis-title"
+            class="text-lg font-semibold tracking-tight"
+          >
+            趋势分析
+          </h2>
+          <p class="text-sm text-muted-foreground">
+            按所选周期查看市场背景、趋势排名与超跌反弹。
+          </p>
+        </div>
+        <div
+          class="flex flex-wrap items-center gap-3"
+          data-testid="trend-analysis-controls"
+        >
+          <div
+            class="flex shrink-0 flex-nowrap! items-center gap-1 rounded-lg border bg-muted/30 p-1"
+            role="group"
+            aria-label="趋势周期"
+            data-testid="trend-period"
+          >
+            <Button
+              v-for="period in ([10, 20, 40] as const)"
+              :key="period"
+              :variant="trendPeriod === period ? 'default' : 'outline'"
+              size="sm"
+              :aria-pressed="trendPeriod === period"
+              @click="trendPeriod = period"
+            >
+              {{ period }}日
+            </Button>
+          </div>
+          <LoadingButton
+            v-if="dataMode === 'official'"
+            class="h-10"
+            :loading="running"
+            loading-text="提交中…"
+            data-testid="trend-run-latest"
+            @click="runLatest"
+          >
+            运行 {{ trendPeriod }} 日分析
+          </LoadingButton>
+        </div>
+      </div>
+      <ResearchDataStatusBar
+        :mode="dataMode"
+        :trade-date="dataMode === 'preview' ? previewInfo?.tradeDate : summary.tradeDate"
+        :data-as-of="previewInfo?.dataAsOf"
+        :preview-time="previewInfo?.previewTime"
+        :generated-at="dataMode === 'official' ? summary.generatedAt : previewInfo?.previewTime"
+        :provider="previewInfo?.provider"
+        :official-trade-date="officialLatest?.tradeDate"
+        :preview-status="previewInfo?.status"
+        :reason="previewInfo?.warnings?.join('；') || null"
+      />
+      <AppApiErrorAlert
+        v-if="error"
+        :error="error"
+      />
+      <AppApiErrorAlert
+        v-if="dataMode === 'preview' && previewError"
+        :error="previewError"
       />
       <p
-        v-else-if="dataMode === 'preview'"
-        data-testid="study-preview-disabled"
+        v-if="dataMode === 'preview' && previewLoading"
+        role="status"
         class="text-sm text-muted-foreground"
       >
-        历史策略研究仅基于 Official 正式快照。
+        正在加载盘中预演…
       </p>
+      <div
+        v-if="summary.warnings.length && showingStrategyBody"
+        role="alert"
+        class="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200"
+      >
+        {{ summary.warnings.join('；') }}
+      </div>
+      <div
+        v-if="loading || (dataMode === 'preview' && previewLoading)"
+        class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4"
+      >
+        <Skeleton
+          v-for="index in 8"
+          :key="index"
+          class="h-20"
+        />
+      </div>
+      <div
+        v-else
+        class="relative space-y-4"
+        :class="refreshing ? 'opacity-70' : ''"
+      >
+        <div
+          v-if="showingStrategyBody"
+          class="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-6"
+          data-testid="trend-summary"
+        >
+          <Card
+            v-for="card in cards"
+            :key="String(card[0])"
+            class="gap-0 py-2.5! shadow-none"
+          >
+            <CardContent class="min-w-0 space-y-1 px-3 py-0">
+              <IndicatorLabel
+                :label="String(card[0])"
+                :description="String(card[2])"
+                wrap
+              />
+              <BilingualEnum
+                v-if="card[3] === 'enum'"
+                :value="String(card[1] ?? '')"
+                size="large"
+                class="w-full"
+              />
+              <strong
+                v-else
+                class="block truncate text-lg tabular-nums"
+              >{{ card[1] }}</strong>
+            </CardContent>
+          </Card>
+        </div>
+
+
+        <TrendMarketOverview
+          v-if="!loading && marketOverviewReady"
+          :key="`${market}-${trendPeriod}`"
+          :trend-period="trendPeriod"
+          :market="market"
+          :as-of="dataMode === 'official' ? selectedDate || undefined : undefined"
+          :include-preview="dataMode === 'preview'"
+          :refresh-key="marketOverviewRefreshKey"
+        />
+
+        <Card v-if="dataMode === 'official' && showingStrategyBody">
+          <CardHeader>
+            <CardTitle>市场与分数变化</CardTitle>
+            <CardDescription>相对 {{ changes?.previousTradeDate || '上一可用交易日' }} 的市场和显著分数变化。</CardDescription>
+          </CardHeader>
+          <CardContent class="space-y-4">
+            <div class="grid gap-3 sm:grid-cols-2">
+              <div
+                class="rounded border p-3"
+                data-testid="trend-market-score-change"
+              >
+                <IndicatorLabel
+                  label="marketScoreDelta"
+                  :description="descriptions.marketScoreChange"
+                />
+                <strong class="mt-1 block text-lg">{{ scoreDelta(changes?.marketScoreChange) }}</strong>
+              </div>
+              <div
+                class="rounded border p-3"
+                data-testid="trend-breadth-score-change"
+              >
+                <IndicatorLabel
+                  label="breadthScoreDelta"
+                  :description="descriptions.breadthScoreChange"
+                />
+                <strong class="mt-1 block text-lg">{{ scoreDelta(changes?.breadthScoreChange) }}</strong>
+              </div>
+            </div>
+            <div
+              class="max-h-[32rem] space-y-4 overflow-y-auto pr-2"
+              data-testid="trend-changes-scroll"
+              tabindex="0"
+              aria-label="市场与分数变化 明细"
+            >
+              <section>
+                <h3 class="mb-2 text-sm font-semibold">
+                  排名 / 分数变动
+                </h3>
+                <div class="flex flex-wrap gap-2">
+                  <div
+                    v-for="change in changes?.movers ?? []"
+                    :key="change.code"
+                    data-testid="trend-mover"
+                    class="rounded border px-3 py-2 text-left text-xs hover:bg-muted/50"
+                    tabindex="0"
+                    role="button"
+                    @keydown.enter.self.prevent="openDetail(change)"
+                    @keydown.space.self.prevent="openDetail(change)"
+                    @click="openDetail(change)"
+                  >
+                    <StockLink
+                      :code="change.code"
+                      :name="change.name"
+                      :market="market"
+                      @select="openDetail(change, 'overview')"
+                    />
+                    <span class="ml-2">Rank {{ rankDelta(change.rankChange) }}</span>
+                    <span class="ml-2">Trend {{ scoreDelta(change.trendScoreChange) }}</span>
+                    <span class="ml-2">RS {{ scoreDelta(change.rsScoreChange) }}</span>
+                    <span class="ml-2">Alpha {{ scoreDelta(change.alphaScoreChange) }}</span>
+                  </div>
+                  <span
+                    v-if="!changes?.movers?.length"
+                    class="text-xs text-muted-foreground"
+                  >无显著变化</span>
+                </div>
+              </section>
+            </div>
+          </CardContent>
+        </Card>
+
+        <template v-if="showingStrategyBody">
+          <Card
+            v-for="table in tables"
+            :id="`section-${table.kind}`"
+            :key="table.kind"
+            :data-testid="`${table.kind}-section`"
+          >
+            <component :is="table.kind === 'box' ? 'details' : 'div'">
+              <summary
+                v-if="table.kind === 'box'"
+                class="cursor-pointer px-6 py-4 text-sm font-medium"
+              >
+                周期箱体 · 旧口径 <span class="ml-2 text-xs font-normal text-muted-foreground">展开对照历史定义</span>
+              </summary>
+              <CardHeader class="flex flex-row flex-wrap items-center justify-between gap-3">
+                <div><CardTitle>{{ table.title }}</CardTitle><CardDescription>{{ table.description }}</CardDescription></div>
+                <LoadingButton
+                  variant="outline"
+                  size="sm"
+                  :loading="table.exporting"
+                  loading-text="导出中…"
+                  :disabled="loading || refreshing || previewLoading || forwardLoading || !table.sortedItems.length"
+                  :data-testid="`${table.kind}-export-excel`"
+                  @click="exportRanking(table)"
+                >
+                  导出 Excel
+                </LoadingButton>
+                <div
+                  v-if="table.kind === 'trend'"
+                  class="flex max-w-full flex-wrap gap-1"
+                  aria-label="按趋势状态筛选"
+                  data-testid="trend-state-filter"
+                >
+                  <Button
+                    v-for="item in stateFilters"
+                    :key="item.value"
+                    size="sm"
+                    :variant="table.filter === item.value ? 'secondary' : 'ghost'"
+                    :aria-pressed="table.filter === item.value"
+                    @click="table.filter = item.value"
+                  >
+                    {{ item.label }}
+                  </Button>
+                </div>
+                <div
+                  v-if="table.kind === 'box'"
+                  class="flex max-w-full flex-wrap gap-1"
+                  data-testid="box-state-filter"
+                  aria-label="按箱体状态筛选"
+                >
+                  <Button
+                    v-for="item in boxFilters"
+                    :key="item.value"
+                    size="sm"
+                    :variant="table.filter === item.value ? 'secondary' : 'ghost'"
+                    :aria-pressed="table.filter === item.value"
+                    @click="table.filter = item.value"
+                  >
+                    {{ table.searchAll && item.value === 'opportunities' ? '全部股票' : item.label }}
+                  </Button>
+                </div>
+                <p
+                  v-if="table.kind === 'box'"
+                  class="w-full text-xs text-muted-foreground"
+                >
+                  旧版周期箱体研究，不与新版机会合并计分。详情前端结构也属于独立研究定义；新版机会绘制保存的后台证据。
+                </p>
+                <div
+                  v-if="table.kind === 'mr'"
+                  data-testid="mr-state-filter"
+                  class="flex gap-1"
+                >
+                  <Button
+                    v-for="item in mrFilters"
+                    :key="item.value"
+                    :variant="table.filter === item.value ? 'secondary' : 'ghost'"
+                    :aria-pressed="table.filter === item.value"
+                    @click="table.filter = item.value"
+                  >
+                    {{ table.searchAll && item.value === 'all' ? '全部股票' : item.label }}
+                  </Button>
+                </div>
+                <p
+                  v-if="table.kind !== 'trend'"
+                  class="w-full text-xs text-muted-foreground"
+                  :data-testid="`${table.kind}-search-scope`"
+                >
+                  {{ table.searchAll ? '正在搜索当前快照全部股票，含未出现机会或缺少指标的股票。' : '默认仅展示机会股票；搜索可查看当前快照全部股票，具体状态筛选仍生效。' }}
+                </p>
+                <label class="flex items-center gap-2 text-sm text-muted-foreground">搜索
+                  <input
+                    v-model="table.search"
+                    type="search"
+                    :aria-label="`按名称或代码搜索${table.title}股票`"
+                    placeholder="股票名称或代码"
+                    class="h-9 w-56 rounded-md border bg-background px-3 text-foreground"
+                    :data-testid="`${table.kind}-ranking-search`"
+                  >
+                </label>
+                <label class="flex items-center gap-2 text-sm text-muted-foreground">排序指标
+                  <FieldSelect
+                    :model-value="table.sortKey"
+                    :options="table.columns.map(column => ({ value: column.key, label: metricLabel(column.label).zh }))"
+                    :aria-label="`${table.title}排序指标`"
+                    class="w-44"
+                    trigger-class="h-9"
+                    @update:model-value="table.sortKey = $event as SortKey"
+                  />
+                </label>
+              </CardHeader>
+              <CardContent class="px-0">
+                <p
+                  v-if="table.kind !== 'mr' && forwardLoading"
+                  class="p-2 text-xs text-muted-foreground"
+                  role="status"
+                >
+                  未来收益率加载中…
+                </p>
+                <AppApiErrorAlert
+                  v-if="table.kind !== 'mr' && forwardError"
+                  :error="forwardError"
+                  action-label="重试收益率"
+                  @action="retryForward"
+                />
+                <Empty v-if="!loading && !items.length">
+                  <EmptyHeader><EmptyTitle>暂无趋势快照</EmptyTitle><EmptyDescription>请确认所选日期已完成收盘行情同步和策略计算。</EmptyDescription></EmptyHeader>
+                </Empty>
+                <div
+                  v-else
+                  :ref="element => { table.viewport = element as HTMLElement | null; }"
+                  :class="table.kind === 'trend' ? 'max-h-[60vh]' : 'max-h-[32rem]'"
+                  class="w-full overflow-auto [&_[data-slot=table-container]]:overflow-visible"
+                  :data-testid="`${table.kind}-ranking-scroll`"
+                  tabindex="0"
+                  aria-label="完整趋势排名，滚动查看全部股票"
+                  @scroll="table.scrollTop = ($event.target as HTMLElement).scrollTop"
+                >
+                  <Table
+                    class="w-full"
+                    :aria-rowcount="table.sortedItems.length + 2"
+                  >
+                    <TableHeader class="sticky top-0 z-30 bg-background">
+                      <TableRow>
+                        <th
+                          v-for="group in table.groups"
+                          :key="group.label"
+                          :colspan="group.count"
+                          class="border-r px-4 py-2 text-left text-xs text-muted-foreground"
+                        >
+                          {{ group.label }}
+                        </th>
+                      </TableRow>
+                      <TableRow>
+                        <SortableTableHeader
+                          v-for="column in table.columns"
+                          :key="column.key"
+                          :label="columnLabel(column)"
+                          class="min-w-32 whitespace-nowrap"
+                          :class="column.key === 'name' ? 'sticky left-0 z-20 min-w-48 bg-background' : ''"
+                          :description="column.key.startsWith('entry') ? descriptions.entry : column.description && column.key !== 'rankChange5D' && !column.key.startsWith('forwardReturn') ? periodText(column.description) : column.description"
+                          :active="table.sortKey === column.key"
+                          :direction="table.sortDirection"
+                          @sort="table.toggleSort(column.key)"
+                        />
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      <tr
+                        v-if="table.range.topSpace"
+                        aria-hidden="true"
+                        :style="{ height: `${table.range.topSpace}px` }"
+                      >
+                        <td
+                          :colspan="table.columns.length"
+                          class="p-0"
+                        />
+                      </tr>
+                      <TableRow
+                        v-for="(item, index) in table.renderedRows"
+                        :key="item.code"
+                        class="cursor-pointer focus-visible:bg-muted/80 focus-visible:outline-none"
+                        :data-testid="`${table.kind}-row`"
+                        :data-code="item.code"
+                        tabindex="0"
+                        :aria-rowindex="table.range.start + index + 3"
+                        :aria-haspopup="'dialog'"
+                        :aria-label="`打开 ${item.name} ${item.code} 趋势详情`"
+                        :style="table.virtual ? { height: `${table.rowHeight}px` } : undefined"
+                        @click="openRankingDetail(item, $event)"
+                        @keydown="onRankingRowKeydown(item, $event)"
+                      >
+                        <TableCell
+                          v-for="column in table.columns"
+                          :key="column.key"
+                          class="min-w-32 whitespace-nowrap tabular-nums"
+                          :class="column.key === 'name' ? 'sticky left-0 z-10 min-w-48 bg-background' : column.key === 'alphaScore' ? 'font-bold text-primary' : ''"
+                          :data-column="column.key"
+                        >
+                          <template v-if="column.key === 'rank'">
+                            {{ formatRank(item.rank, summary.rankableCount) }}
+                          </template>
+                          <template v-else-if="column.key === 'name'">
+                            <StockLink
+                              :code="item.code"
+                              :name="item.name"
+                              :market="market"
+                              @select="openDetail(item, 'overview')"
+                            />
+                          </template>
+                          <Badge
+                            v-else-if="column.key === 'mrState'"
+                            :variant="item.features.mrState === 'MR_REBOUND' ? 'success' : item.features.mrState === 'MR_OVERSOLD' ? 'warning' : 'outline'"
+                          >
+                            {{ mrText(item.features.mrState) }}
+                          </Badge>
+                          <Badge
+                            v-else-if="column.key === 'boxState'"
+                            :variant="item.features.boxState === 'BOX_BREAKOUT' ? 'success' : item.features.boxState === 'BOX_READY' ? 'info' : 'outline'"
+                          >
+                            {{ boxStateText(item.features.boxState) }}
+                          </Badge>
+                          <Badge
+                            v-else-if="column.key === 'state'"
+                            :variant="badgeVariant(item.state)"
+                          >
+                            <BilingualEnum
+                              :value="item.state"
+                              size="badge"
+                            />
+                          </Badge>
+                          <template v-else-if="column.key === 'trendLifecycle'">
+                            <BilingualEnum
+                              :value="item.trendLifecycle"
+                              size="badge"
+                            /><span class="block text-xs text-muted-foreground">{{ item.trendDurationDays == null ? '—' : `${item.trendDurationDays}D` }}</span>
+                          </template>
+                          <template v-else-if="column.key === 'rankChange5D'">
+                            <div
+                              class="flex gap-3 whitespace-nowrap"
+                              data-testid="trend-rank-changes"
+                            >
+                              <span
+                                v-for="[label, value] in ([['1D', item.rankChange1D], ['3D', item.rankChange3D], ['5D', item.rankChange5D]] as const)"
+                                :key="label"
+                                class="text-xs"
+                              >
+                                <span class="text-muted-foreground">{{ label }}</span>
+                                <span :class="value == null || value === 0 ? 'text-muted-foreground' : value > 0 ? 'text-market-up' : 'text-market-down'">
+                                  {{ rankDelta(value) }}
+                                </span>
+                              </span>
+                            </div>
+                          </template>
+                          <template v-else-if="column.key === 'alphaScore'">
+                            {{ score(item.alphaScore) }}<span class="block text-xs font-normal text-muted-foreground">{{ alphaVersionLabel(item.features.alphaVersion as number | null | undefined) }}</span>
+                          </template>
+                          <template v-else-if="entryBranchForColumn(column.key)">
+                            <span class="block text-xs font-medium">{{ entryStatusText(entryTextFeature(item.features, column.key), entryBranchForColumn(column.key)!.key) }}</span>
+                            <span
+                              class="block max-w-64 truncate text-xs text-muted-foreground"
+                              :aria-label="entryTextFeature(item.features, entryBranchForColumn(column.key)!.reason) ?? undefined"
+                            >{{ entryTextFeature(item.features, entryBranchForColumn(column.key)!.reason) ?? '旧快照未保存' }}</span>
+                          </template>
+                          <template v-else>
+                            {{ rankingCell(item, column) }}
+                          </template>
+                        </TableCell>
+                      </TableRow>
+                      <tr
+                        v-if="table.range.bottomSpace"
+                        aria-hidden="true"
+                        :style="{ height: `${table.range.bottomSpace}px` }"
+                      >
+                        <td
+                          :colspan="table.columns.length"
+                          class="p-0"
+                        />
+                      </tr>
+                    </TableBody>
+                  </Table>
+                </div>
+                <p
+                  v-if="items.length && !table.sortedItems.length"
+                  class="px-6 pt-4 text-sm text-muted-foreground"
+                  role="status"
+                >
+                  没有匹配的股票，请尝试其他名称、代码或 State 筛选。
+                </p>
+                <p
+                  v-if="items.length"
+                  class="px-6 pt-4 text-sm text-muted-foreground"
+                  :data-testid="`${table.kind}-ranking-count`"
+                >
+                  显示 {{ table.sortedItems.length }} / {{ items.length }} 条
+                </p>
+              </CardContent>
+            </component>
+          </Card>
+        </template>
+      </div>
     </section>
 
     <StockDetailDialog
