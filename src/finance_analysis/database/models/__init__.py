@@ -143,7 +143,3 @@ __all__.extend(["ResearchPreview", "ResearchPreviewItem"])
 from .quant import QuantModelRelease, QuantExecution
 
 __all__.extend(["QuantModelRelease", "QuantExecution"])
-
-from .prediction_markets import PredictionTag, PredictionEvent
-
-__all__.extend(['PredictionTag', 'PredictionEvent'])

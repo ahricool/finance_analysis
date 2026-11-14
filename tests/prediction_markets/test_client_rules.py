@@ -4,7 +4,6 @@ import httpx
 import pytest
 
 from finance_analysis.integrations.polymarket.client import Client, PolymarketError
-from finance_analysis.prediction_markets.rules import project_event, tag_group, decide, import_slug
 from finance_analysis.prediction_markets.live import live_projection, changes
 
 
@@ -20,42 +19,6 @@ def event(**extra):
         tags=[{"id": "1", "slug": "tech"}],
         **extra,
     )
-
-
-def test_all_tags_continue_short_pages_until_empty():
-    seen = []
-
-    def handler(req):
-        offset = int(req.url.params["offset"])
-        seen.append(offset)
-        return httpx.Response(200, json=[{"id": str(offset)}] if offset < 3 else [])
-
-    assert len(list(client(handler).tags())) == 3
-    assert seen == [0, 1, 2, 3]
-
-
-def test_event_cursor_and_both_protocol_parent_discovery():
-    requests = []
-
-    def handler(req):
-        requests.append(req)
-        if req.url.path == "/events/keyset":
-            return httpx.Response(
-                200,
-                json=(
-                    {"events": [event()], "next_cursor": "next"}
-                    if "after_cursor" not in req.url.params
-                    else {"events": [], "next_cursor": None}
-                ),
-            )
-        if req.url.path == "/markets/keyset":
-            assert req.url.params.get_list("version") == ["v1", "v2"]
-            return httpx.Response(200, json={"markets": [{"events": [{"id": "222"}]}]})
-        return httpx.Response(200, json={"id": "222", "title": "V2 topic"})
-
-    assert [r["id"] for r in client(handler).events("1")] == ["99999999999999999999", "222"]
-    assert requests[1].url.params["after_cursor"] == "next"
-    assert all("offset" not in r.url.params for r in requests)
 
 
 def test_history_cursor_empty_page_seconds_and_long_range():
@@ -92,37 +55,7 @@ def test_interrupted_or_repeated_pages_fail_not_complete():
         c.history("1", interval="max")
     c = client(lambda req: httpx.Response(429, headers={"Retry-After": "31"}))
     with pytest.raises(PolymarketError):
-        list(c.tags())
-
-
-def test_strict_catalog_projection_and_stable_semantics():
-    a = project_event(event(markets=[{"outcomePrices": ["0.9"]}], updatedAt="2026-11-13", volume=1))
-    b = project_event(event(markets=[{"outcomePrices": ["0.1"]}], updatedAt="2026-11-14", volume=9))
-    assert a == b
-    assert not {"markets", "volume", "outcomePrices", "updatedAt"} & a.keys()
-    assert a["closed"] is None
-    assert tag_group("sports") == "other"
-    assert tag_group("ipos") == "business"
-    tags = [dict(tag_id="1", slug="tech", rule_group="technology", visible=True)]
-    assert decide(a, tags) == (True, "selected_tag")
-    assert decide({**a, "title": "Bitcoin up or down 5 minute"}, tags)[0] is False
-    assert decide(a, [{**tags[0], "visible": False}])[0] is False
-
-
-@pytest.mark.parametrize(
-    "value",
-    [
-        "http://polymarket.com/event/test",
-        "https://evil.com/event/test",
-        "https://polymarket.com@evil.com/event/test",
-        "https://polymarket.com/event/a?url=http://evil",
-        "../a",
-        "a/b",
-    ],
-)
-def test_import_never_forwards_arbitrary_url(value):
-    with pytest.raises(ValueError):
-        import_slug(value)
+        c.search("NVIDIA")
 
 
 def test_live_hierarchy_v2_positions_big_ids_no_yes_assumption_or_zero_loss():

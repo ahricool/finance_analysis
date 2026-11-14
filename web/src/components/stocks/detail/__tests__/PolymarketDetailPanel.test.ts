@@ -1,0 +1,32 @@
+import { flushPromises, mount } from '@vue/test-utils';
+import { beforeEach, expect, it, vi } from 'vitest';
+import PolymarketDetailPanel from '../PolymarketDetailPanel.vue';
+const api = vi.hoisted(() => ({ search: vi.fn() }));
+vi.mock('@/api/predictionMarkets', () => ({ predictionApi: api }));
+const result = { status: 'ready', queries: ['NVIDIA', 'NVDA'], items: [{ eventId: '1', title: 'Nvidia event' }], fetchedAt: null, partial: false };
+const props = { symbol: 'NVDA.US', market: 'US' as const };
+const global = { stubs: { PredictionEventCard: { props: ['event'], template: '<div>{{ event.title }}</div>' } } };
+beforeEach(() => { vi.resetAllMocks(); api.search.mockResolvedValue(result); });
+it('shows official ordering, independent errors/empty state and manual refresh', async () => {
+  const wrapper = mount(PolymarketDetailPanel, { props, global }); await flushPromises();
+  expect(wrapper.text()).toContain('官方搜索排序'); expect(wrapper.text()).toContain('Nvidia event');
+  api.search.mockResolvedValueOnce({ ...result, items: [] });
+  await wrapper.get('button').trigger('click'); await flushPromises();
+  expect(wrapper.text()).toContain('未找到匹配');
+  api.search.mockRejectedValueOnce(new Error('offline'));
+  await wrapper.get('button').trigger('click'); await flushPromises();
+  expect(wrapper.text()).toContain('重试搜索'); wrapper.unmount();
+});
+it('aborts obsolete stock requests and ignores late responses including unmount', async () => {
+  let finish!: (value: unknown) => void;
+  api.search.mockReturnValueOnce(new Promise(resolve => { finish = resolve; }));
+  const wrapper = mount(PolymarketDetailPanel, { props, global });
+  const first = api.search.mock.calls[0]![1];
+  api.search.mockResolvedValueOnce({ ...result, items: [] });
+  await wrapper.setProps({ symbol: '0700.HK', market: 'HK' }); await flushPromises();
+  expect(first.aborted).toBe(true);
+  finish(result); await flushPromises();
+  expect(wrapper.text()).not.toContain('Nvidia event');
+  const second = api.search.mock.calls[1]![1];
+  wrapper.unmount(); expect(second.aborted).toBe(true);
+});

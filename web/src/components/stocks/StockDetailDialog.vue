@@ -28,6 +28,7 @@ const HoldingsDetailPanel = defineAsyncComponent(() => import('./detail/Holdings
 const DailyKLineCard = defineAsyncComponent(() => import('@/components/market-data/DailyKLineCard.vue'));
 const OptionsPanel = defineAsyncComponent(() => import('@/components/options-intelligence/OptionsPanel.vue'));
 const detailPanels = {
+  polymarket: defineAsyncComponent(() => import('./detail/PolymarketDetailPanel.vue')),
   industry: defineAsyncComponent(() => import('./detail/IndustryDetailPanel.vue')),
   trend: defineAsyncComponent(() => import('./detail/TrendDetailPanel.vue')),
   etf: defineAsyncComponent(() => import('./detail/ETFDetailPanel.vue')),
@@ -68,6 +69,7 @@ const tabs = computed<Array<{ value: StockDetailTab; label: string }>>(() => [
   { value: 'overview', label: '行情' },
   { value: 'holdings', label: '持仓' },
   { value: 'options', label: '期权' },
+  { value: 'polymarket', label: 'Polymarket' },
   ...(props.stock?.marketType !== 'HK' ? [
     { value: 'trend' as const, label: '趋势' },
     { value: 'etf' as const, label: 'ETF 轮动' },

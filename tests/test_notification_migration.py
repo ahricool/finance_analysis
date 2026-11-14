@@ -74,4 +74,4 @@ def test_cleanup_postgresql(monkeypatch):
 
 def test_single_head():
     script = ScriptDirectory.from_config(Config("alembic.ini"))
-    assert script.get_heads() == ["0091_prediction_markets"]
+    assert script.get_heads() == ["0092_retire_prediction_catalog"]
