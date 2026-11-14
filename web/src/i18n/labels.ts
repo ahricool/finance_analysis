@@ -216,7 +216,7 @@ export const provisionalTranslations = glossaryNotes.map(item => ({
 
 /** Intraday research enums; keep transport codes out of visible tables. */
 export const intradayLabels: Record<string, string> = {
-  confluence: '共振精选', trend: '趋势前30', etf: '轮动前5', quant: '量化（历史）',
+  opportunities: '买点机会', confluence: '共振精选', trend: '趋势前30', etf: '轮动前5', quant: '量化（历史）',
   CONFIRMED: '曾经确认', WAIT: '等待确认', FAILED: '结构失效',
   ACTIVE: '确认有效', WEAKENING: '确认后走弱', RECOVERED: '失效后修复',
   UNAVAILABLE: '数据不足', PREOPEN: '等待开盘', PENDING: '待判定（历史）', LEGACY: '历史规则',

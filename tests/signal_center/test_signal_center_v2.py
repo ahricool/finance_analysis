@@ -557,8 +557,9 @@ def test_confirmed_opportunity_below_all_alpha_cutoffs_enters_once_and_projects_
         row['rank'] = 999
         b = dict(kind='ma10', status='CONFIRMED', quality_score=61, structure_id='stable',
                  rule_version='ohlcv_opportunity_v1', trigger=100, support=99, invalidation=95,
-                 first_confirmed_at=str(DAY), background_periods=[period])
-        row['features']['opportunities'] = dict(branches=[b], primary=b, display=b, preview=False)
+                 first_confirmed_at=str(DAY), data_as_of=str(DAY), preview=False, background_periods=[period])
+        row['features']['opportunities'] = dict(branches=[b], primary=b, display=b, preview=False,
+            version='ohlcv_opportunity_v1', history_status='complete', data_as_of=str(DAY))
     snapshot = inputs.collect(repo, 'CN', DAY)
     candidate = next(c for c in snapshot['candidates'] if c['symbol'] == code)
     assert candidate['nominated_by'] == ['opportunities']
@@ -566,3 +567,29 @@ def test_confirmed_opportunity_below_all_alpha_cutoffs_enters_once_and_projects_
     view = conclusions(snapshot, [code])
     assert view['evidence_catalog'][f'{code}.opportunities.0.trigger']['value'] == 100
     assert '## opportunities' in serialize(view)
+
+
+def test_buy_point_prices_and_adjustment_anchor_reach_both_llm_stages():
+    from tests.test_formal_opportunity_inputs import document
+    repo = Repo()
+    for period, rows in repo.periods.items():
+        for row in rows:
+            doc = document(data_as_of=str(DAY), first_confirmed_at=str(DAY), anchor_date=str(DAY))
+            doc["data_as_of"] = str(DAY)
+            row["features"]["opportunities"] = doc
+    client = Client()
+    push, _ = notifier()
+    SignalCenterService(repo, client, lock, push).run("CN", DAY, deadline=True)
+    seen = set()
+    for request in client.calls:
+        view = read_prompt(request.prompt)
+        branches = [b for candidate in view["candidates"] for b in candidate.get("opportunities", [])]
+        assert branches
+        assert all(b["trigger"] == 100 and b["invalidation"] == 95 for b in branches)
+        assert all(b["anchor_date"] == str(DAY) and b["price_basis"] == "forward_adjusted" for b in branches)
+        assert all(b["background_periods"] == "10|20|40" for b in branches)
+        seen.add(request.call_type)
+    assert seen == {"signal_center_screen", "signal_center"}
+    coverage = repo.run_record["candidate_snapshot"]["source_availability"]["opportunities"]
+    assert coverage["covered_periods"] == [10, 20, 40]
+    assert coverage["count"] == 40 and coverage["truncated_count"] > 0

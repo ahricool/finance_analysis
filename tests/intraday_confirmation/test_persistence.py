@@ -343,7 +343,7 @@ def test_permanently_missing_first_anchor_does_not_fill_pending_queue(store):
     assert store.pending_returns("US", DAY + timedelta(days=200)) == []
 
 
-@pytest.mark.parametrize("version", ["intraday_v2", "intraday_v2_1"])
+@pytest.mark.parametrize("version", ["intraday_v2", "intraday_v2_1", "intraday_v2_2"])
 def test_v2_evaluation_and_snapshot_commit_together_and_are_read_only(store, version):
     first = store.save(TRADING, frozen(rule_version=version))
     saved = store.save(TRADING, evaluation(first))
@@ -358,7 +358,7 @@ def test_v2_evaluation_and_snapshot_commit_together_and_are_read_only(store, ver
     assert store.load("US", DAY) == saved
 
 
-@pytest.mark.parametrize("version", ["intraday_v2", "intraday_v2_1"])
+@pytest.mark.parametrize("version", ["intraday_v2", "intraday_v2_1", "intraday_v2_2"])
 def test_evaluation_write_failure_rolls_back_snapshot(store, monkeypatch, version):
     from sqlalchemy import event
     first = store.save(TRADING, frozen(rule_version=version))

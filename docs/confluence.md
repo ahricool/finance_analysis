@@ -287,3 +287,7 @@ CPU观测CN约0.14–0.45秒、US0.04–0.18秒，不含源读取及排队，保
 
 最终验证：完整后端门禁3295 passed、52 skipped、2 deselected，92 subtests；Web全量1008 passed（142文件），
 最后相关组件29项通过；build/lint通过。Playwright15 passed（14项深浅色/布局/交互及1项临时真实数据页面验证）。
+
+## V2.3 正式买点接入
+
+三个下游使用同一正式机会投影，具体版本、去重、评分及冻结边界见 [正式下游接入](trend-opportunities.md#正式下游接入)。历史结果不回填。

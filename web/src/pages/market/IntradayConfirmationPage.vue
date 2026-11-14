@@ -26,7 +26,7 @@ const tradeDate = ref(''); const dates = ref<string[]>([]);
 const datesLoading = ref(false); const datesError = shallowRef<ParsedApiError | null>(null);
 const state = ref<State | ''>(''); const source = ref<Source | ''>('');
 const result = shallowRef<Snapshot | null>(null); const selected = shallowRef<Confirmation | null>(null);
-const hasCurrentObservation = computed(() => ['intraday_v2', 'intraday_v2_1'].includes(result.value?.ruleVersion ?? ''));
+const hasCurrentObservation = computed(() => ['intraday_v2', 'intraday_v2_1', 'intraday_v2_2'].includes(result.value?.ruleVersion ?? ''));
 const error = shallowRef<ParsedApiError | null>(null);
 const loading = ref(false); const submitting = ref(false); const dialogOpen = ref(false); const taskId = ref('');
 const search = ref(''); const page = ref(1); const currentFilter = ref('');
@@ -44,7 +44,7 @@ const pageCount = computed(() => Math.max(1, Math.ceil(filtered.value.length / 1
 const visibleRows = computed(() => table.sorted.slice((page.value - 1) * 15, page.value * 15));
 watch([search, currentFilter, result, () => table.sortKey, () => table.direction], () => { page.value = 1; });
 const cards = computed(() => [
-  { label: '冻结候选', value: result.value?.summary.total ?? 0, note: '三个正式来源 · 去重保留', icon: Activity },
+  { label: '冻结候选', value: result.value?.summary.total ?? 0, note: result.value?.ruleVersion === 'intraday_v2_2' ? '四个正式来源 · 去重保留' : '三个正式来源 · 去重保留', icon: Activity },
   { label: '曾经确认', value: result.value?.summary.everConfirmed ?? result.value?.summary.confirmed ?? 0, note: '首次价格固定 · 追踪后续收益', icon: ArrowUpRight },
   { label: '当前有效', value: hasCurrentObservation.value ? result.value?.summary.active ?? 0 : '—', note: '最新评估仍满足确认条件', icon: Clock3 },
   { label: '需要关注', value: hasCurrentObservation.value ? result.value?.summary.attention ?? 0 : '—', note: '走弱 / 失效待确认 / 失效 / 数据不足', icon: ShieldAlert },
@@ -157,7 +157,7 @@ const detailInitialTab = ref<'overview' | 'intraday'>('intraday');
       <div class="flex flex-wrap items-center justify-between gap-3 border-b bg-muted/25 px-5 py-3">
         <div class="flex items-center gap-2 text-sm font-medium">
           <span class="size-2 rounded-full bg-sky-500" />{{ tradeDate ? `历史快照 ${tradeDate}` : '当日观察' }}<Badge variant="outline">
-            {{ result?.status === 'not_frozen' ? '等待冻结' : result?.ruleVersion === 'intraday_v2_1' ? '突破 / 温和回踩' : hasCurrentObservation ? '一分钟价格结构' : result ? '历史规则' : '等待快照' }}
+            {{ result?.status === 'not_frozen' ? '等待冻结' : ['intraday_v2_1', 'intraday_v2_2'].includes(result?.ruleVersion ?? '') ? '突破 / 温和回踩' : hasCurrentObservation ? '一分钟价格结构' : result ? '历史规则' : '等待快照' }}
           </Badge>
         </div>
         <span class="text-xs text-muted-foreground">{{ hasCurrentObservation ? '每 5 分钟评估 · 无自动交易' : '按保存时的规则展示' }}</span>
@@ -208,7 +208,7 @@ const detailInitialTab = ref<'overview' | 'intraday'>('intraday');
         />
         <FieldSelect
           :model-value="source"
-          :options="[{ value: '', label: '全部来源' }, { value: 'confluence', label: '共振精选' }, { value: 'trend', label: '趋势前30' }, { value: 'etf', label: '轮动前5' }, ...(!hasCurrentObservation ? [{ value: 'quant', label: '量化（历史）' }] : [])]"
+          :options="[{ value: '', label: '全部来源' }, { value: 'confluence', label: '共振精选' }, { value: 'trend', label: '趋势前30' }, { value: 'etf', label: '轮动前5' }, ...(result?.ruleVersion === 'intraday_v2_2' ? [{ value: 'opportunities', label: '买点前40' }] : []), ...(!hasCurrentObservation ? [{ value: 'quant', label: '量化（历史）' }] : [])]"
           label="候选来源"
           aria-label="候选来源"
           class="w-40"

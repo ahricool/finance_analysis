@@ -4,6 +4,7 @@ import logging
 from finance_analysis.core.time import utc_now
 from finance_analysis.confluence.service import json_safe
 from finance_analysis.signal_center.context import candidate_context
+from finance_analysis.trend_following.opportunity_inputs import formal_opportunities, CANDIDATE_LIMIT, POLICY_VERSION
 
 logger = logging.getLogger(__name__)
 DEPENDENCIES = {
@@ -91,17 +92,22 @@ def collect(repo, market, day):
             (r for r in trends[period].values() if r.get("rank") is not None), key=lambda r: (r["rank"], r["code"])
         )
         selections[f"trend{period}"] = [r["code"] for r in ranked[:limit]]
-    from finance_analysis.trend_following.opportunities import opportunity_items, CONFIG
-
-    opportunities = opportunity_items([row for rows in trends.values() for row in rows.values()])
-    confirmed_opportunities = [r for r in opportunities if r["primary"] and not r.get("preview")]
-    selected_opportunities = confirmed_opportunities[:CONFIG.candidate_limit]
+    opportunities = formal_opportunities([row for rows in trends.values() for row in rows.values()], day)
+    confirmed_opportunities = [r for r in opportunities if r["primary"]]
+    selected_opportunities = confirmed_opportunities[:CANDIDATE_LIMIT]
     selections["opportunities"] = [r["code"] for r in selected_opportunities]
     opportunity_by_code = {r["code"]: r for r in confirmed_opportunities}
     availability["opportunities"] = dict(
-        status=availability["trend10"]["status"], count=len(selected_opportunities),
-        total_confirmed=len(confirmed_opportunities), truncated_count=max(0, len(confirmed_opportunities)-CONFIG.candidate_limit),
-        rule_version="ohlcv_opportunity_v1", data_as_of=day,
+        status="available" if opportunities else "missing",
+        count=len(selected_opportunities),
+        covered_stocks=len(opportunities),
+        covered_periods=sorted({p for item in opportunities for p in item["covered_periods"]}),
+        period_statuses={str(p): availability[f"trend{p}"]["status"] for p in trends},
+        total_confirmed=len(confirmed_opportunities),
+        truncated_count=max(0, len(confirmed_opportunities) - CANDIDATE_LIMIT),
+        rule_version="ohlcv_opportunity_v1",
+        policy_version=POLICY_VERSION,
+        data_as_of=day,
     )
     etfs = {r["code"]: r for r in sources["etf"] if r.get("code") in stocks}
     selections["etf"] = list(etfs)
@@ -142,10 +148,7 @@ def collect(repo, market, day):
                 instrument_type=stocks[code].get("instrument_type", "STOCK"),
                 nominated_by=[key for key, codes in selections.items() if code in codes],
                 trends=periods,
-                opportunities=[{k: b.get(k) for k in (
-                    "structure_id", "kind", "rule_version", "status", "quality_score", "trigger", "support",
-                    "invalidation", "distance_atr", "distance_pct", "first_confirmed_at", "data_as_of",
-                )} for b in opportunity_by_code.get(code, {}).get("branches", []) if b["status"] == "CONFIRMED"],
+                opportunities=opportunity_by_code.get(code, {}).get("branches", []),
                 etf=etfs.get(code),
                 industry=industry.get(code, []),
                 confluence=cf,
@@ -170,7 +173,8 @@ def collect(repo, market, day):
                 industry_top=5,
                 industry_per_group=3,
                 confluence="all_published",
-                opportunities_top=CONFIG.candidate_limit,
+                opportunities_top=CANDIDATE_LIMIT,
+                opportunity_policy=POLICY_VERSION,
                 quant=False,
             ),
             limitations=[
@@ -220,7 +224,11 @@ def build_evidence(snapshot):
 
 
 def ready(snapshot):
-    return all(s["status"] in {"available", "unsupported"} for s in snapshot["source_availability"].values())
+    return all(
+        s["status"] in {"available", "unsupported"}
+        for key, s in snapshot["source_availability"].items()
+        if key != "opportunities"
+    )
 
 
 def sufficient(snapshot):

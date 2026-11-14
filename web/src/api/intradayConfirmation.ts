@@ -3,9 +3,10 @@ import { toCamelCase } from './utils';
 export type Market = 'CN' | 'US';
 export type State = 'WAIT' | 'CONFIRMED' | 'FAILED';
 export type CurrentStatus = 'ACTIVE' | 'PENDING_CONFIRMATION' | 'WAIT' | 'WEAKENING' | 'PENDING_FAILURE' | 'RECOVERED' | 'FAILED' | 'UNAVAILABLE' | 'PREOPEN' | 'PENDING' | 'LEGACY';
-export type Source = 'confluence' | 'trend' | 'etf' | 'quant';
+export type Source = 'confluence' | 'trend' | 'etf' | 'quant' | 'opportunities';
 export interface Reason { code: string; text: string }
 export interface SourceEvidence {
+  opportunities?: Record<string, unknown>[]; coveredPeriods?: number[]; policyVersion?: string;
   source: Source; tradeDate: string; generatedAt: string; rank: number | null; reasons: string[];
 }
 export interface Confirmation {

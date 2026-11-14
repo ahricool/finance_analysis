@@ -133,7 +133,12 @@ class ConfirmationService:
             "summary": summary,
             "rule_version": payload.get("rule_version", "intraday_v1"),
             "rules_note": (
-                ("V2.1 · 突破或温和回踩收回 · " if payload.get("rule_version") == c.RULE_VERSION else "V2 · ")
+                (
+                    {
+                        "intraday_v2_2": "V2.2 · 含昨日正式买点 · 突破或温和回踩收回 · ",
+                        "intraday_v2_1": "V2.1 · 突破或温和回踩收回 · ",
+                    }.get(payload.get("rule_version"), "V2 · ")
+                )
                 + "1分钟线 / 每5分钟评估 · 价格60 / 相对强弱25 / 趋势10 / 量能5；不自动交易。"
                 if payload.get("rule_version") in c.OBSERVATION_VERSIONS
                 else "V1历史规则快照；不按新规则重算。"
@@ -199,7 +204,7 @@ class ConfirmationService:
             if payload is None:
                 return dict(status="skipped", reason="缺少开盘前冻结池，禁止盘中重建")
             if payload.get("rule_version") != c.RULE_VERSION:
-                return dict(status="skipped", reason="当日池属于旧规则，保留原始证据；下一交易日启用V2.1")
+                return dict(status="skipped", reason="当日池属于旧规则，保留原始证据；下一交易日启用V2.2")
             if not session.active(now):
                 return dict(status="skipped", reason="午休")
             if not payload["items"]:

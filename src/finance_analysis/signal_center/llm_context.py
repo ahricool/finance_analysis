@@ -51,9 +51,12 @@ def conclusions(snapshot, symbols, screening=None):
                 instrument_type=candidate["instrument_type"],
                 nominated_by=list(candidate["nominated_by"]),
                 trends=trends,
-                opportunities=[project(r, "structure_id kind rule_version status quality_score trigger support "
-                    "invalidation distance_atr distance_pct first_confirmed_at data_as_of")
-                    for r in candidate.get("opportunities", [])],
+                opportunities=[
+                    project(r, "structure_id kind rule_version status quality_score trigger support "
+                            "invalidation distance_atr distance_pct first_confirmed_at data_as_of "
+                            "anchor_date anchor_close price_basis background_periods")
+                    for r in candidate.get("opportunities", [])
+                ],
                 etf=project(candidate["etf"], ETF_FIELDS) if candidate.get("etf") else None,
                 industry=[project(row, INDUSTRY_FIELDS) for row in candidate.get("industry", [])],
                 confluence=(
@@ -61,8 +64,12 @@ def conclusions(snapshot, symbols, screening=None):
                 ),
             )
         )
+    for candidate in candidates:
+        for branch in candidate["opportunities"]:
+            if "background_periods" in branch:
+                branch["background_periods"] = "|".join(str(p) for p in branch["background_periods"])
     view = dict(
-        context_version="tables_v2",
+        context_version="tables_v3_opportunities",
         market=snapshot["market"],
         signal_date=snapshot["signal_date"],
         source_availability={

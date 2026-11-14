@@ -2,8 +2,8 @@
 
 from finance_analysis.trend_following.config import DEFAULT_CONFIG as TREND_CONFIG
 
-RULE_VERSION = "intraday_v2_1"
-OBSERVATION_VERSIONS = {"intraday_v2", RULE_VERSION}
+RULE_VERSION = "intraday_v2_2"
+OBSERVATION_VERSIONS = {"intraday_v2", "intraday_v2_1", RULE_VERSION}
 TREND_TOP = 30
 ETF_TOP = 5
 BENCHMARKS = TREND_CONFIG.benchmark_codes

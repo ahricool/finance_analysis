@@ -153,4 +153,4 @@ def test_existing_v2_pool_is_not_reinterpreted_as_v21(monkeypatch):
     result = ConfirmationService(store=store, market_data=object()).run("US", OPEN + timedelta(minutes=20))
     assert result["status"] == "skipped"
     assert store.value["rule_version"] == "intraday_v2"
-    assert config.RULE_VERSION == "intraday_v2_1"
+    assert config.RULE_VERSION == "intraday_v2_2"

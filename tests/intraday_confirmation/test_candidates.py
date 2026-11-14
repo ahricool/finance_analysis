@@ -176,3 +176,43 @@ def test_exact_date_cutoff_active_and_period_boundaries():
     assert [r["code"] for r in rows] == ["T1.US"]
     assert CandidateRepository(db).candidates("CN", DAY, CUTOFF) == []
     db.engine.dispose()
+
+
+def test_formal_opportunities_nominate_below_rank_cutoff_and_freeze_all_periods():
+    from tests.test_formal_opportunity_inputs import document
+    db = DB()
+    with db.get_session() as s, s.begin():
+        s.add_all([stock(i) for i in range(1, 7)])
+        s.add(confluence(1))
+        for i in range(1, 7):
+            doc = document()
+            if i == 3:
+                doc["preview"] = True
+            if i == 4:
+                doc["branches"][0]["status"] = "EXTENDED"
+            s.add(trend(i, 99, features={"opportunities": doc},
+                        generated_at=CUTOFF if i == 5 else GENERATED))
+        s.add(trend(1, 99, id=100, trend_period=20, features={"opportunities": document()}))
+        s.flush()
+        s.get(Instrument, 6).listing_status = "DELISTED"
+    rows = {r["code"]: r for r in CandidateRepository(db).candidates("US", DAY, CUTOFF)}
+    assert set(rows) == {"T1.US", "T2.US"}
+    assert rows["T1.US"]["candidate_sources"] == ["confluence", "opportunities"]
+    evidence = rows["T1.US"]["source_evidence"][-1]
+    assert evidence["covered_periods"] == [10, 20]
+    assert len(evidence["opportunities"]) == 1
+    assert evidence["opportunities"][0]["background_periods"] == [10, 20]
+    assert rows["T2.US"]["candidate_source"] == "opportunities"
+    db.engine.dispose()
+
+
+def test_opportunity_limit_is_by_stock_with_deterministic_ties():
+    from tests.test_formal_opportunity_inputs import document
+    db = DB()
+    with db.get_session() as s, s.begin():
+        s.add_all([stock(i) for i in range(1, 44)])
+        s.add_all([trend(i, 99, features={"opportunities": document()}) for i in range(1, 44)])
+    rows = CandidateRepository(db).candidates("US", DAY, CUTOFF)
+    assert len(rows) == 40
+    assert [r["code"] for r in rows] == sorted(f"T{i}.US" for i in range(1, 44))[:40]
+    db.engine.dispose()

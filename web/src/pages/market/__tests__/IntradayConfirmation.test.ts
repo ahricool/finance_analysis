@@ -247,3 +247,17 @@ it('sorts all three forward-return horizons by their own raw values and keeps mi
   }
   wrapper.unmount();
 });
+
+it('recognizes V2.2 opportunity candidates and retains the same confirmation routes', async () => {
+  vi.mocked(api.read).mockResolvedValue({ ...snapshot, ruleVersion: 'intraday_v2_2',
+    items: [{ ...snapshot.items[0], candidateSource: 'opportunities', candidateSources: ['opportunities'] }],
+  } as never);
+  const wrapper = mount(Page); await flushPromises();
+  expect(wrapper.text()).toContain('四个正式来源');
+  expect(wrapper.text()).toContain('突破 / 温和回踩');
+  expect(wrapper.get('tbody').text()).toContain('买点机会');
+  expect(fieldSelect(wrapper, '[aria-label="候选来源"]').props('options')).toHaveLength(5);
+  await setFieldSelect(wrapper, '[aria-label="候选来源"]', 'opportunities');
+  expect(wrapper.get('tbody').text()).toContain('买点机会');
+  wrapper.unmount();
+});

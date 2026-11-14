@@ -503,17 +503,20 @@ def test_historical_rules_read_from_saved_generation(repo, monkeypatch):
 
 
 def test_v2_trend_reads_all_periods_same_date_with_compact_core_fields(repo):
+    from tests.test_formal_opportunity_inputs import document
     seed(repo)
     with repo.db.session_scope() as session:
         original = session.get(TrendFollowingSnapshot, 2)
         fields = {c.name: getattr(original, c.name) for c in TrendFollowingSnapshot.__table__.columns}
         for identifier, period in [(4, 40), (5, 20), (6, 60)]:
             session.add(TrendFollowingSnapshot(**dict(fields, id=identifier, trend_period=period,
-                features={"entry_type": "BREAKOUT", "entry_score": 80, "unused_large_payload": "x" * 10000})))
+                features={"entry_type": "BREAKOUT", "entry_score": 80, "unused_large_payload": "x" * 10000,
+                          "opportunities": document()})))
     rows = repo.trend_v2("CN", DAY)
     assert {r["trend_period"] for r in rows} == {10, 20, 40}
     assert {r["trade_date"] for r in rows} == {DAY}
     assert all("unused_large_payload" not in r["features"] for r in rows)
+    assert all(r["features"]["opportunities"] == document() for r in rows if r["trend_period"] in (20, 40))
 
 
 def test_v2_options_only_reads_requested_official_date(repo):
@@ -595,7 +598,7 @@ def test_new_macro_snapshot_persists_industry_terms_and_get_does_not_recompute(r
     signal = stored["items"][0]["signals"]["macro"]
     assert signal["strength"] == 82 and signal["evidence"]["risk_score"] == 90
     assert signal["evidence"]["profiles"][0]["terms"][0]["coefficient"] == .8
-    assert stored["algorithm_version"] == "confluence_v2_2"
+    assert stored["algorithm_version"] == "confluence_v2_3"
     monkeypatch.setattr(repo, "macro", lambda *_: (_ for _ in ()).throw(AssertionError("no recompute")))
     monkeypatch.setattr(repo, "classification", lambda *_: (_ for _ in ()).throw(AssertionError("no reclassify")))
     assert service.ranking("CN", DAY)["items"][0]["signals"]["macro"] == signal

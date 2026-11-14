@@ -25,11 +25,11 @@ def read_prompt(prompt):
 
     for row in tables["candidates"]:
         result["candidates"].append(
-            dict(row, nominated_by=row["nominated_by"].split("|"), trends={}, etf=None, industry=[], confluence=None)
+            dict(row, nominated_by=row["nominated_by"].split("|"), trends={}, etf=None, industry=[], opportunities=[], confluence=None)
         )
     by_symbol = {c["symbol"]: c for c in result["candidates"]}
-    for source in ("trends", "etf", "industry", "confluence", "market_regime"):
-        for row in tables[source]:
+    for source in ("trends", "etf", "industry", "opportunities", "confluence", "market_regime"):
+        for row in tables.get(source, []):
             ref = row.pop("ref")
             data = values(row)
             if source == "market_regime":
@@ -39,7 +39,7 @@ def read_prompt(prompt):
             c = by_symbol[symbol]
             if source == "trends":
                 c[source][suffix[1:]] = data
-            elif source == "industry":
+            elif source in ("industry", "opportunities"):
                 c[source].append(data)
             else:
                 c[source] = data
