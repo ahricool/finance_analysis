@@ -471,3 +471,29 @@ def test_opportunity_identity_is_not_counted_again_across_periods_or_later_confi
     assert events[0]['trade_date'] == DAY
     # Range boundaries must not create a second event when the first lies outside the query.
     assert repo.event_study_events(DAY+timedelta(days=1), DAY+timedelta(days=1), 'OP_MA5_V1')[1] == 0
+
+
+def test_opportunity_lookups_isolate_instruments_and_ignore_retired_periods():
+    db = _Database()
+    with db.session_scope() as session:
+        for instrument_id, code in ((1, 'AAA.US'), (2, 'BBB.US')):
+            session.add(Instrument(id=instrument_id, market='US', code=code, name=code))
+        for i, (instrument_id, code, period, day, present) in enumerate((
+            (1, 'AAA.US', 60, DAY - timedelta(days=1), True),
+            (1, 'AAA.US', 10, DAY, True),
+            (2, 'BBB.US', 10, DAY, False),
+            (2, 'BBB.US', 40, DAY, True),
+        )):
+            snapshot = _snapshot(snapshot_id=i + 1, instrument_id=instrument_id, code=code,
+                                 trade_date=day, state='WATCHING')
+            snapshot.trend_period = period
+            snapshot.features = ({'OP_MA5_V1': True,
+                                  'opportunity_event_ids': {'OP_MA5_V1': 'same-id'}} if present else {})
+            session.add(snapshot)
+    repo = TrendFollowingRepository('US', db)
+    events, count = repo.event_study_events(DAY, DAY, 'OP_MA5_V1')
+    assert count == 2
+    assert {e['code'] for e in events} == {'AAA.US', 'BBB.US'}
+    coverage = repo.event_study_coverage(DAY, DAY)
+    assert sum(r['snapshot_count'] for r in coverage) == 2
+    assert sum(r['OP_MA5_V1'] for r in coverage) == 2

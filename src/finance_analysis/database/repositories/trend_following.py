@@ -525,12 +525,20 @@ class TrendFollowingRepository:
             "MEAN_REVERSION": s.features["mr_state"].as_string() == "MR_REBOUND",
         }
         from finance_analysis.trend_following.opportunities import EVENT_STRATEGIES
-        prior_op = s.__table__.alias("prior_opportunity")
+        # Materialize compact identities once: repeated JSONB comparisons against
+        # the full historical snapshots otherwise repeatedly decompress TOAST data.
+        prior_op = select(
+            s.instrument_id, s.trade_date,
+            s.features["opportunity_event_ids"].label("identities"),
+        ).where(
+            s.market == self.market, s.trend_period.in_(TREND_PERIODS), s.trade_date < end_date,
+        ).cte("prior_opportunity").prefix_with("MATERIALIZED", dialect="postgresql")
         for key in EVENT_STRATEGIES:
             identity = s.features["opportunity_event_ids"][key].as_string()
-            already_seen = select(prior_op.c.id).where(
-                prior_op.c.market == s.market, prior_op.c.code == s.code, prior_op.c.trade_date < s.trade_date,
-                prior_op.c.features["opportunity_event_ids"][key].as_string() == identity,
+            already_seen = select(prior_op.c.instrument_id).where(
+                prior_op.c.instrument_id == s.instrument_id,
+                prior_op.c.trade_date < s.trade_date,
+                prior_op.c.identities[key].as_string() == identity,
             ).correlate(s).exists()
             predicates[key] = s.features[key].as_boolean().is_(True) & ~already_seen
         queries = []
@@ -606,7 +614,8 @@ class TrendFollowingRepository:
         from finance_analysis.trend_following.opportunities import EVENT_STRATEGIES
         op = s.__table__.alias("opportunity_coverage")
         flags.update({key: select(op.c.id).where(
-            op.c.market == s.market, op.c.code == s.code, op.c.trade_date == s.trade_date,
+            op.c.instrument_id == s.instrument_id, op.c.trend_period.in_(TREND_PERIODS),
+            op.c.market == s.market, op.c.trade_date == s.trade_date,
             op.c.features[key].as_boolean().is_not(None),
         ).correlate(s).exists() for key in EVENT_STRATEGIES})
         query = select(
