@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 
 Market = Literal["CN", "US"]
 State = Literal["WAIT", "CONFIRMED", "FAILED"]
-Source = Literal["confluence", "trend", "etf", "quant"]
+Source = Literal["confluence", "trend", "etf", "quant", "opportunities"]
 
 
 class Reason(BaseModel):

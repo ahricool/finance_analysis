@@ -499,3 +499,5 @@ GET本人历史不重算，默认今日或上一交易日；手动触发仅当�
 闭合分钟因果重建、触发前冻结价位/ATR、相邻两根确认、延伸/失效/到期分开；只保留Redis最新结果。
 GET只读，行级机会资格排除缺线、延迟和非交易时段；默认有效机会质量排序，前端轮询不跳行。
 不读取Trend排名、不选期权合约、不下单、不存历史；详见`docs/intraday-options.md`。
+
+三个趋势下游共用 `trend_following/opportunity_inputs.py` 正式买点投影：Confluence v2_3在Trend30内部取背景/有效买点较强路线；Signal Center加入前40候选及两轮LLM价位证据；Intraday v2_2新增昨日买点前40冻结来源、保留原分钟确认条件。跨周期structure_id去重，不读取Preview，不回填旧历史，见 `docs/trend-opportunities.md`。

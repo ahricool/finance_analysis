@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import FormalOpportunityEvidence from '@/components/trend-following/FormalOpportunityEvidence.vue';
 import { computed, onBeforeUnmount, ref, shallowRef, watch } from 'vue';
 import { Layers3, Network, TrendingUp, ChartNoAxesCombined } from 'lucide-vue-next';
 import { confluenceApi, type ConfluenceItem } from '@/api/confluence';
@@ -18,7 +19,7 @@ const sources = computed(() => [...new Set([
   ...(props.confirmation.candidateSources ?? []), props.confirmation.candidateSource,
   ...(props.confirmation.sourceEvidence ?? []).map(e => e.source),
 ])]);
-const icons = { confluence: Network, trend: TrendingUp, etf: ChartNoAxesCombined, quant: Layers3 };
+const icons = { confluence: Network, trend: TrendingUp, etf: ChartNoAxesCombined, quant: Layers3, opportunities: TrendingUp };
 const evidence = (source: Source) => props.confirmation.sourceEvidence?.find(e => e.source === source);
 const confluence = shallowRef<ConfluenceItem | null>(null);
 const algorithmVersion = ref('');
@@ -77,7 +78,7 @@ function score(key: typeof primary[number]) {
   return confluence.value && signal(confluence.value, key).status !== 'unavailable' ? strength(confluence.value, key) : null;
 }
 function barWidth(value: unknown) { return `${isFiniteNumber(value) ? Math.max(0, Math.min(100, value)) : 0}%`; }
-const macroLabel = computed(() => /confluence_v2_[12]/.test(algorithmVersion.value) ? labels.macro : '宏观环境');
+const macroLabel = computed(() => /confluence_v2_[123]/.test(algorithmVersion.value) ? labels.macro : '宏观环境');
 </script>
 
 <template>
@@ -136,6 +137,7 @@ const macroLabel = computed(() => /confluence_v2_[12]/.test(algorithmVersion.val
           </Badge>
         </div>
       </div>
+      <FormalOpportunityEvidence :branches="evidence('opportunities')?.opportunities ?? []" />
       <template v-if="sources.includes('confluence')">
         <div
           v-if="loading"

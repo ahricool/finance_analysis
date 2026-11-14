@@ -197,7 +197,7 @@ class ConfluenceRepository:
         # One bounded query for all three same-date periods; no strategy reruns.
         feature_keys = (
             "path_score", "entry_type", "entry_score", "entry_breakout_score",
-            "box_state", "box_quality", "mr_state", "mr_quality",
+            "box_state", "box_quality", "mr_state", "mr_quality", "opportunities",
         )
         query = select(
             TrendFollowingSnapshot.instrument_id,

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import FormalOpportunityEvidence from '@/components/trend-following/FormalOpportunityEvidence.vue';
 import SortableTableHeader from '@/components/stocks/SortableTableHeader.vue';
 import { useTableSort, useGroupedTableSort, sortField } from '@/composables/useTableSort';
 import { formatRank } from '@/utils/rank';
@@ -10,6 +11,7 @@ import type { ConfluenceItem, SignalKey } from '@/api/confluence';
 import { primary, secondary, labels, signal, strength, states, tone } from './evidence';
 const props = defineProps<{ row: ConfluenceItem }>();
 const groups = [{ name: '主要指标', keys: primary }, { name: '辅助指标', keys: secondary }];
+const opportunities = computed(() => (props.row.signals.trend?.evidence.opportunities ?? []) as Record<string, unknown>[]);
 const matrix = computed(() => (props.row.signals.trend?.evidence.matrix ?? []) as Array<{ period: number; routes: Record<string, number | null>; dominant: string | null; state: string; lifecycle: string; fragility: number | null }>);
 interface MacroProfile { key: string; name: string; reason: string; coverage: number; strength: number | null; missingFactors: string[]; industries: Array<{ industryName: string }>; terms: Array<{ key: string; label: string; value: number; coefficient: number; contribution: number | null }> }
 const macro = computed(() => signal(props.row, 'macro').evidence);
@@ -262,6 +264,10 @@ const matrixTable = useTableSort(() => matrix.value, (row, key) => sortField(row
               </tbody>
             </table>
           </div>
+          <FormalOpportunityEvidence
+            v-if="key === 'trend'"
+            :branches="opportunities"
+          />
           <p class="mt-3 text-xs text-muted-foreground">
             数据 {{ signal(row, key).tradeDate ?? '—' }} <span v-if="signal(row, key).contribution != null">· 贡献 {{ signal(row, key).contribution?.toFixed(2) }} 分</span>
           </p>

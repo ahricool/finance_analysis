@@ -3,7 +3,10 @@
 from math import isfinite
 from statistics import fmean
 
-VERSION = "confluence_v2_2"
+from finance_analysis.trend_following.opportunities import VERSION as OPPORTUNITY_VERSION
+from finance_analysis.trend_following.opportunity_inputs import formal_opportunities, POLICY_VERSION
+
+VERSION = "confluence_v2_3"
 WEIGHTS = {
     "macro": 15,
     "etf": 20,
@@ -41,7 +44,8 @@ def rules():
         ranking_limit=50,
         minimum_primary=2,
         max_signals=10,
-        trend_method="mean_of_period_best_route",
+        trend_method="max_mean_period_background_and_deduplicated_opportunity",
+        opportunity_policy=POLICY_VERSION,
         positive_threshold=65,
         negative_threshold=35,
     )
@@ -83,6 +87,10 @@ def trend_score(facts):
         rebound = None
         if f.get("mr_state") is not None:
             rebound = clamp(f.get("mr_quality")) if f["mr_state"] == "MR_REBOUND" else 0.0
+        # A current new-format document owns entry semantics; do not resurrect
+        # its inactive/extended setups through old compatibility Entry fields.
+        if isinstance(f.get("opportunities"), dict) and f["opportunities"].get("version") == OPPORTUNITY_VERSION:
+            box = None
         routes = dict(trend=strength, breakout=box, rebound=rebound)
         valid = {k: v for k, v in routes.items() if number(v)}
         periods.append(
@@ -139,10 +147,22 @@ def evaluate(key, facts=None, reason="该日期无可用正式指标"):
         strength = average(clamp(r.get("composite_score")) for r in rows)
         reasons = ["关联ETF去重后等权使用正式综合分，近似关联保留依据；不依赖组合BUY/HOLD"]
     elif key == "trend":
-        strength, evidence["matrix"] = trend_score(facts)
+        background, evidence["matrix"] = trend_score(facts)
+        items = formal_opportunities(facts.get("periods", [facts]), facts.get("trade_date"))
+        branches = [b for item in items for b in item["branches"]]
+        opportunity = max((b["quality_score"] for b in branches), default=0.0 if items else None)
+        strength = max((s for s in (background, opportunity) if s is not None), default=None)
+        evidence.update(
+            background_strength=background, opportunity_strength=opportunity,
+            opportunity_policy=POLICY_VERSION, opportunities=branches,
+            opportunity_covered_periods=sorted({p for item in items for p in item["covered_periods"]}),
+            dominant_route="opportunity" if opportunity is not None and (background is None or opportunity > background)
+            else "background" if background is not None else None,
+        )
         reasons = [
-            "10/20/40日分别比较趋势、突破、超跌反弹三条替代路线，取各周期最强路线后等权平均",
-            "同周期的替代形态不重复叠加；没有对应核心字段的单元留空",
+            "10/20/40日背景路线先等权聚合，再与跨周期去重后的有效买点最高质量取较强者",
+            "新版买点替代兼容突破字段；旧格式仍保留原路线，缺失不补造买点",
+            "趋势维度仍为30%，同结构、多分支及多周期不重复计分，不新增独立支持票",
         ]
     elif key == "quant":
         value = facts.get("final_score")

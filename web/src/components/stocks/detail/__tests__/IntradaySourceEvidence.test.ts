@@ -100,3 +100,23 @@ describe('frozen intraday selection sources', () => {
     expect(wrapper.text()).toContain('原始分数暂缺'); expect(wrapper.find('button').exists()).toBe(false); wrapper.unmount();
   });
 });
+
+it('renders frozen opportunity prices without fetching a current upstream snapshot', async () => {
+  const wrapper = mount(IntradaySourceEvidence, { props: { market: 'US', confirmation: {
+    ...confirmation, candidateSource: 'opportunities', candidateSources: ['opportunities'],
+    sourceEvidence: [{ source: 'opportunities', tradeDate: '2026-10-30', generatedAt, rank: 2,
+      reasons: ['昨日正式买点'], opportunities: [{
+        structureId: 'stable', kind: 'ma10', qualityScore: 82, trigger: 100, support: 99, invalidation: 95,
+        firstConfirmedAt: '2026-10-29', dataAsOf: '2026-10-30', backgroundPeriods: [10, 20, 40],
+      }] }],
+  } } });
+  await flushPromises();
+  expect(confluenceApi.detail).not.toHaveBeenCalled();
+  const evidence = wrapper.get('[data-testid="formal-opportunity-evidence"]').text();
+  expect(evidence).toContain('MA10 回踩');
+  expect(evidence).toContain('触发 100.00');
+  expect(evidence).toContain('失效 95.00');
+  expect(evidence).toContain('10 / 20 / 40D');
+  expect(evidence).toContain('正式买点不代表盘中已确认');
+  wrapper.unmount();
+});
