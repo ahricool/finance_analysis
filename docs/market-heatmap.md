@@ -25,6 +25,8 @@
 
 两个独立 Beat 任务 `market_heatmap_cn/us` 全天每15分钟在 ingestion 队列运行，使用独立非阻塞任务锁。
 任务定义在 `tasks/celery/schedule/definitions.py`；可在任务中心由管理员手动触发。
+两个热力图任务均不发布通知（包括失败通知）；失败仍记录在任务中心，保留上次成功快照。
+页面注明行情存在延迟，并在快照超过30分钟未更新时显示刷新延迟提示。
 
 业务仅调用 `MarketDataService`：CN 显式指定 easyquotation 腾讯全市场快照，
 将其总市值/流通市值从亿元转换为统一模型中的元；US 指定 yfinance Screener，按美国上市交易所、

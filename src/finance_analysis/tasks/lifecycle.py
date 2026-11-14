@@ -554,6 +554,7 @@ def track_task(
     triggered_by_uid_getter: Optional[Callable[..., Optional[int]]] = None,
     scheduler_job_id: Optional[str] = None,
     record_result: bool = True,
+    notify_on_failure: bool = True,
     success_message: Optional[str] = None,
     outcome_getter: Optional[Callable[[Any], Optional[TaskOutcome]]] = None,
     strip_lifecycle_kwargs: bool = False,
@@ -617,7 +618,8 @@ def track_task(
                     return None
                 except Exception as exc:
                     service.mark_failed(task_id=task_id, metadata=metadata, error=exc, message=str(exc)[:200])
-                    _send_task_failure_notification(task_id=task_id, metadata=metadata, error=exc)
+                    if notify_on_failure:
+                        _send_task_failure_notification(task_id=task_id, metadata=metadata, error=exc)
                     raise
                 else:
                     if isinstance(result, DeferredTaskResult):

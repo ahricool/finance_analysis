@@ -45,6 +45,7 @@ describe('market heatmap page', () => {
   it('switches markets, clears the old market and reads only cached snapshots', async () => {
     const { wrapper, router } = await setup();
     expect(wrapper.text()).toContain('100.0亿元');
+    expect(wrapper.text()).toContain('行情存在延迟，每15分钟更新快照');
     vi.mocked(getMarketHeatmap).mockResolvedValue(ready('US'));
     await router.push('/market/heatmap?market=US'); await flushPromises();
     expect(getMarketHeatmap).toHaveBeenLastCalledWith('US');

@@ -58,7 +58,7 @@ function select(stock: HeatmapStock) {
       title="热力图"
       en="Market Heatmap"
       variant="section"
-      description="按行业观察市场涨跌，方块越大代表相对市值越高。"
+      description="按行业观察市场涨跌，方块越大代表相对市值越高。行情存在延迟，每15分钟更新快照。"
     >
       <template #actions>
         <div class="flex flex-wrap items-center gap-2">
