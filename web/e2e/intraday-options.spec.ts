@@ -14,9 +14,12 @@ for (const width of [390, 768, 1024, 1280, 1440, 1920]) {
     const items = codes.map((code, i) => ({ symbol: `${code}.US`, name: code === 'SPCX' ? null : `${code}观察标的`,
       last_price: code === 'SPCX' ? null : 100 + i, change_pct: code === 'SPCX' ? null : (i % 2 ? -1 : 1) * i / 10,
       quote_time: now, quote_status: code === 'SPCX' ? 'missing' : 'ready',
+      opportunity_eligible: code !== 'SPCX',
       data_status: code === 'SPCX' ? 'waiting' : 'ready', issues: code === 'SPCX' ? ['主数据未识别，保留原代码'] : [],
       result: code === 'SPCX' ? null : { version: 'intraday_options_v1', symbol: `${code}.US`, trading_date: '2026-11-12',
         as_of: '2026-11-12T16:00:00Z', observed_at: now, score: 95 - i, base_score: 95 - i, alignment: 1, extension_atr: 1.5,
+        opportunities: { version: 'intraday_entry_v1', reference: false, missing_bars: 0, as_of: now, reasons: [],
+          primary: { kind: 'box_breakout', direction: 'bullish', status: 'confirmed', quality_score: 95 - i }, branches: [] },
         direction: i % 2 ? 'bearish' : 'bullish', state: i === 0 ? 'extended' : 'continuing',
         explanation: i === 0 ? '方向仍有延续，但偏离短期趋势参考线较远，标记短线延伸。' : '多个窗口方向一致，近期仍在延续。',
         structure: { kind: 'breakout_up', phase: 'confirmed', background: 'bearish', since: now, as_of: now, oversold: false,
@@ -39,7 +42,7 @@ for (const width of [390, 768, 1024, 1280, 1440, 1920]) {
       if (url.pathname === '/api/v1/auth/status') return route.fulfill({ json: { loggedIn: true, user: { uid: 1, username: 'Tester', role: 'user', extra: {} } } });
       if (url.pathname === '/api/v1/intraday-options') return route.fulfill({ json: { trading_date: '2026-11-12',
         market_status: 'open', generated_at: now, version: 'intraday_options_v1',
-        items: items.map((item, i) => changed && i === 1 ? { ...item, result: { ...item.result, score: 99 } } : item),
+        items: items.map((item, i) => changed && i === 1 ? { ...item, result: { ...item.result, score: 99, opportunities: { ...item.result?.opportunities, primary: { ...item.result?.opportunities.primary, quality_score: 99 } } } } : item),
       } });
       if (url.pathname.includes('/market-data/intraday/')) {
         chartRequests++;
@@ -59,6 +62,7 @@ for (const width of [390, 768, 1024, 1280, 1440, 1920]) {
     await expect(panel).toBeVisible();
     await expect(panel.getByRole('img', { name: /1m K线/ })).toBeVisible();
     await expect(panel).toContainText('近似VWAP');
+    await expect(panel.getByTestId('opportunity-detail')).toContainText('日内机会');
     await expect(panel.getByTestId('structure-detail')).toContainText('箱体向上突破');
     await expect(panel.getByTestId('structure-detail')).toContainText('固定箱体');
     await panel.getByRole('button', { name: '5分钟', exact: true }).click();
@@ -67,7 +71,7 @@ for (const width of [390, 768, 1024, 1280, 1440, 1920]) {
     await panel.getByRole('button', { name: '等权均价', exact: true }).click();
     await expect(panel).toContainText('已采集分钟收盘价等权均价');
     changed = true;
-    await expect(page.getByTestId('options-row-QQQ.US').getByTestId('opportunity-score')).toHaveText('99', { timeout: 12000 });
+    await expect(page.getByTestId('options-row-QQQ.US').getByTestId('opportunity-score')).toContainText('99', { timeout: 12000 });
     await expect(rows.first()).toHaveAttribute('data-testid', 'options-row-SPY.US');
     await expect(panel).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);

@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHeader, TableRow } from '@/components/ui/table';
 import { useTableSort } from '@/composables/useTableSort';
 import { useCurrentTime } from '@/composables/useCurrentTime';
-import { clock, dataLabels, directionOrder, directions, fmt, pct, stageOrder, stages, structureName, structurePhases, tone, usable } from '@/components/intraday-options/labels';
+import { clock, entryScore, entryLabel, entryBranch, opportunityKinds, dataLabels, directionOrder, directions, fmt, pct, stageOrder, stages, structureName, structurePhases, tone, usable } from '@/components/intraday-options/labels';
 
 const TrendPanel = defineAsyncComponent(() => import('@/components/intraday-options/TrendPanel.vue'));
 const snapshot = shallowRef<IntradayOptionsSnapshot | null>(null);
@@ -25,10 +25,11 @@ const disconnected = computed(() => !!error.value || (!!snapshot.value && now.va
 const columns = [
   { key: 'symbol', label: '标的', description: '按代码排序；名称与代码均可搜索。' },
   { key: 'changePct', label: '最新价 / 涨跌幅', description: '按当日涨跌幅排序；涨跌幅相对昨收，不参与趋势评分。' },
-  { key: 'score', label: '趋势机会分', description: '0–100规则分，不是盈利概率；开盘不足完整窗口或缺线时也按可用K线计算并标注参考分。' },
+  { key: 'opportunity', label: '日内机会', description: '按有效确认分支质量排序；形成中、延伸、失效、缺线或延迟均不列入有效机会。' },
+  { key: 'score', label: '趋势质量分', description: '0–100规则分，不是盈利概率；开盘不足完整窗口或缺线时也按可用K线计算并标注参考分。' },
   { key: 'direction', label: '当前方向' },
   ...[5, 15, 30, 60].map(n => ({ key: `w${n}`, label: `${n}分钟`, description: '按窗口质量分排序；箭头表示方向，第二行是该窗口涨跌幅。' })),
-  { key: 'structure', label: '短线结构', description: '开盘满30分钟后判断；最近30分钟结构、5分钟变化，最多60分钟背景；独立于趋势机会分。' },
+  { key: 'structure', label: '短线结构', description: '开盘满30分钟后判断；最近30分钟结构、5分钟变化，最多60分钟背景；独立于趋势质量分。' },
   { key: 'state', label: '当前状态', description: '趋势质量与进场位置分开：高分仍可能处于短线延伸。' },
 ];
 const filters: Array<{ key: typeof filter.value; label: string }> = [
@@ -42,6 +43,7 @@ const matches = computed(() => sortSnapshot.value.filter(row => {
 function sortValue(row: IntradayOptionRow, key: string): unknown {
   if (key === 'symbol') return row.symbol;
   if (key === 'changePct') return row.changePct;
+  if (key === 'opportunity') return entryScore(row);
   if (!usable(row)) return null;
   if (key === 'structure') return row.result?.structure ? structureName(row.result.structure) : null;
   if (key.startsWith('w')) return row.result?.windows.find(w => w.minutes === Number(key.slice(1)))?.score;
@@ -50,7 +52,7 @@ function sortValue(row: IntradayOptionRow, key: string): unknown {
   return row.result?.score;
 }
 const table = useTableSort(() => matches.value, sortValue);
-table.sortKey = 'score'; table.direction = 'desc';
+table.sortKey = 'opportunity'; table.direction = 'desc';
 const liveBySymbol = computed(() => new Map(snapshot.value?.items.map(row => [row.symbol, row]) ?? []));
 const rows = computed(() => table.sorted.map(row => liveBySymbol.value.get(row.symbol) ?? row));
 function refreshOrder() { sortSnapshot.value = [...(snapshot.value?.items ?? [])]; }
@@ -88,7 +90,7 @@ onBeforeUnmount(() => { stopped = true; controller?.abort(); clearTimeout(timer)
     <PageHeader
       title="日内期权交易"
       en="Intraday Options"
-      description="固定30个标的 · 按股票/ETF的分钟走势筛选顺势观察机会；分数不是盈利概率。"
+      description="固定30个标的 · 趋势质量与日内入场机会分开观察；分数不是盈利概率。"
     />
     <div class="flex flex-wrap items-center justify-between gap-3 text-sm">
       <div class="flex flex-wrap gap-3 text-muted-foreground">
@@ -139,7 +141,7 @@ onBeforeUnmount(() => { stopped = true; controller?.abort(); clearTimeout(timer)
       />
     </div>
     <p class="text-xs text-muted-foreground">
-      数值持续更新，排序及筛选名单保持不动；点击表头、切换筛选或“更新排序”时重新排列。开盘不足完整窗口或分钟缺失时按可用K线计算参考分，并标注缺失；少于2根有效K线时等待数据。
+      数值持续更新，排序及筛选名单保持不动；点击表头、切换筛选或“更新排序”时重新排列。开盘不足完整窗口或分钟缺失时按可用K线计算参考分，并标注缺失；少于2根有效K线时等待数据。日内机会需完整形态背景与相邻闭合K确认，默认仅按有效机会分排序，其余保持观察池顺序。
     </p>
     <div class="overflow-hidden rounded-lg border">
       <Table>
@@ -217,8 +219,30 @@ onBeforeUnmount(() => { stopped = true; controller?.abort(); clearTimeout(timer)
                 </p>
               </TableCell>
               <TableCell
-                class="text-lg font-semibold tabular-nums"
+                class="whitespace-nowrap text-sm"
                 data-testid="opportunity-score"
+              >
+                <p class="font-semibold tabular-nums">
+                  {{ disconnected ? '—' : fmt(entryScore(row), 0) }}
+                  <span v-if="!disconnected && entryScore(row) != null">分</span>
+                </p>
+                <p>{{ entryLabel(row, disconnected) }}</p>
+                <p
+                  v-if="entryBranch(row)"
+                  class="text-xs text-muted-foreground"
+                >
+                  {{ opportunityKinds[entryBranch(row)!.kind] }} · {{ directions[entryBranch(row)!.direction] }}
+                </p>
+                <p
+                  v-if="row.result?.opportunities && (!row.opportunityEligible || disconnected)"
+                  class="text-xs text-muted-foreground"
+                >
+                  截至 {{ clock(row.result.opportunities.asOf) }}
+                </p>
+              </TableCell>
+              <TableCell
+                class="text-lg font-semibold tabular-nums"
+                data-testid="trend-quality-score"
               >
                 {{ valid(row) ? fmt(row.result?.score, 0) : '—' }}
                 <p
@@ -295,7 +319,7 @@ onBeforeUnmount(() => { stopped = true; controller?.abort(); clearTimeout(timer)
                 <TrendPanel
                   :symbol="row.symbol"
                   :result="row.result"
-                  :stale="disconnected || row.dataStatus === 'delayed' || !valid(row)"
+                  :stale="disconnected || snapshot?.marketStatus !== 'open' || row.dataStatus === 'delayed' || !valid(row)"
                 />
               </TableCell>
             </TableRow>

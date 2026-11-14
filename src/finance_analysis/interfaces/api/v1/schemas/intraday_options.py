@@ -63,7 +63,37 @@ class IntradayStructure(BaseModel):
     reasons: list[str]
 
 
+class OpportunityBranch(BaseModel):
+    kind: Literal["box_breakout", "box_retest", "trend_recovery"]
+    direction: Literal["bullish", "bearish"]
+    status: Literal["forming", "confirmed", "extended", "invalidated", "expired"]
+    structure_id: str
+    trigger: float
+    invalidation: float
+    atr: float
+    formation_start: datetime
+    started_at: datetime
+    confirmed_at: datetime | None
+    expires_at: datetime
+    quality_score: float | None
+    distance_atr: float | None
+    risk_atr: float | None
+    components: dict[str, float]
+    reasons: list[str]
+
+
+class IntradayOpportunities(BaseModel):
+    version: str
+    primary: OpportunityBranch | None
+    branches: list[OpportunityBranch]
+    reference: bool
+    missing_bars: int
+    as_of: datetime
+    reasons: list[str]
+
+
 class TrendResult(BaseModel):
+    opportunities: IntradayOpportunities | None = None
     structure: IntradayStructure | None = None
     version: str
     symbol: str
@@ -81,6 +111,7 @@ class TrendResult(BaseModel):
 
 
 class IntradayOptionRow(BaseModel):
+    opportunity_eligible: bool = False
     symbol: str
     name: str | None
     last_price: float | None
