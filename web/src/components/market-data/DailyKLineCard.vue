@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { opportunityOverlays } from './opportunityOverlay';
+import type { OpportunityBranch } from '@/components/trend-following/opportunities';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { marketDataApi, type DailyBarsResponse } from '@/api/marketData';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
@@ -17,8 +19,10 @@ import { dailyPatternOverlays } from './dailyPatternOverlay';
 import { aggregateStockBars, stockPeriodKey, type StockKlinePeriod } from '@/utils/stockKline';
 import { useTheme } from '@/composables/useTheme';
 
-const props = defineProps<{ symbol: string; endDate?: string; highlightDate?: string; markers?: TradeMarker[]; markerCaption?: string }>();
+const props = defineProps<{ symbol: string; opportunity?: OpportunityBranch; endDate?: string; highlightDate?: string; markers?: TradeMarker[]; markerCaption?: string }>();
 const period = ref<StockKlinePeriod>('1d');
+const showOpportunity = ref(true);
+watch(() => props.opportunity?.structureId, () => { showOpportunity.value = true; });
 const periodOptions = [{ value: '1d', label: '日 K' }, { value: '1w', label: '周 K' }, { value: '1M', label: '月 K' }] as const;
 function changePeriod(value: StockKlinePeriod) {
   period.value = value;
@@ -87,7 +91,7 @@ const overlays = computed(() => {
   const bar = highlightedBar.value;
   // Weekly/monthly views skip the daily BST computed, so register the date overlay independently.
   if (bar) ensureTradeMarkerOverlay();
-  return [...(period.value === '1d' ? [...tradeOverlays.value, ...patternOverlays.value, ...structureOverlays.value] : []), ...(bar ? [{
+  return [...(period.value === '1d' ? [...tradeOverlays.value, ...(props.opportunity ? (showOpportunity.value ? opportunityOverlays(props.opportunity, dailyBars.value, resolvedTheme.value === 'dark') : []) : [...patternOverlays.value, ...structureOverlays.value])] : []), ...(bar ? [{
     name: 'tradeBst', id: 'research-date', groupId: 'research-date', lock: true,
     points: [{ timestamp: bar.timestamp, value: bar.high }],
     extendData: { label: `查看日 ${props.highlightDate}`, kind: 'date' },
@@ -170,6 +174,14 @@ onBeforeUnmount(() => controller?.abort());
           </Button>
         </div>
         <span class="text-xs text-muted-foreground">最近 5 年</span>
+        <Button
+          v-if="opportunity && period === '1d'"
+          size="sm"
+          variant="outline"
+          @click="showOpportunity = !showOpportunity"
+        >
+          {{ showOpportunity ? '隐藏后台结构' : '显示后台结构' }}
+        </Button>
         <StockMembershipTags :code="symbol" />
         <span
           v-if="highlightDate && !loading && !error"
@@ -243,7 +255,7 @@ onBeforeUnmount(() => controller?.abort());
         :source-key="`${symbol}:${endDate ?? 'latest'}`"
       />
       <section
-        v-if="period === '1d' && !loading && !error && bars.length"
+        v-if="!opportunity && period === '1d' && !loading && !error && bars.length"
         class="mt-3 border-t pt-3 text-sm"
         data-testid="daily-pattern-summary"
         aria-label="Price Action 最近形态"
@@ -333,7 +345,7 @@ onBeforeUnmount(() => controller?.abort());
         </details>
       </section>
       <DailyStructureSummary
-        v-if="period === '1d' && !loading && !error && bars.length"
+        v-if="!opportunity && period === '1d' && !loading && !error && bars.length"
         :events="structures"
         :cutoff="patternCutoff"
         :selected="selectedStructure"

@@ -545,3 +545,24 @@ def test_resumed_final_decision_persists_normalized_values_and_keeps_raw_respons
                 assert isinstance(before["value"], str)
                 converted += 1
     assert converted > 0
+
+
+def test_confirmed_opportunity_below_all_alpha_cutoffs_enters_once_and_projects_evidence():
+    from finance_analysis.signal_center.llm_context import conclusions, serialize
+    repo = Repo()
+    target = repo.periods[10][89]
+    code = target['code']
+    for period in repo.periods:
+        row = next(r for r in repo.periods[period] if r['code'] == code)
+        row['rank'] = 999
+        b = dict(kind='ma10', status='CONFIRMED', quality_score=61, structure_id='stable',
+                 rule_version='ohlcv_opportunity_v1', trigger=100, support=99, invalidation=95,
+                 first_confirmed_at=str(DAY), background_periods=[period])
+        row['features']['opportunities'] = dict(branches=[b], primary=b, display=b, preview=False)
+    snapshot = inputs.collect(repo, 'CN', DAY)
+    candidate = next(c for c in snapshot['candidates'] if c['symbol'] == code)
+    assert candidate['nominated_by'] == ['opportunities']
+    assert len(candidate['opportunities']) == 1
+    view = conclusions(snapshot, [code])
+    assert view['evidence_catalog'][f'{code}.opportunities.0.trigger']['value'] == 100
+    assert '## opportunities' in serialize(view)

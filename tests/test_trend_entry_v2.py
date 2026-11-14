@@ -227,3 +227,15 @@ def test_short_horizon_breakout_level_is_available_even_without_long_horizon_bre
     retest = context["pullbacks"]["retest"]
     assert retest["status"] == "CONFIRMED"
     assert retest["breakout_window"] == 10 and retest["breakout_level"] == pytest.approx(level)
+
+
+def test_new_advance_away_from_support_can_start_a_new_ma5_touch():
+    series = shallow()
+    first = entry_context(series)['pullbacks']['ma5']
+    series.append(DailyBar(series[-1].trade_date + timedelta(days=1), 141.5, 142.3, 141.4, 142, 1000))
+    support = sum(b.close for b in series[-5:]) / 5
+    series.append(DailyBar(series[-1].trade_date + timedelta(days=1), support+.2, support+1.2,
+                           support-.05, support+1, 1000))
+    second = entry_context(series)['pullbacks']['ma5']
+    assert second['status'] == 'CONFIRMED'
+    assert second['touch_date'] > first['touch_date']

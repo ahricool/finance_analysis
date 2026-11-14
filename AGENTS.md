@@ -490,3 +490,7 @@ GET本人历史不重算，默认今日或上一交易日；手动触发仅当�
 仅持久化 prediction_tag/event；标签全枚举、规则筛选。仅做公开数据拉取与展示，不调用LLM、不读取自选/持仓、不做股票关联。
 动态GET允许上游只读与短Redis缓存，不写业务库/赔率、不派任务。仅目录6h一个任务，始终开启，无功能总开关。
 页面 `/market/prediction-events`；无个股详情页签，见 `docs/prediction-markets.md`。
+
+## OHLCV 买点机会
+
+`trend_following/opportunities.py` 使用独立形态历史，新增形态只在Trend10批次识别；MA5/MA10/突破位回测保留10/20/40背景并按结构身份合并。正式/Preview复用原快照JSONB，GET `/trend-following/opportunities`只读；信号中心在全池识别后另取有效机会前40只，按证券合并，不改Alpha。事件研究 `OP_*_V1` 与旧事件分离，结构身份跨周期去重。规则、前复权重锚与回填限制见`docs/trend-opportunities.md`。

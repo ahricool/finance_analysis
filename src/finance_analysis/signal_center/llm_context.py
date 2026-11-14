@@ -51,6 +51,9 @@ def conclusions(snapshot, symbols, screening=None):
                 instrument_type=candidate["instrument_type"],
                 nominated_by=list(candidate["nominated_by"]),
                 trends=trends,
+                opportunities=[project(r, "structure_id kind rule_version status quality_score trigger support "
+                    "invalidation distance_atr distance_pct first_confirmed_at data_as_of")
+                    for r in candidate.get("opportunities", [])],
                 etf=project(candidate["etf"], ETF_FIELDS) if candidate.get("etf") else None,
                 industry=[project(row, INDUSTRY_FIELDS) for row in candidate.get("industry", [])],
                 confluence=(
@@ -93,6 +96,7 @@ def rounded(value, key=""):
             "ret_5d",
             "ret_10d",
             "data_coverage",
+            "distance_pct",
         }
         return round(value, 4 if key in ratios else 2)
     return value
@@ -129,12 +133,12 @@ def serialize(view):
             for c in view["candidates"]
         ],
     )
-    for source in ("trends", "etf", "industry", "confluence"):
+    for source in ("trends", "etf", "industry", "confluence", "opportunities"):
         rows = []
         for c in view["candidates"]:
-            value = c[source]
+            value = c.get(source, [])
             entries = (
-                value.items() if source == "trends" else enumerate(value) if source == "industry" else [(None, value)]
+                value.items() if source == "trends" else enumerate(value) if source in ("industry", "opportunities") else [(None, value)]
             )
             for index, row in entries:
                 if not row:

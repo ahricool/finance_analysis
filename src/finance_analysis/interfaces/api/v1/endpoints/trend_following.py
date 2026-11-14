@@ -21,6 +21,8 @@ from finance_analysis.database.repositories.trend_following import (  # pragma: 
 from finance_analysis.interfaces.api.deps import require_admin, require_current_user  # pragma: allowlist secret
 from finance_analysis.interfaces.api.v1.schemas.trend_following import (  # pragma: allowlist secret
     BoxState,
+    StrategyKey,
+    OpportunitiesResponse,
     EventStudyResponse,
     EventStudySummaryResponse,
     EventStudyEventsResponse,
@@ -230,7 +232,7 @@ def event_study_summary(
 
 @router.get("/event-study/events", response_model=EventStudyEventsResponse)
 def event_study_events(
-    strategy: Literal["TREND_FOLLOWING", "BOX_BREAKOUT", "PULLBACK_RESUME", "MEAN_REVERSION"],
+    strategy: StrategyKey,
     market: Market = "CN",
     trend_period: TrendPeriod = 10,
     start_date: date | None = None,
@@ -259,7 +261,7 @@ def event_study(
     trend_period: TrendPeriod = 10,
     start_date: date | None = None,
     end_date: date | None = None,
-    strategy: Literal["ALL", "TREND_FOLLOWING", "BOX_BREAKOUT", "PULLBACK_RESUME", "MEAN_REVERSION"] = "ALL",
+    strategy: StrategyKey | Literal["ALL"] = "ALL",
     regime: Literal["ALL", "RISK_ON", "NEUTRAL", "RISK_OFF"] = "ALL",
     offset: int = Query(default=0, ge=0),
     limit: int = Query(default=100, ge=1, le=500),
@@ -425,6 +427,35 @@ def candidates(
 def dates(_: User = Depends(require_current_user), market: Market = "CN", trend_period: TrendPeriod = 10):
     items = TrendFollowingRepository(market, trend_period=trend_period).available_trade_dates()
     return jsonable_encoder({"market": market, "latest": items[0] if items else None, "items": items})
+
+
+@router.get("/opportunities", response_model=OpportunitiesResponse)
+def opportunities(
+    _: User = Depends(require_current_user), market: Market = "CN", trade_date: date | None = None,
+    mode: Literal["official", "preview"] = "official",
+):
+    from finance_analysis.trend_following.opportunities import opportunity_items, VERSION, CONFIG
+
+    repository = TrendFollowingRepository(market=market, trend_period=10)
+    if mode == "preview":
+        payload = load_preview(market, trend_period=10)
+        if not payload or (trade_date and str(payload.get("trade_date")) != trade_date.isoformat()):
+            raise HTTPException(404, "该日期没有买点预演数据")
+        rows = list(payload.get("snapshots", []))
+        for period in (20, 40):
+            other = load_preview(market, trend_period=period)
+            if other and other.get("trade_date") == payload.get("trade_date"):
+                rows.extend(other.get("snapshots", []))
+        day, generated = payload.get("trade_date"), payload.get("preview_time")
+    else:
+        day = trade_date or repository.latest_trade_date()
+        rows = repository.opportunity_rows(day) if day else []
+        generated = max((r["generated_at"] for r in rows if r.get("generated_at")), default=None)
+    items = opportunity_items(rows)
+    return jsonable_encoder(dict(version=VERSION, market=market, trade_date=day, mode=mode,
+        generated_at=generated, items=items, scanned_count=len({r["code"] for r in rows}), covered_count=len(items),
+        candidate_limit=CONFIG.candidate_limit, candidate_count=sum(bool(r["primary"]) for r in items),
+        status="available" if items else "not_computed"))
 
 
 @router.get("/preview/status")

@@ -12,7 +12,9 @@ from finance_analysis.integrations.market_data.research import (
 )
 from .config import DEFAULT_CONFIG
 
-STRATEGIES = ("TREND_FOLLOWING", "BOX_BREAKOUT", "PULLBACK_RESUME", "MEAN_REVERSION")
+from .opportunities import EVENT_STRATEGIES
+
+STRATEGIES = (*EVENT_STRATEGIES, "TREND_FOLLOWING", "BOX_BREAKOUT", "PULLBACK_RESUME", "MEAN_REVERSION")
 REGIMES = ("RISK_ON", "NEUTRAL", "RISK_OFF")
 HORIZONS = (5, 10, 20)
 CONTEXT_FIELDS = (
@@ -55,6 +57,8 @@ NUMERIC_CONTEXT = tuple(
 
 
 def feature_available(row, strategy):
+    if strategy in EVENT_STRATEGIES:
+        return row.get(strategy) is not None
     if strategy == "TREND_FOLLOWING":
         return row.get("previous_state") is not None
     if strategy == "BOX_BREAKOUT":
@@ -68,17 +72,37 @@ def feature_available(row, strategy):
     return row.get("mr_state") is not None
 
 
+def event_context(row, strategy):
+    context = {key: row.get(key) for key in CONTEXT_FIELDS}
+    if strategy in EVENT_STRATEGIES:
+        document = row.get("opportunities") or {}
+        branches = [b for b in document.get("branches", []) if b.get("fresh") and
+                    (EVENT_STRATEGIES[strategy] == "stock" or b["kind"] == EVENT_STRATEGIES[strategy])]
+        selected = min(branches, key=lambda b: (-(b.get("quality_score") or 0), b["kind"]), default={})
+        context.update({key: selected.get(key) for key in (
+            "structure_id", "kind", "rule_version", "quality_score", "trigger", "invalidation", "first_confirmed_at",
+        )})
+    return context
+
+
 def derive_events(rows):
-    events = []
-    for row in rows:
+    events, seen = [], set()
+    for row in sorted(rows, key=lambda r: (r["trade_date"], r["code"], r.get("trend_period", 10))):
         flags = {
             "TREND_FOLLOWING": row["state"] == "TRENDING" and row.get("previous_state") != "TRENDING",
             "BOX_BREAKOUT": row.get("box_state") == "BOX_BREAKOUT" and row.get("box_breakout_fresh") is True,
             "PULLBACK_RESUME": row.get("trend_resume") is True,
             "MEAN_REVERSION": row.get("mr_state") == "MR_REBOUND",
         }
+        flags.update({key: row.get(key) is True for key in EVENT_STRATEGIES})
         for strategy, flag in flags.items():
             if flag and feature_available(row, strategy):
+                if strategy in EVENT_STRATEGIES:
+                    identity = (row.get("opportunity_event_ids") or {}).get(strategy)
+                    key = (row["code"], strategy, identity or row["trade_date"])
+                    if key in seen:
+                        continue
+                    seen.add(key)
                 events.append(
                     {
                         "market": row["market"],
@@ -88,7 +112,7 @@ def derive_events(rows):
                         "strategy": strategy,
                         "regime": row["market_regime"],
                         "signal_price": row["reference_price"],
-                        "context": {key: row.get(key) for key in CONTEXT_FIELDS},
+                        "context": event_context(row, strategy),
                     }
                 )
     return events
@@ -97,6 +121,11 @@ def derive_events(rows):
 def evaluate_event(event, plan, bars, benchmark, now):
     day, code = event["trade_date"], event["code"]
     base, benchmark_base = bars.get((code, day)), bars.get((benchmark, day))
+    next_bar = bars.get((code, plan[0][0]))
+    next_open = next_bar.get("open") if next_bar else None
+    next_open = next_open if next_open and next_open > 0 else None
+    benchmark_next = bars.get((benchmark, plan[0][0]))
+    benchmark_open = benchmark_next.get("open") if benchmark_next else None
     horizons = []
     for horizon in HORIZONS:
         target_day, close = plan[horizon - 1]
@@ -113,9 +142,21 @@ def evaluate_event(event, plan, bars, benchmark, now):
         benchmark_value = (
             benchmark_target["close"] / benchmark_base["close"] - 1 if benchmark_state == "available" else None
         )
+        next_value = stock_target["close"] / next_open - 1 if close <= now and valid_close(stock_target) and next_open else None
+        next_benchmark = benchmark_target["close"] / benchmark_open - 1 if close <= now and valid_close(benchmark_target) and benchmark_open and benchmark_open > 0 else None
+        path = [bars.get((code, d)) for d, _ in plan[:horizon]]
+        path_complete = close <= now and all(valid_bar(b) for b in path)
+        path_ready = path_complete and valid_close(base)
         horizons.append(
             {
                 "days": horizon,
+                "next_open_return": next_value,
+                "next_open_status": "pending" if close > now else "available" if next_value is not None else "missing",
+                "next_open_excess_return": next_value-next_benchmark if next_value is not None and next_benchmark is not None else None,
+                "mfe": max(b["high"]/base["close"]-1 for b in path) if path_ready else None,
+                "mae": min(b["low"]/base["close"]-1 for b in path) if path_ready else None,
+                "next_open_mfe": max(b["high"]/next_open-1 for b in path) if path_complete and next_open else None,
+                "next_open_mae": min(b["low"]/next_open-1 for b in path) if path_complete and next_open else None,
                 "target_date": target_day,
                 "status": state,
                 "value": value,
@@ -136,6 +177,8 @@ def evaluate_event(event, plan, bars, benchmark, now):
     path = [bars[(code, d)] for d in closed] if status == "available" else []
     return {
         **event,
+        "next_open_base_price": next_open,
+        "execution_assumptions": "next_session_open_zero_cost_no_fill_guarantee",
         "evaluation_base_price": base["close"] if valid_close(base) else None,
         "horizons": horizons,
         "excursion_status": status,
@@ -163,6 +206,12 @@ def aggregate(events, strategy, regime, coverage):
                 "excess_matured_count": len(excess),
                 "pending_count": sum(p["status"] == "pending" for p in points),
                 "missing_count": sum(p["status"] == "missing" for p in points),
+                "next_open_matured_count": sum(p.get("next_open_status") == "available" for p in points),
+                "next_open_missing_count": sum(p.get("next_open_status") == "missing" for p in points),
+                "mean_next_open_excess_return": stats([p["next_open_excess_return"] for p in points if p.get("next_open_excess_return") is not None])["mean"],
+                "mean_mfe": stats([p["mfe"] for p in points if p.get("mfe") is not None])["mean"],
+                "mean_mae": stats([p["mae"] for p in points if p.get("mae") is not None])["mean"],
+                "mean_next_open_return": stats([p["next_open_return"] for p in points if p.get("next_open_return") is not None])["mean"],
                 "mean_return": stats(values)["mean"],
                 "median_return": stats(values)["median"],
                 "win_rate": sum(v > 0 for v in values) / len(values) if values else None,
@@ -212,7 +261,7 @@ def aggregate_coverage(rows, strategy, missing_snapshot_dates=()):
     dates = defaultdict(lambda: [0, 0])
     for row in rows:
         dates[row["trade_date"]][0] += row["snapshot_count"]
-        dates[row["trade_date"]][1] += row[strategy]
+        dates[row["trade_date"]][1] += row.get(strategy, 0)
     total = sum(v[0] for v in dates.values())
     available = sum(v[1] for v in dates.values())
     incomplete = {d for d, (n, count) in dates.items() if n != count} | set(missing_snapshot_dates)
@@ -240,7 +289,7 @@ def evaluate_events(repo, market, events, now):
         for index, (target, close) in enumerate(plans[day], 1):
             if close <= now:
                 pairs.add((code, target))
-                if index in HORIZONS:
+                if index in (1, *HORIZONS):
                     pairs.add((benchmark, target))
     data = repo.event_study_required_bars(pairs) if pairs else []
     bars = {(r["code"], r["date"]): r for r in data}

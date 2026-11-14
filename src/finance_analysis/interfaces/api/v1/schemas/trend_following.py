@@ -255,7 +255,7 @@ class TrendSnapshotStatusResponse(BaseModel):
     generated_at: datetime | None
 
 
-StrategyKey = Literal["TREND_FOLLOWING", "BOX_BREAKOUT", "PULLBACK_RESUME", "MEAN_REVERSION"]
+StrategyKey = Literal["TREND_FOLLOWING", "BOX_BREAKOUT", "PULLBACK_RESUME", "MEAN_REVERSION", "OP_BREAKOUT_V1", "OP_MA5_V1", "OP_MA10_V1", "OP_RETEST_V1", "OP_FLAT_BASE_V1", "OP_BOX_V1", "OP_BOX_RETEST_V1", "OP_VCP_V1", "OP_CUP_HANDLE_V1", "OP_STOCK_V1"]
 EvaluationStatus = Literal["pending", "missing", "available"]
 
 
@@ -274,6 +274,12 @@ class StudyStatistics(BaseModel):
 
 
 class StudyHorizonAggregate(BaseModel):
+    next_open_matured_count: int = 0
+    next_open_missing_count: int = 0
+    mean_next_open_excess_return: float | None = None
+    mean_mfe: float | None = None
+    mean_mae: float | None = None
+    mean_next_open_return: float | None = None
     days: int
     matured_count: int
     excess_matured_count: int
@@ -298,6 +304,13 @@ class StudyGroup(StudyCoverage):
 
 
 class StudyHorizon(BaseModel):
+    next_open_status: EvaluationStatus | None = None
+    next_open_excess_return: float | None = None
+    mfe: float | None = None
+    mae: float | None = None
+    next_open_mfe: float | None = None
+    next_open_mae: float | None = None
+    next_open_return: float | None = None
     days: int
     target_date: date
     status: EvaluationStatus
@@ -309,6 +322,8 @@ class StudyHorizon(BaseModel):
 
 
 class StudyEvent(BaseModel):
+    next_open_base_price: float | None = None
+    execution_assumptions: str | None = None
     market: Literal["CN", "US"]
     trade_date: date
     code: str
@@ -350,3 +365,64 @@ class EventStudyEventsResponse(BaseModel):
 
 class EventStudyResponse(EventStudySummaryResponse, EventStudyEventsResponse):
     pass
+
+
+class OpportunityPoint(BaseModel):
+    date: date
+    known_date: date
+    price: float
+
+
+class OpportunityBranch(BaseModel):
+    trend_background: dict = Field(default_factory=dict)
+    invalidated_at: date | None = None
+    volume_ratio: float | None = None
+    price_basis: str = "forward_adjusted"
+    structure_id: str
+    kind: str
+    rule_version: str
+    status: Literal['FORMING', 'NEAR_TRIGGER', 'CONFIRMED', 'EXTENDED', 'INVALIDATED', 'PULLING_BACK', 'WAITING_PULLBACK']
+    quality_score: float | None
+    trigger: float
+    support: float
+    invalidation: float
+    distance_pct: float
+    distance_atr: float
+    start_date: date
+    end_date: date
+    discovered_at: date
+    first_confirmed_at: date | None
+    data_as_of: date
+    anchor_date: date
+    anchor_close: float
+    background_periods: list[int]
+    preview: bool
+    fresh: bool
+    reason: str | None = None
+    unmet: list[str]
+    points: list[OpportunityPoint]
+    evidence: dict = Field(default_factory=dict)
+
+
+class OpportunityItem(BaseModel):
+    code: str
+    name: str
+    history_status: str
+    data_as_of: date | None = None
+    primary: OpportunityBranch | None
+    display: OpportunityBranch | None
+    branches: list[OpportunityBranch]
+
+
+class OpportunitiesResponse(BaseModel):
+    version: str
+    market: Literal['CN', 'US']
+    trade_date: date | None
+    mode: Literal['official', 'preview']
+    generated_at: datetime | None
+    status: Literal['available', 'not_computed']
+    scanned_count: int
+    covered_count: int
+    candidate_limit: int
+    candidate_count: int
+    items: list[OpportunityItem]

@@ -83,6 +83,8 @@ def entry_context(bars, config=DEFAULT_CONFIG, *, sessions=None):
         touch = None
         advanced = None
         failed = False
+        failure_index = None
+        cleared_support = False
         max_depth = None
         support = None
         atr = None
@@ -98,22 +100,33 @@ def entry_context(bars, config=DEFAULT_CONFIG, *, sessions=None):
             # an early failure cannot be erased by a later qualifying advance.
             if level is not None and bar.low < support - config.entry_support_failure_atr * atr:
                 failed = True
+                failure_index = i
             # An advance must already be observable before this day's low.
             approached = (
                 closes[i - 1] >= support + config.entry_approach_atr * atr
                 and closes[i - 1] - min(closes[max(0, i - lookback) : i]) >= config.entry_advance_atr * atr
                 and trend_at(i - 1)
             )
+            # MA episodes may restart only after a newly observable advance following
+            # failure. Frozen breakout levels never reset their own failed history.
+            if window is not None and failed and failure_index is not None and i - 1 > failure_index and approached:
+                failed, touch, max_depth, cleared_support = False, None, None, False
             if touch is None and approached:
                 advanced = i - 1
             if advanced is None:
                 continue
             if bar.low < support - config.entry_support_failure_atr * atr:
                 failed = True
+                failure_index = i
             near = (
                 bar.low <= support + config.entry_touch_atr * atr and bar.high >= support - config.entry_touch_atr * atr
             )
             declined = bar.low <= closes[advanced] - config.entry_pullback_decline_atr * atr
+            if window is not None and touch is not None and cleared_support and near and approached:
+                touch, max_depth, advanced, cleared_support = None, None, i - 1, False
+                declined = bar.low <= closes[advanced] - config.entry_pullback_decline_atr * atr
+            if touch is not None and bar.low > support + config.entry_approach_atr * atr:
+                cleared_support = True
             if touch is None and near and declined:
                 touch = i
             if touch is not None:

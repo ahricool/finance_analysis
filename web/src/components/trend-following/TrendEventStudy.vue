@@ -32,7 +32,7 @@ const eventsError = ref<ParsedApiError | null>(null);
 const result = shallowRef<EventStudySummaryResponse | null>(null);
 const page = shallowRef<EventStudyEventsResponse | null>(null);
 const groups = computed(() => result.value?.groups.filter(group => group.regime === applied.value.regime) ?? []);
-const labels: Record<StrategyKey, string> = { TREND_FOLLOWING: '趋势', BOX_BREAKOUT: '箱体突破', PULLBACK_RESUME: '趋势回调', MEAN_REVERSION: '超跌反弹' };
+const labels: Record<StrategyKey, string> = {OP_BREAKOUT_V1: '普通突破 V1',OP_MA5_V1: 'MA5 回踩 V1',OP_MA10_V1: 'MA10 回踩 V1',OP_RETEST_V1: '突破位回测 V1',OP_FLAT_BASE_V1: '平底 V1',OP_BOX_RETEST_V1: '箱顶回测 V1', OP_BOX_V1: '箱体 V1',OP_VCP_V1: 'VCP V1',OP_CUP_HANDLE_V1: '杯柄 V1',OP_STOCK_V1: '买点同票合并 V1', TREND_FOLLOWING: '趋势', BOX_BREAKOUT: '箱体突破', PULLBACK_RESUME: '旧版趋势回调', MEAN_REVERSION: '超跌反弹' };
 const applied = ref({ start: '', end: '', regime: 'ALL' as StudyRegime });
 let controller: AbortController | undefined;
 let eventsController: AbortController | undefined;
@@ -131,14 +131,14 @@ function point(event: StudyEvent, days: number, excess = false) {
   if (!p) return '—';
   return (excess ? p.excessStatus : p.status) === 'available' ? pct(excess ? p.excessReturn : p.value) : statusText(excess ? p.excessStatus : p.status);
 }
-const contextKeys: Record<StrategyKey, [string, string][]> = {
+const contextKeys: Partial<Record<StrategyKey, [string, string][]>> = {
   TREND_FOLLOWING: [['alphaScore', 'Alpha'], ['trendScore', 'Trend'], ['rsScore', 'RS'], ['trendLifecycle', 'Lifecycle']],
   BOX_BREAKOUT: [['boxQuality', 'Quality'], ['boxWindowDays', 'Days'], ['boxWidthPct', 'Width'], ['boxBreakoutDistanceAtr', 'Breakout ATR']],
   PULLBACK_RESUME: [['pullbackDepthAtr', 'Pullback ATR'], ['reclaimDistanceAtr', 'Reclaim ATR'], ['trendScore', 'Trend'], ['rsScore', 'RS'], ['entryType', 'Entry'], ['entryScore', 'Entry Score']],
   MEAN_REVERSION: [['rsi14', 'RSI14'], ['distanceFromMa20Atr', 'MA20 / ATR'], ['return3D', '3D'], ['return5D', '5D'], ['closeLocationValue', 'CLV'], ['trendScore', 'Trend'], ['ma20Slope', 'MA20 slope'], ['state', 'State'], ['fragilityScore', 'Fragility']],
 };
 function context(event: StudyEvent) {
-  return contextKeys[event.strategy].map(([key, label]) => {
+  return (contextKeys[event.strategy] ?? []).map(([key, label]) => {
     const raw = event.context[key];
     const formatted = raw == null ? '—' : typeof raw === 'string' ? raw : ['boxWidthPct', 'return3D', 'return5D', 'ma20Slope'].includes(key) ? pct(raw) : raw.toFixed(2);
     return `${trendPeriodText(label, props.trendPeriod ?? 10)}: ${formatted}`;
@@ -154,7 +154,7 @@ async function exportSummary() {
 
 const horizonColumns = [
   ['days', '周期'], ['maturedCount', '可评价 N'], ['pendingCount', '未到期'], ['missingCount', '缺行情'],
-  ['meanReturn', '平均收益'], ['medianReturn', '中位收益'], ['winRate', '胜率'], ['excessMaturedCount', '超额 N'],
+  ['meanReturn', '收盘基准收益'], ['meanNextOpenReturn', '次开盘基准收益'], ['nextOpenMaturedCount', '次开盘 N'], ['meanNextOpenExcessReturn', '次开盘超额'], ['meanMfe', 'MFE'], ['meanMae', 'MAE'], ['medianReturn', '中位收益'], ['winRate', '胜率'], ['excessMaturedCount', '超额 N'],
   ['meanExcessReturn', '平均超额'], ['medianExcessReturn', '中位超额'], ['excessWinRate', '超额胜率'],
 ] as const;
 const horizonTable = useTableSort(() => chosenGroup.value?.horizons ?? [], sortField);
@@ -317,7 +317,7 @@ const horizonTable = useTableSort(() => chosenGroup.value?.horizons ?? [], sortF
               v-for="h in horizonTable.sorted"
               :key="h.days"
             >
-              <TableCell>{{ h.days }}D</TableCell><TableCell>{{ h.maturedCount }}</TableCell><TableCell>{{ h.pendingCount }}</TableCell><TableCell>{{ h.missingCount }}</TableCell><TableCell>{{ pct(h.meanReturn) }}</TableCell><TableCell>{{ pct(h.medianReturn) }}</TableCell><TableCell>{{ pct(h.winRate) }}</TableCell><TableCell>{{ h.excessMaturedCount }}</TableCell><TableCell>{{ pct(h.meanExcessReturn) }}</TableCell><TableCell>{{ pct(h.medianExcessReturn) }}</TableCell><TableCell>{{ pct(h.excessWinRate) }}</TableCell>
+              <TableCell>{{ h.days }}D</TableCell><TableCell>{{ h.maturedCount }}</TableCell><TableCell>{{ h.pendingCount }}</TableCell><TableCell>{{ h.missingCount }}</TableCell><TableCell>{{ pct(h.meanReturn) }}</TableCell><TableCell>{{ pct(h.meanNextOpenReturn) }}</TableCell><TableCell>{{ h.nextOpenMaturedCount ?? 0 }}</TableCell><TableCell>{{ pct(h.meanNextOpenExcessReturn) }}</TableCell><TableCell>{{ pct(h.meanMfe) }}</TableCell><TableCell>{{ pct(h.meanMae) }}</TableCell><TableCell>{{ pct(h.medianReturn) }}</TableCell><TableCell>{{ pct(h.winRate) }}</TableCell><TableCell>{{ h.excessMaturedCount }}</TableCell><TableCell>{{ pct(h.meanExcessReturn) }}</TableCell><TableCell>{{ pct(h.medianExcessReturn) }}</TableCell><TableCell>{{ pct(h.excessWinRate) }}</TableCell>
             </TableRow>
           </TableBody>
         </Table>
@@ -325,7 +325,7 @@ const horizonTable = useTableSort(() => chosenGroup.value?.horizons ?? [], sortF
           v-if="chosenGroup"
           class="text-xs text-muted-foreground"
         >
-          完整20日路径 N={{ chosenGroup.excursionCount }} · MFE 中位数 {{ pct(chosenGroup.mfe20.median) }} · MAE 中位数 {{ pct(chosenGroup.mae20.median) }}
+          次开盘为零费用、假设可成交的研究基准，不保证涨跌停/停牌成交；非组合回测。完整20日路径 N={{ chosenGroup.excursionCount }} · MFE 中位数 {{ pct(chosenGroup.mfe20.median) }} · MAE 中位数 {{ pct(chosenGroup.mae20.median) }}
         </p>
         <p
           v-if="eventsLoading"

@@ -157,7 +157,11 @@ def calculate_entry(row: dict, config: TrendFollowingConfig = DEFAULT_CONFIG, *,
         if breakout_confirmed and resume_confirmed
         else "BREAKOUT" if breakout_confirmed else "PULLBACK_RESUME" if resume_confirmed else "NONE"
     )
+    confirmed = [(key, value) for key, value in results.items() if value["status"] == "CONFIRMED"]
+    selected = min(confirmed, key=lambda pair: (-(pair[1]["quality_score"] or 0), pair[0])) if confirmed else None
     return {
+        "entry_primary": {"kind": selected[0], **selected[1]} if selected else None,
+        "entry_score_semantics": "maximum_setup_quality_not_execution_or_probability",
         "entry_score": max(
             (r["quality_score"] for r in results.values() if r["quality_score"] is not None), default=None
         ),

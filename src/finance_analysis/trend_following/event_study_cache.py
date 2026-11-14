@@ -4,9 +4,9 @@ from finance_analysis.core.snapshot_cache import SnapshotRankingCache
 
 class EventStudyCache(SnapshotRankingCache):
     namespace = "trend_following"
-    schema_version = "v2"
+    schema_version = "v3"
     ttl_seconds = 1800
 
     def __init__(self, market, start_date, end_date, regime, trend_period=10):
         super().__init__(market, end_date)
-        self.key = f"trend:event-study:summary:v3:{market}:{start_date}:{end_date}:{regime}:{trend_period}"
+        self.key = f"trend:event-study:summary:v4:{market}:{start_date}:{end_date}:{regime}:{trend_period}"

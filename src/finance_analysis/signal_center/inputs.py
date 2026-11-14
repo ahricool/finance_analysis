@@ -91,6 +91,18 @@ def collect(repo, market, day):
             (r for r in trends[period].values() if r.get("rank") is not None), key=lambda r: (r["rank"], r["code"])
         )
         selections[f"trend{period}"] = [r["code"] for r in ranked[:limit]]
+    from finance_analysis.trend_following.opportunities import opportunity_items, CONFIG
+
+    opportunities = opportunity_items([row for rows in trends.values() for row in rows.values()])
+    confirmed_opportunities = [r for r in opportunities if r["primary"] and not r.get("preview")]
+    selected_opportunities = confirmed_opportunities[:CONFIG.candidate_limit]
+    selections["opportunities"] = [r["code"] for r in selected_opportunities]
+    opportunity_by_code = {r["code"]: r for r in confirmed_opportunities}
+    availability["opportunities"] = dict(
+        status=availability["trend10"]["status"], count=len(selected_opportunities),
+        total_confirmed=len(confirmed_opportunities), truncated_count=max(0, len(confirmed_opportunities)-CONFIG.candidate_limit),
+        rule_version="ohlcv_opportunity_v1", data_as_of=day,
+    )
     etfs = {r["code"]: r for r in sources["etf"] if r.get("code") in stocks}
     selections["etf"] = list(etfs)
     members = sorted(
@@ -130,6 +142,10 @@ def collect(repo, market, day):
                 instrument_type=stocks[code].get("instrument_type", "STOCK"),
                 nominated_by=[key for key, codes in selections.items() if code in codes],
                 trends=periods,
+                opportunities=[{k: b.get(k) for k in (
+                    "structure_id", "kind", "rule_version", "status", "quality_score", "trigger", "support",
+                    "invalidation", "distance_atr", "distance_pct", "first_confirmed_at", "data_as_of",
+                )} for b in opportunity_by_code.get(code, {}).get("branches", []) if b["status"] == "CONFIRMED"],
                 etf=etfs.get(code),
                 industry=industry.get(code, []),
                 confluence=cf,
@@ -154,6 +170,7 @@ def collect(repo, market, day):
                 industry_top=5,
                 industry_per_group=3,
                 confluence="all_published",
+                opportunities_top=CONFIG.candidate_limit,
                 quant=False,
             ),
             limitations=[
@@ -196,8 +213,8 @@ def build_evidence(snapshot):
             catalog[path] = dict(symbol=symbol, field=path, value=value, data_as_of=source_date)
 
     for c in snapshot["candidates"]:
-        for source in ("trends", "etf", "industry", "confluence"):
-            walk(c[source], f"{c['symbol']}.{source}", c["symbol"], snapshot["signal_date"])
+        for source in ("trends", "etf", "industry", "confluence", "opportunities"):
+            walk(c.get(source), f"{c['symbol']}.{source}", c["symbol"], snapshot["signal_date"])
     walk(snapshot["market_regime"], "market_regime", None, snapshot["signal_date"])
     return catalog
 

@@ -380,7 +380,7 @@ export interface TrendDashboardResponse extends Pick<TrendSummary,
   };
 }
 
-export type StrategyKey = 'TREND_FOLLOWING' | 'BOX_BREAKOUT' | 'PULLBACK_RESUME' | 'MEAN_REVERSION';
+export type StrategyKey = 'OP_BREAKOUT_V1' | 'OP_MA5_V1' | 'OP_MA10_V1' | 'OP_RETEST_V1' | 'OP_FLAT_BASE_V1' | 'OP_BOX_RETEST_V1' | 'OP_BOX_V1' | 'OP_VCP_V1' | 'OP_CUP_HANDLE_V1' | 'OP_STOCK_V1' | 'TREND_FOLLOWING' | 'BOX_BREAKOUT' | 'PULLBACK_RESUME' | 'MEAN_REVERSION';
 export type StudyRegime = 'ALL' | TrendRegime;
 export type EvaluationStatus = 'pending' | 'missing' | 'available';
 export interface StudyCoverage {
@@ -393,7 +393,8 @@ export interface StudyCoverage {
 }
 export interface StudyHorizonAggregate {
   days: number; maturedCount: number; excessMaturedCount: number; pendingCount: number; missingCount: number;
-  meanReturn: number | null; medianReturn: number | null; winRate: number | null;
+  meanMfe?: number | null; meanMae?: number | null; meanNextOpenExcessReturn?: number | null; nextOpenMaturedCount?: number; nextOpenMissingCount?: number;
+  meanNextOpenReturn?: number | null; meanReturn: number | null; medianReturn: number | null; winRate: number | null;
   meanExcessReturn: number | null; medianExcessReturn: number | null; excessWinRate: number | null;
 }
 export interface StudyGroup extends StudyCoverage {
