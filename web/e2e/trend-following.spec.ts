@@ -106,27 +106,12 @@ for (const width of [1280, 1440, 1920]) {
       await download.saveAs(testInfo.outputPath('ranking.xlsx'));
 
       await expect(page.getByTestId('mr-row').first()).toContainText('反弹确认');
-      await expect(page.getByTestId('study-strategy-row')).toHaveCount(4);
-      await expect(page.getByTestId('trend-event-study')).toContainText('insufficient_feature_history');
-      await expect(page.getByTestId('trend-event-study')).toContainText('Box 连续完整自 2026-08-28');
-      await expect(page.getByTestId('trend-event-study')).toContainText('MR 连续完整自 2026-08-28');
-      await page.getByRole('button', { name: '90D', exact: true }).click();
-      await page.getByRole('combobox', { name: '研究市场环境', exact: true }).click();
-      await page.getByRole('option', { name: 'RISK_OFF', exact: true }).click();
-      await page.getByTestId('study-query').click();
-      await page.getByTestId('study-strategy-row').filter({ hasText: '箱体突破' }).click();
-      await expect(page.getByTestId('study-event-row')).toContainText('历史样本');
-      await expect(page.getByTestId('study-event-row')).toContainText('Quality: 88.00');
-      await page.getByTestId('global-market-switch').click();
-      await expect(page.getByTestId('study-coverage')).toContainText('SPY.US');
-      await page.getByTestId('global-market-switch').click();
-      await expect(page.getByTestId('study-coverage')).toContainText('510300.SH');
+      await expect(page.getByTestId('trend-event-study')).toHaveCount(0);
+      await expect(page.getByTestId('trend-transition')).toHaveCount(0);
       await page.getByTestId('box-section').locator('summary').click();
       for (const kind of ['trend', 'box', 'mr']) {
         await page.getByTestId(`${kind}-section`).screenshot({ path: testInfo.outputPath(`${kind}-section.png`) });
       }
-      await page.getByTestId('trend-event-study').scrollIntoViewIfNeeded();
-      await page.screenshot({ path: testInfo.outputPath('strategy-study.png') });
       await expect(page.getByTestId('box-row').first()).toContainText('待突破');
       await expect(page.getByTestId('box-row').first()).toContainText('30d');
       await expect(page.getByTestId('box-row').first().locator('[data-column="forwardReturn20D"]')).toHaveText('8.0%');

@@ -2,7 +2,7 @@ import { flushPromises, mount } from '@vue/test-utils';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { trendFollowingApi } from '@/api/trendFollowing';
 import { theme } from '@/composables/useTheme';
-import type { TrendBreadthResponse, TrendTransitionsResponse } from '@/types/trendFollowing';
+import type { TrendBreadthResponse } from '@/types/trendFollowing';
 import TrendMarketOverview from '../TrendMarketOverview.vue';
 import { delta5D } from '../breadthCharts';
 
@@ -16,17 +16,11 @@ const history: TrendBreadthResponse = {
     deteriorationBreadth: 0.2 - i * 0.01, inactive: 0.3 - i * 0.01, emerging: 0.1,
     healthy: 0.4 + i * 0.02, deteriorating: 0.2 - i * 0.01, coverage: 1, warning: null, isPreview: false })),
 };
-const transitions: TrendTransitionsResponse = { market: 'US', days: 3, officialCount: 3, previewDate: null, warnings: [], items: [
-  { code: 'TEST.US', name: 'Test stock', previousState: 'CANDIDATE', currentState: 'TRENDING',
-    previousDate: '2026-09-09', tradeDate: '2026-09-11', previousRank: 18, currentRank: 9, rankDelta: 9,
-    alphaScore: 83, fragilityScore: 20, direction: 'strengthening', priority: 0, isPreview: false },
-] };
 const props = { market: 'US' as const, includePreview: false, refreshKey: 0 };
 beforeEach(() => {
   vi.clearAllMocks();
   theme.value = 'light';
   vi.mocked(trendFollowingApi.breadthHistory).mockResolvedValue(history);
-  vi.mocked(trendFollowingApi.transitions).mockResolvedValue(transitions);
 });
 afterEach(() => { theme.value = 'light'; });
 
@@ -56,43 +50,15 @@ it('shows current KPIs and absolute percentage-point deltas over five sessions',
   wrapper.unmount();
 });
 
-it('defaults to 3D, sends direction and range filters, and opens point-in-time detail', async () => {
-  const wrapper = mount(TrendMarketOverview, { props });
-  await flushPromises();
-  expect(trendFollowingApi.transitions).toHaveBeenLastCalledWith('US', 3, 'all', undefined, false, 10);
-  const click = async (label: string) => {
-    await wrapper.findAll('button').find(button => button.text() === label)!.trigger('click');
-    await flushPromises();
-  };
-  await click('转弱');
-  await click('近5次变化');
-  expect(trendFollowingApi.transitions).toHaveBeenLastCalledWith('US', 5, 'deteriorating', undefined, false, 10);
-  await click('转强');
-  await click('今日变化');
-  expect(trendFollowingApi.transitions).toHaveBeenLastCalledWith('US', 1, 'strengthening', undefined, false, 10);
-  await wrapper.get('[data-testid="trend-transition"]').trigger('click');
-  expect(wrapper.emitted('select')).toEqual([[{ code: 'TEST.US', tradeDate: '2026-09-11', preview: false }]]);
-  expect(wrapper.text()).toContain('新确认趋势');
-  expect(wrapper.text()).toContain('CANDIDATE → TRENDING');
-  expect(wrapper.text()).toContain('Rank #18 · 百分比暂无 → #9 · 百分比暂无');
-  expect(wrapper.text()).toContain('趋势状态变更');
-  wrapper.unmount();
-});
-
-it('labels Preview points and transitions and preserves official point count', async () => {
+it('labels Preview points and preserves official point count', async () => {
   vi.mocked(trendFollowingApi.breadthHistory).mockResolvedValue({ ...history, previewDate: '2026-09-14',
     points: [...history.points, { ...history.points[5]!, tradeDate: '2026-09-14', isPreview: true }] });
-  vi.mocked(trendFollowingApi.transitions).mockResolvedValue({ ...transitions, previewDate: '2026-09-14',
-    items: [{ ...transitions.items[0]!, tradeDate: '2026-09-14', isPreview: true }] });
   const wrapper = mount(TrendMarketOverview, { props: { ...props, includePreview: true } });
   await flushPromises();
   const option = wrapper.findComponent({ name: 'VChart' }).props('option');
   expect(option.xAxis.data.at(-1)).toBe('2026-09-14 · Preview');
   expect(option.series[0].data.at(-1).symbol).toBe('emptyCircle');
   expect(wrapper.text()).toContain('6 个正式 session + 1 Preview');
-  expect(wrapper.get('[data-testid="trend-transition"]').text()).toContain('Preview');
-  await wrapper.get('[data-testid="trend-transition"]').trigger('click');
-  expect(wrapper.emitted('select')![0]).toEqual([{ code: 'TEST.US', tradeDate: '2026-09-14', preview: true }]);
   wrapper.unmount();
 });
 
@@ -108,32 +74,29 @@ it('reloads market, historical cutoff, mode and refresh; stale responses cannot 
   expect(trendFollowingApi.breadthHistory).toHaveBeenLastCalledWith('CN', '2026-09-11', false, 10);
   await wrapper.setProps({ includePreview: true, asOf: undefined });
   await flushPromises();
-  expect(trendFollowingApi.transitions).toHaveBeenLastCalledWith('CN', 3, 'all', undefined, true, 10);
   await wrapper.setProps({ refreshKey: 1 });
   await flushPromises();
   expect(trendFollowingApi.breadthHistory).toHaveBeenCalledTimes(4);
   wrapper.unmount();
 });
 
-it('isolates breadth and transitions failures with retry and empty states', async () => {
+it('retries breadth failures without requesting removed transitions', async () => {
   vi.mocked(trendFollowingApi.breadthHistory).mockRejectedValueOnce(new Error('unavailable'));
   const wrapper = mount(TrendMarketOverview, { props });
   await flushPromises();
-  expect(wrapper.find('[data-testid="trend-transition"]').exists()).toBe(true);
   await wrapper.findAll('button').find(button => button.text() === '重试趋势广度')!.trigger('click');
   await flushPromises();
   expect(wrapper.findAllComponents({ name: 'VChart' })).toHaveLength(2);
   vi.mocked(trendFollowingApi.transitions).mockRejectedValueOnce(new Error('unavailable'));
   await wrapper.setProps({ refreshKey: 1 });
   await flushPromises();
-  expect(wrapper.text()).toContain('重试状态变化');
+  expect(trendFollowingApi.transitions).not.toHaveBeenCalled();
   expect(wrapper.findAllComponents({ name: 'VChart' })).toHaveLength(2);
   vi.mocked(trendFollowingApi.breadthHistory).mockResolvedValue({ ...history, points: [] });
-  vi.mocked(trendFollowingApi.transitions).mockResolvedValue({ ...transitions, items: [] });
   await wrapper.setProps({ refreshKey: 2 });
   await flushPromises();
   expect(wrapper.text()).toContain('暂无趋势广度历史');
-  expect(wrapper.text()).toContain('所选范围暂无重要状态变化');
+  expect(wrapper.text()).not.toContain('趋势状态变更');
   wrapper.unmount();
 });
 

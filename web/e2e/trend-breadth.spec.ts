@@ -19,50 +19,31 @@ const points = dates.map((tradeDate, i) => ({ tradeDate, rankableCount: 3700,
   coverage: 1, warning: null, isPreview: false }));
 const breadth = { market: 'CN', dates, officialCount: 30, previewDate: null,
   previewTime: null, generatedAt: '2026-09-27T10:50:00Z', warnings: [], points };
-const items = snapshots.slice(0, 4).map((stock, i) => ({
-  code: stock.code, name: stock.name, previousState: i < 2 ? 'CANDIDATE' : 'TRENDING',
-  currentState: i < 2 ? 'TRENDING' : 'WEAKENING', previousDate: dates[27], tradeDate: dates[28],
-  previousRank: i + 12, currentRank: i + 5, rankDelta: 7, direction: i < 2 ? 'strengthening' : 'deteriorating',
-  priority: 0, isPreview: false,
-}));
 
 for (const width of [1280, 1440, 1920]) {
   for (const theme of ['light', 'dark']) {
-    test(`breadth charts, filters and point-in-time detail at ${width} ${theme}`, async ({ page }, testInfo) => {
+    test(`breadth charts stay isolated at ${width} ${theme}`, async ({ page }, testInfo) => {
       await page.setViewportSize({ width, height: 1000 });
       await page.addInitScript(value => localStorage.setItem('theme', value), theme);
       let fail = false;
-      const requestedDetails: string[] = [];
+      const removedRequests: string[] = [];
       await page.route('**/api/v1/**', async route => {
-        const url = new URL(route.request().url());
-        const path = url.pathname;
+        const url = new URL(route.request().url()), path = url.pathname;
         let body: object = {};
-        if (path === '/api/v1/auth/status') body = { loggedIn: true, user: { uid: 1, username: 'Tester', role: 'user', extra: {} } };
-        else if (path.endsWith('/preview/status') || (path.endsWith('/preview') || path.endsWith('/preview/ranking'))) {
-          await route.fulfill({ status: 404, json: {} }); return;
-        } else if (path.includes('/event-study/')) body = { groups: [], snapshot_dates: [], missing_snapshot_dates: [], box_feature_coverage: {}, mr_feature_coverage: {} };
-        else if (path.includes('/market-data/daily-bars/')) body = { items: [] };
+        if (path.includes('/event-study') || path.endsWith('/transitions')) {
+          removedRequests.push(path);
+          return route.fulfill({status:504,json:{detail:'upstream timeout'}});
+        }
+        if (path.endsWith('/auth/status')) body = {loggedIn:true,user:{uid:1,username:'Tester',role:'user',extra:{}}};
+        else if (path.includes('/preview')) return route.fulfill({status:404,json:{}});
         else if (path.endsWith('/breadth-history')) {
-          if (fail) { await route.fulfill({ status: 503, json: { detail: 'Breadth unavailable' } }); return; }
+          if (fail) return route.fulfill({status:503,json:{detail:'Breadth unavailable'}});
           expect(url.searchParams.get('days')).toBe('30');
           body = breadth;
-        } else if (path.endsWith('/transitions')) {
-          const direction = url.searchParams.get('direction');
-          body = { market: 'CN', days: Number(url.searchParams.get('days')), warnings: [],
-            items: direction === 'all' ? items : items.filter(item => item.direction === direction) };
-        } else if (path.endsWith('/dates')) body = { market: 'CN', latest: dates[29], items: [...dates].reverse() };
-        else if (isRankingPath(path)) body = { ...summary, items: snapshots, candidates: [] };
-        else {
-          const code = decodeURIComponent(path.split('/').pop()!);
-          const stock = snapshots.find(item => item.code === code);
-          if (stock && path.includes('/trend-following/')) {
-            requestedDetails.push(code);
-            expect(url.searchParams.get('trade_date')).toBe(dates[28]);
-            body = { market: 'CN', metadata: stock, latest: { ...stock, tradeDate: dates[28] }, marketContext: summary,
-              history: dates.slice(0, -1).map(tradeDate => ({ ...stock, tradeDate })) };
-          }
-        }
-        await route.fulfill({ json: compactTrendResponse(new URL(route.request().url()).pathname, body) });
+        } else if (path.endsWith('/dates')) body = {market:'CN',latest:dates[29],items:[...dates].reverse()};
+        else if (isRankingPath(path)) body = {...summary,items:snapshots,candidates:[]};
+        else if (path.endsWith('/opportunities')) body = {items:[],status:'not_computed'};
+        await route.fulfill({json:compactTrendResponse(path,body)});
       });
       const errors: string[] = [];
       page.on('pageerror', error => errors.push(error.message));
@@ -81,76 +62,46 @@ for (const width of [1280, 1440, 1920]) {
       const box = boxes[0]!;
       await page.mouse.move(box.x + box.width / 2, box.y + 130);
       await panel.screenshot({ path: testInfo.outputPath(`breadth-${theme}-${width}.png`) });
-      await expect(panel.getByTestId('trend-transition')).toHaveCount(4);
-      await panel.getByRole('button', { name: '转弱', exact: true }).click();
-      await expect(panel.getByTestId('trend-transition')).toHaveCount(2);
-      await panel.getByRole('button', { name: '近5次变化', exact: true }).click();
-      await expect(panel.getByTestId('trend-transitions')).toContainText('趋势状态变更');
-      await expect(panel.getByTestId('trend-transition').first()).toContainText('趋势开始弱化');
-      await expect(panel.getByTestId('trend-transition').first()).toContainText('TRENDING → WEAKENING');
-      await panel.getByTestId('trend-transition').first().click();
-      await expect(page.getByTestId('trend-detail')).toBeVisible();
-      await expect(page.getByTestId('trend-rank-history')).toBeVisible();
-      await expect(page.getByTestId('trend-fragility-history')).toBeVisible();
-      expect(requestedDetails[0]).toBe(snapshots[2]!.code);
-      await page.keyboard.press('Escape');
+
+      await expect(panel.getByTestId('trend-transition')).toHaveCount(0);
       fail = true;
       await page.getByTestId('trend-refresh').click();
       await expect(panel.getByRole('button', { name: '重试趋势广度' })).toBeVisible();
       await expect(page.getByTestId('trend-row')).toHaveCount(12);
+      expect(removedRequests).toEqual([]);
       expect(errors).toEqual([]);
     });
   }
 }
 
-test('Preview is an extra point and same-day official transitions open official detail', async ({ page }, testInfo) => {
+test('Preview breadth becomes official without restoring transition requests', async ({page}) => {
   const previewDate = '2026-09-29';
   let officialToday = false;
-  const previewSnapshots = snapshots.map(stock => ({ ...stock, tradeDate: previewDate, state: 'WEAKENING' }));
+  const removedRequests: string[] = [];
   await page.route('**/api/v1/**', async route => {
-    const url = new URL(route.request().url());
-    const path = url.pathname;
+    const path = new URL(route.request().url()).pathname;
     let body: object = {};
-    if (path === '/api/v1/auth/status') body = { loggedIn: true, user: { uid: 1, username: 'Tester', role: 'user', extra: {} } };
-    else if (path.endsWith('/breadth-history')) {
-      body = { ...breadth, previewDate: officialToday ? null : previewDate,
-        points: [...(officialToday ? points.slice(1) : points), { ...points[29], tradeDate: previewDate, isPreview: !officialToday }],
-      };
-    } else if (path.endsWith('/transitions')) {
-      body = { days: 3, warnings: [], previewDate: officialToday ? null : previewDate,
-        items: [{ ...items[0], tradeDate: previewDate, isPreview: !officialToday }] };
-    } else if (path.endsWith('/preview/status') || (path.endsWith('/preview') || path.endsWith('/preview/ranking'))) {
-      body = { ...summary, status: 'completed', tradeDate: previewDate, previewTime: '2026-09-29T06:35:00Z',
-        snapshots: previewSnapshots, snapshotCount: 12, scoreBreakdown: {},
-      };
-    } else if (isRankingPath(path)) body = { ...summary, items: snapshots, candidates: [] };
-    else if (path.endsWith('/dates')) body = { market: 'CN', latest: dates[29], items: [...dates].reverse() };
-    else if (path.includes('/preview/stocks/')) {
-      expect(url.searchParams.get('trade_date')).toBe(previewDate);
-      body = { market: 'CN', metadata: previewSnapshots[0], latest: previewSnapshots[0], history: [], marketContext: summary };
-    } else if (path.endsWith('/trend-following/000001.SZ')) {
-      expect(url.searchParams.get('trade_date') ?? url.searchParams.get('before_trade_date')).toBe(previewDate);
-      body = { market: 'CN', metadata: snapshots[0], latest: { ...snapshots[0], tradeDate: previewDate }, marketContext: summary,
-        history: dates.map(tradeDate => ({ ...snapshots[0], tradeDate })) };
-    } else if (path.includes('/market-data/daily-bars/')) body = { items: [] };
-    await route.fulfill({ json: compactTrendResponse(new URL(route.request().url()).pathname, body) });
+    if (path.includes('/event-study') || path.endsWith('/transitions')) {
+      removedRequests.push(path);
+      return route.fulfill({status:504,json:{detail:'upstream timeout'}});
+    }
+    if (path.endsWith('/auth/status')) body = {loggedIn:true,user:{uid:1,username:'Tester',role:'user',extra:{}}};
+    else if (path.endsWith('/breadth-history')) body = {...breadth,previewDate:officialToday?null:previewDate,
+      points:[...(officialToday?points.slice(1):points),{...points[29],tradeDate:previewDate,isPreview:!officialToday}]};
+    else if (path.includes('/preview')) body = {...summary,status:'completed',tradeDate:previewDate,
+      previewTime:'2026-09-29T06:35:00Z',snapshots:snapshots.map(stock=>({...stock,tradeDate:previewDate})),snapshotCount:12,scoreBreakdown:{}};
+    else if (isRankingPath(path)) body = {...summary,items:snapshots,candidates:[]};
+    else if (path.endsWith('/dates')) body = {items:[...dates].reverse()};
+    else if (path.endsWith('/opportunities')) body = {items:[],status:'not_computed'};
+    await route.fulfill({json:compactTrendResponse(path,body)});
   });
   await page.goto('/research/trend-following');
   const panel = page.getByTestId('trend-market-overview');
   await expect(panel).toContainText('+ 1 Preview');
-  await expect(panel.getByTestId('trend-transition')).toContainText('Preview');
   await expect(panel.locator('canvas')).toHaveCount(2);
-  await panel.screenshot({ path: testInfo.outputPath('breadth-preview.png') });
-  await panel.getByTestId('trend-transition').click();
-  await expect(page.getByTestId('trend-detail')).toBeVisible();
-  await expect(page.getByTestId('trend-detail')).toContainText('当前详情为 Preview');
-  await page.keyboard.press('Escape');
   officialToday = true;
   await page.getByTestId('trend-refresh').click();
   await expect(panel).not.toContainText('+ 1 Preview');
-  await expect(panel.getByTestId('trend-transition')).not.toContainText('Preview');
-  await panel.getByTestId('trend-transition').click();
-  await expect(page.getByTestId('trend-detail')).toBeVisible();
-  await expect(page.getByTestId('trend-detail')).not.toContainText('当前详情为 Preview');
-  await expect(page.getByTestId('trend-rank-history')).toBeVisible();
+  await expect(panel.locator('canvas')).toHaveCount(2);
+  expect(removedRequests).toEqual([]);
 });

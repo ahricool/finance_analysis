@@ -12,12 +12,10 @@ import IndicatorHelpLabel from '@/components/app/IndicatorHelpLabel.vue';
 import { useTheme } from '@/composables/useTheme';
 import type { TrendBreadthResponse, TrendMarket } from '@/types/trendFollowing';
 import { breadthOption, delta5D, delta5DValue, percent } from './breadthCharts';
-import TrendRecentTransitions from './TrendRecentTransitions.vue';
 import { signedTextClass } from '@/utils/marketTone';
 
 use([CanvasRenderer, LineChart, GridComponent, LegendComponent, TooltipComponent]);
 const props = defineProps<{ market: TrendMarket; trendPeriod?: 10 | 20 | 40; asOf?: string; includePreview: boolean; refreshKey: number }>();
-const emit = defineEmits<{ select: [value: { code: string; tradeDate: string; preview: boolean }] }>();
 const { resolvedTheme } = useTheme();
 const history = shallowRef<TrendBreadthResponse | null>(null);
 const error = shallowRef<ParsedApiError | null>(null);
@@ -180,9 +178,5 @@ const warnings = computed(() => [
         暂无趋势广度历史
       </p>
     </section>
-    <TrendRecentTransitions
-      v-bind="props"
-      @select="emit('select', $event)"
-    />
   </div>
 </template>

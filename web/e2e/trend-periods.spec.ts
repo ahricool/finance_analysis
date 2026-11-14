@@ -52,7 +52,8 @@ for (const width of [390, 768, 1024, 1280, 1440, 1920]) {
       };
     });
     expect(layout.flexWrap).toBe('nowrap');
-    expect(Math.abs(layout.right - layout.toolbarRight)).toBeLessThanOrEqual(1);
+    await expect(page.getByTestId('trend-analysis').getByTestId('trend-period')).toHaveCount(1);
+    await expect(page.locator('.research-toolbar').getByTestId('trend-period')).toHaveCount(0);
     expect(new Set(layout.buttonTops).size).toBe(1);
     await expect(page.getByTestId('trend-refresh')).toBeVisible();
     await expect(page.getByTestId('trend-run-latest')).toBeVisible();

@@ -2,7 +2,7 @@
 
 ## 范围
 
-`/research/trend-following` 纵向展示公共市场上下文、趋势排名、结构机会、超跌反弹、历史策略研究。
+`/research/trend-following` 当前分为买点机会和趋势分析，已移除历史策略研究与趋势状态变更表。本文保留后端事件研究 API 及统计口径；页面不再自动调用事件研究接口。
 前三张表同时显示，各自维护搜索、筛选、排序和虚拟滚动，复用同一个详情 Drawer。
 Trend 完整 Universe 最多 60vh，Box/MR 最多 32rem；超过 300 行只渲染可见行与 overscan。
 Box 默认 BREAKOUT/READY，MR 默认 REBOUND/OVERSOLD，REBOUND 优先、同状态按 Quality 降序。
@@ -121,7 +121,7 @@ mr_shock_5d_scale=.10, mr_quality_weights={oversold:.35,distance:.35,shock:.20,r
 
 当前机会可以使用临时日线计算Box、MR，但此前部分只使用T−1及之前正式日线和正式MR前态。
 库内T日记录被临时日线替换，不混入未来日线。Preview仅写独立PostgreSQL最新预演表，不持久化正式研究事件。
-Preview 下前三张表继续展示；历史策略研究仅显示 Official 提示，不发送 Event Study 请求。
+正式与 Preview 均保留趋势分析；历史策略研究前端组件已删除，两个模式均不发送 Event Study 请求。
 
 ## 收益与交易日
 
