@@ -306,6 +306,4 @@ LLM允许web_search，但只能建议已有position；BUY为加仓，数量不�
 
 ## Prediction Markets
 
-仅 prediction_tag/event 两张目录表，不持久化市场选项、赔率、结果ID映射或历史。
-GET live/history可访问固定公开上游并写短缓存，不得写业务库或派任务。整个模块不调用LLM、不读取证券/自选/持仓、不做股票关联。
-仅目录同步任务使用session advisory lock，业务写事务不跨外部请求；见 `../../docs/prediction-markets.md`。
+`prediction_markets/` 只读已有证券名称/代码后访问官方 public-search，结果短Redis缓存。无Polymarket业务表、定时任务、管理写接口或LLM。详情/历史仍只读上游，见 `../../docs/prediction-markets.md`。

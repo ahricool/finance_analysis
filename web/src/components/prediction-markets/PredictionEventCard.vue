@@ -4,7 +4,6 @@ import { predictionApi, type PredictionEvent, type LiveData } from '@/api/predic
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import AppApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { formatDateTimeInDisplayTimezone as dateTime } from '@/utils/format';
 const PredictionHistory = defineAsyncComponent(() => import('./PredictionHistory.vue'));
 const props = defineProps<{ event: PredictionEvent }>();
@@ -31,20 +30,6 @@ const markets = computed(() => expanded.value ? data.value?.markets : data.value
     class="min-w-0 space-y-3 rounded-xl border bg-card p-4"
     data-testid="prediction-event-card"
   >
-    <div class="flex flex-wrap gap-2">
-      <Badge
-        v-for="tag in event.tags"
-        :key="tag.tagId"
-        variant="secondary"
-      >
-        {{ tag.label }}
-      </Badge><Badge
-        v-if="event.ruleReason === 'price_prediction'"
-        variant="outline"
-      >
-        价格预测 · 非独立业务催化
-      </Badge>
-    </div>
     <h3 class="break-words font-semibold">
       <a
         :href="event.url"
@@ -55,6 +40,9 @@ const markets = computed(() => expanded.value ? data.value?.markets : data.value
     </h3>
     <p class="text-xs text-muted-foreground">
       截止 {{ event.endAt ? dateTime(event.endAt) : '未提供' }} · {{ (data?.closed ?? event.closed) ? '已关闭（不等于已结算）' : '未关闭' }}
+    </p>
+    <p class="text-xs text-muted-foreground">
+      24h 成交额：{{ event.volume24H == null ? '暂无' : `$${event.volume24H.toLocaleString(undefined, { maximumFractionDigits: 0 })}` }}
     </p>
     <div class="border-t pt-3">
       <p
