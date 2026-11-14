@@ -8,6 +8,7 @@ import MarketKLineChart from '@/components/market-data/MarketKLineChart.vue';
 import { Button } from '@/components/ui/button';
 import { useTheme } from '@/composables/useTheme';
 import { clock, directions, fmt, pct, structureName, structurePhases } from './labels';
+import OpportunityPanel from './OpportunityPanel.vue';
 import { referenceSeries, structureOverlays, trendOverlays } from './overlays';
 
 const props = defineProps<{ symbol: string; result: TrendResult | null; stale: boolean }>();
@@ -124,6 +125,10 @@ onBeforeUnmount(() => { stopped = true; generation++; controller?.abort(); clear
     <p class="text-xs text-muted-foreground">
       {{ referenceLabel }}。紫色区域仅标记所选窗口；窗口尚未完整时不标记。
     </p>
+    <OpportunityPanel
+      :opportunities="result?.opportunities"
+      :stale="stale"
+    />
     <article
       v-if="result?.structure"
       class="space-y-1 rounded border p-3 text-sm"
@@ -155,7 +160,7 @@ onBeforeUnmount(() => { stopped = true; generation++; controller?.abort(); clear
         {{ reason }}
       </p>
       <p class="text-xs text-muted-foreground">
-        图中橙线为箱体边界，圆点为已确认高低点，◆为突破阶段的确认/触发位置；拐点需右侧2根K闭合才确认。结构独立于机会分，不代表买卖指令。
+        图中橙线为箱体边界，圆点为已确认高低点，◆为突破阶段的确认/触发位置；拐点需右侧2根K闭合才确认。结构描述与入场确认分开，机会分支另行判断，不代表买卖指令。
       </p>
     </article>
     <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
@@ -205,7 +210,7 @@ onBeforeUnmount(() => { stopped = true; generation++; controller?.abort(); clear
         评分截至 {{ clock(result?.asOf) }} · 基础分 {{ fmt(result?.baseScore) }} · 方向一致性 {{ fmt(result?.alignment, 2) }} · 短线偏离 {{ fmt(result?.extensionAtr, 2) }} ATR
       </p>
       <p class="text-xs text-muted-foreground">
-        窗口权重：稳定度30% / 路径效率30% / 移动强度25% / 扰动控制15%；综合窗口权重15m/30m/60m = 30%/45%/25%。5分钟仅作短线观察，不参与综合分。趋势机会分不是盈利概率。
+        窗口权重：稳定度30% / 路径效率30% / 移动强度25% / 扰动控制15%；综合窗口权重15m/30m/60m = 30%/45%/25%。5分钟仅作短线观察，不参与综合分。趋势质量分不是盈利概率，不与日内机会分直接相加。
       </p>
     </div>
   </section>

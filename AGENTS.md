@@ -491,3 +491,11 @@ GET本人历史不重算，默认今日或上一交易日；手动触发仅当�
 ## OHLCV 买点机会
 
 `trend_following/opportunities.py` 使用独立形态历史，新增形态只在Trend10批次识别；MA5/MA10/突破位回测保留10/20/40背景并按结构身份合并。正式/Preview复用原快照JSONB，GET `/trend-following/opportunities`只读；信号中心在全池识别后另取有效机会前40只，按证券合并，不改Alpha。事件研究 `OP_*_V1` 与旧事件分离，结构身份跨周期去重。规则、前复权重锚与回填限制见`docs/trend-opportunities.md`。
+
+
+## Intraday Options Opportunities
+
+`intraday_options/` v8保留1min计算的15/30/60趋势质量分，独立新增箱体突破、突破位回测、顺势回撤恢复三分支。
+闭合分钟因果重建、触发前冻结价位/ATR、相邻两根确认、延伸/失效/到期分开；只保留Redis最新结果。
+GET只读，行级机会资格排除缺线、延迟和非交易时段；默认有效机会质量排序，前端轮询不跳行。
+不读取Trend排名、不选期权合约、不下单、不存历史；详见`docs/intraday-options.md`。

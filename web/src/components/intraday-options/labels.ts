@@ -1,4 +1,4 @@
-import type { IntradayOptionRow, IntradayStructure, TrendDirection, TrendStage } from '@/api/intradayOptions';
+import type { IntradayOptionRow, OpportunityBranch, IntradayStructure, TrendDirection, TrendStage } from '@/api/intradayOptions';
 
 export const directions: Record<TrendDirection, string> = {
   bullish: '偏多', bearish: '偏空', neutral: '震荡', conflict: '分歧',
@@ -31,4 +31,32 @@ export const structurePhases: Record<IntradayStructure['phase'], string> = {
 };
 export function structureName(value: IntradayStructure | null | undefined) {
   return value ? value.oversold && value.kind === 'rebound' ? '超跌反弹' : structureLabels[value.kind] : '—';
+}
+
+export const opportunityKinds: Record<OpportunityBranch['kind'], string> = {
+  box_breakout: '箱体突破', box_retest: '突破位回测', trend_recovery: '顺势回撤恢复',
+};
+export const opportunityStates: Record<OpportunityBranch['status'], string> = {
+  forming: '形成中', confirmed: '已确认', extended: '已延伸', invalidated: '已失效', expired: '已过期',
+};
+export function entryScore(row: IntradayOptionRow) {
+  const opportunity = row.result?.opportunities;
+  return row.opportunityEligible && ['ready', 'warming'].includes(row.dataStatus)
+    && !opportunity?.reference && opportunity?.primary?.status === 'confirmed'
+    ? opportunity.primary.qualityScore : null;
+}
+export function entryLabel(row: IntradayOptionRow, stale = false) {
+  const opportunities = row.result?.opportunities;
+  if (!opportunities) return '等待数据';
+  if (stale || ['delayed', 'invalid_time', 'waiting'].includes(row.dataStatus)) {
+    return opportunities.primary ? '历史/参考确认' : '历史/参考观察';
+  }
+  if (entryScore(row) == null && opportunities.primary) return '历史/参考确认';
+  if (opportunities.reference) return '数据不足 · 观察';
+  const branch = opportunities.primary ?? opportunities.branches[0];
+  return branch ? opportunityStates[branch.status] : '等待机会';
+}
+
+export function entryBranch(row: IntradayOptionRow) {
+  return row.result?.opportunities?.primary ?? row.result?.opportunities?.branches[0] ?? null;
 }

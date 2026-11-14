@@ -135,6 +135,8 @@ async def read_snapshot(repository, names, now):
             else:
                 quote_status = "ready"
         return {
+            "opportunity_eligible": bool(result and result.get("opportunities", {}).get("primary")
+                                         and status in {"ready", "warming"} and market_status == "open"),
             "symbol": symbol,
             "name": names.get(symbol),
             "last_price": price,

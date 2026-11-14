@@ -8,9 +8,13 @@ vi.mock('@/api/intradayOptions', () => ({ fetchIntradayOptions: vi.fn() }));
 let page: VueWrapper;
 let data: IntradayOptionsSnapshot;
 function row(symbol: string, score: number | null, direction: 'bullish' | 'bearish' = 'bullish'): IntradayOptionRow {
-  return { symbol, name: `${symbol}名称`, lastPrice: score, changePct: score == null ? null : score / 10,
+  return { opportunityEligible: score != null, symbol, name: `${symbol}名称`, lastPrice: score, changePct: score == null ? null : score / 10,
     quoteTime: new Date().toISOString(), quoteStatus: 'ready', dataStatus: score == null ? 'warming' : 'ready', issues: [],
     result: { version: 'v1', symbol, tradingDate: '2026-11-12', asOf: new Date().toISOString(), observedAt: new Date().toISOString(),
+      opportunities: { version: 'intraday_entry_v1', reference: false, missingBars: 0, asOf: new Date().toISOString(), reasons: [], branches: [],
+        primary: score == null ? null : { kind: 'box_breakout', direction, status: 'confirmed', structureId: symbol, trigger: 100, invalidation: 99, atr: 1,
+          formationStart: new Date().toISOString(), startedAt: new Date().toISOString(), confirmedAt: new Date().toISOString(), expiresAt: new Date().toISOString(),
+          qualityScore: score, distanceAtr: 0.5, riskAtr: 1.25, components: {}, reasons: [] } },
       score, direction: score == null ? null : direction, state: score == null ? null : 'continuing', baseScore: score,
       alignment: 1, extensionAtr: 1, explanation: '趋势一致', windows: ([5, 15, 30, 60] as const).map(minutes => ({
         minutes, score, direction: direction === 'bullish' ? 1 : -1, dataStatus: score == null ? 'warming' : 'ready',
@@ -37,7 +41,7 @@ describe('intraday options table', () => {
   it('defaults to opportunity order and sorts all numeric headers with nulls always last', async () => {
     await start();
     expect(symbols()).toEqual(['BBB.US', 'AAA.US', 'CCC.US']);
-    for (const label of ['最新价 / 涨跌幅', '5分钟', '15分钟', '30分钟', '60分钟', '趋势机会分']) {
+    for (const label of ['最新价 / 涨跌幅', '5分钟', '15分钟', '30分钟', '60分钟', '趋势质量分', '日内机会']) {
       await header(label); expect(symbols()).toEqual(['AAA.US', 'BBB.US', 'CCC.US']);
       await header(label); expect(symbols()).toEqual(['BBB.US', 'AAA.US', 'CCC.US']);
     }
@@ -54,10 +58,10 @@ describe('intraday options table', () => {
     data.items[1]!.changePct = 3;
     await start();
     expect(page.findAll('thead th button').map(b => b.text())).toEqual([
-      '标的', '最新价 / 涨跌幅', '趋势机会分', '当前方向', '5分钟', '15分钟', '30分钟', '60分钟', '短线结构', '当前状态',
+      '标的', '最新价 / 涨跌幅', '日内机会', '趋势质量分', '当前方向', '5分钟', '15分钟', '30分钟', '60分钟', '短线结构', '当前状态',
     ]);
     const cells = page.get('[data-testid="options-row-AAA.US"]').findAll('td');
-    expect(cells).toHaveLength(10);
+    expect(cells).toHaveLength(11);
     expect(cells[1]!.text()).toContain('500.00');
     expect(cells[1]!.text()).toContain('-2.00%');
     await header('最新价 / 涨跌幅'); expect(symbols()).toEqual(['AAA.US', 'BBB.US', 'CCC.US']);
@@ -75,8 +79,8 @@ describe('intraday options table', () => {
     expect(displayed.text()).toContain('开盘不足');
     expect(displayed.text()).toContain('缺58根 · 参考分');
     expect(displayed.text()).toContain('偏多');
-    expect(displayed.get('[data-testid="opportunity-score"]').text()).toContain('70');
-    expect(displayed.get('[data-testid="opportunity-score"]').text()).toContain('参考分');
+    expect(displayed.get('[data-testid="trend-quality-score"]').text()).toContain('70');
+    expect(displayed.get('[data-testid="trend-quality-score"]').text()).toContain('参考分');
   });
 
   it('updates cells without jumping rows or closing the expanded chart; explicitly refreshes order', async () => {
@@ -84,6 +88,7 @@ describe('intraday options table', () => {
     await page.get('[data-testid="options-row-AAA.US"]').trigger('click');
     expect(page.find('trend-panel-stub').exists()).toBe(true);
     data.items[0]!.result!.score = 99;
+    data.items[0]!.result!.opportunities!.primary!.qualityScore = 99;
     data.generatedAt = new Date().toISOString();
     await vi.advanceTimersByTimeAsync(5000); await flushPromises();
     expect(symbols()).toEqual(['BBB.US', 'AAA.US', 'CCC.US']);
@@ -101,7 +106,7 @@ describe('intraday options table', () => {
     await page.get('input').setValue('名称'); expect(symbols()).toEqual(['BBB.US']);
     vi.mocked(fetchIntradayOptions).mockRejectedValueOnce(new Error('offline'));
     await vi.advanceTimersByTimeAsync(5000); await flushPromises();
-    expect(page.get('[data-testid="opportunity-score"]').text()).toContain('90');
+    expect(page.get('[data-testid="trend-quality-score"]').text()).toContain('90');
     expect(page.text()).toContain('保留上次评分');
     const calls = vi.mocked(fetchIntradayOptions).mock.calls.length;
     page.unmount(); await vi.advanceTimersByTimeAsync(10000);
@@ -110,6 +115,7 @@ describe('intraday options table', () => {
   it('shows and sorts delayed scores with missing-minute annotations', async () => {
     const target = data.items[1]!;
     target.dataStatus = 'delayed';
+    target.opportunityEligible = false;
     target.result!.windows[0]!.dataStatus = 'gap';
     target.result!.windows[0]!.missingBars = 1;
     target.result!.windows[0]!.availableBars = 14;
@@ -118,13 +124,48 @@ describe('intraday options table', () => {
     expect(displayed.text()).toContain('分钟行情延迟');
     expect(displayed.text()).toContain('缺1根 · 参考分');
     expect(displayed.text()).toContain('参考分 · 截至');
-    expect(displayed.get('[data-testid="opportunity-score"]').text()).toContain(String(target.result!.score));
+    expect(displayed.get('[data-testid="trend-quality-score"]').text()).toContain(String(target.result!.score));
+    expect(symbols()[0]).toBe('AAA.US');
+    expect(displayed.get('[data-testid="opportunity-score"]').text()).toContain('参考确认');
+    await header('趋势质量分'); await header('趋势质量分');
     expect(symbols()[0]).toBe(target.symbol);
+  });
+
+  it('keeps extended high-quality trends out of effective entry order and shows their own branch', async () => {
+    const target = data.items[0]!;
+    const opportunity = target.result!.opportunities!;
+    opportunity.branches = [{ ...opportunity.primary!, status: 'extended', qualityScore: 99 }];
+    opportunity.primary = null;
+    target.result!.score = 99;
+    target.opportunityEligible = false;
+    await start();
+    expect(symbols()).toEqual(['BBB.US', 'AAA.US', 'CCC.US']);
+    const cell = page.get('[data-testid="options-row-AAA.US"] [data-testid="opportunity-score"]');
+    expect(cell.text()).toContain('已延伸');
+    expect(cell.text()).toContain('箱体突破');
+    expect(cell.text()).not.toContain('99');
+    await header('趋势质量分'); await header('趋势质量分');
+    expect(symbols()[0]).toBe('AAA.US');
+    vi.mocked(fetchIntradayOptions).mockRejectedValueOnce(new Error('offline'));
+    await vi.advanceTimersByTimeAsync(5000); await flushPromises();
+    expect(cell.text()).toContain('历史/参考观察');
+    expect(cell.text()).not.toContain('参考确认');
+    const confirmed = page.get('[data-testid="options-row-BBB.US"] [data-testid="opportunity-score"]');
+    expect(confirmed.text()).toContain('历史/参考确认');
+    expect(confirmed.text()).not.toContain('90');
+  });
+
+  it.each(['gap', 'delayed', 'invalid_time'] as const)('does not rank %s entries even with an inconsistent eligibility flag', async status => {
+    data.items[1]!.dataStatus = status;
+    await start();
+    expect(symbols()[0]).toBe('AAA.US');
+    expect(page.get('[data-testid="options-row-BBB.US"] [data-testid="opportunity-score"]').text()).not.toContain('90');
   });
 
   it('places sortable structure after 60m and annotates reference and delayed results', async () => {
     const target = data.items[0]!;
     target.dataStatus = 'delayed';
+    target.opportunityEligible = false;
     target.result!.structure = { kind: 'breakout_up', phase: 'confirmed', background: 'bearish',
       since: '2026-11-12T16:00:00Z', asOf: '2026-11-12T16:00:00Z', oversold: false, reference: true,
       availableBars: 59, missingBars: 1, box: null, pivots: [], reasons: ['固定箱体突破'] };

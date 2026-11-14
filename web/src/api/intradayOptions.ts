@@ -20,13 +20,27 @@ export interface IntradayStructure {
   pivots: Array<{ kind: 'high' | 'low'; at: string; confirmedAt: string; price: number }>;
   reasons: string[];
 }
+export interface OpportunityBranch {
+  kind: 'box_breakout' | 'box_retest' | 'trend_recovery';
+  direction: 'bullish' | 'bearish'; status: 'forming' | 'confirmed' | 'extended' | 'invalidated' | 'expired';
+  structureId: string; trigger: number; invalidation: number; atr: number;
+  formationStart: string; startedAt: string; confirmedAt: string | null; expiresAt: string;
+  qualityScore: number | null; distanceAtr: number | null; riskAtr: number | null;
+  components: Record<string, number>; reasons: string[];
+}
+export interface IntradayOpportunities {
+  version: string; primary: OpportunityBranch | null; branches: OpportunityBranch[];
+  reference: boolean; missingBars: number; asOf: string; reasons: string[];
+}
 export interface TrendResult {
+  opportunities?: IntradayOpportunities | null;
   structure?: IntradayStructure | null;
   version: string; symbol: string; tradingDate: string; asOf: string; observedAt: string;
   windows: WindowScore[]; score: number | null; direction: TrendDirection | null; state: TrendStage | null;
   baseScore: number | null; alignment: number | null; extensionAtr: number | null; explanation: string;
 }
 export interface IntradayOptionRow {
+  opportunityEligible?: boolean;
   symbol: string; name: string | null; lastPrice: number | null; changePct: number | null; quoteTime: string | null;
   quoteStatus: 'missing' | 'ready' | 'delayed' | 'invalid_time';
   dataStatus: 'ready' | 'waiting' | 'warming' | 'gap' | 'delayed' | 'invalid_time';

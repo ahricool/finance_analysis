@@ -105,5 +105,5 @@ REALTIME_REDIS_URL 留空时回退 REDIS_URL，读写两侧保持一致。凭证
 
 ## 日内期权观察
 
-固定US观察池额外纳入Streamer，后端每根闭合分钟计算15/30/60分钟趋势机会分，只存Redis最新结果，不归档历史。
+固定US观察池额外纳入Streamer，后端每根闭合分钟计算15/30/60分钟趋势质量分及独立日内机会，只存Redis最新结果，不归档历史。
 页面 `/market/intraday-options` 只读缓存；共享分钟接口允许已登录用户读取该固定白名单，不修改个人自选。见 [intraday-options.md](intraday-options.md)。

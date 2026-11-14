@@ -96,3 +96,31 @@ def test_latest_minute_grace_and_afterhours_do_not_refresh_score():
         assert data_status(current, START + timedelta(minutes=61, seconds=16), START.date(), "open") == "delayed"
 
     asyncio.run(run())
+
+
+def test_entry_eligibility_excludes_delayed_closed_and_old_versions_without_recomputing():
+    from tests.intraday_options.test_structure import oscillation, prices
+    import json
+    from finance_analysis.intraday_options.config import VERSION
+
+    async def run():
+        repo = RealtimeStateRepository(FakeRedis())
+        bars = prices(oscillation() + [101.3, 101.4])
+        now = bars[-1].bar_time + timedelta(minutes=1, seconds=5)
+        await Publisher(repo).publish("SPY.US", bars, now)
+        row = (await read_snapshot(repo, {}, now))["items"][0]
+        assert row["data_status"] == "warming"  # 60m trend warmup does not block complete 30m setups.
+        assert row["opportunity_eligible"]
+        primary = row["result"]["opportunities"]["primary"]
+        delayed = (await read_snapshot(repo, {}, now + timedelta(minutes=2)))["items"][0]
+        assert not delayed["opportunity_eligible"]
+        assert delayed["result"]["opportunities"]["primary"] == primary
+        closed = (await read_snapshot(repo, {}, START + timedelta(hours=7)))["items"][0]
+        assert not closed["opportunity_eligible"]
+        # Reject obsolete result even if incorrectly stored under the new key.
+        row["result"]["version"] = VERSION + "_old"
+        await repo.redis.set(result_key("SPY.US"), json.dumps(row["result"]))
+        old = (await read_snapshot(repo, {}, now))["items"][0]
+        assert old["result"] is None and not old["opportunity_eligible"]
+
+    asyncio.run(run())
