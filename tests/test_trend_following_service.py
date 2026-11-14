@@ -602,6 +602,6 @@ def test_entry_warmup_does_not_change_alpha_or_other_research_windows(monkeypatc
     TrendFollowingService("US", baseline, config=replace(DEFAULT_CONFIG, entry_trend_lookback=3)).run(TRADE_DATE)
     TrendFollowingService("US", extended, config=replace(DEFAULT_CONFIG, entry_trend_lookback=20)).run(TRADE_DATE)
     def without_entry(snapshot):
-        return {key: ({k: v for k, v in value.items() if not k.startswith("entry_")} if key == "features" else value)
+        return {key: ({k: v for k, v in value.items() if not k.startswith(("entry_", "opportunity", "OP_")) and k != "opportunities"} if key == "features" else value)
                 for key, value in snapshot.items() if not key.startswith("entry_")}
     assert [without_entry(row) for row in baseline.snapshots] == [without_entry(row) for row in extended.snapshots]

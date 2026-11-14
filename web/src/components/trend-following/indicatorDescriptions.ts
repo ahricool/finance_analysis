@@ -16,7 +16,7 @@ export const trendIndicatorDescriptions: Record<string, string> = {
   relativeStrength: 'RS = 0.25×Q(RS5,0.08) + 0.45×Q(RS10,0.12) + 0.30×Q(RS20,0.18)。Q(x,s)=50+50tanh(x/s)；只衡量相对 benchmark 超额收益，不计收益百分位。',
   breakout: 'Setup = 0.50×BreakoutQuality + 0.25×ExtensionQuality + 0.15×VolumeQuality + 0.10×CompressionQuality。BreakoutQuality=max(0.85×B(z10),B(z20))，z=(Close−前高)/ATR20；B(z)=100×sigmoid(z/0.15)×exp(−0.5×((z−0.75)/1)²)。Breakout Score 为 Setup 兼容别名。',
   setup: '当日短周期形态：压缩后突破前 10 日高点为 COMPRESSION_BREAKOUT；否则突破前 20 日高点为 BREAKOUT_LONG；否则突破前 10 日高点为 BREAKOUT_SHORT；满足趋势恢复条件时可标记 PULLBACK_RESUME（回踩恢复）；均未满足为 NONE（无形态）。这些标签只描述规则命中，不保证随后上涨。',
-  entry: '买点质量与确认状态分开：突破、MA5浅回踩、MA10回踩、突破位回测分别评分，同日可同时确认。等待回踩/回踩中/已确认/已延伸/已失效均保留质量分；高分不等于已确认。回踩要求此前10个交易日达到过现有四项绝对趋势门槛、当前长期均线上升且支撑未失效，不要求当天Alpha≥67。执行均线固定MA5/MA10，趋势及ATR仍用{period}日；触及0.25 ATR内、此前上涨≥1 ATR、支撑下破0.75 ATR失效、收回0.1 ATR且恢复、超过2 ATR标记延伸。突破位仅取此前已确认突破时已知的阻力。Preview均为截至采集时的临时状态，不代表收盘确认。参数为待回测的初始设置；质量分不是成功概率。',
+  entry: '兼容 Entry 分为所有分支质量最大值，不代表当前可执行程度；买点机会使用所选已确认分支自身分数。买点质量与确认状态分开：突破、MA5浅回踩、MA10回踩、突破位回测分别评分，同日可同时确认。等待回踩/回踩中/已确认/已延伸/已失效均保留质量分；高分不等于已确认。回踩要求此前10个交易日达到过现有四项绝对趋势门槛、当前长期均线上升且支撑未失效，不要求当天Alpha≥67。执行均线固定MA5/MA10，趋势及ATR仍用{period}日；触及0.25 ATR内、此前上涨≥1 ATR、支撑下破0.75 ATR失效、收回0.1 ATR且恢复、超过2 ATR标记延伸。突破位仅取此前已确认突破时已知的阻力。Preview均为截至采集时的临时状态，不代表收盘确认。参数为待回测的初始设置；质量分不是成功概率。',
   riskPosition: '建议仓位按单笔账户风险预算反推：Position = RiskBudget / StopDistance，默认预算为账户净值的1%，单票最高25%。建议仓位不是股票最多可能亏损；预算是计划止损风险，跳空等情况可能使实际亏损超出预算。',
   riskStop: '建议止损取2.5 ATR与前10日结构低点所要求距离中的较大值。结构低点不含今天，仅在有效且低于参考价时参与。ATR20为最近20个TR的简单平均。',
   atrPercent: 'ATR20 / 收盘参考价；原始 ATR 在详情保留。',

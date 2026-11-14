@@ -24,6 +24,7 @@ from ..market_review.trading_calendar import (
 from .config import DEFAULT_CONFIG, TrendFollowingConfig
 from .duration import DURATION_CALENDAR_LOOKBACK_DAYS, count_trend_duration_days
 from .entry import calculate_entry
+from .opportunities import build_opportunities, EVENT_STRATEGIES
 from .features import calculate_features
 from .models import DailyBar
 from .preview_cache import save_preview
@@ -560,6 +561,9 @@ class TrendFollowingService:
         entry_sessions = get_trading_days_between(
             self.market.lower(), effective_date - timedelta(days=self.config.history_bars * 3 + 30), effective_date
         )[-self.config.history_bars:]
+        opportunity_sessions = get_trading_days_between(
+            self.market.lower(), effective_date - timedelta(days=duration_lookback), effective_date
+        )
         for snapshot in snapshots:
             snapshot["trend_duration_days"] = count_trend_duration_days(
                 histories.get(str(snapshot["code"]), []),
@@ -580,6 +584,33 @@ class TrendFollowingService:
                 bars=histories.get(code, [])[-self.config.history_bars:], sessions=entry_sessions,
             )
             snapshot["features"].update(entry)
+            opportunity = build_opportunities(
+                code, histories.get(code, []), entry,
+                (previous.get(code, {}).get("features") or {}).get("opportunities"),
+                preview=overlay_bars is not None, sessions=opportunity_sessions,
+                trend_period=self.config.trend_period,
+            )
+            background = {key: snapshot.get(key) for key in (
+                "rank", "alpha_score", "trend_score", "rs_score", "trend_lifecycle", "fragility_score",
+            )}
+            for branch_record in opportunity["branches"]:
+                branch_record["trend_background"] = background
+            snapshot["features"]["opportunities"] = opportunity
+            snapshot["features"]["opportunity_version"] = opportunity["version"]
+            event_ids = {}
+            prior_opportunity = (previous.get(code, {}).get("features") or {}).get("opportunities") or {}
+            for strategy, branch in EVENT_STRATEGIES.items():
+                is_event = bool(opportunity["events"]) if branch == "stock" else branch in opportunity["events"]
+                if branch == "stock" and prior_opportunity.get("primary"):
+                    is_event = False
+                ready = opportunity["history_status"] not in ("insufficient", "invalid_ohlc", "missing_sessions")
+                coverage = opportunity.get("branch_history_ready", {})
+                ready = ready and (any(coverage.values()) if branch == "stock" else coverage.get(branch, False))
+                snapshot["features"][strategy] = is_event if ready else None
+                confirmed = [b for b in opportunity["branches"] if b.get("fresh") and (branch == "stock" or b["kind"] == branch)]
+                if is_event and confirmed:
+                    event_ids[strategy] = min(b["structure_id"] for b in confirmed)
+            snapshot["features"]["opportunity_event_ids"] = event_ids
             snapshot.update({key: entry[key] for key in ("entry_score", "entry_type")})
             snapshot["features"]["risk_sizing"] = calculate_risk_sizing(
                 snapshot["reference_price"], snapshot["atr"],

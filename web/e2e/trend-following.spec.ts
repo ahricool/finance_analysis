@@ -121,6 +121,7 @@ for (const width of [1280, 1440, 1920]) {
       await expect(page.getByTestId('study-coverage')).toContainText('SPY.US');
       await page.getByTestId('global-market-switch').click();
       await expect(page.getByTestId('study-coverage')).toContainText('510300.SH');
+      await page.getByTestId('box-section').locator('summary').click();
       for (const kind of ['trend', 'box', 'mr']) {
         await page.getByTestId(`${kind}-section`).screenshot({ path: testInfo.outputPath(`${kind}-section.png`) });
       }

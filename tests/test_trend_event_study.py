@@ -188,12 +188,12 @@ def test_summary_reads_only_event_paths_and_preserves_evaluation(count):
     repo.event_study_rows.assert_not_called()
     repo.event_study_events.assert_called_once_with(DAY, DAY, regime="ALL")
     pairs = repo.event_study_required_bars.call_args.args[0]
-    assert len(pairs) == count * 21 + 4
+    assert len(pairs) == count * 21 + 5
     assert ("SPY.US", DAY) in pairs
-    assert ("SPY.US", plan[0][0]) not in pairs
+    assert ("SPY.US", plan[0][0]) in pairs
     assert result["event_count"] == count * 3
     assert "events" not in result
-    assert len(result["groups"]) == 16
+    assert len(result["groups"]) == len(STRATEGIES) * 4
 
 
 def test_sql_filters_events_and_preserves_predecessor_before_start():
@@ -329,7 +329,7 @@ def test_study_continuous_suffix_resets_after_missing_session():
     assert response['missing_snapshot_dates'] == [date(2026, 9, 21)]
     assert response['box_feature_coverage']['continuous_complete_since'] == end
     assert response['mr_feature_coverage']['continuous_complete_since'] == end
-    assert all(g['continuous_complete_since'] == end for g in response['groups'] if g['regime'] == 'ALL')
+    assert all(g['continuous_complete_since'] == end for g in response['groups'] if g['regime'] == 'ALL' and not g['strategy'].startswith('OP_'))
 
 
 def test_legacy_yesterday_only_freshness_is_insufficient_episode_history():
@@ -435,3 +435,39 @@ def test_summary_groups_and_page_match_legacy_evaluator_exactly():
                                   feature_coverage(selected_rows, group["strategy"]))
     page = run_event_study_events(repo, "US", DAY, plan[0][0], strategy="BOX_BREAKOUT", offset=1, limit=1, now=NOW)
     assert page["events"] == [e for e in expected if e["strategy"] == "BOX_BREAKOUT" and e["trade_date"] == DAY]
+
+
+def test_versioned_opportunity_sql_python_agree_and_legacy_stays_separate():
+    from finance_analysis.trend_following.opportunities import EVENT_STRATEGIES
+    db = _Database()
+    features = dict.fromkeys(EVENT_STRATEGIES, False)
+    features.update(OP_MA5_V1=True, OP_MA10_V1=True, OP_STOCK_V1=True, trend_resume=False, box_breakout_fresh=False, mr_state="MR_NONE",
+                    opportunities={'branches': [dict(kind='ma5', fresh=True, quality_score=61,
+                                                     rule_version='ohlcv_opportunity_v1', structure_id='s')]})
+    with db.session_scope() as session:
+        session.add(Instrument(id=1, market='US', code='AAA.US', name='A'))
+        snapshot = _snapshot(snapshot_id=1, instrument_id=1, code='AAA.US', trade_date=DAY, state='WATCHING')
+        snapshot.features = features
+        session.add(snapshot)
+    repo = TrendFollowingRepository('US', db)
+    events, _ = repo.event_study_events(DAY, DAY)
+    python = derive_events([dict(row(), **features, state='WATCHING')])
+    assert {e['strategy'] for e in events} == {e['strategy'] for e in python} == {'OP_MA5_V1', 'OP_MA10_V1', 'OP_STOCK_V1'}
+    assert next(e for e in events if e['strategy'] == 'OP_MA5_V1')['context']['quality_score'] == 61
+
+
+def test_opportunity_identity_is_not_counted_again_across_periods_or_later_confirmations():
+    db = _Database()
+    with db.session_scope() as session:
+        session.add(Instrument(id=1, market='US', code='AAA.US', name='A'))
+        for i, (period, day) in enumerate(((10, DAY), (20, DAY), (40, DAY + timedelta(days=1)))):
+            snapshot = _snapshot(snapshot_id=i+1, instrument_id=1, code='AAA.US', trade_date=day, state='WATCHING')
+            snapshot.trend_period = period
+            snapshot.features = {'OP_MA5_V1': True, 'opportunity_event_ids': {'OP_MA5_V1': 'same-touch'}}
+            session.add(snapshot)
+    repo = TrendFollowingRepository('US', db)
+    events, count = repo.event_study_events(DAY, DAY+timedelta(days=1), 'OP_MA5_V1')
+    assert count == len(events) == 1
+    assert events[0]['trade_date'] == DAY
+    # Range boundaries must not create a second event when the first lies outside the query.
+    assert repo.event_study_events(DAY+timedelta(days=1), DAY+timedelta(days=1), 'OP_MA5_V1')[1] == 0

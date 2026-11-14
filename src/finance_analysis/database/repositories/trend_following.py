@@ -524,6 +524,15 @@ class TrendFollowingRepository:
             "PULLBACK_RESUME": s.features["trend_resume"].as_boolean().is_(True),
             "MEAN_REVERSION": s.features["mr_state"].as_string() == "MR_REBOUND",
         }
+        from finance_analysis.trend_following.opportunities import EVENT_STRATEGIES
+        prior_op = s.__table__.alias("prior_opportunity")
+        for key in EVENT_STRATEGIES:
+            identity = s.features["opportunity_event_ids"][key].as_string()
+            already_seen = select(prior_op.c.id).where(
+                prior_op.c.market == s.market, prior_op.c.code == s.code, prior_op.c.trade_date < s.trade_date,
+                prior_op.c.features["opportunity_event_ids"][key].as_string() == identity,
+            ).correlate(s).exists()
+            predicates[key] = s.features[key].as_boolean().is_(True) & ~already_seen
         queries = []
         for key in STRATEGIES if strategy == "ALL" else (strategy,):
             query = select(
@@ -531,18 +540,25 @@ class TrendFollowingRepository:
                 s.state, s.market_regime, s.reference_price, s.alpha_score, s.trend_score,
                 s.rs_score, s.trend_lifecycle, s.fragility_score,
                 s.features["entry_type"].as_string().label("entry_type"),
+                s.features["opportunities"].label("opportunities"),
                 *(s.features[k].as_float().label(k) for k in NUMERIC_CONTEXT),
+                func.row_number().over(partition_by=(s.code, s.trade_date), order_by=s.trend_period).label("occurrence"),
             ).join(Instrument, Instrument.id == s.instrument_id).where(
-                s.trend_period == self.trend_period, s.market == self.market, s.trade_date.between(start_date, end_date), predicates[key],
+                s.trend_period.in_(TREND_PERIODS) if key in EVENT_STRATEGIES else s.trend_period == self.trend_period,
+                s.market == self.market, s.trade_date.between(start_date, end_date), predicates[key],
             )
             if regime != "ALL":
                 query = query.where(s.market_regime == regime)
+            projected = query.subquery()
+            query = select(*(c for c in projected.c if c.name != "occurrence"))
+            if key in EVENT_STRATEGIES:
+                query = query.where(projected.c.occurrence == 1)
             queries.append(query)
         return union_all(*queries).subquery("strategy_events")
 
     def event_study_events(self, start_date, end_date, strategy="ALL", regime="ALL", *, offset=0, limit=None):
         """Return only DB-filtered events; apply pagination before loading any OHLC."""
-        from finance_analysis.trend_following.event_study import CONTEXT_FIELDS
+        from finance_analysis.trend_following.event_study import event_context
 
         events = self._study_event_query(start_date, end_date, strategy, regime)
         query = select(events).order_by(events.c.trade_date.desc(), events.c.code, events.c.strategy)
@@ -554,7 +570,7 @@ class TrendFollowingRepository:
         return [{
             "market": r["market"], "trade_date": r["trade_date"], "code": r["code"], "name": r["name"],
             "strategy": r["strategy"], "regime": r["market_regime"], "signal_price": r["reference_price"],
-            "context": {key: r.get(key) for key in CONTEXT_FIELDS},
+            "context": event_context(r, r["strategy"]),
         } for r in rows], count if count is not None else len(rows)
 
     def event_study_coverage(self, start_date, end_date):
@@ -587,6 +603,12 @@ class TrendFollowingRepository:
             "PULLBACK_RESUME": s.features["trend_resume"].as_boolean().is_not(None),
             "MEAN_REVERSION": s.features["mr_state"].as_string().is_not(None),
         }
+        from finance_analysis.trend_following.opportunities import EVENT_STRATEGIES
+        op = s.__table__.alias("opportunity_coverage")
+        flags.update({key: select(op.c.id).where(
+            op.c.market == s.market, op.c.code == s.code, op.c.trade_date == s.trade_date,
+            op.c.features[key].as_boolean().is_not(None),
+        ).correlate(s).exists() for key in EVENT_STRATEGIES})
         query = select(
             s.trade_date, s.market_regime, func.count().label("snapshot_count"),
             *(func.count().filter(flag).label(key) for key, flag in flags.items()),
@@ -651,6 +673,17 @@ class TrendFollowingRepository:
         )
         with self.db.get_session() as session:
             return [dict(row) for row in session.execute(query).mappings()]
+
+    def opportunity_rows(self, trade_date):
+        """Canonical Trend10 JSON only; no full Alpha breakdown or OHLC transfer."""
+        s = TrendFollowingSnapshot
+        with self.db.get_session() as session:
+            rows = session.execute(select(s.code, Instrument.name,
+                s.features["opportunities"].label("opportunities"), s.generated_at).join(
+                Instrument, Instrument.id == s.instrument_id).where(
+                s.market == self.market, s.trend_period.in_(TREND_PERIODS), s.trade_date == trade_date)).mappings()
+            return [dict(code=r["code"], name=r["name"], generated_at=r["generated_at"],
+                         features={"opportunities": r["opportunities"]}) for r in rows]
 
     def dashboard_state_rows(self, trade_date: date) -> list[dict]:
         """Small ordered projection for homepage changes, without feature JSON."""
