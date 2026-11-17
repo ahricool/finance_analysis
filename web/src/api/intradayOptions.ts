@@ -60,10 +60,10 @@ export async function fetchIntradayOptions(signal: AbortSignal): Promise<Intrada
 export interface SimulationPlan extends OpportunityBranch {
   processId: string; entryLow: number; entryHigh: number; target: number | null; targetSource: string;
   remainingSpace: number | null; rewardRisk: number | null; ageSeconds: number | null;
-  executable: boolean; executionReason: string;
+  opportunityValid?: boolean; opportunityReason?: string; executable: boolean; executionReason: string;
 }
 export interface SimTrade {
-  id: string; symbol: string; side: number; kind: OpportunityBranch['kind']; entryPrice: number; entryAt: string;
+  opportunityId?: string; id: string; symbol: string; side: number; kind: OpportunityBranch['kind']; entryPrice: number; entryAt: string;
   lastPrice: number; lastPriceAt: string; invalidation: number; protection: number; target: number | null;
   returnPct: number; exitAt?: string; exitPrice?: number; exitPriceAt?: string; plannedExitAt?: string;
   exitReason?: string; estimated?: boolean; anomaly?: string;
@@ -77,7 +77,7 @@ export interface SimulationSnapshot {
   references?: { background: { label: string; asOf: string | null; reason: string }; macroStatus: string;
     macro: Array<{ title: string; at: string; asOf: string; reason: string }> };
   states: SimulationState[]; trades: SimTrade[];
-  events: Array<{ id: number; kind: string; symbol: string; at: string; reason: string; trade?: SimTrade }>;
+  events: Array<{ id: number; kind: string; symbol: string; at: string; reason: string; side?: number; tradeId?: string; trade?: SimTrade }>;
   statistics: Array<{ label: string; count: number; winRate: number | null; averageReturn: number | null;
     averageWin: number | null; averageLoss: number | null; averageDuration: number | null }>;
 }

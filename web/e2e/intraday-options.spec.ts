@@ -58,13 +58,25 @@ for (const width of [390, 768, 1024, 1280, 1440, 1920]) {
           version: 'intraday_options_v8',
           items: items.map((item, i) => changed && i === 1 ? { ...item, result: { ...item.result, score: 99,
             opportunities: { ...item.result?.opportunities, primary: { ...item.result?.opportunities.primary, quality_score: 99 } } } } : item),
-          simulation: { states: [], trades: [], events: [], statistics: [] },
+          simulation: {
+            states: ['SPY.US', 'NVDA.US'].map((symbol, i) => ({ symbol, position: { id: symbol, symbol, side: i ? -1 : 1,
+              entry_price: 100, entry_at: now, last_price: 101, last_price_at: now, return_pct: i ? -1 : 1,
+              invalidation: i ? 102 : 99, protection: i ? 102 : 99, target: i ? 97 : 103 } })),
+            trades: [], statistics: [], events: [
+              { id: 1, kind: 'entry', symbol: 'SPY.US', at: now, reason: '模拟做多进场', side: 1 },
+              { id: 2, kind: 'entry', symbol: 'NVDA.US', at: now, reason: '模拟做空进场', side: -1 },
+            ],
+          },
         } }));
       send();
       const timer = setInterval(send, 1000);
       ws.onClose(() => clearInterval(timer));
     });
     await page.goto('/market/intraday-options');
+    await expect(page.getByTestId('simulation-position')).toHaveCount(2);
+    await expect(page.getByTestId('simulation-event')).toHaveCount(2);
+    await expect(page.getByTestId('simulation-event').first()).toContainText('NVDA.US · 做空');
+    await expect(page.getByTestId('simulation-event').first()).toBeVisible();
     const rows = page.locator('[data-testid^="options-row-"]');
     await expect(rows).toHaveCount(30);
     await expect(rows.first()).toHaveAttribute('data-testid', 'options-row-SPY.US');

@@ -140,3 +140,58 @@ def test_relative_strength_requires_same_complete_interval_and_qqq_not_applicabl
     assert all(r["value"] > 0 for r in values)
     assert all(r["value"] is None for r in relative_strength("QQQ.US", bars, benchmark, now))
     assert all(r["value"] is None for r in relative_strength("SPY.US", bars, benchmark[:-1], now))
+
+
+def test_held_opportunity_remains_valid_without_duplicate_entry_and_symbols_are_independent():
+    spy, _ = transition({}, "SPY.US", result(), quote(), NOW)
+    nvda, _ = transition({}, "NVDA.US", result(), quote(), NOW)
+    assert spy["position"] and nvda["position"]
+    assert spy["position"]["id"] != nvda["position"]["id"]
+    for symbol, state in [("SPY.US", spy), ("NVDA.US", nvda)]:
+        assert state["plans"][0]["opportunity_valid"]
+        assert not state["plans"][0]["executable"]
+        later = NOW + timedelta(seconds=5)
+        updated, events = transition(state, symbol, result(), quote(later), later)
+        assert updated["plans"][0]["opportunity_valid"]
+        assert not updated["plans"][0]["executable"]
+        assert not any(e["kind"] == "entry" for e in events)
+
+
+@pytest.mark.parametrize("failure", ["invalidated", "expired", "extended", "quote", "minutes"])
+def test_held_opportunity_validity_degrades_independently(failure):
+    state, _ = transition({}, "SPY.US", result(), quote(), NOW)
+    later = NOW + timedelta(seconds=5)
+    r = result()
+    q = quote(later)
+    if failure in {"invalidated", "expired", "extended"}:
+        r["opportunities"]["branches"][0]["status"] = failure
+    elif failure == "quote":
+        q = quote(NOW - timedelta(seconds=31))
+    else:
+        r["as_of"] = (NOW - timedelta(minutes=2)).isoformat()
+    state, _ = transition(state, "SPY.US", r, q, later)
+    assert state["position"]
+    assert not state["plans"][0]["opportunity_valid"]
+    assert not state["plans"][0]["executable"]
+
+
+@pytest.mark.parametrize("day", ["2026-11-17", "2026-11-27"])
+@pytest.mark.parametrize("scenario", ["normal", "late_recovery", "stale_price", "interrupted"])
+def test_cutoff_classifies_actual_price_and_processing_continuity(day, scenario):
+    cutoff = session_bounds("US", datetime.fromisoformat(day).date())[1] - timedelta(hours=2)
+    before = cutoff - timedelta(seconds=3)
+    state, _ = transition({}, "SPY.US", result(before), quote(before, 100.5), before)
+    if scenario == "stale_price":
+        state["position"]["last_price_at"] = (cutoff - timedelta(seconds=60)).isoformat()
+    elif scenario == "interrupted":
+        state["healthy"] = False
+    now = cutoff + timedelta(seconds=120 if scenario == "late_recovery" else 2)
+    state, events = transition(state, "SPY.US", result(now), quote(now - timedelta(seconds=1), 105), now)
+    closed = next(e["trade"] for e in events if e["kind"] == "exit")
+    assert closed["estimated"] == (scenario != "normal")
+    assert closed["exit_price"] == 100.5  # Never use the post-cutoff 105 quote.
+    assert closed["exit_price_at"] <= cutoff.isoformat()
+    assert closed["exit_at"] == now.isoformat()
+    assert closed["planned_exit_at"] == cutoff.isoformat()
+    assert not state["position"] and state["stopped"]
+    assert statistics([closed])[0]["count"] == (1 if scenario == "normal" else 0)

@@ -66,6 +66,25 @@ describe('intraday options table', () => {
     await header('当前状态'); expect(symbols().at(-1)).toBe('CCC.US');
   });
 
+  it('keeps an entered opportunity score sortable while new entry is disabled', async () => {
+    data.items[1]!.simulation = { position: { opportunityId: 'BBB.US' }, plans: [{ executable: false }] } as unknown as IntradayOptionRow['simulation'];
+    await start();
+    expect(symbols()[0]).toBe('BBB.US');
+    const cell = page.get('[data-testid="options-row-BBB.US"] [data-testid="opportunity-score"]');
+    expect(cell.text()).toContain('90');
+    expect(cell.text()).toContain('已进场/持有中');
+    await header('日内机会');
+    await header('日内机会');
+    expect(symbols()[0]).toBe('BBB.US');
+    data.items[1]!.opportunityEligible = false;
+    data.items[1]!.dataStatus = 'delayed';
+    await vi.advanceTimersByTimeAsync(5000); await flushPromises();
+    expect(cell.text()).not.toContain('90');
+    expect(cell.text()).toContain('历史/参考确认');
+    await page.get('[data-testid="options-refresh-order"]').trigger('click');
+    expect(symbols()[0]).toBe('AAA.US');
+  });
+
   it('merges price and change, sorts by change rather than price and keeps the requested column order', async () => {
     data.items[0]!.lastPrice = 500;
     data.items[0]!.changePct = -2;

@@ -21,6 +21,7 @@ class ExecutionConfig:
     giveback_r: float = 0.5
     stop_before_close_hours: int = 2
     workers: int = 4
+    cutoff_processing_grace_seconds: int = 30
 
 
 CONFIG = ExecutionConfig()
@@ -93,6 +94,8 @@ def plan(branch, result, price, now):
 
 def transition(previous, symbol, result, quote, now):
     state = deepcopy(previous or {})
+    previous_calculation = dt(state.get("calculated_at"))
+    previous_healthy = state.get("healthy", False)
     events = []
     day = market_trading_date(now, "US")
     bounds = session_bounds("US", day)
@@ -158,12 +161,15 @@ def transition(previous, symbol, result, quote, now):
                     position["protection"] = protected
                     if not position.get("protection_active"):
                         position["protection_active"] = True
-                        event("hold", "浮盈回撤保护已启动", trade_id=position["id"])
+                        event("hold", "浮盈回撤保护已启动", trade_id=position["id"], side=side)
                 if side * (price - position["protection"]) <= 0:
                     reason = "浮盈回撤保护"
         if reason:
             estimated = due and (
-                not usable
+                not previous_healthy
+                or previous_calculation is None
+                or not 0 <= (now - previous_calculation).total_seconds() <= CONFIG.cutoff_processing_grace_seconds
+                or not 0 <= (now - dt(position["cutoff"])).total_seconds() <= CONFIG.cutoff_processing_grace_seconds
                 or abs((dt(position["cutoff"]) - dt(position["last_price_at"])).total_seconds())
                 > CONFIG.quote_age_seconds
             )
@@ -204,6 +210,13 @@ def transition(previous, symbol, result, quote, now):
     used = state.setdefault("used_processes", [])
     windows = state.setdefault("consumed_windows", [])
     for item in plans:
+        # Display validity belongs to this branch and ignores ownership/process consumption.
+        item["opportunity_valid"] = item["executable"] and data_ok and not state["stopped"]
+        item["opportunity_reason"] = (
+            "今日已停止进场或尚未开盘"
+            if state["stopped"]
+            else "闭合分钟数据不足或延迟" if not data_ok else item["execution_reason"]
+        )
         if state["stopped"]:
             item.update(executable=False, execution_reason="今日已停止进场或尚未开盘")
         elif position:

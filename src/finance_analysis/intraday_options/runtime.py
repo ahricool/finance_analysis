@@ -131,6 +131,15 @@ async def read_snapshot(repository, names, now):
             else:
                 quote_status = "ready"
         simulation = json.loads(sim_raw) if sim_raw else None
+        primary = (result or {}).get("opportunities", {}).get("primary")
+        primary_plan = next(
+            (
+                p
+                for p in (simulation or {}).get("plans", [])
+                if primary and p["structure_id"] == primary["structure_id"]
+            ),
+            None,
+        )
         return {
             "simulation": simulation,
             "opportunity_eligible": bool(
@@ -141,7 +150,10 @@ async def read_snapshot(repository, names, now):
                 and quote_status == "ready"
                 and simulation
                 and 0 <= (now - datetime.fromisoformat(simulation["calculated_at"])).total_seconds() <= 15
-                and any(p["executable"] for p in simulation.get("plans", []))
+                and primary_plan
+                and primary_plan.get("opportunity_valid", False)
+                and primary_plan.get("minute_as_of") == result["as_of"]
+                and now < datetime.fromisoformat(primary_plan["expires_at"])
             ),
             "symbol": symbol,
             "name": names.get(symbol),
