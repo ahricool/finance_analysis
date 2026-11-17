@@ -8,7 +8,7 @@ import logging
 from datetime import datetime, timedelta
 
 from finance_analysis.core.time import utc_now
-from finance_analysis.intraday_options.config import CONFIG, SYMBOLS, VERSION, WINDOWS
+from finance_analysis.intraday_options.config import CONFIG, SYMBOLS, VERSION
 from finance_analysis.intraday_options.analysis_window import REQUIRED_MINUTES
 from finance_analysis.intraday_options.scoring import calculate, closed_session_bars
 from finance_analysis.intraday_options.rules import SIMULATION_VERSION, plan_order
@@ -41,14 +41,12 @@ class Publisher:
         previous = self.published.get(symbol)
         if previous is not None and latest < previous:
             return
-        # Compare values, not CandleState identity or receipt time: warmup can replace
+        # Compare values and receipt times: warmup can replace
         # objects, and closed candles can be mutated/revised without advancing time.
-        # Only the trailing scoring horizon matters; timestamps capture missing bars.
-        start = latest - timedelta(minutes=max(WINDOWS) - 1)
+        # Earlier session bars can affect the identity of a later recovery.
         inputs = tuple(
-            (bar.bar_time, bar.open, bar.high, bar.low, bar.close, bar.volume >= 0, bar.partial, bar.sampled)
+            (bar.bar_time, bar.received_at, bar.open, bar.high, bar.low, bar.close, bar.volume >= 0, bar.partial, bar.sampled)
             for bar in closed
-            if bar.bar_time >= start
         )
         if latest == previous and inputs == self._published_inputs.get(symbol):
             return

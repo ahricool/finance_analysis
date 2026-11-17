@@ -52,7 +52,7 @@ VWAP有完整成交额时为累计成交额/成交量，否则明确显示HLC3×
 
 ## 窗口指标和公式
 
-评分缓存版本为intraday_options_v11；所有阈值都是可解释规则假设，尚未经历史收益校准，不代表统计显著性。
+评分缓存版本为intraday_options_v12；所有阈值都是可解释规则假设，尚未经历史收益校准，不代表统计显著性。
 令 `y0=ln(首根open)`，`yi=ln(第i根close)`，`r=yN-y0`，`clip(x)=min(1,max(0,x))`。
 
 - **稳定度 S**：等权线性回归 `y ~ 实际经过分钟数` 的 `100×R²`；零方差为0。
@@ -107,7 +107,7 @@ VWAP有完整成交额时为累计成交额/成交量，否则明确显示HLC3×
 
 - 后端独立领域包 `intraday_options/`，纯函数评分与Redis发布/读取分离。
 - Streamer默认订阅并集扩展为自选＋持仓＋固定池。复用Longbridge原生分钟线，不新增行情Provider或外部请求链。
-- Redis key `rt:intraday-options:intraday_options_v11:{symbol}` 只存最新结果，复用交易日TTL跨周末保留到下一交易日；无历史列表。
+- Redis key `rt:intraday-options:intraday_options_v12:{symbol}` 只存最新结果，复用交易日TTL跨周末保留到下一交易日；无历史列表。
 - `GET /api/v1/intraday-options` 会话鉴权，只读行情缓存及DB名称；不会在GET中计算指标或拉取外部行情。
 - 共享分钟图接口仅给固定白名单额外只读权限，其余证券继续要求本人自选/持仓。
 - 页面当前分数、解释、窗口明细同源；前端仅计算图表参考线，不计算趋势评分。
@@ -213,7 +213,7 @@ ATR复用此前最多20根可用K的True Range算术均值，补平K的波幅为
 
 ### 数据资格与排序
 
-V2规则为 `intraday_entry_v2` / `underlying_sim_v2`；当前新增路线使用V3（见下文），缓存为 `intraday_options_v11`。
+V2规则为 `intraday_entry_v2` / `underlying_sim_v2`；当前新增路线使用V3（见下文），缓存为 `intraday_options_v12`。
 最近15根闭合分钟K完整即可判断，参考窗口仍为最近最多60分钟（开盘不足60分钟用当天已有数据）。
 形态背景自适应使用触发前连续15–30根K；满15分钟可判断方向/结构，触发仍在背景之后，
 旧三类形态入场仍需两根真实相邻闭合K确认，因此完整15分钟背景下最早09:47确认机会，并不保证此时进场；趋势延续有独立的真实背景与强突破规则。
@@ -345,8 +345,8 @@ B 表示做多进场或做空退场，S 表示做空进场或做多退场；同�
 新增独立 `trend_continuation`，旧三类形态保留；强突破单根确认只适用于新分支。
 形态与执行参数统一于 `intraday_options/rules.py`，新分支ATR只用真实相邻波动，旧分支ATR暂不变。
 恢复候选可由后续独立真实结构替换，保留旧冻结证据；趋势过程去重基于结构起点，不再以整个观察期无条件阻塞。
-当前新交易/形态版本分别为 `underlying_sim_v3_1` / `intraday_entry_v3_1`，缓存v11；不重解释旧交易。
+当前新交易/形态版本分别为 `underlying_sim_v3_2` / `intraday_entry_v3_2`，缓存v12；不重解释旧交易。
 规则、参数、状态和验证边界详见 [日内趋势延续](intraday-trend-continuation.md)。
 
 V3.1审查修订新增确认后报价时序、独立ranked_opportunity榜单投影、局部恢复锚点及公共received_at过滤；
-当前形态/新模拟交易版本为intraday_entry_v3_1 / underlying_sim_v3_1。阈值和“整理后延续”定义不变，详见上述专题。
+当前形态/新模拟交易版本为intraday_entry_v3_2 / underlying_sim_v3_2。阈值和“整理后延续”定义不变，详见上述专题。

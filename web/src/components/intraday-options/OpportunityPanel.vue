@@ -57,7 +57,7 @@ defineProps<{ opportunities?: IntradayOpportunities | null; stale: boolean; plan
         <p>固定触发位 {{ fmt(branch.trigger, 2) }} · 失效位 {{ fmt(branch.invalidation, 2) }}</p>
         <p>距触发位 {{ fmt(branch.distanceAtr, 2) }} ATR · 距失效位 {{ fmt(branch.riskAtr, 2) }} ATR</p>
         <p>背景起点 {{ clock(branch.formationStart) }} · 候选形成 {{ clock(branch.startedAt) }} · 突破 {{ clock(branch.triggeredAt) }}</p>
-        <p>首次确认 {{ clock(branch.confirmedAt) }} · 到期 {{ clock(branch.expiresAt) }}</p>
+        <p>首次确认 {{ clock(branch.confirmedAt) }} · 确认证据可用 {{ clock(branch.confirmationAvailableAt) }} · 到期 {{ clock(branch.expiresAt) }}</p>
         <p>结构 {{ fmt(branch.components.structure) }} · 距离 {{ fmt(branch.components.distance) }} · 恢复 {{ fmt(branch.components.recovery) }} · 失效距离 {{ fmt(branch.components.risk) }}</p>
         <p
           v-for="reason in branch.reasons"

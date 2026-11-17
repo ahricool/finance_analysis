@@ -93,12 +93,11 @@ def test_quality_flag_repair_restores_complete_windows(monkeypatch, field, bad):
     asyncio.run(run())
 
 
-def test_unchanged_reconnect_quote_preview_and_outside_window_updates_are_deduplicated(monkeypatch):
+def test_receipts_and_session_history_refresh_while_unmodified_and_preview_inputs_are_deduplicated(monkeypatch):
     async def run():
         publisher, repo, writes, computations = setup_publisher(monkeypatch)
         bars = candles([0.0004] * 390)
         await publisher.publish(SYMBOL, bars, CLOSE)
-        first = await cached(repo)
         now = CLOSE + timedelta(minutes=10)
         await publisher.publish(SYMBOL, bars, now)
         # Equivalent warmup in reverse order, with fresh reception metadata and volume.
@@ -110,8 +109,8 @@ def test_unchanged_reconnect_quote_preview_and_outside_window_updates_are_dedupl
         await publisher.publish(SYMBOL, restored + [preview] + afterhours, now)
         restored[-1] = replace(restored[-1], close=restored[-1].open)  # 09:30, outside the latest 60m
         await publisher.publish(SYMBOL, restored, now)
-        assert await cached(repo) == first
-        assert writes.await_count == computations.call_count == 1
+        assert await cached(repo) == calculate(SYMBOL, restored, now)
+        assert writes.await_count == computations.call_count == 3
 
     asyncio.run(run())
 

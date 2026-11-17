@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 
 from finance_analysis.intraday_options.structure import atr, box, metrics
-from finance_analysis.intraday_options.analysis_window import HORIZON, REQUIRED_MINUTES, analysis_window, observed
+from finance_analysis.intraday_options.analysis_window import HORIZON, REQUIRED_MINUTES, analysis_window, minute_timeline, observed
 from finance_analysis.intraday_options.rules import CONTINUATION, ENTRY_VERSION, RULES, entry_interval
 from finance_analysis.intraday_options.continuation import setup, confirmation, pullback_anchor
 from finance_analysis.market_stream.config import market_trading_date
@@ -36,6 +36,13 @@ def clip(value):
 
 def continuous(bars, count):
     return len(bars) >= count and all(b.bar_time - a.bar_time == MINUTE for a, b in zip(bars, bars[1:]))
+
+
+def contiguous_suffix(bars):
+    for i in range(len(bars) - 1, 0, -1):
+        if bars[i].bar_time - bars[i - 1].bar_time != MINUTE:
+            return bars[i:]
+    return bars
 
 
 def new_branch(kind, side, trigger, scale, bar, start, structure_quality):
@@ -118,7 +125,17 @@ def advance(branch, history):
         if branch["status"] == "expired":
             branch["reasons"] = [wait_reason]
             return
+    if restored and branch["status"] != "confirmed":
+        start = datetime.fromisoformat(branch["formation_start"])
+        if branch["kind"] == "trend_continuation":
+            start -= CONTINUATION.background * MINUTE
+        receipts = [b.received_at for b in history if b.bar_time >= start]
+        available = max([bar.bar_time + MINUTE, *receipts])
+        if branch.get("formation_available_at"):
+            available = max(available, datetime.fromisoformat(branch["formation_available_at"]))
+        branch["execution_evidence_at"] = available.isoformat()
     if restored and branch["confirmed_at"] is None:
+        branch["confirmation_available_at"] = branch["execution_evidence_at"]
         branch["confirmed_at"] = when
         branch["confirmation_method"] = method
     if branch["confirmed_at"] and distance > rule.extended_atr:
@@ -132,6 +149,81 @@ def advance(branch, history):
         branch["reasons"].append("恢复还需最近5分钟顺向移动至少0.2 ATR、路径效率至少35%")
 
 
+def recoveries(session_bars, visible_from, opening):
+    """Replay recovery identities from the session origin with local price windows.
+
+    A predecessor outside the display window still consumed its pullback. Only its
+    start time is needed for admission; old scores and plans need not be rebuilt.
+    """
+    predecessors = {}
+    lineage_available_at = opening
+    branches = {}
+    archive = []
+    for index, bar in enumerate(session_bars):
+        # A late revision can change whether an earlier touch consumed this pullback.
+        lineage_available_at = max(lineage_available_at, bar.received_at)
+        history = session_bars[max(0, index - CONFIG.background):index + 1]
+        for branch in branches.values():
+            advance(branch, history)
+        prior = contiguous_suffix(history[:-1])
+        if (not observed(bar) or not continuous(prior, CONFIG.minimum_background)
+                or bar.bar_time - prior[-1].bar_time != MINUTE):
+            continue
+        scale = atr(prior)
+        if scale <= 0:
+            continue
+        slope, stability, efficiency = metrics(prior)
+        ema = float(prior[0].close)
+        for previous in prior[1:]:
+            ema += 2 / 21 * (float(previous.close) - ema)
+        for side in (1, -1):
+            key = ("trend_recovery", side)
+            predecessor = predecessors.get(side)
+            extreme = float(bar.low if side > 0 else bar.high)
+            prior_close = float(prior[-1].close)
+            qualified = (
+                slope * side > 0
+                and stability >= CONFIG.trend_stability
+                and efficiency >= CONFIG.trend_efficiency
+                and (prior_close - float(prior[0].close)) * side >= scale
+                and (prior_close - ema) * side >= 0.5 * scale
+            )
+            touched = (extreme - ema) * side <= CONFIG.touch_atr * scale and (
+                prior_close - extreme
+            ) * side >= 0.25 * scale
+            if not (qualified and touched):
+                continue
+            anchor_history = [b for b in history if b.bar_time > bar.bar_time - CONFIG.recovery_anchor_minutes * MINUTE]
+            anchor = pullback_anchor(anchor_history, side, since=predecessor, scale=scale)
+            if not anchor and (predecessor or session_bars[0].bar_time != opening):
+                continue
+            predecessors[side] = (bar.bar_time + MINUTE).isoformat()
+            if bar.bar_time < visible_from:
+                continue
+            existing = branches.get(key)
+            branch = new_branch(
+                "trend_recovery",
+                side,
+                ema,
+                scale,
+                bar,
+                prior[0].bar_time,
+                100 * (0.5 * stability + 0.5 * efficiency),
+            )
+            branch["formation_available_at"] = lineage_available_at.isoformat()
+            anchor = anchor or bar.bar_time.isoformat()
+            branch.update(structure_start=anchor, structure_end=(bar.bar_time + MINUTE).isoformat(),
+                          structure_high=max(float(b.high) for b in history if b.bar_time.isoformat() >= anchor),
+                          structure_low=min(float(b.low) for b in history if b.bar_time.isoformat() >= anchor),
+                          process_id=f"trend:{side}:{anchor}")
+            if existing:
+                existing["superseded_by"] = branch["structure_id"]
+                archive.append(existing)
+            branches[key] = branch
+            advance(branch, history)
+    return [*archive, *branches.values()]
+
+
 def detect(bars):
     """Replay bounded input in chronological order; no future pivot or rolling event level."""
     branches = {}
@@ -143,10 +235,7 @@ def detect(bars):
         history = bars[: index + 1]
         prior = bars[max(0, index - CONFIG.background) : index]
         # Use up to 30 contiguous background minutes; opening needs only 15.
-        for j in range(len(prior) - 1, 0, -1):
-            if prior[j].bar_time - prior[j - 1].bar_time != MINUTE:
-                prior = prior[j:]
-                break
+        prior = contiguous_suffix(prior)
         for branch in [*archive, *branches.values()]:
             advance(branch, history)
         # Do not rediscover old structures with a truncated background when the
@@ -179,13 +268,6 @@ def detect(bars):
                 or bar.bar_time - prior[-1].bar_time != MINUTE):
             continue
         bounds = box(prior, prior[-1].bar_time)
-        scale = atr(prior)
-        if scale <= 0:
-            continue
-        slope, stability, efficiency = metrics(prior)
-        ema = float(prior[0].close)
-        for previous in prior[1:]:
-            ema += 2 / 21 * (float(previous.close) - ema)
         for side in (1, -1):
             key = ("box_breakout", side)
             active = branches.get(key)
@@ -234,46 +316,6 @@ def detect(bars):
                     retest["measurement_target"] = active.get("measurement_target")
                     branches[retest_key] = retest
                     advance(retest, history)
-            key = ("trend_recovery", side)
-            existing = branches.get(key)
-            anchor_history = [b for b in history if b.bar_time > bar.bar_time - CONFIG.recovery_anchor_minutes * MINUTE]
-            anchor = pullback_anchor(anchor_history, side,
-                                     since=existing["started_at"] if existing else None,
-                                     scale=scale)
-            if existing and not anchor:
-                continue
-            extreme = float(bar.low if side > 0 else bar.high)
-            prior_close = float(prior[-1].close)
-            qualified = (
-                slope * side > 0
-                and stability >= CONFIG.trend_stability
-                and efficiency >= CONFIG.trend_efficiency
-                and (prior_close - float(prior[0].close)) * side >= scale
-                and (prior_close - ema) * side >= 0.5 * scale
-            )
-            touched = (extreme - ema) * side <= CONFIG.touch_atr * scale and (
-                prior_close - extreme
-            ) * side >= 0.25 * scale
-            if qualified and touched:
-                branch = new_branch(
-                    "trend_recovery",
-                    side,
-                    ema,
-                    scale,
-                    bar,
-                    prior[0].bar_time,
-                    100 * (0.5 * stability + 0.5 * efficiency),
-                )
-                anchor = anchor or bar.bar_time.isoformat()
-                branch.update(structure_start=anchor, structure_end=(bar.bar_time + MINUTE).isoformat(),
-                              structure_high=max(float(b.high) for b in history if b.bar_time.isoformat() >= anchor),
-                              structure_low=min(float(b.low) for b in history if b.bar_time.isoformat() >= anchor),
-                              process_id=f"trend:{side}:{anchor}")
-                if existing:
-                    existing["superseded_by"] = branch["structure_id"]
-                    archive.append(existing)
-                branches[key] = branch
-                advance(branch, history)
     diagnostics = [reason for side, reason in diagnostics.items() if reason and not any(
         b["kind"] == "trend_continuation" and b["direction"] == ("bullish" if side > 0 else "bearish")
         and b["status"] not in {"expired", "invalidated"} for b in branches.values()
@@ -285,6 +327,14 @@ def calculate_opportunities(ordered):
     end = ordered[-1].bar_time
     bars, coverage, reasons = analysis_window(ordered)
     branches, diagnostics = detect(bars) if bars else ([], [])
+    if bars:
+        opening, _ = session_bounds("US", market_trading_date(end, "US"))
+        visible_from = max(opening, end - (HORIZON - 1) * MINUTE)
+        session_bars = bars
+        if visible_from > opening:
+            session_bars, _ = minute_timeline(ordered, opening, end)
+            visible_from += CONFIG.background * MINUTE
+        branches.extend(recoveries(session_bars, visible_from, opening))
     for branch in branches:
         branch["entry_low"], branch["entry_high"] = entry_interval(branch)
         branch["max_risk_atr"] = RULES[branch["kind"]].max_risk_atr

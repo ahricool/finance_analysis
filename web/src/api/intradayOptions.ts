@@ -27,6 +27,7 @@ export interface IntradayStructure extends AnalysisCoverage {
 export interface OpportunityBranch {
   kind: 'box_breakout' | 'box_retest' | 'trend_recovery' | 'trend_continuation';
   confirmationMethod?: 'two_closes' | 'strong_break' | null;
+  confirmationAvailableAt?: string | null; executionEvidenceAt?: string | null;
   triggeredAt?: string | null; structureStart?: string | null; structureEnd?: string | null;
   structureHigh?: number | null; structureLow?: number | null;
   atrSource?: string | null; atrSamples?: number | null; ruleVersion?: string | null;

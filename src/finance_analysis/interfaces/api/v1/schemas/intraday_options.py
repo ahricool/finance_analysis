@@ -76,6 +76,8 @@ class OpportunityBranch(BaseModel):
     process_id: str | None = None
     rule_version: str | None = None
     confirmation_method: Literal["two_closes", "strong_break"] | None = None
+    confirmation_available_at: datetime | None = None
+    execution_evidence_at: datetime | None = None
     triggered_at: datetime | None = None
     structure_start: datetime | None = None
     structure_end: datetime | None = None

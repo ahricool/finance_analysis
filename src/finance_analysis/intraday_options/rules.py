@@ -2,8 +2,8 @@
 
 from dataclasses import dataclass
 
-ENTRY_VERSION = "intraday_entry_v3_1"
-SIMULATION_VERSION = "underlying_sim_v3_1"
+ENTRY_VERSION = "intraday_entry_v3_2"
+SIMULATION_VERSION = "underlying_sim_v3_2"
 
 
 @dataclass(frozen=True)

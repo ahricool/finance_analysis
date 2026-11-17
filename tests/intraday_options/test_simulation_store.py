@@ -184,3 +184,32 @@ def test_quote_confirmation_order_and_late_revision_persist_original_evidence(is
         confirmations = [e.payload['evidence'] for e in session.scalars(select(Event))
                          if e.payload['kind'] == 'confirmed' and e.payload['evidence']['structure_id'] == evidence['structure_id']]
         assert confirmations == [evidence]
+
+
+@pytest.mark.parametrize('revision', [False, True])
+@pytest.mark.parametrize('side', [1, -1])
+def test_persisted_quote_follows_receipt_of_confirming_version(isolated_store, revision, side):
+    from dataclasses import replace
+    from finance_analysis.intraday_options.scoring import calculate
+    from tests.intraday_options.test_continuation import path
+
+    bars = path(side)
+    closed = bars[-1].bar_time + timedelta(minutes=1)
+    received = closed + timedelta(seconds=14)
+    actual = replace(bars[-1], received_at=received)
+    versions = bars[:-1] + ([path(side, tail=(103.75,))[-1]] if revision else []) + [actual]
+    price = float(actual.close)
+    early = quote(closed + timedelta(seconds=3), price)
+    for now in (early.event_time, closed + timedelta(seconds=15)):
+        result = calculate('SPY.US', versions, now)
+        assert not store.process('SPY.US', result, early, now).get('position')
+    with isolated_store() as db:
+        assert db.scalars(select(Trade)).first() is None
+    fresh = quote(closed + timedelta(seconds=18), price)
+    store.process('SPY.US', result, fresh, closed + timedelta(seconds=20))
+    with isolated_store() as db:
+        row = db.scalars(select(Trade)).one().payload
+        assert row['entry_price_at'] == fresh.event_time.isoformat()
+        assert row['entry_at'] == (closed + timedelta(seconds=20)).isoformat()
+        assert row['entry_evidence']['confirmation_available_at'] == received.isoformat()
+        assert row['evidence']['confirmed_at'] == closed.isoformat()

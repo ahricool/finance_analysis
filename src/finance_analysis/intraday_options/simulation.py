@@ -115,8 +115,11 @@ def plan(branch, result, price, now, quote_time=None):
         reason = "机会已过期"
     elif price is None:
         reason = "报价缺失、过期或时间异常"
-    elif quote_time is not None and quote_time < dt(branch["confirmed_at"]):
-        reason = "等待确认后的有效报价"
+    elif quote_time is not None and quote_time < max(
+        dt(branch["confirmed_at"]), dt(branch.get("execution_evidence_at") or branch["confirmed_at"])
+    ):
+        reason = ("等待确认依据到达后的有效报价" if quote_time >= dt(branch["confirmed_at"])
+                  else "等待确认后的有效报价")
     elif (price - branch["invalidation"]) * side <= 0:
         reason = "最新价格已越过失效位"
     elif not interval[0] <= price <= interval[1]:

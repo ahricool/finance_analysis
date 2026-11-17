@@ -70,7 +70,7 @@ async def run(repository, bars_by_symbol, stop_event):
         now = utc_now()  # Queue wait must not make an old quote look fresh.
         closed = closed_session_bars(symbol, bars, now)
         # All relevant OHLCV/validity revisions invalidate shape cache.
-        signature = tuple((b.bar_time, b.open, b.high, b.low, b.close, b.volume, b.partial, b.sampled) for b in closed)
+        signature = tuple((b.bar_time, b.received_at, b.open, b.high, b.low, b.close, b.volume, b.partial, b.sampled) for b in closed)
         prior = cache.get(symbol)
         result = prior[1] if prior and prior[0] == signature else calculate(symbol, closed, now) if closed else None
         if result is not None and (not prior or prior[0] != signature):
