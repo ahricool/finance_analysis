@@ -113,3 +113,32 @@ def test_reconnect_cursor_recovers_previous_session_exit(isolated_store):
     replay = store.read(tomorrow, cursor)
     assert [e['kind'] for e in replay['events']] == ['exit']
     assert len({e['id'] for e in replay['events']}) == len(replay['events'])
+
+
+def test_continuation_concurrent_restart_preserves_frozen_method_and_structure(isolated_store):
+    from tests.intraday_options.test_continuation import path
+    from tests.intraday_options.test_scoring import score
+
+    bars = path()
+    now = bars[-1].bar_time + timedelta(minutes=1, seconds=5)
+    r = score(bars)
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        states = list(pool.map(lambda _: store.process("SPY.US", r, quote(now, 104), now), range(8)))
+    assert all(s["position"]["kind"] == "trend_continuation" for s in states)
+    with isolated_store() as session:
+        trades = list(session.scalars(select(Trade)))
+        assert len(trades) == 1
+        frozen = trades[0].payload["entry_evidence"]
+        assert frozen["confirmation_method"] == "strong_break"
+        assert frozen["structure_high"] and frozen["atr_samples"] >= 15
+    b = r["opportunities"]["branches"][0]
+    b.update(atr=10, structure_high=200)
+    store.process("SPY.US", r, quote(now + timedelta(seconds=5), 104), now + timedelta(seconds=5))
+    store.process("SPY.US", r, quote(now + timedelta(seconds=10), 103), now + timedelta(seconds=10))
+    with isolated_store() as session:
+        trades = list(session.scalars(select(Trade)))
+        assert len(trades) == 1 and trades[0].status == "closed"
+        assert trades[0].payload["entry_evidence"] == frozen
+        events = list(session.scalars(select(Event)))
+        assert sum(e.payload["kind"] == "entry" for e in events) == 1
+        assert sum(e.payload["kind"] == "exit" for e in events) == 1

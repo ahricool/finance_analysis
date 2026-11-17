@@ -4,7 +4,7 @@ import { Activity, ArrowDownLeft, ArrowUpRight, Clock3, ShieldCheck } from 'luci
 import type { IntradayOptionsSnapshot, SimTrade, SimulationPlan, SimulationSnapshot } from '@/api/intradayOptions';
 import { useCurrentTime } from '@/composables/useCurrentTime';
 import { sortField, sortTime } from '@/composables/useTableSort';
-import { clock, fmt, pct, tone, opportunityKinds, opportunityStates } from './labels';
+import { clock, fmt, pct, tone, opportunityKinds, opportunityStates, confirmationLabel } from './labels';
 import FieldSelect from '@/components/forms/FieldSelect.vue';
 import SimulationTable from './SimulationTable.vue';
 
@@ -298,6 +298,14 @@ function historyValue(t: SimTrade, key: string) {
                 {{ e.reason }}
               </p>
               <p
+                v-if="e.trade"
+                class="mt-1 text-xs text-muted-foreground"
+              >
+                {{ opportunityKinds[e.trade.kind] }}<template v-if="e.trade.confirmationMethod">
+                  · {{ confirmationLabel(e.trade.confirmationMethod) }}
+                </template>
+              </p>
+              <p
                 v-if="e.trade?.estimated"
                 class="mt-1 max-w-md whitespace-normal text-xs text-muted-foreground"
               >
@@ -341,7 +349,7 @@ function historyValue(t: SimTrade, key: string) {
             </p>
           </template>
           <template v-else-if="column === 'status'">
-            <p>{{ opportunityStates[p.status] }}</p><p class="mt-1 max-w-64 whitespace-normal text-xs text-muted-foreground">
+            <p>{{ opportunityStates[p.status] }} · {{ confirmationLabel(p.confirmationMethod) }}</p><p class="mt-1 max-w-64 whitespace-normal text-xs text-muted-foreground">
               {{ entryPaused ? phaseLabel : stale ? '连接或计算延迟，当前机会资格未知' : p.opportunityReason }}
             </p><p class="mt-1 max-w-64 whitespace-normal text-xs">
               {{ planReason(p) }}
@@ -417,6 +425,12 @@ function historyValue(t: SimTrade, key: string) {
           </template>
           <template v-else-if="column === 'kind'">
             {{ opportunityKinds[t.kind] }}
+            <p
+              v-if="t.confirmationMethod"
+              class="mt-1 text-xs text-muted-foreground"
+            >
+              {{ confirmationLabel(t.confirmationMethod) }}
+            </p>
           </template>
           <template v-else-if="column === 'entryAt' || column === 'exitAt'">
             {{ clock(t[column]) }}

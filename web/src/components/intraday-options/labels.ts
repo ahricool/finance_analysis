@@ -34,8 +34,10 @@ export function structureName(value: IntradayStructure | null | undefined) {
 }
 
 export const opportunityKinds: Record<OpportunityBranch['kind'], string> = {
-  box_breakout: '箱体突破', box_retest: '突破位回测', trend_recovery: '顺势回撤恢复',
+  box_breakout: '箱体突破', box_retest: '突破位回测', trend_recovery: '顺势回撤恢复', trend_continuation: '趋势延续',
 };
+export const confirmationLabel = (method: OpportunityBranch['confirmationMethod']) =>
+  method === 'strong_break' ? '强突破单根确认' : method === 'two_closes' ? '两根闭合K确认' : '尚未确认';
 export const opportunityStates: Record<OpportunityBranch['status'], string> = {
   forming: '形成中', confirmed: '已确认', extended: '已延伸', invalidated: '已失效', expired: '已过期',
 };
@@ -51,7 +53,11 @@ export function entryLabel(row: IntradayOptionRow, stale = false) {
   if (stale || ['delayed', 'invalid_time', 'waiting'].includes(row.dataStatus)) {
     return opportunities.primary ? '历史/参考确认' : '历史/参考观察';
   }
-  if (entryScore(row) == null && opportunities.primary) return '历史/参考确认';
+  if (entryScore(row) == null && opportunities.primary) {
+    const plan = row.simulation?.plans?.find(p => p.structureId === opportunities.primary?.structureId);
+    return plan && !row.simulation?.stopped && row.quoteStatus === 'ready' && !opportunities.reference
+      ? '形态确认 · 当前不可执行' : '历史/参考确认';
+  }
   if (opportunities.reference) return '数据不足 · 观察';
   if (entryScore(row) != null && row.simulation?.position) {
     return row.simulation.position.opportunityId === opportunities.primary?.structureId

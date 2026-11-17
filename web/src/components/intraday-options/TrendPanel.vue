@@ -211,6 +211,7 @@ onBeforeUnmount(() => { stopped = true; generation++; controller?.abort(); clear
     </div>
     <OpportunityPanel
       :opportunities="result?.opportunities"
+      :plans="simulation?.states.find(s => s.symbol === symbol)?.plans"
       :stale="stale"
     />
     <article

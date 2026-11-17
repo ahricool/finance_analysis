@@ -38,6 +38,22 @@ def atr(bars):
     return float(sum(true_ranges(bars[-20:])) / len(bars[-20:])) if bars else 0
 
 
+def observed_atr(bars, period=20, minimum=15):
+    """Only observed adjacent true ranges; no synthetic zeros or gap-spanning moves."""
+    samples = []
+    previous = None
+    for bar in bars:
+        if not observed(bar):
+            previous = None
+            continue
+        if previous is not None and bar.bar_time - previous.bar_time == MINUTE:
+            samples.append(max(float(bar.high - bar.low), abs(float(bar.high - previous.close)),
+                               abs(float(bar.low - previous.close))))
+        previous = bar
+    samples = samples[-period:]
+    return (sum(samples) / len(samples) if len(samples) >= minimum else None), len(samples)
+
+
 def pivots(bars):
     # Reject pivots spanning missing minutes; right-side bars confirm, never backdate detection.
     output = []

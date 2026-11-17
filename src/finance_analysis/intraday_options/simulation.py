@@ -7,14 +7,14 @@ import math
 
 from finance_analysis.market_stream.config import market_trading_date
 from finance_analysis.market_stream.session import session_bounds
+from finance_analysis.intraday_options.rules import RULES, SIMULATION_VERSION, entry_interval
 
-VERSION = "underlying_sim_v2"
+VERSION = SIMULATION_VERSION
 
 
 @dataclass(frozen=True)
 class ExecutionConfig:
     quote_age_seconds: int = 30
-    entry_max_atr: float = 1.0
     no_progress_minutes: int = 20
     minimum_progress_r: float = 0.25
     protect_after_r: float = 1.0
@@ -88,9 +88,8 @@ def monitor_data(state, active, issue, quote, now, event):
 
 def plan(branch, result, price, now):
     side = 1 if branch["direction"] == "bullish" else -1
-    trigger, scale = branch["trigger"], branch["atr"]
-    floor = 0.1 if branch["kind"] == "trend_recovery" else 0.2
-    interval = sorted([trigger + side * floor * scale, trigger + side * CONFIG.entry_max_atr * scale])
+    rule = RULES[branch["kind"]]
+    interval = entry_interval(branch)
     # Confirmed pivots are raw intraday prices, the same basis as execution quotes.
     candidates = [
         p["price"]
@@ -103,8 +102,13 @@ def plan(branch, result, price, now):
     target = min(candidates, key=lambda p: (p - price) * side) if candidates else branch.get("measurement_target")
     source = "已确认结构位" if candidates else "箱体高度测量估计" if target else "未知"
     reason = "可以模拟进场"
-    if branch["status"] != "confirmed":
-        reason = "等待形态确认或独立新机会"
+    if branch.get("superseded_by"):
+        reason = "已有后续独立结构，旧候选证据保留但不再进场"
+    elif branch.get("breakout_rejection"):
+        reason = branch["breakout_rejection"]
+    elif branch["status"] != "confirmed":
+        reason = {"forming": "形态尚未确认", "extended": "形态已确认但过度延伸，禁止追价",
+                  "invalidated": "冻结结构已失效，等待独立新机会", "expired": "原机会已到期"}[branch["status"]]
     elif not branch["confirmed_at"] or dt(branch["confirmed_at"]) > now:
         reason = "形态确认时间无效"
     elif now >= dt(branch["expires_at"]):
@@ -114,7 +118,9 @@ def plan(branch, result, price, now):
     elif (price - branch["invalidation"]) * side <= 0:
         reason = "最新价格已越过失效位"
     elif not interval[0] <= price <= interval[1]:
-        reason = "最新价格不在入场区间（等待恢复或已延伸）"
+        reason = "形态已确认，当前报价不在冻结执行区间（不补记触发价成交）"
+    elif rule.max_risk_atr is not None and (price - branch["invalidation"]) * side > rule.max_risk_atr * branch["atr"]:
+        reason = f"当前报价到结构失效位超过{rule.max_risk_atr:g} ATR，风险距离过大"
     elif target is not None and (target - price) * side <= 0:
         reason = "目标已越过，放弃本次进场"
     reward = (target - price) * side if target is not None and price is not None else None
@@ -130,6 +136,7 @@ def plan(branch, result, price, now):
         "reward_risk": reward / risk if reward is not None and risk and risk > 0 else None,
         "minute_as_of": result.get("as_of"),
         "rule_version": VERSION,
+        "max_risk_atr": rule.max_risk_atr,
         "analysis_coverage": {
             key: deepcopy(result.get("opportunities", {}).get(key))
             for key in ("version", "required_minutes", "recent_available_bars", "recent_missing_bars",
@@ -139,6 +146,19 @@ def plan(branch, result, price, now):
         "executable": reason == "可以模拟进场",
         "execution_reason": reason,
     }
+
+
+def consumed_structure(item, window):
+    family = "box" if item["kind"].startswith("box") else "trend"
+    if window["direction"] != item["direction"] or window["family"] != family:
+        return False
+    if family == "trend" and item.get("structure_start") and window.get("structure_end"):
+        # A fresh counter-move must begin after both the traded structure and entry.
+        # Older/same structures stay consumed; overlapping lifetimes alone are not identity.
+        return dt(item["structure_start"]) <= max(dt(window["structure_end"]), dt(window["entered_at"]))
+    # Legacy persisted windows have no structure evidence: retain their old protection.
+    return (dt(item.get("started_at", item["confirmed_at"])) < dt(window["end"])
+            and dt(item["expires_at"]) > dt(window["start"]))
 
 
 def transition(previous, symbol, result, quote, now):
@@ -266,6 +286,7 @@ def transition(previous, symbol, result, quote, now):
             phase == "active"
             and data_ok
             and item["confirmed_at"]
+            and not item.get("superseded_by")
             and bounds[0] <= dt(item["confirmed_at"]) <= now
             and item["structure_id"] not in evidence
         ):
@@ -287,13 +308,7 @@ def transition(previous, symbol, result, quote, now):
             item.update(executable=False, execution_reason="今日已停止进场或尚未开盘")
         elif position:
             item.update(executable=False, execution_reason="本周期已有虚拟持仓，禁止重复进场或反手")
-        elif item["process_id"] in used or any(
-            w["direction"] == item["direction"]
-            and w["family"] == ("box" if item["kind"].startswith("box") else "trend")
-            and dt(item.get("started_at", item["confirmed_at"])) < dt(w["end"])
-            and dt(item["expires_at"]) > dt(w["start"])
-            for w in windows
-        ):
+        elif item["process_id"] in used or any(consumed_structure(item, w) for w in windows):
             item.update(executable=False, execution_reason="本过程已模拟交易，等待独立新机会")
         elif not data_ok:
             item.update(executable=False, execution_reason="闭合分钟数据不足或延迟")
@@ -307,6 +322,9 @@ def transition(previous, symbol, result, quote, now):
                     family="box" if chosen["kind"].startswith("box") else "trend",
                     start=chosen.get("started_at", chosen["confirmed_at"]),
                     end=chosen["expires_at"],
+                    structure_start=chosen.get("structure_start"),
+                    structure_end=chosen.get("structure_end"),
+                    entered_at=now.isoformat(),
                 )
             )
             position = dict(
@@ -315,6 +333,7 @@ def transition(previous, symbol, result, quote, now):
                 trading_date=day.isoformat(),
                 side=1 if chosen["direction"] == "bullish" else -1,
                 kind=chosen["kind"],
+                confirmation_method=chosen.get("confirmation_method"),
                 opportunity_id=chosen["structure_id"],
                 process_id=chosen["process_id"],
                 version=VERSION,
@@ -369,6 +388,6 @@ def statistics(trades):
             label=f"{kind}/{side}",
             **group([r for r in trades if r["kind"] == kind and r["side"] == side and not r["estimated"]]),
         )
-        for kind in ("box_breakout", "box_retest", "trend_recovery")
+        for kind in RULES
         for side in (1, -1)
     ]

@@ -2,6 +2,17 @@ import { expect, test } from '@playwright/test';
 
 const codes = 'SPY QQQ NVDA IWM TSLA MU AAPL AMD SPCX INTC AMZN IBIT CRWV TLT GOOGL META MSFT SOXL IREN GLD AVGO TQQQ MSTR SMH HYG SOFI SLV DRAM WULF SMCI'.split(' ');
 const now = '2026-11-12T16:00:05Z';
+const continuation = {
+  kind: 'trend_continuation', direction: 'bullish', status: 'confirmed', quality_score: 95,
+  structure_id: 'continuation:SPY', process_id: 'trend:SPY', trigger: 99.8, invalidation: 99.5, atr: .4,
+  structure_start: '2026-11-12T15:56:00Z', structure_end: '2026-11-12T15:59:00Z',
+  structure_high: 99.8, structure_low: 99.54, formation_start: '2026-11-12T15:56:00Z',
+  started_at: '2026-11-12T15:59:00Z', confirmed_at: '2026-11-12T16:00:00Z', expires_at: '2026-11-12T16:09:00Z',
+  confirmation_method: 'strong_break', atr_source: 'observed_adjacent_true_ranges', atr_samples: 20,
+  components: { structure: 90, distance: 90, recovery: 90, risk: 90 }, reasons: [],
+  entry_low: 99.86, entry_high: 100.12, target: null, target_source: '未知',
+  opportunity_valid: true, executable: false, execution_reason: '已模拟持有，禁止重复进场或反手',
+};
 for (const width of [390, 768, 1024, 1280, 1440, 1920]) {
   test(`intraday options sorting, stable live rows and minute panel at ${width}px`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width, height: 1100 });
@@ -19,7 +30,8 @@ for (const width of [390, 768, 1024, 1280, 1440, 1920]) {
       result: code === 'SPCX' ? null : { version: 'intraday_options_v1', symbol: `${code}.US`, trading_date: '2026-11-12',
         as_of: '2026-11-12T16:00:00Z', observed_at: now, score: 95 - i, base_score: 95 - i, alignment: 1, extension_atr: 1.5,
         opportunities: { version: 'intraday_entry_v1', reference: false, missing_bars: 0, as_of: now, reasons: [],
-          primary: { kind: 'box_breakout', direction: 'bullish', status: 'confirmed', quality_score: 95 - i }, branches: [] },
+          primary: i === 0 ? continuation : { kind: 'box_breakout', direction: 'bullish', status: 'confirmed', quality_score: 95 - i },
+          branches: i === 0 ? [continuation] : [] },
         direction: i % 2 ? 'bearish' : 'bullish', state: i === 0 ? 'extended' : 'continuing',
         explanation: i === 0 ? '方向仍有延续，但偏离短期趋势参考线较远，标记短线延伸。' : '多个窗口方向一致，近期仍在延续。',
         structure: { kind: 'breakout_up', phase: 'confirmed', background: 'bearish', since: now, as_of: now, oversold: false,
@@ -59,7 +71,8 @@ for (const width of [390, 768, 1024, 1280, 1440, 1920]) {
           items: items.map((item, i) => changed && i === 1 ? { ...item, result: { ...item.result, score: 99,
             opportunities: { ...item.result?.opportunities, primary: { ...item.result?.opportunities.primary, quality_score: 99 } } } } : item),
           simulation: {
-            states: ['SPY.US', 'NVDA.US'].map((symbol, i) => ({ symbol, position: { id: symbol, symbol, side: i ? -1 : 1,
+            states: ['SPY.US', 'NVDA.US'].map((symbol, i) => ({ symbol, plans: i ? [] : [continuation],
+              position: { id: symbol, symbol, side: i ? -1 : 1, kind: 'trend_continuation', confirmation_method: 'strong_break',
               entry_price: 100, entry_at: now, last_price: 101, last_price_at: now, return_pct: i ? -1 : 1,
               invalidation: i ? 102 : 99, protection: i ? 102 : 99, target: i ? 97 : 103 } })),
             trades: [], statistics: [], events: [
@@ -91,7 +104,11 @@ for (const width of [390, 768, 1024, 1280, 1440, 1920]) {
     await page.getByRole('option').filter({ hasText: '模拟记录' }).first().click();
     await expect(panel.getByTestId('simulation-trade-detail')).toContainText('B · 模拟做多进场');
     await expect(panel.getByTestId('simulation-trade-detail')).toContainText('100.00');
+    await expect(panel.getByTestId('simulation-trade-detail')).toContainText('趋势延续 · 强突破单根确认');
     await expect(panel.getByTestId('opportunity-detail')).toContainText('日内机会');
+    await expect(panel.getByTestId('opportunity-detail')).toContainText('强突破单根确认');
+    await expect(panel.getByTestId('opportunity-detail')).toContainText('已模拟持有，禁止重复进场或反手');
+    await expect(panel.getByTestId('opportunity-detail')).toContainText('20 个真实相邻波动样本');
     await expect(panel.getByTestId('structure-detail')).toContainText('箱体向上突破');
     await expect(panel.getByTestId('structure-detail')).toContainText('固定箱体');
     await panel.getByRole('button', { name: '5分钟', exact: true }).click();

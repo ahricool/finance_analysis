@@ -2,6 +2,7 @@ import { registerOverlay, type OverlayCreate } from 'klinecharts';
 import type { IntradayBar } from '@/api/intradayMarket';
 import type { SimTrade, SimulationSnapshot } from '@/api/intradayOptions';
 import { MARKET_HEX } from '@/utils/marketColors';
+import { confirmationLabel, opportunityKinds } from './labels';
 
 export interface SimulationOperation {
   id: string; tradeId: string; action: 'B' | 'S'; phase: 'entry' | 'exit'; label: string;
@@ -39,7 +40,8 @@ export function simulationOperations(snapshot: SimulationSnapshot | null | undef
         at: at!, processedAt: phase === 'entry' ? t.entryAt : t.exitAt!,
         priceAt: phase === 'entry' ? t.entryPriceAt : t.exitPriceAt,
         price, estimated: phase === 'exit' && !!t.estimated,
-        reason: phase === 'entry' ? '合格机会自动模拟进场' : [t.exitReason, t.estimated ? t.anomaly : null].filter(Boolean).join('；'),
+        reason: phase === 'entry' ? [opportunityKinds[t.kind], t.confirmationMethod ? confirmationLabel(t.confirmationMethod) : null,
+          '合格机会自动模拟进场'].filter(Boolean).join(' · ') : [t.exitReason, t.estimated ? t.anomaly : null].filter(Boolean).join('；'),
       });
     };
     append('entry', t.entryAt, t.entryPrice);
