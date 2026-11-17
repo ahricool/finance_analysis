@@ -6,9 +6,10 @@ import numpy as np
 from finance_analysis.market_stream.config import market_trading_date
 from finance_analysis.market_stream.session import session_bounds
 from finance_analysis.market_stream.patterns.features import swing_high_indices, swing_low_indices, true_ranges
+from finance_analysis.intraday_options.analysis_window import REQUIRED_MINUTES, analysis_window, observed
 
 MINUTE = timedelta(minutes=1)
-MIN_MAIN_BARS = 24  # Same 80% coverage floor as the existing 30-minute box detector.
+MIN_MAIN_BARS = REQUIRED_MINUTES
 MIN_RECENT_BARS = 4
 SHORT_MOVE_ATR = .2
 SHORT_EFFICIENCY = .35
@@ -42,7 +43,8 @@ def pivots(bars):
     output = []
     for kind, indices in (("high", swing_high_indices(bars, 2)), ("low", swing_low_indices(bars, 2))):
         for i in indices:
-            if bars[i + 2].bar_time - bars[i - 2].bar_time == 4 * MINUTE:
+            if (bars[i + 2].bar_time - bars[i - 2].bar_time == 4 * MINUTE
+                    and all(observed(b) for b in bars[i - 2:i + 3])):
                 output.append({"kind": kind, "at": bars[i].bar_time.isoformat(),
                                "confirmed_at": (bars[i + 2].bar_time + MINUTE).isoformat(),
                                "price": float(bars[i].high if kind == "high" else bars[i].low)})
@@ -57,6 +59,8 @@ def touches(bars, level, tolerance, side):
     last = None
     count = 0
     for bar in bars:
+        if not observed(bar):
+            continue
         price = float(bar.high if side == "high" else bar.low)
         if abs(price - level) <= tolerance and (last is None or bar.bar_time - last >= 3 * MINUTE):
             count += 1
@@ -66,7 +70,7 @@ def touches(bars, level, tolerance, side):
 
 def box(bars, end):
     values = segment(bars, end, 30)
-    if not bars or end - bars[0].bar_time < 29 * MINUTE:
+    if not values or end - values[0].bar_time < (REQUIRED_MINUTES - 1) * MINUTE:
         return None
     if len(values) < MIN_MAIN_BARS or not values or values[-1].bar_time != end:
         return None
@@ -75,12 +79,13 @@ def box(bars, end):
         return None
     high, low = max(float(b.high) for b in values), min(float(b.low) for b in values)
     slope, _, efficiency = metrics(values)
-    drift = abs(slope) * 30 * float(values[-1].close)
+    minutes = int((end - values[0].bar_time) / MINUTE) + 1
+    drift = abs(slope) * minutes * float(values[-1].close)
     if high - low < 2 * scale or efficiency > 0.25 or drift > scale:
         return None
     if min(touches(values, high, .3 * scale, "high"), touches(values, low, .3 * scale, "low")) < 2:
         return None
-    return {"upper": high, "lower": low, "start_at": (end - 29 * MINUTE).isoformat(),
+    return {"upper": high, "lower": low, "start_at": values[0].bar_time.isoformat(),
             "end_at": (end + MINUTE).isoformat(), "atr": scale}
 
 
@@ -93,6 +98,9 @@ def box_event(bars, end):
     for bar in bars:
         if bar.bar_time > end:
             break
+        if not observed(bar):
+            previous = None  # Synthetic flat closes cannot confirm an event.
+            continue
         when = bar.bar_time + MINUTE
         if triggered is not None and bar.bar_time - triggered >= 15 * MINUTE:
             event, triggered = None, None
@@ -112,7 +120,7 @@ def box_event(bars, end):
                 event = {
                     "kind": "breakout_up" if side > 0 else "breakout_down", "phase": "forming",
                     "since": when.isoformat(), "confirmed_at": None, "box": bounds,
-                    "reasons": ["突破前30分钟形成多次触碰的横向箱体，边界与ATR已固定",
+                    "reasons": ["突破前15–30分钟形成多次真实触碰的横向箱体，边界与ATR已固定",
                                 "尚未连续两根闭合K确认突破"],
                 }
         elif event["confirmed_at"] is None:
@@ -164,6 +172,7 @@ def raw_structure(bars, end):
     if len(main) < MIN_MAIN_BARS:
         result["reasons"] = [f"最近30分钟仅{len(main)}根有效K，至少需要{MIN_MAIN_BARS}根，等待结构"]
         return result
+    main_minutes = int((main[-1].bar_time - main[0].bar_time) / MINUTE) + 1
     scale = atr(main)
     if scale <= 0:
         return result
@@ -199,7 +208,7 @@ def raw_structure(bars, end):
                 ema += 2 / 21 * (float(b.close) - ema)
             oversold = direction == 1 and (ema - float(before[-1].close)) / scale >= 2.5
             return {**result, "kind": kind, "phase": "confirmed", "oversold": oversold,
-                    "reasons": ["30/60分钟背景尚未反转，最近5分钟转向并越过已确认局部拐点",
+                    "reasons": ["主要结构及最长60分钟背景尚未反转，最近5分钟转向并越过已确认局部拐点",
                                 "此前下跌偏离EMA20超过2.5 ATR，标记超跌反弹" if oversold else "此前逆向移动超过2 ATR"]}
     for direction, kind in ((1, "uptrend"), (-1, "downtrend")):
         stepping = (len(highs) >= 2 and len(lows) >= 2
@@ -218,13 +227,13 @@ def raw_structure(bars, end):
             else:
                 phase, detail = "pausing", "最近5分钟缺乏有效单向推进，短线停顿，不把微小反向波动当作回撤"
             return {**result, "kind": kind, "phase": phase,
-                    "reasons": [f"30分钟稳定度{stability:.0%}、路径效率{efficiency:.0%}",
+                    "reasons": [f"{main_minutes}分钟稳定度{stability:.0%}、路径效率{efficiency:.0%}",
                                 "确认高低点同向推进" if stepping else "平滑单向推进，尚无足够交替拐点",
                                 detail]}
     bounds = box(bars, end)
-    if efficiency <= .25 and abs(slope) * 30 * price <= scale:
+    if efficiency <= .25 and abs(slope) * main_minutes * price <= scale:
         return {**result, "kind": "range", "phase": "inside", "box": bounds,
-                "reasons": ["30分钟净位移较小、路径效率低" + ("，上下沿存在多次独立触碰" if bounds else "，尚无可靠箱体边界")]}
+                "reasons": [f"{main_minutes}分钟净位移较小、路径效率低" + ("，上下沿存在多次独立触碰" if bounds else "，尚无可靠箱体边界")]}
     result["reasons"] = ["趋势、箱体或反弹条件尚未形成一致证据"]
     return result
 
@@ -232,23 +241,20 @@ def raw_structure(bars, end):
 def calculate_structure(ordered):
     end = ordered[-1].bar_time
     opening, _ = session_bounds("US", market_trading_date(end, "US"))
-    start = max(opening, end - 59 * MINUTE)
-    # The input is closed/session filtered by the scoring boundary.
-    bars = [b for b in ordered if start <= b.bar_time <= end and b.is_valid() and not b.partial and not b.sampled]
-    expected = int((end - start) / MINUTE) + 1
-    missing = expected - len(bars)
+    bars, coverage, reasons = analysis_window(ordered)
+    expected = min(60, int((end - opening) / MINUTE) + 1)
     result = raw_structure(bars, end)
-    if end - opening < 29 * MINUTE:
-        result.update(kind="unclear", phase="warming", reasons=["结构观察等待当日30分钟背景"])
+    if end - opening < (REQUIRED_MINUTES - 1) * MINUTE:
+        result.update(kind="unclear", phase="warming", reasons=["结构观察等待当日15分钟背景"])
     elif result["kind"] not in {"unclear", "breakout_up", "breakout_down", "failed_up", "failed_down"}:
         previous = raw_structure([b for b in bars if b.bar_time < end], end - MINUTE)
-        if result["kind"] != previous["kind"] or not {end, end - MINUTE} <= {b.bar_time for b in bars}:
+        first_judgment = end - opening == (REQUIRED_MINUTES - 1) * MINUTE and not coverage["reference"]
+        adjacent_observed = {end, end - MINUTE} <= {b.bar_time for b in bars if observed(b)}
+        if not adjacent_observed or (not first_judgment and result["kind"] != previous["kind"]):
             candidate = LABELS[result["kind"]]
             result.update(kind="unclear", phase="forming", reasons=[f"{candidate}尚需连续两次闭合分钟确认"])
-    result.update(as_of=(end + MINUTE).isoformat(), available_bars=len(bars), missing_bars=missing,
-                  reference=missing > 0)
+    result.update(as_of=(end + MINUTE).isoformat(), available_bars=len(bars), **coverage)
+    result["reasons"].extend(reasons)
     if expected < 60:
         result["reasons"].append("60分钟背景尚未齐全，使用当日已有背景")
-    if missing:
-        result["reasons"].append(f"最近观察区间缺{missing}根有效K，结构仅供参考")
     return result

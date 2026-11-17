@@ -44,7 +44,15 @@ class StructureBox(BaseModel):
     atr: float
 
 
-class IntradayStructure(BaseModel):
+class AnalysisCoverage(BaseModel):
+    required_minutes: int = 15
+    recent_available_bars: int = 0
+    recent_missing_bars: int = 0
+    filled_bars: int = 0
+    filled_minutes: list[datetime] = Field(default_factory=list)
+
+
+class IntradayStructure(AnalysisCoverage):
     kind: Literal["uptrend", "downtrend", "range", "breakout_up", "breakout_down", "failed_up",
                   "failed_down", "rebound", "pullback", "unclear"]
     phase: Literal[
@@ -82,7 +90,7 @@ class OpportunityBranch(BaseModel):
     reasons: list[str]
 
 
-class IntradayOpportunities(BaseModel):
+class IntradayOpportunities(AnalysisCoverage):
     version: str
     primary: OpportunityBranch | None
     branches: list[OpportunityBranch]

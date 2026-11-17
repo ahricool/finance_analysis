@@ -86,6 +86,11 @@ for (const width of [390, 768, 1024, 1280, 1440, 1920]) {
     await expect(panel).toBeVisible();
     await expect(panel.getByRole('img', { name: /1m K线/ })).toBeVisible();
     await expect(panel).toContainText('近似VWAP');
+    await expect(panel.getByTestId('simulation-chart-markers')).toContainText('1 条模拟进退场');
+    await panel.getByRole('combobox', { name: '定位模拟成交' }).click();
+    await page.getByRole('option').filter({ hasText: '模拟记录' }).first().click();
+    await expect(panel.getByTestId('simulation-trade-detail')).toContainText('B · 模拟做多进场');
+    await expect(panel.getByTestId('simulation-trade-detail')).toContainText('100.00');
     await expect(panel.getByTestId('opportunity-detail')).toContainText('日内机会');
     await expect(panel.getByTestId('structure-detail')).toContainText('箱体向上突破');
     await expect(panel.getByTestId('structure-detail')).toContainText('固定箱体');

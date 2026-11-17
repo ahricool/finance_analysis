@@ -32,7 +32,7 @@ const columns = [
   { key: 'score', label: '趋势质量分', description: '0–100规则分，不是盈利概率；开盘不足完整窗口或缺线时也按可用K线计算并标注参考分。' },
   { key: 'direction', label: '当前方向' },
   ...[5, 15, 30, 60].map(n => ({ key: `w${n}`, label: `${n}分钟`, description: '按窗口质量分排序；箭头表示方向，第二行是该窗口涨跌幅。' })),
-  { key: 'structure', label: '短线结构', description: '开盘满30分钟后判断；最近30分钟结构、5分钟变化，最多60分钟背景；独立于趋势质量分。' },
+  { key: 'structure', label: '短线结构', description: '最近15分钟完整后判断；15–30分钟结构、5分钟变化，最多60分钟背景。内部空缺按前收盘补平K并标注；进场确认仍需真实K。' },
   { key: 'state', label: '当前状态', description: '趋势质量与进场位置分开：高分仍可能处于短线延伸。' },
 ];
 const filters: Array<{ key: typeof filter.value; label: string }> = [
@@ -316,6 +316,7 @@ watch(stream.intradayOptions, result => {
               >
                 <TrendPanel
                   :symbol="row.symbol"
+                  :simulation="snapshot?.simulation"
                   :result="row.result"
                   :stale="disconnected || snapshot?.marketStatus !== 'open' || row.dataStatus === 'delayed' || !valid(row)"
                 />

@@ -2,6 +2,7 @@ import asyncio
 from datetime import timedelta
 from decimal import Decimal
 from types import SimpleNamespace
+import pytest
 
 from finance_analysis.integrations.market_data.realtime_state.models import QuoteState
 from finance_analysis.integrations.market_data.realtime_state.repository import RealtimeStateRepository
@@ -109,7 +110,7 @@ def test_entry_eligibility_excludes_delayed_closed_and_old_versions_without_reco
         now = bars[-1].bar_time + timedelta(minutes=1, seconds=5)
         await Publisher(repo).publish("SPY.US", bars, now)
         row = (await read_snapshot(repo, {}, now))["items"][0]
-        assert row["data_status"] == "warming"  # 60m trend warmup does not block complete 30m setups.
+        assert row["data_status"] == "ready"  # Longer quality windows do not block the 15m gate.
         assert not row["opportunity_eligible"]  # Shape alone cannot enter without a valid quote/execution state.
         primary = row["result"]["opportunities"]["primary"]
         delayed = (await read_snapshot(repo, {}, now + timedelta(minutes=2)))["items"][0]
@@ -126,7 +127,8 @@ def test_entry_eligibility_excludes_delayed_closed_and_old_versions_without_reco
     asyncio.run(run())
 
 
-def test_entry_visibility_uses_primary_branch_validity_not_position_permission():
+@pytest.mark.parametrize("old_gap", [False, True])
+def test_entry_visibility_uses_primary_branch_validity_not_position_permission(old_gap):
     import json
     from finance_analysis.intraday_options.simulation import transition
     from tests.intraday_options.test_structure import oscillation, prices
@@ -134,6 +136,8 @@ def test_entry_visibility_uses_primary_branch_validity_not_position_permission()
     async def run():
         repo = RealtimeStateRepository(FakeRedis())
         bars = prices(oscillation() + [101.3, 101.4])
+        if old_gap:
+            del bars[5]
         now = bars[-1].bar_time + timedelta(minutes=1, seconds=5)
         result = calculate("SPY.US", bars, now)
         primary = result["opportunities"]["primary"]
@@ -148,6 +152,10 @@ def test_entry_visibility_uses_primary_branch_validity_not_position_permission()
         await repo.redis.set("rt:intraday-simulation:SPY.US", json.dumps(state))
         row = (await read_snapshot(repo, {}, now))["items"][0]
         assert row["opportunity_eligible"]
+        assert row["data_status"] == "ready"
+        assert row["result"]["opportunities"]["filled_bars"] == int(old_gap)
+        if old_gap:
+            assert row["result"]["windows"][-1]["data_status"] == "gap"
         assert row["result"]["opportunities"]["primary"]["quality_score"] == primary["quality_score"]
         assert not state["plans"][0]["executable"]
         original_cutoff = state["cutoff"]
