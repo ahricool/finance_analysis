@@ -69,6 +69,7 @@ export interface SimTrade {
   exitReason?: string; estimated?: boolean; anomaly?: string;
 }
 export interface SimulationState {
+  sessionPhase?: 'active' | 'preopen' | 'stopped' | 'closed'; sessionOpen?: string | null; dataIssue?: string | null;
   symbol: string; calculatedAt: string; cutoff: string | null; stopped: boolean; currentPrice: number | null;
   quoteTime: string | null; position?: SimTrade | null; plans: SimulationPlan[];
   relativeStrength?: Array<{ minutes: number; value: number | null; start: string; end: string; reason: string }>;

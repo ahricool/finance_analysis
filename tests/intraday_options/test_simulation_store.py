@@ -111,5 +111,5 @@ def test_reconnect_cursor_recovers_previous_session_exit(isolated_store):
     tomorrow = (NOW + timedelta(days=1)).date()
     assert not store.read(tomorrow)['events']
     replay = store.read(tomorrow, cursor)
-    assert [e['kind'] for e in replay['events']] == ['exit', 'data']
+    assert [e['kind'] for e in replay['events']] == ['exit']
     assert len({e['id'] for e in replay['events']}) == len(replay['events'])

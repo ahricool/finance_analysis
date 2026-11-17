@@ -149,6 +149,8 @@ async def read_snapshot(repository, names, now):
                 and market_status == "open"
                 and quote_status == "ready"
                 and simulation
+                and simulation.get("cutoff")
+                and now < datetime.fromisoformat(simulation["cutoff"])
                 and 0 <= (now - datetime.fromisoformat(simulation["calculated_at"])).total_seconds() <= 15
                 and primary_plan
                 and primary_plan.get("opportunity_valid", False)
