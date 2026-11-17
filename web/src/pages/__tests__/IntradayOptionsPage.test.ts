@@ -43,7 +43,7 @@ async function start() {
   await flushPromises();
 }
 function symbols() { return page.findAll('[data-testid^="options-row-"]').map(r => r.attributes('data-testid')!.replace('options-row-', '')); }
-async function header(label: string) { await page.findAll('thead button').find(b => b.text().startsWith(label))!.trigger('click'); }
+async function header(label: string) { await page.get('[data-testid="options-market-table"]').findAll('thead button').find(b => b.text().startsWith(label))!.trigger('click'); }
 beforeEach(() => {
   vi.useFakeTimers(); vi.setSystemTime(new Date('2026-11-12T16:00:05Z'));
   data = { tradingDate: '2026-11-12', marketStatus: 'open', generatedAt: new Date().toISOString(), version: 'v1',
@@ -60,7 +60,7 @@ describe('intraday options table', () => {
       await header(label); expect(symbols()).toEqual(['AAA.US', 'BBB.US', 'CCC.US']);
       await header(label); expect(symbols()).toEqual(['BBB.US', 'AAA.US', 'CCC.US']);
     }
-    expect(page.findAll('thead th[aria-sort="descending"]')).toHaveLength(1);
+    expect(page.get('[data-testid="options-market-table"]').findAll('thead th[aria-sort="descending"]')).toHaveLength(1);
     await header('标的'); expect(symbols()).toEqual(['AAA.US', 'BBB.US', 'CCC.US']);
     await header('当前方向'); expect(symbols()).toEqual(['BBB.US', 'AAA.US', 'CCC.US']);
     await header('当前状态'); expect(symbols().at(-1)).toBe('CCC.US');
@@ -91,7 +91,7 @@ describe('intraday options table', () => {
     data.items[1]!.lastPrice = 10;
     data.items[1]!.changePct = 3;
     await start();
-    expect(page.findAll('thead th button').map(b => b.text())).toEqual([
+    expect(page.get('[data-testid="options-market-table"]').findAll('thead th button').map(b => b.text())).toEqual([
       '标的', '最新价 / 涨跌幅', '日内机会', '趋势质量分', '当前方向', '5分钟', '15分钟', '30分钟', '60分钟', '短线结构', '当前状态',
     ]);
     const cells = page.get('[data-testid="options-row-AAA.US"]').findAll('td');
@@ -204,7 +204,7 @@ describe('intraday options table', () => {
       since: '2026-11-12T16:00:00Z', asOf: '2026-11-12T16:00:00Z', oversold: false, reference: true,
       availableBars: 59, missingBars: 1, box: null, pivots: [], reasons: ['固定箱体突破'] };
     await start();
-    const headers = page.findAll('thead th').map(h => h.text());
+    const headers = page.get('[data-testid="options-market-table"]').findAll('thead th').map(h => h.text());
     expect(headers.findIndex(h => h.includes('短线结构'))).toBe(headers.findIndex(h => h.includes('60分钟')) + 1);
     const cell = page.get('[data-testid="options-row-AAA.US"] [data-testid="intraday-structure"]');
     expect(cell.text()).toContain('箱体向上突破');

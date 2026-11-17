@@ -195,3 +195,102 @@ def test_cutoff_classifies_actual_price_and_processing_continuity(day, scenario)
     assert closed["planned_exit_at"] == cutoff.isoformat()
     assert not state["position"] and state["stopped"]
     assert statistics([closed])[0]["count"] == (1 if scenario == "normal" else 0)
+
+
+@pytest.mark.parametrize(
+    "at,phase",
+    [
+        ("2026-11-17T11:00:00+00:00", "preopen"),
+        ("2026-11-17T14:29:59+00:00", "preopen"),
+        ("2026-11-17T19:00:00+00:00", "stopped"),
+        ("2026-11-17T21:00:00+00:00", "closed"),
+        ("2026-11-21T16:00:00+00:00", "closed"),
+        ("2026-11-26T16:00:00+00:00", "closed"),
+        ("2026-11-27T16:00:00+00:00", "stopped"),
+    ],
+)
+def test_inactive_window_never_emits_confirmations_or_data_messages(at, phase):
+    now = datetime.fromisoformat(at)
+    state = {}
+    for seconds in (0, 5, 35, 40, 60, 90):
+        t = now + timedelta(seconds=seconds)
+        if phase == "preopen" and t >= session_bounds("US", now.date())[0]:
+            break
+        q = quote(t) if seconds % 2 else None
+        state, events = transition(state, "SPY.US", result(t), q, t)
+        assert not events
+        assert state["session_phase"] == phase
+        assert state["stopped"] and not state.get("position")
+        assert not state["confirmations"]
+        assert not any(p["opportunity_valid"] for p in state["plans"])
+
+
+def test_open_rejects_fresh_premarket_quote_and_accepts_regular_session_quote():
+    opening = session_bounds("US", NOW.date())[0]
+    state, events = transition({}, "SPY.US", result(opening), quote(opening - timedelta(seconds=1)), opening)
+    assert not state.get("position") and not any(e["kind"] == "entry" for e in events)
+    state, events = transition(state, "SPY.US", result(opening), quote(opening), opening)
+    assert state["position"]
+
+
+def test_short_quote_expiry_blocks_entry_without_flapping_messages():
+    # Reproduce a sparse quote crossing 30 seconds and recovering every 40 seconds.
+    state = {}
+    for second in range(0, 211, 5):
+        t = NOW + timedelta(seconds=second)
+        q = quote(NOW + timedelta(seconds=second // 40 * 40))
+        state, events = transition(state, "SPY.US", None, q, t)
+        assert not any(e["kind"] == "data" for e in events)
+    # Use a pending valid opportunity to prove message debounce never loosens execution.
+    state, events = transition({}, "SPY.US", result(), quote(NOW - timedelta(seconds=31)), NOW)
+    assert not state.get("position")
+    assert not state["plans"][0]["opportunity_valid"]
+    assert state["data_issue"] == "报价或接收时间已过期"
+
+
+def test_sustained_data_incident_and_stable_recovery_survive_restart():
+    state, events = transition({}, "SPY.US", None, None, NOW)
+    assert not events
+    for second in (10, 20):
+        state, events = transition(state, "SPY.US", None, None, NOW + timedelta(seconds=second))
+        assert not events
+    t = NOW + timedelta(seconds=30)
+    state, events = transition(deepcopy(state), "SPY.US", None, None, t)
+    assert len(events) == 1 and "行情异常" in events[0]["reason"]
+    assert events[0]["issue"] == "报价缺失或时间字段无效"
+    # A brief recovery does not emit 'recovered' or start a second incident.
+    for second, valid in [(35, True), (40, False), (45, True), (50, True), (55, True)]:
+        t = NOW + timedelta(seconds=second)
+        state, events = transition(deepcopy(state), "SPY.US", None, quote(t) if valid else None, t)
+        assert not events
+    t = NOW + timedelta(seconds=60)
+    state, events = transition(state, "SPY.US", None, quote(t), t)
+    assert len(events) == 1 and "行情恢复" in events[0]["reason"]
+    assert events[0]["quote_age_seconds"] == 0
+    # Leaving and re-entering the monitoring window cannot manufacture a recovery.
+    closed = NOW.replace(hour=21)
+    state, events = transition(state, "SPY.US", None, None, closed)
+    assert not events and state["data_monitor"] is None
+    tomorrow = NOW + timedelta(days=1)
+    state, events = transition(state, "SPY.US", None, quote(tomorrow), tomorrow)
+    assert not events
+
+
+def test_restart_gap_does_not_count_as_sustained_recovery():
+    state = {
+        "trading_date": NOW.date().isoformat(),
+        "data_monitor": {
+            "day": NOW.date().isoformat(),
+            "alerted": True,
+            "checked_at": NOW.isoformat(),
+            "recovery_since": NOW.isoformat(),
+        },
+    }
+    later = NOW + timedelta(minutes=10)
+    state, events = transition(state, "SPY.US", None, quote(later), later)
+    assert not events and state["data_monitor"]["alerted"]
+    for second in (5, 10, 15):
+        t = later + timedelta(seconds=second)
+        state, events = transition(state, "SPY.US", None, quote(t), t)
+        assert bool(events) == (second == 15)
+    assert "行情恢复" in events[0]["reason"]

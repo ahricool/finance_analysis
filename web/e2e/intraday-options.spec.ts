@@ -75,7 +75,7 @@ for (const width of [390, 768, 1024, 1280, 1440, 1920]) {
     await page.goto('/market/intraday-options');
     await expect(page.getByTestId('simulation-position')).toHaveCount(2);
     await expect(page.getByTestId('simulation-event')).toHaveCount(2);
-    await expect(page.getByTestId('simulation-event').first()).toContainText('NVDA.US · 做空');
+    await expect(page.getByTestId('simulation-event').first()).toContainText(/NVDA.US\s*做空/);
     await expect(page.getByTestId('simulation-event').first()).toBeVisible();
     const rows = page.locator('[data-testid^="options-row-"]');
     await expect(rows).toHaveCount(30);

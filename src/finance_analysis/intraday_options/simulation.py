@@ -22,6 +22,8 @@ class ExecutionConfig:
     stop_before_close_hours: int = 2
     workers: int = 4
     cutoff_processing_grace_seconds: int = 30
+    data_alert_seconds: int = 30
+    data_recovery_seconds: int = 15
 
 
 CONFIG = ExecutionConfig()
@@ -31,17 +33,57 @@ def dt(value):
     return datetime.fromisoformat(value) if isinstance(value, str) else value
 
 
-def quote_value(quote, now):
+def quote_issue(quote, now):
     if not quote or quote.timestamp_kind == "received" or not quote.event_time or not quote.received_at:
-        return None
+        return "报价缺失或时间字段无效"
     if quote.trading_date != market_trading_date(now, "US"):
-        return None
-    if any(
-        not 0 <= (now - t).total_seconds() <= CONFIG.quote_age_seconds for t in (quote.event_time, quote.received_at)
-    ):
-        return None
+        return "报价交易日不匹配"
+    ages = [(now - t).total_seconds() for t in (quote.event_time, quote.received_at)]
+    if min(ages) < 0:
+        return "报价或接收时间超前"
+    if max(ages) > CONFIG.quote_age_seconds:
+        return "报价或接收时间已过期"
+    bounds = session_bounds("US", quote.trading_date)
+    if not bounds or not bounds[0] <= quote.event_time < bounds[1]:
+        return "报价不属于正常交易时段"
     price = float(quote.last_price or 0)
-    return price if math.isfinite(price) and price > 0 else None
+    return None if math.isfinite(price) and price > 0 else "报价价格无效"
+
+
+def quote_value(quote, now):
+    return float(quote.last_price) if quote_issue(quote, now) is None else None
+
+
+def monitor_data(state, active, issue, quote, now, event):
+    """Debounce messages only. Execution always uses the strict current quote check."""
+    if not active:
+        state["data_monitor"] = None
+        return
+    monitor = state.get("data_monitor") or {}
+    if monitor.get("day") != state["trading_date"]:
+        monitor = {"day": state["trading_date"], "alerted": False}
+    last_check = dt(monitor.get("checked_at"))
+    if last_check and not 0 <= (now - last_check).total_seconds() <= CONFIG.data_recovery_seconds:
+        # A processing gap is not evidence of continuously valid/invalid quotes.
+        monitor.pop("issue_since", None)
+        monitor.pop("recovery_since", None)
+    monitor["checked_at"] = now.isoformat()
+    state["data_monitor"] = monitor
+    since_key = "issue_since" if issue else "recovery_since"
+    monitor.pop("recovery_since" if issue else "issue_since", None)
+    monitor.setdefault(since_key, now.isoformat())
+    delay = CONFIG.data_alert_seconds if issue else CONFIG.data_recovery_seconds
+    if (now - dt(monitor[since_key])).total_seconds() < delay or monitor["alerted"] == bool(issue):
+        return
+    monitor["alerted"] = bool(issue)
+    event(
+        "data",
+        f"行情异常：{issue}，暂停新进场" if issue else "行情恢复：有效报价已持续稳定",
+        issue=issue,
+        since=monitor[since_key],
+        quote_age_seconds=(now - quote.event_time).total_seconds() if quote and quote.event_time else None,
+        received_age_seconds=(now - quote.received_at).total_seconds() if quote and quote.received_at else None,
+    )
 
 
 def plan(branch, result, price, now):
@@ -63,6 +105,8 @@ def plan(branch, result, price, now):
     reason = "可以模拟进场"
     if branch["status"] != "confirmed":
         reason = "等待形态确认或独立新机会"
+    elif not branch["confirmed_at"] or dt(branch["confirmed_at"]) > now:
+        reason = "形态确认时间无效"
     elif now >= dt(branch["expires_at"]):
         reason = "机会已过期"
     elif price is None:
@@ -100,12 +144,19 @@ def transition(previous, symbol, result, quote, now):
     day = market_trading_date(now, "US")
     bounds = session_bounds("US", day)
     cutoff = bounds[1] - timedelta(hours=CONFIG.stop_before_close_hours) if bounds else None
+    phase = (
+        "closed"
+        if not bounds or now >= bounds[1]
+        else "preopen" if now < bounds[0] else "stopped" if now >= cutoff else "active"
+    )
     price = quote_value(quote, now)
     state.update(
         symbol=symbol,
         calculated_at=now.isoformat(),
         cutoff=cutoff.isoformat() if cutoff else None,
-        stopped=not bounds or now < bounds[0] or now >= cutoff,
+        stopped=phase != "active",
+        session_phase=phase,
+        session_open=bounds[0].isoformat() if bounds else None,
         current_price=price,
         quote_time=quote.event_time.isoformat() if quote and quote.event_time else None,
     )
@@ -128,8 +179,8 @@ def transition(previous, symbol, result, quote, now):
         state["confirmations"], state["used_processes"], state["consumed_windows"] = {}, [], []
     state["trading_date"] = day.isoformat()
     healthy = price is not None
-    if state.get("healthy") != healthy:
-        event("data", "行情恢复" if healthy else "行情异常：暂停新进场，保留最后有效价格")
+    state["data_issue"] = quote_issue(quote, now) if phase == "active" else None
+    monitor_data(state, phase == "active", state["data_issue"], quote, now, event)
     state["healthy"] = healthy
     if position:
         side = position["side"]
@@ -195,21 +246,31 @@ def transition(previous, symbol, result, quote, now):
     )
     plans = [plan(b, result, price, now) for b in opportunities.get("branches", [])]
     state["plans"] = plans
-    # Freeze first observed confirmation, even if no position is opened.
-    evidence = state.setdefault("confirmations", {})
-    for item in plans:
-        if item["confirmed_at"] and item["structure_id"] not in evidence:
-            evidence[item["structure_id"]] = deepcopy(item)
-            event("confirmed", "首次观察到形态确认", evidence=deepcopy(item))
     data_ok = bool(
         result
         and result["trading_date"] == day.isoformat()
+        and bounds
+        and bounds[0] <= dt(result["as_of"]) <= now
         and 0 <= (now - dt(result["as_of"])).total_seconds() <= 75
         and not opportunities.get("reference", True)
     )
+    # Freeze first observed confirmation, even if no position is opened.
+    evidence = state.setdefault("confirmations", {})
+    for item in plans:
+        if (
+            phase == "active"
+            and data_ok
+            and item["confirmed_at"]
+            and bounds[0] <= dt(item["confirmed_at"]) <= now
+            and item["structure_id"] not in evidence
+        ):
+            evidence[item["structure_id"]] = deepcopy(item)
+            event("confirmed", "首次观察到形态确认", evidence=deepcopy(item))
     used = state.setdefault("used_processes", [])
     windows = state.setdefault("consumed_windows", [])
     for item in plans:
+        if item["executable"] and item["structure_id"] not in evidence:
+            item.update(executable=False, execution_reason="等待交易时段内有效确认")
         # Display validity belongs to this branch and ignores ownership/process consumption.
         item["opportunity_valid"] = item["executable"] and data_ok and not state["stopped"]
         item["opportunity_reason"] = (

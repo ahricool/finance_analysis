@@ -142,7 +142,7 @@ watch(stream.intradayOptions, result => {
       数值持续更新，排序及筛选名单保持不动；点击表头、切换筛选或“更新排序”时重新排列。开盘不足完整窗口或分钟缺失时按可用K线计算参考分，并标注缺失；少于2根有效K线时等待数据。日内机会需完整形态背景与相邻闭合K确认，默认仅按有效机会分排序，其余保持观察池顺序。
     </p>
     <div class="overflow-hidden rounded-lg border">
-      <Table>
+      <Table data-testid="options-market-table">
         <TableHeader>
           <TableRow>
             <SortableTableHeader
@@ -326,7 +326,7 @@ watch(stream.intradayOptions, result => {
       </Table>
     </div>
     <p class="text-xs text-muted-foreground">
-      {{ rows.length }} / {{ snapshot?.items.length ?? 30 }} 个标的 · 仅正常交易时段评分 · 不选择期权合约，不自动下单 · 评分只保留最新缓存，不保存历史
+      {{ rows.length }} / {{ snapshot?.items.length ?? 30 }} 个标的 · 仅正常交易时段评分 · 不选择期权合约，不自动下单 · 趋势评分保留最新缓存；模拟交易与事件独立保存
     </p>
   </div>
 </template>
