@@ -24,6 +24,7 @@ class OpportunityConfig:
     trend_stability: float = 0.6
     trend_efficiency: float = 0.35
     recent_move_atr: float = 0.2
+    recovery_anchor_minutes: int = 10  # Local pullback identity, not a new entry threshold.
 
 
 CONFIG = OpportunityConfig()
@@ -235,9 +236,10 @@ def detect(bars):
                     advance(retest, history)
             key = ("trend_recovery", side)
             existing = branches.get(key)
-            anchor = pullback_anchor(history, side,
+            anchor_history = [b for b in history if b.bar_time > bar.bar_time - CONFIG.recovery_anchor_minutes * MINUTE]
+            anchor = pullback_anchor(anchor_history, side,
                                      since=existing["started_at"] if existing else None,
-                                     scale=existing["atr"] if existing else scale)
+                                     scale=scale)
             if existing and not anchor:
                 continue
             extreme = float(bar.low if side > 0 else bar.high)

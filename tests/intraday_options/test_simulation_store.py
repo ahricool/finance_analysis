@@ -142,3 +142,45 @@ def test_continuation_concurrent_restart_preserves_frozen_method_and_structure(i
         events = list(session.scalars(select(Event)))
         assert sum(e.payload["kind"] == "entry" for e in events) == 1
         assert sum(e.payload["kind"] == "exit" for e in events) == 1
+
+
+@pytest.mark.parametrize('side', [1, -1])
+def test_quote_confirmation_order_and_late_revision_persist_original_evidence(isolated_store, side):
+    from copy import deepcopy
+    from dataclasses import replace
+    from finance_analysis.intraday_options.scoring import calculate
+    from finance_analysis.intraday_options.rules import entry_interval
+    from tests.intraday_options.test_continuation import path, continuation
+
+    bars = path(side)
+    confirmed = bars[-1].bar_time + timedelta(minutes=1)
+    now = confirmed + timedelta(seconds=5)
+    r = calculate('SPY.US', bars, now)
+    price = sum(entry_interval(continuation(r))) / 2
+    early = replace(quote(confirmed - timedelta(seconds=10), price), received_at=now)
+    state = store.process('SPY.US', r, early, now)
+    assert not state.get('position')
+    with isolated_store() as session:
+        assert list(session.scalars(select(Trade))) == []
+        evidence = deepcopy(next(e.payload['evidence'] for e in session.scalars(select(Event))
+                                 if e.payload['kind'] == 'confirmed'))
+    when = now + timedelta(seconds=5)
+    fresh = replace(quote(when - timedelta(seconds=2), price), received_at=when)
+    store.process('SPY.US', r, fresh, when)
+    with isolated_store() as session:
+        trade = session.scalars(select(Trade)).one().payload
+        assert trade['entry_price_at'] == fresh.event_time.isoformat()
+        assert trade['entry_at'] == when.isoformat()
+        assert trade['evidence'] == evidence
+        entry_evidence = deepcopy(trade['entry_evidence'])
+    received = when + timedelta(seconds=5)
+    revision = replace(bars[-1], high=bars[-1].high + 1, received_at=received)
+    revised_result = calculate('SPY.US', [*bars, revision], received)
+    assert revised_result != r
+    store.process('SPY.US', revised_result, quote(received, price), received)
+    with isolated_store() as session:
+        trade = session.scalars(select(Trade)).one().payload
+        assert trade['evidence'] == evidence and trade['entry_evidence'] == entry_evidence
+        confirmations = [e.payload['evidence'] for e in session.scalars(select(Event))
+                         if e.payload['kind'] == 'confirmed' and e.payload['evidence']['structure_id'] == evidence['structure_id']]
+        assert confirmations == [evidence]

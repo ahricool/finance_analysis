@@ -7,7 +7,7 @@ import math
 
 from finance_analysis.market_stream.config import market_trading_date
 from finance_analysis.market_stream.session import session_bounds
-from finance_analysis.intraday_options.rules import RULES, SIMULATION_VERSION, entry_interval
+from finance_analysis.intraday_options.rules import RULES, SIMULATION_VERSION, entry_interval, plan_order
 
 VERSION = SIMULATION_VERSION
 
@@ -86,7 +86,7 @@ def monitor_data(state, active, issue, quote, now, event):
     )
 
 
-def plan(branch, result, price, now):
+def plan(branch, result, price, now, quote_time=None):
     side = 1 if branch["direction"] == "bullish" else -1
     rule = RULES[branch["kind"]]
     interval = entry_interval(branch)
@@ -115,6 +115,8 @@ def plan(branch, result, price, now):
         reason = "机会已过期"
     elif price is None:
         reason = "报价缺失、过期或时间异常"
+    elif quote_time is not None and quote_time < dt(branch["confirmed_at"]):
+        reason = "等待确认后的有效报价"
     elif (price - branch["invalidation"]) * side <= 0:
         reason = "最新价格已越过失效位"
     elif not interval[0] <= price <= interval[1]:
@@ -184,6 +186,7 @@ def transition(previous, symbol, result, quote, now):
         session_open=bounds[0].isoformat() if bounds else None,
         current_price=price,
         quote_time=quote.event_time.isoformat() if quote and quote.event_time else None,
+        entered_opportunity_id=None,
     )
     position = state.get("position")
 
@@ -269,7 +272,8 @@ def transition(previous, symbol, result, quote, now):
     opportunities = (
         ((result or {}).get("opportunities") or {}) if result and result["trading_date"] == day.isoformat() else {}
     )
-    plans = [plan(b, result, price, now) for b in opportunities.get("branches", [])]
+    plans = [plan(b, result, price, now, quote.event_time if price is not None else None)
+             for b in opportunities.get("branches", [])]
     state["plans"] = plans
     data_ok = bool(
         result
@@ -313,7 +317,7 @@ def transition(previous, symbol, result, quote, now):
         elif not data_ok:
             item.update(executable=False, execution_reason="闭合分钟数据不足或延迟")
     if not position and not state["stopped"] and data_ok:
-        chosen = next((p for p in plans if p["executable"]), None)
+        chosen = min((p for p in plans if p["executable"]), key=plan_order, default=None)
         if chosen:
             used.append(chosen["process_id"])
             windows.append(
@@ -352,6 +356,7 @@ def transition(previous, symbol, result, quote, now):
                 return_pct=0,
             )
             state["position"] = position
+            state["entered_opportunity_id"] = chosen["structure_id"]
             for item in plans:
                 item.update(executable=False, execution_reason="已模拟持有，禁止重复进场或反手")
             event(

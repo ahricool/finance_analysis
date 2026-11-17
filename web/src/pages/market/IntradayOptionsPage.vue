@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHeader, TableRow } from '@/components/ui/table';
 import { useTableSort } from '@/composables/useTableSort';
 import { useCurrentTime } from '@/composables/useCurrentTime';
-import { clock, entryScore, entryLabel, entryBranch, opportunityKinds, dataLabels, directionOrder, directions, fmt, pct, stageOrder, stages, structureName, structurePhases, tone, usable } from '@/components/intraday-options/labels';
+import { clock, entryScore, entryLabel, entryBranch, entryReason, rowDirectionValue, opportunityKinds, dataLabels, directionOrder, directions, fmt, pct, stageOrder, stages, structureName, structurePhases, tone, usable } from '@/components/intraday-options/labels';
 
 import { useRealtimeQuotes } from '@/composables/useRealtimeQuotes';
 import SimulationPanel from '@/components/intraday-options/SimulationPanel.vue';
@@ -30,7 +30,7 @@ const columns = [
   { key: 'changePct', label: '最新价 / 涨跌幅', description: '按当日涨跌幅排序；涨跌幅相对昨收，不参与趋势评分。' },
   { key: 'opportunity', label: '日内机会', description: '按有效确认分支质量排序；形成中、延伸、失效、缺线或延迟均不列入有效机会。' },
   { key: 'score', label: '趋势质量分', description: '0–100规则分，不是盈利概率；开盘不足完整窗口或缺线时也按可用K线计算并标注参考分。' },
-  { key: 'direction', label: '当前方向' },
+  { key: 'direction', label: '当前方向', description: '有有效机会时与榜单分支方向一致；无有效机会时显示趋势参考方向。' },
   ...[5, 15, 30, 60].map(n => ({ key: `w${n}`, label: `${n}分钟`, description: '按窗口质量分排序；箭头表示方向，第二行是该窗口涨跌幅。' })),
   { key: 'structure', label: '短线结构', description: '最近15分钟完整后判断；15–30分钟结构、5分钟变化，最多60分钟背景。内部空缺按前收盘补平K并标注；进场确认仍需真实K。' },
   { key: 'state', label: '当前状态', description: '趋势质量与进场位置分开：高分仍可能处于短线延伸。' },
@@ -41,7 +41,7 @@ const filters: Array<{ key: typeof filter.value; label: string }> = [
 const matches = computed(() => sortSnapshot.value.filter(row => {
   const term = search.value.trim().toLowerCase();
   return (!term || `${row.symbol} ${row.name ?? ''}`.toLowerCase().includes(term))
-    && (filter.value === 'all' || (usable(row) && row.result?.direction === filter.value));
+    && (filter.value === 'all' || (usable(row) && rowDirectionValue(row) === filter.value));
 }));
 function sortValue(row: IntradayOptionRow, key: string): unknown {
   if (key === 'symbol') return row.symbol;
@@ -50,7 +50,7 @@ function sortValue(row: IntradayOptionRow, key: string): unknown {
   if (!usable(row)) return null;
   if (key === 'structure') return row.result?.structure ? structureName(row.result.structure) : null;
   if (key.startsWith('w')) return row.result?.windows.find(w => w.minutes === Number(key.slice(1)))?.score;
-  if (key === 'direction') return row.result?.direction ? directionOrder[row.result.direction] : null;
+  if (key === 'direction') return rowDirectionValue(row) ? directionOrder[rowDirectionValue(row)!] : null;
   if (key === 'state') return row.result?.state ? stageOrder[row.result.state] : null;
   return row.result?.score;
 }
@@ -63,7 +63,7 @@ function toggleSort(key: string) { refreshOrder(); table.toggle(key); }
 watch([filter, search], () => { refreshOrder(); expanded.value = null; });
 function windowOf(row: IntradayOptionRow, minutes: number) { return row.result?.windows.find(w => w.minutes === minutes); }
 function valid(row: IntradayOptionRow) { return usable(row); }
-function rowDirection(row: IntradayOptionRow) { return valid(row) && row.result?.direction ? directions[row.result.direction] : '—'; }
+function rowDirection(row: IntradayOptionRow) { return valid(row) && rowDirectionValue(row) ? directions[rowDirectionValue(row)!] : '—'; }
 function arrow(value: number | null | undefined) { return value === 1 ? '↑' : value === -1 ? '↓' : '→'; }
 function toggleRow(symbol: string) { expanded.value = expanded.value === symbol ? null : symbol; }
 const stream = useRealtimeQuotes({ scope: 'intraday-options', market: 'US' });
@@ -232,6 +232,13 @@ watch(stream.intradayOptions, result => {
                   {{ opportunityKinds[entryBranch(row)!.kind] }} · {{ directions[entryBranch(row)!.direction] }}
                 </p>
                 <p
+                  v-if="!disconnected && entryReason(row)"
+                  class="max-w-64 whitespace-normal text-xs text-muted-foreground"
+                  data-testid="opportunity-reason"
+                >
+                  {{ entryReason(row) }}
+                </p>
+                <p
                   v-if="row.result?.opportunities && (!row.opportunityEligible || disconnected)"
                   class="text-xs text-muted-foreground"
                 >
@@ -252,7 +259,7 @@ watch(stream.intradayOptions, result => {
               </TableCell>
               <TableCell
                 class="whitespace-nowrap"
-                :class="valid(row) ? tone(row.result?.direction === 'bullish' ? 1 : row.result?.direction === 'bearish' ? -1 : 0) : ''"
+                :class="valid(row) ? tone(rowDirectionValue(row) === 'bullish' ? 1 : rowDirectionValue(row) === 'bearish' ? -1 : 0) : ''"
               >
                 {{ rowDirection(row) }}
               </TableCell>

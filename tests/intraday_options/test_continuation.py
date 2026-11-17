@@ -207,7 +207,8 @@ def test_prefix_replay_and_future_data_keep_frozen_structure_and_confirmation():
         for b in r["opportunities"]["branches"]:
             if b["kind"] != "trend_continuation":
                 continue
-            evidence = tuple(b[k] for k in ("structure_start", "structure_end", "trigger", "invalidation", "atr"))
+            evidence = tuple(b[k] for k in ("process_id", "structure_start", "structure_end", "structure_high",
+                                            "structure_low", "trigger", "invalidation", "atr"))
             assert seen.setdefault(b["structure_id"], evidence) == evidence
 
 
@@ -264,5 +265,6 @@ def test_sliding_hour_does_not_recompute_old_id_with_shortened_background():
     seen = {}
     for end in range(40, len(values) + 1):
         for b in score(prices(values[:end]))["opportunities"]["branches"]:
-            evidence = tuple(b[k] for k in ("trigger", "invalidation", "atr", "started_at"))
+            evidence = tuple(b.get(k) for k in ("process_id", "structure_start", "structure_end", "structure_high",
+                                               "structure_low", "trigger", "invalidation", "atr", "started_at"))
             assert seen.setdefault(b["structure_id"], evidence) == evidence

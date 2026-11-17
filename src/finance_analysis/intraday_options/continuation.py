@@ -19,7 +19,12 @@ def pullback_anchor(history, side, since=None, scale=0):
         if since and group[0].bar_time < datetime.fromisoformat(since):
             continue
         moves = [(float(b.close) - float(a.close)) * side for a, b in zip(group, group[1:])]
-        if moves[0] > 0 and moves[1] > 0 and moves[2] <= 0 and sum(moves[:2]) >= C.rearm_advance_atr * scale:
+        # Once a later close has resumed beyond the pre-pullback close, this old
+        # pause no longer identifies the current EMA touch / pullback.
+        resumed = any(observed(b) and (float(b.close) - float(group[-2].close)) * side > 0
+                      for b in history[i + 1:])
+        if (not resumed and moves[0] > 0 and moves[1] > 0 and moves[2] <= 0
+                and sum(moves[:2]) >= C.rearm_advance_atr * scale):
             return group[-1].bar_time.isoformat()
     return None
 

@@ -50,6 +50,7 @@ export interface TrendResult {
 }
 export interface IntradayOptionRow {
   simulation?: SimulationState | null;
+  rankedOpportunity?: (OpportunityBranch & { opportunityReason: string; executionReason: string }) | null;
   opportunityEligible?: boolean;
   symbol: string; name: string | null; lastPrice: number | null; changePct: number | null; quoteTime: string | null;
   quoteStatus: 'missing' | 'ready' | 'delayed' | 'invalid_time';

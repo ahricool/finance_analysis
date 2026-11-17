@@ -1,7 +1,7 @@
 import { expect, it } from 'vitest';
 import { mount } from '@vue/test-utils';
 import OpportunityPanel from '../OpportunityPanel.vue';
-import { entryLabel, entryScore } from '../labels';
+import { entryLabel, entryScore, entryBranch, entryReason, rowDirectionValue } from '../labels';
 import { simulationOperations } from '../simulationMarkers';
 import type { IntradayOptionRow, OpportunityBranch, SimulationPlan, SimulationSnapshot, SimTrade } from '@/api/intradayOptions';
 
@@ -34,6 +34,7 @@ it('shows strong confirmation, observed volatility and the distinct current exec
 it('keeps held opportunity scores and distinguishes current non-execution from historical confirmation', () => {
   const row: IntradayOptionRow = { symbol: 'NVDA.US', name: 'NVIDIA', lastPrice: 99.8, changePct: -1,
     quoteTime: branch.confirmedAt, issues: [], dataStatus: 'ready', quoteStatus: 'ready', opportunityEligible: true,
+    rankedOpportunity: { ...branch, opportunityReason: '可以模拟进场', executionReason: '已模拟持有，禁止重复进场或反手' },
     result: { opportunities, version: 'intraday_options_v10', symbol: 'NVDA.US', tradingDate: '2026-11-17',
       asOf: branch.confirmedAt!, observedAt: branch.confirmedAt!, windows: [], score: 80, direction: 'bearish',
       state: 'continuing', baseScore: 80, alignment: 1, extensionAtr: .5, explanation: '' },
@@ -41,7 +42,19 @@ it('keeps held opportunity scores and distinguishes current non-execution from h
       currentPrice: 99.8, quoteTime: branch.confirmedAt, stopped: false, position: trade, plans: [plan] } };
   expect(entryScore(row)).toBe(80);
   expect(entryLabel(row)).toBe('已进场/持有中');
+  // A is the highest-quality confirmed shape; B (the ranked branch) actually entered.
+  row.result!.opportunities = { ...opportunities,
+    primary: { ...branch, structureId: 'A', direction: 'bullish', qualityScore: 99 } };
+  row.result!.direction = 'bullish';
+  expect(entryScore(row)).toBe(80);
+  expect(entryBranch(row)?.structureId).toBe(branch.structureId);
+  expect(rowDirectionValue(row)).toBe('bearish');
+  expect(entryLabel(row)).toBe('已进场/持有中');
+  expect(entryReason(row)).toContain('已模拟持有');
+  row.result!.opportunities = opportunities;
   row.opportunityEligible = false;
+  row.rankedOpportunity = null;
+  expect(entryScore(row)).toBeNull();
   expect(entryLabel(row)).toBe('形态确认 · 当前不可执行');
   expect(entryLabel(row, true)).toBe('历史/参考确认');
 });

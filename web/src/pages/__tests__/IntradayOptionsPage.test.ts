@@ -3,6 +3,8 @@ import { flushPromises, mount, type VueWrapper } from '@vue/test-utils';
 import IntradayOptionsPage from '../market/IntradayOptionsPage.vue';
 import type { IntradayOptionRow, IntradayOptionsSnapshot } from '@/api/intradayOptions';
 import { fetchIntradayOptions } from '@/api/intradayOptions';
+import { toCamelCase } from '@/api/utils';
+import rankedContract from '../../../../tests/intraday_options/fixtures/ranked_opportunity.json';
 
 vi.mock('@/api/intradayOptions', () => ({ fetchIntradayOptions: vi.fn() }));
 vi.mock('@/composables/useRealtimeQuotes', async () => {
@@ -23,7 +25,7 @@ vi.mock('@/composables/useRealtimeQuotes', async () => {
 let page: VueWrapper;
 let data: IntradayOptionsSnapshot;
 function row(symbol: string, score: number | null, direction: 'bullish' | 'bearish' = 'bullish'): IntradayOptionRow {
-  return { opportunityEligible: score != null, symbol, name: `${symbol}名称`, lastPrice: score, changePct: score == null ? null : score / 10,
+  const value: IntradayOptionRow = { opportunityEligible: score != null, symbol, name: `${symbol}名称`, lastPrice: score, changePct: score == null ? null : score / 10,
     quoteTime: new Date().toISOString(), quoteStatus: 'ready', dataStatus: score == null ? 'warming' : 'ready', issues: [],
     result: { version: 'v1', symbol, tradingDate: '2026-11-12', asOf: new Date().toISOString(), observedAt: new Date().toISOString(),
       opportunities: { version: 'intraday_entry_v1', reference: false, missingBars: 0, asOf: new Date().toISOString(), reasons: [], branches: [],
@@ -37,6 +39,9 @@ function row(symbol: string, score: number | null, direction: 'bullish' | 'beari
         strength: null, disturbance: null, normalizedMove: null, adverseMove: null, adverseDuration: null,
         movementGate: null, concentration: null, stalledImpulse: false,
       })) } };
+  const primary = value.result!.opportunities!.primary;
+  value.rankedOpportunity = primary ? { ...primary, opportunityReason: '可以模拟进场', executionReason: '可以模拟进场' } : null;
+  return value;
 }
 async function start() {
   page = mount(IntradayOptionsPage, { global: { stubs: { TrendPanel: true, MetricHint: true } } });
@@ -85,6 +90,33 @@ describe('intraday options table', () => {
     expect(symbols()[0]).toBe('AAA.US');
   });
 
+  it('uses the execution/read_snapshot contract for score, direction, label, reason and sorting', async () => {
+    const contract = toCamelCase<{ opportunityEligible: boolean;
+      rankedOpportunity: NonNullable<IntradayOptionRow['rankedOpportunity']>;
+      primary: NonNullable<IntradayOptionRow['rankedOpportunity']>;
+      position: { opportunityId: string } }>(rankedContract);
+    const target = data.items[0]!;
+    target.rankedOpportunity = { ...target.rankedOpportunity!, ...contract.rankedOpportunity };
+    target.opportunityEligible = contract.opportunityEligible;
+    target.result!.opportunities!.primary = { ...target.result!.opportunities!.primary!, ...contract.primary };
+    target.simulation = { position: contract.position } as IntradayOptionRow['simulation'];
+    await start();
+    expect(symbols()).toEqual(['BBB.US', 'AAA.US', 'CCC.US']); // B=75, never A=99.
+    const displayed = page.get('[data-testid="options-row-AAA.US"]');
+    const cell = displayed.get('[data-testid="opportunity-score"]');
+    expect(cell.text()).toMatch(/75\s*分/);
+    expect(cell.text()).not.toContain('99');
+    expect(cell.text()).toContain('趋势延续 · 偏空');
+    expect(cell.text()).toContain('已进场/持有中');
+    expect(cell.get('[data-testid="opportunity-reason"]').text()).toContain('已模拟持有');
+    expect(displayed.findAll('td')[4]!.text()).toBe('偏空');
+    await page.findAll('button').find(b => b.text() === '偏空')!.trigger('click');
+    expect(symbols()).toEqual(['BBB.US', 'AAA.US']);
+    target.opportunityEligible = false; target.rankedOpportunity = null;
+    await vi.advanceTimersByTimeAsync(5000); await flushPromises();
+    expect(cell.text()).not.toMatch(/75\s*分/);
+  });
+
   it('merges price and change, sorts by change rather than price and keeps the requested column order', async () => {
     data.items[0]!.lastPrice = 500;
     data.items[0]!.changePct = -2;
@@ -123,6 +155,7 @@ describe('intraday options table', () => {
     expect(page.find('trend-panel-stub').exists()).toBe(true);
     data.items[0]!.result!.score = 99;
     data.items[0]!.result!.opportunities!.primary!.qualityScore = 99;
+    data.items[0]!.rankedOpportunity!.qualityScore = 99;
     data.generatedAt = new Date().toISOString();
     await vi.advanceTimersByTimeAsync(5000); await flushPromises();
     expect(symbols()).toEqual(['BBB.US', 'AAA.US', 'CCC.US']);

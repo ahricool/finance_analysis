@@ -44,8 +44,8 @@ export const opportunityStates: Record<OpportunityBranch['status'], string> = {
 export function entryScore(row: IntradayOptionRow) {
   const opportunity = row.result?.opportunities;
   return row.opportunityEligible && ['ready', 'warming'].includes(row.dataStatus)
-    && !opportunity?.reference && opportunity?.primary?.status === 'confirmed'
-    ? opportunity.primary.qualityScore : null;
+    && !opportunity?.reference && row.rankedOpportunity?.status === 'confirmed'
+    ? row.rankedOpportunity.qualityScore : null;
 }
 export function entryLabel(row: IntradayOptionRow, stale = false) {
   const opportunities = row.result?.opportunities;
@@ -60,13 +60,24 @@ export function entryLabel(row: IntradayOptionRow, stale = false) {
   }
   if (opportunities.reference) return '数据不足 · 观察';
   if (entryScore(row) != null && row.simulation?.position) {
-    return row.simulation.position.opportunityId === opportunities.primary?.structureId
+    return row.simulation.position.opportunityId === row.rankedOpportunity?.structureId
       ? '已进场/持有中' : '已确认 · 模拟持有中';
   }
-  const branch = opportunities.primary ?? opportunities.branches[0];
+  const branch = entryBranch(row);
   return branch ? opportunityStates[branch.status] : '等待机会';
 }
 
 export function entryBranch(row: IntradayOptionRow) {
-  return row.result?.opportunities?.primary ?? row.result?.opportunities?.branches[0] ?? null;
+  return entryScore(row) != null ? row.rankedOpportunity!
+    : row.result?.opportunities?.primary ?? row.result?.opportunities?.branches[0] ?? null;
+}
+
+export function entryReason(row: IntradayOptionRow) {
+  const branch = entryBranch(row);
+  return entryScore(row) != null ? row.rankedOpportunity!.executionReason
+    : row.simulation?.plans?.find(p => p.structureId === branch?.structureId)?.executionReason ?? '';
+}
+
+export function rowDirectionValue(row: IntradayOptionRow) {
+  return entryScore(row) != null ? row.rankedOpportunity!.direction : row.result?.direction;
 }

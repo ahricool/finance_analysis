@@ -11,7 +11,7 @@ const continuation = {
   confirmation_method: 'strong_break', atr_source: 'observed_adjacent_true_ranges', atr_samples: 20,
   components: { structure: 90, distance: 90, recovery: 90, risk: 90 }, reasons: [],
   entry_low: 99.86, entry_high: 100.12, target: null, target_source: '未知',
-  opportunity_valid: true, executable: false, execution_reason: '已模拟持有，禁止重复进场或反手',
+  opportunity_valid: true, opportunity_reason: '可以模拟进场', executable: false, execution_reason: '已模拟持有，禁止重复进场或反手',
 };
 for (const width of [390, 768, 1024, 1280, 1440, 1920]) {
   test(`intraday options sorting, stable live rows and minute panel at ${width}px`, async ({ page }, testInfo) => {
@@ -26,11 +26,14 @@ for (const width of [390, 768, 1024, 1280, 1440, 1920]) {
       last_price: code === 'SPCX' ? null : 100 + i, change_pct: code === 'SPCX' ? null : (i % 2 ? -1 : 1) * i / 10,
       quote_time: now, quote_status: code === 'SPCX' ? 'missing' : 'ready',
       opportunity_eligible: code !== 'SPCX',
+      ranked_opportunity: code === 'SPCX' ? null : i === 0 ? continuation
+        : { kind: 'box_breakout', direction: i % 2 ? 'bearish' : 'bullish', status: 'confirmed', quality_score: 95 - i },
+      simulation: i === 0 ? { stopped: false, position: { opportunity_id: continuation.structure_id }, plans: [continuation] } : null,
       data_status: code === 'SPCX' ? 'waiting' : 'ready', issues: code === 'SPCX' ? ['主数据未识别，保留原代码'] : [],
       result: code === 'SPCX' ? null : { version: 'intraday_options_v1', symbol: `${code}.US`, trading_date: '2026-11-12',
         as_of: '2026-11-12T16:00:00Z', observed_at: now, score: 95 - i, base_score: 95 - i, alignment: 1, extension_atr: 1.5,
         opportunities: { version: 'intraday_entry_v1', reference: false, missing_bars: 0, as_of: now, reasons: [],
-          primary: i === 0 ? continuation : { kind: 'box_breakout', direction: 'bullish', status: 'confirmed', quality_score: 95 - i },
+          primary: i === 0 ? { ...continuation, structure_id: 'A', direction: 'bearish', quality_score: 99 } : { kind: 'box_breakout', direction: 'bullish', status: 'confirmed', quality_score: 95 - i },
           branches: i === 0 ? [continuation] : [] },
         direction: i % 2 ? 'bearish' : 'bullish', state: i === 0 ? 'extended' : 'continuing',
         explanation: i === 0 ? '方向仍有延续，但偏离短期趋势参考线较远，标记短线延伸。' : '多个窗口方向一致，近期仍在延续。',
@@ -54,7 +57,7 @@ for (const width of [390, 768, 1024, 1280, 1440, 1920]) {
       if (url.pathname === '/api/v1/auth/status') return route.fulfill({ json: { loggedIn: true, user: { uid: 1, username: 'Tester', role: 'user', extra: {} } } });
       if (url.pathname === '/api/v1/intraday-options') return route.fulfill({ json: { trading_date: '2026-11-12',
         market_status: 'open', generated_at: now, version: 'intraday_options_v1',
-        items: items.map((item, i) => changed && i === 1 ? { ...item, result: { ...item.result, score: 99, opportunities: { ...item.result?.opportunities, primary: { ...item.result?.opportunities.primary, quality_score: 99 } } } } : item),
+        items: items.map((item, i) => changed && i === 1 ? { ...item, ranked_opportunity: { ...item.ranked_opportunity, quality_score: 99 }, result: { ...item.result, score: 99, opportunities: { ...item.result?.opportunities, primary: { ...item.result?.opportunities.primary, quality_score: 99 } } } } : item),
       } });
       if (url.pathname.includes('/market-data/intraday/')) {
         chartRequests++;
@@ -68,7 +71,7 @@ for (const width of [390, 768, 1024, 1280, 1440, 1920]) {
       const send = () => ws.send(JSON.stringify({ type: 'quotes', quotes: [], generated_at: now,
         intraday_options: { trading_date: '2026-11-12', market_status: 'open', generated_at: now,
           version: 'intraday_options_v8',
-          items: items.map((item, i) => changed && i === 1 ? { ...item, result: { ...item.result, score: 99,
+          items: items.map((item, i) => changed && i === 1 ? { ...item, ranked_opportunity: { ...item.ranked_opportunity, quality_score: 99 }, result: { ...item.result, score: 99,
             opportunities: { ...item.result?.opportunities, primary: { ...item.result?.opportunities.primary, quality_score: 99 } } } } : item),
           simulation: {
             states: ['SPY.US', 'NVDA.US'].map((symbol, i) => ({ symbol, plans: i ? [] : [continuation],
@@ -93,6 +96,12 @@ for (const width of [390, 768, 1024, 1280, 1440, 1920]) {
     const rows = page.locator('[data-testid^="options-row-"]');
     await expect(rows).toHaveCount(30);
     await expect(rows.first()).toHaveAttribute('data-testid', 'options-row-SPY.US');
+    const opportunityCell = rows.first().getByTestId('opportunity-score');
+    await expect(opportunityCell).toContainText(/95\s*分/);
+    await expect(opportunityCell).not.toContainText('99');
+    await expect(opportunityCell).toContainText('趋势延续 · 偏多');
+    await expect(opportunityCell).toContainText('已进场/持有中');
+    await expect(opportunityCell.getByTestId('opportunity-reason')).toContainText('已模拟持有');
     expect(chartRequests).toBe(0);
     await rows.first().locator('td').first().click();
     const panel = page.getByTestId('options-trend-panel');

@@ -133,8 +133,14 @@ class TrendResult(BaseModel):
     explanation: str
 
 
+class RankedOpportunity(OpportunityBranch):
+    opportunity_reason: str
+    execution_reason: str
+
+
 class IntradayOptionRow(BaseModel):
     simulation: dict | None = None
+    ranked_opportunity: RankedOpportunity | None = None
     opportunity_eligible: bool = False
     symbol: str
     name: str | None

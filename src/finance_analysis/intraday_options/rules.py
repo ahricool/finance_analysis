@@ -2,8 +2,8 @@
 
 from dataclasses import dataclass
 
-ENTRY_VERSION = "intraday_entry_v3"
-SIMULATION_VERSION = "underlying_sim_v3"
+ENTRY_VERSION = "intraday_entry_v3_1"
+SIMULATION_VERSION = "underlying_sim_v3_1"
 
 
 @dataclass(frozen=True)
@@ -55,3 +55,8 @@ def entry_interval(branch):
     side = 1 if branch["direction"] == "bullish" else -1
     return sorted(branch["trigger"] + side * x * branch["atr"]
                   for x in (rule.confirm_atr, rule.entry_max_atr))
+
+
+def plan_order(branch):
+    """Same deterministic quality/kind/identity order for execution and ranking."""
+    return (-(branch.get("quality_score") or 0), branch["kind"], branch["structure_id"])
