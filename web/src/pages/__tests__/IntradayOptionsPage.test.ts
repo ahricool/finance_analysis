@@ -5,6 +5,21 @@ import type { IntradayOptionRow, IntradayOptionsSnapshot } from '@/api/intradayO
 import { fetchIntradayOptions } from '@/api/intradayOptions';
 
 vi.mock('@/api/intradayOptions', () => ({ fetchIntradayOptions: vi.fn() }));
+vi.mock('@/composables/useRealtimeQuotes', async () => {
+  const { shallowRef, ref, onMounted, onUnmounted } = await import('vue');
+  return { useRealtimeQuotes: () => {
+    const intradayOptions = shallowRef<IntradayOptionsSnapshot | null>(null);
+    const status = ref('connected');
+    let timer: ReturnType<typeof setInterval>;
+    const update = async () => {
+      try { intradayOptions.value = await fetchIntradayOptions(new AbortController().signal); status.value = 'connected'; }
+      catch { status.value = 'reconnecting'; }
+    };
+    onMounted(() => { void update(); timer = setInterval(() => void update(), 5000); });
+    onUnmounted(() => clearInterval(timer));
+    return { intradayOptions, status };
+  } };
+});
 let page: VueWrapper;
 let data: IntradayOptionsSnapshot;
 function row(symbol: string, score: number | null, direction: 'bullish' | 'bearish' = 'bullish'): IntradayOptionRow {

@@ -110,7 +110,7 @@ def test_entry_eligibility_excludes_delayed_closed_and_old_versions_without_reco
         await Publisher(repo).publish("SPY.US", bars, now)
         row = (await read_snapshot(repo, {}, now))["items"][0]
         assert row["data_status"] == "warming"  # 60m trend warmup does not block complete 30m setups.
-        assert row["opportunity_eligible"]
+        assert not row["opportunity_eligible"]  # Shape alone cannot enter without a valid quote/execution state.
         primary = row["result"]["opportunities"]["primary"]
         delayed = (await read_snapshot(repo, {}, now + timedelta(minutes=2)))["items"][0]
         assert not delayed["opportunity_eligible"]

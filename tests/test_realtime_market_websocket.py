@@ -562,7 +562,7 @@ async def test_sse_has_snapshot_parity_and_closes_repository_on_cancel(monkeypat
     expected = {"type": "quotes", "generated_at": "2026-07-16T15:00:00Z", "quotes": [], "portfolio": {"market": "CN"}}
     calls = []
 
-    async def snapshot(uid, repo, scope, market, tag_id=None, ungrouped=False):
+    async def snapshot(uid, repo, scope, market, tag_id=None, ungrouped=False, after_event_id=None):
         calls.append((uid, scope, market))
         return expected
 
@@ -589,7 +589,7 @@ async def test_sse_sends_heartbeats_during_one_slow_snapshot_and_cancels_on_clos
     cancelled = asyncio.Event()
     calls = []
 
-    async def slow_snapshot(uid, repo, next_scope, market, tag_id=None, ungrouped=False):
+    async def slow_snapshot(uid, repo, next_scope, market, tag_id=None, ungrouped=False, after_event_id=None):
         calls.append((uid, next_scope, market))
         try:
             await released.wait()
@@ -744,7 +744,7 @@ def test_websocket_forwards_group_and_market_filters(monkeypatch):
     monkeypatch.setattr(market_data, "_user_exists", lambda uid: True)
     monkeypatch.setattr(market_data.RealtimeStateRepository, "from_url", lambda url: repository)
 
-    async def snapshot(uid, repo, scope, market, tag_id=None, ungrouped=False):
+    async def snapshot(uid, repo, scope, market, tag_id=None, ungrouped=False, after_event_id=None):
         calls.append((uid, scope, market, tag_id, ungrouped))
         return {"type": "quotes", "quotes": []}
 
@@ -769,7 +769,7 @@ async def test_sse_forwards_group_and_market_filters(monkeypatch):
     monkeypatch.setattr(market_data, "get_effective_uid", lambda request: 7)
     calls = []
 
-    async def snapshot(uid, repo, scope, market, tag_id=None, ungrouped=False):
+    async def snapshot(uid, repo, scope, market, tag_id=None, ungrouped=False, after_event_id=None):
         calls.append((uid, scope, market, tag_id, ungrouped))
         return {"type": "quotes", "quotes": []}
 

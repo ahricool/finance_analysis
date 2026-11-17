@@ -551,7 +551,12 @@ def _display_quote_status(quote, now):
     return "delayed" if now - quote.event_time > timedelta(seconds=90) else "current"
 
 
-async def _live_snapshot(uid, repository, scope, market, tag_id=None, ungrouped=False):
+async def _live_snapshot(uid, repository, scope, market, tag_id=None, ungrouped=False, after_event_id=None):
+    if scope == "intraday-options":
+        from .intraday_options import full_snapshot, load_names
+        result = await full_snapshot(repository, await asyncio.to_thread(load_names), utc_now(), after_event_id)
+        return jsonable_encoder({'type': 'quotes', 'quotes': [], 'generated_at': result['generated_at'],
+                                 'intraday_options': result})
     if scope == "holdings":
         portfolio = await asyncio.to_thread(portfolio_summary, uid, market or "CN", initialize_accounts=False)
         stocks = [TrackedStock(row["symbol"], row["market"], row["symbol"]) for row in portfolio["positions"]]
@@ -565,10 +570,11 @@ async def _live_snapshot(uid, repository, scope, market, tag_id=None, ungrouped=
 @router.get("/events", dependencies=[Depends(require_current_user)])
 async def realtime_events(
     request: Request,
-    scope: Literal["watch-list", "holdings"] = "watch-list",
+    scope: Literal["watch-list", "holdings", "intraday-options"] = "watch-list",
     market: Literal["CN", "US", "HK"] | None = None,
     tag_id: Annotated[int | None, Query(ge=1)] = None,
     ungrouped: bool = False,
+    after_event_id: Annotated[int | None, Query(ge=0)] = None,
 ):
     if tag_id is not None and ungrouped:
         raise HTTPException(status_code=422, detail="不能同时筛选标签与未分组")
@@ -582,7 +588,7 @@ async def realtime_events(
         try:
             yield ": connected\n\n"
             while not await request.is_disconnected():
-                snapshot_task = asyncio.create_task(_live_snapshot(uid, repository, scope, market, tag_id, ungrouped))
+                snapshot_task = asyncio.create_task(_live_snapshot(uid, repository, scope, market, tag_id, ungrouped, after_event_id))
                 while True:
                     # Waiting must not cancel or restart a slow provider request.
                     done, _ = await asyncio.wait({snapshot_task}, timeout=SSE_HEARTBEAT_SECONDS)
@@ -622,10 +628,11 @@ async def realtime_events(
 @router.websocket("/ws")
 async def realtime_quotes(
     websocket: WebSocket,
-    scope: Literal["watch-list", "holdings"] = "watch-list",
+    scope: Literal["watch-list", "holdings", "intraday-options"] = "watch-list",
     market: Literal["CN", "US", "HK"] | None = None,
     tag_id: Annotated[int | None, Query(ge=1)] = None,
     ungrouped: bool = False,
+    after_event_id: Annotated[int | None, Query(ge=0)] = None,
 ) -> None:
     """Push user-owned market/portfolio snapshots every five seconds."""
     session = websocket.cookies.get(COOKIE_NAME)
@@ -649,7 +656,7 @@ async def realtime_quotes(
     try:
         while True:
             try:
-                await websocket.send_json(await _live_snapshot(uid, repository, scope, market, tag_id, ungrouped))
+                await websocket.send_json(await _live_snapshot(uid, repository, scope, market, tag_id, ungrouped, after_event_id))
             except WebSocketDisconnect:
                 raise
             except Exception as exc:

@@ -40,6 +40,7 @@ export interface TrendResult {
   baseScore: number | null; alignment: number | null; extensionAtr: number | null; explanation: string;
 }
 export interface IntradayOptionRow {
+  simulation?: SimulationState | null;
   opportunityEligible?: boolean;
   symbol: string; name: string | null; lastPrice: number | null; changePct: number | null; quoteTime: string | null;
   quoteStatus: 'missing' | 'ready' | 'delayed' | 'invalid_time';
@@ -47,10 +48,36 @@ export interface IntradayOptionRow {
   issues: string[]; result: TrendResult | null;
 }
 export interface IntradayOptionsSnapshot {
+  simulation?: SimulationSnapshot | null;
   tradingDate: string; marketStatus: 'open' | 'preopen' | 'closed'; generatedAt: string;
   version: string; items: IntradayOptionRow[];
 }
 export async function fetchIntradayOptions(signal: AbortSignal): Promise<IntradayOptionsSnapshot> {
   const { data } = await apiClient.get('/api/v1/intraday-options', { signal });
   return toCamelCase<IntradayOptionsSnapshot>(data);
+}
+
+export interface SimulationPlan extends OpportunityBranch {
+  processId: string; entryLow: number; entryHigh: number; target: number | null; targetSource: string;
+  remainingSpace: number | null; rewardRisk: number | null; ageSeconds: number | null;
+  executable: boolean; executionReason: string;
+}
+export interface SimTrade {
+  id: string; symbol: string; side: number; kind: OpportunityBranch['kind']; entryPrice: number; entryAt: string;
+  lastPrice: number; lastPriceAt: string; invalidation: number; protection: number; target: number | null;
+  returnPct: number; exitAt?: string; exitPrice?: number; exitPriceAt?: string; plannedExitAt?: string;
+  exitReason?: string; estimated?: boolean; anomaly?: string;
+}
+export interface SimulationState {
+  symbol: string; calculatedAt: string; cutoff: string | null; stopped: boolean; currentPrice: number | null;
+  quoteTime: string | null; position?: SimTrade | null; plans: SimulationPlan[];
+  relativeStrength?: Array<{ minutes: number; value: number | null; start: string; end: string; reason: string }>;
+}
+export interface SimulationSnapshot {
+  references?: { background: { label: string; asOf: string | null; reason: string }; macroStatus: string;
+    macro: Array<{ title: string; at: string; asOf: string; reason: string }> };
+  states: SimulationState[]; trades: SimTrade[];
+  events: Array<{ id: number; kind: string; symbol: string; at: string; reason: string; trade?: SimTrade }>;
+  statistics: Array<{ label: string; count: number; winRate: number | null; averageReturn: number | null;
+    averageWin: number | null; averageLoss: number | null; averageDuration: number | null }>;
 }

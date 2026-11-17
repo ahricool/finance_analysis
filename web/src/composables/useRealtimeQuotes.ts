@@ -14,6 +14,7 @@ const SSE_IDLE_TIMEOUT_MS = 30_000;
 const HIDDEN_DISCONNECT_MS = 60_000;
 
 export function useRealtimeQuotes(options: MaybeRefOrGetter<MarketStreamOptions> = {}) {
+  const intradayOptions = shallowRef<import('@/api/intradayOptions').IntradayOptionsSnapshot | null>(null);
   const quotes = shallowRef<Record<string, RealtimeQuote>>({});
   const portfolio = shallowRef<HoldingsSummary | null>(null);
   const status = ref<RealtimeConnectionStatus>('connecting');
@@ -22,6 +23,11 @@ export function useRealtimeQuotes(options: MaybeRefOrGetter<MarketStreamOptions>
   let controller: AbortController | null = null;
   let reconnectTimer: number | null = null;
   let watchdog: number | null = null;
+  let eventCursor: number | undefined;
+  function connectionOptions(): MarketStreamOptions {
+    const current = toValue(options);
+    return current.scope === 'intraday-options' && eventCursor !== undefined ? { ...current, afterEventId: eventCursor } : current;
+  }
   let failures = 0;
   let useSse = false;
   let sseFailures = 0;
@@ -43,6 +49,9 @@ export function useRealtimeQuotes(options: MaybeRefOrGetter<MarketStreamOptions>
   function accept(message: RealtimeQuoteMessage) {
     quotes.value = Object.fromEntries(message.quotes.map(q => [marketQuoteKey(q.code, q.marketType), q]));
     portfolio.value = message.portfolio;
+    intradayOptions.value = message.intradayOptions ?? null;
+    for (const event of message.intradayOptions?.simulation?.events ?? []) eventCursor = Math.max(eventCursor ?? 0, event.id);
+    if (message.intradayOptions && eventCursor === undefined) eventCursor = 0;
     lastUpdatedAt.value = message.generatedAt;
   }
 
@@ -59,7 +68,7 @@ export function useRealtimeQuotes(options: MaybeRefOrGetter<MarketStreamOptions>
     const ownedGeneration = generation;
     controller = current;
     armWatchdog(() => current.abort(), SSE_CONNECTION_TIMEOUT_MS);
-    void readMarketEvents(toValue(options), current.signal, message => {
+    void readMarketEvents(connectionOptions(), current.signal, message => {
       if (stopped || generation !== ownedGeneration || controller !== current) return;
       accept(message);
       status.value = 'sse';
@@ -82,7 +91,7 @@ export function useRealtimeQuotes(options: MaybeRefOrGetter<MarketStreamOptions>
     if (useSse) { connectSse(); return; }
     status.value = failures ? 'reconnecting' : 'connecting';
     let current: WebSocket;
-    try { current = new WebSocket(buildMarketWebSocketUrl(toValue(options))); }
+    try { current = new WebSocket(buildMarketWebSocketUrl(connectionOptions())); }
     catch { failed(); return; }
     socket = current;
     function failed() {
@@ -165,5 +174,5 @@ export function useRealtimeQuotes(options: MaybeRefOrGetter<MarketStreamOptions>
   });
   onMounted(() => { document.addEventListener('visibilitychange', onVisibility); connect(); });
   onUnmounted(() => { document.removeEventListener('visibilitychange', onVisibility); disconnect(); });
-  return { quotes, portfolio, status, lastUpdatedAt, getQuote, connect, disconnect };
+  return { intradayOptions, quotes, portfolio, status, lastUpdatedAt, getQuote, connect, disconnect };
 }

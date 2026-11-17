@@ -62,16 +62,9 @@ class Publisher:
         self._published_inputs[symbol] = inputs
 
     async def run(self, bars_by_symbol, stop_event):
-        while not stop_event.is_set():
-            now = utc_now()
-            for symbol in SYMBOLS:
-                try:
-                    await self.publish(symbol, list(bars_by_symbol.get(symbol, ())), now)
-                except asyncio.CancelledError:
-                    raise
-                except Exception:
-                    logger.warning("日内期权趋势缓存更新失败: %s", symbol, exc_info=True)
-            await asyncio.sleep(5)
+        from finance_analysis.intraday_options.scheduler import run
+
+        await run(self.repository, bars_by_symbol, stop_event)
 
 
 def session_context(now):
@@ -107,8 +100,11 @@ async def read_snapshot(repository, names, now):
     day, market_status = session_context(now)
 
     async def read_row(symbol):
-        raw, quote, subscription = await asyncio.gather(
-            repository.redis.get(result_key(symbol)), repository.get_quote(symbol), repository.get_subscription(symbol)
+        raw, quote, subscription, sim_raw = await asyncio.gather(
+            repository.redis.get(result_key(symbol)),
+            repository.get_quote(symbol),
+            repository.get_subscription(symbol),
+            repository.redis.get(f"rt:intraday-simulation:{symbol}"),
         )
         result = json.loads(raw) if raw else None
         if result and (result.get("trading_date") != day.isoformat() or result.get("version") != VERSION):
@@ -134,9 +130,19 @@ async def read_snapshot(repository, names, now):
                 quote_status = "delayed"
             else:
                 quote_status = "ready"
+        simulation = json.loads(sim_raw) if sim_raw else None
         return {
-            "opportunity_eligible": bool(result and result.get("opportunities", {}).get("primary")
-                                         and status in {"ready", "warming"} and market_status == "open"),
+            "simulation": simulation,
+            "opportunity_eligible": bool(
+                result
+                and result.get("opportunities", {}).get("primary")
+                and status in {"ready", "warming"}
+                and market_status == "open"
+                and quote_status == "ready"
+                and simulation
+                and 0 <= (now - datetime.fromisoformat(simulation["calculated_at"])).total_seconds() <= 15
+                and any(p["executable"] for p in simulation.get("plans", []))
+            ),
             "symbol": symbol,
             "name": names.get(symbol),
             "last_price": price,

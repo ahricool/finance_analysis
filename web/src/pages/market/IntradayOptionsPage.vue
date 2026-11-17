@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, onBeforeUnmount, ref, shallowRef, watch } from 'vue';
-import { fetchIntradayOptions, type IntradayOptionRow, type IntradayOptionsSnapshot, type TrendDirection } from '@/api/intradayOptions';
-import { getParsedApiError, type ParsedApiError } from '@/api/error';
+import { computed, defineAsyncComponent, ref, shallowRef, watch } from 'vue';
+import { type IntradayOptionRow, type IntradayOptionsSnapshot, type TrendDirection } from '@/api/intradayOptions';
+import { type ParsedApiError } from '@/api/error';
 import PageHeader from '@/components/layout/PageHeader.vue';
 import AppApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
 import FieldInput from '@/components/forms/FieldInput.vue';
@@ -12,6 +12,9 @@ import { useTableSort } from '@/composables/useTableSort';
 import { useCurrentTime } from '@/composables/useCurrentTime';
 import { clock, entryScore, entryLabel, entryBranch, opportunityKinds, dataLabels, directionOrder, directions, fmt, pct, stageOrder, stages, structureName, structurePhases, tone, usable } from '@/components/intraday-options/labels';
 
+import { useRealtimeQuotes } from '@/composables/useRealtimeQuotes';
+import SimulationPanel from '@/components/intraday-options/SimulationPanel.vue';
+
 const TrendPanel = defineAsyncComponent(() => import('@/components/intraday-options/TrendPanel.vue'));
 const snapshot = shallowRef<IntradayOptionsSnapshot | null>(null);
 const error = shallowRef<ParsedApiError | null>(null);
@@ -21,7 +24,7 @@ const filter = ref<'all' | TrendDirection>('all');
 const expanded = ref<string | null>(null);
 const sortSnapshot = shallowRef<IntradayOptionRow[]>([]);
 const now = useCurrentTime(1000);
-const disconnected = computed(() => !!error.value || (!!snapshot.value && now.value.getTime() - Date.parse(snapshot.value.generatedAt) > 20_000));
+const disconnected = computed(() => !['connected', 'sse'].includes(stream.status.value) || !!error.value || (!!snapshot.value && now.value.getTime() - Date.parse(snapshot.value.generatedAt) > 20_000));
 const columns = [
   { key: 'symbol', label: '标的', description: '按代码排序；名称与代码均可搜索。' },
   { key: 'changePct', label: '最新价 / 涨跌幅', description: '按当日涨跌幅排序；涨跌幅相对昨收，不参与趋势评分。' },
@@ -63,23 +66,13 @@ function valid(row: IntradayOptionRow) { return usable(row); }
 function rowDirection(row: IntradayOptionRow) { return valid(row) && row.result?.direction ? directions[row.result.direction] : '—'; }
 function arrow(value: number | null | undefined) { return value === 1 ? '↑' : value === -1 ? '↓' : '→'; }
 function toggleRow(symbol: string) { expanded.value = expanded.value === symbol ? null : symbol; }
-let timer: ReturnType<typeof setTimeout> | undefined;
-let controller: AbortController | null = null;
-let stopped = false;
-async function load() {
-  if (controller || stopped) return;
-  const request = new AbortController(); controller = request;
-  try {
-    const result = await fetchIntradayOptions(request.signal);
-    if (stopped) return;
-    const reset = !snapshot.value || snapshot.value.tradingDate !== result.tradingDate;
-    snapshot.value = result; error.value = null;
-    if (reset) { refreshOrder(); expanded.value = null; }
-  } catch (reason) { if (!stopped && !request.signal.aborted) error.value = getParsedApiError(reason); }
-  finally { controller = null; loading.value = false; if (!stopped) timer = setTimeout(() => { void load(); }, 5000); }
-}
-void load();
-onBeforeUnmount(() => { stopped = true; controller?.abort(); clearTimeout(timer); });
+const stream = useRealtimeQuotes({ scope: 'intraday-options', market: 'US' });
+watch(stream.intradayOptions, result => {
+  if (!result) return;
+  const reset = !snapshot.value || snapshot.value.tradingDate !== result.tradingDate;
+  snapshot.value = result; error.value = null; loading.value = false;
+  if (reset) { refreshOrder(); expanded.value = null; }
+});
 </script>
 
 <template>
@@ -91,6 +84,11 @@ onBeforeUnmount(() => { stopped = true; controller?.abort(); clearTimeout(timer)
       title="日内期权交易"
       en="Intraday Options"
       description="固定30个标的 · 趋势质量与日内入场机会分开观察；分数不是盈利概率。"
+    />
+    <SimulationPanel
+      v-if="snapshot"
+      :snapshot="snapshot"
+      :disconnected="disconnected"
     />
     <div class="flex flex-wrap items-center justify-between gap-3 text-sm">
       <div class="flex flex-wrap gap-3 text-muted-foreground">

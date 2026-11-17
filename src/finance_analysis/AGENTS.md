@@ -307,3 +307,8 @@ LLM允许web_search，但只能建议已有position；BUY为加仓，数量不�
 ## Prediction Markets
 
 `prediction_markets/` 只读已有证券名称/代码后访问官方 public-search，结果短Redis缓存。无Polymarket业务表、定时任务、管理写接口或LLM。详情/历史仍只读上游，见 `../../docs/prediction-markets.md`。
+
+日内期权面板新增标的虚拟交易：`intraday_options/scheduler.py` 在Streamer每5秒用有界线程池运行，
+仅输入自身分钟K/报价。`intraday_simulation_*` 为独立共享研究表，事务锁与唯一约束防重入；
+不关联portfolio或notification。首次确认／入场依据冻结，收盘前2小时截止（实际日历），
+停机恢复补记估算退出，正常与估算分开统计。详见 `docs/intraday-options.md`（仓库根）。

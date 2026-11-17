@@ -52,6 +52,18 @@ for (const width of [390, 768, 1024, 1280, 1440, 1920]) {
       }
       return route.fulfill({ json: { items: [] } });
     });
+    await page.routeWebSocket('**/api/v1/market-data/ws?**', ws => {
+      const send = () => ws.send(JSON.stringify({ type: 'quotes', quotes: [], generated_at: now,
+        intraday_options: { trading_date: '2026-11-12', market_status: 'open', generated_at: now,
+          version: 'intraday_options_v8',
+          items: items.map((item, i) => changed && i === 1 ? { ...item, result: { ...item.result, score: 99,
+            opportunities: { ...item.result?.opportunities, primary: { ...item.result?.opportunities.primary, quality_score: 99 } } } } : item),
+          simulation: { states: [], trades: [], events: [], statistics: [] },
+        } }));
+      send();
+      const timer = setInterval(send, 1000);
+      ws.onClose(() => clearInterval(timer));
+    });
     await page.goto('/market/intraday-options');
     const rows = page.locator('[data-testid^="options-row-"]');
     await expect(rows).toHaveCount(30);

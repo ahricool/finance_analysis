@@ -152,6 +152,8 @@ def detect(bars):
                         prior[0].bar_time,
                         100 * (1 - metrics(prior)[2]),
                     )
+                    active["process_id"] = active["structure_id"]
+                    active["measurement_target"] = level + side * (bounds["upper"] - bounds["lower"])
                     branches[key] = active
                     advance(active, history)
             retest_key = ("box_retest", side)
@@ -177,6 +179,8 @@ def detect(bars):
                     )
                     # A retest cannot outlive its original breakout process.
                     retest["expires_at"] = active["expires_at"]
+                    retest["process_id"] = active["structure_id"]
+                    retest["measurement_target"] = active.get("measurement_target")
                     branches[retest_key] = retest
                     advance(retest, history)
             key = ("trend_recovery", side)

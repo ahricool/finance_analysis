@@ -12,6 +12,9 @@ from tests.market_stream.fakes import FakeRedis
 
 
 def test_snapshot_contract_requires_auth_and_never_fetches_remote(monkeypatch):
+    from finance_analysis.database.repositories import intraday_simulation
+    monkeypatch.setattr(intraday_simulation, "read", lambda day, after_event_id=None: dict(states=[], trades=[], events=[], statistics=[]))
+    monkeypatch.setattr(intraday_simulation, "references", lambda day: {})
     app = FastAPI()
     app.include_router(intraday_options.router, prefix="/api/v1/intraday-options")
     repo = RealtimeStateRepository(FakeRedis())
@@ -44,3 +47,16 @@ def test_shared_pool_chart_does_not_require_personal_watchlist(monkeypatch):
     monkeypatch.setattr(market_data, "MarketDataService", forbidden)
     result = asyncio.run(market_data.intraday_bars("SPCX.US", SimpleNamespace()))
     assert result["symbol"] == "SPCX.US" and result["items"] == []
+
+
+def test_shared_stream_scope_passes_reconnect_cursor(monkeypatch):
+    import asyncio
+    from finance_analysis.interfaces.api.v1.endpoints import market_data
+    monkeypatch.setattr(intraday_options, 'load_names', lambda: {})
+    async def full(repo, names, now, after_event_id=None):
+        assert after_event_id == 42
+        return dict(generated_at=now, items=[], simulation=dict(events=[dict(id=43)]))
+    monkeypatch.setattr(intraday_options, 'full_snapshot', full)
+    result = asyncio.run(market_data._live_snapshot(1, object(), 'intraday-options', 'US', after_event_id=42))
+    assert result['type'] == 'quotes'
+    assert result['intraday_options']['simulation']['events'] == [dict(id=43)]
