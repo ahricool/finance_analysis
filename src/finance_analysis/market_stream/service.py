@@ -154,6 +154,9 @@ class MarketStreamService:
         self.stop_event.set()
 
     async def run(self) -> bool:
+        # Bootstrap once before any concurrent simulation/watchlist worker uses the singleton.
+        from finance_analysis.database.session import DatabaseManager
+        await asyncio.to_thread(DatabaseManager.get_instance)
         logger.info("market streamer 启动: instance_id=%s", self.instance_id)
         if not await self.leader_lock.acquire():
             logger.error("Leader Lock 获取失败，已有 streamer 实例运行")

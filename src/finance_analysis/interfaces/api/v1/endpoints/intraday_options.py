@@ -27,9 +27,27 @@ async def snapshot(response: Response):
     repository = RealtimeStateRepository.from_url(MarketStreamConfig.from_env().redis_url)
     try:
         names = await asyncio.to_thread(load_names)
-        return await read_snapshot(repository, names, utc_now())
+        return await full_snapshot(repository, names, utc_now())
     except Exception as exc:
         raise HTTPException(503, "日内期权行情暂时不可用，请稍后重试") from exc
     finally:
         with CancelScope(shield=True):
             await repository.close()
+
+
+async def full_snapshot(repository, names, now, after_event_id=None):
+    from finance_analysis.database.repositories.intraday_simulation import read
+
+    result = await read_snapshot(repository, names, now)
+    result["simulation"] = await asyncio.to_thread(read, result["trading_date"], after_event_id)
+    from finance_analysis.database.repositories.intraday_simulation import references
+
+    try:
+        result["simulation"]["references"] = await asyncio.to_thread(references, result["trading_date"])
+    except Exception:
+        result["simulation"]["references"] = {
+            "background": {"label": "未知", "as_of": None, "reason": "参考数据暂不可用"},
+            "macro": [],
+            "macro_status": "宏观日历暂不可用，风险未知",
+        }
+    return result

@@ -53,6 +53,10 @@ export function entryLabel(row: IntradayOptionRow, stale = false) {
   }
   if (entryScore(row) == null && opportunities.primary) return '历史/参考确认';
   if (opportunities.reference) return '数据不足 · 观察';
+  if (entryScore(row) != null && row.simulation?.position) {
+    return row.simulation.position.opportunityId === opportunities.primary?.structureId
+      ? '已进场/持有中' : '已确认 · 模拟持有中';
+  }
   const branch = opportunities.primary ?? opportunities.branches[0];
   return branch ? opportunityStates[branch.status] : '等待机会';
 }

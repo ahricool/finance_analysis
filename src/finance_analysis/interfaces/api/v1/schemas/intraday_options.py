@@ -111,6 +111,7 @@ class TrendResult(BaseModel):
 
 
 class IntradayOptionRow(BaseModel):
+    simulation: dict | None = None
     opportunity_eligible: bool = False
     symbol: str
     name: str | None
@@ -124,6 +125,7 @@ class IntradayOptionRow(BaseModel):
 
 
 class IntradayOptionsResponse(BaseModel):
+    simulation: dict | None = None
     trading_date: date
     market_status: Literal["open", "preopen", "closed"]
     generated_at: datetime

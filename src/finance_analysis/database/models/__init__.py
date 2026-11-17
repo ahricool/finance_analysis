@@ -143,3 +143,7 @@ __all__.extend(["ResearchPreview", "ResearchPreviewItem"])
 from .quant import QuantModelRelease, QuantExecution
 
 __all__.extend(["QuantModelRelease", "QuantExecution"])
+
+from .intraday_simulation import IntradaySimulationState, IntradaySimulationTrade, IntradaySimulationEvent
+
+__all__.extend(['IntradaySimulationState', 'IntradaySimulationTrade', 'IntradaySimulationEvent'])

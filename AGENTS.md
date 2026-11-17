@@ -480,8 +480,8 @@ GET本人历史不重算，默认今日或上一交易日；手动触发仅当�
 
 ## Intraday Options
 
-`intraday_options/` 为固定30个US标的计算15/30/60分钟趋势机会分。Streamer复用原生分钟线后台计算，仅读闭合正常时段连续窗口，只缓存Redis最新结果，不保存历史或数据库。
-页面 `/market/intraday-options`（市场→日内期权交易），GET `/api/v1/intraday-options` 只读缓存。固定池加入Streamer订阅并集及登录用户分钟图只读白名单，不改变个人自选/持仓。
+`intraday_options/` 为固定30个US标的计算15/30/60分钟趋势机会分。Streamer复用原生分钟线后台计算，仅读闭合正常时段连续窗口，趋势分只缓存Redis最新结果；独立虚拟交易与信号事件由0093专用表持久化，不复用真实持仓。
+页面 `/market/intraday-options`（市场→日内期权交易），GET `/api/v1/intraday-options` 只读缓存及模拟表，实时复用WS/SSE scope=intraday-options。固定池加入Streamer订阅并集及登录用户分钟图只读白名单，不改变个人自选/持仓。
 所有数据列表头支持排序，实时更新保留阅读位置；无合约/下单/概率承诺。公式与数据边界见 `docs/intraday-options.md`。
 
 ## Prediction Markets

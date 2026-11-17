@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { MarketStreamAuthError, parseRealtimeQuoteMessage, readMarketEvents } from '../realtimeMarket';
+import { buildMarketWebSocketUrl, MarketStreamAuthError, parseRealtimeQuoteMessage, readMarketEvents } from '../realtimeMarket';
 
 const encoder = new TextEncoder();
 afterEach(() => vi.unstubAllGlobals());
@@ -79,4 +79,11 @@ describe('HTTP market events', () => {
     stream.close();
     await expect(reading).rejects.toThrow('行情连接已断开');
   });
+});
+
+it('preserves simulation replay events and sends reconnect cursor', () => {
+  const parsed = parseRealtimeQuoteMessage({ type: 'quotes', quotes: [], generated_at: '2026-11-17T16:00:00Z',
+    intraday_options: { items: [], simulation: { events: [{ id: 43, trade_id: 'frozen' }] } } });
+  expect(parsed?.intradayOptions?.simulation?.events[0]?.id).toBe(43);
+  expect(buildMarketWebSocketUrl({ scope: 'intraday-options', afterEventId: 42 })).toContain('after_event_id=42');
 });

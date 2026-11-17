@@ -398,3 +398,7 @@ V2历史仍标“宏观环境”并说明统一风险偏好语义，不用V2.1�
 ## Prediction Markets
 
 个股唯一StockDetailDialog新增Polymarket懒加载页签，CN/US/HK均可见。名称/代码官方搜索顺序，最多20条，切股/切页签/关闭取消旧请求。旧市场事件预测页面及管理区已删除；见 `../docs/prediction-markets.md`。
+
+日内期权页新增独立SimulationPanel，使用现有WS/SSE `scope=intraday-options`，
+当日事件按持久化ID随完整快照替换，重连不追加重复。当前持仓及收益均明确为标的模拟，
+正常／估算统计分开；保留行情时间和计算时间。专用历史存储替代此前“不保存历史”说明。

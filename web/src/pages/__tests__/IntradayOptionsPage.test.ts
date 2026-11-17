@@ -5,6 +5,21 @@ import type { IntradayOptionRow, IntradayOptionsSnapshot } from '@/api/intradayO
 import { fetchIntradayOptions } from '@/api/intradayOptions';
 
 vi.mock('@/api/intradayOptions', () => ({ fetchIntradayOptions: vi.fn() }));
+vi.mock('@/composables/useRealtimeQuotes', async () => {
+  const { shallowRef, ref, onMounted, onUnmounted } = await import('vue');
+  return { useRealtimeQuotes: () => {
+    const intradayOptions = shallowRef<IntradayOptionsSnapshot | null>(null);
+    const status = ref('connected');
+    let timer: ReturnType<typeof setInterval>;
+    const update = async () => {
+      try { intradayOptions.value = await fetchIntradayOptions(new AbortController().signal); status.value = 'connected'; }
+      catch { status.value = 'reconnecting'; }
+    };
+    onMounted(() => { void update(); timer = setInterval(() => void update(), 5000); });
+    onUnmounted(() => clearInterval(timer));
+    return { intradayOptions, status };
+  } };
+});
 let page: VueWrapper;
 let data: IntradayOptionsSnapshot;
 function row(symbol: string, score: number | null, direction: 'bullish' | 'bearish' = 'bullish'): IntradayOptionRow {
@@ -49,6 +64,25 @@ describe('intraday options table', () => {
     await header('标的'); expect(symbols()).toEqual(['AAA.US', 'BBB.US', 'CCC.US']);
     await header('当前方向'); expect(symbols()).toEqual(['BBB.US', 'AAA.US', 'CCC.US']);
     await header('当前状态'); expect(symbols().at(-1)).toBe('CCC.US');
+  });
+
+  it('keeps an entered opportunity score sortable while new entry is disabled', async () => {
+    data.items[1]!.simulation = { position: { opportunityId: 'BBB.US' }, plans: [{ executable: false }] } as unknown as IntradayOptionRow['simulation'];
+    await start();
+    expect(symbols()[0]).toBe('BBB.US');
+    const cell = page.get('[data-testid="options-row-BBB.US"] [data-testid="opportunity-score"]');
+    expect(cell.text()).toContain('90');
+    expect(cell.text()).toContain('已进场/持有中');
+    await header('日内机会');
+    await header('日内机会');
+    expect(symbols()[0]).toBe('BBB.US');
+    data.items[1]!.opportunityEligible = false;
+    data.items[1]!.dataStatus = 'delayed';
+    await vi.advanceTimersByTimeAsync(5000); await flushPromises();
+    expect(cell.text()).not.toContain('90');
+    expect(cell.text()).toContain('历史/参考确认');
+    await page.get('[data-testid="options-refresh-order"]').trigger('click');
+    expect(symbols()[0]).toBe('AAA.US');
   });
 
   it('merges price and change, sorts by change rather than price and keeps the requested column order', async () => {

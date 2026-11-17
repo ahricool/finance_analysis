@@ -110,7 +110,7 @@ def test_entry_eligibility_excludes_delayed_closed_and_old_versions_without_reco
         await Publisher(repo).publish("SPY.US", bars, now)
         row = (await read_snapshot(repo, {}, now))["items"][0]
         assert row["data_status"] == "warming"  # 60m trend warmup does not block complete 30m setups.
-        assert row["opportunity_eligible"]
+        assert not row["opportunity_eligible"]  # Shape alone cannot enter without a valid quote/execution state.
         primary = row["result"]["opportunities"]["primary"]
         delayed = (await read_snapshot(repo, {}, now + timedelta(minutes=2)))["items"][0]
         assert not delayed["opportunity_eligible"]
@@ -122,5 +122,38 @@ def test_entry_eligibility_excludes_delayed_closed_and_old_versions_without_reco
         await repo.redis.set(result_key("SPY.US"), json.dumps(row["result"]))
         old = (await read_snapshot(repo, {}, now))["items"][0]
         assert old["result"] is None and not old["opportunity_eligible"]
+
+    asyncio.run(run())
+
+
+def test_entry_visibility_uses_primary_branch_validity_not_position_permission():
+    import json
+    from finance_analysis.intraday_options.simulation import transition
+    from tests.intraday_options.test_structure import oscillation, prices
+
+    async def run():
+        repo = RealtimeStateRepository(FakeRedis())
+        bars = prices(oscillation() + [101.3, 101.4])
+        now = bars[-1].bar_time + timedelta(minutes=1, seconds=5)
+        result = calculate("SPY.US", bars, now)
+        primary = result["opportunities"]["primary"]
+        price = primary["trigger"] + primary["atr"] * 0.5
+        q = QuoteState(
+            "SPY.US", trading_date=now.date(), last_price=Decimal(str(price)), event_time=now, received_at=now
+        )
+        state, _ = transition({}, "SPY.US", result, q, now)
+        assert state["position"]
+        await repo.write_quote(q)
+        await repo.redis.set(result_key("SPY.US"), json.dumps(result))
+        await repo.redis.set("rt:intraday-simulation:SPY.US", json.dumps(state))
+        row = (await read_snapshot(repo, {}, now))["items"][0]
+        assert row["opportunity_eligible"]
+        assert row["result"]["opportunities"]["primary"]["quality_score"] == primary["quality_score"]
+        assert not state["plans"][0]["executable"]
+        state["plans"][0]["opportunity_valid"] = False
+        state["plans"].append({**state["plans"][0], "structure_id": "different", "opportunity_valid": True})
+        await repo.redis.set("rt:intraday-simulation:SPY.US", json.dumps(state))
+        assert not (await read_snapshot(repo, {}, now))["items"][0]["opportunity_eligible"]
+        assert not (await read_snapshot(repo, {}, now + timedelta(seconds=31)))["items"][0]["opportunity_eligible"]
 
     asyncio.run(run())

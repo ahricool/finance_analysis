@@ -1,3 +1,4 @@
+import type { IntradayOptionsSnapshot } from './intradayOptions';
 import { API_BASE_URL } from '@/utils/constants';
 import type { MarketType } from './watchList';
 import type { HoldingsSummary } from './holdings';
@@ -5,7 +6,7 @@ import { toCamelCase } from './utils';
 
 export type RealtimeConnectionStatus = 'connecting' | 'connected' | 'reconnecting' | 'unauthorized' | 'sse' | 'sse-reconnecting' | 'paused';
 export interface MarketStreamOptions {
-  scope?: 'watch-list' | 'holdings'; market?: 'CN' | 'US'; tagId?: number; ungrouped?: boolean;
+  afterEventId?: number; scope?: 'watch-list' | 'holdings' | 'intraday-options'; market?: 'CN' | 'US'; tagId?: number; ungrouped?: boolean;
 }
 
 export type TrendDirection = 'above' | 'below' | 'neutral' | 'insufficient';
@@ -108,6 +109,7 @@ export interface RealtimeQuote {
 
 export interface RealtimeQuoteMessage {
   type: 'quotes';
+  intradayOptions?: IntradayOptionsSnapshot | null;
   generatedAt: string;
   quotes: RealtimeQuote[];
   portfolio: HoldingsSummary | null;
@@ -135,6 +137,7 @@ function marketUrl(path: string, options: MarketStreamOptions): URL {
   url.pathname = `${url.pathname.replace(/\/$/, '')}/api/v1/market-data/${path}`.replace(/\/+/g, '/');
   url.search = '';
   url.hash = '';
+  if (options.afterEventId !== undefined) url.searchParams.set('after_event_id', String(options.afterEventId));
   if (options.scope) url.searchParams.set('scope', options.scope);
   if (options.market) url.searchParams.set('market', options.market);
   if (options.tagId !== undefined) url.searchParams.set('tag_id', String(options.tagId));
@@ -198,12 +201,13 @@ export async function readMarketEvents(
 /** Validates a WS/SSE wire frame and converts it to the camelCase message shape. */
 export function parseRealtimeQuoteMessage(value: unknown): RealtimeQuoteMessage | null {
   if (!value || typeof value !== 'object') return null;
-  const message = value as { type?: unknown; generated_at?: unknown; quotes?: unknown; portfolio?: unknown };
+  const message = value as { type?: unknown; generated_at?: unknown; quotes?: unknown; portfolio?: unknown; intraday_options?: unknown };
   if (message.type !== 'quotes' || !Array.isArray(message.quotes)) return null;
   return {
     type: 'quotes',
     generatedAt: String(message.generated_at ?? ''),
     quotes: (message.quotes as RawRealtimeQuote[]).map(toRealtimeQuote),
     portfolio: portfolioFromWire(message.portfolio),
+    ...(message.intraday_options ? { intradayOptions: toCamelCase<IntradayOptionsSnapshot>(message.intraday_options) } : {}),
   };
 }
