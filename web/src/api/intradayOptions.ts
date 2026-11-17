@@ -63,6 +63,7 @@ export interface SimulationPlan extends OpportunityBranch {
   opportunityValid?: boolean; opportunityReason?: string; executable: boolean; executionReason: string;
 }
 export interface SimTrade {
+  entryPriceAt?: string; tradingDate?: string;
   opportunityId?: string; id: string; symbol: string; side: number; kind: OpportunityBranch['kind']; entryPrice: number; entryAt: string;
   lastPrice: number; lastPriceAt: string; invalidation: number; protection: number; target: number | null;
   returnPct: number; exitAt?: string; exitPrice?: number; exitPriceAt?: string; plannedExitAt?: string;

@@ -316,6 +316,7 @@ watch(stream.intradayOptions, result => {
               >
                 <TrendPanel
                   :symbol="row.symbol"
+                  :simulation="snapshot?.simulation"
                   :result="row.result"
                   :stale="disconnected || snapshot?.marketStatus !== 'open' || row.dataStatus === 'delayed' || !valid(row)"
                 />

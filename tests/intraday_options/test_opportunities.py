@@ -142,3 +142,16 @@ def test_retest_uses_original_formation_and_never_extends_parent_expiry():
     original, retest = branch(result, "box_breakout"), branch(result, "box_retest")
     assert retest["formation_start"] == original["formation_start"]
     assert retest["expires_at"] == original["expires_at"]
+
+
+def test_shared_morning_gaps_keep_entry_reference_until_the_last_gap_leaves_the_hour():
+    """Regression for the Nov 17 incident: quote recovery alone cannot heal candle coverage."""
+    from finance_analysis.intraday_options.opportunities import calculate_opportunities
+
+    bars = candles([0.0001] * 142)
+    # Offsets from 09:30: 09:59–10:04, 10:07–10:12, 10:18–10:19, 10:47–10:51.
+    missing = set(range(29, 35)) | set(range(37, 43)) | {48, 49} | set(range(77, 82))
+    available = [b for i, b in enumerate(bars) if i not in missing]
+    assert all(calculate_opportunities(available[:i + 1])["reference"] for i in range(len(available) - 1))
+    assert not calculate_opportunities(available)["reference"]
+    assert calculate_opportunities(available)["missing_bars"] == 0

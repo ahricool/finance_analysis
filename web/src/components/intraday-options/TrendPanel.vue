@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
 import { fetchIntradayMarket, type IntradayBar } from '@/api/intradayMarket';
-import type { TrendResult } from '@/api/intradayOptions';
+import type { SimulationSnapshot, TrendResult } from '@/api/intradayOptions';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import AppApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
 import MarketKLineChart from '@/components/market-data/MarketKLineChart.vue';
@@ -10,9 +10,16 @@ import { useTheme } from '@/composables/useTheme';
 import { clock, directions, fmt, pct, structureName, structurePhases } from './labels';
 import OpportunityPanel from './OpportunityPanel.vue';
 import { referenceSeries, structureOverlays, trendOverlays } from './overlays';
+import { simulationOperations, simulationMarkers, simulationTradeOverlays } from './simulationMarkers';
+import FieldSelect from '@/components/forms/FieldSelect.vue';
+import SimulationTable from './SimulationTable.vue';
+import { sortField, sortTime } from '@/composables/useTableSort';
 
-const props = defineProps<{ symbol: string; result: TrendResult | null; stale: boolean }>();
+const props = defineProps<{ symbol: string; result: TrendResult | null; stale: boolean; simulation?: SimulationSnapshot | null }>();
 const selected = ref(30);
+const showTrades = ref(true);
+const selectedTradeMinute = ref('');
+const focusRequest = ref(0);
 const mode = ref<'vwap' | 'mean' | 'off'>('vwap');
 const rows = shallowRef<IntradayBar[]>([]);
 const error = shallowRef<ParsedApiError | null>(null);
@@ -36,8 +43,21 @@ const current = computed(() => {
   return b ? { ...b, turnover: b.turnover ?? undefined } : null;
 });
 const window = computed(() => props.result?.windows.find(w => w.minutes === selected.value));
+const tradeOperations = computed(() => simulationOperations(props.simulation, props.symbol, chartDate.value));
+const tradeMarkers = computed(() => simulationMarkers(tradeOperations.value, rows.value));
+const selectedTrade = computed(() => tradeMarkers.value.find(m => String(m.timestamp) === selectedTradeMinute.value));
+const unplottedTrades = computed(() => tradeOperations.value.length - tradeMarkers.value.reduce((n, m) => n + m.operations.length, 0));
+function selectTrade(timestamp: number) { selectedTradeMinute.value = String(timestamp); focusRequest.value++; }
+watch([() => props.symbol, chartDate], () => { selectedTradeMinute.value = ''; });
+const tradeColumns = [
+  { key: 'label', label: '模拟动作' }, { key: 'price', label: '模拟价格', numeric: true },
+  { key: 'at', label: '进退场 / 计划时间' }, { key: 'priceAt', label: '价格时间' },
+  { key: 'processedAt', label: '实际处理时间' }, { key: 'reason', label: '原因' },
+];
+const timestampLabel = (at: string | undefined) => at ? new Date(at).toLocaleString('zh-CN', { timeZone: 'America/New_York', hour12: false }) : '未知';
 const overlays = computed(() => [...trendOverlays(closed.value, window.value, mode.value, resolvedTheme.value === 'dark'),
-  ...structureOverlays(props.result?.structure)]);
+  ...structureOverlays(props.result?.structure),
+  ...(showTrades.value ? simulationTradeOverlays(tradeMarkers.value, resolvedTheme.value === 'dark', selectTrade) : [])]);
 const referenceLabel = computed(() => mode.value === 'off' ? '参考线已隐藏' : referenceSeries(closed.value, mode.value).label);
 let controller: AbortController | null = null;
 let timer: ReturnType<typeof setTimeout> | undefined;
@@ -114,6 +134,8 @@ onBeforeUnmount(() => { stopped = true; generation++; controller?.abort(); clear
       :bars="bars"
       :current="current"
       :overlays="overlays"
+      :focus-timestamp="showTrades && selectedTrade ? selectedTrade.timestamp : undefined"
+      :focus-request="focusRequest"
       timezone="America/New_York"
     />
     <p
@@ -125,6 +147,68 @@ onBeforeUnmount(() => { stopped = true; generation++; controller?.abort(); clear
     <p class="text-xs text-muted-foreground">
       {{ referenceLabel }}。紫色区域仅标记所选窗口；窗口尚未完整时不标记。
     </p>
+    <div
+      class="flex flex-wrap items-center gap-3"
+      data-testid="simulation-chart-markers"
+    >
+      <Button
+        variant="outline"
+        size="sm"
+        :aria-pressed="showTrades"
+        @click="showTrades = !showTrades"
+      >
+        模拟 B/S {{ showTrades ? '已显示' : '已隐藏' }}
+      </Button>
+      <FieldSelect
+        :model-value="selectedTradeMinute"
+        class="w-full sm:w-72"
+        aria-label="定位模拟成交"
+        placeholder="选择成交，定位 K 线"
+        :disabled="!tradeMarkers.length"
+        :options="tradeMarkers.map(m => ({ value: String(m.timestamp), label: `${clock(new Date(m.timestamp).toISOString())} · ${m.label} · ${m.operations.length}条模拟记录` }))"
+        @update:model-value="value => { showTrades = true; selectTrade(Number(value)); }"
+      />
+      <span class="text-xs text-muted-foreground">{{ tradeOperations.length }} 条模拟进退场</span>
+    </div>
+    <p class="text-xs leading-relaxed text-muted-foreground">
+      模拟 B：做多进场 / 做空退场；S：做空进场 / 做多退场；B/S：同分钟多个动作。点击标记查看记录，非真实成交。
+      * 为估算退出，按计划退出时间定位，价格来自历史有效报价，不能视为该时刻成交。
+      <span v-if="unplottedTrades">{{ unplottedTrades }} 条记录对应分钟 K 缺失，未移到相邻 K 线。</span>
+    </p>
+    <div
+      v-if="selectedTrade"
+      class="overflow-hidden rounded-lg border"
+      data-testid="simulation-trade-detail"
+    >
+      <h3 class="border-b bg-muted/30 px-4 py-3 text-sm font-semibold">
+        {{ symbol }} · 模拟 {{ selectedTrade.label }} 记录（纽约时间）
+      </h3>
+      <SimulationTable
+        :rows="selectedTrade.operations"
+        :columns="tradeColumns"
+        :row-key="op => op.id"
+        :value="(op, key) => ['at', 'priceAt', 'processedAt'].includes(key) ? sortTime(sortField(op, key) as string | undefined) : sortField(op, key)"
+        label="模拟成交标记明细"
+        empty="暂无记录"
+      >
+        <template #cell="{ row: op, column }">
+          <template v-if="column === 'label'">
+            {{ op.action }} · {{ op.label }}{{ op.estimated ? '（估算）' : '' }}
+          </template>
+          <template v-else-if="column === 'price'">
+            {{ fmt(op.price, 2) }}
+          </template>
+          <template v-else-if="column === 'reason'">
+            <p class="max-w-sm whitespace-normal">
+              {{ op.reason }}
+            </p>
+          </template>
+          <template v-else>
+            {{ timestampLabel(sortField(op, column) as string | undefined) }}
+          </template>
+        </template>
+      </SimulationTable>
+    </div>
     <OpportunityPanel
       :opportunities="result?.opportunities"
       :stale="stale"
