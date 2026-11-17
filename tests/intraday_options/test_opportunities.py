@@ -82,13 +82,10 @@ def test_trend_recovery_requires_prior_advance_then_touch_and_actual_recovery(si
     assert failed["primary"] is None
 
 
-@pytest.mark.parametrize("change", ["missing", "partial", "sampled", "invalid"])
+@pytest.mark.parametrize("change", ["partial", "sampled", "invalid"])
 def test_incomplete_data_cannot_supply_primary(change):
     bars = prices(oscillation() + [101.3, 101.4])
-    if change == "missing":
-        del bars[5]
-    else:
-        bars[5] = replace(bars[5], **({"close": Decimal(0)} if change == "invalid" else {change: True}))
+    bars[-5] = replace(bars[-5], **({"close": Decimal(0)} if change == "invalid" else {change: True}))
     result = score(bars)["opportunities"]
     assert result["reference"] and result["missing_bars"] == 1
     assert result["primary"] is None
@@ -111,7 +108,8 @@ def test_expiry_no_trend_score_regression_and_opening_warmup():
     assert result["primary"] is None
     trend = score(candles([0.0004] * 60))
     assert trend["score"] > 85 and trend["opportunities"]["primary"] is None
-    assert entry(oscillation(20))["reference"]
+    assert entry(oscillation(14))["reference"]
+    assert not entry(oscillation(15))["reference"]
 
 
 def test_price_scale_invariance_and_replay_determinism():
@@ -144,14 +142,17 @@ def test_retest_uses_original_formation_and_never_extends_parent_expiry():
     assert retest["expires_at"] == original["expires_at"]
 
 
-def test_shared_morning_gaps_keep_entry_reference_until_the_last_gap_leaves_the_hour():
-    """Regression for the Nov 17 incident: quote recovery alone cannot heal candle coverage."""
+def test_shared_morning_gaps_are_filled_after_real_minutes_resume():
+    """V2 marks flat assumptions instead of waiting an hour for old gaps to leave."""
     from finance_analysis.intraday_options.opportunities import calculate_opportunities
 
     bars = candles([0.0001] * 142)
     # Offsets from 09:30: 09:59–10:04, 10:07–10:12, 10:18–10:19, 10:47–10:51.
     missing = set(range(29, 35)) | set(range(37, 43)) | {48, 49} | set(range(77, 82))
     available = [b for i, b in enumerate(bars) if i not in missing]
-    assert all(calculate_opportunities(available[:i + 1])["reference"] for i in range(len(available) - 1))
+    resumed = calculate_opportunities([b for b in available if b.bar_time <= bars[82].bar_time])
+    assert not resumed["reference"]
+    assert resumed["filled_bars"] == 19
+    assert resumed["recent_available_bars"] == 15
     assert not calculate_opportunities(available)["reference"]
     assert calculate_opportunities(available)["missing_bars"] == 0

@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 
 from finance_analysis.core.time import utc_now
 from finance_analysis.intraday_options.config import CONFIG, SYMBOLS, VERSION, WINDOWS
+from finance_analysis.intraday_options.analysis_window import REQUIRED_MINUTES
 from finance_analysis.intraday_options.scoring import calculate, closed_session_bars
 from finance_analysis.market_stream.config import market_trading_date
 from finance_analysis.market_stream.session import cache_ttl, display_day, in_session, session_bounds
@@ -89,10 +90,11 @@ def data_status(result, now, day, market_status):
         expected = min(expected, bounds[1])
     if as_of < expected or (reference - as_of).total_seconds() > CONFIG.stale_seconds:
         return "delayed"
-    if any(w["data_status"] == "gap" for w in result["windows"]):
-        return "gap"
-    if any(w["data_status"] == "warming" for w in result["windows"]):
-        return "warming"
+    # Opportunity readiness is the 15-minute analysis window. Longer raw-price
+    # quality windows keep their own gap/warmup labels and never veto execution.
+    opportunity = result.get("opportunities") or {}
+    if opportunity.get("reference", True):
+        return "warming" if bounds and as_of - bounds[0] < timedelta(minutes=REQUIRED_MINUTES) else "gap"
     return "ready"
 
 

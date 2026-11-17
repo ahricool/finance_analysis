@@ -11,7 +11,11 @@ export interface WindowScore {
   normalizedMove: number | null; adverseMove: number | null; adverseDuration: number | null;
   movementGate: number | null; concentration: number | null; stalledImpulse: boolean; reasons: string[];
 }
-export interface IntradayStructure {
+export interface AnalysisCoverage {
+  requiredMinutes?: number; recentAvailableBars?: number; recentMissingBars?: number;
+  filledBars?: number; filledMinutes?: string[];
+}
+export interface IntradayStructure extends AnalysisCoverage {
   kind: 'uptrend' | 'downtrend' | 'range' | 'breakout_up' | 'breakout_down' | 'failed_up' | 'failed_down' | 'rebound' | 'pullback' | 'unclear';
   phase: 'waiting' | 'forming' | 'confirmed' | 'retest' | 'failed' | 'continuing' | 'pullback' | 'pausing' | 'inside' | 'warming';
   background: 'bullish' | 'bearish' | 'neutral'; since: string; confirmedAt?: string | null; asOf: string;
@@ -28,7 +32,7 @@ export interface OpportunityBranch {
   qualityScore: number | null; distanceAtr: number | null; riskAtr: number | null;
   components: Record<string, number>; reasons: string[];
 }
-export interface IntradayOpportunities {
+export interface IntradayOpportunities extends AnalysisCoverage {
   version: string; primary: OpportunityBranch | null; branches: OpportunityBranch[];
   reference: boolean; missingBars: number; asOf: string; reasons: string[];
 }

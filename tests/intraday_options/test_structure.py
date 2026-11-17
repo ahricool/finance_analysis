@@ -6,7 +6,7 @@ import math
 import pytest
 
 from finance_analysis.intraday_options.scoring import calculate
-from finance_analysis.intraday_options.structure import box, pivots, raw_structure
+from finance_analysis.intraday_options.structure import box, pivots
 from finance_analysis.interfaces.api.v1.schemas.intraday_options import IntradayStructure
 from tests.intraday_options.test_scoring import START, candles
 
@@ -32,7 +32,8 @@ def oscillation(count=40):
 def test_trends_are_symmetric_and_opening_warms_up():
     assert structure(candles([.0004] * 60))['kind'] == 'uptrend'
     assert structure(candles([-.0004] * 60))['kind'] == 'downtrend'
-    assert structure(candles([.0004] * 20))['phase'] == 'warming'
+    assert structure(candles([.0004] * 14))['phase'] == 'warming'
+    assert structure(candles([.0004] * 15))['kind'] == 'uptrend'
 
 
 def test_range_requires_actual_box_before_breakout():
@@ -62,7 +63,7 @@ def test_gap_cannot_confirm_breakout_and_is_marked():
     missing = full[:41] + full[42:]
     result = structure(missing)
     assert result['kind'] == 'breakout_up' and result['phase'] == 'forming'
-    assert result['reference'] and result['missing_bars'] == 1
+    assert not result['reference'] and result['filled_bars'] == 1
 
 
 def test_pivot_confirmation_needs_two_real_right_hand_minutes():
@@ -113,7 +114,7 @@ def test_gap_at_latest_confirmation_prevents_ordinary_confirmation():
     bars = candles([.0004] * 60)
     result = structure(bars[:-2] + bars[-1:])
     assert result['phase'] == 'forming'
-    assert result['reference']
+    assert not result['reference'] and result['filled_bars'] == 1
 
 
 def test_tiny_motion_is_not_a_directional_trend():
@@ -201,8 +202,9 @@ def test_sparse_main_window_cannot_confirm_a_trend_from_three_prices():
     result = structure([bars[30], bars[58], bars[59]])
     assert result['kind'] == 'unclear'
     assert result['phase'] == 'waiting'
-    assert result['reference']
-    assert any('24根' in reason for reason in result['reasons'])
+    assert not result['reference']
+    assert result['filled_bars'] == 27
+    assert result['missing_bars'] == 30  # Leading history remains unknown, never backfilled.
 
 
 @pytest.mark.parametrize('side', [1, -1])
@@ -219,31 +221,29 @@ def test_meaningful_counter_move_remains_a_pullback(side):
     assert result['phase'] == 'pullback'
 
 
-def test_sparse_recent_window_does_not_claim_continuation():
+def test_sparse_recent_window_uses_marked_flat_bars_for_structure():
     bars = candles([.0004] * 60)
     result = structure(bars[:55] + bars[58:])
     assert result['kind'] == 'uptrend'
-    assert result['phase'] == 'forming'
-    assert result['reference']
-    assert any('5分钟' in reason and '不足' in reason for reason in result['reasons'])
+    assert result['phase'] == 'continuing'
+    assert not result['reference']
+    assert result['filled_bars'] == 3
+    assert any('补为平K' in reason for reason in result['reasons'])
 
 
-def test_main_coverage_floor_allows_six_gaps_but_not_seven():
+def test_old_main_gaps_no_longer_block_complete_recent_fifteen_minutes():
     bars = candles([.0004] * 60)
-    enough = bars[:29] + bars[36:]
-    too_few = bars[:30] + bars[37:]
-    assert raw_structure(enough, bars[-1].bar_time)['kind'] == 'uptrend'
-    assert raw_structure(too_few, bars[-1].bar_time)['kind'] == 'unclear'
-    # Recovery still needs two adjacent main-structure evaluations.
-    assert structure(enough)['phase'] == 'forming'
-    extended = candles([.0004] * 61)
-    recovered = structure(extended[:29] + extended[36:])
-    assert recovered['kind'] == 'uptrend' and recovered['reference']
+    for missing in (bars[:29] + bars[36:], bars[:30] + bars[37:]):
+        result = structure(missing)
+        assert result['kind'] == 'uptrend'
+        assert not result['reference']
+        assert result['filled_bars'] == 7
+        assert result['recent_available_bars'] == 15
 
 
-def test_one_missing_recent_minute_still_allows_reference_continuation():
+def test_one_missing_recent_minute_allows_marked_flat_continuation():
     bars = candles([.0004] * 60)
     result = structure(bars[:56] + bars[57:])
     assert result['kind'] == 'uptrend'
     assert result['phase'] == 'continuing'
-    assert result['reference'] and result['missing_bars'] == 1
+    assert not result['reference'] and result['filled_bars'] == 1

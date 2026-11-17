@@ -8,7 +8,7 @@ import math
 from finance_analysis.market_stream.config import market_trading_date
 from finance_analysis.market_stream.session import session_bounds
 
-VERSION = "underlying_sim_v1"
+VERSION = "underlying_sim_v2"
 
 
 @dataclass(frozen=True)
@@ -130,6 +130,11 @@ def plan(branch, result, price, now):
         "reward_risk": reward / risk if reward is not None and risk and risk > 0 else None,
         "minute_as_of": result.get("as_of"),
         "rule_version": VERSION,
+        "analysis_coverage": {
+            key: deepcopy(result.get("opportunities", {}).get(key))
+            for key in ("version", "required_minutes", "recent_available_bars", "recent_missing_bars",
+                        "missing_bars", "filled_bars", "filled_minutes")
+        },
         "age_seconds": (now - dt(branch["confirmed_at"])).total_seconds() if branch["confirmed_at"] else None,
         "executable": reason == "可以模拟进场",
         "execution_reason": reason,

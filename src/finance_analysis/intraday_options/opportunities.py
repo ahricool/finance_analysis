@@ -7,16 +7,15 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 
 from finance_analysis.intraday_options.structure import atr, box, metrics
-from finance_analysis.market_stream.config import market_trading_date
-from finance_analysis.market_stream.session import session_bounds
+from finance_analysis.intraday_options.analysis_window import REQUIRED_MINUTES, analysis_window, observed
 
 MINUTE = timedelta(minutes=1)
 
 
 @dataclass(frozen=True)
 class OpportunityConfig:
-    horizon: int = 60
     background: int = 30
+    minimum_background: int = REQUIRED_MINUTES
     lifetime: int = 15
     breakout_atr: float = 0.2
     touch_atr: float = 0.3
@@ -93,6 +92,7 @@ def advance(branch, history):
     restored = (
         len(pair) == 2
         and continuous(pair, 2)
+        and all(observed(b) for b in pair)
         and all((float(b.close) - level) * side > threshold * scale for b in pair)
         and (pair[0].bar_time + MINUTE).isoformat() >= branch["started_at"]
     )
@@ -123,9 +123,15 @@ def detect(bars):
     for index, bar in enumerate(bars):
         history = bars[: index + 1]
         prior = bars[max(0, index - CONFIG.background) : index]
+        # Use up to 30 contiguous background minutes; opening needs only 15.
+        for j in range(len(prior) - 1, 0, -1):
+            if prior[j].bar_time - prior[j - 1].bar_time != MINUTE:
+                prior = prior[j:]
+                break
         for branch in branches.values():
             advance(branch, history)
-        if not continuous(prior, CONFIG.background) or bar.bar_time - prior[-1].bar_time != MINUTE:
+        if (not observed(bar) or not continuous(prior, CONFIG.minimum_background)
+                or bar.bar_time - prior[-1].bar_time != MINUTE):
             continue
         bounds = box(prior, prior[-1].bar_time)
         scale = atr(prior)
@@ -216,26 +222,18 @@ def detect(bars):
 
 def calculate_opportunities(ordered):
     end = ordered[-1].bar_time
-    opening, _ = session_bounds("US", market_trading_date(end, "US"))
-    start = max(opening, end - (CONFIG.horizon - 1) * MINUTE)
-    bars = [b for b in ordered if start <= b.bar_time <= end and b.is_valid() and not b.partial and not b.sampled]
-    expected = int((end - start) / MINUTE) + 1
-    missing = expected - len(bars)
-    warming = end - opening < CONFIG.background * MINUTE
+    bars, coverage, reasons = analysis_window(ordered)
     branches = detect(bars) if bars else []
-    reference = missing > 0 or warming
+    reference = coverage["reference"]
     valid = [b for b in branches if b["status"] == "confirmed"] if not reference else []
     primary = min(valid, key=lambda b: (-b["quality_score"], b["kind"], b["structure_id"])) if valid else None
     priority = {"confirmed": 0, "forming": 1, "extended": 2, "invalidated": 3, "expired": 4}
     branches.sort(key=lambda b: (priority[b["status"]], -b["quality_score"], b["kind"], b["structure_id"]))
     return {
-        "version": "intraday_entry_v1",
+        "version": "intraday_entry_v2",
         "primary": primary,
         "branches": branches,
-        "reference": reference,
-        "missing_bars": missing,
+        **coverage,
         "as_of": (end + MINUTE).isoformat(),
-        "reasons": (["需要30根完整背景K及后续触发确认"] if warming else [])
-        + ([f"观察区间缺{missing}根有效K，分支只供参考，不列入有效机会"] if missing else [])
-        + ([] if primary else ["当前没有数据完整、已确认且未延伸的入场分支"]),
+        "reasons": reasons + ([] if primary else ["当前没有数据完整、已确认且未延伸的入场分支"]),
     }
