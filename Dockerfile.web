@@ -18,6 +18,8 @@ RUN --mount=type=cache,id=pnpm-store-web,target=/root/.local/share/pnpm/store \
     pnpm install --frozen-lockfile
 
 COPY web/ ./
+# vue-tsc also checks the web test that consumes this shared API contract.
+COPY tests/intraday_options/fixtures/ranked_opportunity.json /workspace/tests/intraday_options/fixtures/
 RUN pnpm run build
 
 # ── Stage 2: Web frontend runtime (nginx) ────────────────────────────────────
