@@ -104,8 +104,27 @@ async def test_intraday_is_owned_cache_only_and_filters_previous_session(monkeyp
     value = await market_data.intraday_bars("AAPL.US", SimpleNamespace())
     assert value["reset"] and len(value["items"]) == 2
     assert value["trading_date"] == now.date()
-    value = await market_data.intraday_bars("AAPL.US", SimpleNamespace(), since=candle(1).bar_time)
-    assert not value["reset"] and len(value["items"]) == 1
+    cursor = candle(1).bar_time
+    version = value["history_version"]
+    for token in [None, version]:
+        value = await market_data.intraday_bars("AAPL.US", SimpleNamespace(), since=cursor, history_version=token)
+        assert not value["reset"] and not value["full_snapshot"] and len(value["items"]) == 1
+
+    # A correction before the cursor changes OHLC without changing the number of minutes.
+    revised = replace(candle(0), close=Decimal("11"), received_at=now)
+    await repo.upsert_bars("AAPL.US", [revised, candle(2)])
+    value = await market_data.intraday_bars("AAPL.US", SimpleNamespace(), since=cursor, history_version=version)
+    assert value["full_snapshot"] and len(value["items"]) == 3 and value["items"][0]["close"] == 11
+    version = value["history_version"]
+    await repo.upsert_bars("AAPL.US", [candle(3)])
+    value = await market_data.intraday_bars("AAPL.US", SimpleNamespace(), since=candle(2).bar_time, history_version=version)
+    assert not value["full_snapshot"] and len(value["items"]) == 2
+    # A newly restored opening candle before the latest cursor also requires a replacement snapshot.
+    earlier = replace(candle(0), bar_time=candle(0).bar_time - timedelta(minutes=1))
+    await repo.upsert_bars("AAPL.US", [earlier])
+    value = await market_data.intraday_bars("AAPL.US", SimpleNamespace(), since=candle(3).bar_time,
+                                            history_version=value["history_version"])
+    assert value["full_snapshot"] and len(value["items"]) == 5
 
 
 @pytest.mark.asyncio

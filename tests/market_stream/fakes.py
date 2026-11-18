@@ -10,8 +10,24 @@ class FakePipeline:
     def __init__(self, redis: "FakeRedis") -> None:
         self.redis = redis
         self.calls: list[tuple[str, tuple[Any, ...], dict[str, Any]]] = []
+        self.watching = False
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_):
+        self.calls.clear()
+
+    async def watch(self, *keys):
+        self.watching = True
+
+    def multi(self):
+        self.watching = False
 
     def __getattr__(self, name: str):
+        if self.watching:
+            return getattr(self.redis, name)
+
         def queue(*args: Any, **kwargs: Any) -> "FakePipeline":
             self.calls.append((name, args, kwargs))
             return self

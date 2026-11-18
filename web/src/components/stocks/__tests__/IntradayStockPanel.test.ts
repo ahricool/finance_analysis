@@ -107,7 +107,7 @@ describe('inline intraday ownership and incremental updates', () => {
   });
 
   it('loads only while mounted and merges the closing current minute', async () => {
-    const initial = snapshot();
+    const initial = { ...snapshot(), historyVersion: 'first-snapshot' };
     const next = snapshot('AAPL.US', at + 60_000, 101);
     next.reset = false;
     next.items.unshift({ ...initial.items[0]!, confirmed: true });
@@ -118,6 +118,7 @@ describe('inline intraday ownership and incremental updates', () => {
     await vi.advanceTimersByTimeAsync(5_000);
     await flushPromises();
     expect(mocks.fetch.mock.calls[1]?.[1]).toBe(new Date(at).toISOString());
+    expect(mocks.fetch.mock.calls[1]?.[3]).toBe('first-snapshot');
     expect(panel.text()).toContain('已采集 2 根');
     const signal = mocks.fetch.mock.calls[1]?.[2] as AbortSignal;
     panel.unmount();

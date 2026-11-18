@@ -67,6 +67,7 @@ class IntradayBarsResponse(BaseModel):
     generated_at: datetime
     reset: bool
     full_snapshot: bool = False
+    history_version: str | None = None
     items: list[IntradayBarItem]
     quote: dict[str, Any]
     events: list[dict[str, Any]]

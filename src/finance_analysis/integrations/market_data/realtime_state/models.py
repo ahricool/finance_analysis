@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, fields
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Any, Literal, Mapping, cast
+from typing import Any, Iterable, Literal, Mapping, cast
 
 
 @dataclass(slots=True)
@@ -135,9 +135,12 @@ class CandleState:
     sample_count: int = 0
     partial: bool = False
 
+    def __post_init__(self) -> None:
+        self.bar_time = self.bar_time.replace(second=0, microsecond=0)
+
     @property
-    def identity(self) -> tuple[datetime, str]:
-        return self.bar_time, self.trade_session or ""
+    def identity(self) -> datetime:
+        return self.bar_time
 
     def is_valid(self) -> bool:
         return (
@@ -173,6 +176,16 @@ class CandleState:
             sample_count=int(value.get("sample_count") or 0),
             partial=str(value.get("partial", "0")).lower() in {"1", "true"},
         )
+
+
+def unique_minute_bars(bars: Iterable[CandleState]) -> list[CandleState]:
+    """One symbol's chronological minutes, preferring closed bars and then the latest correction."""
+    by_minute: dict[datetime, CandleState] = {}
+    for bar in bars:
+        previous = by_minute.get(bar.bar_time)
+        if previous is None or (bar.confirmed, bar.received_at) >= (previous.confirmed, previous.received_at):
+            by_minute[bar.bar_time] = bar
+    return [by_minute[minute] for minute in sorted(by_minute)]
 
 
 @dataclass(slots=True)

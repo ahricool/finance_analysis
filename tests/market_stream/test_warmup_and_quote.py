@@ -366,6 +366,24 @@ def test_warmup_merge_deduplicates_confirmed_history_and_latest_current() -> Non
     assert merged[2].close == Decimal("12")
 
 
+def test_warmup_closed_minute_survives_buffered_preview_with_another_session_label():
+    confirmed = replace(bar(0), trade_session=None)
+    preview = bar(0, close="11", confirmed=False, received=10)
+    assert merge_warmup_bars([confirmed], [preview], limit=420) == [confirmed]
+
+
+@pytest.mark.asyncio
+async def test_full_session_survives_warmup_and_redis_limit():
+    app = service()
+    state = set_warming(app)
+    cached = [bar(i) for i in range(370)]
+    history = [replace(bar(i, received=60), trade_session=None) for i in range(390)]
+    result = WarmupResult("AAPL.US", "US", cached, history, 0)
+    await app._apply_warmup(state, app.manager.connection_generation, result, None, lambda *args: None)
+    assert list(app.bars_1m["AAPL.US"]) == history
+    assert await app.repository.get_recent_bars("AAPL.US", 420) == history
+
+
 @pytest.mark.asyncio
 async def test_stale_connection_event_is_dropped_and_buffer_is_generation_scoped() -> None:
     app = service()
@@ -1181,6 +1199,28 @@ async def test_incomplete_market_cache_falls_back_to_history() -> None:
 
 
 @pytest.mark.asyncio
+async def test_failed_full_history_request_keeps_cached_minutes(monkeypatch):
+    app = service()
+    monkeypatch.setattr("finance_analysis.market_stream.service.utc_now", lambda: BASE + timedelta(minutes=100))
+    cached = [bar(i) for i in range(1, 100)]
+    await app.repository.upsert_bars("AAPL.US", cached)
+
+    class History:
+        async def fetch(self, *args):
+            raise TimeoutError("history timed out")
+
+    app.history_loader = History()
+    state = set_warming(app)
+    generation = app.manager.connection_generation
+    result = await app._load_warmup("AAPL.US", "US", state.generation, generation)
+    finalized = []
+    await app._apply_warmup(state, generation, result, None, lambda *args: finalized.append(args))
+    assert isinstance(finalized[0][1], TimeoutError)
+    assert list(app.bars_1m["AAPL.US"]) == cached
+    assert await app.repository.get_recent_bars("AAPL.US", 420) == cached
+
+
+@pytest.mark.asyncio
 async def test_warmup_concurrency_is_limited() -> None:
     app = service()
     app.warmup_semaphore = asyncio.Semaphore(2)
@@ -1241,10 +1281,10 @@ async def test_reconnect_cancellation_releases_semaphore_and_cleans_old_buffer()
     await app.manager.stop()
 
 
-@pytest.mark.parametrize('missing', [45, 75, 104])
+@pytest.mark.parametrize('missing', [0, 44, 45, 75, 104])
 @pytest.mark.parametrize('history_complete', [True, False])
 @pytest.mark.asyncio
-async def test_restart_repairs_recent_hour_before_publishing(monkeypatch, missing, history_complete):
+async def test_restart_repairs_full_session_before_publishing(monkeypatch, missing, history_complete):
     from finance_analysis.intraday_options.runtime import Publisher, result_key
     import json
 
@@ -1264,7 +1304,7 @@ async def test_restart_repairs_recent_hour_before_publishing(monkeypatch, missin
     publisher = Publisher(app.repository)
     await publisher.publish('AAPL.US', cached, now)
     initial = json.loads(await app.repository.redis.get(result_key('AAPL.US')))
-    assert (initial['windows'][-1]['data_status'] == "gap") == (missing != 104)
+    assert (initial['windows'][-1]['data_status'] == "gap") == (45 <= missing < 104)
     state = set_warming(app)
     result = await app._load_warmup('AAPL.US', 'US', state.generation, app.manager.connection_generation)
     assert calls == ['AAPL.US']
@@ -1272,7 +1312,7 @@ async def test_restart_repairs_recent_hour_before_publishing(monkeypatch, missin
     restored = list(app.bars_1m['AAPL.US'])
     await publisher.publish('AAPL.US', restored, now)
     score = json.loads(await app.repository.redis.get(result_key('AAPL.US')))
-    assert (score['windows'][-1]['data_status'] == 'ready') == (history_complete or missing == 104)
+    assert (score['windows'][-1]['data_status'] == 'ready') == (history_complete or missing < 45 or missing == 104)
     assert score['as_of'] == (BASE + timedelta(minutes=105 if history_complete or missing != 104 else 104)).isoformat()
     assert app._cache_has_current_session(restored, 'US', now=now) == history_complete
     redis_bars = await app.repository.get_recent_bars('AAPL.US', 420)
@@ -1291,30 +1331,30 @@ def test_cache_rejects_ineligible_minutes(changes):
 
 
 @pytest.mark.asyncio
-async def test_complete_recent_hour_skips_remote_even_with_older_gap(monkeypatch):
+async def test_complete_session_skips_remote(monkeypatch):
     app = service()
     now = BASE + timedelta(minutes=105)
     monkeypatch.setattr('finance_analysis.market_stream.service.utc_now', lambda: now)
-    cached = [bar(i) for i in range(105) if i != 44]
+    cached = [bar(i) for i in range(105)]
     await app.repository.upsert_bars('AAPL.US', cached)
 
     class History:
         async def fetch(self, *args):
-            raise AssertionError('complete recent hour must use cache')
+            raise AssertionError('complete session must use cache')
 
     app.history_loader = History()
     result = await app._load_warmup('AAPL.US', 'US', 1, 1)
     assert not result.historical
-    assert len(result.cached) == 104
+    assert len(result.cached) == 105
 
 
 @pytest.mark.parametrize('now,market,count,first,last', [
     ('2026-06-26T13:40:30+00:00', 'US', 10, '2026-06-26T13:30:00+00:00', '2026-06-26T13:39:00+00:00'),
-    ('2026-06-26T21:00:00+00:00', 'US', 60, '2026-06-26T19:00:00+00:00', '2026-06-26T19:59:00+00:00'),
-    ('2026-11-27T20:00:00+00:00', 'US', 60, '2026-11-27T17:00:00+00:00', '2026-11-27T17:59:00+00:00'),
-    ('2026-06-27T14:00:00+00:00', 'US', 60, '2026-06-26T19:00:00+00:00', '2026-06-26T19:59:00+00:00'),
+    ('2026-06-26T21:00:00+00:00', 'US', 390, '2026-06-26T13:30:00+00:00', '2026-06-26T19:59:00+00:00'),
+    ('2026-11-27T20:00:00+00:00', 'US', 210, '2026-11-27T14:30:00+00:00', '2026-11-27T17:59:00+00:00'),
+    ('2026-06-27T14:00:00+00:00', 'US', 390, '2026-06-26T13:30:00+00:00', '2026-06-26T19:59:00+00:00'),
     ('2026-06-26T13:30:00+00:00', 'US', 0, None, None),
-    ('2026-06-26T05:15:00+00:00', 'HK', 60, '2026-06-26T03:15:00+00:00', '2026-06-26T05:14:00+00:00'),
+    ('2026-06-26T05:15:00+00:00', 'HK', 165, '2026-06-26T01:30:00+00:00', '2026-06-26T05:14:00+00:00'),
 ])
 def test_warmup_required_minutes_follow_actual_session(now, market, count, first, last):
     from finance_analysis.market_stream.warmup import warmup_bar_starts

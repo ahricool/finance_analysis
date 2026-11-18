@@ -217,7 +217,7 @@ class RealtimeMarketDataSource:
         canonical_symbol, normalized_market = target
         bars = await self.repository.get_recent_bars(canonical_symbol, max(1, int(count)))
         spec = market_spec(normalized_market)
-        by_identity: dict[tuple[datetime, str], CandleState] = {}
+        by_identity: dict[datetime, CandleState] = {}
         for bar in bars:
             local_time = bar.bar_time.astimezone(spec.timezone).time() if bar.bar_time.tzinfo else None
             if (
@@ -534,7 +534,7 @@ def _validated_bars(
     now: datetime,
 ) -> tuple[list[CandleState], str | None]:
     trading_date = now.astimezone(market_timezone(market_type)).date()
-    by_identity: dict[tuple[datetime, str], CandleState] = {}
+    by_identity: dict[datetime, CandleState] = {}
     for bar in bars:
         if (
             bar.symbol != symbol

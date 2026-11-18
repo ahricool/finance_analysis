@@ -59,6 +59,7 @@ const overlays = computed(() => [...trendOverlays(closed.value, window.value, mo
   ...structureOverlays(props.result?.structure),
   ...(showTrades.value ? simulationTradeOverlays(tradeMarkers.value, resolvedTheme.value === 'dark', selectTrade) : [])]);
 const referenceLabel = computed(() => mode.value === 'off' ? '参考线已隐藏' : referenceSeries(closed.value, mode.value).label);
+let historyVersion: string | null | undefined;
 let controller: AbortController | null = null;
 let timer: ReturnType<typeof setTimeout> | undefined;
 let generation = 0, stopped = false;
@@ -68,12 +69,13 @@ async function load() {
   const request = new AbortController(); controller = request;
   try {
     const since = rows.value.at(-1)?.timestamp;
-    const result = await fetchIntradayMarket(props.symbol, since == null ? undefined : new Date(since).toISOString(), request.signal);
+    const result = await fetchIntradayMarket(props.symbol, since == null ? undefined : new Date(since).toISOString(), request.signal, historyVersion);
     if (stopped || owner !== generation) return;
     const merged = new Map((result.reset || result.fullSnapshot ? [] : rows.value).map(b => [b.timestamp, b]));
     result.items.forEach(b => merged.set(b.timestamp, b));
     rows.value = [...merged.values()].sort((a, b) => a.timestamp - b.timestamp);
     chartDate.value = result.tradingDate;
+    historyVersion = result.historyVersion;
     error.value = null;
   } catch (reason) {
     if (!stopped && owner === generation && !request.signal.aborted) error.value = getParsedApiError(reason);
@@ -82,7 +84,7 @@ async function load() {
   }
 }
 watch(() => props.symbol, () => {
-  generation++; controller?.abort(); controller = null; clearTimeout(timer); rows.value = []; chartDate.value = '';
+  generation++; controller?.abort(); controller = null; clearTimeout(timer); rows.value = []; chartDate.value = ''; historyVersion = undefined;
   loading.value = true; error.value = null; void load();
 }, { immediate: true });
 onBeforeUnmount(() => { stopped = true; generation++; controller?.abort(); clearTimeout(timer); observer?.disconnect(); });

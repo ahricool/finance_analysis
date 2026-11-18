@@ -162,7 +162,7 @@ def normalized_distance(price: Decimal, reference: Decimal, atr: Decimal, epsilo
 
 def sanitize_bars(bars: Sequence[CandleState], market_type: MarketType) -> list[CandleState]:
     """Return deduplicated confirmed regular-session bars for the latest trading date in the input."""
-    candidates: dict[tuple[datetime, str], CandleState] = {}
+    candidates: dict[datetime, CandleState] = {}
     for bar in bars:
         if (
             not bar.confirmed
@@ -176,7 +176,7 @@ def sanitize_bars(bars: Sequence[CandleState], market_type: MarketType) -> list[
         previous = candidates.get(bar.identity)
         if previous is None or bar.received_at >= previous.received_at:
             candidates[bar.identity] = bar
-    ordered = sorted(candidates.values(), key=lambda bar: (bar.bar_time, bar.trade_session or ""))
+    ordered = sorted(candidates.values(), key=lambda bar: bar.bar_time)
     if not ordered:
         return []
     target_date = market_trading_date(ordered[-1].bar_time, market_type)
@@ -218,7 +218,7 @@ def prepare_preview_bars(
     quote: QuoteState | None = None,
 ) -> list[CandleState]:
     """Prepare current-day confirmed history plus at most one latest unfinished regular-session bar."""
-    candidates: dict[tuple[datetime, str], CandleState] = {}
+    candidates: dict[datetime, CandleState] = {}
     for bar in bars:
         if (
             not bar.is_valid()
@@ -231,7 +231,7 @@ def prepare_preview_bars(
         previous = candidates.get(bar.identity)
         if previous is None or (bar.confirmed, bar.received_at) >= (previous.confirmed, previous.received_at):
             candidates[bar.identity] = bar
-    ordered = sorted(candidates.values(), key=lambda bar: (bar.bar_time, bar.trade_session or ""))
+    ordered = sorted(candidates.values(), key=lambda bar: bar.bar_time)
     if not ordered:
         return []
     target_date = market_trading_date(ordered[-1].bar_time, market_type)

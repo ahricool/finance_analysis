@@ -3,46 +3,31 @@
 from __future__ import annotations
 
 import asyncio
-from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
-from typing import Any, Iterable
+from itertools import chain
+from typing import Iterable
 
-from finance_analysis.integrations.market_data.providers.longbridge.normalizer import longbridge_datetime_to_utc
 from finance_analysis.integrations.market_data import MarketDataService
-from finance_analysis.integrations.market_data.realtime_state.models import CandleState
+from finance_analysis.integrations.market_data.config import provider_order
+from finance_analysis.integrations.market_data.registry import MINUTE_BARS
+from finance_analysis.integrations.market_data.realtime_state.models import CandleState, unique_minute_bars
 from finance_analysis.market_stream.config import is_regular_session_minute, latest_completed_bar_time, market_trading_date
 from finance_analysis.stocks.markets import MarketType
 
 
 def warmup_bar_starts(now: datetime, market_type: MarketType) -> list[datetime]:
-    """Last 60 closed session minutes; never pad today's opening with yesterday."""
+    """All closed regular minutes of the displayed trading day."""
     from finance_analysis.market_stream.session import display_day, session_bounds
 
     start, close = session_bounds(market_type, display_day(market_type, now))
     cursor = min(now.replace(second=0, microsecond=0), close) - timedelta(minutes=1)
     expected = []
-    while cursor >= start and len(expected) < 60:
+    while cursor >= start:
         if is_regular_session_minute(cursor, market_type):
             expected.append(cursor)
         cursor -= timedelta(minutes=1)
     return list(reversed(expected))
-
-
-def _parse_time(value: Any) -> datetime:
-    if isinstance(value, datetime):
-        return longbridge_datetime_to_utc(value, datetime.fromtimestamp(value.timestamp(), tz=timezone.utc))
-
-    text = str(value).strip()
-    if not text:
-        raise ValueError("empty timestamp")
-
-    try:
-        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
-    except ValueError:
-        return longbridge_datetime_to_utc(float(text), datetime.fromtimestamp(float(text), tz=timezone.utc))
-
-    return longbridge_datetime_to_utc(parsed, datetime.fromtimestamp(parsed.timestamp(), tz=timezone.utc))
 
 
 def _history_bar_is_confirmed(
@@ -64,63 +49,50 @@ class LongbridgeHistoryLoader:
         self.market_data = market_data_service or MarketDataService()
 
     async def fetch(self, symbol: str, market_type: MarketType, count: int) -> list[CandleState]:
-        received_at = datetime.now(timezone.utc)
+        requested_at = datetime.now(timezone.utc)
         from finance_analysis.market_stream.session import display_day, session_bounds
 
-        day = display_day(market_type, received_at)
+        day = display_day(market_type, requested_at)
         start, close = session_bounds(market_type, day)
-        end = min(received_at, close)
+        end = min(requested_at, close)
         result = await asyncio.to_thread(
             self.market_data.get_minute_bars,
             [symbol],
             start,
             end,
             interval="1m",
-            required_bar_starts=warmup_bar_starts(received_at, market_type),
+            providers=tuple(name for name in provider_order(market_type, MINUTE_BARS) if name != "streaming"),
+            required_bar_starts=warmup_bar_starts(requested_at, market_type),
         )
-        values = next(iter(result.data.values()), [])
-        raw = [
-            {
-                "bar_time": bar.bar_time,
-                "open": bar.open,
-                "high": bar.high,
-                "low": bar.low,
-                "close": bar.close,
-                "volume": bar.volume,
-                "turnover": bar.amount,
-            }
-            for bar in values
-        ]
-        expected_completed = latest_completed_bar_time(received_at, market_type)
+        received_at = datetime.now(timezone.utc)
+        values = result.data.get(symbol)
+        if not values:
+            raise RuntimeError(result.failed_symbols.get(symbol) or f"No minute history returned for {symbol}")
+        expected_completed = latest_completed_bar_time(requested_at, market_type)
         bars: list[CandleState] = []
-        for item in raw:
-            try:
-                bar_time = _parse_time(item.get("bar_time") or item.get("timestamp"))
-                if bar_time > received_at:
-                    continue
-                bar = CandleState(
-                    symbol=symbol,
-                    bar_time=bar_time,
-                    open=Decimal(str(item["open"])),
-                    high=Decimal(str(item["high"])),
-                    low=Decimal(str(item["low"])),
-                    close=Decimal(str(item["close"])),
-                    volume=int(item.get("volume") or 0),
-                    turnover=Decimal(str(item["turnover"])) if item.get("turnover") is not None else None,
-                    trade_session=str(item.get("trade_session") or "") or None,
-                    confirmed=_history_bar_is_confirmed(
-                        bar_time,
-                        received_at=received_at,
-                        market_type=market_type,
-                        expected_completed=expected_completed,
-                    ),
-                    received_at=received_at,
-                )
-                if bar.is_valid():
-                    bars.append(bar)
-            except (KeyError, TypeError, ValueError, ArithmeticError):
+        for value in values:
+            bar_time = value.bar_start or value.bar_time
+            if bar_time is None or bar_time > requested_at:
                 continue
-        return sorted(bars, key=lambda item: (item.bar_time, item.trade_session or ""))
+            bar = CandleState(
+                symbol=symbol,
+                bar_time=bar_time,
+                open=Decimal(str(value.open)),
+                high=Decimal(str(value.high)),
+                low=Decimal(str(value.low)),
+                close=Decimal(str(value.close)),
+                volume=value.volume,
+                turnover=Decimal(str(value.amount)) if value.amount is not None else None,
+                trade_session=None,
+                confirmed=_history_bar_is_confirmed(
+                    bar_time, received_at=requested_at, market_type=market_type, expected_completed=expected_completed,
+                ),
+                received_at=received_at,
+                source=value.provider,
+            )
+            if bar.is_valid():
+                bars.append(bar)
+        return sorted(bars, key=lambda item: item.bar_time)
 
 
 def merge_warmup_bars(
@@ -129,29 +101,11 @@ def merge_warmup_bars(
     *,
     limit: int,
 ) -> list[CandleState]:
-    """Merge by minute/session while preserving confirmed history and live current bars."""
-    history = [bar for bar in historical if bar.is_valid()]
-    live = [bar for bar in realtime if bar.is_valid()]
-    all_bars = history + live
-    if not all_bars:
-        return []
-    newest_identity = max(bar.identity for bar in all_bars)
-    grouped: dict[tuple[datetime, str], list[tuple[bool, CandleState]]] = defaultdict(list)
-    for bar in history:
-        grouped[bar.identity].append((False, bar))
-    for bar in live:
-        grouped[bar.identity].append((True, bar))
-
-    merged: list[CandleState] = []
-    for identity, candidates in grouped.items():
-        live_candidates = [bar for is_live, bar in candidates if is_live]
-        if identity == newest_identity and live_candidates:
-            selected = max(live_candidates, key=lambda item: item.received_at)
-        else:
-            selected = max(
-                (bar for _, bar in candidates),
-                key=lambda item: (item.confirmed, item.received_at),
-            )
-        merged.append(selected)
-    merged.sort(key=lambda item: (item.bar_time, item.trade_session or ""))
-    return merged[-max(1, limit) :]
+    """Merge by minute while preserving confirmed history and live current bars."""
+    live = unique_minute_bars(bar for bar in realtime if bar.is_valid())
+    history = (bar for bar in historical if bar.is_valid())
+    merged = unique_minute_bars(chain(history, live))
+    # An open minute can change while the history request is in flight.
+    if live and not merged[-1].confirmed and live[-1].bar_time == merged[-1].bar_time:
+        merged[-1] = live[-1]
+    return merged[-max(1, limit):]

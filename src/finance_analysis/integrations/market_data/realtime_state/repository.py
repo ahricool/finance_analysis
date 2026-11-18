@@ -4,13 +4,15 @@ from __future__ import annotations
 
 import json
 from dataclasses import asdict
-from datetime import date, datetime
+from datetime import date, datetime, time, timezone
 from decimal import Decimal
 from typing import Any, Iterable, Mapping, Sequence
 
+from redis.exceptions import WatchError
+
 from finance_analysis.core.time import utc_isoformat
 from finance_analysis.integrations.market_data.realtime_state import keys
-from finance_analysis.integrations.market_data.realtime_state.models import CandleState, QuoteState, TrendState
+from finance_analysis.integrations.market_data.realtime_state.models import CandleState, QuoteState, TrendState, unique_minute_bars
 from finance_analysis.market_stream.patterns.models import PatternState
 
 
@@ -30,7 +32,11 @@ def _encode(value: Any) -> str:
 
 def _mapping(value: Any) -> dict[str, str]:
     source = asdict(value) if hasattr(value, "__dataclass_fields__") else dict(value)
-    return {key: _encode(item) for key, item in source.items()}
+    mapping = {key: _encode(item) for key, item in source.items()}
+    if isinstance(value, CandleState):
+        # This timestamp orders competing revisions, including retries within the same millisecond.
+        mapping["received_at"] = value.received_at.astimezone(timezone.utc).isoformat(timespec="microseconds")
+    return mapping
 
 
 def _candle_json(candle: CandleState) -> str:
@@ -123,7 +129,7 @@ class RealtimeStateRepository:
         values = [bar for bar in bars if bar.symbol == symbol and bar.is_valid()]
         if not symbol.endswith((".SH", ".SZ", ".BJ")) or not values:
             raise ValueError("CN minute replacement requires valid CN candles")
-        values = sorted(values, key=lambda bar: bar.bar_time)[-self.bar_limit:]
+        values = unique_minute_bars(values)[-self.bar_limit:]
         pipe = self.redis.pipeline(transaction=True)
         index_key, data_key = keys.bars_index_key(symbol), keys.bars_data_key(symbol)
         pipe.delete(index_key, data_key, keys.current_candle_key(symbol))
@@ -275,8 +281,8 @@ class RealtimeStateRepository:
         pipe.hgetall(keys.bars_data_key(symbol))
         pipe.hgetall(keys.current_candle_key(symbol))
         history, current = await pipe.execute()
-        bars = sorted((CandleState.from_mapping(json.loads(raw)) for raw in history.values()),
-                      key=lambda bar: bar.bar_time)[-self.bar_limit:]
+        candles = (CandleState.from_mapping(json.loads(raw)) for raw in history.values())
+        bars = unique_minute_bars(candles)[-self.bar_limit:]
         return bars, CandleState.from_mapping(current) if current else None
 
     async def upsert_bars(self, symbol: str, bars: Iterable[CandleState]) -> None:
@@ -286,64 +292,72 @@ class RealtimeStateRepository:
         self,
         bars_by_symbol: Mapping[str, Iterable[CandleState]],
     ) -> None:
-        valid_by_symbol = {
-            symbol: {
-                self._bar_field(bar): bar for bar in bars if bar.symbol == symbol and bar.confirmed and bar.is_valid()
-            }
-            for symbol, bars in bars_by_symbol.items()
-        }
-        valid_by_symbol = {symbol: bars for symbol, bars in valid_by_symbol.items() if bars}
-        if not valid_by_symbol:
+        batches = {}
+        for symbol, bars in bars_by_symbol.items():
+            valid = unique_minute_bars(bar for bar in bars if bar.symbol == symbol and bar.confirmed and bar.is_valid())
+            if valid:
+                batches[symbol] = valid
+        if not batches:
             return
-        pipe = self.redis.pipeline(transaction=False)
-        for symbol, valid in valid_by_symbol.items():
-            index_key = keys.bars_index_key(symbol)
-            data_key = keys.bars_data_key(symbol)
-            # Keep one market session, even when a late packet from yesterday arrives.
-            latest = await self.get_recent_bars(symbol, 1)
-            market = "US" if symbol.endswith(".US") else "HK" if symbol.endswith(".HK") else "CN"
-            from finance_analysis.market_stream.config import market_trading_date, market_timezone
-            from datetime import time
-
-            newest = max(bar.bar_time for bar in valid.values())
-            if latest:
-                newest = max(newest, latest[-1].bar_time)
-            day = market_trading_date(newest, market)
-            start = datetime.combine(day, time.min, market_timezone(market))
-            obsolete = await self.redis.zrangebyscore(index_key, float("-inf"), start.timestamp() - 0.001)
-            if obsolete:
-                pipe.zrem(index_key, *obsolete)
-                pipe.hdel(data_key, *obsolete)
-            for field, bar in valid.items():
-                if market_trading_date(bar.bar_time, market) != day:
+        # Warmup, live pushes and failed-write retries may overlap for the same minute.
+        watched = [key for symbol in batches for key in (keys.bars_index_key(symbol), keys.bars_data_key(symbol))]
+        async with self.redis.pipeline(transaction=True) as pipe:
+            while True:
+                try:
+                    await pipe.watch(*watched)
+                    changes = {}
+                    for symbol, bars in batches.items():
+                        changes[symbol] = await self._plan_bar_write(pipe, symbol, bars)
+                    pipe.multi()
+                    for symbol, (obsolete, updates, ttl) in changes.items():
+                        index_key, data_key = keys.bars_index_key(symbol), keys.bars_data_key(symbol)
+                        if obsolete:
+                            pipe.zrem(index_key, *obsolete)
+                            pipe.hdel(data_key, *obsolete)
+                        if updates:
+                            pipe.zadd(index_key, {field: bar.bar_time.timestamp() for field, bar in updates.items()})
+                            pipe.hset(data_key, mapping={field: _candle_json(bar) for field, bar in updates.items()})
+                        pipe.expire(index_key, ttl)
+                        pipe.expire(data_key, ttl)
+                    await pipe.execute()
+                    return
+                except WatchError:
                     continue
-                pipe.zadd(index_key, {field: bar.bar_time.timestamp()})
-                pipe.hset(data_key, field, _candle_json(bar))
-            ttl = self._ttl(symbol, day, self.bars_ttl_seconds)
-            pipe.expire(index_key, ttl)
-            pipe.expire(data_key, ttl)
-        await pipe.execute()
-        for symbol in valid_by_symbol:
-            await self._trim_bars(keys.bars_index_key(symbol), keys.bars_data_key(symbol))
 
-    async def _trim_bars(self, index_key: str, data_key: str) -> None:
-        count = int(await self.redis.zcard(index_key))
-        excess = count - self.bar_limit
-        if excess <= 0:
-            return
-        fields = await self.redis.zrange(index_key, 0, excess - 1)
-        if not fields:
-            return
-        pipe = self.redis.pipeline(transaction=False)
-        pipe.zrem(index_key, *fields)
-        pipe.hdel(data_key, *fields)
-        await pipe.execute()
+    async def _plan_bar_write(self, pipe, symbol, incoming):
+        """Merge legacy timestamp:session fields before counting the retained minutes."""
+        from finance_analysis.market_stream.config import market_timezone
+
+        indexed = await pipe.zrange(keys.bars_index_key(symbol), 0, -1)
+        legacy = {field for field in indexed if ":" in field}
+        changed = {self._bar_field(bar) for bar in incoming}
+        # Read payloads only for legacy fields and minutes being updated.
+        changed.update(field.partition(":")[0] for field in legacy)
+        overlap = [field for field in indexed if field in legacy or field in changed]
+        stored = await pipe.hmget(keys.bars_data_key(symbol), overlap) if overlap else []
+        bars = [CandleState.from_mapping(json.loads(raw)) for raw in stored if raw]
+        updates = {self._bar_field(bar): bar for bar in unique_minute_bars([*bars, *incoming])}
+
+        minutes = sorted((set(indexed) - legacy) | updates.keys(), key=int)
+        market = "US" if symbol.endswith(".US") else "HK" if symbol.endswith(".HK") else "CN"
+        tz = market_timezone(market)
+        day = datetime.fromtimestamp(int(minutes[-1]), tz).date()
+        start = datetime.combine(day, time.min, tz).timestamp()
+        keep = {field for field in minutes[-self.bar_limit:] if int(field) >= start}
+        return (
+            set(indexed) - keep,
+            {field: bar for field, bar in updates.items() if field in keep},
+            self._ttl(symbol, day, self.bars_ttl_seconds),
+        )
 
     async def get_recent_bars(self, symbol: str, count: int) -> list[CandleState]:
         if count <= 0:
             return []
         fields = await self.redis.zrange(keys.bars_index_key(symbol), -int(count), -1)
-        return await self._load_bar_fields(symbol, fields)
+        if any(":" in field for field in fields):
+            # Legacy duplicates could occupy several of the last count entries.
+            fields = await self.redis.zrange(keys.bars_index_key(symbol), 0, -1)
+        return (await self._load_bar_fields(symbol, fields))[-count:]
 
     async def get_bars_by_time(self, symbol: str, start: datetime, end: datetime) -> list[CandleState]:
         fields = await self.redis.zrangebyscore(keys.bars_index_key(symbol), start.timestamp(), end.timestamp())
@@ -352,14 +366,16 @@ class RealtimeStateRepository:
     async def _load_bar_fields(self, symbol: str, fields: Sequence[str]) -> list[CandleState]:
         if not fields:
             return []
-        values = await self.redis.hmget(keys.bars_data_key(symbol), list(fields))
+        # A writer can migrate the index between ZRANGE and HMGET.
+        lookup = list(fields)
+        lookup.extend({field.partition(":")[0] for field in fields if ":" in field})
+        values = await self.redis.hmget(keys.bars_data_key(symbol), lookup)
         bars = [CandleState.from_mapping(json.loads(value)) for value in values if value]
-        return sorted(bars, key=lambda item: item.bar_time)
+        return unique_minute_bars(bars)
 
     @staticmethod
     def _bar_field(bar: CandleState) -> str:
-        session = (bar.trade_session or "").replace(":", "_")
-        return f"{int(bar.bar_time.timestamp())}:{session}"
+        return str(int(bar.bar_time.timestamp()))
 
     async def write_subscription(
         self,

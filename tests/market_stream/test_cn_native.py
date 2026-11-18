@@ -7,6 +7,7 @@ import pytest
 from finance_analysis.integrations.market_data.models import BatchBarResult, MinuteBarsRequest
 from finance_analysis.integrations.market_data.providers.cn_intraday import CnIntradayProvider
 from finance_analysis.integrations.market_data.realtime_state.repository import RealtimeStateRepository
+from finance_analysis.market_stream.warmup import warmup_bar_starts
 from finance_analysis.market_stream.cn_feed import CnQuoteFeed
 from finance_analysis.market_stream.config import MarketStreamConfig
 from finance_analysis.market_stream.quality import indicator_tail
@@ -100,11 +101,18 @@ async def test_close_retries_failed_atomic_write_then_stops_after_final_closed_m
     clock = NOW.replace(hour=7, minute=0, second=30)
     provider = CnIntradayProvider("sina_intraday", lambda symbol: [sina_row("15:00")])
     final = provider.fetch_minute_bars(MinuteBarsRequest((SYMBOL,), NOW.replace(minute=30, second=0), clock))
+    minutes = warmup_bar_starts(clock, "CN")
+    last = final.data[SYMBOL][0]
+    complete = replace(final, data={SYMBOL: [
+        replace(last, bar_time=t + timedelta(minutes=1), bar_start=t, bar_end=t + timedelta(minutes=1))
+        for t in minutes
+    ]})
     calls = []
 
     def fetch(*args, **kwargs):
         calls.append(kwargs)
-        return final
+        assert kwargs["required_bar_starts"] == minutes
+        return final if len(calls) <= 2 else complete
 
     app = app_with(fetch)
     monkeypatch.setattr("finance_analysis.market_stream.cn_feed.utc_now", lambda: clock)
@@ -115,9 +123,10 @@ async def test_close_retries_failed_atomic_write_then_stops_after_final_closed_m
     assert not app.cn_feed.minute_healthy
     await app.cn_feed.tick_minutes()
     await app.cn_feed.tick_minutes()
-    assert len(calls) == 2
+    await app.cn_feed.tick_minutes()
+    assert len(calls) == 3
     cached, current = await app.repository.get_intraday_snapshot(SYMBOL)
-    assert len(cached) == 1 and current.confirmed
+    assert len(cached) == 240 and current.confirmed
     assert current.bar_time == clock.replace(hour=6, minute=59, second=0)
 
 
