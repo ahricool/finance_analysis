@@ -12,10 +12,7 @@ REQUIRED_MINUTES = 15
 FLAT_SOURCE = "intraday_flat_fill"
 
 
-def analysis_window(ordered):
-    end = ordered[-1].bar_time
-    opening, _ = session_bounds("US", market_trading_date(end, "US"))
-    start = max(opening, end - (HORIZON - 1) * MINUTE)
+def minute_timeline(ordered, start, end):
     raw = {b.bar_time: b for b in ordered if start <= b.bar_time <= end}
     valid = {t: b for t, b in raw.items() if b.is_valid() and not b.partial and not b.sampled}
     bars, filled = [], []
@@ -38,6 +35,14 @@ def analysis_window(ordered):
             # Explicit invalid/partial/sampled bars are not silently repaired.
             previous = None
         at += MINUTE
+    return bars, filled
+
+
+def analysis_window(ordered):
+    end = ordered[-1].bar_time
+    opening, _ = session_bounds("US", market_trading_date(end, "US"))
+    start = max(opening, end - (HORIZON - 1) * MINUTE)
+    bars, filled = minute_timeline(ordered, start, end)
     recent_start = end - (REQUIRED_MINUTES - 1) * MINUTE
     recent = [b for b in bars if b.bar_time >= recent_start]
     warming = end + MINUTE - opening < REQUIRED_MINUTES * MINUTE

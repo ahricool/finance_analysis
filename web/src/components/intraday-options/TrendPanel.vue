@@ -186,6 +186,7 @@ onBeforeUnmount(() => { stopped = true; generation++; controller?.abort(); clear
       <SimulationTable
         :rows="selectedTrade.operations"
         :columns="tradeColumns"
+        default-time-key="at"
         :row-key="op => op.id"
         :value="(op, key) => ['at', 'priceAt', 'processedAt'].includes(key) ? sortTime(sortField(op, key) as string | undefined) : sortField(op, key)"
         label="模拟成交标记明细"
@@ -211,6 +212,7 @@ onBeforeUnmount(() => { stopped = true; generation++; controller?.abort(); clear
     </div>
     <OpportunityPanel
       :opportunities="result?.opportunities"
+      :plans="simulation?.states.find(s => s.symbol === symbol)?.plans"
       :stale="stale"
     />
     <article

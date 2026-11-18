@@ -218,6 +218,7 @@ def closed_session_bars(symbol: str, bars: Sequence[CandleState], now: datetime)
             bar.symbol != symbol
             or not bar.confirmed
             or bar.bar_time + MINUTE > now
+            or bar.received_at > now
             or not is_regular_trade_session(bar.trade_session)
         ):
             continue

@@ -25,7 +25,13 @@ export interface IntradayStructure extends AnalysisCoverage {
   reasons: string[];
 }
 export interface OpportunityBranch {
-  kind: 'box_breakout' | 'box_retest' | 'trend_recovery';
+  kind: 'box_breakout' | 'box_retest' | 'trend_recovery' | 'trend_continuation';
+  confirmationMethod?: 'two_closes' | 'strong_break' | null;
+  confirmationAvailableAt?: string | null; confirmationRunAvailableAt?: string | null; executionEvidenceAt?: string | null;
+  triggeredAt?: string | null; structureStart?: string | null; structureEnd?: string | null;
+  structureHigh?: number | null; structureLow?: number | null;
+  atrSource?: string | null; atrSamples?: number | null; ruleVersion?: string | null;
+  supersededBy?: string | null; breakoutRejection?: string | null;
   direction: 'bullish' | 'bearish'; status: 'forming' | 'confirmed' | 'extended' | 'invalidated' | 'expired';
   structureId: string; trigger: number; invalidation: number; atr: number;
   formationStart: string; startedAt: string; confirmedAt: string | null; expiresAt: string;
@@ -45,6 +51,7 @@ export interface TrendResult {
 }
 export interface IntradayOptionRow {
   simulation?: SimulationState | null;
+  rankedOpportunity?: (OpportunityBranch & { opportunityReason: string; executionReason: string }) | null;
   opportunityEligible?: boolean;
   symbol: string; name: string | null; lastPrice: number | null; changePct: number | null; quoteTime: string | null;
   quoteStatus: 'missing' | 'ready' | 'delayed' | 'invalid_time';
@@ -62,11 +69,13 @@ export async function fetchIntradayOptions(signal: AbortSignal): Promise<Intrada
 }
 
 export interface SimulationPlan extends OpportunityBranch {
+  entryQuoteNotBefore?: string | null;
   processId: string; entryLow: number; entryHigh: number; target: number | null; targetSource: string;
   remainingSpace: number | null; rewardRisk: number | null; ageSeconds: number | null;
   opportunityValid?: boolean; opportunityReason?: string; executable: boolean; executionReason: string;
 }
 export interface SimTrade {
+  confirmationMethod?: OpportunityBranch['confirmationMethod'];
   entryPriceAt?: string; tradingDate?: string;
   opportunityId?: string; id: string; symbol: string; side: number; kind: OpportunityBranch['kind']; entryPrice: number; entryAt: string;
   lastPrice: number; lastPriceAt: string; invalidation: number; protection: number; target: number | null;

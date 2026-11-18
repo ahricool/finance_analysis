@@ -72,7 +72,25 @@ class IntradayStructure(AnalysisCoverage):
 
 
 class OpportunityBranch(BaseModel):
-    kind: Literal["box_breakout", "box_retest", "trend_recovery"]
+    kind: Literal["box_breakout", "box_retest", "trend_recovery", "trend_continuation"]
+    process_id: str | None = None
+    rule_version: str | None = None
+    confirmation_method: Literal["two_closes", "strong_break"] | None = None
+    confirmation_available_at: datetime | None = None
+    confirmation_run_available_at: datetime | None = None
+    execution_evidence_at: datetime | None = None
+    triggered_at: datetime | None = None
+    structure_start: datetime | None = None
+    structure_end: datetime | None = None
+    structure_high: float | None = None
+    structure_low: float | None = None
+    atr_source: str | None = None
+    atr_samples: int | None = None
+    entry_low: float | None = None
+    entry_high: float | None = None
+    max_risk_atr: float | None = None
+    superseded_by: str | None = None
+    breakout_rejection: str | None = None
     direction: Literal["bullish", "bearish"]
     status: Literal["forming", "confirmed", "extended", "invalidated", "expired"]
     structure_id: str
@@ -118,8 +136,14 @@ class TrendResult(BaseModel):
     explanation: str
 
 
+class RankedOpportunity(OpportunityBranch):
+    opportunity_reason: str
+    execution_reason: str
+
+
 class IntradayOptionRow(BaseModel):
     simulation: dict | None = None
+    ranked_opportunity: RankedOpportunity | None = None
     opportunity_eligible: bool = False
     symbol: str
     name: str | None

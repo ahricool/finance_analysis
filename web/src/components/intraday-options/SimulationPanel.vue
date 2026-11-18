@@ -4,7 +4,7 @@ import { Activity, ArrowDownLeft, ArrowUpRight, Clock3, ShieldCheck } from 'luci
 import type { IntradayOptionsSnapshot, SimTrade, SimulationPlan, SimulationSnapshot } from '@/api/intradayOptions';
 import { useCurrentTime } from '@/composables/useCurrentTime';
 import { sortField, sortTime } from '@/composables/useTableSort';
-import { clock, fmt, pct, tone, opportunityKinds, opportunityStates } from './labels';
+import { clock, fmt, pct, tone, opportunityKinds, opportunityStates, confirmationLabel } from './labels';
 import FieldSelect from '@/components/forms/FieldSelect.vue';
 import SimulationTable from './SimulationTable.vue';
 
@@ -30,7 +30,8 @@ const phase = computed(() => props.snapshot.marketStatus === 'preopen' ? 'preope
   : props.snapshot.marketStatus === 'closed' ? 'closed' : remaining.value == null ? 'unknown' : remaining.value === 0 ? 'stopped' : 'active');
 const phaseLabel = computed(() => ({ preopen: '等待开盘', closed: '非交易时间', stopped: '今日已停止进场', active: '交易窗口内', unknown: '交易日历待同步' })[phase.value]);
 const entryPaused = computed(() => phase.value !== 'active');
-const events = computed(() => [...new Map((props.snapshot.simulation?.events ?? []).filter(e => matches(e.symbol)).map(e => [e.id, e])).values()].sort((a, b) => b.id - a.id));
+const events = computed(() => [...new Map((props.snapshot.simulation?.events ?? []).filter(e => matches(e.symbol)).map(e => [e.id, e])).values()].sort((a, b) =>
+  (sortTime(b.at) ?? -Infinity) - (sortTime(a.at) ?? -Infinity) || b.id - a.id));
 const importantEvents = computed(() => events.value.filter(e => ['entry', 'exit', 'hold'].includes(e.kind)).slice(0, 30));
 const otherEvents = computed(() => events.value.filter(e => !['entry', 'exit', 'hold'].includes(e.kind)));
 function eventSide(e: SimEvent) {
@@ -52,7 +53,7 @@ const statLabel = (label: string) => {
   return side ? `${opportunityKinds[kind as SimulationPlan['kind']] ?? kind} · ${sideLabel(Number(side))}` : label;
 };
 const positionColumns = [
-  { key: 'symbol', label: '模拟持仓' }, { key: 'entryPrice', label: '入场价', numeric: true },
+  { key: 'symbol', label: '模拟持仓' }, { key: 'entryAt', label: '进场时间' }, { key: 'entryPrice', label: '入场价', numeric: true },
   { key: 'currentPrice', label: '当前有效价', numeric: true }, { key: 'returnPct', label: '持有中收益', numeric: true },
   { key: 'duration', label: '持有时长', numeric: true }, { key: 'protection', label: '保护 / 失效位', numeric: true },
   { key: 'target', label: '目标位', numeric: true },
@@ -62,7 +63,7 @@ const eventColumns = [
   { key: 'kind', label: '模拟动作' }, { key: 'price', label: '标的价格', numeric: true }, { key: 'reason', label: '原因与下一步' },
 ];
 const planColumns = [
-  { key: 'kind', label: '机会 / 方向' }, { key: 'status', label: '形态 / 当前资格' },
+  { key: 'kind', label: '机会 / 方向' }, { key: 'confirmedAt', label: '首次确认时间' }, { key: 'status', label: '形态 / 当前资格' },
   { key: 'entryLow', label: '入场区间', numeric: true }, { key: 'invalidation', label: '结构失效位', numeric: true },
   { key: 'target', label: '目标位', numeric: true }, { key: 'remainingSpace', label: '剩余空间 / 收益风险比', numeric: true },
 ];
@@ -78,6 +79,7 @@ const statColumns = [
   { key: 'averageLoss', label: '平均亏损', numeric: true }, { key: 'averageDuration', label: '平均持有', numeric: true },
 ];
 function positionValue(t: SimTrade, key: string) {
+  if (key === 'entryAt') return sortTime(t.entryAt);
   return key === 'currentPrice' ? quoteFor(t.symbol)?.currentPrice : key === 'duration' ? tradeMinutes(t) : sortField(t, key);
 }
 function eventValue(e: SimEvent, key: string) {
@@ -87,6 +89,7 @@ function eventValue(e: SimEvent, key: string) {
   return sortField(e, key);
 }
 function planValue(p: SimulationPlan, key: string) {
+  if (key === 'confirmedAt') return sortTime(p.confirmedAt);
   return key === 'status' ? ['confirmed', 'forming', 'extended', 'expired', 'invalidated'].indexOf(p.status) : sortField(p, key);
 }
 function historyValue(t: SimTrade, key: string) {
@@ -189,6 +192,7 @@ function historyValue(t: SimTrade, key: string) {
       <SimulationTable
         :rows="positions"
         :columns="positionColumns"
+        default-time-key="entryAt"
         :value="positionValue"
         :row-key="t => t.id"
         row-testid="simulation-position"
@@ -207,10 +211,11 @@ function historyValue(t: SimTrade, key: string) {
               模拟持有{{ p.side === 1 ? '多' : '空' }} <span class="text-muted-foreground">· {{ opportunityKinds[p.kind] }}</span>
             </p>
           </template>
+          <template v-else-if="column === 'entryAt'">
+            {{ clock(p.entryAt) }}
+          </template>
           <template v-else-if="column === 'entryPrice'">
-            {{ price(p.entryPrice) }}<p class="mt-1 text-xs text-muted-foreground">
-              {{ clock(p.entryAt) }}
-            </p>
+            {{ price(p.entryPrice) }}
           </template>
           <template v-else-if="column === 'currentPrice'">
             {{ price(quoteFor(p.symbol)?.currentPrice) }}<p class="mt-1 text-xs text-muted-foreground">
@@ -262,6 +267,7 @@ function historyValue(t: SimTrade, key: string) {
         <SimulationTable
           :rows="importantEvents"
           :columns="eventColumns"
+          default-time-key="at"
           :value="eventValue"
           :row-key="e => e.id"
           row-testid="simulation-event"
@@ -298,6 +304,14 @@ function historyValue(t: SimTrade, key: string) {
                 {{ e.reason }}
               </p>
               <p
+                v-if="e.trade"
+                class="mt-1 text-xs text-muted-foreground"
+              >
+                {{ opportunityKinds[e.trade.kind] }}<template v-if="e.trade.confirmationMethod">
+                  · {{ confirmationLabel(e.trade.confirmationMethod) }}
+                </template>
+              </p>
+              <p
                 v-if="e.trade?.estimated"
                 class="mt-1 max-w-md whitespace-normal text-xs text-muted-foreground"
               >
@@ -324,6 +338,7 @@ function historyValue(t: SimTrade, key: string) {
       <SimulationTable
         :rows="state?.plans ?? []"
         :columns="planColumns"
+        default-time-key="confirmedAt"
         :value="planValue"
         :row-key="p => p.structureId"
         label="机会计划表"
@@ -337,11 +352,16 @@ function historyValue(t: SimTrade, key: string) {
               class="mt-1 text-xs"
               :class="tone(p.direction === 'bullish' ? 1 : -1)"
             >
-              {{ p.direction === 'bullish' ? '做多' : '做空' }} · 首次 {{ clock(p.confirmedAt) }} · {{ p.ageSeconds == null ? '待确认' : `${Math.floor(p.ageSeconds / 60)}分钟` }}
+              {{ p.direction === 'bullish' ? '做多' : '做空' }}
+            </p>
+          </template>
+          <template v-else-if="column === 'confirmedAt'">
+            {{ clock(p.confirmedAt) }}<p class="mt-1 text-xs text-muted-foreground">
+              {{ p.ageSeconds == null ? '待确认' : `${Math.floor(p.ageSeconds / 60)}分钟` }}
             </p>
           </template>
           <template v-else-if="column === 'status'">
-            <p>{{ opportunityStates[p.status] }}</p><p class="mt-1 max-w-64 whitespace-normal text-xs text-muted-foreground">
+            <p>{{ opportunityStates[p.status] }} · {{ confirmationLabel(p.confirmationMethod) }}</p><p class="mt-1 max-w-64 whitespace-normal text-xs text-muted-foreground">
               {{ entryPaused ? phaseLabel : stale ? '连接或计算延迟，当前机会资格未知' : p.opportunityReason }}
             </p><p class="mt-1 max-w-64 whitespace-normal text-xs">
               {{ planReason(p) }}
@@ -399,6 +419,7 @@ function historyValue(t: SimTrade, key: string) {
       <SimulationTable
         :rows="trades"
         :columns="historyColumns"
+        default-time-key="exitAt"
         :value="historyValue"
         :row-key="t => t.id"
         label="已完成模拟交易表"
@@ -417,6 +438,12 @@ function historyValue(t: SimTrade, key: string) {
           </template>
           <template v-else-if="column === 'kind'">
             {{ opportunityKinds[t.kind] }}
+            <p
+              v-if="t.confirmationMethod"
+              class="mt-1 text-xs text-muted-foreground"
+            >
+              {{ confirmationLabel(t.confirmationMethod) }}
+            </p>
           </template>
           <template v-else-if="column === 'entryAt' || column === 'exitAt'">
             {{ clock(t[column]) }}
@@ -477,6 +504,7 @@ function historyValue(t: SimTrade, key: string) {
         <SimulationTable
           :rows="otherEvents"
           :columns="eventColumns.filter(c => c.key !== 'price')"
+          default-time-key="at"
           :value="eventValue"
           :row-key="e => e.id"
           label="行情与形态记录表"

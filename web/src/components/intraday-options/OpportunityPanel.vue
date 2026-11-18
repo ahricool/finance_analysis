@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import type { IntradayOpportunities } from '@/api/intradayOptions';
-import { clock, directions, fmt, opportunityKinds, opportunityStates } from './labels';
-defineProps<{ opportunities?: IntradayOpportunities | null; stale: boolean }>();
+import type { IntradayOpportunities, SimulationPlan } from '@/api/intradayOptions';
+import { clock, directions, fmt, opportunityKinds, opportunityStates, confirmationLabel } from './labels';
+defineProps<{ opportunities?: IntradayOpportunities | null; stale: boolean; plans?: SimulationPlan[] }>();
 </script>
 
 <template>
@@ -35,10 +35,29 @@ defineProps<{ opportunities?: IntradayOpportunities | null; stale: boolean }>();
           {{ opportunityKinds[branch.kind] }} · {{ directions[branch.direction] }}
         </p>
         <p>{{ opportunityStates[branch.status] }}{{ opportunities?.reference || stale ? '（参考）' : '' }} · 分支质量 {{ fmt(branch.qualityScore) }}</p>
+        <p>{{ confirmationLabel(branch.confirmationMethod) }} · 形态确认不等于当前可进场</p>
+        <p
+          v-if="!stale"
+          class="font-medium"
+        >
+          {{ plans?.find(p => p.structureId === branch.structureId)?.executionReason ?? '等待实时报价执行检查' }}
+        </p>
+        <p
+          v-if="branch.supersededBy"
+          class="text-muted-foreground"
+        >
+          已有后续独立结构，保留原证据
+        </p>
+        <p v-if="branch.structureStart">
+          结构 {{ clock(branch.structureStart) }}–{{ clock(branch.structureEnd) }} · {{ fmt(branch.structureLow, 2) }}–{{ fmt(branch.structureHigh, 2) }}
+        </p>
+        <p v-if="branch.atrSource === 'observed_adjacent_true_ranges'">
+          波动尺度 {{ fmt(branch.atr, 3) }} · {{ branch.atrSamples }} 个真实相邻波动样本
+        </p>
         <p>固定触发位 {{ fmt(branch.trigger, 2) }} · 失效位 {{ fmt(branch.invalidation, 2) }}</p>
         <p>距触发位 {{ fmt(branch.distanceAtr, 2) }} ATR · 距失效位 {{ fmt(branch.riskAtr, 2) }} ATR</p>
-        <p>背景起点 {{ clock(branch.formationStart) }} · 触发 {{ clock(branch.startedAt) }}</p>
-        <p>首次确认 {{ clock(branch.confirmedAt) }} · 到期 {{ clock(branch.expiresAt) }}</p>
+        <p>背景起点 {{ clock(branch.formationStart) }} · 候选形成 {{ clock(branch.startedAt) }} · 突破 {{ clock(branch.triggeredAt) }}</p>
+        <p>首次确认 {{ clock(branch.confirmedAt) }} · 确认证据可用 {{ clock(branch.confirmationAvailableAt) }} · 到期 {{ clock(branch.expiresAt) }}</p>
         <p>结构 {{ fmt(branch.components.structure) }} · 距离 {{ fmt(branch.components.distance) }} · 恢复 {{ fmt(branch.components.recovery) }} · 失效距离 {{ fmt(branch.components.risk) }}</p>
         <p
           v-for="reason in branch.reasons"

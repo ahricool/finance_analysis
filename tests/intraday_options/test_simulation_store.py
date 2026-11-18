@@ -113,3 +113,141 @@ def test_reconnect_cursor_recovers_previous_session_exit(isolated_store):
     replay = store.read(tomorrow, cursor)
     assert [e['kind'] for e in replay['events']] == ['exit']
     assert len({e['id'] for e in replay['events']}) == len(replay['events'])
+
+
+def test_continuation_concurrent_restart_preserves_frozen_method_and_structure(isolated_store):
+    from tests.intraday_options.test_continuation import path
+    from tests.intraday_options.test_scoring import score
+
+    bars = path()
+    now = bars[-1].bar_time + timedelta(minutes=1, seconds=5)
+    r = score(bars)
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        states = list(pool.map(lambda _: store.process("SPY.US", r, quote(now, 104), now), range(8)))
+    assert all(s["position"]["kind"] == "trend_continuation" for s in states)
+    with isolated_store() as session:
+        trades = list(session.scalars(select(Trade)))
+        assert len(trades) == 1
+        frozen = trades[0].payload["entry_evidence"]
+        assert frozen["confirmation_method"] == "strong_break"
+        assert frozen["structure_high"] and frozen["atr_samples"] >= 15
+    b = r["opportunities"]["branches"][0]
+    b.update(atr=10, structure_high=200)
+    store.process("SPY.US", r, quote(now + timedelta(seconds=5), 104), now + timedelta(seconds=5))
+    store.process("SPY.US", r, quote(now + timedelta(seconds=10), 103), now + timedelta(seconds=10))
+    with isolated_store() as session:
+        trades = list(session.scalars(select(Trade)))
+        assert len(trades) == 1 and trades[0].status == "closed"
+        assert trades[0].payload["entry_evidence"] == frozen
+        events = list(session.scalars(select(Event)))
+        assert sum(e.payload["kind"] == "entry" for e in events) == 1
+        assert sum(e.payload["kind"] == "exit" for e in events) == 1
+
+
+@pytest.mark.parametrize('side', [1, -1])
+def test_quote_confirmation_order_and_late_revision_persist_original_evidence(isolated_store, side):
+    from copy import deepcopy
+    from dataclasses import replace
+    from finance_analysis.intraday_options.scoring import calculate
+    from finance_analysis.intraday_options.rules import entry_interval
+    from tests.intraday_options.test_continuation import path, continuation
+
+    bars = path(side)
+    confirmed = bars[-1].bar_time + timedelta(minutes=1)
+    now = confirmed + timedelta(seconds=5)
+    r = calculate('SPY.US', bars, now)
+    price = sum(entry_interval(continuation(r))) / 2
+    early = replace(quote(confirmed - timedelta(seconds=10), price), received_at=now)
+    state = store.process('SPY.US', r, early, now)
+    assert not state.get('position')
+    with isolated_store() as session:
+        assert list(session.scalars(select(Trade))) == []
+        evidence = deepcopy(next(e.payload['evidence'] for e in session.scalars(select(Event))
+                                 if e.payload['kind'] == 'confirmed'))
+    when = now + timedelta(seconds=5)
+    fresh = replace(quote(when - timedelta(seconds=2), price), received_at=when)
+    store.process('SPY.US', r, fresh, when)
+    with isolated_store() as session:
+        trade = session.scalars(select(Trade)).one().payload
+        assert trade['entry_price_at'] == fresh.event_time.isoformat()
+        assert trade['entry_at'] == when.isoformat()
+        assert trade['evidence'] == evidence
+        entry_evidence = deepcopy(trade['entry_evidence'])
+    received = when + timedelta(seconds=5)
+    revision = replace(bars[-1], high=bars[-1].high + 1, received_at=received)
+    revised_result = calculate('SPY.US', [*bars, revision], received)
+    assert revised_result != r
+    store.process('SPY.US', revised_result, quote(received, price), received)
+    with isolated_store() as session:
+        trade = session.scalars(select(Trade)).one().payload
+        assert trade['evidence'] == evidence and trade['entry_evidence'] == entry_evidence
+        confirmations = [e.payload['evidence'] for e in session.scalars(select(Event))
+                         if e.payload['kind'] == 'confirmed' and e.payload['evidence']['structure_id'] == evidence['structure_id']]
+        assert confirmations == [evidence]
+
+
+@pytest.mark.parametrize('revision', [False, True])
+@pytest.mark.parametrize('side', [1, -1])
+def test_persisted_quote_follows_receipt_of_confirming_version(isolated_store, revision, side):
+    from dataclasses import replace
+    from finance_analysis.intraday_options.scoring import calculate
+    from tests.intraday_options.test_continuation import path
+
+    bars = path(side)
+    closed = bars[-1].bar_time + timedelta(minutes=1)
+    received = closed + timedelta(seconds=14)
+    actual = replace(bars[-1], received_at=received)
+    versions = bars[:-1] + ([path(side, tail=(103.75,))[-1]] if revision else []) + [actual]
+    price = float(actual.close)
+    early = quote(closed + timedelta(seconds=3), price)
+    for now in (early.event_time, closed + timedelta(seconds=15)):
+        result = calculate('SPY.US', versions, now)
+        assert not store.process('SPY.US', result, early, now).get('position')
+    with isolated_store() as db:
+        assert db.scalars(select(Trade)).first() is None
+    fresh = quote(closed + timedelta(seconds=18), price)
+    store.process('SPY.US', result, fresh, closed + timedelta(seconds=20))
+    with isolated_store() as db:
+        row = db.scalars(select(Trade)).one().payload
+        assert row['entry_price_at'] == fresh.event_time.isoformat()
+        assert row['entry_at'] == (closed + timedelta(seconds=20)).isoformat()
+        assert row['entry_evidence']['confirmation_available_at'] == received.isoformat()
+        assert row['evidence']['confirmed_at'] == closed.isoformat()
+
+
+@pytest.mark.parametrize("side", [1, -1])
+def test_restored_shape_persists_revision_floor_and_original_confirmation(isolated_store, side):
+    from dataclasses import replace
+    from tests.intraday_options.test_continuation import path, continuation
+    from finance_analysis.intraday_options.scoring import calculate
+
+    bars = path(side, tail=(104, 104))
+    close = bars[-1].bar_time + timedelta(minutes=1)
+    first_at = close - timedelta(seconds=55)
+    first = calculate("SPY.US", bars[:-1], first_at)
+    branch = continuation(first)
+    inside = branch["trigger"] + side * .5 * branch["atr"]
+    outside = branch["trigger"] + side * 1.1 * branch["atr"]
+    state = store.process("SPY.US", first, quote(first_at, outside), first_at)
+    frozen = state["confirmations"][branch["structure_id"]]
+    wick = "low" if side > 0 else "high"
+    original = replace(bars[-1], **{wick: getattr(bars[-1], wick) - side})
+    receipt = close + timedelta(seconds=14)
+    versions = [*bars[:-1], original, replace(bars[-1], received_at=receipt)]
+    early = quote(close + timedelta(seconds=3), inside)
+    for offset in (5, 15, 20):
+        now = close + timedelta(seconds=offset)
+        result = calculate("SPY.US", versions, now)
+        assert not store.process("SPY.US", result, early, now).get("position")
+    with isolated_store() as db:
+        assert db.scalars(select(Trade)).first() is None
+    # Equality at the receipt boundary is eligible. Processing time is distinct.
+    fresh = quote(receipt, inside)
+    store.process("SPY.US", result, fresh, close + timedelta(seconds=25))
+    with isolated_store() as db:
+        trade = db.scalars(select(Trade)).one().payload
+        assert trade["entry_price_at"] == receipt.isoformat()
+        assert trade["entry_price"] == inside and trade["evidence"] == frozen
+        assert trade["entry_evidence"]["entry_quote_not_before"] == receipt.isoformat()
+        confirmations = [e.payload["evidence"] for e in db.scalars(select(Event)) if e.payload["kind"] == "confirmed"]
+        assert confirmations == [frozen]

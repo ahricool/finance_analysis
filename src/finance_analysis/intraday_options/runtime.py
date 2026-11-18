@@ -8,9 +8,10 @@ import logging
 from datetime import datetime, timedelta
 
 from finance_analysis.core.time import utc_now
-from finance_analysis.intraday_options.config import CONFIG, SYMBOLS, VERSION, WINDOWS
+from finance_analysis.intraday_options.config import CONFIG, SYMBOLS, VERSION
 from finance_analysis.intraday_options.analysis_window import REQUIRED_MINUTES
 from finance_analysis.intraday_options.scoring import calculate, closed_session_bars
+from finance_analysis.intraday_options.rules import SIMULATION_VERSION, plan_order
 from finance_analysis.market_stream.config import market_trading_date
 from finance_analysis.market_stream.session import cache_ttl, display_day, in_session, session_bounds
 
@@ -40,14 +41,12 @@ class Publisher:
         previous = self.published.get(symbol)
         if previous is not None and latest < previous:
             return
-        # Compare values, not CandleState identity or receipt time: warmup can replace
+        # Compare values and receipt times: warmup can replace
         # objects, and closed candles can be mutated/revised without advancing time.
-        # Only the trailing scoring horizon matters; timestamps capture missing bars.
-        start = latest - timedelta(minutes=max(WINDOWS) - 1)
+        # Earlier session bars can affect the identity of a later recovery.
         inputs = tuple(
-            (bar.bar_time, bar.open, bar.high, bar.low, bar.close, bar.volume >= 0, bar.partial, bar.sampled)
+            (bar.bar_time, bar.received_at, bar.open, bar.high, bar.low, bar.close, bar.volume >= 0, bar.partial, bar.sampled)
             for bar in closed
-            if bar.bar_time >= start
         )
         if latest == previous and inputs == self._published_inputs.get(symbol):
             return
@@ -98,6 +97,25 @@ def data_status(result, now, day, market_status):
     return "ready"
 
 
+def ranked_opportunity(result, simulation, now):
+    """Project one currently valid execution plan; never borrow another shape's score."""
+    branches = {b["structure_id"]: b for b in result["opportunities"]["branches"]}
+    candidates = []
+    for plan in simulation.get("plans", []):
+        branch = branches.get(plan["structure_id"])
+        if (branch is None or not plan.get("opportunity_valid") or plan["status"] != "confirmed"
+                or plan.get("rule_version") != SIMULATION_VERSION
+                or plan.get("quality_score") is None or plan.get("minute_as_of") != result["as_of"]
+                or now >= datetime.fromisoformat(plan["expires_at"])):
+            continue
+        # A revision can retain as_of. Check the actual branch evidence too;
+        # execution has its own rule_version, all other shape fields must match.
+        if all(plan.get(k) == v for k, v in branch.items() if k != "rule_version"):
+            candidates.append(plan)
+    entered = simulation.get("entered_opportunity_id")
+    return min(candidates, key=lambda p: (p["structure_id"] != entered, *plan_order(p)), default=None)
+
+
 async def read_snapshot(repository, names, now):
     day, market_status = session_context(now)
 
@@ -133,32 +151,17 @@ async def read_snapshot(repository, names, now):
             else:
                 quote_status = "ready"
         simulation = json.loads(sim_raw) if sim_raw else None
-        primary = (result or {}).get("opportunities", {}).get("primary")
-        primary_plan = next(
-            (
-                p
-                for p in (simulation or {}).get("plans", [])
-                if primary and p["structure_id"] == primary["structure_id"]
-            ),
-            None,
-        )
+        display = None
+        if (result and result.get("opportunities") and not result["opportunities"].get("reference", True)
+                and status in {"ready", "warming"} and market_status == "open" and quote_status == "ready"
+                and simulation and not simulation.get("stopped", True) and simulation.get("cutoff")
+                and now < datetime.fromisoformat(simulation["cutoff"])
+                and 0 <= (now - datetime.fromisoformat(simulation["calculated_at"])).total_seconds() <= 15):
+            display = ranked_opportunity(result, simulation, now)
         return {
             "simulation": simulation,
-            "opportunity_eligible": bool(
-                result
-                and result.get("opportunities", {}).get("primary")
-                and status in {"ready", "warming"}
-                and market_status == "open"
-                and quote_status == "ready"
-                and simulation
-                and simulation.get("cutoff")
-                and now < datetime.fromisoformat(simulation["cutoff"])
-                and 0 <= (now - datetime.fromisoformat(simulation["calculated_at"])).total_seconds() <= 15
-                and primary_plan
-                and primary_plan.get("opportunity_valid", False)
-                and primary_plan.get("minute_as_of") == result["as_of"]
-                and now < datetime.fromisoformat(primary_plan["expires_at"])
-            ),
+            "ranked_opportunity": display,
+            "opportunity_eligible": display is not None,
             "symbol": symbol,
             "name": names.get(symbol),
             "last_price": price,
