@@ -124,8 +124,8 @@ def test_cn_and_hk_lunch_are_not_treated_as_cache_gaps() -> None:
     cn_end = latest_completed_bar_time(cn_now, "CN")
     hk_end = latest_completed_bar_time(hk_now, "HK")
     assert cn_end is not None and hk_end is not None
-    cn_bars = [candle("600519.SH", cn_end - timedelta(minutes=index)) for index in range(60)]
-    hk_bars = [candle("0700.HK", hk_end - timedelta(minutes=index)) for index in range(60)]
+    cn_bars = [candle("600519.SH", cn_end - timedelta(minutes=index)) for index in range(120)]
+    hk_bars = [candle("0700.HK", hk_end - timedelta(minutes=index)) for index in range(150)]
     assert service._cache_has_current_session(cn_bars, "CN", now=cn_now)
     assert service._cache_has_current_session(hk_bars, "HK", now=hk_now)
 
@@ -148,7 +148,7 @@ def test_market_local_cross_day_clears_old_in_memory_bars() -> None:
 @pytest.mark.asyncio
 async def test_history_loader_preserves_multiple_market_trading_dates() -> None:
     class Fetcher:
-        def get_minute_bars(self, symbols, start_time, end_time, interval, required_bar_starts):
+        def get_minute_bars(self, symbols, start_time, end_time, interval, required_bar_starts, providers):
             bars = [
                 MarketBar(
                     symbol="600519.SH", market=Market.CN, interval="1m", trade_date=timestamp.date(),
@@ -172,17 +172,19 @@ async def test_history_loader_preserves_multiple_market_trading_dates() -> None:
 
 
 @pytest.mark.asyncio
-async def test_history_loader_falls_through_incomplete_streaming_cache(monkeypatch):
+async def test_history_loader_skips_cache_and_rejects_remote_with_opening_gap(monkeypatch):
     from finance_analysis.integrations.market_data.registry import MINUTE_BARS, ProviderRegistry
     from finance_analysis.integrations.market_data.service import MarketDataService
     from finance_analysis.market_stream import warmup
 
     now = datetime(2026, 6, 26, 15, 15, 5, tzinfo=timezone.utc)
 
+    completed_at = now + timedelta(minutes=1)
+    ticks = iter([now, completed_at])
     class Clock(datetime):
         @classmethod
         def now(cls, tz=None):
-            return now
+            return next(ticks)
 
     monkeypatch.setattr(warmup, 'datetime', Clock)
     required = warmup.warmup_bar_starts(now, 'US')
@@ -204,9 +206,18 @@ async def test_history_loader_falls_through_incomplete_streaming_cache(monkeypat
             return BatchBarResult(data={'AAPL.US': bars})
 
     registry = ProviderRegistry()
-    for name, missing in [('streaming', required[30]), ('longbridge', None)]:
+    for name, missing in [('streaming', None), ('longbridge', required[0]), ('yfinance', None)]:
         registry.register(name, Provider(name, missing), capabilities={MINUTE_BARS})
     bars = await LongbridgeHistoryLoader(MarketDataService(registry)).fetch('AAPL.US', 'US', 420)
-    assert calls == ['streaming', 'longbridge']
+    assert calls == ['longbridge', 'yfinance']
     assert [b.bar_time for b in bars] == required
-    assert all(b.confirmed for b in bars)
+    assert all(b.confirmed and b.source == "yfinance" and b.received_at == completed_at for b in bars)
+
+@pytest.mark.asyncio
+async def test_history_loader_reports_exhausted_providers():
+    class Unavailable:
+        def get_minute_bars(self, *args, **kwargs):
+            return BatchBarResult(failed_symbols={"AAPL.US": "every provider has gaps"})
+
+    with pytest.raises(RuntimeError, match="every provider has gaps"):
+        await LongbridgeHistoryLoader(Unavailable()).fetch("AAPL.US", "US", 420)

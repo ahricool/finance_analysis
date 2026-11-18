@@ -10,9 +10,10 @@ from zoneinfo import ZoneInfo
 from finance_analysis.core.time import utc_now
 from finance_analysis.integrations.market_data import MarketDataService
 from finance_analysis.integrations.market_data.config import CN_STREAM_MINUTE_PROVIDERS
-from finance_analysis.integrations.market_data.realtime_state.models import CandleState, MarketEvent
+from finance_analysis.integrations.market_data.realtime_state.models import CandleState, MarketEvent, unique_minute_bars
 from finance_analysis.market_stream.config import latest_completed_bar_time, market_trading_date
 from finance_analysis.market_stream.session import display_day, in_session, session_bounds
+from finance_analysis.market_stream.warmup import warmup_bar_starts
 from finance_analysis.market_stream.symbol_state import SymbolRuntimeState, SymbolStatus
 
 logger = logging.getLogger(__name__)
@@ -144,8 +145,9 @@ class CnQuoteFeed:
         if end <= start:
             return
         expected = latest_completed_bar_time(end, "CN")
-        # At lunch/close, retry until the final closed bar is actually received.
+        # At lunch/close, settle only after every elapsed trading minute has been published.
         active = in_session("CN", now)
+        required = set(warmup_bar_starts(now, "CN")) if not active else set()
         symbols = sorted(
             symbol
             for symbol in self.targets
@@ -168,6 +170,7 @@ class CnQuoteFeed:
             interval="1m",
             providers=CN_STREAM_MINUTE_PROVIDERS,
             include_incomplete=True,
+            required_bar_starts=sorted(required),
             minimum_latest_bar_time=expected - timedelta(minutes=2) if expected is not None else None,
         )
         self.minute_healthy = not bool(result.failed_symbols or result.missing_symbols)
@@ -202,6 +205,7 @@ class CnQuoteFeed:
                 and bar.bar_end is not None
                 and market_trading_date(bar.bar_start, "CN") == day
             ]
+            candles = unique_minute_bars(candles)[-self.owner.config.bar_limit:]
             if not candles:
                 continue
             async with self.owner._symbol_lock(symbol):
@@ -241,7 +245,7 @@ class CnQuoteFeed:
                 persisted
                 and not active
                 and expected is not None
-                and any(bar.confirmed and bar.bar_time == expected for bar in candles)
+                and required <= {bar.bar_time for bar in candles if bar.confirmed and bar.is_valid()}
             ):
                 self._settled[symbol] = expected
         self.minute_healthy = not any(state.error for state in self.states.values())

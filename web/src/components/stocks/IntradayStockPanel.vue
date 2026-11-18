@@ -67,7 +67,7 @@ async function load() {
   request = controller;
   try {
     const since = rows.value.at(-1)?.timestamp;
-    const value = await fetchIntradayMarket(props.symbol, since == null ? undefined : new Date(since).toISOString(), controller.signal);
+    const value = await fetchIntradayMarket(props.symbol, since == null ? undefined : new Date(since).toISOString(), controller.signal, snapshot.value?.historyVersion);
     if (stopped || generation !== owned) return;
     const merged = new Map((value.reset || value.fullSnapshot ? [] : rows.value).map(row => [row.timestamp, row]));
     for (const row of value.items) merged.set(row.timestamp, row);

@@ -251,15 +251,40 @@ async def test_post_close_stored_bars_keep_latest_session_without_heartbeat() ->
 
 
 @pytest.mark.asyncio
-async def test_same_minute_different_trade_sessions_have_distinct_stable_members() -> None:
+async def test_same_minute_across_session_labels_has_one_member() -> None:
     redis = FakeRedis()
     repo = RealtimeStateRepository(redis)
     regular = candle(1)
     extended = candle(1)
-    extended.trade_session = "Post"
+    extended.trade_session = None
+    extended.received_at += timedelta(microseconds=900)
     await repo.upsert_bars("AAPL.US", [regular, extended])
-    assert len(await repo.get_recent_bars("AAPL.US", 10)) == 2
-    assert len(redis.zsets[keys.bars_index_key("AAPL.US")]) == 2
+    regular.received_at += timedelta(microseconds=100)
+    await repo.upsert_bars("AAPL.US", [regular])
+    assert await repo.get_recent_bars("AAPL.US", 10) == [extended]
+    assert len(redis.zsets[keys.bars_index_key("AAPL.US")]) == 1
+
+
+@pytest.mark.asyncio
+async def test_legacy_members_collapse_before_read_limit_and_migrate_on_write():
+    from dataclasses import asdict
+    import json
+
+    redis = FakeRedis()
+    repo = RealtimeStateRepository(redis, bar_limit=3)
+    symbol = "AAPL.US"
+    index, data = keys.bars_index_key(symbol), keys.bars_data_key(symbol)
+    latest = candle(2, "11", received_offset=10)
+    latest.trade_session = None
+    for bar in [candle(0), candle(1), candle(2), latest]:
+        field = f"{int(bar.bar_time.timestamp())}:{bar.trade_session or ''}"
+        await redis.zadd(index, {field: bar.bar_time.timestamp()})
+        await redis.hset(data, field, json.dumps(asdict(bar), default=str))
+    assert await repo.get_recent_bars(symbol, 2) == [candle(1), latest]
+    assert await repo.get_bars_by_time(symbol, candle(0).bar_time, latest.bar_time) == [candle(0), candle(1), latest]
+    await repo.upsert_bars(symbol, [candle(3)])
+    assert await repo.get_recent_bars(symbol, 3) == [candle(1), latest, candle(3)]
+    assert set(redis.hashes[data]) == set(redis.zsets[index]) == {str(int(candle(i).bar_time.timestamp())) for i in (1, 2, 3)}
 
 
 @pytest.mark.asyncio

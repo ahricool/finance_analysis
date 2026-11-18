@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 from contextlib import suppress
@@ -55,8 +56,16 @@ PUSH_INTERVAL_SECONDS = 5
 SSE_HEARTBEAT_SECONDS = 10
 
 
+def _minute_history_version(items: list[dict]) -> str:
+    payload = json.dumps(items, separators=(",", ":")).encode()
+    return hashlib.sha256(payload).hexdigest()
+
+
 @router.get("/intraday/{symbol}", response_model=IntradayBarsResponse, dependencies=[Depends(require_current_user)])
-async def intraday_bars(symbol: str, request: Request, since: datetime | None = None, response: Response = None):
+async def intraday_bars(
+    symbol: str, request: Request, since: datetime | None = None, response: Response = None,
+    history_version: Annotated[str | None, Query(max_length=64)] = None,
+):
     """User-owned intraday view; cache misses never launch an external request."""
     from finance_analysis.portfolio.service import PortfolioService
 
@@ -97,6 +106,14 @@ async def intraday_bars(symbol: str, request: Request, since: datetime | None = 
         by_time = {bar.bar_time: bar for bar in bars}
         if current is not None and (current.bar_time not in by_time or not by_time[current.bar_time].confirmed):
             by_time[current.bar_time] = current
+        visible = [
+            bar
+            for bar in sorted(by_time.values(), key=lambda b: b.bar_time)
+            if market_trading_date(bar.bar_time, market) == day
+            and bar.is_valid()
+            and is_regular_session_minute(bar.bar_time, market)
+            and bar.bar_time <= now
+        ]
         items = [
             {
                 "timestamp": int(bar.bar_time.timestamp() * 1000),
@@ -112,20 +129,31 @@ async def intraday_bars(symbol: str, request: Request, since: datetime | None = 
                 "partial": bar.partial,
                 "source": bar.source,
             }
-            for bar in sorted(by_time.values(), key=lambda b: b.bar_time)
-            if market_trading_date(bar.bar_time, market) == day
-            and bar.is_valid()
-            and is_regular_session_minute(bar.bar_time, market)
-            and bar.bar_time <= now
-            and (market == "CN" or reset or bar.bar_time >= since)
+            for bar in visible
         ]
+        full_snapshot = market == "CN"
+        next_version = None
+        if market == "US" and items:
+            # The cursor candle is always resent and may still be open. Version the preceding candles.
+            next_version = _minute_history_version(items[:-1])
+            if not reset and since is not None:
+                cursor = int(since.timestamp() * 1000)
+                first = next((i for i, row in enumerate(items) if row["timestamp"] >= cursor), len(items))
+                if history_version is not None:
+                    previous = next_version if first == len(items) - 1 else _minute_history_version(items[:first])
+                    full_snapshot = first == len(items) or items[first]["timestamp"] != cursor or previous != history_version
+                if not full_snapshot:
+                    items = items[first:]
+        elif market == "US" and history_version is not None:
+            full_snapshot = True
         return {
             "symbol": code,
             "market": market,
             "trading_date": day,
             "generated_at": now,
             "reset": reset,
-            "full_snapshot": market == "CN",
+            "full_snapshot": full_snapshot,
+            "history_version": next_version,
             "items": items,
             "quote": snapshot["quotes"][0],
             "events": events,

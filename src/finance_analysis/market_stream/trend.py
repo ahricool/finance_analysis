@@ -35,7 +35,7 @@ def calculate_ma_trend(
     target_date = market_trading_date(current, market_type)
     latest_completed = latest_completed_bar_time(current, market_type)
     symbol = next((bar.symbol for bar in bars), "")
-    candidates: dict[tuple[datetime, str], CandleState] = {}
+    candidates: dict[datetime, CandleState] = {}
     if latest_completed is not None:
         for bar in bars:
             if (
@@ -56,7 +56,7 @@ def calculate_ma_trend(
             ):
                 candidates[bar.identity] = bar
 
-    ordered = sorted(candidates.values(), key=lambda bar: (bar.bar_time, bar.trade_session or ""))
+    ordered = sorted(candidates.values(), key=lambda bar: bar.bar_time)
     from finance_analysis.market_stream.quality import indicator_tail
 
     ordered = indicator_tail(ordered, market_type)

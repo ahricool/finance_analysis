@@ -73,6 +73,7 @@ class WarmupResult:
     cached: list[CandleState]
     historical: list[CandleState]
     elapsed_seconds: float
+    history_error: Exception | None = None
 
 
 class MarketStreamService:
@@ -100,12 +101,12 @@ class MarketStreamService:
         self.current_candles: dict[str, CandleState] = {}
         self.warming_buffers: dict[
             WarmupTaskKey,
-            dict[tuple[datetime, str], CandleState],
+            dict[datetime, CandleState],
         ] = {}
         self.symbol_locks: dict[str, asyncio.Lock] = {}
         self.pending_quotes: dict[str, QuoteState] = {}
         self.pending_candles: dict[str, CandleState] = {}
-        self.pending_bars: dict[str, dict[tuple[datetime, str], CandleState]] = {}
+        self.pending_bars: dict[str, dict[datetime, CandleState]] = {}
         self.pending_trends: dict[str, TrendState] = {}
         self.pending_patterns: dict[str, PatternState] = {}
         self.pattern_states: dict[str, PatternState] = {}
@@ -343,7 +344,9 @@ class MarketStreamService:
                 key = WarmupTaskKey(candle.symbol, state.generation, connection_generation)
                 buffer = self.warming_buffers.setdefault(key, {})
                 existing = buffer.get(candle.identity)
-                if existing is None or candle.received_at >= existing.received_at:
+                if existing is None or (candle.confirmed, candle.received_at) >= (
+                    existing.confirmed, existing.received_at
+                ):
                     buffer[candle.identity] = candle
                 return
             accepted, count = self._update_live_candle_memory(candle, state)
@@ -410,7 +413,9 @@ class MarketStreamService:
         existing = {bar.identity: bar for bar in bars}
         previous = existing.get(candle.identity)
         if previous is not None and (
-            previous.symbol,
+            previous.trade_session,
+            previous.source,
+            previous.sampled,
             previous.open,
             previous.high,
             previous.low,
@@ -421,7 +426,9 @@ class MarketStreamService:
             previous.sample_count,
             previous.partial,
         ) == (
-            candle.symbol,
+            candle.trade_session,
+            candle.source,
+            candle.sampled,
             candle.open,
             candle.high,
             candle.low,
@@ -439,7 +446,7 @@ class MarketStreamService:
         ):
             return False, len(bars)
         existing[candle.identity] = candle
-        ordered = sorted(existing.values(), key=lambda item: (item.bar_time, item.trade_session or ""))
+        ordered = sorted(existing.values(), key=lambda item: item.bar_time)
         updated = deque(ordered[-self.config.bar_limit :], maxlen=self.config.bar_limit)
         self.bars_1m[candle.symbol] = updated
         current = updated[-1]
@@ -636,14 +643,20 @@ class MarketStreamService:
                 self.redis_degraded = True
                 logger.warning("Redis warmup 恢复失败: symbol=%s error=%s", symbol, exc)
             historical: list[CandleState] = []
+            history_error = None
             if not self._cache_has_current_session(cached, market_type):
-                historical = await self.history_loader.fetch(symbol, market_type, self.config.bar_limit)
+                try:
+                    historical = await self.history_loader.fetch(symbol, market_type, self.config.bar_limit)
+                except Exception as exc:
+                    history_error = exc
+                    logger.warning("历史分钟回补失败，保留缓存: symbol=%s error=%s", symbol, exc)
             return WarmupResult(
                 symbol,
                 market_type,
                 cached,
                 historical,
                 time.monotonic() - started,
+                history_error,
             )
 
     def _cache_has_current_session(
@@ -664,7 +677,7 @@ class MarketStreamService:
             and not bar.sampled
             and is_regular_trade_session(bar.trade_session)
         }
-        return bool(expected) and expected <= available
+        return expected <= available
 
     async def _apply_warmup(
         self,
@@ -706,7 +719,7 @@ class MarketStreamService:
             else:
                 self.current_candles.pop(state.symbol, None)
                 self.pending_candles.pop(state.symbol, None)
-            finalize(len(bars), error, trading_date)
+            finalize(len(bars), error or (result.history_error if result else None), trading_date)
 
         try:
             confirmed_bars = [bar for bar in bars if bar.confirmed]
@@ -802,7 +815,9 @@ class MarketStreamService:
         if not pending:
             return
         for bar in bars:
-            pending.pop(bar.identity, None)
+            queued = pending.get(bar.identity)
+            if queued is not None and queued.received_at <= bar.received_at:
+                pending.pop(bar.identity)
         if not pending:
             self.pending_bars.pop(symbol, None)
 
