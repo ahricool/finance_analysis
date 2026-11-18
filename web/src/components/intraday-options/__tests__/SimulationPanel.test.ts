@@ -76,7 +76,7 @@ it.each(['preopen', 'closed'] as const)('suppresses current execution language o
 
 it('has independent sortable tables, keeps missing prices last and uses numerical sorting', async () => {
   const states = ['NVDA.US', 'SPY.US', 'TSLA.US'].map((symbol, i) => ({ symbol, currentPrice: [9, 100, null][i],
-    position: { id: symbol, symbol, entryPrice: [9, 100, null][i], side: 1, entryAt: '2026-11-17T16:00:00Z' } }));
+    position: { id: symbol, symbol, entryPrice: [9, 100, null][i], side: 1, entryAt: ['2026-11-17T16:00:00Z', '2026-11-17T11:01:00-05:00', null][i] } }));
   const snapshot = { marketStatus: 'open', items: states.map(s => ({ symbol: s.symbol, simulation: s })),
     simulation: { states, trades: [], statistics: [], events: [
       { id: 2, symbol: 'NVDA.US', kind: 'exit', at: '2026-11-17T16:02:00Z', reason: '目标', side: 1 },
@@ -88,6 +88,8 @@ it('has independent sortable tables, keeps missing prices last and uses numerica
   const priceHeader = table.findAll('th').find(h => h.text().includes('当前有效价'))!;
   expect(table.findAll('th').every(h => h.find('button').exists())).toBe(true);
   const symbols = () => table.findAll('[data-testid="simulation-position"]').map(r => r.find('td').text());
+  expect(table.get('th[aria-sort="descending"]').text()).toContain('进场时间');
+  expect(symbols()).toEqual([expect.stringContaining('SPY.US'), expect.stringContaining('NVDA.US'), expect.stringContaining('TSLA.US')]);
   await priceHeader.get('button').trigger('click');
   expect(symbols()).toEqual([expect.stringContaining('NVDA.US'), expect.stringContaining('SPY.US'), expect.stringContaining('TSLA.US')]);
   expect(priceHeader.attributes('aria-sort')).toBe('ascending');
@@ -99,5 +101,34 @@ it('has independent sortable tables, keeps missing prices last and uses numerica
   await eventTable.get('th button').trigger('click');
   expect(eventTable.findAll('[data-testid="simulation-event"]')[0]!.text()).toContain('SPY.US');
   expect(priceHeader.attributes('aria-sort')).toBe('descending');
+  wrapper.unmount();
+});
+
+it('selects the latest 30 events by occurrence and defaults each dated table to its own timestamp', async () => {
+  const at = (minute: number) => `2026-11-17T16:${String(minute).padStart(2, '0')}:00Z`;
+  const events = Array.from({ length: 31 }, (_, minute) => ({
+    id: 31 - minute, symbol: 'SPY.US', kind: 'hold', at: at(minute), reason: `event-${minute}`,
+  }));
+  const state = { symbol: 'SPY.US', plans: [null, at(1), at(2)].map((confirmedAt, i) => ({
+    structureId: String(i), confirmedAt,
+  })) };
+  const snapshot = { items: [{ symbol: 'SPY.US', simulation: state }], simulation: {
+    states: [state], statistics: [], trades: [1, 2].map(i => ({
+      id: String(i), symbol: 'SPY.US', entryAt: at(3 - i), exitAt: at(10 + i), exitReason: `trade-${i}`,
+    })), events: [...events, ...[3, 1, 2].map(i => ({
+      id: 40 - i, symbol: 'SPY.US', kind: 'data', at: at(i), reason: `quote-${i}`,
+    }))],
+  } } as unknown as IntradayOptionsSnapshot;
+  const wrapper = mount(SimulationPanel, { props: { snapshot, disconnected: false }, global: { stubs: { FieldSelect: true } } });
+  await wrapper.findComponent({ name: 'FieldSelect' }).vm.$emit('update:modelValue', 'SPY.US');
+  const rows = (label: string, timeColumn: string) => {
+    const table = wrapper.get(`[aria-label="${label}"] table`);
+    expect(table.get('th[aria-sort="descending"]').text()).toContain(timeColumn);
+    return table.findAll('tbody tr').map(r => r.text());
+  };
+  expect(rows('模拟交易动态表', '发生时间')).toEqual(events.slice(1).reverse().map(e => expect.stringContaining(e.reason)));
+  expect(rows('行情与形态记录表', '发生时间')).toEqual([3, 2, 1].map(i => expect.stringContaining(`quote-${i}`)));
+  expect(rows('机会计划表', '首次确认时间')).toEqual(['11:02:00', '11:01:00', '—待确认'].map(t => expect.stringContaining(t)));
+  expect(rows('已完成模拟交易表', '退场时间')).toEqual([2, 1].map(i => expect.stringContaining(`trade-${i}`)));
   wrapper.unmount();
 });

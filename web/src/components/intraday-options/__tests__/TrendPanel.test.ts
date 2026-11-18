@@ -25,6 +25,7 @@ it('passes persisted B/S overlays to minute detail, selects evidence, updates ex
   expect(overlays()).toHaveLength(1);
   overlays()[0]!.onClick!({} as never); await wrapper.vm.$nextTick();
   expect(wrapper.get('[data-testid="simulation-trade-detail"]').text()).toContain('S · 模拟做空进场');
+  expect(wrapper.get('[data-testid="simulation-trade-detail"] th[aria-sort="descending"]').text()).toContain('进退场 / 计划时间');
   expect(chart.props('focusTimestamp')).toBe(Date.parse(at));
   const closed = { ...t, exitAt: '2026-11-17T17:01:05Z', exitPrice: 99.5, exitPriceAt: '2026-11-17T17:01:04Z', exitReason: '到达目标' };
   await wrapper.setProps({ simulation: { ...simulation, states: [], trades: [closed, closed] } });

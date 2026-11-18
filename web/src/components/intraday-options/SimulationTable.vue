@@ -8,11 +8,16 @@ const props = defineProps<{
   value: (row: T, key: string) => unknown;
   rowKey: (row: T) => string | number;
   rowTestid?: string;
+  defaultTimeKey?: string;
   label: string;
   empty: string;
 }>();
 defineSlots<{ cell(props: { row: T; column: string }): unknown }>();
 const table = useTableSort(() => props.rows, (row, key) => props.value(row, key));
+if (props.defaultTimeKey) {
+  table.sortKey = props.defaultTimeKey;
+  table.direction = 'desc';
+}
 </script>
 
 <template>
