@@ -1,13 +1,13 @@
-# 日内期权交易（V1）
+# 日内期权交易
 
 入口：市场 → 日内期权交易，`/market/intraday-options`；仅 US。
 分析股票/ETF自身的分钟走势，不读取期权链，不限制0DTE，不选择合约、不下单、不输出盈利概率。
-用户明确选择不保存历史：仅Redis最新结果，无数据库表、历史评分归档或回测功能。
+趋势评分只保留 Redis 最新结果。模拟持仓、成交及事件另存专表。六条入场路线和 V4 验证见[策略与回放](intraday-starts.md)。
 
 ## 固定观察池和页面
 
-唯一注册表 `src/finance_analysis/intraday_options/config.py`，固定30个canonical `.US` 标的：
-SPY、QQQ、NVDA、IWM、TSLA、MU、AAPL、AMD、SPCX、INTC、AMZN、IBIT、CRWV、TLT、GOOGL、META、MSFT、SOXL、IREN、GLD、AVGO、TQQQ、MSTR、SMH、HYG、SOFI、SLV、DRAM、WULF、SMCI。
+唯一注册表 `src/finance_analysis/intraday_options/config.py`，固定28个canonical `.US` 标的：
+SPY、QQQ、NVDA、IWM、TSLA、MU、AAPL、AMD、SPCX、INTC、AMZN、IBIT、CRWV、TLT、GOOGL、META、MSFT、SOXL、IREN、GLD、AVGO、MSTR、SMH、HYG、SOFI、SLV、WULF、SMCI。
 不随成交量排名变化；名称批量读Instrument，缺失显示“主数据未识别”，订阅错误另行标记，不替换代码。固定池订阅失败逐标的隔离；连接健康检查失败仍走原有重连，不能把连接故障误当个别代码问题。
 观察池不修改任何用户的自选股或持仓。
 
@@ -16,7 +16,7 @@ SPY、QQQ、NVDA、IWM、TSLA、MU、AAPL、AMD、SPCX、INTC、AMZN、IBIT、CR
 按Underlying汇总全部交易所、到期日和Call/Put；Customer、Firm、Market Maker合计除以2，消除双边重复计数，
 按五日成交张数降序取前30。11月12日汇总66,953,360张，与OCC官方Equity总量核对一致。
 本次加入SMH、DRAM、WULF、SMCI，移除RIOT、MARA、HIMS、GFL；注册表顺序同步为本次成交量排名。
-该名单仍为人工维护的固定观察池，不自动刷新；全链成交量排名不代表0DTE或具体合约的点差、深度与可交易性。
+2026-11-18 移除 TQQQ、DRAM，保留其历史成交。该名单仍为人工维护的固定观察池，不自动刷新；全链成交量排名不代表0DTE或具体合约的点差、深度与可交易性。
 
 表格一页展示全部标的，列顺序为名称/代码、最新价与当日涨跌幅（同列）、日内机会、趋势质量分、当前方向、5/15/30/60分钟质量分与带符号收益、短线结构、当前状态。
 价格与涨跌幅合并列按当日涨跌幅排序，空值始终靠后。
@@ -52,7 +52,7 @@ VWAP有完整成交额时为累计成交额/成交量，否则明确显示HLC3×
 
 ## 窗口指标和公式
 
-评分缓存版本为intraday_options_v13；所有阈值都是可解释规则假设，尚未经历史收益校准，不代表统计显著性。
+评分缓存版本为intraday_options_v14；所有阈值都是可解释规则假设，尚未经历史收益校准，不代表统计显著性。
 令 `y0=ln(首根open)`，`yi=ln(第i根close)`，`r=yN-y0`，`clip(x)=min(1,max(0,x))`。
 
 - **稳定度 S**：等权线性回归 `y ~ 实际经过分钟数` 的 `100×R²`；零方差为0。
@@ -107,7 +107,7 @@ VWAP有完整成交额时为累计成交额/成交量，否则明确显示HLC3×
 
 - 后端独立领域包 `intraday_options/`，纯函数评分与Redis发布/读取分离。
 - Streamer默认订阅并集扩展为自选＋持仓＋固定池。复用Longbridge原生分钟线，不新增行情Provider或外部请求链。
-- Redis key `rt:intraday-options:intraday_options_v13:{symbol}` 只存最新结果，复用交易日TTL跨周末保留到下一交易日；无历史列表。
+- Redis key `rt:intraday-options:intraday_options_v14:{symbol}` 只存最新结果，复用交易日TTL跨周末保留到下一交易日；无历史列表。
 - `GET /api/v1/intraday-options` 会话鉴权，只读行情缓存及DB名称；不会在GET中计算指标或拉取外部行情。
 - 共享分钟图接口仅给固定白名单额外只读权限，其余证券继续要求本人自选/持仓。
 - 页面当前分数、解释、窗口明细同源；前端仅计算图表参考线，不计算趋势评分。
@@ -213,7 +213,7 @@ ATR复用此前最多20根可用K的True Range算术均值，补平K的波幅为
 
 ### 数据资格与排序
 
-V2规则为 `intraday_entry_v2` / `underlying_sim_v2`；当前新增路线使用V3（见下文），缓存为 `intraday_options_v13`。
+V2规则为 `intraday_entry_v2` / `underlying_sim_v2`；当前新增路线使用V3（见下文），缓存为 `intraday_options_v14`。
 最近15根闭合分钟K完整即可判断，参考窗口仍为最近最多60分钟（开盘不足60分钟用当天已有数据）。
 形态背景自适应使用触发前连续15–30根K；满15分钟可判断方向/结构，触发仍在背景之后，
 旧三类形态入场仍需两根真实相邻闭合K确认，因此完整15分钟背景下最早09:47确认机会，并不保证此时进场；趋势延续有独立的真实背景与强突破规则。
@@ -249,7 +249,7 @@ API行级 `opportunity_eligible` 只在交易中、分钟/报价有效且有匹�
 
 参数集中在 `simulation.py::ExecutionConfig`，均为未经收益优势验证的工程初值：
 
-- 每5秒一次统一调度，4个工作线程；每标的最多一个未完成任务，池队列由固定30标的约束。
+- 每5秒一次统一调度，4个工作线程；每标的最多一个未完成任务，池队列由固定28标的约束。
 - 报价交易所时间与接收时间均不得超前，且不超过30秒；无报价、时间异常、分钟数据延迟均不新进场。
 - 突破／回测入场范围为固定触发价顺方向0.2–1 ATR，恢复为0.1–1 ATR；闭合线确认与实时执行分别判断。
 - 原始失效为固定触发价逆方向0.75 ATR；机会15分钟有效不等于持仓到期。
@@ -346,8 +346,8 @@ B 表示做多进场或做空退场，S 表示做空进场或做多退场；同�
 新增独立 `trend_continuation`，旧三类形态保留；强突破单根确认只适用于新分支。
 形态与执行参数统一于 `intraday_options/rules.py`，新分支ATR只用真实相邻波动，旧分支ATR暂不变。
 恢复候选可由后续独立真实结构替换，保留旧冻结证据；趋势过程去重基于结构起点，不再以整个观察期无条件阻塞。
-当前新交易/形态版本分别为 `underlying_sim_v3_3` / `intraday_entry_v3_3`，缓存v13；不重解释旧交易。
+V3.3 阶段的交易/形态版本分别为 `underlying_sim_v3_3` / `intraday_entry_v3_3`，缓存v13；不重解释旧交易。
 规则、参数、状态和验证边界详见 [日内趋势延续](intraday-trend-continuation.md)。
 
 V3.1审查修订新增确认后报价时序、独立ranked_opportunity榜单投影、局部恢复锚点及公共received_at过滤；
-当前形态/新模拟交易版本为intraday_entry_v3_3 / underlying_sim_v3_3。阈值和“整理后延续”定义不变，详见上述专题。
+V3.3 形态/新模拟交易版本为intraday_entry_v3_3 / underlying_sim_v3_3。阈值和“整理后延续”定义不变，详见上述专题。

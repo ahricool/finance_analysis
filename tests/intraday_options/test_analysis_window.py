@@ -34,7 +34,7 @@ def test_fifteen_background_minutes_can_produce_confirmed_entry_after_two_real_t
     background = [100 + math.cos((i - 7) * math.pi / 3) for i in range(15)]
     values = [100 + side * (p - 100) for p in background + [101.3, 101.4]]
     forming, ready = score(prices(values[:-1])), score(prices(values))
-    assert forming["opportunities"]["primary"] is None
+    assert not any(b["kind"] == "box_breakout" and b["confirmed_at"] for b in forming["opportunities"]["branches"])
     assert ready["opportunities"]["primary"]["kind"] == "box_breakout"
     assert ready["opportunities"]["primary"]["direction"] == ("bullish" if side == 1 else "bearish")
 
@@ -105,7 +105,7 @@ def test_filled_input_evidence_freezes_across_history_repair_and_cannot_bypass_l
     assert not state.get("position")
     state, _ = transition({}, "SPY.US", result, quote(now, price), now)
     frozen = deepcopy(state["position"])
-    assert frozen["version"] == "underlying_sim_v3_3"
+    assert frozen["version"] == "underlying_sim_v4"
     assert frozen["entry_evidence"]["analysis_coverage"]["filled_bars"] == 1
     repaired = calculate("SPY.US", bars, now + timedelta(seconds=5))
     state, events = transition(state, "SPY.US", repaired, quote(now + timedelta(seconds=5), price),

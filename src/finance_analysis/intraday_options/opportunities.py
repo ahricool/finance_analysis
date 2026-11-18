@@ -8,7 +8,8 @@ from datetime import datetime, timedelta
 
 from finance_analysis.intraday_options.structure import atr, box, metrics
 from finance_analysis.intraday_options.analysis_window import HORIZON, REQUIRED_MINUTES, analysis_window, minute_timeline, observed
-from finance_analysis.intraday_options.rules import CONTINUATION, ENTRY_VERSION, RULES, entry_interval
+from finance_analysis.intraday_options.rules import CONTINUATION, ENTRY_VERSION, RULES, START_KINDS, entry_interval, policy
+from finance_analysis.intraday_options.starts import breakout_seeds
 from finance_analysis.intraday_options.continuation import setup, confirmation, pullback_anchor
 from finance_analysis.market_stream.config import market_trading_date
 from finance_analysis.market_stream.session import session_bounds
@@ -96,7 +97,7 @@ def advance(branch, history):
         branch.update(status="expired", reasons=[f"本次机会已超过{rule.lifetime}分钟观察期，等待独立的新触发"])
         return
     extreme = float(bar.low if side > 0 else bar.high)
-    if (branch["kind"] != "box_breakout" or when > branch["started_at"]) and (
+    if (branch["kind"] not in (*START_KINDS, "box_breakout") or when > branch["started_at"]) and (
         extreme - branch["invalidation"]
     ) * side < 0:
         branch.update(status="invalidated", reasons=["触及固定失效位，原机会不再恢复"])
@@ -120,6 +121,9 @@ def advance(branch, history):
             and (float(recent[-1].close) - float(recent[0].close)) * side >= CONFIG.recent_move_atr * scale
         )
     method, wait_reason = "two_closes", "等待触及后的相邻两根闭合K恢复确认"
+    if branch["kind"] in START_KINDS:
+        restored = observed(bar) and distance > threshold
+        method, wait_reason = "level_close", "等待真实分钟收盘越过冻结关键位"
     if branch["kind"] == "trend_continuation":
         restored, method, wait_reason = confirmation(branch, history)
         if branch["status"] == "expired":
@@ -133,6 +137,8 @@ def advance(branch, history):
         available = max([bar.bar_time + MINUTE, *receipts])
         if branch.get("formation_available_at"):
             available = max(available, datetime.fromisoformat(branch["formation_available_at"]))
+        if branch.get("execution_floor"):
+            available = max(available, datetime.fromisoformat(branch["execution_floor"]))
         branch["confirmation_run_available_at"] = available.isoformat()
         branch["execution_evidence_at"] = available.isoformat()
     elif restored:
@@ -148,7 +154,7 @@ def advance(branch, history):
     if branch["confirmed_at"] and distance > rule.extended_atr:
         branch.update(status="extended", reasons=[f"形态已确认但距离固定触发位超过{rule.extended_atr:g} ATR"])
     elif branch["confirmed_at"] and restored:
-        branch.update(status="confirmed", reasons=["强突破真实闭合K确认" if method == "strong_break"
+        branch.update(status="confirmed", reasons=["真实闭合K突破冻结价位" if method == "level_close" else "强突破真实闭合K确认" if method == "strong_break"
                                                   else "相邻两根真实闭合K确认，当前未延伸"])
     else:
         branch.update(status="forming", reasons=[wait_reason])
@@ -330,7 +336,36 @@ def detect(bars):
     return [*archive, *branches.values()], list(dict.fromkeys(diagnostics))
 
 
-def calculate_opportunities(ordered):
+def start_branches(ordered, opening, settings, snapshots=None):
+    result = []
+    for level, bar in breakout_seeds(ordered, opening, settings, snapshots):
+        kind, side = level["kind"], level["side"]
+        branch = new_branch(kind, side, level["trigger"], level["atr"], bar, level["structure_start"], settings.structure_quality)
+        identity = level["identity"]
+        branch.update(structure_id=identity, process_id=identity, structure_start=level["structure_start"].isoformat(),
+                      structure_end=level["frozen"].isoformat(), formation_available_at=level["available"].isoformat(),
+                      execution_floor=level["last_receipt"].isoformat(),
+                      atr_samples=level["atr_samples"], atr_source="observed_adjacent_true_ranges")
+        branch["triggered_at"] = branch["started_at"]
+        if level["width"] is not None:
+            edge = level["trigger"] - side * level["width"]
+            branch["structure_low"], branch["structure_high"] = sorted((edge, level["trigger"]))
+            branch["measurement_target"] = level["trigger"] + side * level["width"]
+        history = []
+        for current in ordered:
+            if current.bar_time < bar.bar_time:
+                continue
+            if (not current.is_valid() or current.partial or current.sampled or not observed(current)
+                    or history and current.bar_time - history[-1].bar_time != MINUTE):
+                break
+            history.append(current)
+            advance(branch, history)
+        else:
+            result.append(branch)
+    return result
+
+
+def calculate_opportunities(ordered, settings=None):
     end = ordered[-1].bar_time
     bars, coverage, reasons = analysis_window(ordered)
     branches, diagnostics = detect(bars) if bars else ([], [])
@@ -342,12 +377,15 @@ def calculate_opportunities(ordered):
             session_bars, _ = minute_timeline(ordered, opening, end)
             visible_from += CONFIG.background * MINUTE
         branches.extend(recoveries(session_bars, visible_from, opening))
+    opening, _ = session_bounds("US", market_trading_date(end, "US"))
+    snapshots = {}
+    branches.extend(start_branches(ordered, opening, settings or policy(), snapshots))
     for branch in branches:
         branch["entry_low"], branch["entry_high"] = entry_interval(branch)
         branch["max_risk_atr"] = RULES[branch["kind"]].max_risk_atr
     reference = coverage["reference"]
     valid = [b for b in branches if b["status"] == "confirmed" and not b.get("superseded_by")
-             and not b.get("breakout_rejection")] if not reference else []
+             and not b.get("breakout_rejection") and (not reference or b["kind"] == "opening_breakout")]
     primary = min(valid, key=lambda b: (-b["quality_score"], b["kind"], b["structure_id"])) if valid else None
     priority = {"confirmed": 0, "forming": 1, "extended": 2, "invalidated": 3, "expired": 4}
     branches.sort(key=lambda b: (bool(b.get("superseded_by")), priority[b["status"]],
@@ -355,6 +393,7 @@ def calculate_opportunities(ordered):
     return {
         "version": ENTRY_VERSION,
         "primary": primary,
+        "start_levels": snapshots,
         "branches": branches,
         **coverage,
         "as_of": (end + MINUTE).isoformat(),

@@ -35,16 +35,17 @@ export function structureName(value: IntradayStructure | null | undefined) {
 
 export const opportunityKinds: Record<OpportunityBranch['kind'], string> = {
   box_breakout: '箱体突破', box_retest: '突破位回测', trend_recovery: '顺势回撤恢复', trend_continuation: '趋势延续',
+  opening_breakout: '开盘区间突破', pivot_breakout: '盘中关键位突破',
 };
 export const confirmationLabel = (method: OpportunityBranch['confirmationMethod']) =>
-  method === 'strong_break' ? '强突破单根确认' : method === 'two_closes' ? '两根闭合K确认' : '尚未确认';
+  method === 'level_close' ? '关键位单根收盘确认' : method === 'strong_break' ? '强突破单根确认' : method === 'two_closes' ? '两根闭合K确认' : '尚未确认';
 export const opportunityStates: Record<OpportunityBranch['status'], string> = {
   forming: '形成中', confirmed: '已确认', extended: '已延伸', invalidated: '已失效', expired: '已过期',
 };
 export function entryScore(row: IntradayOptionRow) {
   const opportunity = row.result?.opportunities;
   return row.opportunityEligible && ['ready', 'warming'].includes(row.dataStatus)
-    && !opportunity?.reference && row.rankedOpportunity?.status === 'confirmed'
+    && (!opportunity?.reference || row.rankedOpportunity?.kind === 'opening_breakout') && row.rankedOpportunity?.status === 'confirmed'
     ? row.rankedOpportunity.qualityScore : null;
 }
 export function entryLabel(row: IntradayOptionRow, stale = false) {
@@ -55,10 +56,10 @@ export function entryLabel(row: IntradayOptionRow, stale = false) {
   }
   if (entryScore(row) == null && opportunities.primary) {
     const plan = row.simulation?.plans?.find(p => p.structureId === opportunities.primary?.structureId);
-    return plan && !row.simulation?.stopped && row.quoteStatus === 'ready' && !opportunities.reference
+    return plan && !row.simulation?.stopped && row.quoteStatus === 'ready' && (!opportunities.reference || plan.kind === 'opening_breakout')
       ? '形态确认 · 当前不可执行' : '历史/参考确认';
   }
-  if (opportunities.reference) return '数据不足 · 观察';
+  if (opportunities.reference && entryScore(row) == null) return '数据不足 · 观察';
   if (entryScore(row) != null && row.simulation?.position) {
     return row.simulation.position.opportunityId === row.rankedOpportunity?.structureId
       ? '已进场/持有中' : '已确认 · 模拟持有中';

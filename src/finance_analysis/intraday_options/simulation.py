@@ -7,7 +7,7 @@ import math
 
 from finance_analysis.market_stream.config import market_trading_date
 from finance_analysis.market_stream.session import session_bounds
-from finance_analysis.intraday_options.rules import RULES, SIMULATION_VERSION, entry_interval, plan_order
+from finance_analysis.intraday_options.rules import RULES, SIMULATION_VERSION, START_KINDS, policy, entry_interval, plan_order
 
 VERSION = SIMULATION_VERSION
 
@@ -111,11 +111,37 @@ def entry_quote_floor(branch, previous_plan, minute_as_of):
     return max(latest, dt(branch["confirmed_at"]))
 
 
-def plan(branch, result, price, now, quote_time=None, previous_plan=None):
+def target_space(price, invalidation, target, side, required, settings):
+    """Return unrounded quote-time economics; equality qualifies despite binary price arithmetic."""
+    risk = (price - invalidation) * side if price is not None and invalidation is not None else None
+    reward = (target - price) * side if price is not None and target is not None else None
+    fraction = reward / price if reward is not None and price > 0 else None
+    rr = reward / risk if reward is not None and risk and risk > 0 else None
+    reasons = []
+    if price is not None:
+        if risk is None or not math.isfinite(risk) or risk <= 0:
+            reasons.append("初始风险无效：报价已越过失效位或缺少失效位")
+        elif required and target is None:
+            reasons.append("固定目标缺失")
+        elif reward is not None:
+            if reward <= 0:
+                reasons.append("目标已越过")
+            else:
+                if fraction < settings.minimum_return and not math.isclose(fraction, settings.minimum_return, rel_tol=1e-10):
+                    reasons.append("剩余止盈幅度不足")
+                if rr < settings.minimum_rr and not math.isclose(rr, settings.minimum_rr, rel_tol=1e-10):
+                    reasons.append("计划盈亏比不足")
+    return dict(initial_risk=risk, remaining_space=reward, remaining_return=fraction, reward_risk=rr,
+                space_rejections=reasons, min_target_return=settings.minimum_return, min_reward_risk=settings.minimum_rr)
+
+
+def plan(branch, result, price, now, quote_time=None, previous_plan=None, settings=None):
     side = 1 if branch["direction"] == "bullish" else -1
     rule = RULES[branch["kind"]]
     interval = entry_interval(branch)
     quote_floor = entry_quote_floor(branch, previous_plan, result.get("as_of"))
+    if quote_floor and result.get("target_evidence_at"):
+        quote_floor = max(quote_floor, dt(result["target_evidence_at"]))
     # Confirmed pivots are raw intraday prices, the same basis as execution quotes.
     candidates = [
         p["price"]
@@ -123,10 +149,28 @@ def plan(branch, result, price, now, quote_time=None, previous_plan=None):
         if p["kind"] == ("high" if side == 1 else "low")
         and dt(p["confirmed_at"]) <= now
         and price is not None
-        and (p["price"] - price) * side > 0
+        and (p["price"] - price) * side >= 0
     ]
     target = min(candidates, key=lambda p: (p - price) * side) if candidates else branch.get("measurement_target")
     source = "已确认结构位" if candidates else "箱体高度测量估计" if target else "未知"
+    if target and not candidates and branch["kind"] == "opening_breakout":
+        source = "开盘区间高度测量估计"
+    # Keep a rejected nearby obstacle through quote changes, including a move past it.
+    previous_plan = previous_plan or {}
+    locked = previous_plan.get("target_limit")
+    lock_source = previous_plan.get("target_limit_source")
+    exhausted = previous_plan.get("target_exhausted", False)
+    timely = quote_time is None or (quote_floor is not None and quote_time >= quote_floor)
+    if timely and locked is not None and price is not None and (locked - price) * side <= 0:
+        exhausted = True
+    if locked is not None and lock_source == "已确认结构位" and not any(
+        p["price"] == locked and p["kind"] == ("high" if side > 0 else "low") for p in result.get("execution_pivots", [])
+    ):
+        exhausted = True
+    if locked is not None and (target is None or (target - locked) * side >= 0):
+        target, source = locked, lock_source
+    required = branch["kind"] in START_KINDS or branch["kind"].startswith("box")
+    economics = target_space(price, branch.get("invalidation"), target, side, required, settings or policy())
     reason = "可以模拟进场"
     if branch.get("superseded_by"):
         reason = "已有后续独立结构，旧候选证据保留但不再进场"
@@ -144,16 +188,18 @@ def plan(branch, result, price, now, quote_time=None, previous_plan=None):
     elif quote_time is not None and quote_time < quote_floor:
         reason = ("等待确认依据到达后的有效报价" if quote_time >= dt(branch["confirmed_at"])
                   else "等待确认后的有效报价")
-    elif (price - branch["invalidation"]) * side <= 0:
-        reason = "最新价格已越过失效位"
+    elif economics["initial_risk"] is None or economics["initial_risk"] <= 0:
+        reason = economics["space_rejections"][0]
     elif not interval[0] <= price <= interval[1]:
         reason = "形态已确认，当前报价不在冻结执行区间（不补记触发价成交）"
     elif rule.max_risk_atr is not None and (price - branch["invalidation"]) * side > rule.max_risk_atr * branch["atr"]:
         reason = f"当前报价到结构失效位超过{rule.max_risk_atr:g} ATR，风险距离过大"
-    elif target is not None and (target - price) * side <= 0:
-        reason = "目标已越过，放弃本次进场"
-    reward = (target - price) * side if target is not None and price is not None else None
-    risk = (price - branch["invalidation"]) * side if price is not None else None
+    elif exhausted:
+        reason = "原目标已越过或已失效，等待新的独立机会"
+    elif economics["space_rejections"]:
+        reason = "、".join(economics["space_rejections"])
+    if target is not None and (reason == "可以模拟进场" or reason == "、".join(economics["space_rejections"])):
+        locked, lock_source = target, source
     return {
         **deepcopy(branch),
         "process_id": branch.get("process_id", branch["structure_id"]),
@@ -161,8 +207,12 @@ def plan(branch, result, price, now, quote_time=None, previous_plan=None):
         "entry_high": interval[1],
         "target": target,
         "target_source": source,
-        "remaining_space": reward,
-        "reward_risk": reward / risk if reward is not None and risk and risk > 0 else None,
+        "target_limit": locked,
+        "target_limit_source": lock_source,
+        "target_exhausted": exhausted,
+        "entry_quote": price,
+        "entry_quote_time": quote_time.isoformat() if quote_time else None,
+        **economics,
         "minute_as_of": result.get("as_of"),
         "entry_quote_not_before": quote_floor.isoformat() if quote_floor else None,
         "rule_version": VERSION,
@@ -180,6 +230,10 @@ def plan(branch, result, price, now, quote_time=None, previous_plan=None):
 
 def consumed_structure(item, window):
     family = "box" if item["kind"].startswith("box") else "trend"
+    if window["direction"] == item["direction"] and (item["kind"] in START_KINDS or window.get("kind") in START_KINDS):
+        anchor = item.get("structure_start") or item.get("formation_start") or item["confirmed_at"]
+        # V1 windows froze only the interval; its end bounds the unknown entry time.
+        return dt(anchor) <= dt(window.get("entered_at") or window["end"])
     if window["direction"] != item["direction"] or window["family"] != family:
         return False
     if family == "trend" and item.get("structure_start") and window.get("structure_end"):
@@ -191,7 +245,7 @@ def consumed_structure(item, window):
             and dt(item["expires_at"]) > dt(window["start"]))
 
 
-def transition(previous, symbol, result, quote, now):
+def transition(previous, symbol, result, quote, now, settings=None):
     state = deepcopy(previous or {})
     previous_calculation = dt(state.get("calculated_at"))
     previous_healthy = state.get("healthy", False)
@@ -300,10 +354,33 @@ def transition(previous, symbol, result, quote, now):
     opportunities = (
         ((result or {}).get("opportunities") or {}) if result and result["trading_date"] == day.isoformat() else {}
     )
-    previous_plans = {p["structure_id"]: p for p in state.get("plans", [])}
+    limits = {k: v for k, v in state.get("target_limits", {}).items() if dt(v["expires_at"]) > now}
+    previous_plans = {**limits, **{p["structure_id"]: p for p in state.get("plans", [])}}
     plans = [plan(b, result, price, now, quote.event_time if price is not None else None,
-                  previous_plans.get(b["structure_id"]))
+                  previous_plans.get(b["structure_id"]), settings)
              for b in opportunities.get("branches", [])]
+    for item in plans:
+        if item["target_limit"] is not None and dt(item["expires_at"]) > now:
+            limits[item["structure_id"]] = {k: item[k] for k in ("target_limit", "target_limit_source",
+                                                                  "target_exhausted", "expires_at")}
+    state["target_limits"] = limits
+    # Persist the first observed geometry even when price has not yet broken the level.
+    # A late historical revision cannot move that level or widen its projected target.
+    frozen_levels = {k: v for k, v in state.get("start_levels", {}).items() if dt(v["expires_at"]) > now}
+    for identity, level in opportunities.get("start_levels", {}).items():
+        if dt(level["expires_at"]) > now:
+            frozen_levels.setdefault(identity, dict(level))
+    state["start_levels"] = frozen_levels
+    for item in plans:
+        identity = item["structure_id"]
+        if identity not in frozen_levels:
+            continue
+        original = frozen_levels[identity]
+        current = opportunities.get("start_levels", {}).get(identity, {})
+        if any(original.get(k) != current.get(k) for k in ("atr", "width", "trigger")):
+            item.update(executable=False, execution_reason="历史修订改变已冻结结构，等待独立新机会")
+        elif original.setdefault("first_break", item["started_at"]) != item["started_at"]:
+            item.update(executable=False, execution_reason="历史修订改变首次突破时刻，原过程不延长")
     state["plans"] = plans
     data_ok = bool(
         result
@@ -311,14 +388,16 @@ def transition(previous, symbol, result, quote, now):
         and bounds
         and bounds[0] <= dt(result["as_of"]) <= now
         and 0 <= (now - dt(result["as_of"])).total_seconds() <= 75
-        and not opportunities.get("reference", True)
     )
+    def data_ready(item):
+        return data_ok and (not opportunities.get("reference", True) or item["kind"] == "opening_breakout")
+
     # Freeze first observed confirmation, even if no position is opened.
     evidence = state.setdefault("confirmations", {})
     for item in plans:
         if (
             phase == "active"
-            and data_ok
+            and data_ready(item)
             and item["confirmed_at"]
             and not item.get("superseded_by")
             and bounds[0] <= dt(item["confirmed_at"]) <= now
@@ -332,19 +411,19 @@ def transition(previous, symbol, result, quote, now):
         if item["executable"] and item["structure_id"] not in evidence:
             item.update(executable=False, execution_reason="等待交易时段内有效确认")
         # Display validity belongs to this branch and ignores ownership/process consumption.
-        item["opportunity_valid"] = item["executable"] and data_ok and not state["stopped"]
+        item["opportunity_valid"] = item["executable"] and data_ready(item) and not state["stopped"]
         item["opportunity_reason"] = (
             "今日已停止进场或尚未开盘"
             if state["stopped"]
-            else "闭合分钟数据不足或延迟" if not data_ok else item["execution_reason"]
+            else "闭合分钟数据不足或延迟" if not data_ready(item) else item["execution_reason"]
         )
         if state["stopped"]:
             item.update(executable=False, execution_reason="今日已停止进场或尚未开盘")
-        elif position:
+        elif position and item["executable"]:
             item.update(executable=False, execution_reason="本周期已有虚拟持仓，禁止重复进场或反手")
-        elif item["process_id"] in used or any(consumed_structure(item, w) for w in windows):
+        elif item["executable"] and (item["process_id"] in used or any(consumed_structure(item, w) for w in windows)):
             item.update(executable=False, execution_reason="本过程已模拟交易，等待独立新机会")
-        elif not data_ok:
+        elif not data_ready(item):
             item.update(executable=False, execution_reason="闭合分钟数据不足或延迟")
     if not position and not state["stopped"] and data_ok:
         chosen = min((p for p in plans if p["executable"]), key=plan_order, default=None)
@@ -352,6 +431,7 @@ def transition(previous, symbol, result, quote, now):
             used.append(chosen["process_id"])
             windows.append(
                 dict(
+                    kind=chosen["kind"],
                     direction=chosen["direction"],
                     family="box" if chosen["kind"].startswith("box") else "trend",
                     start=chosen.get("started_at", chosen["confirmed_at"]),
@@ -388,7 +468,8 @@ def transition(previous, symbol, result, quote, now):
             state["position"] = position
             state["entered_opportunity_id"] = chosen["structure_id"]
             for item in plans:
-                item.update(executable=False, execution_reason="已模拟持有，禁止重复进场或反手")
+                if item["executable"]:
+                    item.update(executable=False, execution_reason="已模拟持有，禁止重复进场或反手")
             event(
                 "entry",
                 "模拟做多进场" if position["side"] == 1 else "模拟做空进场",

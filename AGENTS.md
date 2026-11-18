@@ -480,7 +480,7 @@ GET本人历史不重算，默认今日或上一交易日；手动触发仅当�
 
 ## Intraday Options
 
-`intraday_options/` 为固定30个US标的计算15/30/60分钟趋势机会分。Streamer复用原生分钟线后台计算，仅读闭合正常时段连续窗口，趋势分只缓存Redis最新结果；独立虚拟交易与信号事件由0093专用表持久化，不复用真实持仓。
+`intraday_options/` 为固定28个US标的计算15/30/60分钟趋势机会分。Streamer复用原生分钟线后台计算，仅读闭合正常时段连续窗口，趋势分只缓存Redis最新结果；独立虚拟交易与信号事件由0093专用表持久化，不复用真实持仓。
 页面 `/market/intraday-options`（市场→日内期权交易），GET `/api/v1/intraday-options` 只读缓存及模拟表，实时复用WS/SSE scope=intraday-options。固定池加入Streamer订阅并集及登录用户分钟图只读白名单，不改变个人自选/持仓。
 所有数据列表头支持排序，实时更新保留阅读位置；无合约/下单/概率承诺。公式与数据边界见 `docs/intraday-options.md`。
 
@@ -501,3 +501,5 @@ GET只读，行级机会资格排除缺线、延迟和非交易时段；默认�
 不读取Trend排名、不选期权合约、不下单、不存历史；详见`docs/intraday-options.md`。
 
 三个趋势下游共用 `trend_following/opportunity_inputs.py` 正式买点投影：Confluence v2_3在Trend30内部取背景/有效买点较强路线；Signal Center加入前40候选及两轮LLM价位证据；Intraday v2_2新增昨日买点前40冻结来源、保留原分钟确认条件。跨周期structure_id去重，不读取Preview，不回填旧历史，见 `docs/trend-opportunities.md`。
+
+日内标的模拟 V4 共六条入口。开盘区间、盘中摆动位及按报价检查的固定目标门槛见 [策略与回放](docs/intraday-starts.md)。

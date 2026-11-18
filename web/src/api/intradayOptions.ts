@@ -25,8 +25,8 @@ export interface IntradayStructure extends AnalysisCoverage {
   reasons: string[];
 }
 export interface OpportunityBranch {
-  kind: 'box_breakout' | 'box_retest' | 'trend_recovery' | 'trend_continuation';
-  confirmationMethod?: 'two_closes' | 'strong_break' | null;
+  kind: 'box_breakout' | 'box_retest' | 'trend_recovery' | 'trend_continuation' | 'opening_breakout' | 'pivot_breakout';
+  confirmationMethod?: 'two_closes' | 'strong_break' | 'level_close' | null;
   confirmationAvailableAt?: string | null; confirmationRunAvailableAt?: string | null; executionEvidenceAt?: string | null;
   triggeredAt?: string | null; structureStart?: string | null; structureEnd?: string | null;
   structureHigh?: number | null; structureLow?: number | null;
@@ -71,11 +71,13 @@ export async function fetchIntradayOptions(signal: AbortSignal): Promise<Intrada
 export interface SimulationPlan extends OpportunityBranch {
   entryQuoteNotBefore?: string | null;
   processId: string; entryLow: number; entryHigh: number; target: number | null; targetSource: string;
+  remainingReturn?: number | null; initialRisk?: number | null;
   remainingSpace: number | null; rewardRisk: number | null; ageSeconds: number | null;
   opportunityValid?: boolean; opportunityReason?: string; executable: boolean; executionReason: string;
 }
 export interface SimTrade {
   confirmationMethod?: OpportunityBranch['confirmationMethod'];
+  entryEvidence?: Partial<SimulationPlan>;
   entryPriceAt?: string; tradingDate?: string;
   opportunityId?: string; id: string; symbol: string; side: number; kind: OpportunityBranch['kind']; entryPrice: number; entryAt: string;
   lastPrice: number; lastPriceAt: string; invalidation: number; protection: number; target: number | null;

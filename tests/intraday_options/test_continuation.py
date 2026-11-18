@@ -109,7 +109,8 @@ def test_choppy_background_and_continuous_impulse_do_not_manufacture_setups():
 @pytest.mark.parametrize("side", [1, -1])
 def test_new_independent_pause_can_confirm_while_old_recovery_is_extended(side):
     base = [100 + i * .1 for i in range(40)] + [103.05, 103.1, 103.15, 103.2, 103.3, 103.6, 103.9, 104.2]
-    old = score(prices([100 + side * (p - 100) for p in base]))["opportunities"]["branches"][0]
+    branches = score(prices([100 + side * (p - 100) for p in base]))["opportunities"]["branches"]
+    old = next(b for b in branches if b["kind"] == "trend_recovery")
     assert old["kind"] == "trend_recovery" and old["status"] == "extended"
     bars = prices([100 + side * (p - 100) for p in base + [104.15, 104.16, 104.18, 104.38]])
     r = score(bars); new = continuation(r)
@@ -181,7 +182,8 @@ def test_restart_multi_branch_and_revision_cannot_change_entry_evidence_or_repea
     state, replay = transition(deepcopy(state), "SPY.US", r, quote(later + timedelta(seconds=5), 104),
                                later + timedelta(seconds=5))
     assert not state.get("position") and not any(e["kind"] in {"entry", "exit"} for e in replay)
-    assert statistics([next(e["trade"] for e in exit_events if e["kind"] == "exit")])[-2]["count"] == 1
+    groups = statistics([next(e["trade"] for e in exit_events if e["kind"] == "exit")])
+    assert next(g for g in groups if g["label"] == "trend_continuation/1")["count"] == 1
 
 
 def test_new_structure_can_trade_before_previous_observation_lifetime_expires():

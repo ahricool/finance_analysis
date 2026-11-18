@@ -8,10 +8,11 @@ import json
 import logging
 
 from finance_analysis.core.time import utc_now
-from finance_analysis.database.repositories.intraday_simulation import process
+from finance_analysis.database.repositories.intraday_simulation import open_retired_symbols, process
 from finance_analysis.intraday_options.config import SYMBOLS
 from finance_analysis.intraday_options.scoring import calculate, closed_session_bars
 from finance_analysis.intraday_options.simulation import CONFIG
+from finance_analysis.intraday_options.structure import execution_context
 from finance_analysis.market_stream.session import cache_ttl
 from finance_analysis.market_stream.config import market_trading_date
 
@@ -65,26 +66,19 @@ async def run(repository, bars_by_symbol, stop_event):
     pool = ThreadPoolExecutor(max_workers=CONFIG.workers, thread_name_prefix="intraday-simulation")
     pending = {}
     cache = {}
+    retiring = None
 
     def compute(symbol, bars, benchmark, quote, now):
         now = utc_now()  # Queue wait must not make an old quote look fresh.
+        if symbol not in SYMBOLS:
+            return None, process(symbol, None, quote, now)
         closed = closed_session_bars(symbol, bars, now)
         # All relevant OHLCV/validity revisions invalidate shape cache.
         signature = tuple((b.bar_time, b.received_at, b.open, b.high, b.low, b.close, b.volume, b.partial, b.sampled) for b in closed)
         prior = cache.get(symbol)
         result = prior[1] if prior and prior[0] == signature else calculate(symbol, closed, now) if closed else None
         if result is not None and (not prior or prior[0] != signature):
-            from finance_analysis.intraday_options.structure import pivots
-
-            result["execution_pivots"] = [
-                p
-                for p in pivots([b for b in closed if b.is_valid() and not b.partial and not b.sampled])
-                if not any(
-                    (float(b.high) > p["price"] if p["kind"] == "high" else float(b.low) < p["price"])
-                    for b in closed
-                    if b.bar_time.isoformat() >= p["confirmed_at"]
-                )
-            ]
+            result.update(execution_context(closed))
         cache[symbol] = (signature, result)
         state = process(symbol, result, quote, now)
         state["relative_strength"] = relative_strength(symbol, bars, benchmark, now)
@@ -102,6 +96,8 @@ async def run(repository, bars_by_symbol, stop_event):
                 pool, compute, symbol, bars, benchmark, quote, now
             )
             ttl = cache_ttl("US", market_trading_date(now, "US"), now)
+            if symbol not in SYMBOLS and not state.get("position"):
+                retiring.discard(symbol)
             if result:
                 await repository.redis.set(result_key(symbol), json.dumps(result, allow_nan=False), ex=ttl)
             await repository.redis.set(f"rt:intraday-simulation:{symbol}", json.dumps(state, allow_nan=False), ex=ttl)
@@ -110,7 +106,12 @@ async def run(repository, bars_by_symbol, stop_event):
 
     try:
         while not stop_event.is_set():
-            for symbol in SYMBOLS:
+            if retiring is None:
+                try:
+                    retiring = await asyncio.to_thread(open_retired_symbols)
+                except Exception:
+                    logger.exception("读取移出观察池的未平仓模拟交易失败")
+            for symbol in (*SYMBOLS, *(retiring or ())):
                 if symbol not in pending or pending[symbol].done():
                     pending[symbol] = asyncio.create_task(tick(symbol))
             await asyncio.sleep(5)

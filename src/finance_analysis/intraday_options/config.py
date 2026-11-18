@@ -27,18 +27,16 @@ SYMBOLS = tuple(
         "IREN",
         "GLD",
         "AVGO",
-        "TQQQ",
         "MSTR",
         "SMH",
         "HYG",
         "SOFI",
         "SLV",
-        "DRAM",
         "WULF",
         "SMCI",
     )
 )
-VERSION = "intraday_options_v13"
+VERSION = "intraday_options_v14"
 WINDOWS = (5, 15, 30, 60)
 COMPOSITE_WINDOWS = (15, 30, 60)
 WINDOW_WEIGHTS = (0.30, 0.45, 0.25)
