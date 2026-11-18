@@ -27,7 +27,7 @@ def test_breakout_confirmation_extension_failure_and_fixed_identity(side):
         return entry([100 + side * (p - 100) for p in oscillation() + tail])
 
     forming = run([101.3])
-    assert forming["primary"] is None
+    assert branch(forming, "box_breakout")["confirmed_at"] is None
     first = run([101.3, 101.4])
     primary = first["primary"]
     assert primary["kind"] == "box_breakout"
@@ -39,10 +39,10 @@ def test_breakout_confirmation_extension_failure_and_fixed_identity(side):
     assert extended["trigger"] == primary["trigger"]
     assert extended["atr"] == primary["atr"]
     assert extended["confirmed_at"] == primary["confirmed_at"]
-    assert run([101.3, 101.4, 103])["primary"] is None
+    assert branch(run([101.3, 101.4, 103]), "box_breakout")["status"] == "extended"
     failed = run([101.3, 101.4, 100, 102, 102.1])
     assert branch(failed, "box_breakout")["status"] == "invalidated"
-    assert failed["primary"] is None
+    assert not any(b["kind"] == "box_breakout" and b["status"] == "confirmed" for b in failed["branches"])
 
 
 @pytest.mark.parametrize("side", [1, -1])

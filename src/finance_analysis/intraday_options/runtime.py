@@ -10,6 +10,7 @@ from datetime import datetime, timedelta
 from finance_analysis.core.time import utc_now
 from finance_analysis.intraday_options.config import CONFIG, SYMBOLS, VERSION
 from finance_analysis.intraday_options.analysis_window import REQUIRED_MINUTES
+from finance_analysis.intraday_options.simulation import plan as execution_plan, quote_value
 from finance_analysis.intraday_options.scoring import calculate, closed_session_bars
 from finance_analysis.intraday_options.rules import SIMULATION_VERSION, plan_order
 from finance_analysis.market_stream.config import market_trading_date
@@ -97,7 +98,7 @@ def data_status(result, now, day, market_status):
     return "ready"
 
 
-def ranked_opportunity(result, simulation, now):
+def ranked_opportunity(result, simulation, now, quote=None):
     """Project one currently valid execution plan; never borrow another shape's score."""
     branches = {b["structure_id"]: b for b in result["opportunities"]["branches"]}
     candidates = []
@@ -111,6 +112,11 @@ def ranked_opportunity(result, simulation, now):
         # A revision can retain as_of. Check the actual branch evidence too;
         # execution has its own rule_version, all other shape fields must match.
         if all(plan.get(k) == v for k, v in branch.items() if k != "rule_version"):
+            if quote is not None:
+                current = execution_plan(branch, result, quote_value(quote, now), now, quote.event_time, plan)
+                if not current["executable"]:
+                    continue
+                plan = {**plan, **current, "execution_reason": plan["execution_reason"], "executable": plan["executable"]}
             candidates.append(plan)
     entered = simulation.get("entered_opportunity_id")
     return min(candidates, key=lambda p: (p["structure_id"] != entered, *plan_order(p)), default=None)
@@ -152,12 +158,12 @@ async def read_snapshot(repository, names, now):
                 quote_status = "ready"
         simulation = json.loads(sim_raw) if sim_raw else None
         display = None
-        if (result and result.get("opportunities") and not result["opportunities"].get("reference", True)
+        if (result and result.get("opportunities")
                 and status in {"ready", "warming"} and market_status == "open" and quote_status == "ready"
                 and simulation and not simulation.get("stopped", True) and simulation.get("cutoff")
                 and now < datetime.fromisoformat(simulation["cutoff"])
                 and 0 <= (now - datetime.fromisoformat(simulation["calculated_at"])).total_seconds() <= 15):
-            display = ranked_opportunity(result, simulation, now)
+            display = ranked_opportunity(result, simulation, now, quote)
         return {
             "simulation": simulation,
             "ranked_opportunity": display,

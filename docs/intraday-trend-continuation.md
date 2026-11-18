@@ -1,5 +1,7 @@
 # 日内趋势延续与候选独立性（V3）
 
+V4 新增启动路线和固定目标过滤，见[策略与回放](intraday-starts.md)。
+
 ## 问题与范围
 
 旧版恢复路线要求两根真实闭合K、最近5根净推进及路径效率；首次确认时可能已离旧EMA触发位很远。
@@ -8,7 +10,7 @@
 
 V3保留三条旧路线的确认/距离参数，新增多空镜像的 `trend_continuation`。
 只捕捉已有趋势中的真实短暂整理/浅回撤后突破；连续单边大K、无整理的直接跳变不会因此成为新机会。
-当前缓存版本 `intraday_options_v13`、形态版本 `intraday_entry_v3_3`、新交易版本 `underlying_sim_v3_3`。
+V3.3 缓存版本 `intraday_options_v13`、形态版本 `intraday_entry_v3_3`、新交易版本 `underlying_sim_v3_3`。
 不新增表、真实持仓或notification；不回填历史成交、不重解释已保存旧交易。
 
 ## 规则与参数

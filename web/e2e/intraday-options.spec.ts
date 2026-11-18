@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 
-const codes = 'SPY QQQ NVDA IWM TSLA MU AAPL AMD SPCX INTC AMZN IBIT CRWV TLT GOOGL META MSFT SOXL IREN GLD AVGO TQQQ MSTR SMH HYG SOFI SLV DRAM WULF SMCI'.split(' ');
+const codes = 'SPY QQQ NVDA IWM TSLA MU AAPL AMD SPCX INTC AMZN IBIT CRWV TLT GOOGL META MSFT SOXL IREN GLD AVGO MSTR SMH HYG SOFI SLV WULF SMCI'.split(' ');
 const now = '2026-11-12T16:00:05Z';
 const continuation = {
   kind: 'trend_continuation', direction: 'bullish', status: 'confirmed', quality_score: 95,
@@ -94,7 +94,7 @@ for (const width of [390, 768, 1024, 1280, 1440, 1920]) {
     await expect(page.getByTestId('simulation-event').first()).toContainText(/NVDA.US\s*做空/);
     await expect(page.getByTestId('simulation-event').first()).toBeVisible();
     const rows = page.locator('[data-testid^="options-row-"]');
-    await expect(rows).toHaveCount(30);
+    await expect(rows).toHaveCount(28);
     await expect(rows.first()).toHaveAttribute('data-testid', 'options-row-SPY.US');
     const opportunityCell = rows.first().getByTestId('opportunity-score');
     await expect(opportunityCell).toContainText(/95\s*分/);
@@ -138,7 +138,7 @@ for (const width of [390, 768, 1024, 1280, 1440, 1920]) {
     await page.getByRole('button', { name: '最新价 / 涨跌幅', exact: true }).click();
     await expect(rows.last()).toHaveAttribute('data-testid', 'options-row-SPCX.US');
     await page.getByRole('group', { name: '方向筛选' }).getByRole('button', { name: '偏空', exact: true }).click();
-    await expect(rows).toHaveCount(15);
+    await expect(rows).toHaveCount(14);
     await page.getByRole('textbox', { name: '搜索标的' }).fill('INTC');
     await expect(rows).toHaveCount(1);
     expect(errors).toEqual([]);

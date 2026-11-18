@@ -1,5 +1,5 @@
 """Causal intraday structure from the latest hour, independent of opportunity scores."""
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 import numpy as np
 
@@ -65,6 +65,21 @@ def pivots(bars):
                                "confirmed_at": (bars[i + 2].bar_time + MINUTE).isoformat(),
                                "price": float(bars[i].high if kind == "high" else bars[i].low)})
     return sorted(output, key=lambda p: p["at"])
+
+
+def execution_context(closed):
+    """Same-session untouched target pivots and the availability of the versions examined."""
+    valid = [b for b in closed if observed(b) and b.is_valid() and not b.partial and not b.sampled]
+    levels = []
+    for point in pivots(valid):
+        confirmed = datetime.fromisoformat(point["confirmed_at"])
+        later = (b for b in valid if b.bar_time >= confirmed)
+        crossed = (any(float(b.high) > point["price"] for b in later) if point["kind"] == "high"
+                   else any(float(b.low) < point["price"] for b in later))
+        if not crossed:
+            levels.append(point)
+    return dict(execution_pivots=levels, target_evidence_at=max(max(b.bar_time + MINUTE, b.received_at)
+                                                                for b in closed).isoformat())
 
 
 def segment(bars, end, minutes):

@@ -250,4 +250,17 @@ def test_restored_shape_persists_revision_floor_and_original_confirmation(isolat
         assert trade["entry_price"] == inside and trade["evidence"] == frozen
         assert trade["entry_evidence"]["entry_quote_not_before"] == receipt.isoformat()
         confirmations = [e.payload["evidence"] for e in db.scalars(select(Event)) if e.payload["kind"] == "confirmed"]
-        assert confirmations == [frozen]
+        assert [c for c in confirmations if c["structure_id"] == branch["structure_id"]] == [frozen]
+
+
+def test_removed_symbol_only_drains_existing_position(isolated_store):
+    symbol = "TQQQ.US"
+    store.process(symbol, result(), quote(), NOW)  # Persist a pre-removal position.
+    assert store.open_retired_symbols() == {symbol}
+    t = NOW + timedelta(seconds=35)
+    state = store.process(symbol, None, quote(t, 103), t)
+    assert not state["position"] and not state["plans"]
+    assert not store.open_retired_symbols()
+    with isolated_store() as db:
+        trade = db.scalars(select(Trade)).one()
+        assert trade.symbol == symbol and trade.payload["exit_reason"] == "到达目标"

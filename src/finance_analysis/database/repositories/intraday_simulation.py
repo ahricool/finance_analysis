@@ -8,6 +8,7 @@ from finance_analysis.database.models.intraday_simulation import (
     IntradaySimulationEvent as Event,
 )
 from finance_analysis.database.session import DatabaseManager
+from finance_analysis.intraday_options.config import SYMBOLS
 from finance_analysis.intraday_options.simulation import dt, statistics, transition
 
 
@@ -46,10 +47,16 @@ def process(symbol, result, quote, now):
         return state
 
 
+def open_retired_symbols():
+    """Continue price-driven exits for positions that predate an observation pool change."""
+    with DatabaseManager.get_instance().session_scope() as session:
+        return set(session.scalars(select(Trade.symbol).where(Trade.status == "open", Trade.symbol.not_in(SYMBOLS))))
+
+
 def read(day, after_event_id=None):
     with DatabaseManager.get_instance().session_scope() as session:
         session.connection(execution_options={"isolation_level": "REPEATABLE READ"})
-        states = [r.payload for r in session.scalars(select(State))]
+        states = [r.payload for r in session.scalars(select(State)) if r.symbol in SYMBOLS or r.payload.get("position")]
         trades = [
             r.payload for r in session.scalars(select(Trade).where(Trade.trading_date == day, Trade.status == "closed"))
         ]

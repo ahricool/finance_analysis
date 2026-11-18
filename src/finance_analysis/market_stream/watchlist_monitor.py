@@ -75,10 +75,11 @@ class WatchListSnapshot:
 
 def load_stream_targets() -> dict[str, SubscriptionTarget]:
     """Personal subscriptions plus the shared fixed intraday options universe."""
+    from finance_analysis.database.repositories.intraday_simulation import open_retired_symbols
     from finance_analysis.intraday_options.config import SYMBOLS
 
     targets = load_watchlist_targets()
-    targets.update({symbol: SubscriptionTarget(symbol=symbol, market_type="US") for symbol in SYMBOLS})
+    targets.update({symbol: SubscriptionTarget(symbol=symbol, market_type="US") for symbol in (*SYMBOLS, *open_retired_symbols())})
     return targets
 
 

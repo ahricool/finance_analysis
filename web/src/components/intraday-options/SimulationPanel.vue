@@ -92,6 +92,11 @@ function planValue(p: SimulationPlan, key: string) {
   if (key === 'confirmedAt') return sortTime(p.confirmedAt);
   return key === 'status' ? ['confirmed', 'forming', 'extended', 'expired', 'invalidated'].indexOf(p.status) : sortField(p, key);
 }
+function plannedReturn(t: SimTrade) {
+  const fraction = t.entryEvidence?.remainingReturn;
+  if (fraction != null) return 100 * fraction;
+  return t.target != null && t.entryPrice > 0 ? 100 * t.side * (t.target - t.entryPrice) / t.entryPrice : null;
+}
 function historyValue(t: SimTrade, key: string) {
   return key === 'entryAt' || key === 'exitAt' ? sortTime(t[key]) : sortField(t, key);
 }
@@ -380,7 +385,7 @@ function historyValue(t: SimTrade, key: string) {
           </template>
           <template v-else-if="column === 'remainingSpace'">
             {{ price(p.remainingSpace) }}<p class="mt-1 text-xs text-muted-foreground">
-              收益风险比 {{ fmt(p.rewardRisk, 2) }}
+              止盈幅度 {{ pct(p.remainingReturn == null ? null : 100 * p.remainingReturn) }} · {{ fmt(p.rewardRisk, 2) }}R
             </p>
           </template>
         </template>
@@ -450,6 +455,15 @@ function historyValue(t: SimTrade, key: string) {
           </template>
           <template v-else-if="column === 'entryPrice' || column === 'exitPrice'">
             {{ price(t[column]) }}
+            <div
+              v-if="column === 'entryPrice'"
+              class="mt-1 text-xs text-muted-foreground"
+            >
+              <p>报价时间 {{ clock(t.entryPriceAt) }}</p>
+              <p>目标 {{ price(t.target) }} · {{ t.entryEvidence?.targetSource ?? '来源未记录' }}</p>
+              <p>初始失效 {{ price(t.invalidation) }} · ATR {{ fmt(t.entryEvidence?.atr, 4) }}</p>
+              <p>计划幅度 {{ pct(plannedReturn(t)) }} · {{ fmt(t.entryEvidence?.rewardRisk, 2) }}R</p>
+            </div>
           </template>
           <template v-else-if="column === 'returnPct'">
             <span :class="tone(t.returnPct)">{{ pct(t.returnPct) }}</span>

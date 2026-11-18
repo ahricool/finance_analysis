@@ -72,14 +72,15 @@ class IntradayStructure(AnalysisCoverage):
 
 
 class OpportunityBranch(BaseModel):
-    kind: Literal["box_breakout", "box_retest", "trend_recovery", "trend_continuation"]
+    kind: Literal["box_breakout", "box_retest", "trend_recovery", "trend_continuation", "opening_breakout", "pivot_breakout"]
     process_id: str | None = None
     rule_version: str | None = None
-    confirmation_method: Literal["two_closes", "strong_break"] | None = None
+    confirmation_method: Literal["two_closes", "strong_break", "level_close"] | None = None
     confirmation_available_at: datetime | None = None
     confirmation_run_available_at: datetime | None = None
     execution_evidence_at: datetime | None = None
     triggered_at: datetime | None = None
+    formation_available_at: datetime | None = None
     structure_start: datetime | None = None
     structure_end: datetime | None = None
     structure_high: float | None = None

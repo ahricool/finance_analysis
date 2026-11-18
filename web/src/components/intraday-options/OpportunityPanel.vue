@@ -34,7 +34,7 @@ defineProps<{ opportunities?: IntradayOpportunities | null; stale: boolean; plan
         <p class="font-medium">
           {{ opportunityKinds[branch.kind] }} · {{ directions[branch.direction] }}
         </p>
-        <p>{{ opportunityStates[branch.status] }}{{ opportunities?.reference || stale ? '（参考）' : '' }} · 分支质量 {{ fmt(branch.qualityScore) }}</p>
+        <p>{{ opportunityStates[branch.status] }}{{ (opportunities?.reference && branch.kind !== 'opening_breakout') || stale ? '（参考）' : '' }} · 分支质量 {{ fmt(branch.qualityScore) }}</p>
         <p>{{ confirmationLabel(branch.confirmationMethod) }} · 形态确认不等于当前可进场</p>
         <p
           v-if="!stale"
@@ -49,7 +49,9 @@ defineProps<{ opportunities?: IntradayOpportunities | null; stale: boolean; plan
           已有后续独立结构，保留原证据
         </p>
         <p v-if="branch.structureStart">
-          结构 {{ clock(branch.structureStart) }}–{{ clock(branch.structureEnd) }} · {{ fmt(branch.structureLow, 2) }}–{{ fmt(branch.structureHigh, 2) }}
+          结构 {{ clock(branch.structureStart) }}–{{ clock(branch.structureEnd) }}<template v-if="branch.structureLow != null && branch.structureHigh != null">
+            · {{ fmt(branch.structureLow, 2) }}–{{ fmt(branch.structureHigh, 2) }}
+          </template>
         </p>
         <p v-if="branch.atrSource === 'observed_adjacent_true_ranges'">
           波动尺度 {{ fmt(branch.atr, 3) }} · {{ branch.atrSamples }} 个真实相邻波动样本

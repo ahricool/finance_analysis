@@ -66,3 +66,17 @@ it('carries continuation kind and confirmation method through simulated chart tr
   expect(ops[0]!.reason).toContain('趋势延续');
   expect(ops[0]!.reason).toContain('强突破单根确认');
 });
+
+it('keeps an executable opening break visible during the longer windows’ warmup', () => {
+  const opening = { ...branch, kind: 'opening_breakout' as const, confirmationMethod: 'level_close' as const };
+  const row: IntradayOptionRow = { symbol: 'QQQ.US', name: null, lastPrice: 100, changePct: null,
+    quoteTime: opening.confirmedAt, issues: [], opportunityEligible: true, dataStatus: 'warming', quoteStatus: 'ready',
+    rankedOpportunity: { ...opening, opportunityReason: '', executionReason: '' },
+    result: { opportunities: { ...opportunities, reference: true, branches: [opening], primary: opening },
+      version: 'intraday_options_v14', symbol: 'QQQ.US', tradingDate: '2026-11-17', asOf: opening.confirmedAt!,
+      observedAt: opening.confirmedAt!, windows: [], score: null, direction: null, state: null, baseScore: null,
+      alignment: null, extensionAtr: null, explanation: '' },
+  };
+  expect(entryScore(row)).toBe(opening.qualityScore);
+  expect(entryLabel(row)).toBe('已确认');
+});

@@ -83,7 +83,7 @@ watch(stream.intradayOptions, result => {
     <PageHeader
       title="日内期权交易"
       en="Intraday Options"
-      description="固定30个标的 · 趋势质量与日内入场机会分开观察；分数不是盈利概率。"
+      description="固定标的观察池 · 趋势质量与日内入场机会分开观察；分数不是盈利概率。"
     />
     <SimulationPanel
       v-if="snapshot"
@@ -334,7 +334,7 @@ watch(stream.intradayOptions, result => {
       </Table>
     </div>
     <p class="text-xs text-muted-foreground">
-      {{ rows.length }} / {{ snapshot?.items.length ?? 30 }} 个标的 · 仅正常交易时段评分 · 不选择期权合约，不自动下单 · 趋势评分保留最新缓存；模拟交易与事件独立保存
+      {{ rows.length }} / {{ snapshot?.items.length ?? 0 }} 个标的 · 仅正常交易时段评分 · 不选择期权合约，不自动下单 · 趋势评分保留最新缓存；模拟交易与事件独立保存
     </p>
   </div>
 </template>
