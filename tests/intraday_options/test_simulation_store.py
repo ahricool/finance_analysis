@@ -213,3 +213,41 @@ def test_persisted_quote_follows_receipt_of_confirming_version(isolated_store, r
         assert row['entry_at'] == (closed + timedelta(seconds=20)).isoformat()
         assert row['entry_evidence']['confirmation_available_at'] == received.isoformat()
         assert row['evidence']['confirmed_at'] == closed.isoformat()
+
+
+@pytest.mark.parametrize("side", [1, -1])
+def test_restored_shape_persists_revision_floor_and_original_confirmation(isolated_store, side):
+    from dataclasses import replace
+    from tests.intraday_options.test_continuation import path, continuation
+    from finance_analysis.intraday_options.scoring import calculate
+
+    bars = path(side, tail=(104, 104))
+    close = bars[-1].bar_time + timedelta(minutes=1)
+    first_at = close - timedelta(seconds=55)
+    first = calculate("SPY.US", bars[:-1], first_at)
+    branch = continuation(first)
+    inside = branch["trigger"] + side * .5 * branch["atr"]
+    outside = branch["trigger"] + side * 1.1 * branch["atr"]
+    state = store.process("SPY.US", first, quote(first_at, outside), first_at)
+    frozen = state["confirmations"][branch["structure_id"]]
+    wick = "low" if side > 0 else "high"
+    original = replace(bars[-1], **{wick: getattr(bars[-1], wick) - side})
+    receipt = close + timedelta(seconds=14)
+    versions = [*bars[:-1], original, replace(bars[-1], received_at=receipt)]
+    early = quote(close + timedelta(seconds=3), inside)
+    for offset in (5, 15, 20):
+        now = close + timedelta(seconds=offset)
+        result = calculate("SPY.US", versions, now)
+        assert not store.process("SPY.US", result, early, now).get("position")
+    with isolated_store() as db:
+        assert db.scalars(select(Trade)).first() is None
+    # Equality at the receipt boundary is eligible. Processing time is distinct.
+    fresh = quote(receipt, inside)
+    store.process("SPY.US", result, fresh, close + timedelta(seconds=25))
+    with isolated_store() as db:
+        trade = db.scalars(select(Trade)).one().payload
+        assert trade["entry_price_at"] == receipt.isoformat()
+        assert trade["entry_price"] == inside and trade["evidence"] == frozen
+        assert trade["entry_evidence"]["entry_quote_not_before"] == receipt.isoformat()
+        confirmations = [e.payload["evidence"] for e in db.scalars(select(Event)) if e.payload["kind"] == "confirmed"]
+        assert confirmations == [frozen]

@@ -97,3 +97,95 @@ def test_confirmation_waits_for_late_structure_evidence_even_if_break_arrived_on
     assert branch["confirmation_available_at"] == received.isoformat()
     state, _ = transition({}, "SPY.US", result, quote(quote_at, 104), now)
     assert not state.get("position")
+
+
+@pytest.mark.parametrize("side", [1, -1])
+@pytest.mark.parametrize("outside", [False, True])
+def test_late_revision_restores_entry_only_for_quotes_after_its_receipt(side, outside):
+    bars = path(side, tail=(104, 104))
+    closed = bars[-1].bar_time + timedelta(minutes=1)
+    first = calculate("SPY.US", bars[:-1], closed - timedelta(seconds=55))
+    branch = continuation(first)
+    identity = branch["structure_id"]
+    inside = branch["trigger"] + side * .5 * branch["atr"]
+    beyond = branch["trigger"] + side * 1.1 * branch["atr"]
+    initial = quote(closed - timedelta(seconds=55), beyond)
+    state, events = transition({}, "SPY.US", first, initial, initial.event_time)
+    frozen = state["confirmations"][identity]
+    assert not state.get("position") and any(e["kind"] == "confirmed" for e in events)
+    assert frozen["confirmed_at"] == (closed - timedelta(minutes=1)).isoformat()
+
+    wick = "low" if side > 0 else "high"
+    invalid = replace(bars[-1], **{wick: Decimal(str(branch["invalidation"])) - side * Decimal(".01")})
+    received = closed + timedelta(seconds=14)
+    revised = replace(bars[-1], received_at=received)
+    versions = [*bars[:-1], invalid, revised]
+    early = quote(closed + timedelta(seconds=3), inside)
+    before = closed + timedelta(seconds=5)
+    result = calculate("SPY.US", versions, before)
+    assert continuation(result)["status"] == "invalidated"
+    prior_to_original = state
+    state, _ = transition(state, "SPY.US", result, early, before)
+    assert not state.get("position")
+
+    after = closed + timedelta(seconds=15)
+    result = calculate("SPY.US", versions, after)
+    current = continuation(result)
+    assert current["status"] == "confirmed" and current["confirmed_at"] == frozen["confirmed_at"]
+    assert current["confirmation_available_at"] == frozen["confirmation_available_at"]
+    assert current["execution_evidence_at"] == received.isoformat()
+    missed_tick, _ = transition(prior_to_original, "SPY.US", result, early, after)
+    assert not missed_tick.get("position")
+    state, events = transition(state, "SPY.US", result, early, after)
+    assert not state.get("position")
+    assert not any(e["kind"] in {"entry", "confirmed"} for e in events)
+    assert state["confirmations"][identity] == frozen
+    plan = next(p for p in state["plans"] if p["structure_id"] == identity)
+    assert plan["entry_quote_not_before"] == received.isoformat() and "确认依据" in plan["execution_reason"]
+    # The next five-second check must keep the floor even after restoring persisted state.
+    state, _ = transition(json.loads(json.dumps(state)), "SPY.US", result, early, after + timedelta(seconds=5))
+    assert not state.get("position")
+    fresh = quote(closed + timedelta(seconds=23), beyond if outside else inside)
+    state, events = transition(state, "SPY.US", result, fresh, closed + timedelta(seconds=25))
+    if outside:
+        assert not state.get("position") and not any(e["kind"] == "entry" for e in events)
+    else:
+        assert state["position"]["entry_price_at"] == fresh.event_time.isoformat()
+        assert state["position"]["entry_price"] == inside
+        assert state["position"]["evidence"] == frozen
+
+
+@pytest.mark.parametrize("side", [1, -1])
+def test_continuous_confirmation_preserves_a_still_fresh_quote(side):
+    bars = path(side, tail=(104, 104))
+    closed = bars[-1].bar_time + timedelta(minutes=1)
+    first_at = closed - timedelta(seconds=55)
+    first = calculate("SPY.US", bars[:-1], first_at)
+    branch = continuation(first)
+    outside = branch["trigger"] + side * 1.1 * branch["atr"]
+    state, _ = transition({}, "SPY.US", first, quote(first_at, outside), first_at)
+    assert not state.get("position")
+    # A new regular minute continues the already observed confirmation.
+    q = quote(closed - timedelta(seconds=2), branch["trigger"] + side * .5 * branch["atr"])
+    now = closed + timedelta(seconds=5)
+    state, _ = transition(state, "SPY.US", calculate("SPY.US", bars, now), q, now)
+    assert state["position"]["entry_price_at"] == q.event_time.isoformat()
+
+
+@pytest.mark.parametrize("side", [1, -1])
+def test_revision_does_not_delay_quote_when_original_minute_already_qualified(side):
+    bars = path(side, tail=(104, 104))
+    closed = bars[-1].bar_time + timedelta(minutes=1)
+    before = closed + timedelta(seconds=5)
+    first = calculate("SPY.US", bars, before)
+    branch = continuation(first)
+    outside = branch["trigger"] + side * 1.1 * branch["atr"]
+    state, _ = transition({}, "SPY.US", first, quote(before, outside), before)
+    assert branch["status"] == "confirmed" and not state.get("position")
+    # The original qualified. Changing volume cannot restore eligibility that was never lost.
+    revision = replace(bars[-1], volume=bars[-1].volume + 10, received_at=closed + timedelta(seconds=14))
+    after = closed + timedelta(seconds=15)
+    revised = calculate("SPY.US", [*bars, revision], after)
+    q = quote(closed + timedelta(seconds=12), branch["trigger"] + side * .5 * branch["atr"])
+    state, _ = transition(state, "SPY.US", revised, q, after)
+    assert state["position"]["entry_price_at"] == q.event_time.isoformat()

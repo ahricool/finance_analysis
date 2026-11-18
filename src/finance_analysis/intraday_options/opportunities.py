@@ -133,7 +133,14 @@ def advance(branch, history):
         available = max([bar.bar_time + MINUTE, *receipts])
         if branch.get("formation_available_at"):
             available = max(available, datetime.fromisoformat(branch["formation_available_at"]))
+        branch["confirmation_run_available_at"] = available.isoformat()
         branch["execution_evidence_at"] = available.isoformat()
+    elif restored:
+        # Replaying corrected OHLC can hide a disqualification seen by the live simulator.
+        # Keep the receipt of every supporting version, even on consecutive confirmed closes.
+        branch["execution_evidence_at"] = max(
+            datetime.fromisoformat(branch["execution_evidence_at"]), bar.received_at, bar.bar_time + MINUTE
+        ).isoformat()
     if restored and branch["confirmed_at"] is None:
         branch["confirmation_available_at"] = branch["execution_evidence_at"]
         branch["confirmed_at"] = when

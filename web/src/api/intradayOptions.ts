@@ -27,7 +27,7 @@ export interface IntradayStructure extends AnalysisCoverage {
 export interface OpportunityBranch {
   kind: 'box_breakout' | 'box_retest' | 'trend_recovery' | 'trend_continuation';
   confirmationMethod?: 'two_closes' | 'strong_break' | null;
-  confirmationAvailableAt?: string | null; executionEvidenceAt?: string | null;
+  confirmationAvailableAt?: string | null; confirmationRunAvailableAt?: string | null; executionEvidenceAt?: string | null;
   triggeredAt?: string | null; structureStart?: string | null; structureEnd?: string | null;
   structureHigh?: number | null; structureLow?: number | null;
   atrSource?: string | null; atrSamples?: number | null; ruleVersion?: string | null;
@@ -69,6 +69,7 @@ export async function fetchIntradayOptions(signal: AbortSignal): Promise<Intrada
 }
 
 export interface SimulationPlan extends OpportunityBranch {
+  entryQuoteNotBefore?: string | null;
   processId: string; entryLow: number; entryHigh: number; target: number | null; targetSource: string;
   remainingSpace: number | null; rewardRisk: number | null; ageSeconds: number | null;
   opportunityValid?: boolean; opportunityReason?: string; executable: boolean; executionReason: string;

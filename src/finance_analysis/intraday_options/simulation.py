@@ -86,10 +86,36 @@ def monitor_data(state, active, issue, quote, now, event):
     )
 
 
-def plan(branch, result, price, now, quote_time=None):
+def entry_quote_floor(branch, previous_plan, minute_as_of):
+    if not branch.get("confirmed_at"):
+        return None
+    latest = dt(branch.get("execution_evidence_at") or branch["confirmed_at"])
+    # Only an already observed, uninterrupted shape can reuse its earlier quote floor.
+    # A quote outside the interval affects execution, not continuity of the shape.
+    if (
+        previous_plan
+        and previous_plan.get("status") == "confirmed"
+        and not previous_plan.get("breakout_rejection")
+        and not previous_plan.get("superseded_by")
+        and previous_plan.get("entry_quote_not_before")
+        and branch.get("confirmation_run_available_at")
+        and all(previous_plan.get(k) == branch.get(k) for k in ("confirmed_at", "trigger", "invalidation", "atr"))
+    ):
+        # A tick can miss both the original and its correction. A post-close version
+        # of a minute we never observed cannot prove continuity before its receipt.
+        if minute_as_of and previous_plan.get("minute_as_of") and (
+            dt(previous_plan["minute_as_of"]) < dt(minute_as_of) < latest
+        ):
+            return latest
+        return max(dt(previous_plan["entry_quote_not_before"]), dt(branch["confirmation_run_available_at"]))
+    return max(latest, dt(branch["confirmed_at"]))
+
+
+def plan(branch, result, price, now, quote_time=None, previous_plan=None):
     side = 1 if branch["direction"] == "bullish" else -1
     rule = RULES[branch["kind"]]
     interval = entry_interval(branch)
+    quote_floor = entry_quote_floor(branch, previous_plan, result.get("as_of"))
     # Confirmed pivots are raw intraday prices, the same basis as execution quotes.
     candidates = [
         p["price"]
@@ -115,9 +141,7 @@ def plan(branch, result, price, now, quote_time=None):
         reason = "机会已过期"
     elif price is None:
         reason = "报价缺失、过期或时间异常"
-    elif quote_time is not None and quote_time < max(
-        dt(branch["confirmed_at"]), dt(branch.get("execution_evidence_at") or branch["confirmed_at"])
-    ):
+    elif quote_time is not None and quote_time < quote_floor:
         reason = ("等待确认依据到达后的有效报价" if quote_time >= dt(branch["confirmed_at"])
                   else "等待确认后的有效报价")
     elif (price - branch["invalidation"]) * side <= 0:
@@ -140,6 +164,7 @@ def plan(branch, result, price, now, quote_time=None):
         "remaining_space": reward,
         "reward_risk": reward / risk if reward is not None and risk and risk > 0 else None,
         "minute_as_of": result.get("as_of"),
+        "entry_quote_not_before": quote_floor.isoformat() if quote_floor else None,
         "rule_version": VERSION,
         "max_risk_atr": rule.max_risk_atr,
         "analysis_coverage": {
@@ -275,7 +300,9 @@ def transition(previous, symbol, result, quote, now):
     opportunities = (
         ((result or {}).get("opportunities") or {}) if result and result["trading_date"] == day.isoformat() else {}
     )
-    plans = [plan(b, result, price, now, quote.event_time if price is not None else None)
+    previous_plans = {p["structure_id"]: p for p in state.get("plans", [])}
+    plans = [plan(b, result, price, now, quote.event_time if price is not None else None,
+                  previous_plans.get(b["structure_id"]))
              for b in opportunities.get("branches", [])]
     state["plans"] = plans
     data_ok = bool(
