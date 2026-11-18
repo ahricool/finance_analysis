@@ -21,6 +21,7 @@ it('passes persisted B/S overlays to minute detail, selects evidence, updates ex
     global: { stubs: { MarketKLineChart: true, OpportunityPanel: true, FieldSelect: true } } });
   await flushPromises();
   const chart = wrapper.getComponent(MarketKLineChart);
+  expect(chart.props('liveSnapshot')).toBe(true);
   const overlays = () => chart.props('overlays')!.filter(o => o.groupId === 'intraday-simulation-trades');
   expect(overlays()).toHaveLength(1);
   overlays()[0]!.onClick!({} as never); await wrapper.vm.$nextTick();

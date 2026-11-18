@@ -11,6 +11,7 @@ const props = defineProps<{
   pricePrecision?: number;
   bars: KLineData[];
   current?: KLineData | null;
+  liveSnapshot?: boolean;
   sourceKey?: string;
   focusTimestamp?: number;
   focusRequest?: number;
@@ -61,6 +62,40 @@ function liveBar() {
   const last = props.bars.at(-1);
   return bar && (!last || bar.timestamp >= last.timestamp) ? bar : null;
 }
+function snapshotBars() {
+  const bars = new Map(props.bars.map(bar => [bar.timestamp, bar]));
+  const current = liveBar();
+  if (current) bars.set(current.timestamp, current);
+  return [...bars.values()].sort((a, b) => a.timestamp - b.timestamp);
+}
+
+function updateLiveSnapshot() {
+  if (!chart || !pushBar) return;
+  const previous = chart.getDataList();
+  const next = snapshotBars();
+  const last = previous.length - 1;
+  for (let i = 0; i < previous.length; i++) {
+    const before = previous[i]!;
+    const after = next[i];
+    const same = after && Object.keys(before).length === Object.keys(after).length &&
+      Object.keys(before).every(key => before[key] === after[key]);
+    if (same) continue;
+    if (i === last && after?.timestamp === before.timestamp) {
+      pushBar(after);
+    } else {
+      // A correction before the last candle, an insertion or a deletion needs a full reload.
+      chart.resetData();
+      return;
+    }
+  }
+  for (const bar of next.slice(last + 1)) pushBar(bar);
+}
+
+function candleX(timestamp: number) {
+  const point = chart?.convertToPixel({ timestamp }, { paneId: 'candle_pane' });
+  return Array.isArray(point) ? undefined : point?.x;
+}
+
 function styles() {
   if (!chart) return;
   chart.setStyles(resolvedTheme.value);
@@ -127,9 +162,9 @@ function focusOnTimestamp(timestamp: number) {
   if (!chart) return;
   chart.scrollToTimestamp(timestamp);
   const width = chart.getSize('candle_pane', 'main')?.width;
-  const point = chart.convertToPixel({ timestamp }, { paneId: 'candle_pane' });
-  if (width && !Array.isArray(point) && point.x != null) {
-    chart.scrollByDistance(width / 2 - point.x);
+  const x = candleX(timestamp);
+  if (width && x != null) {
+    chart.scrollByDistance(width / 2 - x);
   }
 }
 const formatSessionDate: FormatDate = ({ dateTimeFormat, timestamp, template, type }) => {
@@ -174,11 +209,19 @@ function initialize() {
   chart.setPeriod(periods[props.period]);
   chart.setDataLoader({
     getBars: ({ type, callback }) => {
-      const bars = new Map(props.bars.map(bar => [bar.timestamp, bar]));
-      const current = liveBar();
-      if (current) bars.set(current.timestamp, current);
-      callback(type === 'init' ? [...bars.values()].sort((a, b) => a.timestamp - b.timestamp) : [], false);
-      if (type === 'init' && props.focusTimestamp != null) {
+      if (type !== 'init') { callback([], false); return; }
+      const bars = snapshotBars();
+      const previous = props.liveSnapshot ? chart?.getDataList() : undefined;
+      const right = chart && previous?.length ? chart.getVisibleRange().to - 1 : -1;
+      const anchor = previous?.[right];
+      const oldX = anchor && candleX(anchor.timestamp);
+      const followLatest = previous && right === previous.length - 1;
+      callback(bars, false);
+      if (anchor && oldX != null && bars.length) {
+        // Preserve the rightmost visible candle, or the live edge if it was in view.
+        const newX = candleX(followLatest ? bars.at(-1)!.timestamp : anchor.timestamp);
+        if (newX != null) chart?.scrollByDistance(oldX - newX);
+      } else if (props.focusTimestamp != null) {
         focusOnTimestamp(props.focusTimestamp);
       }
       fitSession();
@@ -189,17 +232,19 @@ function initialize() {
   applyOverlays();
 }
 watch(() => props.overlays, applyOverlays);
-watch(() => [props.focusTimestamp, props.focusRequest], () => {
-  const timestamp = props.focusTimestamp;
+watch([() => props.focusTimestamp, () => props.focusRequest], ([timestamp, request], [, previousRequest]) => {
+  // Live snapshots may add or remove a selected marker without a navigation request.
+  if (props.liveSnapshot && request === previousRequest) return;
   if (timestamp != null) focusOnTimestamp(timestamp);
   else chart?.scrollToRealTime();
 });
 watch(() => [props.symbol, props.period, props.sourceKey, props.pricePrecision, props.timezone, props.session?.open], initialize);
 watch(() => props.referencePrice, applyReferenceRange);
-watch(() => props.bars, () => { chart?.resetData(); fitSession(); });
-watch(() => props.current, () => {
+watch([() => props.bars, () => props.current], ([bars], [previousBars]) => {
   const bar = liveBar();
-  if (bar) pushBar?.(bar);
+  if (bars === previousBars && bar && (!props.liveSnapshot || bar.timestamp >= (chart?.getDataList().at(-1)?.timestamp ?? 0))) {
+    pushBar?.(bar);
+  } else if (props.liveSnapshot) updateLiveSnapshot();
   else chart?.resetData();
   fitSession();
 });

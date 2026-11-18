@@ -140,8 +140,10 @@ const overlays = computed<OverlayCreate[]>(() => {
       <div class="min-w-0">
         <MarketKLineChart
           v-if="rows.length"
+          :key="snapshot?.tradingDate"
           :symbol="symbol"
           period="1m"
+          :live-snapshot="!session"
           :bars="bars"
           :current="current"
           :overlays="overlays"

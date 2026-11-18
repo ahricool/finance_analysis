@@ -11,6 +11,7 @@ const chart = vi.hoisted(() => ({
   scrollToTimestamp: vi.fn(), scrollToRealTime: vi.fn(), createIndicator: vi.fn(), resetData: vi.fn(), resize: vi.fn(),
   overrideYAxis: vi.fn(), overrideXAxis: vi.fn(), setBarSpace: vi.fn(), setOffsetRightDistance: vi.fn(),
   setScrollEnabled: vi.fn(), setZoomEnabled: vi.fn(),
+  getDataList: vi.fn<() => KLineData[]>(), getVisibleRange: vi.fn(),
 }));
 const lifecycle = vi.hoisted(() => ({ dispose: vi.fn(), init: vi.fn() }));
 vi.mock('klinecharts', () => ({ init: lifecycle.init, dispose: lifecycle.dispose,
@@ -70,6 +71,55 @@ describe('MarketKLineChart v10 lifecycle', () => {
     setTheme('light');
     await wrapper.vm.$nextTick();
     expect(chart.setStyles).toHaveBeenCalledWith('light');
+    wrapper.unmount();
+  });
+
+  it('updates polled candles in place and restores the visible minute after a history correction', async () => {
+    let displayed: KLineData[] = [];
+    chart.getDataList.mockImplementation(() => displayed);
+    const wrapper = mount(MarketKLineChart, { props: { symbol: 'SPY.US', period: '1m', liveSnapshot: true,
+      bars: [bar], current: { ...bar, timestamp: 2000 } } });
+    const push = vi.fn((candle: KLineData) => {
+      if (displayed.at(-1)?.timestamp === candle.timestamp) displayed[displayed.length - 1] = candle;
+      else displayed.push(candle);
+    });
+    const load = () => loader().getBars({ ...context, type: 'init', timestamp: null,
+      callback: candles => { displayed = candles; } });
+    load();
+    loader().subscribeBar!({ ...context, callback: push });
+    await wrapper.setProps({ bars: [{ ...bar }], current: { ...bar, timestamp: 2000 } });
+    expect(push).not.toHaveBeenCalled();
+    const finalized = { ...bar, timestamp: 2000, volume: 9 };
+    const current = { ...bar, timestamp: 3000 };
+    await wrapper.setProps({ bars: [bar, finalized], current });
+    expect(push.mock.calls).toEqual([[finalized], [current]]);
+    expect(chart.resetData).not.toHaveBeenCalled();
+    expect(chart.scrollToRealTime).not.toHaveBeenCalled();
+
+    chart.getVisibleRange.mockReturnValue({ from: 0, to: 1 });
+    chart.convertToPixel.mockReturnValueOnce({ x: 600 }).mockReturnValueOnce({ x: 200 });
+    chart.resetData.mockImplementationOnce(load);
+    const corrected = { ...bar, volume: 25 };
+    await wrapper.setProps({ bars: [corrected, finalized] });
+    expect(displayed).toEqual([corrected, finalized, current]);
+    expect(chart.convertToPixel.mock.calls).toEqual(Array(2).fill([{ timestamp: bar.timestamp }, { paneId: 'candle_pane' }]));
+    expect(chart.scrollByDistance).toHaveBeenCalledWith(400);
+
+    // A capped window can drop its oldest candle as a new one arrives.
+    chart.getVisibleRange.mockReturnValue({ from: 0, to: displayed.length });
+    chart.convertToPixel.mockClear();
+    chart.resetData.mockImplementationOnce(load);
+    const appended = { ...bar, timestamp: 4000 };
+    await wrapper.setProps({ bars: [finalized, current], current: appended });
+    expect(displayed).toEqual([finalized, current, appended]);
+    expect(chart.convertToPixel.mock.calls).toEqual([
+      [{ timestamp: current.timestamp }, { paneId: 'candle_pane' }],
+      [{ timestamp: appended.timestamp }, { paneId: 'candle_pane' }],
+    ]);
+    await wrapper.setProps({ focusTimestamp: finalized.timestamp, focusRequest: 1 });
+    expect(chart.scrollToTimestamp).toHaveBeenCalledWith(finalized.timestamp);
+    await wrapper.setProps({ focusTimestamp: undefined });
+    expect(chart.scrollToRealTime).not.toHaveBeenCalled();
     wrapper.unmount();
   });
 

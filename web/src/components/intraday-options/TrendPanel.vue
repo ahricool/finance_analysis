@@ -131,8 +131,10 @@ onBeforeUnmount(() => { stopped = true; generation++; controller?.abort(); clear
     </div>
     <MarketKLineChart
       v-if="rows.length"
+      :key="chartDate"
       :symbol="symbol"
       period="1m"
+      live-snapshot
       :bars="bars"
       :current="current"
       :overlays="overlays"
