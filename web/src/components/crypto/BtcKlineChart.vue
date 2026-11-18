@@ -36,6 +36,7 @@ const overlays = computed(() => tradeMarkerOverlays(markers.value, timestamp => 
   </p>
   <MarketKLineChart
     symbol="BTCUSDT"
+    live-snapshot
     :period="interval ?? '1m'"
     :price-precision="2"
     :overlays="overlays"

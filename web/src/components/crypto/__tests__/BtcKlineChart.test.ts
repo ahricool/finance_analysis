@@ -16,6 +16,7 @@ describe('BTC chart data mapping', () => {
       global: { stubs: { MarketKLineChart: true } } });
     const chart = wrapper.getComponent(MarketKLineChart);
     expect(chart.props('period')).toBe('1m');
+    expect(chart.props('liveSnapshot')).toBe(true);
     expect(chart.props('pricePrecision')).toBe(2);
     expect(chart.props('bars')).toEqual([{ timestamp: Date.parse(row.openTime), open: 100, high: 103,
       low: 99, close: 101, volume: 1, turnover: 100 }]);

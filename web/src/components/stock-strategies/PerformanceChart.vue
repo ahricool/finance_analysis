@@ -12,14 +12,29 @@ import type { Metrics } from '@/api/stockStrategies';
 use([CanvasRenderer, LineChart, GridComponent, TooltipComponent, LegendComponent, DataZoomComponent]);
 const props = defineProps<{ items: Metrics[]; benchmark: string }>();
 const { resolvedTheme } = useTheme();
-const range = ref(0);
+const range = ref<number | null>(0);
+const chart = ref<InstanceType<typeof VChart>>();
+// ECharts owns dragging. Replay the chosen dates only when the chart options are rebuilt.
+let customZoom: { startValue: string; endValue: string } | undefined;
+
+function rememberZoom() {
+  const option = chart.value?.getOption();
+  const zoom = (option?.dataZoom as { startValue: number; endValue: number }[] | undefined)?.[0];
+  const dates = (option?.xAxis as { data: string[] }[] | undefined)?.[0]?.data;
+  const start = zoom && dates?.[zoom.startValue];
+  const end = zoom && dates?.[zoom.endValue];
+  if (start && end) {
+    customZoom = { startValue: start, endValue: end };
+    range.value = null;
+  }
+}
 const option = computed(() => {
   const muted = resolvedTheme.value === 'dark' ? '#a9afbd' : '#667085';
   const split = resolvedTheme.value === 'dark' ? 'rgba(255,255,255,.1)' : 'rgba(15,23,42,.08)';
   const dates = props.items.map(r => r.tradeDate);
   const last = dates.at(-1);
   const cutoff = last ? new Date(`${last}T00:00:00Z`) : null;
-  if (cutoff) {
+  if (cutoff && range.value) {
     const day = cutoff.getUTCDate();
     cutoff.setUTCDate(1);
     cutoff.setUTCMonth(cutoff.getUTCMonth() - range.value);
@@ -27,7 +42,7 @@ const option = computed(() => {
     cutoff.setUTCDate(Math.min(day, daysInMonth));
   }
   const first = range.value && cutoff ? Math.max(0, dates.findIndex(d => d >= cutoff.toISOString().slice(0, 10))) : 0;
-  const zoom = { startValue: first, endValue: Math.max(0, dates.length - 1) };
+  const zoom = range.value === null ? customZoom : { startValue: first, endValue: Math.max(0, dates.length - 1) };
   return {
     animation: false,
     color: ['#df7997', '#8b95a8', '#d59b55'],
@@ -68,10 +83,12 @@ const option = computed(() => {
     data-testid="strategy-performance-chart"
   >
     <VChart
+      ref="chart"
       class="h-full w-full"
       :option="option"
       autoresize
       aria-label="策略累计收益、同起点基准和收盘回撤曲线"
+      @datazoom="rememberZoom"
     />
   </div>
 </template>

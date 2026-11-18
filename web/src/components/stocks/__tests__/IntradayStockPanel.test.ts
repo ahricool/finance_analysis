@@ -31,6 +31,7 @@ describe('inline intraday ownership and incremental updates', () => {
     await flushPromises();
     const chart = () => panel.findComponent({ name: 'MarketKLineChart' });
     expect(chart().props('referencePrice')).toBe(97);
+    expect(chart().props('liveSnapshot')).toBe(false);
     expect(chart().props('session')).toMatchObject({ open: Date.parse('2026-10-21T09:30:00+08:00'),
       close: Date.parse('2026-10-21T15:00:00+08:00') });
     expect(chart().props('overlays')).toMatchObject([{ name: 'intradayBaseline', points: [{ value: 97 }] }]);
@@ -120,6 +121,7 @@ describe('inline intraday ownership and incremental updates', () => {
     expect(mocks.fetch.mock.calls[1]?.[1]).toBe(new Date(at).toISOString());
     expect(mocks.fetch.mock.calls[1]?.[3]).toBe('first-snapshot');
     expect(panel.text()).toContain('已采集 2 根');
+    expect(panel.getComponent({ name: 'MarketKLineChart' }).props('liveSnapshot')).toBe(true);
     const signal = mocks.fetch.mock.calls[1]?.[2] as AbortSignal;
     panel.unmount();
     await vi.advanceTimersByTimeAsync(10_000);
