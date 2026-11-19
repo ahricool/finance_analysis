@@ -68,18 +68,35 @@ async def run(repository, bars_by_symbol, stop_event):
     cache = {}
     retiring = None
 
-    def compute(symbol, bars, benchmark, quote, now):
+    def compute(symbol, bars, benchmark, spy_bars, quote, now):
         now = utc_now()  # Queue wait must not make an old quote look fresh.
         if symbol not in SYMBOLS:
             return None, process(symbol, None, quote, now)
         closed = closed_session_bars(symbol, bars, now)
+        spy_closed = closed_session_bars("SPY.US", spy_bars, now)
         # All relevant OHLCV/validity revisions invalidate shape cache.
-        signature = tuple((b.bar_time, b.received_at, b.open, b.high, b.low, b.close, b.volume, b.partial, b.sampled) for b in closed)
+        signature = tuple(
+            (b.bar_time, b.received_at, b.open, b.high, b.low, b.close, b.volume, b.partial, b.sampled)
+            for b in closed
+        )
+        spy_signature = tuple(
+            (b.bar_time, b.received_at, b.open, b.high, b.low, b.close, b.volume, b.partial, b.sampled)
+            for b in spy_closed
+        )
         prior = cache.get(symbol)
-        result = prior[1] if prior and prior[0] == signature else calculate(symbol, closed, now) if closed else None
-        if result is not None and (not prior or prior[0] != signature):
-            result.update(execution_context(closed))
-        cache[symbol] = (signature, result)
+        base_result = (
+            prior[1]
+            if prior and prior[0] == signature
+            else calculate(symbol, closed, now) if closed else None
+        )
+        if base_result is not None:
+            if prior and prior[0] == signature and prior[2] == spy_signature:
+                result = prior[3]
+            else:
+                result = {**base_result, **execution_context(closed, spy_closed)}
+        else:
+            result = None
+        cache[symbol] = (signature, base_result, spy_signature, result)
         state = process(symbol, result, quote, now)
         state["relative_strength"] = relative_strength(symbol, bars, benchmark, now)
         return result, state
@@ -88,12 +105,12 @@ async def run(repository, bars_by_symbol, stop_event):
         try:
             quote = await repository.get_quote(symbol)
             # Copy on the event loop with no intervening await; worker gets immutable ownership.
-            bars, benchmark = deepcopy(list(bars_by_symbol.get(symbol, ()))), deepcopy(
-                list(bars_by_symbol.get("QQQ.US", ()))
-            )
+            bars = deepcopy(list(bars_by_symbol.get(symbol, ())))
+            benchmark = deepcopy(list(bars_by_symbol.get("QQQ.US", ())))
+            spy_bars = bars if symbol == "SPY.US" else deepcopy(list(bars_by_symbol.get("SPY.US", ())))
             now = utc_now()
             result, state = await asyncio.get_running_loop().run_in_executor(
-                pool, compute, symbol, bars, benchmark, quote, now
+                pool, compute, symbol, bars, benchmark, spy_bars, quote, now
             )
             ttl = cache_ttl("US", market_trading_date(now, "US"), now)
             if symbol not in SYMBOLS and not state.get("position"):

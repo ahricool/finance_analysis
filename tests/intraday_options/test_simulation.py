@@ -4,6 +4,7 @@ from decimal import Decimal
 import pytest
 
 from finance_analysis.integrations.market_data.realtime_state.models import QuoteState
+from finance_analysis.intraday_options.rules import StartPolicy
 from finance_analysis.intraday_options.simulation import transition, statistics
 from finance_analysis.market_stream.session import session_bounds
 
@@ -72,42 +73,69 @@ def test_live_price_outside_entry_zone(price):
     assert not state.get("position")
 
 
-@pytest.mark.parametrize("day,hour", [("2026-11-27", 16), ("2025-07-03", 15), ("2026-11-17", 19), ("2026-06-17", 18)])
-def test_calendar_cutoff_and_restart_outage_exit(day, hour):
+@pytest.mark.parametrize(
+    "day,entry_hour,entry_min,exit_hour,exit_min",
+    [
+        ("2026-11-27", 16, 30, 17, 50),
+        ("2025-07-03", 15, 30, 16, 50),
+        ("2026-11-17", 19, 30, 20, 50),
+        ("2026-06-17", 18, 30, 19, 50),
+    ],
+)
+def test_calendar_cutoff_and_restart_outage_exit(day, entry_hour, entry_min, exit_hour, exit_min):
     day = datetime.fromisoformat(day).date()
     bounds = session_bounds("US", day)
-    cutoff = bounds[1] - timedelta(hours=2)
-    assert cutoff.hour == hour
-    before = cutoff - timedelta(minutes=1)
+    entry_cutoff = bounds[1] - timedelta(minutes=90)
+    exit_cutoff = bounds[1] - timedelta(minutes=10)
+    assert (entry_cutoff.hour, entry_cutoff.minute) == (entry_hour, entry_min)
+    assert (exit_cutoff.hour, exit_cutoff.minute) == (exit_hour, exit_min)
+    before = entry_cutoff - timedelta(minutes=1)
     state, _ = transition({}, "SPY.US", result(before), quote(before), before)
     assert state["position"]
+    assert state["cutoff"] == entry_cutoff.isoformat()
+    assert state["exit_cutoff"] == exit_cutoff.isoformat()
+    assert state["position"]["cutoff"] == exit_cutoff.isoformat()
     # Restart after cutoff without any quote, including after a holiday/weekend.
-    recovered, events = transition(deepcopy(state), "SPY.US", None, None, cutoff + timedelta(days=3))
+    recovered, events = transition(deepcopy(state), "SPY.US", None, None, exit_cutoff + timedelta(days=3))
     exit_event = next(e for e in events if e["kind"] == "exit")
     assert not recovered["position"]
     assert exit_event["trade"]["estimated"]
     assert exit_event["trade"]["exit_price_at"] == before.isoformat()
-    assert exit_event["trade"]["planned_exit_at"] == cutoff.isoformat()
+    assert exit_event["trade"]["planned_exit_at"] == exit_cutoff.isoformat()
     assert statistics([exit_event["trade"]])[0]["count"] == 0
-    _, again = transition(recovered, "SPY.US", None, None, cutoff + timedelta(days=3, seconds=5))
+    _, again = transition(recovered, "SPY.US", None, None, exit_cutoff + timedelta(days=3, seconds=5))
     assert not any(e["kind"] == "exit" for e in again)
 
 
 def test_target_time_exit_and_protection_only_tightens():
+    # Default V5: 1.2R breakeven (risk=1.5 -> +1.8 -> 102.3), 2.0R trailing (+3.0 -> 103.5), 35m no-progress.
     state, _ = transition({}, "SPY.US", result(), quote(), NOW)
+    assert state["position"]["target"] is None
     t = NOW + timedelta(minutes=1)
-    state, events = transition(state, "SPY.US", result(t), quote(t, 102.2), t)
-    assert state["position"]["protection"] > 99
+    state, events = transition(state, "SPY.US", result(t), quote(t, 102.35), t)
+    assert state["position"]["protection"] == pytest.approx(100.5)
+    assert any(e["kind"] == "hold" and "1.2R" in e["reason"] for e in events)
+    t += timedelta(seconds=5)
+    state, events = transition(state, "SPY.US", result(t), quote(t, 103.6), t)
+    assert state["position"]["protection"] > 100.5
+    assert any(e["kind"] == "hold" and "2.0R" in e["reason"] for e in events)
     protection = state["position"]["protection"]
     t += timedelta(seconds=5)
-    state, _ = transition(state, "SPY.US", result(t), quote(t, 102.1), t)
+    state, _ = transition(state, "SPY.US", result(t), quote(t, 103.4), t)
     assert state["position"]["protection"] == protection
-    t += timedelta(seconds=5)
-    state, events = transition(state, "SPY.US", result(t), quote(t, 103), t)
+    # Explicit fixed-target mode still exits on target touch.
+    pivot_cfg = StartPolicy(use_pivot_target=True)
+    state, _ = transition({}, "SPY.US", result(), quote(), NOW, settings=pivot_cfg)
+    t = NOW + timedelta(seconds=10)
+    state, events = transition(state, "SPY.US", result(t), quote(t, 103), t, settings=pivot_cfg)
     assert next(e for e in events if e["kind"] == "exit")["trade"]["exit_reason"] == "到达目标"
+    # No-progress exit triggers at 35 minutes (not 20 minutes).
     state, _ = transition({}, "SPY.US", result(), quote(), NOW)
-    t = NOW + timedelta(minutes=21)
-    state, events = transition(state, "SPY.US", result(t), quote(t), t)
+    t21 = NOW + timedelta(minutes=21)
+    state, events = transition(state, "SPY.US", result(t21), quote(t21), t21)
+    assert state["position"] and not any(e["kind"] == "exit" for e in events)
+    t36 = NOW + timedelta(minutes=36)
+    state, events = transition(state, "SPY.US", result(t36), quote(t36), t36)
     assert "未有效推进" in next(e for e in events if e["kind"] == "exit")["reason"]
 
 
@@ -178,21 +206,27 @@ def test_held_opportunity_validity_degrades_independently(failure):
 @pytest.mark.parametrize("day", ["2026-11-17", "2026-11-27"])
 @pytest.mark.parametrize("scenario", ["normal", "late_recovery", "stale_price", "interrupted"])
 def test_cutoff_classifies_actual_price_and_processing_continuity(day, scenario):
-    cutoff = session_bounds("US", datetime.fromisoformat(day).date())[1] - timedelta(hours=2)
-    before = cutoff - timedelta(seconds=3)
-    state, _ = transition({}, "SPY.US", result(before), quote(before, 100.5), before)
+    bounds = session_bounds("US", datetime.fromisoformat(day).date())
+    entry_cutoff = bounds[1] - timedelta(minutes=90)
+    exit_cutoff = bounds[1] - timedelta(minutes=10)
+    open_at = entry_cutoff - timedelta(minutes=1)
+    state, _ = transition({}, "SPY.US", result(open_at), quote(open_at, 100.5), open_at)
+    # Position stays open past entry_cutoff and updates quote right before exit_cutoff.
+    before = exit_cutoff - timedelta(seconds=3)
+    state, events = transition(state, "SPY.US", result(before), quote(before, 101.0), before)
+    assert state["position"] and state["stopped"] and not events
     if scenario == "stale_price":
-        state["position"]["last_price_at"] = (cutoff - timedelta(seconds=60)).isoformat()
+        state["position"]["last_price_at"] = (exit_cutoff - timedelta(seconds=60)).isoformat()
     elif scenario == "interrupted":
         state["healthy"] = False
-    now = cutoff + timedelta(seconds=120 if scenario == "late_recovery" else 2)
+    now = exit_cutoff + timedelta(seconds=120 if scenario == "late_recovery" else 2)
     state, events = transition(state, "SPY.US", result(now), quote(now - timedelta(seconds=1), 105), now)
     closed = next(e["trade"] for e in events if e["kind"] == "exit")
     assert closed["estimated"] == (scenario != "normal")
-    assert closed["exit_price"] == 100.5  # Never use the post-cutoff 105 quote.
-    assert closed["exit_price_at"] <= cutoff.isoformat()
+    assert closed["exit_price"] == 101.0  # Never use the post-cutoff 105 quote.
+    assert closed["exit_price_at"] <= exit_cutoff.isoformat()
     assert closed["exit_at"] == now.isoformat()
-    assert closed["planned_exit_at"] == cutoff.isoformat()
+    assert closed["planned_exit_at"] == exit_cutoff.isoformat()
     assert not state["position"] and state["stopped"]
     assert statistics([closed])[0]["count"] == (1 if scenario == "normal" else 0)
 
@@ -202,11 +236,11 @@ def test_cutoff_classifies_actual_price_and_processing_continuity(day, scenario)
     [
         ("2026-11-17T11:00:00+00:00", "preopen"),
         ("2026-11-17T14:29:59+00:00", "preopen"),
-        ("2026-11-17T19:00:00+00:00", "stopped"),
+        ("2026-11-17T19:30:00+00:00", "stopped"),
         ("2026-11-17T21:00:00+00:00", "closed"),
         ("2026-11-21T16:00:00+00:00", "closed"),
         ("2026-11-26T16:00:00+00:00", "closed"),
-        ("2026-11-27T16:00:00+00:00", "stopped"),
+        ("2026-11-27T16:30:00+00:00", "stopped"),
     ],
 )
 def test_inactive_window_never_emits_confirmations_or_data_messages(at, phase):

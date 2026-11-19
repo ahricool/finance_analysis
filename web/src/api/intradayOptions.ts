@@ -25,7 +25,7 @@ export interface IntradayStructure extends AnalysisCoverage {
   reasons: string[];
 }
 export interface OpportunityBranch {
-  kind: 'box_breakout' | 'box_retest' | 'trend_recovery' | 'trend_continuation' | 'opening_breakout' | 'pivot_breakout';
+  kind: 'box_breakout' | 'box_retest' | 'trend_recovery' | 'trend_continuation' | 'opening_breakout' | 'pivot_breakout' | 'midday_wave_breakout';
   confirmationMethod?: 'two_closes' | 'strong_break' | 'level_close' | null;
   confirmationAvailableAt?: string | null; confirmationRunAvailableAt?: string | null; executionEvidenceAt?: string | null;
   triggeredAt?: string | null; structureStart?: string | null; structureEnd?: string | null;
@@ -86,7 +86,7 @@ export interface SimTrade {
 }
 export interface SimulationState {
   sessionPhase?: 'active' | 'preopen' | 'stopped' | 'closed'; sessionOpen?: string | null; dataIssue?: string | null;
-  symbol: string; calculatedAt: string; cutoff: string | null; stopped: boolean; currentPrice: number | null;
+  symbol: string; calculatedAt: string; cutoff: string | null; exitCutoff?: string | null; stopped: boolean; currentPrice: number | null;
   quoteTime: string | null; position?: SimTrade | null; plans: SimulationPlan[];
   relativeStrength?: Array<{ minutes: number; value: number | null; start: string; end: string; reason: string }>;
 }

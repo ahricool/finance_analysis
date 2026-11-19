@@ -6,8 +6,8 @@ from functools import lru_cache
 
 from finance_analysis.config import env_bool, env_float, env_int, load_env
 
-ENTRY_VERSION = "intraday_entry_v4"
-SIMULATION_VERSION = "underlying_sim_v4"
+ENTRY_VERSION = "intraday_entry_v5"
+SIMULATION_VERSION = "underlying_sim_v5"
 
 
 @dataclass(frozen=True)
@@ -20,12 +20,15 @@ class EntryRule:
     max_risk_atr: float | None = None
 
 
-START_KINDS = ("opening_breakout", "pivot_breakout")
+START_KINDS = ("opening_breakout", "pivot_breakout", "midday_wave_breakout")
 START_RULE = EntryRule(.15, entry_max_atr=1, failure_atr=.75, lifetime=5, max_risk_atr=1.75)
+OPENING_RULE = EntryRule(.20, entry_max_atr=1.8, extended_atr=2.5, failure_atr=.85, lifetime=10, max_risk_atr=2.65)
+MIDDAY_WAVE_RULE = EntryRule(.20, entry_max_atr=1.6, extended_atr=2.5, failure_atr=.85, lifetime=10, max_risk_atr=2.45)
 RULES = {
-    "opening_breakout": START_RULE,
+    "opening_breakout": OPENING_RULE,
+    "midday_wave_breakout": MIDDAY_WAVE_RULE,
     "pivot_breakout": START_RULE,
-    "box_breakout": EntryRule(.2),
+    "box_breakout": EntryRule(.2, entry_max_atr=1.5),
     "box_retest": EntryRule(.2),
     "trend_recovery": EntryRule(.1),
     "trend_continuation": EntryRule(.15, entry_max_atr=.8, extended_atr=1.5, lifetime=10, max_risk_atr=2.0),
@@ -73,14 +76,32 @@ def plan_order(branch):
 @dataclass(frozen=True)
 class StartPolicy:
     opening_enabled: bool = True
-    pivot_enabled: bool = True
+    pivot_enabled: bool = False
+    midday_wave_enabled: bool = True
+    recovery_enabled: bool = False
     opening_minutes: int = 5
+    opening_min_range_pct: float = .0035
+    opening_level_minutes: int = 85
     level_minutes: int = 30
     pivot_atr_period: int = 20
     pivot_atr_minimum: int = 10
+    midday_window_minutes: int = 40
+    midday_min_bars: int = 30
+    midday_min_width_pct: float = .005
+    midday_max_width_pct: float = .030
+    midday_max_efficiency: float = .60
+    midday_start_minutes: int = 35
+    midday_end_minutes: int = 260
+    strong_break_atr: float = .40
+    strong_body_fraction: float = .60
     structure_quality: float = 75.
-    minimum_return: float = .001
-    minimum_rr: float = .5
+    use_pivot_target: bool = False
+    minimum_return: float = 0.0
+    minimum_rr: float = 0.0
+    minimum_risk_return: float = .003
+    require_vwap: bool = True
+    require_spy_alignment: bool = True
+    min_relative_strength: float = .002
 
 
 @lru_cache(maxsize=1)
@@ -89,12 +110,23 @@ def policy():
     defaults = StartPolicy()
     floor = env_float("INTRADAY_MIN_TARGET_RETURN", defaults.minimum_return, minimum=0)
     rr = env_float("INTRADAY_MIN_REWARD_RISK", defaults.minimum_rr, minimum=0)
-    if not all(math.isfinite(v) for v in (floor, rr)):
-        raise ValueError("Intraday target thresholds must be finite")
+    min_risk = env_float("INTRADAY_MIN_RISK_RETURN", defaults.minimum_risk_return, minimum=0)
+    min_or_range = env_float("INTRADAY_OPENING_MIN_RANGE_PCT", defaults.opening_min_range_pct, minimum=0)
+    min_rs = env_float("INTRADAY_MIN_RELATIVE_STRENGTH", defaults.min_relative_strength, minimum=0)
+    if not all(math.isfinite(v) for v in (floor, rr, min_risk, min_or_range, min_rs)):
+        raise ValueError("Intraday thresholds must be finite")
     return StartPolicy(
-        opening_enabled=env_bool("INTRADAY_OPENING_BREAKOUT", True),
-        pivot_enabled=env_bool("INTRADAY_PIVOT_BREAKOUT", True),
-        opening_minutes=env_int("INTRADAY_OPENING_MINUTES", 5, minimum=5, maximum=15),
+        opening_enabled=env_bool("INTRADAY_OPENING_BREAKOUT", defaults.opening_enabled),
+        pivot_enabled=env_bool("INTRADAY_PIVOT_BREAKOUT", defaults.pivot_enabled),
+        midday_wave_enabled=env_bool("INTRADAY_MIDDAY_WAVE_BREAKOUT", defaults.midday_wave_enabled),
+        recovery_enabled=env_bool("INTRADAY_TREND_RECOVERY", defaults.recovery_enabled),
+        opening_minutes=env_int("INTRADAY_OPENING_MINUTES", defaults.opening_minutes, minimum=5, maximum=15),
+        opening_min_range_pct=min_or_range,
+        use_pivot_target=env_bool("INTRADAY_USE_PIVOT_TARGET", defaults.use_pivot_target),
         minimum_return=floor,
         minimum_rr=rr,
+        minimum_risk_return=min_risk,
+        require_vwap=env_bool("INTRADAY_REQUIRE_VWAP", defaults.require_vwap),
+        require_spy_alignment=env_bool("INTRADAY_REQUIRE_SPY_ALIGNMENT", defaults.require_spy_alignment),
+        min_relative_strength=min_rs,
     )

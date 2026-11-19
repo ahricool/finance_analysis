@@ -67,8 +67,58 @@ def pivots(bars):
     return sorted(output, key=lambda p: p["at"])
 
 
-def execution_context(closed):
-    """Same-session untouched target pivots and the availability of the versions examined."""
+def session_vwap(bars):
+    """Causal HLC3 volume-weighted average price over valid observed session bars."""
+    pv = 0.0
+    vol = 0.0
+    for bar in bars:
+        volume = float(bar.volume)
+        if volume > 0:
+            typical = (float(bar.high) + float(bar.low) + float(bar.close)) / 3.0
+            pv += typical * volume
+            vol += volume
+    return pv / vol if vol > 0 else None
+
+
+def _market_summary(bars, opening):
+    valid = [b for b in bars if observed(b) and b.is_valid() and not b.partial and not b.sampled]
+    if not valid:
+        return None
+    last = valid[-1]
+    last_close = float(last.close)
+    by_time = {b.bar_time: b for b in valid}
+    open_bar = by_time.get(opening)
+    open_return = (
+        last_close / float(open_bar.open) - 1
+        if open_bar is not None and float(open_bar.open) > 0
+        else None
+    )
+    bar_20m = by_time.get(last.bar_time - 20 * MINUTE)
+    return_20m = (
+        last_close / float(bar_20m.close) - 1
+        if bar_20m is not None and float(bar_20m.close) > 0
+        else None
+    )
+    return dict(
+        vwap=session_vwap(valid),
+        last_close=last_close,
+        as_of=(last.bar_time + MINUTE).isoformat(),
+        open_return=open_return,
+        return_20m=return_20m,
+        evidence_at=max(max(b.bar_time + MINUTE, b.received_at) for b in bars).isoformat(),
+    )
+
+
+def execution_context(closed, spy_closed=None):
+    """Same-session untouched target pivots, VWAP/SPY context, recent bars and evidence receipt."""
+    if not closed:
+        out = dict(execution_pivots=[], target_evidence_at=None, market_context=None, recent_bars=[])
+        if spy_closed is not None:
+            out["spy_context"] = None
+        return out
+    day = market_trading_date(closed[-1].bar_time, "US")
+    bounds = session_bounds("US", day)
+    opening = bounds[0] if bounds else closed[0].bar_time
     valid = [b for b in closed if observed(b) and b.is_valid() and not b.partial and not b.sampled]
     levels = []
     for point in pivots(valid):
@@ -78,8 +128,25 @@ def execution_context(closed):
                    else any(float(b.low) < point["price"] for b in later))
         if not crossed:
             levels.append(point)
-    return dict(execution_pivots=levels, target_evidence_at=max(max(b.bar_time + MINUTE, b.received_at)
-                                                                for b in closed).isoformat())
+    recent_bars = [
+        dict(
+            bar_time=b.bar_time.isoformat(),
+            close_at=(b.bar_time + MINUTE).isoformat(),
+            high=float(b.high),
+            low=float(b.low),
+        )
+        for b in valid[-20:]
+    ]
+    output = dict(
+        execution_pivots=levels,
+        target_evidence_at=max(max(b.bar_time + MINUTE, b.received_at) for b in closed).isoformat(),
+        market_context=_market_summary(closed, opening),
+        recent_bars=recent_bars,
+    )
+    if spy_closed is not None:
+        same_day_spy = [b for b in spy_closed if market_trading_date(b.bar_time, "US") == day]
+        output["spy_context"] = _market_summary(same_day_spy, opening) if same_day_spy else None
+    return output
 
 
 def segment(bars, end, minutes):

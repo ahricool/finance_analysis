@@ -7,12 +7,15 @@ from decimal import Decimal
 import pytest
 
 from finance_analysis.interfaces.api.v1.schemas.intraday_options import TrendResult
+from finance_analysis.intraday_options.rules import StartPolicy
+from finance_analysis.intraday_options.scoring import calculate
 from tests.intraday_options.test_scoring import candles, score
 from tests.intraday_options.test_structure import oscillation, prices
 
 
-def entry(values):
-    result = score(prices(values))
+def entry(values, settings=None):
+    bars = prices(values)
+    result = calculate(bars[0].symbol, bars, max(b.bar_time for b in bars) + timedelta(minutes=1), settings=settings)
     TrendResult.model_validate(result)
     return result["opportunities"]
 
@@ -66,9 +69,10 @@ def test_retest_needs_post_breakout_touch_and_two_closes(side):
 @pytest.mark.parametrize("side", [1, -1])
 def test_trend_recovery_requires_prior_advance_then_touch_and_actual_recovery(side):
     base = [100 + i * 0.1 for i in range(40)]
+    recovery_policy = StartPolicy(recovery_enabled=True, midday_wave_enabled=False)
 
     def run(tail):
-        return entry([100 + side * (p - 100) for p in base + tail])
+        return entry([100 + side * (p - 100) for p in base + tail], settings=recovery_policy)
 
     assert run([])["primary"] is None  # Strong monotone trend is not itself an entry.
     touched = run([103.05])

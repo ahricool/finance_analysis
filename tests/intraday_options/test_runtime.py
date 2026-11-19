@@ -166,7 +166,8 @@ def test_entry_visibility_uses_primary_branch_validity_not_position_permission(o
         await repo.redis.set("rt:intraday-simulation:SPY.US", json.dumps(state))
         assert not (await read_snapshot(repo, {}, now + timedelta(seconds=2)))["items"][0]["opportunity_eligible"]
         state["cutoff"] = original_cutoff
-        state["plans"][0]["opportunity_valid"] = False
+        for p in state["plans"]:
+            p["opportunity_valid"] = False
         state["plans"].append({**state["plans"][0], "structure_id": "different", "opportunity_valid": True})
         await repo.redis.set("rt:intraday-simulation:SPY.US", json.dumps(state))
         assert not (await read_snapshot(repo, {}, now))["items"][0]["opportunity_eligible"]

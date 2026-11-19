@@ -132,3 +132,27 @@ it('selects the latest 30 events by occurrence and defaults each dated table to 
   expect(rows('已完成模拟交易表', '退场时间')).toEqual([2, 1].map(i => expect.stringContaining(`trade-${i}`)));
   wrapper.unmount();
 });
+
+it('displays separated entry cutoff, exit cutoff, and trailing target label in V5', () => {
+  vi.useFakeTimers(); vi.setSystemTime(new Date('2026-11-17T16:00:00Z'));
+  const state = {
+    symbol: 'NVDA.US', calculatedAt: '2026-11-17T16:00:00Z',
+    cutoff: '2026-11-17T19:30:00Z', exitCutoff: '2026-11-17T20:50:00Z',
+    quoteTime: '2026-11-17T15:59:58Z', currentPrice: 101, plans: [],
+    position: {
+      id: 'nvda', symbol: 'NVDA.US', side: 1, kind: 'midday_wave_breakout',
+      entryPrice: 100, entryAt: '2026-11-17T15:55:00Z', returnPct: 1,
+      invalidation: 99, protection: 100, target: null, lastPriceAt: '2026-11-17T15:59:58Z',
+    },
+  };
+  const snapshot = {
+    marketStatus: 'open',
+    items: [{ symbol: 'NVDA.US', simulation: state }],
+    simulation: { states: [state], trades: [], statistics: [], events: [] },
+  } as unknown as IntradayOptionsSnapshot;
+  const wrapper = mount(SimulationPanel, { props: { snapshot, disconnected: false }, global: { stubs: { FieldSelect: true } } });
+  expect(wrapper.text()).toContain('停止进场 14:30:00 · 清仓 15:50:00');
+  expect(wrapper.text()).toContain('盘中主浪突破');
+  expect(wrapper.text()).toContain('移动止损跟踪');
+  wrapper.unmount();
+});
