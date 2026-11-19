@@ -29,8 +29,19 @@ MINUTE = timedelta(minutes=1)
 def scenarios():
     for opening in (0, 5, 15):
         for fraction, rr in ((0, 0), (0, .5), (0, 1), (.0005, 0), (.001, 0), (.0015, 0), (.001, .5), (.001, 1)):
-            yield (opening, fraction, rr), StartPolicy(opening_enabled=bool(opening), pivot_enabled=bool(opening),
-                                                      opening_minutes=opening or 5, minimum_return=fraction, minimum_rr=rr)
+            yield (opening, fraction, rr), StartPolicy(
+                opening_enabled=bool(opening),
+                pivot_enabled=bool(opening),
+                midday_wave_enabled=False,
+                use_pivot_target=True,
+                opening_minutes=opening or 5,
+                opening_min_range_pct=0.0,
+                minimum_return=fraction,
+                minimum_rr=rr,
+                minimum_risk_return=0.0,
+                require_vwap=False,
+                require_spy_alignment=False,
+            )
 
 
 def quote_at(symbol, raw):

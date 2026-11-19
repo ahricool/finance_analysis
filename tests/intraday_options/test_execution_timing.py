@@ -7,6 +7,7 @@ from decimal import Decimal
 
 import pytest
 
+from finance_analysis.intraday_options.rules import StartPolicy
 from finance_analysis.intraday_options.scoring import calculate
 from finance_analysis.intraday_options.simulation import transition
 from tests.intraday_options.test_continuation import continuation, path
@@ -24,17 +25,18 @@ def test_rejected_touch_cannot_appear_retroactively_after_rolling_or_restart(sid
     state = {}
     restart_state = None
     seen = {}
+    recovery_cfg = StartPolicy(recovery_enabled=True)
     for i, bar in enumerate(bars):
         now = bar.bar_time + timedelta(minutes=1, seconds=5)
-        result = calculate("SPY.US", bars[:i+1], now)
+        result = calculate("SPY.US", bars[:i+1], now, settings=recovery_cfg)
         q = quote(now, float(bar.close))
         if i == 70:
             # Cold computation after restoring the state saved at 10:40.
-            rebuilt = calculate("SPY.US", list(bars), now)
+            rebuilt = calculate("SPY.US", list(bars), now, settings=recovery_cfg)
             assert rebuilt == result
-            restart_state, restart_events = transition(json.loads(json.dumps(state)), "SPY.US", rebuilt, q, now)
+            restart_state, restart_events = transition(json.loads(json.dumps(state)), "SPY.US", rebuilt, q, now, settings=recovery_cfg)
             assert not any(e["kind"] in {"confirmed", "entry"} for e in restart_events)
-        state, events = transition(state, "SPY.US", result, q, now)
+        state, events = transition(state, "SPY.US", result, q, now, settings=recovery_cfg)
         for b in result["opportunities"]["branches"]:
             if b["kind"] == "trend_recovery":
                 frozen = tuple(b[k] for k in ("process_id", "structure_start", "structure_end", "structure_high",

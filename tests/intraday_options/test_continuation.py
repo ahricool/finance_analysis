@@ -8,7 +8,7 @@ import pytest
 
 from finance_analysis.interfaces.api.v1.schemas.intraday_options import TrendResult
 from finance_analysis.intraday_options.analysis_window import analysis_window
-from finance_analysis.intraday_options.rules import RULES
+from finance_analysis.intraday_options.rules import RULES, StartPolicy
 from finance_analysis.intraday_options.scoring import calculate
 from finance_analysis.intraday_options.simulation import plan, transition, statistics
 from finance_analysis.intraday_options.structure import observed_atr
@@ -108,12 +108,14 @@ def test_choppy_background_and_continuous_impulse_do_not_manufacture_setups():
 
 @pytest.mark.parametrize("side", [1, -1])
 def test_new_independent_pause_can_confirm_while_old_recovery_is_extended(side):
+    recovery_cfg = StartPolicy(recovery_enabled=True, midday_wave_enabled=False)
+    eval_bars = lambda xs: calculate("SPY.US", xs, max(b.bar_time for b in xs) + timedelta(minutes=1), settings=recovery_cfg)
     base = [100 + i * .1 for i in range(40)] + [103.05, 103.1, 103.15, 103.2, 103.3, 103.6, 103.9, 104.2]
-    branches = score(prices([100 + side * (p - 100) for p in base]))["opportunities"]["branches"]
+    branches = eval_bars(prices([100 + side * (p - 100) for p in base]))["opportunities"]["branches"]
     old = next(b for b in branches if b["kind"] == "trend_recovery")
     assert old["kind"] == "trend_recovery" and old["status"] == "extended"
     bars = prices([100 + side * (p - 100) for p in base + [104.15, 104.16, 104.18, 104.38]])
-    r = score(bars); new = continuation(r)
+    r = eval_bars(bars); new = continuation(r)
     assert new["status"] == "confirmed" and new["started_at"] < old["expires_at"]
     retained = next(b for b in r["opportunities"]["branches"] if b["structure_id"] == old["structure_id"])
     for field in ("trigger", "atr", "invalidation", "started_at", "confirmed_at"):
@@ -122,13 +124,15 @@ def test_new_independent_pause_can_confirm_while_old_recovery_is_extended(side):
 
 @pytest.mark.parametrize("side", [1, -1])
 def test_recovery_replacement_requires_new_real_advance_then_counter_move(side):
+    recovery_cfg = StartPolicy(recovery_enabled=True, midday_wave_enabled=False)
+    eval_bars = lambda xs: calculate("SPY.US", xs, max(b.bar_time for b in xs) + timedelta(minutes=1), settings=recovery_cfg)
     base = [100 + i * .1 for i in range(40)] + [103.05, 103.1, 103.15, 103.2, 103.3]
     convert = lambda values: prices([100 + side * (p - 100) for p in values])
-    old = score(convert(base))["opportunities"]["primary"]
+    old = eval_bars(convert(base))["opportunities"]["primary"]
     assert old["kind"] == "trend_recovery"
-    continuous = score(convert(base + [103.6, 103.9, 104.2]))["opportunities"]["branches"]
+    continuous = eval_bars(convert(base + [103.6, 103.9, 104.2]))["opportunities"]["branches"]
     assert len([b for b in continuous if b["kind"] == "trend_recovery"]) == 1
-    rebuilt = score(convert(base + [103.6, 103.9, 104.2, 103.4]))["opportunities"]["branches"]
+    rebuilt = eval_bars(convert(base + [103.6, 103.9, 104.2, 103.4]))["opportunities"]["branches"]
     recoveries = [b for b in rebuilt if b["kind"] == "trend_recovery"]
     assert len(recoveries) == 2
     retained = next(b for b in recoveries if b["structure_id"] == old["structure_id"])
@@ -193,7 +197,14 @@ def test_new_structure_can_trade_before_previous_observation_lifetime_expires():
     state, _ = transition(state, "SPY.US", r, quote(later, old["invalidation"] - .01), later)
     # Actual new observed impulse + pause (not a shifted timestamp of the same pause).
     extended = path(tail=(104, 104.2, 104.4, 104.35, 104.36, 104.38, 104.6))
-    nr, nnow, (state, events) = execute(extended, previous=state)
+    # Within 10m exit cooldown / 20m same-side stop cooldown, V5 blocks immediate re-entry.
+    _, _, (cooled, _) = execute(extended, previous=state)
+    assert not cooled.get("position")
+    # Once cooldown window has elapsed, the independent new structure can trade without process conflict.
+    uncooled = deepcopy(state)
+    uncooled["last_exit_at"] = (now - timedelta(minutes=30)).isoformat()
+    uncooled["last_stop_by_side"] = {}
+    nr, nnow, (state, events) = execute(extended, previous=uncooled)
     assert state["position"] and state["position"]["process_id"] != old["process_id"]
     assert nnow.isoformat() < old["entry_evidence"]["expires_at"]
     assert sum(e["kind"] == "entry" for e in events) == 1
@@ -218,7 +229,7 @@ def test_quote_staleness_cutoff_and_existing_legacy_position_still_block_new_ent
     bars = path(); r = score(bars); now = bars[-1].bar_time + timedelta(minutes=1, seconds=5)
     state, _ = transition({}, "SPY.US", r, quote(now - timedelta(seconds=31), 104), now)
     assert not state.get("position")
-    cutoff = START.replace(hour=19, minute=0)
+    cutoff = START.replace(hour=19, minute=30)
     assert not transition({}, "SPY.US", r, quote(cutoff, 104), cutoff)[0].get("position")
     state, _ = transition({}, "SPY.US", r, quote(now, 104), now)
     state["position"]["version"] = "underlying_sim_v2"
@@ -231,12 +242,14 @@ def test_quote_staleness_cutoff_and_existing_legacy_position_still_block_new_ent
 
 
 def test_invalidated_recovery_requires_independent_new_price_behavior_before_replacement():
+    recovery_cfg = StartPolicy(recovery_enabled=True, midday_wave_enabled=False)
+    eval_bars = lambda xs: calculate("SPY.US", xs, max(b.bar_time for b in xs) + timedelta(minutes=1), settings=recovery_cfg)
     base = [100 + i * .1 for i in range(40)] + [103.05, 102.5]
-    old = next(b for b in score(prices(base))["opportunities"]["branches"] if b["kind"] == "trend_recovery")
+    old = next(b for b in eval_bars(prices(base))["opportunities"]["branches"] if b["kind"] == "trend_recovery")
     assert old["status"] == "invalidated"
-    same = score(prices(base + [102.5] * 3))["opportunities"]["branches"]
+    same = eval_bars(prices(base + [102.5] * 3))["opportunities"]["branches"]
     assert len([b for b in same if b["kind"] == "trend_recovery"]) == 1
-    new = score(prices(base + [103.2, 103.5, 103.8, 104.1, 103.3]))["opportunities"]["branches"]
+    new = eval_bars(prices(base + [103.2, 103.5, 103.8, 104.1, 103.3]))["opportunities"]["branches"]
     recoveries = [b for b in new if b["kind"] == "trend_recovery"]
     assert len(recoveries) == 2
     assert next(b for b in recoveries if b["structure_id"] == old["structure_id"])["invalidation"] == old["invalidation"]

@@ -4,22 +4,29 @@ from datetime import timedelta
 
 from finance_analysis.intraday_options.analysis_window import observed
 from finance_analysis.intraday_options.rules import RULES
-from finance_analysis.intraday_options.structure import observed_atr, pivots
+from finance_analysis.intraday_options.structure import metrics, observed_atr, pivots
 
 MINUTE = timedelta(minutes=1)
 
 
 def breakout_seeds(ordered, opening, settings, snapshots=None):
     """Yield first qualifying closes per level; a gap ends knowledge of untouched levels."""
-    if not settings.opening_enabled and not settings.pivot_enabled:
+    if not settings.opening_enabled and not settings.pivot_enabled and not settings.midday_wave_enabled:
         return
     levels = []
     run = []
     volatility_window = []
+    midday_active_until = {}
     n = settings.opening_minutes
     end = ordered[-1].bar_time
-    # A pivot only needs its local ATR history, level lifetime and execution lifetime.
-    start = end - (settings.level_minutes + settings.pivot_atr_period + 2 + RULES["pivot_breakout"].lifetime) * MINUTE
+    # Opening and midday wave breakouts replay from session open to preserve exact rolling identity.
+    if settings.opening_enabled or settings.midday_wave_enabled:
+        start = opening
+    else:
+        start = max(
+            opening,
+            end - (settings.level_minutes + settings.pivot_atr_period + 2 + RULES["pivot_breakout"].lifetime) * MINUTE,
+        )
     for bar in ordered:
         if bar.bar_time < start:
             continue
@@ -49,15 +56,75 @@ def breakout_seeds(ordered, opening, settings, snapshots=None):
             if end - bar.bar_time < RULES[level["kind"]].lifetime * MINUTE:
                 yield level, bar
 
+        elapsed_minutes = (bar.bar_time - opening) / MINUTE
+        if (
+            settings.midday_wave_enabled
+            and settings.midday_start_minutes <= elapsed_minutes <= settings.midday_end_minutes
+            and len(run) >= settings.midday_min_bars
+        ):
+            prior = run[-settings.midday_window_minutes:]
+            ref_close = float(prior[-1].close)
+            hi = max(float(b.high) for b in prior)
+            lo = min(float(b.low) for b in prior)
+            width = hi - lo
+            if (
+                ref_close > 0
+                and settings.midday_min_width_pct <= width / ref_close <= settings.midday_max_width_pct
+                and metrics(prior)[2] <= settings.midday_max_efficiency
+            ):
+                scale, samples = observed_atr(
+                    prior, period=settings.pivot_atr_period, minimum=settings.pivot_atr_minimum
+                )
+                if scale:
+                    rule = RULES["midday_wave_breakout"]
+                    bar_close = float(bar.close)
+                    when = bar.bar_time + MINUTE
+                    for side, trigger in ((1, hi), (-1, lo)):
+                        active_until = midday_active_until.get(side)
+                        if active_until is not None and when < active_until:
+                            continue
+                        if (bar_close - trigger) * side > rule.confirm_atr * scale:
+                            available = max(bar.bar_time, *(b.received_at for b in prior))
+                            if available > max(bar.received_at, when):
+                                continue
+                            expires = when + rule.lifetime * MINUTE
+                            midday_active_until[side] = expires
+                            identity = (
+                                f"midday_wave_breakout:{side}:"
+                                f"{prior[0].bar_time.isoformat()}:{when.isoformat()}"
+                            )
+                            if snapshots is not None and end < expires:
+                                snapshots[identity] = dict(
+                                    trigger=trigger, width=width, atr=scale, expires_at=expires.isoformat()
+                                )
+                            if end - bar.bar_time < rule.lifetime * MINUTE:
+                                yield dict(
+                                    identity=identity,
+                                    kind="midday_wave_breakout",
+                                    side=side,
+                                    trigger=trigger,
+                                    atr=scale,
+                                    atr_samples=samples,
+                                    structure_start=prior[0].bar_time,
+                                    frozen=bar.bar_time,
+                                    available=available,
+                                    last_receipt=max(available, bar.received_at),
+                                    until=expires,
+                                    width=width,
+                                ), bar
+
         run.append(bar)
         volatility_window.append(bar)
         group = run[-5:]
         seeds = []
         if settings.opening_enabled and len(run) == n and run[0].bar_time == opening:
             high, low = max(float(b.high) for b in run), min(float(b.low) for b in run)
-            scale, samples = observed_atr(run, minimum=n - 1)
-            seeds = [("opening_breakout", side, price, run, scale, samples, high - low)
-                     for side, price in ((1, high), (-1, low))]
+            first_open = float(run[0].open)
+            width = high - low
+            if first_open > 0 and width / first_open >= settings.opening_min_range_pct:
+                scale, samples = observed_atr(run, minimum=n - 1)
+                seeds = [("opening_breakout", side, price, run, scale, samples, width)
+                         for side, price in ((1, high), (-1, low))]
         if settings.pivot_enabled and len(group) == 5:
             for point in pivots(group):
                 evidence = volatility_window
@@ -71,7 +138,8 @@ def breakout_seeds(ordered, opening, settings, snapshots=None):
             available = max(frozen, *(b.received_at for b in evidence))
             anchor = run[0].bar_time if width is not None else group[2].bar_time
             identity = f"{kind}:{side}:{anchor.isoformat()}:{frozen.isoformat()}"
-            until = frozen + settings.level_minutes * MINUTE
+            level_minutes = settings.opening_level_minutes if kind == "opening_breakout" else settings.level_minutes
+            until = frozen + level_minutes * MINUTE
             if snapshots is not None and end < until + RULES[kind].lifetime * MINUTE:
                 snapshots[identity] = dict(trigger=trigger, width=width, atr=scale,
                                            expires_at=(until + RULES[kind].lifetime * MINUTE).isoformat())

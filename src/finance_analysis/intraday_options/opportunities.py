@@ -72,7 +72,7 @@ def new_branch(kind, side, trigger, scale, bar, start, structure_quality):
     }
 
 
-def advance(branch, history):
+def advance(branch, history, settings=None):
     """Advance frozen shape evidence; expired/invalidated processes cannot revive."""
     if branch.get("superseded_by"):
         return
@@ -121,9 +121,23 @@ def advance(branch, history):
             and (float(recent[-1].close) - float(recent[0].close)) * side >= CONFIG.recent_move_atr * scale
         )
     method, wait_reason = "two_closes", "等待触及后的相邻两根闭合K恢复确认"
-    if branch["kind"] in START_KINDS:
+    if branch["kind"] == "pivot_breakout":
         restored = observed(bar) and distance > threshold
         method, wait_reason = "level_close", "等待真实分钟收盘越过冻结关键位"
+    elif branch["kind"] in ("opening_breakout", "midday_wave_breakout"):
+        cfg = settings or policy()
+        span = float(bar.high - bar.low)
+        body = (float(bar.close) - float(bar.open)) * side
+        strong = (
+            observed(bar)
+            and distance > cfg.strong_break_atr
+            and span > 0
+            and body / span >= cfg.strong_body_fraction
+        )
+        if strong and not restored:
+            restored = True
+            method = "strong_break"
+        wait_reason = "等待相邻两根真实闭合K或单根强突破K确认"
     if branch["kind"] == "trend_continuation":
         restored, method, wait_reason = confirmation(branch, history)
         if branch["status"] == "expired":
@@ -359,17 +373,18 @@ def start_branches(ordered, opening, settings, snapshots=None):
                     or history and current.bar_time - history[-1].bar_time != MINUTE):
                 break
             history.append(current)
-            advance(branch, history)
+            advance(branch, history, settings)
         else:
             result.append(branch)
     return result
 
 
 def calculate_opportunities(ordered, settings=None):
+    cfg = settings or policy()
     end = ordered[-1].bar_time
     bars, coverage, reasons = analysis_window(ordered)
     branches, diagnostics = detect(bars) if bars else ([], [])
-    if bars:
+    if bars and cfg.recovery_enabled:
         opening, _ = session_bounds("US", market_trading_date(end, "US"))
         visible_from = max(opening, end - (HORIZON - 1) * MINUTE)
         session_bars = bars
@@ -379,7 +394,7 @@ def calculate_opportunities(ordered, settings=None):
         branches.extend(recoveries(session_bars, visible_from, opening))
     opening, _ = session_bounds("US", market_trading_date(end, "US"))
     snapshots = {}
-    branches.extend(start_branches(ordered, opening, settings or policy(), snapshots))
+    branches.extend(start_branches(ordered, opening, cfg, snapshots))
     for branch in branches:
         branch["entry_low"], branch["entry_high"] = entry_interval(branch)
         branch["max_risk_atr"] = RULES[branch["kind"]].max_risk_atr

@@ -15,7 +15,7 @@ from finance_analysis.interfaces.api.v1.schemas.intraday_options import Intraday
 from finance_analysis.intraday_options.runtime import ranked_opportunity, read_snapshot, result_key
 from finance_analysis.intraday_options.scoring import calculate, closed_session_bars
 from finance_analysis.intraday_options.simulation import transition
-from finance_analysis.intraday_options.rules import entry_interval
+from finance_analysis.intraday_options.rules import StartPolicy, entry_interval
 from tests.intraday_options.test_continuation import continuation, path
 from tests.intraday_options.test_scoring import score
 from tests.intraday_options.test_structure import prices
@@ -151,13 +151,15 @@ def test_recovery_identity_cannot_borrow_distant_pause_that_slides_out_next_minu
     values += [values[-1] - .8, values[-1] - .75]
     bars = [replace(b, high=max(b.open, b.close) + Decimal('.3'), low=min(b.open, b.close) - Decimal('.3'))
             for b in prices([100 + side * (v - 100) for v in values])]
-    first = next(b for b in score(bars[:60])['opportunities']['branches'] if b['kind'] == 'trend_recovery')
-    second = next(b for b in score(bars)['opportunities']['branches'] if b['structure_id'] == first['structure_id'])
+    recovery_cfg = StartPolicy(recovery_enabled=True)
+    eval_bars = lambda xs: calculate('SPY.US', xs, max(b.bar_time for b in xs) + timedelta(minutes=1), settings=recovery_cfg)
+    first = next(b for b in eval_bars(bars[:60])['opportunities']['branches'] if b['kind'] == 'trend_recovery')
+    second = next(b for b in eval_bars(bars)['opportunities']['branches'] if b['structure_id'] == first['structure_id'])
     assert first['structure_start'] == bars[59].bar_time.isoformat()
     keys = ('structure_id', 'process_id', 'structure_start', 'structure_end', 'structure_high', 'structure_low',
             'trigger', 'invalidation', 'atr')
     assert {k: first[k] for k in keys} == {k: second[k] for k in keys}
-    assert score(deepcopy(bars)) == score(bars)  # Restart replay has no hidden anchor state.
+    assert eval_bars(deepcopy(bars)) == eval_bars(bars)  # Restart replay has no hidden anchor state.
 
 
 @pytest.mark.parametrize('original_available', [False, True])

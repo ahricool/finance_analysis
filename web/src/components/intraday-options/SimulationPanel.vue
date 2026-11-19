@@ -25,6 +25,8 @@ const stale = computed(() => staleState(selected.value));
 const positions = computed(() => (props.snapshot.simulation?.states ?? []).flatMap(s => s.position && matches(s.symbol) ? [s.position] : []));
 const cutoff = computed(() => state.value?.cutoff ?? props.snapshot.simulation?.states.find(s => s.cutoff)?.cutoff
   ?? props.snapshot.items.find(r => r.simulation?.cutoff)?.simulation?.cutoff);
+const exitCutoff = computed(() => state.value?.exitCutoff ?? props.snapshot.simulation?.states.find(s => s.exitCutoff)?.exitCutoff
+  ?? props.snapshot.items.find(r => r.simulation?.exitCutoff)?.simulation?.exitCutoff);
 const remaining = computed(() => cutoff.value && Number.isFinite(Date.parse(cutoff.value)) ? Math.max(0, Math.ceil((Date.parse(cutoff.value) - now.value.getTime()) / 60000)) : null);
 const phase = computed(() => props.snapshot.marketStatus === 'preopen' ? 'preopen'
   : props.snapshot.marketStatus === 'closed' ? 'closed' : remaining.value == null ? 'unknown' : remaining.value === 0 ? 'stopped' : 'active');
@@ -174,7 +176,7 @@ function historyValue(t: SimTrade, key: string) {
           {{ remaining != null && phase === 'active' ? `${remaining} 分钟` : phase === 'preopen' ? '尚未开盘' : phase === 'stopped' ? '已截止' : phase === 'unknown' ? '待同步' : '休市' }}
         </p>
         <p class="mt-1 text-xs text-muted-foreground">
-          {{ cutoff ? `停止交易 ${clock(cutoff)} · 纽约` : phase === 'unknown' ? '日历缺失 · 暂停信号' : '当日无交易窗口' }}
+          {{ cutoff ? `停止进场 ${clock(cutoff)}${exitCutoff ? ` · 清仓 ${clock(exitCutoff)}` : ''} · 纽约` : phase === 'unknown' ? '日历缺失 · 暂停信号' : '当日无交易窗口' }}
         </p>
       </div>
     </div>
@@ -248,7 +250,7 @@ function historyValue(t: SimTrade, key: string) {
           </template>
           <template v-else-if="column === 'target'">
             {{ price(p.target) }}<p class="mt-1 text-xs text-muted-foreground">
-              {{ p.target == null ? '结构目标未知' : '触及后模拟退场' }}
+              {{ p.target == null ? '移动止损跟踪' : '触及后模拟退场' }}
             </p>
           </template>
         </template>
