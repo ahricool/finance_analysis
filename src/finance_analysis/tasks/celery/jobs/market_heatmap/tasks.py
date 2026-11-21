@@ -1,13 +1,21 @@
 """Independent market locks and task-center lifecycle for heatmap refreshes."""
 
+from finance_analysis.core.time import utc_now
 from finance_analysis.market_heatmap.service import HeatmapService
+from finance_analysis.market_stream.session import in_session
 from finance_analysis.tasks.advisory_lock import TaskAdvisoryLockId
 from finance_analysis.tasks.celery.app import celery_app
 from finance_analysis.tasks.celery.schedule import require_scheduled_task_definition
-from finance_analysis.tasks.lifecycle import track_task
+from finance_analysis.tasks.lifecycle import TaskSkipped, track_task
 
 CN = require_scheduled_task_definition("market_heatmap_cn")
 US = require_scheduled_task_definition("market_heatmap_us")
+
+
+def _refresh_during_session(market):
+    if not in_session(market, utc_now()):
+        raise TaskSkipped("当前不在常规交易时段")
+    return HeatmapService().refresh(market)
 
 
 @celery_app.task(name=CN.celery_task_name)
@@ -15,7 +23,7 @@ US = require_scheduled_task_definition("market_heatmap_us")
             scheduler_job_id=CN.job_id, record_result=True, strip_lifecycle_kwargs=True, notify_on_failure=False,
             advisory_lock_id=TaskAdvisoryLockId.MARKET_HEATMAP_CN, advisory_lock_blocking=False)
 def refresh_market_heatmap_cn(**kwargs):
-    return HeatmapService().refresh("CN")
+    return _refresh_during_session("CN")
 
 
 @celery_app.task(name=US.celery_task_name)
@@ -23,4 +31,4 @@ def refresh_market_heatmap_cn(**kwargs):
             scheduler_job_id=US.job_id, record_result=True, strip_lifecycle_kwargs=True, notify_on_failure=False,
             advisory_lock_id=TaskAdvisoryLockId.MARKET_HEATMAP_US, advisory_lock_blocking=False)
 def refresh_market_heatmap_us(**kwargs):
-    return HeatmapService().refresh("US")
+    return _refresh_during_session("US")

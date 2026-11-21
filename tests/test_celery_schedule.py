@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from finance_analysis.tasks.celery.app import celery_app  # pragma: allowlist secret
@@ -90,6 +90,28 @@ def test_beat_entries_carry_scheduler_kwargs_queue_and_expires():
     assert scheduled["kwargs"]["_trigger_source"] == "scheduler"
     assert scheduled["options"]["queue"] == "analysis"
     assert scheduled["options"]["expires"] > 0
+
+
+def test_market_heatmap_beat_runs_every_fifteen_minutes_during_weekday_sessions():
+    beat = build_beat_schedule()
+    for market, zone_name, minutes in (
+        ("cn", "Asia/Shanghai", (*range(9 * 60 + 30, 11 * 60 + 30, 15), *range(13 * 60, 15 * 60, 15))),
+        ("us", "America/New_York", range(9 * 60 + 30, 16 * 60, 15)),
+    ):
+        schedules = [
+            entry["schedule"] for entry in beat.values()
+            if entry["kwargs"]["scheduler_job_id"] == f"market_heatmap_{market}"
+        ]
+        zone = ZoneInfo(zone_name)
+        friday = datetime(2026, 3, 6, tzinfo=zone)
+        now = friday
+        for minute in minutes:
+            now = compute_next_run(schedules, zone_name, now=now)
+            assert now == (friday + timedelta(minutes=minute)).astimezone(timezone.utc)
+
+        # New York moves to daylight saving time over this weekend.
+        monday_open = datetime(2026, 3, 9, 9, 30, tzinfo=zone)
+        assert compute_next_run(schedules, zone_name, now=now) == monday_open.astimezone(timezone.utc)
 
 
 def test_a_share_pre_close_review_runs_once_at_1410():

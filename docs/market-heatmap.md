@@ -23,8 +23,10 @@
 
 ## 数据刷新
 
-两个独立 Beat 任务 `market_heatmap_cn/us` 全天每15分钟在 ingestion 队列运行，使用独立非阻塞任务锁。
-任务定义在 `tasks/celery/schedule/definitions.py`；可在任务中心由管理员手动触发。
+两个独立 Beat 任务 `market_heatmap_cn/us` 使用 ingestion 队列和独立非阻塞任务锁，盘中每15分钟刷新。
+A 股常规触发时间为上海时间 09:30–11:15 和 13:00–14:45，美股为纽约时间 09:30–15:45，随当地夏令时切换。
+任务定义在 `tasks/celery/schedule/definitions.py`。任务在请求行情前按交易日历检查实际执行时间，休市、午休和提前收盘后均跳过。
+管理员可在任务中心手动触发，执行时同样检查交易时段。
 两个热力图任务均不发布通知（包括失败通知）；失败仍记录在任务中心，保留上次成功快照。
 页面注明行情存在延迟，并在快照超过30分钟未更新时显示刷新延迟提示。
 
@@ -54,13 +56,13 @@ GET只读缓存，不请求 Provider、不派发任务。无缓存返回 empty�
 分类失败在周任务结果中标记 partial，不回滚已成功的证券/指数同步。
 个股 `/stocks/{code}/classification` 和详情行业标签同时复用这些只读数据。
 
-首次上线建议管理员手动运行一次「证券主数据与指数成分同步」，再运行两个热力图任务；
+首次上线建议管理员手动运行一次「证券主数据与指数成分同步」，再在各市场盘中运行对应热力图任务。
 未运行行业同步时，美股仍展示行情并归入“未分类”，下次周同步后自动补齐分组。
 当前行业是观测到的最新分类，不提供历史行业归属。
 
 ## 验证
 
-后端：`uv run pytest tests/test_market_heatmap.py tests/test_celery_schedule.py tests/test_celery_task_structure.py -q`。
+后端：`uv run pytest tests/test_market_heatmap.py tests/test_celery_schedule.py tests/test_celery_task_structure.py tests/test_task_lifecycle.py -q`。
 前端：热力图尺寸/颜色/筛选与页面单测，以及 `web/e2e/market-heatmap.spec.ts` 的六种视口、明暗主题冒烟。
 浏览器断言逐块标签无溢出，鼠标及键盘打开详情只存在一个 dialog，Escape关闭后无残留。
 生产数据验收只读现有 Redis 快照，在本地页面注入原始响应，不改生产缓存、任务或用户数据。

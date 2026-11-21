@@ -113,14 +113,23 @@ SCHEDULED_TASK_DEFINITIONS = (
         job_id="market_heatmap_cn", name="市场热力图 CN", task_type="scheduled_market_heatmap_cn",
         description="腾讯 A 股快照与数据库行业分组，原子刷新共享热力图缓存",
         celery_task_name=celery_task_name("market_heatmap_cn"),
-        schedules=(CronSchedule(minute="*/15"),), schedule_text="每15分钟",
+        schedules=(
+            CronSchedule(minute="30,45", hour="9", day_of_week="mon-fri"),
+            CronSchedule(minute="*/15", hour="10,13-14", day_of_week="mon-fri"),
+            CronSchedule(minute="0,15", hour="11", day_of_week="mon-fri"),
+        ),
+        schedule_text="交易日 09:30–11:15、13:00–14:45 每15分钟（上海时间）",
         timezone=SCHEDULE_TIMEZONE, queue=QUEUE_INGESTION, expires=14 * 60,
     ),
     ScheduledTaskDefinition(
         job_id="market_heatmap_us", name="市场热力图 US", task_type="scheduled_market_heatmap_us",
         description="Yahoo 美股分页快照与数据库板块分类，原子刷新共享热力图缓存",
         celery_task_name=celery_task_name("market_heatmap_us"),
-        schedules=(CronSchedule(minute="*/15", timezone=US_TIMEZONE),), schedule_text="每15分钟",
+        schedules=(
+            CronSchedule(minute="30,45", hour="9", day_of_week="mon-fri", timezone=US_TIMEZONE),
+            CronSchedule(minute="*/15", hour="10-15", day_of_week="mon-fri", timezone=US_TIMEZONE),
+        ),
+        schedule_text="交易日 09:30–15:45 每15分钟，提前收盘时缩短（纽约时间）",
         timezone=US_TIMEZONE, queue=QUEUE_INGESTION, expires=14 * 60,
     ),
     ScheduledTaskDefinition(
