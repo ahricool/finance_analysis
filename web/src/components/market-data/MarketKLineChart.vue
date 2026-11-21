@@ -7,6 +7,7 @@ import { useCurrentTime } from '@/composables/useCurrentTime';
 import { useMinuteForecast } from '@/composables/useMinuteForecast';
 import { readMarketCanvasColors } from '@/utils/marketColors';
 import { MINUTE_FORECAST_OVERLAY_ID, minuteForecastOverlay } from './minuteForecastOverlay';
+import type { ChartAnnotation } from './chartAnnotation';
 
 const props = defineProps<{
   symbol: string;
@@ -18,7 +19,7 @@ const props = defineProps<{
   sourceKey?: string;
   focusTimestamp?: number;
   focusRequest?: number;
-  overlays?: OverlayCreate[];
+  overlays?: ChartAnnotation[];
   timezone?: string;
   referencePrice?: number;
   session?: { open: number; close: number; breakStart: number; breakEnd: number };
@@ -67,6 +68,41 @@ let chart: Chart | null = null;
 let observer: ResizeObserver | undefined;
 let appliedOverlayIds: string[] = [];
 let forecastDrawn = false;
+const hoveredId = ref<string>();
+const hoveredHint = ref('');
+const hintPosition = ref<{ left?: string; right?: string; top: string; transform?: string }>();
+const forecastAnnotation = computed(() => showForecast.value && forecast.value && future.value.length
+  ? minuteForecastOverlay(forecast.value, future.value, resolvedTheme.value === 'dark') : null);
+const hoverHint = computed(() => {
+  if (!hoveredId.value) return undefined;
+  const current = hoveredId.value === MINUTE_FORECAST_OVERLAY_ID
+    ? forecastAnnotation.value : props.overlays?.find(item => item.id === hoveredId.value);
+  return current?.hint === hoveredHint.value ? current.hint : undefined;
+});
+function clearHover() { hoveredId.value = undefined; }
+function withHover(annotation: ChartAnnotation): OverlayCreate {
+  if (!annotation.hint) return annotation;
+  const { hint, ...overlay } = annotation;
+  return { ...overlay,
+    onMouseMove: event => {
+      const pane = event.chart.getSize('candle_pane', 'main');
+      if (pane && event.x != null && event.y != null) {
+        const x = pane.left + event.x;
+        const above = event.y > pane.height / 2;
+        const width = element.value?.clientWidth ?? pane.width;
+        const horizontal = x < width / 2
+          ? { left: `${x + 12}px` }
+          : { right: `${width - x + 12}px` };
+        hintPosition.value = { ...horizontal, top: `${pane.top + event.y + (above ? -12 : 12)}px`,
+          transform: above ? 'translateY(-100%)' : undefined };
+        hoveredId.value = overlay.id;
+        hoveredHint.value = hint;
+      }
+      overlay.onMouseMove?.(event);
+    },
+    onMouseLeave: event => { if (hoveredId.value === overlay.id) clearHover(); overlay.onMouseLeave?.(event); },
+  };
+}
 let pushBar: ((bar: KLineData) => void) | undefined;
 let fitFrame: number | undefined;
 
@@ -154,6 +190,8 @@ function styles() {
 }
 function destroy() {
   if (fitFrame != null) cancelAnimationFrame(fitFrame);
+  chart?.getDom('candle_pane', 'main')?.removeEventListener('pointerleave', clearHover);
+  clearHover();
   pushBar = undefined;
   if (element.value && chart) dispose(element.value);
   chart = null;
@@ -202,7 +240,7 @@ function applyOverlays() {
   for (const id of appliedOverlayIds) chart.removeOverlay({ id });
   appliedOverlayIds = [];
   if (props.overlays?.length) {
-    const created = chart.createOverlay(props.overlays);
+    const created = chart.createOverlay(props.overlays.map(withHover));
     appliedOverlayIds = (Array.isArray(created) ? created : [created]).filter((id): id is string => id != null);
   }
 }
@@ -210,8 +248,8 @@ function applyForecastOverlay() {
   if (!chart) return;
   if (forecastDrawn) chart.removeOverlay({ id: MINUTE_FORECAST_OVERLAY_ID });
   forecastDrawn = false;
-  if (showForecast.value && forecast.value && future.value.length) {
-    chart.createOverlay([minuteForecastOverlay(forecast.value, future.value, resolvedTheme.value === 'dark')]);
+  if (forecastAnnotation.value) {
+    chart.createOverlay([withHover(forecastAnnotation.value)]);
     forecastDrawn = true;
   }
 }
@@ -237,6 +275,7 @@ function initialize() {
   chart = init(element.value, { timezone: props.timezone ?? 'UTC', locale: 'zh-CN',
     ...(props.session ? { formatter: { formatDate: formatSessionDate }, layout: { barSpaceLimit: { min: 0.25, max: 50 } } } : {}) });
   if (!chart) return;
+  chart.getDom('candle_pane', 'main')?.addEventListener('pointerleave', clearHover);
   styles();
   applyPriceRange();
   if (props.session) {
@@ -326,11 +365,26 @@ onBeforeUnmount(() => { observer?.disconnect(); destroy(); });
 <template>
   <div class="min-w-0">
     <div
-      ref="element"
-      class="h-80 min-w-0 w-full sm:h-[28rem]"
-      role="img"
-      :aria-label="`${symbol} ${period} K线，红涨绿跌，时间为${timezone ?? 'UTC'}，${session ? '当日09:30至15:00，午休不占交易分钟' : '可拖动和缩放查看历史'}`"
-    />
+      class="relative"
+      @wheel.passive="clearHover"
+      @pointerdown="clearHover"
+      @pointerleave="clearHover"
+    >
+      <div
+        ref="element"
+        class="h-80 min-w-0 w-full sm:h-[28rem]"
+        role="img"
+        :aria-label="`${symbol} ${period} K线，红涨绿跌，时间为${timezone ?? 'UTC'}，${session ? '当日09:30至15:00，午休不占交易分钟' : '可拖动和缩放查看历史'}`"
+      />
+      <div
+        v-if="hoverHint"
+        role="tooltip"
+        class="pointer-events-none absolute z-10 w-max max-w-[min(24rem,45%)] rounded-md border bg-popover px-3 py-2 text-xs text-popover-foreground shadow-sm"
+        :style="hintPosition"
+      >
+        {{ hoverHint }}
+      </div>
+    </div>
     <div
       v-if="period === '1m' && forecastResponse?.enabled"
       class="mt-2 flex flex-wrap items-start gap-x-4 gap-y-1 text-xs text-muted-foreground"
