@@ -72,7 +72,7 @@ def new_branch(kind, side, trigger, scale, bar, start, structure_quality):
     }
 
 
-def advance(branch, history):
+def advance(branch, history, settings=None):
     """Advance frozen shape evidence; expired/invalidated processes cannot revive."""
     if branch.get("superseded_by"):
         return
@@ -102,7 +102,11 @@ def advance(branch, history):
     ) * side < 0:
         branch.update(status="invalidated", reasons=["触及固定失效位，原机会不再恢复"])
         return
-    threshold = rule.confirm_atr
+    threshold = (
+        0.20
+        if branch["kind"] == "opening_breakout" and not branch.get("opening_drive")
+        else rule.confirm_atr
+    )
     pair = history[-2:]
     restored = (
         len(pair) == 2
@@ -121,9 +125,26 @@ def advance(branch, history):
             and (float(recent[-1].close) - float(recent[0].close)) * side >= CONFIG.recent_move_atr * scale
         )
     method, wait_reason = "two_closes", "等待触及后的相邻两根闭合K恢复确认"
-    if branch["kind"] in START_KINDS:
+    if branch["kind"] == "pivot_breakout":
         restored = observed(bar) and distance > threshold
         method, wait_reason = "level_close", "等待真实分钟收盘越过冻结关键位"
+    elif branch["kind"] == "opening_breakout" and branch.get("opening_drive"):
+        restored = observed(bar) and distance > threshold
+        method, wait_reason = "level_close", "等待开盘纯净驱动闭合K确认"
+    elif branch["kind"] in ("opening_breakout", "midday_wave_breakout"):
+        cfg = settings or policy()
+        span = float(bar.high - bar.low)
+        body = (float(bar.close) - float(bar.open)) * side
+        strong = (
+            observed(bar)
+            and distance > cfg.strong_break_atr
+            and span > 0
+            and body / span >= cfg.strong_body_fraction
+        )
+        if strong and not restored:
+            restored = True
+            method = "strong_break"
+        wait_reason = "等待相邻两根真实闭合K或单根强突破K确认"
     if branch["kind"] == "trend_continuation":
         restored, method, wait_reason = confirmation(branch, history)
         if branch["status"] == "expired":
@@ -237,8 +258,11 @@ def recoveries(session_bars, visible_from, opening):
     return [*archive, *branches.values()]
 
 
-def detect(bars):
+def detect(bars, settings=None):
     """Replay bounded input in chronological order; no future pivot or rolling event level."""
+    cfg = settings or policy()
+    if not cfg.box_enabled and not cfg.continuation_enabled:
+        return [], []
     branches = {}
     archive = []
     diagnostics = {}
@@ -250,34 +274,35 @@ def detect(bars):
         # Use up to 30 contiguous background minutes; opening needs only 15.
         prior = contiguous_suffix(prior)
         for branch in [*archive, *branches.values()]:
-            advance(branch, history)
+            advance(branch, history, cfg)
         # Do not rediscover old structures with a truncated background when the
         # 60m replay moves forward. Live lifetimes fit inside the full context.
         if window_start > opening and bar.bar_time < window_start + CONFIG.background * MINUTE:
             continue
-        for side in (1, -1):
-            details, reason = setup(history, side)
-            if details and window_start > opening and datetime.fromisoformat(details["structure_start"]) < (
-                window_start + CONTINUATION.background * MINUTE
-            ):
-                details = None
-            diagnostics[side] = reason
-            key = ("trend_continuation", side)
-            existing = branches.get(key)
-            if details and (existing is None or (
-                details["structure_start"] > existing["structure_end"]
-                and details["structure_start"] > (existing.get("triggered_at") or existing["started_at"])
-            )):
-                branch = new_branch("trend_continuation", side, details["trigger"], details["atr"], bar,
-                                    datetime.fromisoformat(details["structure_start"]), details.pop("structure_quality"))
-                branch.update(details, triggered_at=None)
-                branch["structure_id"] = f"trend_continuation:{side}:{details['structure_start']}"
-                if existing:
-                    existing["superseded_by"] = branch["structure_id"]
-                    archive.append(existing)
-                branches[key] = branch
-                advance(branch, history)
-        if (not observed(bar) or not continuous(prior, CONFIG.minimum_background)
+        if cfg.continuation_enabled:
+            for side in (1, -1):
+                details, reason = setup(history, side)
+                if details and window_start > opening and datetime.fromisoformat(details["structure_start"]) < (
+                    window_start + CONTINUATION.background * MINUTE
+                ):
+                    details = None
+                diagnostics[side] = reason
+                key = ("trend_continuation", side)
+                existing = branches.get(key)
+                if details and (existing is None or (
+                    details["structure_start"] > existing["structure_end"]
+                    and details["structure_start"] > (existing.get("triggered_at") or existing["started_at"])
+                )):
+                    branch = new_branch("trend_continuation", side, details["trigger"], details["atr"], bar,
+                                        datetime.fromisoformat(details["structure_start"]), details.pop("structure_quality"))
+                    branch.update(details, triggered_at=None)
+                    branch["structure_id"] = f"trend_continuation:{side}:{details['structure_start']}"
+                    if existing:
+                        existing["superseded_by"] = branch["structure_id"]
+                        archive.append(existing)
+                    branches[key] = branch
+                    advance(branch, history, cfg)
+        if (not cfg.box_enabled or not observed(bar) or not continuous(prior, CONFIG.minimum_background)
                 or bar.bar_time - prior[-1].bar_time != MINUTE):
             continue
         bounds = box(prior, prior[-1].bar_time)
@@ -342,10 +367,14 @@ def start_branches(ordered, opening, settings, snapshots=None):
         kind, side = level["kind"], level["side"]
         branch = new_branch(kind, side, level["trigger"], level["atr"], bar, level["structure_start"], settings.structure_quality)
         identity = level["identity"]
-        branch.update(structure_id=identity, process_id=identity, structure_start=level["structure_start"].isoformat(),
+        process_id = level.get("process_id", identity)
+        branch.update(structure_id=identity, process_id=process_id, structure_start=level["structure_start"].isoformat(),
                       structure_end=level["frozen"].isoformat(), formation_available_at=level["available"].isoformat(),
                       execution_floor=level["last_receipt"].isoformat(),
                       atr_samples=level["atr_samples"], atr_source="observed_adjacent_true_ranges")
+        if level.get("opening_drive"):
+            branch["opening_drive"] = True
+            branch["expires_at"] = level["until"].isoformat()
         branch["triggered_at"] = branch["started_at"]
         if level["width"] is not None:
             edge = level["trigger"] - side * level["width"]
@@ -359,17 +388,18 @@ def start_branches(ordered, opening, settings, snapshots=None):
                     or history and current.bar_time - history[-1].bar_time != MINUTE):
                 break
             history.append(current)
-            advance(branch, history)
+            advance(branch, history, settings)
         else:
             result.append(branch)
     return result
 
 
 def calculate_opportunities(ordered, settings=None):
+    cfg = settings or policy()
     end = ordered[-1].bar_time
     bars, coverage, reasons = analysis_window(ordered)
-    branches, diagnostics = detect(bars) if bars else ([], [])
-    if bars:
+    branches, diagnostics = detect(bars, cfg) if bars else ([], [])
+    if bars and cfg.recovery_enabled:
         opening, _ = session_bounds("US", market_trading_date(end, "US"))
         visible_from = max(opening, end - (HORIZON - 1) * MINUTE)
         session_bars = bars
@@ -379,7 +409,7 @@ def calculate_opportunities(ordered, settings=None):
         branches.extend(recoveries(session_bars, visible_from, opening))
     opening, _ = session_bounds("US", market_trading_date(end, "US"))
     snapshots = {}
-    branches.extend(start_branches(ordered, opening, settings or policy(), snapshots))
+    branches.extend(start_branches(ordered, opening, cfg, snapshots))
     for branch in branches:
         branch["entry_low"], branch["entry_high"] = entry_interval(branch)
         branch["max_risk_atr"] = RULES[branch["kind"]].max_risk_atr

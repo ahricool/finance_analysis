@@ -74,7 +74,7 @@ def test_concurrent_entry_exit_restart_atomic_evidence(isolated_store):
     revised["opportunities"]["branches"][0]["invalidation"] = 20
     later = NOW + timedelta(seconds=5)
     store.process("SPY.US", revised, quote(later), later)
-    cutoff = NOW.replace(hour=19)
+    cutoff = NOW.replace(hour=20, minute=50)
     with ThreadPoolExecutor(max_workers=8) as pool:
         states = list(pool.map(lambda _: store.process("SPY.US", None, None, cutoff), range(16)))
     assert all(not s["position"] for s in states)
@@ -106,7 +106,7 @@ def test_reconnect_cursor_recovers_previous_session_exit(isolated_store):
     store.process('SPY.US', result(), quote(), NOW)
     first = store.read(NOW.date())
     cursor = max(e['id'] for e in first['events'])
-    cutoff = NOW.replace(hour=19)
+    cutoff = NOW.replace(hour=20, minute=50)
     store.process('SPY.US', None, None, cutoff)
     tomorrow = (NOW + timedelta(days=1)).date()
     assert not store.read(tomorrow)['events']
@@ -115,7 +115,25 @@ def test_reconnect_cursor_recovers_previous_session_exit(isolated_store):
     assert len({e['id'] for e in replay['events']}) == len(replay['events'])
 
 
-def test_continuation_concurrent_restart_preserves_frozen_method_and_structure(isolated_store):
+@pytest.fixture
+def legacy_continuation_policy(monkeypatch):
+    from finance_analysis.intraday_options.rules import policy
+
+    monkeypatch.setenv("INTRADAY_TREND_CONTINUATION", "true")
+    monkeypatch.setenv("INTRADAY_OPENING_BREAKOUT", "false")
+    monkeypatch.setenv("INTRADAY_MIDDAY_WAVE_BREAKOUT", "false")
+    monkeypatch.setenv("INTRADAY_MIN_RISK_RETURN", "0")
+    monkeypatch.setenv("INTRADAY_MAX_RISK_RETURN", "0")
+    policy.cache_clear()
+    try:
+        yield
+    finally:
+        policy.cache_clear()
+
+
+def test_continuation_concurrent_restart_preserves_frozen_method_and_structure(
+    isolated_store, legacy_continuation_policy
+):
     from tests.intraday_options.test_continuation import path
     from tests.intraday_options.test_scoring import score
 
@@ -145,7 +163,9 @@ def test_continuation_concurrent_restart_preserves_frozen_method_and_structure(i
 
 
 @pytest.mark.parametrize('side', [1, -1])
-def test_quote_confirmation_order_and_late_revision_persist_original_evidence(isolated_store, side):
+def test_quote_confirmation_order_and_late_revision_persist_original_evidence(
+    isolated_store, legacy_continuation_policy, side
+):
     from copy import deepcopy
     from dataclasses import replace
     from finance_analysis.intraday_options.scoring import calculate
@@ -188,7 +208,9 @@ def test_quote_confirmation_order_and_late_revision_persist_original_evidence(is
 
 @pytest.mark.parametrize('revision', [False, True])
 @pytest.mark.parametrize('side', [1, -1])
-def test_persisted_quote_follows_receipt_of_confirming_version(isolated_store, revision, side):
+def test_persisted_quote_follows_receipt_of_confirming_version(
+    isolated_store, legacy_continuation_policy, revision, side
+):
     from dataclasses import replace
     from finance_analysis.intraday_options.scoring import calculate
     from tests.intraday_options.test_continuation import path
@@ -216,7 +238,9 @@ def test_persisted_quote_follows_receipt_of_confirming_version(isolated_store, r
 
 
 @pytest.mark.parametrize("side", [1, -1])
-def test_restored_shape_persists_revision_floor_and_original_confirmation(isolated_store, side):
+def test_restored_shape_persists_revision_floor_and_original_confirmation(
+    isolated_store, legacy_continuation_policy, side
+):
     from dataclasses import replace
     from tests.intraday_options.test_continuation import path, continuation
     from finance_analysis.intraday_options.scoring import calculate
@@ -253,14 +277,21 @@ def test_restored_shape_persists_revision_floor_and_original_confirmation(isolat
         assert [c for c in confirmations if c["structure_id"] == branch["structure_id"]] == [frozen]
 
 
-def test_removed_symbol_only_drains_existing_position(isolated_store):
-    symbol = "TQQQ.US"
-    store.process(symbol, result(), quote(), NOW)  # Persist a pre-removal position.
-    assert store.open_retired_symbols() == {symbol}
-    t = NOW + timedelta(seconds=35)
-    state = store.process(symbol, None, quote(t, 103), t)
-    assert not state["position"] and not state["plans"]
-    assert not store.open_retired_symbols()
-    with isolated_store() as db:
-        trade = db.scalars(select(Trade)).one()
-        assert trade.symbol == symbol and trade.payload["exit_reason"] == "到达目标"
+def test_removed_symbol_only_drains_existing_position(isolated_store, monkeypatch):
+    from finance_analysis.intraday_options.rules import policy
+
+    monkeypatch.setenv("INTRADAY_USE_PIVOT_TARGET", "true")
+    policy.cache_clear()
+    try:
+        symbol = "TQQQ.US"
+        store.process(symbol, result(), quote(), NOW)  # Persist a pre-removal position.
+        assert store.open_retired_symbols() == {symbol}
+        t = NOW + timedelta(seconds=35)
+        state = store.process(symbol, None, quote(t, 103), t)
+        assert not state["position"] and not state["plans"]
+        assert not store.open_retired_symbols()
+        with isolated_store() as db:
+            trade = db.scalars(select(Trade)).one()
+            assert trade.symbol == symbol and trade.payload["exit_reason"] == "到达目标"
+    finally:
+        policy.cache_clear()

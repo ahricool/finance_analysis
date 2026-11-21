@@ -7,12 +7,23 @@ from decimal import Decimal
 import pytest
 
 from finance_analysis.interfaces.api.v1.schemas.intraday_options import TrendResult
+from finance_analysis.intraday_options.rules import StartPolicy
+from finance_analysis.intraday_options.scoring import calculate
 from tests.intraday_options.test_scoring import candles, score
 from tests.intraday_options.test_structure import oscillation, prices
 
 
-def entry(values):
-    result = score(prices(values))
+BOX_CFG = StartPolicy(box_enabled=True, opening_enabled=False, midday_wave_enabled=False)
+
+
+def entry(values, settings=None):
+    bars = prices(values)
+    result = calculate(
+        bars[0].symbol,
+        bars,
+        max(b.bar_time for b in bars) + timedelta(minutes=1),
+        settings=settings or BOX_CFG,
+    )
     TrendResult.model_validate(result)
     return result["opportunities"]
 
@@ -66,9 +77,10 @@ def test_retest_needs_post_breakout_touch_and_two_closes(side):
 @pytest.mark.parametrize("side", [1, -1])
 def test_trend_recovery_requires_prior_advance_then_touch_and_actual_recovery(side):
     base = [100 + i * 0.1 for i in range(40)]
+    recovery_policy = StartPolicy(recovery_enabled=True, midday_wave_enabled=False)
 
     def run(tail):
-        return entry([100 + side * (p - 100) for p in base + tail])
+        return entry([100 + side * (p - 100) for p in base + tail], settings=recovery_policy)
 
     assert run([])["primary"] is None  # Strong monotone trend is not itself an entry.
     touched = run([103.05])
@@ -118,9 +130,11 @@ def test_price_scale_invariance_and_replay_determinism():
     scaled = [
         replace(b, **{field: getattr(b, field) * 100 for field in ("open", "high", "low", "close")}) for b in bars
     ]
-    a, b = score(bars)["opportunities"], score(scaled)["opportunities"]
+    now = max(b.bar_time for b in bars) + timedelta(minutes=1)
+    a = calculate("SPY.US", bars, now, settings=BOX_CFG)["opportunities"]
+    b = calculate("SPY.US", scaled, now, settings=BOX_CFG)["opportunities"]
     assert a["primary"]["quality_score"] == pytest.approx(b["primary"]["quality_score"])
-    assert a == score(bars)["opportunities"]
+    assert a == calculate("SPY.US", bars, now, settings=BOX_CFG)["opportunities"]
 
 
 def test_rolling_replay_preserves_process_levels_dates_and_first_confirmation():

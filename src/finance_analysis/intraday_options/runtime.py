@@ -110,8 +110,12 @@ def ranked_opportunity(result, simulation, now, quote=None):
                 or now >= datetime.fromisoformat(plan["expires_at"])):
             continue
         # A revision can retain as_of. Check the actual branch evidence too;
-        # execution has its own rule_version, all other shape fields must match.
-        if all(plan.get(k) == v for k, v in branch.items() if k != "rule_version"):
+        # execution has its own rule_version and fixed-wave stop invalidation.
+        if all(
+            (plan.get("structure_invalidation", plan.get("invalidation")) if k == "invalidation" else plan.get(k)) == v
+            for k, v in branch.items()
+            if k != "rule_version"
+        ):
             if quote is not None:
                 current = execution_plan(branch, result, quote_value(quote, now), now, quote.event_time, plan)
                 if not current["executable"]:

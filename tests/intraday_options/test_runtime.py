@@ -131,10 +131,22 @@ def test_entry_eligibility_excludes_delayed_closed_and_old_versions_without_reco
 
 
 @pytest.mark.parametrize("old_gap", [False, True])
-def test_entry_visibility_uses_primary_branch_validity_not_position_permission(old_gap):
+def test_entry_visibility_uses_primary_branch_validity_not_position_permission(old_gap, monkeypatch):
     import json
+    from finance_analysis.intraday_options.rules import StartPolicy, policy
     from finance_analysis.intraday_options.simulation import transition
     from tests.intraday_options.test_structure import oscillation, prices
+
+    monkeypatch.setenv("INTRADAY_MIN_RISK_RETURN", "0")
+    monkeypatch.setenv("INTRADAY_MAX_RISK_RETURN", "0")
+    policy.cache_clear()
+    box_cfg = StartPolicy(
+        box_enabled=True,
+        opening_enabled=False,
+        midday_wave_enabled=False,
+        entry_window_minutes=150,
+        minimum_risk_return=0.0,
+    )
 
     async def run():
         repo = RealtimeStateRepository(FakeRedis())
@@ -142,13 +154,13 @@ def test_entry_visibility_uses_primary_branch_validity_not_position_permission(o
         if old_gap:
             del bars[5]
         now = bars[-1].bar_time + timedelta(minutes=1, seconds=5)
-        result = calculate("SPY.US", bars, now)
+        result = calculate("SPY.US", bars, now, settings=box_cfg)
         primary = result["opportunities"]["primary"]
         price = primary["trigger"] + primary["atr"] * 0.5
         q = QuoteState(
             "SPY.US", trading_date=now.date(), last_price=Decimal(str(price)), event_time=now, received_at=now
         )
-        state, _ = transition({}, "SPY.US", result, q, now)
+        state, _ = transition({}, "SPY.US", result, q, now, settings=box_cfg)
         assert state["position"]
         await repo.write_quote(q)
         await repo.redis.set(result_key("SPY.US"), json.dumps(result))
@@ -166,10 +178,14 @@ def test_entry_visibility_uses_primary_branch_validity_not_position_permission(o
         await repo.redis.set("rt:intraday-simulation:SPY.US", json.dumps(state))
         assert not (await read_snapshot(repo, {}, now + timedelta(seconds=2)))["items"][0]["opportunity_eligible"]
         state["cutoff"] = original_cutoff
-        state["plans"][0]["opportunity_valid"] = False
+        for p in state["plans"]:
+            p["opportunity_valid"] = False
         state["plans"].append({**state["plans"][0], "structure_id": "different", "opportunity_valid": True})
         await repo.redis.set("rt:intraday-simulation:SPY.US", json.dumps(state))
         assert not (await read_snapshot(repo, {}, now))["items"][0]["opportunity_eligible"]
         assert not (await read_snapshot(repo, {}, now + timedelta(seconds=31)))["items"][0]["opportunity_eligible"]
 
-    asyncio.run(run())
+    try:
+        asyncio.run(run())
+    finally:
+        policy.cache_clear()

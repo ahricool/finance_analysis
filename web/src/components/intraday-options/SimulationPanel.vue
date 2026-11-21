@@ -25,6 +25,8 @@ const stale = computed(() => staleState(selected.value));
 const positions = computed(() => (props.snapshot.simulation?.states ?? []).flatMap(s => s.position && matches(s.symbol) ? [s.position] : []));
 const cutoff = computed(() => state.value?.cutoff ?? props.snapshot.simulation?.states.find(s => s.cutoff)?.cutoff
   ?? props.snapshot.items.find(r => r.simulation?.cutoff)?.simulation?.cutoff);
+const exitCutoff = computed(() => state.value?.exitCutoff ?? props.snapshot.simulation?.states.find(s => s.exitCutoff)?.exitCutoff
+  ?? props.snapshot.items.find(r => r.simulation?.exitCutoff)?.simulation?.exitCutoff);
 const remaining = computed(() => cutoff.value && Number.isFinite(Date.parse(cutoff.value)) ? Math.max(0, Math.ceil((Date.parse(cutoff.value) - now.value.getTime()) / 60000)) : null);
 const phase = computed(() => props.snapshot.marketStatus === 'preopen' ? 'preopen'
   : props.snapshot.marketStatus === 'closed' ? 'closed' : remaining.value == null ? 'unknown' : remaining.value === 0 ? 'stopped' : 'active');
@@ -174,7 +176,7 @@ function historyValue(t: SimTrade, key: string) {
           {{ remaining != null && phase === 'active' ? `${remaining} 分钟` : phase === 'preopen' ? '尚未开盘' : phase === 'stopped' ? '已截止' : phase === 'unknown' ? '待同步' : '休市' }}
         </p>
         <p class="mt-1 text-xs text-muted-foreground">
-          {{ cutoff ? `停止交易 ${clock(cutoff)} · 纽约` : phase === 'unknown' ? '日历缺失 · 暂停信号' : '当日无交易窗口' }}
+          {{ cutoff ? `停止进场 ${clock(cutoff)}${exitCutoff ? ` · 清仓 ${clock(exitCutoff)}` : ''} · 纽约` : phase === 'unknown' ? '日历缺失 · 暂停信号' : '当日无交易窗口' }}
         </p>
       </div>
     </div>
@@ -183,7 +185,7 @@ function historyValue(t: SimTrade, key: string) {
       <span class="flex items-center gap-2"><span
         class="size-1.5 rounded-full"
         :class="disconnected ? 'bg-destructive' : 'bg-foreground/60'"
-      />{{ disconnected ? '连接中断，仅显示历史状态' : entryPaused ? '信号暂停 · 非交易窗口不产生新信号或行情告警' : '后台持续监测 · 每 5 秒更新' }}</span>
+      />{{ disconnected ? '连接中断，仅显示历史状态' : entryPaused ? '停止新进场 · 未平仓标的继续监测报价' : '后台持续监测 · 每 5 秒更新' }}</span>
       <span>快照 {{ clock(snapshot.generatedAt) }} · 时间均为纽约</span>
     </div>
 
@@ -248,13 +250,13 @@ function historyValue(t: SimTrade, key: string) {
           </template>
           <template v-else-if="column === 'target'">
             {{ price(p.target) }}<p class="mt-1 text-xs text-muted-foreground">
-              {{ p.target == null ? '结构目标未知' : '触及后模拟退场' }}
+              {{ p.target == null ? '移动止损跟踪' : '触及后模拟退场' }}
             </p>
           </template>
         </template>
       </SimulationTable>
       <p class="border-b px-5 py-3 text-xs leading-relaxed text-muted-foreground">
-        下一步：监测保护位、目标位、未推进超时及截止清仓。估值使用最后有效价格；行情或连接异常时保留价格时间。
+        下一步：监测保护位（-2.5% 宏观止损 / 浮盈 +2.0% 锁盈 +0.2%）、+3.5% 波段止盈目标及收盘前清仓。单标的每日最多 1 笔；估值使用最后有效价格，行情异常时保留价格时间。
       </p>
     </section>
 
@@ -384,9 +386,16 @@ function historyValue(t: SimTrade, key: string) {
             </p>
           </template>
           <template v-else-if="column === 'remainingSpace'">
-            {{ price(p.remainingSpace) }}<p class="mt-1 text-xs text-muted-foreground">
-              止盈幅度 {{ pct(p.remainingReturn == null ? null : 100 * p.remainingReturn) }} · {{ fmt(p.rewardRisk, 2) }}R
-            </p>
+            <template v-if="p.target == null">
+              初始风险 {{ p.initialRiskReturn == null ? '—' : `${fmt(100 * p.initialRiskReturn, 2)}%` }}<p class="mt-1 text-xs text-muted-foreground">
+                移动止损跟踪 · 不设固定止盈
+              </p>
+            </template>
+            <template v-else>
+              {{ price(p.remainingSpace) }}<p class="mt-1 text-xs text-muted-foreground">
+                止盈幅度 {{ pct(p.remainingReturn == null ? null : 100 * p.remainingReturn) }} · {{ fmt(p.rewardRisk, 2) }}R
+              </p>
+            </template>
           </template>
         </template>
       </SimulationTable>
@@ -462,7 +471,12 @@ function historyValue(t: SimTrade, key: string) {
               <p>报价时间 {{ clock(t.entryPriceAt) }}</p>
               <p>目标 {{ price(t.target) }} · {{ t.entryEvidence?.targetSource ?? '来源未记录' }}</p>
               <p>初始失效 {{ price(t.invalidation) }} · ATR {{ fmt(t.entryEvidence?.atr, 4) }}</p>
-              <p>计划幅度 {{ pct(plannedReturn(t)) }} · {{ fmt(t.entryEvidence?.rewardRisk, 2) }}R</p>
+              <p v-if="t.target == null">
+                初始风险 {{ t.entryEvidence?.initialRiskReturn == null ? '—' : `${fmt(100 * t.entryEvidence.initialRiskReturn, 2)}%` }} · 移动止损跟踪
+              </p>
+              <p v-else>
+                计划幅度 {{ pct(plannedReturn(t)) }} · {{ fmt(t.entryEvidence?.rewardRisk, 2) }}R
+              </p>
             </div>
           </template>
           <template v-else-if="column === 'returnPct'">

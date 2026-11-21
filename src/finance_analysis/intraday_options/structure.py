@@ -67,8 +67,132 @@ def pivots(bars):
     return sorted(output, key=lambda p: p["at"])
 
 
-def execution_context(closed):
-    """Same-session untouched target pivots and the availability of the versions examined."""
+def session_vwap(bars):
+    """Causal HLC3 volume-weighted average price over valid observed session bars."""
+    pv = 0.0
+    vol = 0.0
+    for bar in bars:
+        volume = float(bar.volume)
+        if volume > 0:
+            typical = (float(bar.high) + float(bar.low) + float(bar.close)) / 3.0
+            pv += typical * volume
+            vol += volume
+    return pv / vol if vol > 0 else None
+
+
+def _market_summary(bars, opening):
+    valid = [b for b in bars if observed(b) and b.is_valid() and not b.partial and not b.sampled]
+    if not valid:
+        return None
+    last = valid[-1]
+    last_close = float(last.close)
+    by_time = {b.bar_time: b for b in valid}
+    open_bar = by_time.get(opening)
+    open_return = (
+        last_close / float(open_bar.open) - 1
+        if open_bar is not None and float(open_bar.open) > 0
+        else None
+    )
+    open_efficiency = None
+    if open_bar is not None and float(open_bar.open) > 0 and valid[0].bar_time == opening:
+        expected = int((last.bar_time - opening) / MINUTE) + 1
+        if len(valid) == expected:
+            first_open = float(open_bar.open)
+            prev_c = first_open
+            path = 0.0
+            for b in valid:
+                cur_c = float(b.close)
+                path += abs(cur_c - prev_c)
+                prev_c = cur_c
+            open_efficiency = abs(prev_c - first_open) / path if path > 0 else 0.0
+    bar_20m = by_time.get(last.bar_time - 20 * MINUTE)
+    return_20m = (
+        last_close / float(bar_20m.close) - 1
+        if bar_20m is not None and float(bar_20m.close) > 0
+        else None
+    )
+    return dict(
+        vwap=session_vwap(valid),
+        last_close=last_close,
+        as_of=(last.bar_time + MINUTE).isoformat(),
+        open_return=open_return,
+        open_efficiency=open_efficiency,
+        return_20m=return_20m,
+        evidence_at=max(max(b.bar_time + MINUTE, b.received_at) for b in bars).isoformat(),
+    )
+
+
+def pool_rank_context(symbol, closed, peer_bars, opening, day, min_peers=10):
+    """Causal cross-sectional intraday return rank and directional breadth across observed peers."""
+    valid_self = [b for b in closed if observed(b) and b.is_valid() and not b.partial and not b.sampled]
+    if not valid_self:
+        return None
+    target_time = valid_self[-1].bar_time
+    peer_returns = {}
+    evidence_times = []
+    for peer_sym, bars in peer_bars.items():
+        if not bars:
+            continue
+        open_bar = None
+        last_bar = None
+        for b in bars:
+            is_rank_minute = b.bar_time == opening or target_time - MINUTE <= b.bar_time <= target_time
+            if not is_rank_minute or market_trading_date(b.bar_time, "US") != day:
+                continue
+            # An invalidating revision can remove a leader or select an older fallback close.
+            evidence_times.append(max(b.bar_time + MINUTE, b.received_at))
+            if not observed(b) or not b.is_valid() or b.partial or b.sampled:
+                continue
+            if b.bar_time == opening and (open_bar is None or b.received_at >= open_bar.received_at):
+                open_bar = b
+            if target_time - MINUTE <= b.bar_time <= target_time:
+                if (
+                    last_bar is None
+                    or b.bar_time > last_bar.bar_time
+                    or (b.bar_time == last_bar.bar_time and b.received_at >= last_bar.received_at)
+                ):
+                    last_bar = b
+        if open_bar is not None and last_bar is not None and float(open_bar.open) > 0:
+            peer_returns[peer_sym] = float(last_bar.close) / float(open_bar.open) - 1.0
+    if symbol not in peer_returns:
+        self_open = next((b for b in valid_self if b.bar_time == opening and float(b.open) > 0), None)
+        if self_open is not None:
+            self_last = valid_self[-1]
+            peer_returns[symbol] = float(self_last.close) / float(self_open.open) - 1.0
+            evidence_times.append(max(self_open.bar_time + MINUTE, self_open.received_at))
+            evidence_times.append(max(self_last.bar_time + MINUTE, self_last.received_at))
+    if symbol not in peer_returns or len(peer_returns) < min_peers:
+        return None
+    sym_ret = peer_returns[symbol]
+    pool_size = len(peer_returns)
+    long_rank = 1 + sum(1 for r in peer_returns.values() if r > sym_ret)
+    short_rank = 1 + sum(1 for r in peer_returns.values() if r < sym_ret)
+    breadth_up = sum(1 for r in peer_returns.values() if r > 0) / pool_size
+    breadth_down = sum(1 for r in peer_returns.values() if r < 0) / pool_size
+    return dict(
+        as_of=(target_time + MINUTE).isoformat(),
+        long_rank=long_rank,
+        short_rank=short_rank,
+        pool_size=pool_size,
+        breadth_up=breadth_up,
+        breadth_down=breadth_down,
+        open_return=sym_ret,
+        evidence_at=max(evidence_times).isoformat(),
+    )
+
+
+def execution_context(closed, spy_closed=None, peer_bars=None):
+    """Same-session untouched target pivots, VWAP/SPY/pool-rank context, recent bars and evidence receipt."""
+    if not closed:
+        out = dict(execution_pivots=[], target_evidence_at=None, market_context=None, recent_bars=[])
+        if spy_closed is not None:
+            out["spy_context"] = None
+        if peer_bars is not None:
+            out["pool_rank_context"] = None
+        return out
+    day = market_trading_date(closed[-1].bar_time, "US")
+    bounds = session_bounds("US", day)
+    opening = bounds[0] if bounds else closed[0].bar_time
     valid = [b for b in closed if observed(b) and b.is_valid() and not b.partial and not b.sampled]
     levels = []
     for point in pivots(valid):
@@ -78,8 +202,27 @@ def execution_context(closed):
                    else any(float(b.low) < point["price"] for b in later))
         if not crossed:
             levels.append(point)
-    return dict(execution_pivots=levels, target_evidence_at=max(max(b.bar_time + MINUTE, b.received_at)
-                                                                for b in closed).isoformat())
+    recent_bars = [
+        dict(
+            bar_time=b.bar_time.isoformat(),
+            close_at=(b.bar_time + MINUTE).isoformat(),
+            high=float(b.high),
+            low=float(b.low),
+        )
+        for b in valid[-60:]
+    ]
+    output = dict(
+        execution_pivots=levels,
+        target_evidence_at=max(max(b.bar_time + MINUTE, b.received_at) for b in closed).isoformat(),
+        market_context=_market_summary(closed, opening),
+        recent_bars=recent_bars,
+    )
+    if spy_closed is not None:
+        same_day_spy = [b for b in spy_closed if market_trading_date(b.bar_time, "US") == day]
+        output["spy_context"] = _market_summary(same_day_spy, opening) if same_day_spy else None
+    if peer_bars is not None:
+        output["pool_rank_context"] = pool_rank_context(closed[-1].symbol, closed, peer_bars, opening, day)
+    return output
 
 
 def segment(bars, end, minutes):

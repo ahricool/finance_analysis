@@ -132,3 +132,69 @@ it('selects the latest 30 events by occurrence and defaults each dated table to 
   expect(rows('已完成模拟交易表', '退场时间')).toEqual([2, 1].map(i => expect.stringContaining(`trade-${i}`)));
   wrapper.unmount();
 });
+
+it('displays V7 entry cutoff, fixed wave target, profit-lock summary, and stopped-phase position monitoring copy', async () => {
+  vi.useFakeTimers(); vi.setSystemTime(new Date('2026-11-17T15:30:00Z'));
+  const state = {
+    symbol: 'NVDA.US', calculatedAt: '2026-11-17T15:30:00Z',
+    cutoff: '2026-11-17T15:00:00Z', exitCutoff: '2026-11-17T20:50:00Z',
+    quoteTime: '2026-11-17T15:29:58Z', currentPrice: 102.2,
+    plans: [{
+      structureId: 'opening:1', kind: 'opening_breakout', direction: 'bullish',
+      status: 'confirmed', trigger: 100.5, invalidation: 98.5, atr: 0.5,
+      entryLow: 100.5, entryHigh: 105.5, target: 104.535, targetSource: 'V7波段止盈(+3.5%)',
+      initialRiskReturn: 0.025, remainingSpace: 3.535, remainingReturn: 0.035, rewardRisk: 1.4,
+      executionReason: '今日已停止进场或尚未开盘', confirmedAt: '2026-11-17T14:38:00Z',
+    }],
+    position: {
+      id: 'nvda', symbol: 'NVDA.US', side: 1, kind: 'opening_breakout',
+      entryPrice: 101, entryAt: '2026-11-17T14:38:05Z', returnPct: 1.19,
+      invalidation: 98.475, protection: 101.202, target: 104.535, lastPriceAt: '2026-11-17T15:29:58Z',
+    },
+  };
+  const snapshot = {
+    marketStatus: 'open',
+    items: [{ symbol: 'NVDA.US', simulation: state }],
+    simulation: { states: [state], trades: [], statistics: [], events: [] },
+  } as unknown as IntradayOptionsSnapshot;
+  const wrapper = mount(SimulationPanel, { props: { snapshot, disconnected: false }, global: { stubs: { FieldSelect: true } } });
+  expect(wrapper.text()).toContain('停止进场 10:00:00 · 清仓 15:50:00');
+  expect(wrapper.text()).toContain('停止新进场 · 未平仓标的继续监测报价');
+  expect(wrapper.text()).toContain('-2.5% 宏观止损 / 浮盈 +2.0% 锁盈 +0.2%');
+  expect(wrapper.text()).toContain('触及后模拟退场');
+  wrapper.unmount();
+});
+
+it('displays separated entry cutoff, exit cutoff, and trailing target label in V6', async () => {
+  vi.useFakeTimers(); vi.setSystemTime(new Date('2026-11-17T16:00:00Z'));
+  const state = {
+    symbol: 'NVDA.US', calculatedAt: '2026-11-17T16:00:00Z',
+    cutoff: '2026-11-17T17:00:00Z', exitCutoff: '2026-11-17T20:50:00Z',
+    quoteTime: '2026-11-17T15:59:58Z', currentPrice: 101,
+    plans: [{
+      structureId: 'midday:1', kind: 'midday_wave_breakout', direction: 'bullish',
+      status: 'confirmed', trigger: 100.5, invalidation: 99, atr: 0.5,
+      entryLow: 100.6, entryHigh: 101.5, target: null, targetSource: '移动止损跟踪',
+      initialRiskReturn: 0.0148, remainingSpace: null, rewardRisk: null,
+      executionReason: '可以模拟进场', confirmedAt: '2026-11-17T15:59:00Z',
+    }],
+    position: {
+      id: 'nvda', symbol: 'NVDA.US', side: 1, kind: 'midday_wave_breakout',
+      entryPrice: 100, entryAt: '2026-11-17T15:55:00Z', returnPct: 1,
+      invalidation: 99, protection: 100, target: null, lastPriceAt: '2026-11-17T15:59:58Z',
+    },
+  };
+  const snapshot = {
+    marketStatus: 'open',
+    items: [{ symbol: 'NVDA.US', simulation: state }],
+    simulation: { states: [state], trades: [], statistics: [], events: [] },
+  } as unknown as IntradayOptionsSnapshot;
+  const wrapper = mount(SimulationPanel, { props: { snapshot, disconnected: false }, global: { stubs: { FieldSelect: true } } });
+  expect(wrapper.text()).toContain('停止进场 12:00:00 · 清仓 15:50:00');
+  expect(wrapper.text()).toContain('盘中主浪突破');
+  expect(wrapper.text()).toContain('移动止损跟踪');
+  await wrapper.findComponent({ name: 'FieldSelect' }).vm.$emit('update:modelValue', 'NVDA.US');
+  expect(wrapper.text()).toContain('初始风险 1.48%');
+  expect(wrapper.text()).toContain('不设固定止盈');
+  wrapper.unmount();
+});

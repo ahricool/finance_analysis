@@ -25,13 +25,13 @@ export interface IntradayStructure extends AnalysisCoverage {
   reasons: string[];
 }
 export interface OpportunityBranch {
-  kind: 'box_breakout' | 'box_retest' | 'trend_recovery' | 'trend_continuation' | 'opening_breakout' | 'pivot_breakout';
+  kind: 'box_breakout' | 'box_retest' | 'trend_recovery' | 'trend_continuation' | 'opening_breakout' | 'pivot_breakout' | 'midday_wave_breakout';
   confirmationMethod?: 'two_closes' | 'strong_break' | 'level_close' | null;
   confirmationAvailableAt?: string | null; confirmationRunAvailableAt?: string | null; executionEvidenceAt?: string | null;
   triggeredAt?: string | null; structureStart?: string | null; structureEnd?: string | null;
   structureHigh?: number | null; structureLow?: number | null;
   atrSource?: string | null; atrSamples?: number | null; ruleVersion?: string | null;
-  supersededBy?: string | null; breakoutRejection?: string | null;
+  supersededBy?: string | null; breakoutRejection?: string | null; openingDrive?: boolean | null;
   direction: 'bullish' | 'bearish'; status: 'forming' | 'confirmed' | 'extended' | 'invalidated' | 'expired';
   structureId: string; trigger: number; invalidation: number; atr: number;
   formationStart: string; startedAt: string; confirmedAt: string | null; expiresAt: string;
@@ -71,7 +71,7 @@ export async function fetchIntradayOptions(signal: AbortSignal): Promise<Intrada
 export interface SimulationPlan extends OpportunityBranch {
   entryQuoteNotBefore?: string | null;
   processId: string; entryLow: number; entryHigh: number; target: number | null; targetSource: string;
-  remainingReturn?: number | null; initialRisk?: number | null;
+  remainingReturn?: number | null; initialRisk?: number | null; initialRiskReturn?: number | null;
   remainingSpace: number | null; rewardRisk: number | null; ageSeconds: number | null;
   opportunityValid?: boolean; opportunityReason?: string; executable: boolean; executionReason: string;
 }
@@ -86,7 +86,7 @@ export interface SimTrade {
 }
 export interface SimulationState {
   sessionPhase?: 'active' | 'preopen' | 'stopped' | 'closed'; sessionOpen?: string | null; dataIssue?: string | null;
-  symbol: string; calculatedAt: string; cutoff: string | null; stopped: boolean; currentPrice: number | null;
+  symbol: string; calculatedAt: string; cutoff: string | null; exitCutoff?: string | null; stopped: boolean; currentPrice: number | null;
   quoteTime: string | null; position?: SimTrade | null; plans: SimulationPlan[];
   relativeStrength?: Array<{ minutes: number; value: number | null; start: string; end: string; reason: string }>;
 }

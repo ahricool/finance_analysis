@@ -35,7 +35,7 @@ export function structureName(value: IntradayStructure | null | undefined) {
 
 export const opportunityKinds: Record<OpportunityBranch['kind'], string> = {
   box_breakout: '箱体突破', box_retest: '突破位回测', trend_recovery: '顺势回撤恢复', trend_continuation: '趋势延续',
-  opening_breakout: '开盘区间突破', pivot_breakout: '盘中关键位突破',
+  opening_breakout: '开盘区间突破', pivot_breakout: '盘中关键位突破', midday_wave_breakout: '盘中主浪突破',
 };
 export const confirmationLabel = (method: OpportunityBranch['confirmationMethod']) =>
   method === 'level_close' ? '关键位单根收盘确认' : method === 'strong_break' ? '强突破单根确认' : method === 'two_closes' ? '两根闭合K确认' : '尚未确认';

@@ -80,3 +80,19 @@ it('keeps an executable opening break visible during the longer windows’ warmu
   expect(entryScore(row)).toBe(opening.qualityScore);
   expect(entryLabel(row)).toBe('已确认');
 });
+
+it('renders midday_wave_breakout label across opportunity panel and chart trade details', () => {
+  const midday = { ...branch, kind: 'midday_wave_breakout' as const, confirmationMethod: 'two_closes' as const };
+  const wrapper = mount(OpportunityPanel, {
+    props: { opportunities: { ...opportunities, primary: midday, branches: [midday] }, plans: [], stale: false },
+  });
+  expect(wrapper.text()).toContain('盘中主浪突破');
+  expect(wrapper.text()).toContain('两根闭合K确认');
+  const ops = simulationOperations(
+    { states: [], events: [], statistics: [], trades: [{ ...trade, kind: 'midday_wave_breakout', confirmationMethod: 'two_closes' }] },
+    'NVDA.US',
+    '2026-11-17',
+  );
+  expect(ops[0]!.reason).toContain('盘中主浪突破');
+  wrapper.unmount();
+});

@@ -29,8 +29,36 @@ MINUTE = timedelta(minutes=1)
 def scenarios():
     for opening in (0, 5, 15):
         for fraction, rr in ((0, 0), (0, .5), (0, 1), (.0005, 0), (.001, 0), (.0015, 0), (.001, .5), (.001, 1)):
-            yield (opening, fraction, rr), StartPolicy(opening_enabled=bool(opening), pivot_enabled=bool(opening),
-                                                      opening_minutes=opening or 5, minimum_return=fraction, minimum_rr=rr)
+            yield (opening, fraction, rr), StartPolicy(
+                opening_enabled=bool(opening),
+                pivot_enabled=bool(opening),
+                midday_wave_enabled=False,
+                box_enabled=True,
+                continuation_enabled=True,
+                recovery_enabled=True,
+                use_pivot_target=True,
+                opening_minutes=opening or 5,
+                opening_min_range_pct=0.0,
+                opening_min_elapsed_minutes=opening or 5,
+                opening_min_efficiency=0.0,
+                opening_require_directional_bar=False,
+                entry_window_minutes=270,
+                stop_loss_pct=0.0,
+                take_profit_pct=0.0,
+                profit_lock_trigger_pct=0.0,
+                profit_lock_level_pct=0.0,
+                minimum_return=fraction,
+                minimum_rr=rr,
+                minimum_risk_return=0.0,
+                maximum_risk_return=0.0,
+                require_vwap=False,
+                require_spy_alignment=False,
+                min_relative_strength=0.0,
+                min_open_move=0.0,
+                min_spy_open_move=0.0,
+                min_pool_breadth=0.0,
+                pool_leader_top_k=0,
+            )
 
 
 def quote_at(symbol, raw):
@@ -78,13 +106,32 @@ def compare(symbol, day, bars, ticks, cost):
             results = {}
             if closed:
                 end = closed[-1].bar_time + MINUTE
-                base = calculate_opportunities(closed, StartPolicy(opening_enabled=False, pivot_enabled=False))
+                base = calculate_opportunities(
+                    closed,
+                    StartPolicy(
+                        opening_enabled=False,
+                        pivot_enabled=False,
+                        midday_wave_enabled=False,
+                        box_enabled=True,
+                        continuation_enabled=True,
+                        recovery_enabled=True,
+                    ),
+                )
                 common = dict(as_of=end.isoformat(), trading_date=day.isoformat(), **execution_context(closed))
                 for n in (0, 5, 15):
                     branches = list(base["branches"])
                     levels = {}
                     if n:
-                        branches.extend(start_branches(closed, opening, StartPolicy(opening_minutes=n), levels))
+                        start_cfg = StartPolicy(
+                            opening_minutes=n,
+                            opening_min_range_pct=0.0,
+                            opening_min_elapsed_minutes=n,
+                            opening_min_efficiency=0.0,
+                            opening_require_directional_bar=False,
+                            pivot_enabled=True,
+                            midday_wave_enabled=False,
+                        )
+                        branches.extend(start_branches(closed, opening, start_cfg, levels))
                     results[n] = dict(**common, opportunities={**base, "branches": branches, "start_levels": levels})
                     if now < cutoff and now-end <= timedelta(seconds=75):
                         confirmations[n].update(b["structure_id"] for b in branches if b["status"] == "confirmed"

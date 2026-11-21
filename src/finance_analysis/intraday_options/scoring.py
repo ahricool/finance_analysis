@@ -233,7 +233,7 @@ def closed_session_bars(symbol: str, bars: Sequence[CandleState], now: datetime)
     return [by_time[t] for t in sorted(by_time) if market_trading_date(t, "US") == day]
 
 
-def calculate(symbol: str, bars: Sequence[CandleState], now: datetime) -> dict | None:
+def calculate(symbol: str, bars: Sequence[CandleState], now: datetime, settings=None) -> dict | None:
     """Only latest observed session is evaluated; never backfill historical decisions on warmup."""
     ordered = closed_session_bars(symbol, bars, now)
     if not ordered:
@@ -283,6 +283,6 @@ def calculate(symbol: str, bars: Sequence[CandleState], now: datetime) -> dict |
         "observed_at": now.isoformat(),
         "windows": windows,
         "structure": calculate_structure(ordered),
-        "opportunities": calculate_opportunities(ordered),
+        "opportunities": calculate_opportunities(ordered, settings),
         **combined,
     }

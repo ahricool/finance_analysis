@@ -60,26 +60,66 @@ def relative_strength(symbol, bars, benchmark, now):
     return result
 
 
+def _peer_open_and_latest_bars(raw_bars, opening, now):
+    """Copy only opening-minute and recent-tail versions per peer to keep event-loop snapshots light."""
+    if not raw_bars:
+        return []
+    tail_floor = max(opening, now - timedelta(minutes=5))
+    return [deepcopy(b) for b in raw_bars if b.bar_time == opening or b.bar_time >= tail_floor]
+
+
 async def run(repository, bars_by_symbol, stop_event):
     from finance_analysis.intraday_options.runtime import result_key
+    from finance_analysis.market_stream.session import session_bounds
 
     pool = ThreadPoolExecutor(max_workers=CONFIG.workers, thread_name_prefix="intraday-simulation")
     pending = {}
     cache = {}
     retiring = None
 
-    def compute(symbol, bars, benchmark, quote, now):
+    def compute(symbol, bars, benchmark, spy_bars, peer_bars, quote, now):
         now = utc_now()  # Queue wait must not make an old quote look fresh.
         if symbol not in SYMBOLS:
             return None, process(symbol, None, quote, now)
         closed = closed_session_bars(symbol, bars, now)
+        spy_closed = closed_session_bars("SPY.US", spy_bars, now)
+        peer_closed = {
+            peer: closed_session_bars(peer, p_bars, now)
+            for peer, p_bars in peer_bars.items()
+        }
         # All relevant OHLCV/validity revisions invalidate shape cache.
-        signature = tuple((b.bar_time, b.received_at, b.open, b.high, b.low, b.close, b.volume, b.partial, b.sampled) for b in closed)
+        signature = tuple(
+            (b.bar_time, b.received_at, b.open, b.high, b.low, b.close, b.volume, b.partial, b.sampled)
+            for b in closed
+        )
+        spy_signature = tuple(
+            (b.bar_time, b.received_at, b.open, b.high, b.low, b.close, b.volume, b.partial, b.sampled)
+            for b in spy_closed
+        )
+        peer_signature = tuple(
+            (
+                peer,
+                tuple(
+                    (b.bar_time, b.received_at, b.open, b.close, b.is_valid(), b.partial, b.sampled)
+                    for b in p_closed
+                ),
+            )
+            for peer, p_closed in sorted(peer_closed.items())
+        )
         prior = cache.get(symbol)
-        result = prior[1] if prior and prior[0] == signature else calculate(symbol, closed, now) if closed else None
-        if result is not None and (not prior or prior[0] != signature):
-            result.update(execution_context(closed))
-        cache[symbol] = (signature, result)
+        base_result = (
+            prior[1]
+            if prior and prior[0] == signature
+            else calculate(symbol, closed, now) if closed else None
+        )
+        if base_result is not None:
+            if prior and prior[0] == signature and prior[2] == spy_signature and prior[3] == peer_signature:
+                result = prior[4]
+            else:
+                result = {**base_result, **execution_context(closed, spy_closed, peer_bars=peer_closed)}
+        else:
+            result = None
+        cache[symbol] = (signature, base_result, spy_signature, peer_signature, result)
         state = process(symbol, result, quote, now)
         state["relative_strength"] = relative_strength(symbol, bars, benchmark, now)
         return result, state
@@ -87,13 +127,27 @@ async def run(repository, bars_by_symbol, stop_event):
     async def tick(symbol):
         try:
             quote = await repository.get_quote(symbol)
-            # Copy on the event loop with no intervening await; worker gets immutable ownership.
-            bars, benchmark = deepcopy(list(bars_by_symbol.get(symbol, ()))), deepcopy(
-                list(bars_by_symbol.get("QQQ.US", ()))
-            )
             now = utc_now()
+            bounds = session_bounds("US", market_trading_date(now, "US"))
+            opening = bounds[0] if bounds else None
+            # Copy on the event loop with no intervening await; worker gets immutable ownership.
+            bars = deepcopy(list(bars_by_symbol.get(symbol, ())))
+            benchmark = deepcopy(list(bars_by_symbol.get("QQQ.US", ())))
+            spy_bars = bars if symbol == "SPY.US" else deepcopy(list(bars_by_symbol.get("SPY.US", ())))
+            peer_bars = (
+                {
+                    peer: (
+                        bars
+                        if peer == symbol
+                        else _peer_open_and_latest_bars(bars_by_symbol.get(peer, ()), opening, now)
+                    )
+                    for peer in SYMBOLS
+                }
+                if opening is not None
+                else {}
+            )
             result, state = await asyncio.get_running_loop().run_in_executor(
-                pool, compute, symbol, bars, benchmark, quote, now
+                pool, compute, symbol, bars, benchmark, spy_bars, peer_bars, quote, now
             )
             ttl = cache_ttl("US", market_trading_date(now, "US"), now)
             if symbol not in SYMBOLS and not state.get("position"):
