@@ -1,12 +1,14 @@
 """Versioned payloads shared by the live publisher and its read-only API."""
 
+from datetime import date
+
 from pydantic import BaseModel, Field, FiniteFloat, model_validator
 
 PROTOCOL = 1
 MINUTE_MS = 60_000
 LOOKBACK = 240
 MIN_LOOKBACK = 30
-HORIZON = 5
+HORIZON = 10
 BATCH_SIZE = 10
 BTC_SYMBOL = "BTCUSDT"
 
@@ -65,7 +67,33 @@ class ForecastSnapshot(BaseModel):
     close_replay: bool = False
 
 
+class ForecastError(BaseModel):
+    step: int
+    close: float
+    error: float
+    baseline_error: float
+
+
+class RecentErrors(BaseModel):
+    issued_at: int
+    rows: list[ForecastError]
+
+
+class AverageError(BaseModel):
+    step: int
+    count: int
+    mae: float
+    baseline_mae: float
+
+
+class ForecastAccuracy(BaseModel):
+    trading_date: date
+    recent: RecentErrors | None = None
+    daily: list[AverageError] = Field(default_factory=list)
+
+
 class MinuteForecastResponse(BaseModel):
     enabled: bool
     forecast: ForecastSnapshot | None = None
     comparison: ForecastSnapshot | None = None
+    accuracy: ForecastAccuracy | None = None

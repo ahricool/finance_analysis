@@ -25,6 +25,16 @@ export interface MinuteForecastResponse {
   enabled: boolean;
   forecast: MinuteForecast | null;
   comparison: MinuteForecast | null;
+  accuracy?: ForecastAccuracy | null;
+}
+
+export interface ForecastAccuracy {
+  tradingDate: string;
+  recent: {
+    issuedAt: number;
+    rows: Array<{ step: number; close: number; error: number; baselineError: number }>;
+  } | null;
+  daily: Array<{ step: number; count: number; mae: number; baselineMae: number }>;
 }
 
 export async function fetchMinuteForecast(symbol: string, signal: AbortSignal): Promise<MinuteForecastResponse> {

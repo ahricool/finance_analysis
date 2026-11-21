@@ -7,6 +7,7 @@ import { useCurrentTime } from '@/composables/useCurrentTime';
 import { useMinuteForecast } from '@/composables/useMinuteForecast';
 import { readMarketCanvasColors } from '@/utils/marketColors';
 import { MINUTE_FORECAST_OVERLAY_ID, minuteForecastOverlay } from './minuteForecastOverlay';
+import MinuteForecastPanel from './MinuteForecastPanel.vue';
 import type { ChartAnnotation } from './chartAnnotation';
 
 const props = defineProps<{
@@ -40,30 +41,13 @@ const future = computed(() => {
   if (value.closeReplay) return value.anchor === last && (props.current?.timestamp ?? last) <= last ? value.bars : [];
   return value.bars.filter(bar => bar.timestamp > last && bar.timestamp + 60_000 > now.value.getTime());
 });
-const closeReplayBars = computed(() => showForecast.value && forecast.value?.closeReplay ? future.value : []);
+const closeReplayLength = computed(() => showForecast.value && forecast.value?.closeReplay ? future.value.length : 0);
 const forecastOverlayKey = computed(() => {
   const value = forecast.value;
   return value && future.value.length
     ? `${value.symbol}:${value.weightsRevision}:${value.generatedAt}:${future.value.map(bar => bar.timestamp).join(',')}`
     : '';
 });
-const comparison = computed(() => {
-  const value = forecastResponse.value?.comparison;
-  if (value?.symbol !== props.symbol || !props.bars.some(bar => bar.timestamp === value.anchor)) return [];
-  return value.bars.flatMap((prediction, index) => {
-    if (![0, 2, 4].includes(index)) return [];
-    const actual = props.bars.find(bar => bar.timestamp === prediction.timestamp && !bar.sampled && !bar.partial);
-    return actual ? [{ step: index + 1, close: actual.close, error: Math.abs(prediction.close - actual.close),
-      baseline: Math.abs(value.anchorClose - actual.close) }] : [];
-  });
-});
-const forecastTime = (timestamp: number) => new Date(timestamp).toLocaleTimeString('zh-CN', {
-  timeZone: props.timezone ?? 'UTC', hour: '2-digit', minute: '2-digit', hour12: false,
-});
-const forecastDate = (timestamp: number) => new Date(timestamp).toLocaleDateString('zh-CN', {
-  timeZone: props.timezone ?? 'UTC', month: '2-digit', day: '2-digit',
-});
-const forecastPrice = (value: number) => value.toLocaleString('zh-CN', { maximumFractionDigits: props.pricePrecision ?? 3 });
 let chart: Chart | null = null;
 let observer: ResizeObserver | undefined;
 let appliedOverlayIds: string[] = [];
@@ -203,8 +187,8 @@ function applyPriceRange() {
   chart.overrideYAxis({ paneId: 'candle_pane', createRange: ({ defaultRange }) => {
     const reference = props.referencePrice ?? 0;
     const prices = Number.isFinite(reference) && reference > 0 ? [reference] : [];
-    if (chart && chart.getVisibleRange().to >= chart.getDataList().length) {
-      prices.push(...closeReplayBars.value.map(bar => bar.close));
+    if (showForecast.value && future.value.length && chart && chart.getVisibleRange().to >= chart.getDataList().length) {
+      prices.push(...future.value.map(bar => bar.close));
     }
     if (!prices.length) return defaultRange;
     const low = Math.min(defaultRange.from, ...prices);
@@ -227,7 +211,7 @@ function fitSession() {
     // Reserve future trading minutes without adding fabricated OHLC or volume rows.
     const total = (close - open - (breakEnd - breakStart)) / 60_000;
     const remaining = Math.max(0, (close - last.timestamp - Math.max(0, breakEnd - Math.max(last.timestamp, breakStart))) / 60_000 - 1);
-    const replay = closeReplayBars.value.length;
+    const replay = closeReplayLength.value;
     const space = width / (total + replay + 2);
     chart.setBarSpace(space);
     chart.setOffsetRightDistance((remaining + replay + 1) * space);
@@ -278,6 +262,10 @@ function initialize() {
   chart.getDom('candle_pane', 'main')?.addEventListener('pointerleave', clearHover);
   styles();
   applyPriceRange();
+  if (props.period === '1m' && !props.session) {
+    // Leave room for ten forecast steps at the default zoom without fabricating candles.
+    chart.setOffsetRightDistance(120);
+  }
   if (props.session) {
     chart.setScrollEnabled(false);
     chart.setZoomEnabled(false);
@@ -332,11 +320,12 @@ function initialize() {
 watch(() => props.overlays, applyOverlays);
 // Chart and API refreshes can reallocate the same data. Update the overlay only
 // when a published forecast or its remaining target minutes actually change.
-watch([forecastOverlayKey, showForecast, resolvedTheme], applyForecastOverlay);
-watch(() => closeReplayBars.value.length, () => {
+watch([forecastOverlayKey, showForecast], () => {
   applyPriceRange();
-  fitSession();
+  applyForecastOverlay();
 });
+watch(resolvedTheme, applyForecastOverlay);
+watch(closeReplayLength, fitSession);
 watch([() => props.focusTimestamp, () => props.focusRequest], ([timestamp, request], [, previousRequest]) => {
   // Live snapshots may add or remove a selected marker without a navigation request.
   if (props.liveSnapshot && request === previousRequest) return;
@@ -385,54 +374,14 @@ onBeforeUnmount(() => { observer?.disconnect(); destroy(); });
         {{ hoverHint }}
       </div>
     </div>
-    <div
+    <MinuteForecastPanel
       v-if="period === '1m' && forecastResponse?.enabled"
-      class="mt-2 flex flex-wrap items-start gap-x-4 gap-y-1 text-xs text-muted-foreground"
-      data-testid="minute-forecast"
-    >
-      <label class="inline-flex items-center gap-1.5 text-foreground">
-        <input
-          v-model="showForecast"
-          type="checkbox"
-          class="accent-blue-600"
-        >
-        <span
-          class="inline-block w-4 border-t-2 border-dashed border-blue-600 dark:border-blue-300"
-          aria-hidden="true"
-        />
-        分钟线预测
-      </label>
-      <template v-if="showForecast && forecast && future.length">
-        <span v-if="forecast.closeReplay">收盘试算 · {{ forecastDate(forecast.anchor) }} · 收盘后 5 分钟</span>
-        <span>Kronos {{ forecast.model }} · 截至 {{ forecastTime(forecast.anchor + 60_000) }} · {{ forecast.lookback }} 根</span>
-        <details>
-          <summary class="cursor-pointer text-foreground">
-            预测 OHLC
-          </summary>
-          <ul class="mt-1 space-y-1 tabular-nums">
-            <li
-              v-for="bar in future"
-              :key="bar.timestamp"
-            >
-              {{ forecastTime(bar.timestamp) }} · 开 {{ forecastPrice(bar.open) }} · 高 {{ forecastPrice(bar.high) }} · 低 {{ forecastPrice(bar.low) }} · 收 {{ forecastPrice(bar.close) }}
-            </li>
-          </ul>
-        </details>
-      </template>
-      <span v-else-if="showForecast">等待最新已收盘分钟线的预测</span>
-      <details v-if="showForecast && comparison.length">
-        <summary class="cursor-pointer text-foreground">
-          最近收盘误差
-        </summary>
-        <ul class="mt-1 space-y-1 tabular-nums">
-          <li
-            v-for="row in comparison"
-            :key="row.step"
-          >
-            +{{ row.step }} 分钟 · 实际收 {{ forecastPrice(row.close) }} · 模型误差 {{ forecastPrice(row.error) }} · 前收基线误差 {{ forecastPrice(row.baseline) }}
-          </li>
-        </ul>
-      </details>
-    </div>
+      v-model:show-forecast="showForecast"
+      :forecast="forecast"
+      :bars="future"
+      :accuracy="forecastResponse.accuracy"
+      :timezone="timezone"
+      :price-precision="pricePrecision"
+    />
   </div>
 </template>

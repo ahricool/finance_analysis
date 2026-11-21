@@ -46,8 +46,9 @@ from finance_analysis.market_stream.config import (
 from finance_analysis.market_stream.patterns.config import PatternConfig
 from finance_analysis.market_stream.patterns.models import PatternSignal, PatternState
 from finance_analysis.minute_forecast.cache import close_replay_forecast, comparison_forecast, latest_forecast
+from finance_analysis.minute_forecast.evaluation import evaluation_day, read_accuracy
 from finance_analysis.minute_forecast.models import BTC_SYMBOL, MinuteForecastResponse
-from finance_analysis.minute_forecast.publisher import forecast_url
+from finance_analysis.minute_forecast.publisher import forecast_model, forecast_url
 from finance_analysis.minute_forecast.windows import millis
 from finance_analysis.stocks.markets import MarketType
 from finance_analysis.users.auth import COOKIE_NAME, parse_session_uid
@@ -83,6 +84,7 @@ async def _require_intraday_access(request: Request, code: str, market: str) -> 
 async def minute_forecast(symbol: str, request: Request, response: Response) -> MinuteForecastResponse:
     """Serve only an already-published forecast within the chart's data scope."""
     response.headers["Cache-Control"] = "private, no-store"
+    market = None
     if symbol.upper() == BTC_SYMBOL:
         code = BTC_SYMBOL
     else:
@@ -98,12 +100,16 @@ async def minute_forecast(symbol: str, request: Request, response: Response) -> 
         return MinuteForecastResponse(enabled=False)
     repository = RealtimeStateRepository.from_url(MarketStreamConfig.from_env().redis_url)
     try:
-        forecast, comparison = await asyncio.gather(
-            latest_forecast(repository.redis, code), comparison_forecast(repository.redis, code, millis(utc_now())),
+        now = utc_now()
+        forecast, (accuracy, comparison) = await asyncio.gather(
+            latest_forecast(repository.redis, code),
+            read_accuracy(repository.redis, code, forecast_model(), evaluation_day(now, market)),
         )
+        if comparison is None:
+            comparison = await comparison_forecast(repository.redis, code, millis(now))
         if forecast is None and code != BTC_SYMBOL:
             forecast = await close_replay_forecast(repository.redis, code)
-        return MinuteForecastResponse(enabled=True, forecast=forecast, comparison=comparison)
+        return MinuteForecastResponse(enabled=True, forecast=forecast, comparison=comparison, accuracy=accuracy)
     finally:
         await repository.close()
 
