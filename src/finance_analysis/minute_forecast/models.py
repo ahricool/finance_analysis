@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field, FiniteFloat, model_validator
 PROTOCOL = 1
 MINUTE_MS = 60_000
 LOOKBACK = 240
-MIN_LOOKBACK = 30
+MIN_LOOKBACK = 15
 HORIZON = 10
 BATCH_SIZE = 10
 BTC_SYMBOL = "BTCUSDT"
