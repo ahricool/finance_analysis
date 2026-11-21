@@ -374,3 +374,100 @@ def test_v7_ranked_opportunity_matches_fixed_wave_plan_and_legacy_two_close_thre
     r_leg = calculate("NVDA.US", legacy_bars, t_leg, settings=legacy_cfg)
     b_leg = next(x for x in r_leg["opportunities"]["branches"] if x["kind"] == "opening_breakout")
     assert b_leg["status"] == "forming" and b_leg["confirmed_at"] is None
+
+
+@pytest.mark.parametrize(
+    "side,q1,q2,expected_prot",
+    [
+        (1, 102.10, 100.10, 100.20),
+        (-1, 97.90, 99.90, 99.80),
+    ],
+)
+def test_v7_same_minute_quote_sequence_locks_and_exits_at_observed_quote(side, q1, q2, expected_prot):
+    # 100 long -> 102.10 raises protection to 100.20 -> 100.10 exits at actual observed 100.10 inside same minute.
+    entry_t = START + timedelta(minutes=8, seconds=2)
+    state = {
+        "symbol": "NVDA.US",
+        "trading_date": entry_t.date().isoformat(),
+        "calculated_at": entry_t.isoformat(),
+        "healthy": True,
+        "daily_entry_count": 1,
+        "position": {
+            "id": "NVDA.US:v7_seq",
+            "symbol": "NVDA.US",
+            "trading_date": entry_t.date().isoformat(),
+            "side": side,
+            "kind": "opening_breakout",
+            "opportunity_id": "v7:seq",
+            "process_id": "v7:seq",
+            "version": "underlying_sim_v7",
+            "entry_price": 100.0,
+            "entry_at": entry_t.isoformat(),
+            "entry_price_at": entry_t.isoformat(),
+            "invalidation": 100.0 * (1.0 - side * 0.025),
+            "protection": 100.0 * (1.0 - side * 0.025),
+            "target": 100.0 * (1.0 + side * 0.035),
+            "cutoff": (START + timedelta(minutes=380)).isoformat(),
+            "peak_gain": 0.0,
+            "last_price": 100.0,
+            "last_price_at": entry_t.isoformat(),
+            "return_pct": 0.0,
+            "exit_policy": "v7_fixed_wave",
+            "stop_loss_pct": 0.025,
+            "take_profit_pct": 0.035,
+            "profit_lock_trigger_pct": 0.020,
+            "profit_lock_level_pct": 0.002,
+        },
+    }
+    t1 = START + timedelta(minutes=8, seconds=15)
+    s1, ev1 = transition(state, "NVDA.US", None, quote(t1, q1), t1)
+    assert s1["position"]["protection"] == pytest.approx(expected_prot)
+    assert any(e["kind"] == "hold" and "+0.20%锁盈" in e["reason"] for e in ev1)
+
+    t2 = START + timedelta(minutes=8, seconds=35)
+    s2, ev2 = transition(s1, "NVDA.US", None, quote(t2, q2), t2)
+    assert not s2["position"]
+    tr = next(e["trade"] for e in ev2 if e["kind"] == "exit")
+    assert tr["exit_reason"] == "保本锁盈保护触及"
+    assert tr["protection"] == pytest.approx(expected_prot)
+    assert tr["exit_price"] == pytest.approx(q2)
+
+
+@pytest.mark.parametrize("side", [1, -1])
+def test_v7_ten_atr_chase_boundary_and_0959_signal_denied_at_1000(side):
+    vals8 = [100.0 + side * x for x in (0.0, 0.35, 0.70, 1.05, 1.40, 1.80, 2.20, 2.60)]
+    nvda8 = _make_bars(vals8, symbol="NVDA.US", wick=Decimal("0.01"))
+    spy8 = _make_bars([500.0 + side * x for x in (0.0, 0.15, 0.30, 0.45, 0.60, 0.75, 0.90, 1.05)], symbol="SPY.US")
+    peers = _make_peer_pool(nvda8, side=side, nvda_rank=1, breadth_ratio=0.75, count=12)
+    t8 = nvda8[-1].bar_time + timedelta(minutes=1, seconds=3)
+    r8 = {**calculate("NVDA.US", nvda8, t8), **execution_context(nvda8, spy8, peer_bars=peers)}
+    b = next(x for x in r8["opportunities"]["branches"] if x["kind"] == "opening_breakout")
+
+    # Exactly at 10.0 ATR boundary -> executable; slightly past 10.0 ATR -> blocked!
+    at_edge = b["trigger"] + side * 10.0 * b["atr"]
+    over_edge = b["trigger"] + side * 10.01 * b["atr"]
+    assert plan(b, r8, at_edge, t8, t8)["executable"]
+    p_over = plan(b, r8, over_edge, t8, t8)
+    assert not p_over["executable"] and "冻结执行区间" in p_over["execution_reason"]
+
+    # 09:59 signal (bar 28 closing 09:59) cannot enter when quote only arrives at 10:00 NY!
+    vals29 = [100.0 + side * (0.30 * i if i < 5 else 1.40 + 0.04 * (i - 4)) for i in range(28)]
+    vals29.append(100.0 + side * 2.60)
+    nvda29 = _make_bars(vals29, symbol="NVDA.US", wick=Decimal("0.01"))
+    spy29 = _make_bars([500.0 + side * 0.04 * i for i in range(29)], symbol="SPY.US")
+    peers29 = _make_peer_pool(nvda29, side=side, nvda_rank=1, breadth_ratio=0.75, count=12)
+    t_0959 = START + timedelta(minutes=29, seconds=2)
+    r29 = {**calculate("NVDA.US", nvda29, t_0959), **execution_context(nvda29, spy29, peer_bars=peers29)}
+    t_1000 = START + timedelta(minutes=30)
+    s_late, ev_late = transition({}, "NVDA.US", r29, quote(t_1000, float(nvda29[-1].close) + side * 0.05), t_1000)
+    assert s_late["session_phase"] == "stopped" and not s_late.get("position")
+    assert not any(e["kind"] == "entry" for e in ev_late)
+
+    # Early-close day (2025-11-28, 09:30-13:00 NY) sets exit_cutoff to 12:50 NY (17:50 UTC)!
+    from datetime import date
+    from finance_analysis.market_stream.session import session_bounds
+
+    early_open, early_close = session_bounds("US", date(2025, 11, 28))
+    t_early = early_open + timedelta(minutes=10)
+    s_early, _ = transition({}, "NVDA.US", None, None, t_early)
+    assert s_early["exit_cutoff"] == (early_close - timedelta(minutes=10)).isoformat()
