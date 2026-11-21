@@ -10,12 +10,13 @@
 2. 检查干净工作区，切到 main 并 `git pull --ff-only`。
 3. 要求已有 PostgreSQL/Redis 健康；按 `sha-<完整提交SHA>` 拉取六个应用服务镜像。
    校验每个镜像的 OCI revision，并将本轮镜像固定到 registry digest。
+   Apple Silicon 上还会在暂停 Beat 之前准备、预热宿主机 Kronos，并验证容器可访问该服务。
 4. 停止 Beat，不新增调度状态持久化或漏跑补偿。
 5. 同时通过 `docker stop --timeout -1` 停止普通 worker 和 Qlib worker。
    Celery SIGTERM 等待执行中的任务完成，Docker 不设置强杀期限。只在容器正常退出后推进，
    不用 `inspect active` 无回复或 PostgreSQL processing 数量推断排空。
 6. 停止 API/streamer，在新后端镜像中完成现有数据库迁移和种子初始化，再更新应用服务。
-7. 等待 API、Web、两个 worker 健康，检查目标镜像及 streamer 运行状态。
+7. 等待 API、Web、两个 worker 健康，检查目标镜像及 streamer 运行状态。启用 Kronos 时由新 Streamer 容器验证目标 MPS 服务。
 8. 最后重建 Beat（即使发布提交相同也使用新容器），要求它写入本次启动后的新心跳；再次检查应用状态。
 9. 记录发布结果，释放部署锁。
 
@@ -121,3 +122,8 @@ Beat 的调度状态仍使用容器内默认文件，不挂载到宿主机持久
 从旧脚本升级时，首次应先手动 `git pull --ff-only origin main`，
 确认新脚本已在生产目录，再运行 `bash deploy.sh`。
 宿主机需要能写入仓库的 Git 内部目录，用于锁和部署记录。
+
+## Kronos 宿主机服务
+
+Apple Silicon 发布使用独立的 macOS MPS 进程，权重和 PyTorch 环境由宿主机维护。
+首次上线、模型切换和外部服务配置见 [Kronos 分钟线预测](kronos.md)。

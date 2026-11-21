@@ -1,9 +1,12 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { dispose, init, utils, type FormatDate, type Chart, type OverlayCreate, type KLineData,
   type CandleTooltipLegendsCustomCallback } from 'klinecharts';
 import { useTheme } from '@/composables/useTheme';
+import { useCurrentTime } from '@/composables/useCurrentTime';
+import { useMinuteForecast } from '@/composables/useMinuteForecast';
 import { readMarketCanvasColors } from '@/utils/marketColors';
+import { MINUTE_FORECAST_OVERLAY_ID, minuteForecastOverlay } from './minuteForecastOverlay';
 
 const props = defineProps<{
   symbol: string;
@@ -22,9 +25,43 @@ const props = defineProps<{
 }>();
 const element = ref<HTMLElement>();
 const { resolvedTheme } = useTheme();
+const now = useCurrentTime(3_000);
+const forecastResponse = useMinuteForecast(() => props.symbol, () => props.period === '1m' && props.bars.length > 0);
+const showForecast = ref(true);
+const forecast = computed(() => {
+  const value = forecastResponse.value?.forecast;
+  return props.period === '1m' && value?.symbol === props.symbol ? value : null;
+});
+const future = computed(() => {
+  const value = forecast.value;
+  const last = props.bars.at(-1)?.timestamp;
+  if (!value || last == null || !props.bars.some(bar => bar.timestamp === value.anchor)) return [];
+  return value.bars.filter(bar => bar.timestamp > last && bar.timestamp + 60_000 > now.value.getTime());
+});
+const forecastOverlayKey = computed(() => {
+  const value = forecast.value;
+  return value && future.value.length
+    ? `${value.symbol}:${value.weightsRevision}:${value.generatedAt}:${future.value.map(bar => bar.timestamp).join(',')}`
+    : '';
+});
+const comparison = computed(() => {
+  const value = forecastResponse.value?.comparison;
+  if (value?.symbol !== props.symbol || !props.bars.some(bar => bar.timestamp === value.anchor)) return [];
+  return value.bars.flatMap((prediction, index) => {
+    if (![0, 2, 4].includes(index)) return [];
+    const actual = props.bars.find(bar => bar.timestamp === prediction.timestamp && !bar.sampled && !bar.partial);
+    return actual ? [{ step: index + 1, close: actual.close, error: Math.abs(prediction.close - actual.close),
+      baseline: Math.abs(value.anchorClose - actual.close) }] : [];
+  });
+});
+const forecastTime = (timestamp: number) => new Date(timestamp).toLocaleTimeString('zh-CN', {
+  timeZone: props.timezone ?? 'UTC', hour: '2-digit', minute: '2-digit', hour12: false,
+});
+const forecastPrice = (value: number) => value.toLocaleString('zh-CN', { maximumFractionDigits: props.pricePrecision ?? 3 });
 let chart: Chart | null = null;
 let observer: ResizeObserver | undefined;
 let appliedOverlayIds: string[] = [];
+let forecastDrawn = false;
 let pushBar: ((bar: KLineData) => void) | undefined;
 let fitFrame: number | undefined;
 
@@ -116,6 +153,7 @@ function destroy() {
   if (element.value && chart) dispose(element.value);
   chart = null;
   appliedOverlayIds = [];
+  forecastDrawn = false;
 }
 function applyReferenceRange() {
   if (!chart || props.referencePrice == null) return;
@@ -158,6 +196,15 @@ function applyOverlays() {
     appliedOverlayIds = (Array.isArray(created) ? created : [created]).filter((id): id is string => id != null);
   }
 }
+function applyForecastOverlay() {
+  if (!chart) return;
+  if (forecastDrawn) chart.removeOverlay({ id: MINUTE_FORECAST_OVERLAY_ID });
+  forecastDrawn = false;
+  if (showForecast.value && forecast.value && future.value.length) {
+    chart.createOverlay([minuteForecastOverlay(forecast.value, future.value, resolvedTheme.value === 'dark')]);
+    forecastDrawn = true;
+  }
+}
 function focusOnTimestamp(timestamp: number) {
   if (!chart) return;
   chart.scrollToTimestamp(timestamp);
@@ -170,7 +217,8 @@ function focusOnTimestamp(timestamp: number) {
 const formatSessionDate: FormatDate = ({ dateTimeFormat, timestamp, template, type }) => {
   // The library extrapolates wall-clock minutes into empty space, including lunch.
   // Keep future slots empty instead of showing a fabricated crosshair timestamp.
-  if (type === 'crosshair' && !props.bars.some(bar => bar.timestamp === timestamp) && liveBar()?.timestamp !== timestamp) return '';
+  if (type === 'crosshair' && !props.bars.some(bar => bar.timestamp === timestamp) && liveBar()?.timestamp !== timestamp
+    && !(showForecast.value && future.value.some(bar => bar.timestamp === timestamp))) return '';
   return utils.formatDate(dateTimeFormat, timestamp, template);
 };
 function initialize() {
@@ -230,8 +278,12 @@ function initialize() {
     unsubscribeBar: () => { pushBar = undefined; },
   });
   applyOverlays();
+  applyForecastOverlay();
 }
 watch(() => props.overlays, applyOverlays);
+// Chart and API refreshes can reallocate the same data. Update the overlay only
+// when a published forecast or its remaining target minutes actually change.
+watch([forecastOverlayKey, showForecast, resolvedTheme], applyForecastOverlay);
 watch([() => props.focusTimestamp, () => props.focusRequest], ([timestamp, request], [, previousRequest]) => {
   // Live snapshots may add or remove a selected marker without a navigation request.
   if (props.liveSnapshot && request === previousRequest) return;
@@ -258,10 +310,60 @@ onBeforeUnmount(() => { observer?.disconnect(); destroy(); });
 </script>
 
 <template>
-  <div
-    ref="element"
-    class="h-80 min-w-0 w-full sm:h-[28rem]"
-    role="img"
-    :aria-label="`${symbol} ${period} K线，红涨绿跌，时间为${timezone ?? 'UTC'}，${session ? '当日09:30至15:00，午休不占交易分钟' : '可拖动和缩放查看历史'}`"
-  />
+  <div class="min-w-0">
+    <div
+      ref="element"
+      class="h-80 min-w-0 w-full sm:h-[28rem]"
+      role="img"
+      :aria-label="`${symbol} ${period} K线，红涨绿跌，时间为${timezone ?? 'UTC'}，${session ? '当日09:30至15:00，午休不占交易分钟' : '可拖动和缩放查看历史'}`"
+    />
+    <div
+      v-if="period === '1m' && forecastResponse?.enabled"
+      class="mt-2 flex flex-wrap items-start gap-x-4 gap-y-1 text-xs text-muted-foreground"
+      data-testid="minute-forecast"
+    >
+      <label class="inline-flex items-center gap-1.5 text-foreground">
+        <input
+          v-model="showForecast"
+          type="checkbox"
+          class="accent-blue-600"
+        >
+        <span
+          class="inline-block w-4 border-t-2 border-dashed border-blue-600 dark:border-blue-300"
+          aria-hidden="true"
+        />
+        分钟线预测
+      </label>
+      <template v-if="showForecast && forecast && future.length">
+        <span>Kronos {{ forecast.model }} · 截至 {{ forecastTime(forecast.anchor + 60_000) }} · {{ forecast.lookback }} 根</span>
+        <details>
+          <summary class="cursor-pointer text-foreground">
+            预测 OHLC
+          </summary>
+          <ul class="mt-1 space-y-1 tabular-nums">
+            <li
+              v-for="bar in future"
+              :key="bar.timestamp"
+            >
+              {{ forecastTime(bar.timestamp) }} · 开 {{ forecastPrice(bar.open) }} · 高 {{ forecastPrice(bar.high) }} · 低 {{ forecastPrice(bar.low) }} · 收 {{ forecastPrice(bar.close) }}
+            </li>
+          </ul>
+        </details>
+      </template>
+      <span v-else-if="showForecast">等待最新已收盘分钟线的预测</span>
+      <details v-if="showForecast && comparison.length">
+        <summary class="cursor-pointer text-foreground">
+          最近收盘误差
+        </summary>
+        <ul class="mt-1 space-y-1 tabular-nums">
+          <li
+            v-for="row in comparison"
+            :key="row.step"
+          >
+            +{{ row.step }} 分钟 · 实际收 {{ forecastPrice(row.close) }} · 模型误差 {{ forecastPrice(row.error) }} · 前收基线误差 {{ forecastPrice(row.baseline) }}
+          </li>
+        </ul>
+      </details>
+    </div>
+  </div>
 </template>

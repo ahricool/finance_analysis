@@ -13,6 +13,7 @@ const snapshot = {
 for (const width of [1280, 1440, 1920]) {
   test(`BTC candles render and update through Binance WS at ${width}px`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width, height: 1000 });
+    await page.clock.setFixedTime(new Date(start + 200 * 60_000 + 5_000));
     const errors: string[] = [];
     page.on('pageerror', error => errors.push(error.message));
     await page.route('**/api/v1/**', async route => {
@@ -38,6 +39,12 @@ for (const width of [1280, 1440, 1920]) {
         equity_curve: [{ evaluated_at: snapshot.evaluated_at, equity: '1', drawdown: '0' }],
       };
       else if (path.endsWith('/signals')) body = { items: [snapshot] };
+      else if (path.endsWith('/minute-forecast/BTCUSDT')) body = { enabled: true, comparison: null, forecast: {
+        symbol: 'BTCUSDT', model: 'small', weights_revision: 'test', anchor: start + 199 * 60_000,
+        anchor_close: 60597, generated_at: start + 200 * 60_000 + 1000, lookback: 200,
+        bars: Array.from({ length: 5 }, (_, i) => ({ timestamp: start + (200 + i) * 60_000,
+          open: 60597 + i, high: 60601 + i, low: 60596 + i, close: 60600 + i })),
+      } };
       if (path.includes('/btc_test_v1/')) {
         if (path.endsWith('/signals')) body = { items: [{ ...snapshot, strategy_key: 'btc_test_v1', action: 'EXIT', reason: 'Test strategy exit' }] };
         if (path.endsWith('/performance')) body = { ...body, total_return: '-.1234' };
@@ -65,6 +72,15 @@ for (const width of [1280, 1440, 1920]) {
     await chart.scrollIntoViewIfNeeded();
     expect(errors).toEqual([]);
     await expect(chart.locator('canvas').first()).toBeVisible();
+    const forecast = chart.getByTestId('minute-forecast');
+    await expect(forecast.getByText('Kronos small', { exact: false })).toBeVisible();
+    if (width === 1440) {
+      const withForecast = await chart.getByRole('img').screenshot();
+      await forecast.getByRole('checkbox', { name: '分钟线预测' }).uncheck();
+      const withoutForecast = await chart.getByRole('img').screenshot();
+      expect(withForecast.equals(withoutForecast)).toBe(false);
+      await forecast.getByRole('checkbox', { name: '分钟线预测' }).check();
+    }
     expect((await chart.locator('canvas').first().boundingBox())!.height).toBeGreaterThan(250);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     websocket!.send(JSON.stringify({ e: 'aggTrade', s: 'BTCUSDT', p: '60777' }));

@@ -6,6 +6,7 @@ from __future__ import annotations
 import fcntl
 import json
 import os
+import platform
 import re
 import signal
 import subprocess
@@ -14,6 +15,7 @@ import time
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urlsplit
 
 APP_SERVICES = ("server", "worker", "qlib-worker", "streamer", "web", "beat")
 WORKERS = ("worker", "qlib-worker")
@@ -142,6 +144,51 @@ class Deployment:
         write_json(self.pending_path, self.pending)
         self.log(f"阶段: {phase}")
 
+    def prepare_kronos(self, config: dict, old: dict) -> dict | None:
+        options = config["services"]["streamer"].get("environment", {})
+        model = options.get("KRONOS_MODEL") or "small"
+        url = (options.get("KRONOS_URL") or "").strip().rstrip("/")
+        helper = self.root / "scripts/kronos_host.py"
+        managed = (not url and self.env.get("DEPLOY_KRONOS_HOST", "auto") != "off" and helper.is_file()
+                   and platform.system() == "Darwin" and platform.machine() == "arm64")
+        if not managed and not url:
+            return None
+        if model not in {"small", "base", "large"}:
+            raise DeployError("KRONOS_MODEL must be small, base, or large")
+        identity = {"protocol": 1, "device": "mps", "model": model}
+        if managed:
+            port = self.positive_seconds("KRONOS_HOST_PORT", 18081)
+            state = self.directory / "kronos"
+            # Fetch pinned artifacts, warm MPS, and verify the LaunchAgent before
+            # pausing Beat. No torch or model weights enter the Compose images.
+            self.log(f"准备宿主机 Kronos {model}（MPS）")
+            self.run(sys.executable, str(helper), "--state", str(state), "--model", model, "--port", str(port))
+            manifest = json.loads((state / "manifest.json").read_text())
+            identity.update(weights_revision=manifest["weights_revision"], release=manifest["release"])
+            url = f"http://host.docker.internal:{port}"
+        parsed = urlsplit(url)
+        if (parsed.scheme not in {"http", "https"} or not parsed.hostname
+                or parsed.username is not None or parsed.query or parsed.fragment):
+            raise DeployError(
+                "KRONOS_URL must be an HTTP(S) service URL without embedded credentials, query or fragment"
+            )
+        runtime = {"url": url, "identity": identity}
+        if old.get("server", {}).get("state", {}).get("Running"):
+            self.verify_kronos(runtime, service="server", target=False)
+        return runtime
+
+    def verify_kronos(self, runtime: dict, *, service: str, target: bool) -> None:
+        output = self.compose(
+            "exec", "-T", service, "python", "-c",
+            "import json,sys,urllib.request; "
+            "opener=urllib.request.build_opener(urllib.request.ProxyHandler({})); "
+            "print(json.dumps(json.load(opener.open(sys.argv[1], timeout=5))))",
+            f"{runtime['url']}/healthz", target=target, capture=True,
+        )
+        actual = json.loads(output)
+        if not isinstance(actual, dict) or any(actual.get(key) != value for key, value in runtime["identity"].items()):
+            raise DeployError("容器无法验证目标 Kronos MPS 服务版本")
+
     def prepare(self) -> None:
         if self.run("git", "status", "--porcelain", capture=True).strip():
             raise DeployError("工作区存在未提交改动，请先提交后再部署")
@@ -171,7 +218,6 @@ class Deployment:
                 raise DeployError(f"{service} 镜像缺少 registry digest")
             images[service] = {"image": digest}
             image_ids[service] = image_info["id"]
-        write_json(self.override_path, {"services": images})
         old = self.containers(APP_SERVICES)
         for service in WORKERS:
             if service in old and old[service]["stop_signal"] not in (None, "", "SIGTERM", "15"):
@@ -185,10 +231,18 @@ class Deployment:
                 ).strip()
                 if remapped == "True":
                     raise DeployError(f"{service} 将 SIGTERM 映射到了强制停止，拒绝部署")
+        kronos = self.prepare_kronos(config, old)
+        if kronos:
+            for service in ("server", "streamer"):
+                images[service]["environment"] = {"KRONOS_URL": kronos["url"],
+                                                  "KRONOS_MODEL": kronos["identity"]["model"]}
+        write_json(self.override_path, {"services": images})
         self.pending = {
             "revision": revision, "tag": self.env["IMAGE_TAG"], "images": images, "image_ids": image_ids,
             "started_at": utc_now(),
         }
+        if kronos:
+            self.pending["kronos"] = kronos
 
     def stop(self, ids: list[str]) -> None:
         if not ids:
@@ -261,6 +315,8 @@ class Deployment:
         self.up(("server",))
         self.up(("worker", "qlib-worker", "streamer", "web"))
         self.verify_apps(APP_SERVICES[:-1])
+        if kronos := self.pending.get("kronos"):
+            self.verify_kronos(kronos, service="streamer", target=True)
         self.pending["beat_starting_at"] = utc_now()
         self.phase("starting_beat")
         # Even a same-revision deployment starts Beat with fresh ephemeral state;

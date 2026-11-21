@@ -14,6 +14,7 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any, Iterable
 
+from finance_analysis.config.env_parsing import env_str
 from finance_analysis.core.time import utc_now
 from finance_analysis.intraday_options.config import SYMBOLS as INTRADAY_OPTION_SYMBOLS
 from finance_analysis.integrations.market_data.providers.longbridge.normalizer import MarketEvent, event_to_candle
@@ -148,6 +149,10 @@ class MarketStreamService:
     def _tracked(self, symbol):
         return symbol in self.cn_feed.targets or symbol in self.manager.desired_targets
 
+    def _forecast_targets(self) -> dict[str, MarketType]:
+        return {**{symbol: "CN" for symbol in self.cn_feed.targets},
+                **{symbol: target.market_type for symbol, target in self.manager.desired_targets.items()}}
+
     def _symbol_lock(self, symbol: str) -> asyncio.Lock:
         return self.symbol_locks.setdefault(symbol, asyncio.Lock())
 
@@ -166,6 +171,7 @@ class MarketStreamService:
         logger.info("Leader Lock 获取成功")
 
         from finance_analysis.intraday_options.runtime import Publisher
+        from finance_analysis.minute_forecast.publisher import ForecastPublisher, forecast_url
 
         options_publisher = Publisher(self.repository)
         tasks = [
@@ -193,6 +199,13 @@ class MarketStreamService:
                     asyncio.create_task(self._check_connection(), name="market-stream-health"),
                 ]
             )
+            if url := forecast_url():
+                # The elected streamer owns cadence and the whole subscription union.
+                # GPU/network waits run outside the subscription and Redis flush loops.
+                publisher = ForecastPublisher(self.repository.redis, url, env_str("KRONOS_MODEL", "small") or "small")
+                tasks.append(asyncio.create_task(
+                    publisher.run(self.bars_1m, self._forecast_targets), name="market-stream-forecast",
+                ))
             await self.stop_event.wait()
         finally:
             self.stop_event.set()

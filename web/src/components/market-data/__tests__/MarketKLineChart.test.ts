@@ -1,8 +1,9 @@
-import { mount } from '@vue/test-utils';
+import { flushPromises, mount } from '@vue/test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CandleStyle, CandleTooltipLegendsCustomCallback, DataLoader, KLineData } from 'klinecharts';
 import MarketKLineChart from '../MarketKLineChart.vue';
 import { useTheme } from '@/composables/useTheme';
+import { fetchMinuteForecast } from '@/api/minuteForecast';
 
 const chart = vi.hoisted(() => ({
   removeOverlay: vi.fn(), createOverlay: vi.fn((overlays: { id?: string }[]) => overlays.map(overlay => overlay.id)),
@@ -15,13 +16,18 @@ const chart = vi.hoisted(() => ({
 }));
 const lifecycle = vi.hoisted(() => ({ dispose: vi.fn(), init: vi.fn() }));
 vi.mock('klinecharts', () => ({ init: lifecycle.init, dispose: lifecycle.dispose,
+  registerOverlay: vi.fn(),
   utils: { formatDate: vi.fn(() => 'formatted') } }));
+vi.mock('@/api/minuteForecast', () => ({ fetchMinuteForecast: vi.fn() }));
 const bar: KLineData = { timestamp: 1000, open: 1, high: 3, low: 1, close: 2, volume: 5 };
 function loader() { return chart.setDataLoader.mock.lastCall![0] as DataLoader; }
 const context = { symbol: { ticker: 'AAPL.US', pricePrecision: 2, volumePrecision: 0 }, period: { type: 'day' as const, span: 1 } };
 
 describe('MarketKLineChart v10 lifecycle', () => {
-  beforeEach(() => { vi.clearAllMocks(); lifecycle.init.mockReturnValue(chart); });
+  beforeEach(() => {
+    vi.clearAllMocks(); lifecycle.init.mockReturnValue(chart);
+    vi.mocked(fetchMinuteForecast).mockResolvedValue({ enabled: false, forecast: null, comparison: null });
+  });
   it('loads OHLCV, adds VOL and daily MA, resets on source/symbol/period and disposes', async () => {
     const wrapper = mount(MarketKLineChart, { props: { symbol: 'AAPL.US', period: '1d', pricePrecision: 2, bars: [bar] } });
     expect(chart.setSymbol).toHaveBeenCalledWith(context.symbol);
@@ -52,6 +58,30 @@ describe('MarketKLineChart v10 lifecycle', () => {
     await wrapper.setProps({ focusTimestamp: undefined, focusRequest: 2 });
     await wrapper.setProps({ focusRequest: 3 });
     expect(chart.scrollToRealTime).toHaveBeenCalledTimes(2);
+    wrapper.unmount();
+  });
+  it('plots the minute forecast as a separately removable overlay without changing OHLC data', async () => {
+    const timestamp = Math.floor(Date.now() / 60_000) * 60_000 - 60_000;
+    const actual = { ...bar, timestamp };
+    const predicted = { timestamp: timestamp + 60_000, open: 2, high: 4, low: 2, close: 3 };
+    vi.mocked(fetchMinuteForecast).mockResolvedValueOnce({ enabled: true, comparison: null, forecast: {
+      symbol: 'BTCUSDT', model: 'small', weightsRevision: 'fixed', anchor: timestamp,
+      anchorClose: 2, generatedAt: Date.now(), lookback: 60, bars: [predicted],
+    } });
+    const wrapper = mount(MarketKLineChart, { props: { symbol: 'BTCUSDT', period: '1m', bars: [actual] } });
+    await flushPromises();
+    expect(chart.createOverlay).toHaveBeenLastCalledWith([expect.objectContaining({ id: 'minute-forecast', points: [
+      { timestamp, value: 2 }, { timestamp: predicted.timestamp, value: 3 },
+    ] })]);
+    const callback = vi.fn();
+    loader().getBars({ ...context, type: 'init', timestamp: null, callback });
+    expect(callback).toHaveBeenLastCalledWith([actual], false);
+    expect(wrapper.get('[data-testid="minute-forecast"]').text()).toContain('Kronos small');
+    await wrapper.get('input[type="checkbox"]').setValue(false);
+    expect(chart.removeOverlay).toHaveBeenLastCalledWith({ id: 'minute-forecast' });
+    await wrapper.setProps({ period: '5m' });
+    expect(wrapper.find('[data-testid="minute-forecast"]').exists()).toBe(false);
+    expect(vi.mocked(fetchMinuteForecast)).toHaveBeenCalledTimes(1);
     wrapper.unmount();
   });
   it('pushes live bars only while subscribed and follows theme', async () => {

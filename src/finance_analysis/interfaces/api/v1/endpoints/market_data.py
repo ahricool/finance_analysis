@@ -45,6 +45,10 @@ from finance_analysis.market_stream.config import (
 )
 from finance_analysis.market_stream.patterns.config import PatternConfig
 from finance_analysis.market_stream.patterns.models import PatternSignal, PatternState
+from finance_analysis.minute_forecast.cache import comparison_forecast, latest_forecast
+from finance_analysis.minute_forecast.models import BTC_SYMBOL, MinuteForecastResponse
+from finance_analysis.minute_forecast.publisher import forecast_url
+from finance_analysis.minute_forecast.windows import millis
 from finance_analysis.stocks.markets import MarketType
 from finance_analysis.users.auth import COOKIE_NAME, parse_session_uid
 
@@ -61,14 +65,53 @@ def _minute_history_version(items: list[dict]) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
+async def _require_intraday_access(request: Request, code: str, market: str) -> int:
+    from finance_analysis.intraday_options.config import SYMBOLS
+    from finance_analysis.portfolio.service import PortfolioService
+
+    uid = get_effective_uid(request)
+    if code not in SYMBOLS:
+        tracked = await asyncio.to_thread(_load_tracked_stocks, uid, market)
+        if code not in {stock.symbol for stock in tracked}:
+            _, held = await asyncio.to_thread(PortfolioService().read_snapshot, uid, market)
+            if code not in {row["symbol"] for row in held}:
+                raise HTTPException(404, "证券不在本人的自选股或持仓中")
+    return uid
+
+
+@router.get("/minute-forecast/{symbol}", dependencies=[Depends(require_current_user)])
+async def minute_forecast(symbol: str, request: Request, response: Response) -> MinuteForecastResponse:
+    """Serve only an already-published forecast within the chart's data scope."""
+    response.headers["Cache-Control"] = "private, no-store"
+    if symbol.upper() == BTC_SYMBOL:
+        code = BTC_SYMBOL
+    else:
+        try:
+            code = canonical_symbol(symbol)
+            market = infer_market(code).value
+        except ValueError as exc:
+            raise HTTPException(422, "证券代码无效") from exc
+        if market not in {"CN", "US", "HK"}:
+            raise HTTPException(422, "证券市场不支持分钟预测")
+        await _require_intraday_access(request, code, market)
+    if not forecast_url():
+        return MinuteForecastResponse(enabled=False)
+    repository = RealtimeStateRepository.from_url(MarketStreamConfig.from_env().redis_url)
+    try:
+        forecast, comparison = await asyncio.gather(
+            latest_forecast(repository.redis, code), comparison_forecast(repository.redis, code, millis(utc_now())),
+        )
+        return MinuteForecastResponse(enabled=True, forecast=forecast, comparison=comparison)
+    finally:
+        await repository.close()
+
+
 @router.get("/intraday/{symbol}", response_model=IntradayBarsResponse, dependencies=[Depends(require_current_user)])
 async def intraday_bars(
     symbol: str, request: Request, since: datetime | None = None, response: Response = None,
     history_version: Annotated[str | None, Query(max_length=64)] = None,
 ):
     """User-owned intraday view; cache misses never launch an external request."""
-    from finance_analysis.portfolio.service import PortfolioService
-
     if response is not None:
         response.headers["Cache-Control"] = "private, no-store"
 
@@ -79,15 +122,7 @@ async def intraday_bars(
             raise ValueError("invalid market or timestamp")
     except ValueError as exc:
         raise HTTPException(422, "证券或时间格式无效") from exc
-    uid = get_effective_uid(request)
-    from finance_analysis.intraday_options.config import SYMBOLS
-
-    # Shared, explicitly allowlisted research symbols need no personal WatchList mutation.
-    tracked = [] if code in SYMBOLS else await asyncio.to_thread(_load_tracked_stocks, uid, market)
-    if code not in SYMBOLS and code not in {stock.symbol for stock in tracked}:
-        held = await asyncio.to_thread(PortfolioService().list_positions, uid, market=market)
-        if code not in {row["symbol"] for row in held}:
-            raise HTTPException(404, "证券不在本人的自选股或持仓中")
+    uid = await _require_intraday_access(request, code, market)
     repository = RealtimeStateRepository.from_url(MarketStreamConfig.from_env().redis_url)
     try:
         now = utc_now()

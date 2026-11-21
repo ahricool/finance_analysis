@@ -503,3 +503,7 @@ GET只读，行级机会资格排除缺线、延迟和非交易时段；默认�
 三个趋势下游共用 `trend_following/opportunity_inputs.py` 正式买点投影：Confluence v2_3在Trend30内部取背景/有效买点较强路线；Signal Center加入前40候选及两轮LLM价位证据；Intraday v2_2新增昨日买点前40冻结来源、保留原分钟确认条件。跨周期structure_id去重，不读取Preview，不回填旧历史，见 `docs/trend-opportunities.md`。
 
 日内标的模拟 V4 共六条入口。开盘区间、盘中摆动位及按报价检查的固定目标门槛见 [策略与回放](docs/intraday-starts.md)。
+
+## Kronos Minute Forecast
+
+`minute_forecast/` 由 Streamer leader 对 CN/HK/US 订阅并集和 Binance BTCUSDT 的已收盘原生 `1m` 生成预测。模型运行于独立 macOS MPS LaunchAgent，发布默认 Small，保留 Base 与本地 Large 权重配置。预测以有限 TTL 写入独立 Redis 键，GET 使用原分钟图授权，只读缓存。原 `MarketKLineChart` 以覆盖物展示预测和近期误差，见 `docs/kronos.md`。

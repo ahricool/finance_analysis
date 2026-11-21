@@ -51,6 +51,16 @@ class BinanceClient:
     async def server_time(self):
         return from_ms((await self._get("/api/v3/time"))["serverTime"])
 
+    async def spot_minute_rows(self, *, end: datetime, limit: int) -> list:
+        """Read native spot minutes for the forecast; the strategy keeps its own timeframes."""
+        rows = await self._get("/api/v3/klines", {
+            "symbol": "BTCUSDT", "interval": "1m", "limit": limit,
+            "endTime": int(end.timestamp() * 1000) - 1,
+        })
+        if not isinstance(rows, list):
+            raise ValueError("Invalid Binance kline response")
+        return rows
+
     async def klines(self, *, interval: str, end: datetime, limit: int):
         if interval not in ("15m", "1h"):
             raise ValueError("Strategy only uses 15m/1h candles")

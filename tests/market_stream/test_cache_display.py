@@ -135,7 +135,7 @@ async def test_intraday_does_not_expose_other_users_collected_symbols(monkeypatc
     monkeypatch.setattr(market_data, "get_effective_uid", lambda request: 7)
     monkeypatch.setattr(market_data, "_load_tracked_stocks", lambda uid, market: [])
     monkeypatch.setattr(PortfolioService, "__init__", lambda self: None)
-    monkeypatch.setattr(PortfolioService, "list_positions", lambda self, uid, market: [])
+    monkeypatch.setattr(PortfolioService, "read_snapshot", lambda self, uid, market: ([], []))
     with pytest.raises(HTTPException) as error:
         await market_data.intraday_bars("KO.US", SimpleNamespace())
     assert error.value.status_code == 404

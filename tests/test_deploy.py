@@ -205,3 +205,17 @@ def test_interrupt_only_disconnects_docker_stop_client(deployment, monkeypatch):
     process.wait.assert_called_once_with(timeout=10)
     process.kill.assert_not_called()
     deployment.compose.assert_not_called()
+
+
+def test_kronos_external_service_is_checked_from_old_application_container(deployment):
+    deployment.compose.return_value = '{"protocol":1,"device":"mps","model":"small"}'
+    config = {"services": {"streamer": {"environment": {"KRONOS_URL": "http://host.docker.internal:18081"}}}}
+    runtime = deployment.prepare_kronos(config, {"server": {"state": {"Running": True}}})
+    assert runtime == {"url": "http://host.docker.internal:18081",
+                       "identity": {"protocol": 1, "device": "mps", "model": "small"}}
+    call = deployment.compose.call_args
+    assert call.args[:3] == ("exec", "-T", "server")
+    assert call.args[-1] == "http://host.docker.internal:18081/healthz"
+    deployment.compose.return_value = '{"protocol":1,"device":"cpu","model":"small"}'
+    with pytest.raises(deploy.DeployError, match="MPS"):
+        deployment.verify_kronos(runtime, service="streamer", target=True)
