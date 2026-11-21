@@ -7,6 +7,7 @@ import os
 import json
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -150,6 +151,7 @@ class TaskLifecycleDecoratorTestCase(unittest.TestCase):
                 service = _RecordingLifecycleService()
                 with patch("finance_analysis.tasks.lifecycle.get_task_lifecycle_service", return_value=service), \
                      patch("finance_analysis.tasks.lifecycle.PostgreSQLAdvisoryLock") as lock, \
+                     patch("finance_analysis.tasks.celery.jobs.market_heatmap.tasks.in_session", return_value=True), \
                      patch("finance_analysis.tasks.celery.jobs.market_heatmap.tasks.HeatmapService") as heatmap, \
                      patch("finance_analysis.notification.service.NotificationService") as notification_service:
                     lock.return_value.acquire.return_value = True
@@ -160,6 +162,43 @@ class TaskLifecycleDecoratorTestCase(unittest.TestCase):
                 self.assertEqual([event[0] for event in service.events], ["processing", "failed"])
                 notification_service.assert_not_called()
                 lock.return_value.release.assert_called_once()
+
+    def test_heatmap_tasks_skip_refresh_outside_exchange_sessions(self) -> None:
+        from finance_analysis.tasks.celery.jobs.market_heatmap import tasks as heatmap_tasks
+
+        tasks = {"CN": heatmap_tasks.refresh_market_heatmap_cn, "US": heatmap_tasks.refresh_market_heatmap_us}
+        for market, stamp, trigger_source, active in (
+            ("CN", "2026-11-20T09:30:00+08:00", "scheduler", True),
+            ("CN", "2026-11-20T11:30:00+08:00", "scheduler", False),
+            ("CN", "2026-11-20T13:00:00+08:00", "manual", True),
+            ("CN", "2026-11-20T15:00:00+08:00", "manual", False),
+            ("CN", "2026-11-21T10:00:00+08:00", "scheduler", False),
+            ("CN", "2026-10-01T10:00:00+08:00", "scheduler", False),
+            ("US", "2026-07-01T09:29:59-04:00", "scheduler", False),
+            ("US", "2026-07-01T09:30:00-04:00", "scheduler", True),
+            ("US", "2026-07-01T16:00:00-04:00", "scheduler", False),
+            ("US", "2026-11-26T10:00:00-05:00", "scheduler", False),
+            ("US", "2026-11-27T12:59:59-05:00", "scheduler", True),
+            ("US", "2026-11-27T13:00:00-05:00", "scheduler", False),
+        ):
+            with self.subTest(market=market, time=stamp, trigger=trigger_source):
+                service = _RecordingLifecycleService()
+                now = datetime.fromisoformat(stamp).astimezone(timezone.utc)
+                with (
+                    patch("finance_analysis.tasks.lifecycle.get_task_lifecycle_service", return_value=service),
+                    patch("finance_analysis.tasks.lifecycle.PostgreSQLAdvisoryLock") as lock,
+                    patch.object(heatmap_tasks, "utc_now", return_value=now),
+                    patch.object(heatmap_tasks, "HeatmapService") as heatmap,
+                ):
+                    lock.return_value.acquire.return_value = True
+                    tasks[market].run(_trigger_source=trigger_source)
+
+                if active:
+                    heatmap.return_value.refresh.assert_called_once_with(market)
+                else:
+                    heatmap.assert_not_called()
+                expected_status = "completed" if active else "skipped"
+                self.assertEqual([event[0] for event in service.events], ["processing", expected_status])
 
     def test_notification_failure_does_not_replace_task_exception(self) -> None:
         service = _RecordingLifecycleService()
