@@ -54,6 +54,8 @@ services:
       DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       REDIS_URL: redis://redis:6379/0
       QUANT_ARTIFACT_ROOT: /workspace/data/quant
+      KRONOS_URL: ${KRONOS_URL:-}
+      KRONOS_MODEL: ${KRONOS_MODEL:-small}
     expose:
       - "8000"
     volumes:
@@ -205,6 +207,9 @@ services:
       TZ: Asia/Shanghai
       DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       REDIS_URL: redis://redis:6379/0
+      # deploy.sh supplies the macOS host URL after validating GPU readiness.
+      KRONOS_URL: ${KRONOS_URL:-}
+      KRONOS_MODEL: ${KRONOS_MODEL:-small}
     volumes:
       - ./data:/workspace/data
       - ./.env:/workspace/.env:ro
