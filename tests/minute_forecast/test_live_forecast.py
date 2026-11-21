@@ -32,6 +32,21 @@ def binance_rows(now):
              millis(minute + (offset + 1) * MINUTE) - 1, "1000"] for offset in range(-30, 1)]
 
 
+def test_stock_forecast_starts_with_fifteen_confirmed_minutes_after_open():
+    opened = datetime(2026, 11, 20, 9, 30, tzinfo=NY)
+    bars = candles("QQQ.US", opened, 15)
+    assert stock_window("QQQ.US", "US", bars, opened + 14 * MINUTE) is None
+
+    first_forecast = opened + 15 * MINUTE
+    window = stock_window("QQQ.US", "US", bars, first_forecast)
+    assert window is not None
+    assert len(window.bars) == 15
+    assert window.targets == [millis(first_forecast + step * MINUTE) for step in range(10)]
+
+    bars[-1].confirmed = False
+    assert stock_window("QQQ.US", "US", bars, first_forecast) is None
+
+
 def test_candle_window_uses_only_confirmed_observations_and_actual_early_close():
     now = datetime(2026, 11, 27, 12, 58, 7, tzinfo=NY)
     bars = candles("QQQ.US", now.replace(second=0) - 35 * MINUTE, 36)

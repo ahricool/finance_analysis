@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field, FiniteFloat, model_validator
 
 PROTOCOL = 1
 MINUTE_MS = 60_000
+MIN_LOOKBACK = 15
 MAX_HORIZON = 10
 MAX_BODY = 1_048_576
 logger = logging.getLogger(__name__)
@@ -35,7 +36,7 @@ class Bar(BaseModel):
 class Window(BaseModel):
     symbol: str = Field(min_length=1, max_length=36)
     timezone: str = Field(max_length=64)
-    bars: list[Bar] = Field(min_length=30, max_length=240)
+    bars: list[Bar] = Field(min_length=MIN_LOOKBACK, max_length=240)
     targets: list[int] = Field(min_length=1, max_length=MAX_HORIZON)
 
     @model_validator(mode="after")
@@ -94,10 +95,12 @@ class Runner:
         }
         self.slot = BoundedSemaphore(1)
         # Trigger real MPS kernels before advertising readiness to deployment.
-        stamps = pd.Series(pd.date_range("2026-01-01", periods=30 + MAX_HORIZON, tz="UTC", freq="min"))
-        values = [100.0 + i / 100 for i in range(30)]
+        stamps = pd.Series(pd.date_range("2026-01-01", periods=MIN_LOOKBACK + MAX_HORIZON, tz="UTC", freq="min"))
+        values = [100.0 + i / 100 for i in range(MIN_LOOKBACK)]
         frame = pd.DataFrame({col: values for col in ("open", "high", "low", "close")})
-        self.predictor.predict_batch([frame], [stamps[:30]], [stamps[30:]], pred_len=MAX_HORIZON, verbose=False)
+        self.predictor.predict_batch(
+            [frame], [stamps[:MIN_LOOKBACK]], [stamps[MIN_LOOKBACK:]], pred_len=MAX_HORIZON, verbose=False,
+        )
         torch.mps.synchronize()
 
     def predict(self, request: Request) -> dict:
