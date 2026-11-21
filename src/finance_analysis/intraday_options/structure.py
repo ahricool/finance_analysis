@@ -93,6 +93,18 @@ def _market_summary(bars, opening):
         if open_bar is not None and float(open_bar.open) > 0
         else None
     )
+    open_efficiency = None
+    if open_bar is not None and float(open_bar.open) > 0 and valid[0].bar_time == opening:
+        expected = int((last.bar_time - opening) / MINUTE) + 1
+        if len(valid) == expected:
+            first_open = float(open_bar.open)
+            prev_c = first_open
+            path = 0.0
+            for b in valid:
+                cur_c = float(b.close)
+                path += abs(cur_c - prev_c)
+                prev_c = cur_c
+            open_efficiency = abs(prev_c - first_open) / path if path > 0 else 0.0
     bar_20m = by_time.get(last.bar_time - 20 * MINUTE)
     return_20m = (
         last_close / float(bar_20m.close) - 1
@@ -104,13 +116,14 @@ def _market_summary(bars, opening):
         last_close=last_close,
         as_of=(last.bar_time + MINUTE).isoformat(),
         open_return=open_return,
+        open_efficiency=open_efficiency,
         return_20m=return_20m,
         evidence_at=max(max(b.bar_time + MINUTE, b.received_at) for b in bars).isoformat(),
     )
 
 
 def pool_rank_context(symbol, closed, peer_bars, opening, day, min_peers=10):
-    """Causal cross-sectional intraday return rank across observed peers at closed[-1].bar_time."""
+    """Causal cross-sectional intraday return rank and directional breadth across observed peers."""
     valid_self = [b for b in closed if observed(b) and b.is_valid() and not b.partial and not b.sampled]
     if not valid_self:
         return None
@@ -123,14 +136,12 @@ def pool_rank_context(symbol, closed, peer_bars, opening, day, min_peers=10):
         open_bar = None
         last_bar = None
         for b in bars:
-            if (
-                not observed(b)
-                or not b.is_valid()
-                or b.partial
-                or b.sampled
-                or b.bar_time > target_time
-                or market_trading_date(b.bar_time, "US") != day
-            ):
+            is_rank_minute = b.bar_time == opening or target_time - MINUTE <= b.bar_time <= target_time
+            if not is_rank_minute or market_trading_date(b.bar_time, "US") != day:
+                continue
+            # An invalidating revision can remove a leader or select an older fallback close.
+            evidence_times.append(max(b.bar_time + MINUTE, b.received_at))
+            if not observed(b) or not b.is_valid() or b.partial or b.sampled:
                 continue
             if b.bar_time == opening and (open_bar is None or b.received_at >= open_bar.received_at):
                 open_bar = b
@@ -143,8 +154,6 @@ def pool_rank_context(symbol, closed, peer_bars, opening, day, min_peers=10):
                     last_bar = b
         if open_bar is not None and last_bar is not None and float(open_bar.open) > 0:
             peer_returns[peer_sym] = float(last_bar.close) / float(open_bar.open) - 1.0
-            evidence_times.append(max(open_bar.bar_time + MINUTE, open_bar.received_at))
-            evidence_times.append(max(last_bar.bar_time + MINUTE, last_bar.received_at))
     if symbol not in peer_returns:
         self_open = next((b for b in valid_self if b.bar_time == opening and float(b.open) > 0), None)
         if self_open is not None:
@@ -155,13 +164,18 @@ def pool_rank_context(symbol, closed, peer_bars, opening, day, min_peers=10):
     if symbol not in peer_returns or len(peer_returns) < min_peers:
         return None
     sym_ret = peer_returns[symbol]
+    pool_size = len(peer_returns)
     long_rank = 1 + sum(1 for r in peer_returns.values() if r > sym_ret)
     short_rank = 1 + sum(1 for r in peer_returns.values() if r < sym_ret)
+    breadth_up = sum(1 for r in peer_returns.values() if r > 0) / pool_size
+    breadth_down = sum(1 for r in peer_returns.values() if r < 0) / pool_size
     return dict(
         as_of=(target_time + MINUTE).isoformat(),
         long_rank=long_rank,
         short_rank=short_rank,
-        pool_size=len(peer_returns),
+        pool_size=pool_size,
+        breadth_up=breadth_up,
+        breadth_down=breadth_down,
         open_return=sym_ret,
         evidence_at=max(evidence_times).isoformat(),
     )

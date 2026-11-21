@@ -140,7 +140,13 @@ def test_entry_visibility_uses_primary_branch_validity_not_position_permission(o
     monkeypatch.setenv("INTRADAY_MIN_RISK_RETURN", "0")
     monkeypatch.setenv("INTRADAY_MAX_RISK_RETURN", "0")
     policy.cache_clear()
-    box_cfg = StartPolicy(box_enabled=True, opening_enabled=False, midday_wave_enabled=False, minimum_risk_return=0.0)
+    box_cfg = StartPolicy(
+        box_enabled=True,
+        opening_enabled=False,
+        midday_wave_enabled=False,
+        entry_window_minutes=150,
+        minimum_risk_return=0.0,
+    )
 
     async def run():
         repo = RealtimeStateRepository(FakeRedis())

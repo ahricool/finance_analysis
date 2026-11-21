@@ -9,8 +9,15 @@ from finance_analysis.intraday_options.structure import metrics, observed_atr, p
 MINUTE = timedelta(minutes=1)
 
 
+def _use_opening_drive_mode(settings):
+    """V7 clean opening-drive mode evaluates causal efficiency/momentum across [min_elapsed..end]."""
+    return settings.opening_enabled and (
+        settings.opening_min_efficiency > 0 or settings.opening_min_elapsed_minutes > settings.opening_minutes
+    )
+
+
 def breakout_seeds(ordered, opening, settings, snapshots=None):
-    """Yield first qualifying closes per level; a gap ends knowledge of untouched levels."""
+    """Yield qualifying closes per level; a gap ends knowledge of untouched levels."""
     if not settings.opening_enabled and not settings.pivot_enabled and not settings.midday_wave_enabled:
         return
     levels = []
@@ -20,6 +27,10 @@ def breakout_seeds(ordered, opening, settings, snapshots=None):
     session_hi = None
     session_lo = None
     session_max_receipt = None
+    opening_drive_mode = _use_opening_drive_mode(settings)
+    or_state = None
+    drive_cum_path = 0.0
+    drive_prev_close = None
     n = settings.opening_minutes
     end = ordered[-1].bar_time
     # Opening and midday wave breakouts replay from session open to preserve exact rolling identity.
@@ -37,18 +48,25 @@ def breakout_seeds(ordered, opening, settings, snapshots=None):
         if run and bar.bar_time - run[-1].bar_time != MINUTE:
             levels.clear()
             run.clear()
+            or_state = None
+            drive_cum_path = 0.0
+            drive_prev_close = None
         if not observed(bar) or not bar.is_valid() or bar.partial or bar.sampled:
             levels.clear()
             run.clear()
+            or_state = None
+            drive_cum_path = 0.0
+            drive_prev_close = None
             continue
 
         # Consume every crossed level, even if a late revision disqualifies its evidence.
         crossed = {}
         for level in levels[:]:
             kind, side, trigger = level["kind"], level["side"], level["trigger"]
+            confirm_atr = 0.20 if kind == "opening_breakout" else RULES[kind].confirm_atr
             if bar.bar_time >= level["until"]:
                 levels.remove(level)
-            elif (float(bar.close) - trigger) * side > RULES[kind].confirm_atr * level["atr"]:
+            elif (float(bar.close) - trigger) * side > confirm_atr * level["atr"]:
                 levels.remove(level)
                 if (level["last_receipt"] <= max(bar.received_at, bar.bar_time + MINUTE)
                         and level["available"] <= bar.bar_time + MINUTE):
@@ -127,6 +145,13 @@ def breakout_seeds(ordered, opening, settings, snapshots=None):
         run.append(bar)
         volatility_window.append(bar)
         bar_hi, bar_lo = float(bar.high), float(bar.low)
+        bar_open, bar_close = float(bar.open), float(bar.close)
+        if len(run) == 1 and run[0].bar_time == opening:
+            drive_cum_path = abs(bar_close - bar_open)
+            drive_prev_close = bar_close
+        elif drive_prev_close is not None:
+            drive_cum_path += abs(bar_close - drive_prev_close)
+            drive_prev_close = bar_close
         session_hi = bar_hi if session_hi is None else max(session_hi, bar_hi)
         session_lo = bar_lo if session_lo is None else min(session_lo, bar_lo)
         session_max_receipt = (
@@ -140,8 +165,74 @@ def breakout_seeds(ordered, opening, settings, snapshots=None):
             width = high - low
             if first_open > 0 and width / first_open >= settings.opening_min_range_pct:
                 scale, samples = observed_atr(run, minimum=n - 1)
-                seeds = [("opening_breakout", side, price, run, scale, samples, width)
-                         for side, price in ((1, high), (-1, low))]
+                if opening_drive_mode:
+                    if scale:
+                        or_frozen = bar.bar_time + MINUTE
+                        or_available = max(or_frozen, *(b.received_at for b in run))
+                        or_state = dict(
+                            high=high,
+                            low=low,
+                            first_open=first_open,
+                            width=width,
+                            atr=scale,
+                            atr_samples=samples,
+                            frozen=or_frozen,
+                            available=or_available,
+                        )
+                        if snapshots is not None:
+                            or_exp = opening + (
+                                settings.opening_end_minutes + RULES["opening_breakout"].lifetime
+                            ) * MINUTE
+                            if end < or_exp:
+                                for s_dir, s_lvl in ((1, high), (-1, low)):
+                                    snapshots[f"opening_range:{s_dir}:{opening.isoformat()}"] = dict(
+                                        trigger=s_lvl, width=width, atr=scale, expires_at=or_exp.isoformat()
+                                    )
+                else:
+                    seeds = [("opening_breakout", side, price, run, scale, samples, width)
+                             for side, price in ((1, high), (-1, low))]
+        if (
+            opening_drive_mode
+            and or_state is not None
+            and bar.bar_time == end
+            and run[0].bar_time == opening
+        ):
+            elapsed_close = int((bar.bar_time + MINUTE - opening) / MINUTE)
+            if settings.opening_min_elapsed_minutes <= elapsed_close < settings.opening_end_minutes:
+                when = bar.bar_time + MINUTE
+                first_open = or_state["first_open"]
+                open_eff = abs(bar_close - first_open) / drive_cum_path if drive_cum_path > 0 else 0.0
+                if open_eff >= settings.opening_min_efficiency - 1e-12:
+                    available = max(when, or_state["available"], session_max_receipt)
+                    rule = RULES["opening_breakout"]
+                    expires = min(when + rule.lifetime * MINUTE, opening + settings.opening_end_minutes * MINUTE)
+                    for side, trigger in ((1, or_state["high"]), (-1, or_state["low"])):
+                        if (bar_close - trigger) * side <= rule.confirm_atr * or_state["atr"]:
+                            continue
+                        if settings.opening_require_directional_bar and (bar_close - bar_open) * side <= 0:
+                            continue
+                        sym_ret = (bar_close / first_open - 1.0) * side
+                        if settings.min_open_move > 0 and sym_ret < settings.min_open_move - 1e-12:
+                            continue
+                        identity = f"opening_breakout:{side}:{opening.isoformat()}:{when.isoformat()}"
+                        process_id = f"opening_breakout:{side}:{opening.isoformat()}"
+                        yield dict(
+                            identity=identity,
+                            process_id=process_id,
+                            kind="opening_breakout",
+                            side=side,
+                            trigger=trigger,
+                            atr=or_state["atr"],
+                            atr_samples=or_state["atr_samples"],
+                            structure_start=opening,
+                            frozen=or_state["frozen"],
+                            available=available,
+                            last_receipt=available,
+                            until=expires,
+                            width=or_state["width"],
+                            opening_drive=True,
+                            open_efficiency=open_eff,
+                        ), bar
         if settings.pivot_enabled and len(group) == 5:
             for point in pivots(group):
                 evidence = volatility_window

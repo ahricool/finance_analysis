@@ -24,12 +24,22 @@ LEGACY_POLICY = StartPolicy(
     box_enabled=True,
     continuation_enabled=True,
     use_pivot_target=True,
+    opening_min_elapsed_minutes=5,
+    opening_min_efficiency=0.0,
+    opening_require_directional_bar=False,
+    entry_window_minutes=150,
+    stop_loss_pct=0.0,
+    take_profit_pct=0.0,
+    profit_lock_trigger_pct=0.0,
+    profit_lock_level_pct=0.0,
     minimum_return=0.001,
     minimum_rr=0.5,
     minimum_risk_return=0.0,
     maximum_risk_return=0.0,
     opening_min_range_pct=0.0,
     min_open_move=0.0,
+    min_spy_open_move=0.0,
+    min_pool_breadth=0.0,
     pool_leader_top_k=0,
 )
 
@@ -46,9 +56,19 @@ def test_opening_first_close_executes_without_consolidation_and_can_stop_immedia
     bars = ramp(minutes + 1, side)
     config = StartPolicy(
         opening_minutes=minutes,
+        opening_min_elapsed_minutes=minutes,
+        opening_min_efficiency=0.0,
+        opening_require_directional_bar=False,
+        entry_window_minutes=150,
+        stop_loss_pct=0.0,
+        take_profit_pct=0.0,
+        profit_lock_trigger_pct=0.0,
+        profit_lock_level_pct=0.0,
         minimum_risk_return=0.0,
         maximum_risk_return=0.0,
         min_open_move=0.0,
+        min_spy_open_move=0.0,
+        min_pool_breadth=0.0,
         pool_leader_top_k=0,
     )
     assert not calculate_opportunities(bars[:-1], config)["branches"]
@@ -61,7 +81,7 @@ def test_opening_first_close_executes_without_consolidation_and_can_stop_immedia
     assert o["reference"] == (minutes == 5)
     r = dict(trading_date=now.date().isoformat(), as_of=o["as_of"], opportunities=o)
     price = b["trigger"] + side * .5 * b["atr"]
-    far = b["trigger"] + side * 2.5 * b["atr"]
+    far = b["trigger"] + side * 11.0 * b["atr"]
     state, events = transition({}, "SPY.US", r, quote(now, far), now, settings=config)
     assert not state.get("position") and not any(e["kind"] == "entry" for e in events)
     state, events = transition(state, "SPY.US", r, quote(now, price), now, settings=config)
@@ -181,15 +201,16 @@ def test_quote_improvement_rechecks_interval_expiry_freshness_and_structure_dedu
 
 
 def test_observed_opening_boundaries_survive_revision_before_break_and_restart():
-    bars = ramp(6)
+    # 8 bars (09:30..09:37 -> closes 09:38 NY) with +2.45% clean move (eff=1.0) triggers V7 opening drive.
+    bars = ramp(8, step=.35)
     now = START + timedelta(minutes=5, seconds=2)
     r = calculate("SPY.US", bars[:5], now)
-    state, _ = transition({}, "SPY.US", r, quote(now, 100.4), now)
+    state, _ = transition({}, "SPY.US", r, quote(now, 101.4), now)
     frozen = deepcopy(state["start_levels"])
     assert len(frozen) == 2
     revised = replace(bars[4], high=bars[4].high+Decimal(".005"), received_at=now+timedelta(seconds=10))
-    now += timedelta(minutes=1)
-    r = calculate("SPY.US", [*bars[:5], revised, bars[5]], now)
+    now = START + timedelta(minutes=8, seconds=2)
+    r = calculate("SPY.US", [*bars[:5], revised, *bars[5:]], now)
     b = r["opportunities"]["primary"]
     assert b is not None
     price = b["trigger"]+.5*b["atr"]

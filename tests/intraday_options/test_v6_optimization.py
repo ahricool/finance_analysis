@@ -52,34 +52,48 @@ def _make_peer_pool(nvda_bars, side=1, nvda_rank=1, count=12):
     return peers
 
 
-def test_v6_policy_defaults_focus_on_low_frequency_big_wave_leaders(monkeypatch):
-    for key in (
-        "INTRADAY_OPENING_BREAKOUT",
-        "INTRADAY_MIDDAY_WAVE_BREAKOUT",
-        "INTRADAY_BOX_BREAKOUT",
-        "INTRADAY_TREND_CONTINUATION",
-        "INTRADAY_PIVOT_BREAKOUT",
-        "INTRADAY_TREND_RECOVERY",
-        "INTRADAY_USE_PIVOT_TARGET",
-        "INTRADAY_OPENING_MIN_RANGE_PCT",
-        "INTRADAY_MIDDAY_WINDOW_MINUTES",
-        "INTRADAY_MIDDAY_MIN_WIDTH_PCT",
-        "INTRADAY_MIDDAY_MAX_WIDTH_PCT",
-        "INTRADAY_MIDDAY_MAX_EFFICIENCY",
-        "INTRADAY_MIDDAY_START_MINUTES",
-        "INTRADAY_MIDDAY_END_MINUTES",
-        "INTRADAY_MIDDAY_REQUIRE_SESSION_EXTREME",
-        "INTRADAY_MIN_TARGET_RETURN",
-        "INTRADAY_MIN_REWARD_RISK",
-        "INTRADAY_MIN_RISK_RETURN",
-        "INTRADAY_MAX_RISK_RETURN",
-        "INTRADAY_REQUIRE_VWAP",
-        "INTRADAY_REQUIRE_SPY_ALIGNMENT",
-        "INTRADAY_MIN_RELATIVE_STRENGTH",
-        "INTRADAY_MIN_OPEN_MOVE",
-        "INTRADAY_POOL_LEADER_TOP_K",
+V6_POLICY = StartPolicy(
+    opening_enabled=True,
+    midday_wave_enabled=True,
+    opening_min_elapsed_minutes=5,
+    opening_min_efficiency=0.0,
+    opening_require_directional_bar=False,
+    entry_window_minutes=150,
+    stop_loss_pct=0.0,
+    take_profit_pct=0.0,
+    profit_lock_trigger_pct=0.0,
+    profit_lock_level_pct=0.0,
+    minimum_risk_return=0.009,
+    maximum_risk_return=0.026,
+    min_relative_strength=0.010,
+    min_open_move=0.010,
+    min_spy_open_move=0.0,
+    min_pool_breadth=0.0,
+    pool_leader_top_k=2,
+)
+
+
+def test_v6_policy_compatibility_flags_remain_configurable(monkeypatch):
+    for key, val in (
+        ("INTRADAY_OPENING_BREAKOUT", "true"),
+        ("INTRADAY_MIDDAY_WAVE_BREAKOUT", "true"),
+        ("INTRADAY_OPENING_MIN_ELAPSED_MINUTES", "5"),
+        ("INTRADAY_OPENING_MIN_EFFICIENCY", "0.0"),
+        ("INTRADAY_OPENING_REQUIRE_DIRECTIONAL_BAR", "false"),
+        ("INTRADAY_ENTRY_WINDOW_MINUTES", "150"),
+        ("INTRADAY_STOP_LOSS_PCT", "0.0"),
+        ("INTRADAY_TAKE_PROFIT_PCT", "0.0"),
+        ("INTRADAY_PROFIT_LOCK_TRIGGER_PCT", "0.0"),
+        ("INTRADAY_PROFIT_LOCK_LEVEL_PCT", "0.0"),
+        ("INTRADAY_MIN_RISK_RETURN", "0.009"),
+        ("INTRADAY_MAX_RISK_RETURN", "0.026"),
+        ("INTRADAY_MIN_RELATIVE_STRENGTH", "0.010"),
+        ("INTRADAY_MIN_OPEN_MOVE", "0.010"),
+        ("INTRADAY_MIN_SPY_OPEN_MOVE", "0.0"),
+        ("INTRADAY_MIN_POOL_BREADTH", "0.0"),
+        ("INTRADAY_POOL_LEADER_TOP_K", "2"),
     ):
-        monkeypatch.delenv(key, raising=False)
+        monkeypatch.setenv(key, val)
     policy.cache_clear()
     try:
         cfg = policy()
@@ -110,22 +124,20 @@ def test_v6_policy_defaults_focus_on_low_frequency_big_wave_leaders(monkeypatch)
         assert CONFIG.trail_after_r == pytest.approx(2.5)
         assert CONFIG.trail_giveback_r == pytest.approx(1.2)
         assert CONFIG.trail_bars == 45
-        assert CONFIG.entry_window_minutes == 150
-        assert CONFIG.min_entry_before_close_minutes == 90
-        assert ENTRY_VERSION == "intraday_entry_v6"
-        assert SIMULATION_VERSION == "underlying_sim_v6"
+        assert ENTRY_VERSION == "intraday_entry_v7"
+        assert SIMULATION_VERSION == "underlying_sim_v7"
     finally:
         policy.cache_clear()
 
 
 @pytest.mark.parametrize("side", [1, -1])
 def test_v6_opening_range_width_080pct_and_strong_bar_045atr(side):
-    # Moderate opening range (~0.50% < 0.80%) is ignored in V6.
+    # Moderate opening range (~0.50% < 0.80%) is ignored.
     narrow = _make_bars([100 + side * i * 0.12 for i in range(7)], wick=Decimal("0.001"))
-    r_narrow = calculate("NVDA.US", narrow, narrow[-1].bar_time + timedelta(minutes=1, seconds=2))
+    r_narrow = calculate("NVDA.US", narrow, narrow[-1].bar_time + timedelta(minutes=1, seconds=2), settings=V6_POLICY)
     assert not any(b["kind"] == "opening_breakout" for b in r_narrow["opportunities"]["branches"])
 
-    # Wide opening range (~0.88% >= 0.80%) with weak breakout bar waits for 2nd close.
+    # Wide opening range (~0.88% >= 0.80%) with weak breakout bar waits for 2nd close in legacy V6 mode.
     base = [100 + side * i * 0.22 for i in range(5)]  # range ~0.88%
     bars = _make_bars(base + [base[-1] + side * 0.08, base[-1] + side * 0.15], wick=Decimal("0.001"))
     bars[5] = replace(
@@ -134,18 +146,18 @@ def test_v6_opening_range_width_080pct_and_strong_bar_045atr(side):
         low=bars[5].low - Decimal("0.30"),
     )
     first_at = bars[5].bar_time + timedelta(minutes=1, seconds=2)
-    r1 = calculate("NVDA.US", bars[:6], first_at)
+    r1 = calculate("NVDA.US", bars[:6], first_at, settings=V6_POLICY)
     b1 = next(b for b in r1["opportunities"]["branches"] if b["kind"] == "opening_breakout")
     assert b1["status"] == "forming" and b1["confirmed_at"] is None
 
     second_at = bars[6].bar_time + timedelta(minutes=1, seconds=2)
-    r2 = calculate("NVDA.US", bars, second_at)
+    r2 = calculate("NVDA.US", bars, second_at, settings=V6_POLICY)
     b2 = next(b for b in r2["opportunities"]["branches"] if b["kind"] == "opening_breakout")
     assert b2["status"] == "confirmed" and b2["confirmation_method"] == "two_closes"
 
-    # Strong breakout bar (>= 0.45 ATR + body >= 60%) confirms immediately on first close.
+    # Strong breakout bar (>= 0.45 ATR + body >= 60%) confirms immediately on first close in legacy V6 mode.
     strong = _make_bars(base + [base[-1] + side * 0.22], wick=Decimal("0.001"))
-    r_strong = calculate("NVDA.US", strong, strong[-1].bar_time + timedelta(minutes=1, seconds=2))
+    r_strong = calculate("NVDA.US", strong, strong[-1].bar_time + timedelta(minutes=1, seconds=2), settings=V6_POLICY)
     b_strong = next(b for b in r_strong["opportunities"]["branches"] if b["kind"] == "opening_breakout")
     assert b_strong["status"] == "confirmed" and b_strong["confirmation_method"] == "strong_break"
 
@@ -157,7 +169,7 @@ def test_v6_midday_wave_requires_60m_base_and_session_extreme_hod_lod(side):
     breakout = [100 + side * 1.45, 100 + side * 1.75]
     bars = _make_bars(coil + breakout, symbol="NVDA.US", wick=Decimal("0.02"))
     now = bars[-1].bar_time + timedelta(minutes=1, seconds=2)
-    res = calculate("NVDA.US", bars, now)
+    res = calculate("NVDA.US", bars, now, settings=V6_POLICY)
     TrendResult.model_validate(res)
     midday = [b for b in res["opportunities"]["branches"] if b["kind"] == "midday_wave_breakout"]
     assert len(midday) == 1
@@ -171,13 +183,15 @@ def test_v6_midday_wave_requires_60m_base_and_session_extreme_hod_lod(side):
         spiked[1] = replace(spiked[1], high=Decimal("103.50"))
     else:
         spiked[1] = replace(spiked[1], low=Decimal("96.50"))
-    res_inside = calculate("NVDA.US", spiked, now)
+    res_inside = calculate("NVDA.US", spiked, now, settings=V6_POLICY)
     assert not any(b["kind"] == "midday_wave_breakout" for b in res_inside["opportunities"]["branches"])
 
     # Rolling replay preserves exact frozen identity and trigger across subsequent minutes.
     ext_vals = coil + breakout + [100 + side * 1.85, 100 + side * 1.95]
     extended = _make_bars(ext_vals, symbol="NVDA.US", wick=Decimal("0.02"))
-    res_later = calculate("NVDA.US", extended, extended[-1].bar_time + timedelta(minutes=1, seconds=2))
+    res_later = calculate(
+        "NVDA.US", extended, extended[-1].bar_time + timedelta(minutes=1, seconds=2), settings=V6_POLICY
+    )
     later = next(b for b in res_later["opportunities"]["branches"] if b["structure_id"] == branch["structure_id"])
     for key in ("trigger", "invalidation", "atr", "started_at", "confirmed_at", "structure_start", "structure_end"):
         assert later[key] == branch[key]
@@ -185,13 +199,15 @@ def test_v6_midday_wave_requires_60m_base_and_session_extreme_hod_lod(side):
     # Late revision inside the consolidation window cannot retroactively manufacture a historical break.
     late = list(bars)
     late[25] = replace(late[25], received_at=bars[-1].bar_time + timedelta(minutes=2))
-    res_late = calculate("NVDA.US", late, bars[-1].bar_time + timedelta(minutes=2, seconds=5))
+    res_late = calculate("NVDA.US", late, bars[-1].bar_time + timedelta(minutes=2, seconds=5), settings=V6_POLICY)
     assert not any(b["kind"] == "midday_wave_breakout" for b in res_late["opportunities"]["branches"])
 
     # Late revision on an early morning bar (before the 60m coil) also cannot retroactively qualify HOD/LOD.
     late_open = list(bars)
     late_open[0] = replace(late_open[0], received_at=bars[-1].bar_time + timedelta(minutes=2))
-    res_late_open = calculate("NVDA.US", late_open, bars[-1].bar_time + timedelta(minutes=2, seconds=5))
+    res_late_open = calculate(
+        "NVDA.US", late_open, bars[-1].bar_time + timedelta(minutes=2, seconds=5), settings=V6_POLICY
+    )
     assert not any(b["kind"] == "midday_wave_breakout" for b in res_late_open["opportunities"]["branches"])
 
 
@@ -208,10 +224,10 @@ def test_v6_leader_rank_open_move_risk_window_and_spy_rs_gates(side):
     )
 
     now = nvda_bars[-1].bar_time + timedelta(minutes=1, seconds=5)
-    base = calculate("NVDA.US", nvda_bars, now)
+    base = calculate("NVDA.US", nvda_bars, now, settings=V6_POLICY)
     b = next(x for x in base["opportunities"]["branches"] if x["kind"] == "opening_breakout")
     assert b["status"] == "confirmed"
-    # Live price inside [trigger, trigger + 2 ATR] with natural risk ~1.05% (in [0.9%, 2.6%] and <= 3.15 ATR).
+    # Live price inside [trigger, trigger + 2 ATR] with natural risk ~1.05% (in [0.9%, 2.6%]).
     price = b["trigger"] + side * 1.4 * b["atr"]
     b_mid = b
 
@@ -219,20 +235,20 @@ def test_v6_leader_rank_open_move_risk_window_and_spy_rs_gates(side):
     peers_rank2 = _make_peer_pool(nvda_bars, side=side, nvda_rank=2, count=12)
     r_ok = {**base, **execution_context(nvda_bars, spy_ok, peer_bars=peers_rank2)}
     assert r_ok["pool_rank_context"]["long_rank" if side == 1 else "short_rank"] == 2
-    p_ok = plan(b_mid, r_ok, price, now, now)
+    p_ok = plan(b_mid, r_ok, price, now, now, settings=V6_POLICY)
     assert p_ok["executable"] and p_ok["target"] is None and p_ok["target_source"] == "移动止损跟踪"
 
     # 2. Rank #3 is rejected by pool_leader_top_k=2.
     peers_rank3 = _make_peer_pool(nvda_bars, side=side, nvda_rank=3, count=12)
     r_rank3 = {**base, **execution_context(nvda_bars, spy_ok, peer_bars=peers_rank3)}
-    p_rank3 = plan(b_mid, r_rank3, price, now, now)
+    p_rank3 = plan(b_mid, r_rank3, price, now, now, settings=V6_POLICY)
     assert not p_rank3["executable"] and "横向强弱排名第3位" in p_rank3["execution_reason"]
 
     # 3. Insufficient peers (< 10) yields None pool_rank_context and cleanly blocks entry.
     small_pool = dict(list(peers_rank2.items())[:5])
     r_small = {**base, **execution_context(nvda_bars, spy_ok, peer_bars=small_pool)}
     assert r_small["pool_rank_context"] is None
-    p_small = plan(b_mid, r_small, price, now, now)
+    p_small = plan(b_mid, r_small, price, now, now, settings=V6_POLICY)
     assert not p_small["executable"] and "横向强弱排名" in p_small["execution_reason"]
 
     # 4. Late peer receipt delays entry quote_floor (zero lookahead on cross-sectional rank!).
@@ -240,42 +256,47 @@ def test_v6_leader_rank_open_move_risk_window_and_spy_rs_gates(side):
     late_receipt = now + timedelta(seconds=12)
     late_peers["PEER00.US"][-1] = replace(late_peers["PEER00.US"][-1], received_at=late_receipt)
     r_late_peer = {**base, **execution_context(nvda_bars, spy_ok, peer_bars=late_peers)}
-    p_late = plan(b_mid, r_late_peer, price, late_receipt + timedelta(seconds=2), now)
+    p_late = plan(b_mid, r_late_peer, price, late_receipt + timedelta(seconds=2), now, settings=V6_POLICY)
     assert not p_late["executable"] and "确认依据" in p_late["execution_reason"]
-    p_after = plan(b_mid, r_late_peer, price, late_receipt + timedelta(seconds=2), late_receipt + timedelta(seconds=1))
+    p_after = plan(
+        b_mid, r_late_peer, price, late_receipt + timedelta(seconds=2), late_receipt + timedelta(seconds=1),
+        settings=V6_POLICY,
+    )
     assert p_after["executable"]
 
     # 5. Relative strength < 1.00% blocks weak breakout even if SPY aligns.
     r_low_rs = {**base, **execution_context(nvda_bars, spy_fast, peer_bars=peers_rank2)}
-    p_low_rs = plan(b_mid, r_low_rs, price, now, now)
+    p_low_rs = plan(b_mid, r_low_rs, price, now, now, settings=V6_POLICY)
     assert not p_low_rs["executable"] and "相对SPY强弱不足1.00%" in p_low_rs["execution_reason"]
 
     # 6. Initial risk < 0.90% is blocked (filters narrow-range noise).
     b_tight = {**b, "invalidation": price - side * price * 0.006}
-    p_tight = plan(b_tight, r_ok, price, now, now)
+    p_tight = plan(b_tight, r_ok, price, now, now, settings=V6_POLICY)
     assert not p_tight["executable"] and "初始风险幅度不足0.90%" in p_tight["execution_reason"]
 
     # 7. Initial risk > 2.60% is blocked (caps tail stop loss).
     price_wide = b["trigger"] + side * 0.9
     b_wide = {**b, "invalidation": price_wide - side * price_wide * 0.030, "atr": 1.5}
-    p_wide = plan(b_wide, r_ok, price_wide, now, now)
+    p_wide = plan(b_wide, r_ok, price_wide, now, now, settings=V6_POLICY)
     assert not p_wide["executable"] and "初始风险幅度超过2.60%" in p_wide["execution_reason"]
 
     # 8. Open move < 1.00% is blocked even if risk and SPY pass.
     r_small_move = deepcopy(r_ok)
     r_small_move["market_context"]["open_return"] = side * 0.006
-    p_small_move = plan(b_mid, r_small_move, price, now, now)
+    p_small_move = plan(b_mid, r_small_move, price, now, now, settings=V6_POLICY)
     assert not p_small_move["executable"] and "日内相对开盘推进不足1.00%" in p_small_move["execution_reason"]
 
     # 9. Missing rank key yields missing-data reason (never formats "None").
     r_none_rank = deepcopy(r_ok)
     r_none_rank["pool_rank_context"]["long_rank"] = None
     r_none_rank["pool_rank_context"]["short_rank"] = None
-    p_none_rank = plan(b_mid, r_none_rank, price, now, now)
+    p_none_rank = plan(b_mid, r_none_rank, price, now, now, settings=V6_POLICY)
     assert not p_none_rank["executable"] and "None" not in p_none_rank["execution_reason"]
 
     # 10. min_open_move alone still respects market_context evidence_at quote floor.
-    open_only_cfg = StartPolicy(require_vwap=False, require_spy_alignment=False, pool_leader_top_k=0)
+    open_only_cfg = replace(
+        V6_POLICY, require_vwap=False, require_spy_alignment=False, pool_leader_top_k=0
+    )
     r_late_mkt = deepcopy(r_ok)
     r_late_mkt["market_context"]["evidence_at"] = (now + timedelta(seconds=8)).isoformat()
     p_late_mkt = plan(b_mid, r_late_mkt, price, now + timedelta(seconds=10), now, settings=open_only_cfg)
@@ -413,25 +434,30 @@ def test_v6_max_one_entry_per_symbol_per_day_and_next_day_reset():
         )
         return r
 
-    # Trade 1 at 10:00 NY (15:00 UTC), then closes at stop.
-    t0 = NOW - timedelta(minutes=60)
-    state, _ = transition({}, "NVDA.US", fresh_result(t0, "1", 1), quote(t0, 100.5), t0)
+    # Trade 1 at 09:40 NY (14:40 UTC), then closes at stop.
+    t0 = NOW - timedelta(minutes=5)
+    state, _ = transition({}, "NVDA.US", fresh_result(t0, "1", 1), quote(t0, 100.5), t0, settings=V6_POLICY)
     assert state["daily_entry_count"] == 1
     t_stop = t0 + timedelta(minutes=2)
-    state, events = transition(state, "NVDA.US", fresh_result(t_stop, "1", 1), quote(t_stop, 98.5), t_stop)
+    state, events = transition(
+        state, "NVDA.US", fresh_result(t_stop, "1", 1), quote(t_stop, 98.5), t_stop, settings=V6_POLICY
+    )
     assert not state["position"] and next(e["trade"] for e in events if e["kind"] == "exit")["return_pct"] < 0
 
-    # Even 70 minutes later (past cooldown), 2nd entry is blocked by V6 max_daily_entries=1!
+    # Even 70 minutes later (past cooldown), 2nd entry is blocked by max_daily_entries=1!
     t_later = t_stop + timedelta(minutes=70)
     state, _ = transition(
-        json.loads(json.dumps(state)), "NVDA.US", fresh_result(t_later, "2", -1), quote(t_later, 99.5), t_later
+        json.loads(json.dumps(state)), "NVDA.US", fresh_result(t_later, "2", -1), quote(t_later, 99.5), t_later,
+        settings=V6_POLICY,
     )
     assert not state["position"] and "最大开仓次数上限（1笔）" in state["plans"][0]["execution_reason"]
     assert state["plans"][0]["opportunity_valid"]
 
     # Next trading day resets daily entry count and cooldowns.
     next_day = t0 + timedelta(days=1)
-    state, _ = transition(state, "NVDA.US", fresh_result(next_day, "3", 1), quote(next_day, 100.5), next_day)
+    state, _ = transition(
+        state, "NVDA.US", fresh_result(next_day, "3", 1), quote(next_day, 100.5), next_day, settings=V6_POLICY
+    )
     assert state["position"] and state["daily_entry_count"] == 1
 
 

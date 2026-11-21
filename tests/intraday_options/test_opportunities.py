@@ -130,9 +130,11 @@ def test_price_scale_invariance_and_replay_determinism():
     scaled = [
         replace(b, **{field: getattr(b, field) * 100 for field in ("open", "high", "low", "close")}) for b in bars
     ]
-    a, b = score(bars)["opportunities"], score(scaled)["opportunities"]
+    now = max(b.bar_time for b in bars) + timedelta(minutes=1)
+    a = calculate("SPY.US", bars, now, settings=BOX_CFG)["opportunities"]
+    b = calculate("SPY.US", scaled, now, settings=BOX_CFG)["opportunities"]
     assert a["primary"]["quality_score"] == pytest.approx(b["primary"]["quality_score"])
-    assert a == score(bars)["opportunities"]
+    assert a == calculate("SPY.US", bars, now, settings=BOX_CFG)["opportunities"]
 
 
 def test_rolling_replay_preserves_process_levels_dates_and_first_confirmation():

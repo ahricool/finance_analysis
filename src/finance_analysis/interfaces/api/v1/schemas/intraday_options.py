@@ -100,6 +100,7 @@ class OpportunityBranch(BaseModel):
     max_risk_atr: float | None = None
     superseded_by: str | None = None
     breakout_rejection: str | None = None
+    opening_drive: bool | None = None
     direction: Literal["bullish", "bearish"]
     status: Literal["forming", "confirmed", "extended", "invalidated", "expired"]
     structure_id: str

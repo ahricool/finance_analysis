@@ -31,7 +31,7 @@ export interface OpportunityBranch {
   triggeredAt?: string | null; structureStart?: string | null; structureEnd?: string | null;
   structureHigh?: number | null; structureLow?: number | null;
   atrSource?: string | null; atrSamples?: number | null; ruleVersion?: string | null;
-  supersededBy?: string | null; breakoutRejection?: string | null;
+  supersededBy?: string | null; breakoutRejection?: string | null; openingDrive?: boolean | null;
   direction: 'bullish' | 'bearish'; status: 'forming' | 'confirmed' | 'extended' | 'invalidated' | 'expired';
   structureId: string; trigger: number; invalidation: number; atr: number;
   formationStart: string; startedAt: string; confirmedAt: string | null; expiresAt: string;

@@ -102,7 +102,11 @@ def advance(branch, history, settings=None):
     ) * side < 0:
         branch.update(status="invalidated", reasons=["触及固定失效位，原机会不再恢复"])
         return
-    threshold = rule.confirm_atr
+    threshold = (
+        0.20
+        if branch["kind"] == "opening_breakout" and not branch.get("opening_drive")
+        else rule.confirm_atr
+    )
     pair = history[-2:]
     restored = (
         len(pair) == 2
@@ -124,6 +128,9 @@ def advance(branch, history, settings=None):
     if branch["kind"] == "pivot_breakout":
         restored = observed(bar) and distance > threshold
         method, wait_reason = "level_close", "等待真实分钟收盘越过冻结关键位"
+    elif branch["kind"] == "opening_breakout" and branch.get("opening_drive"):
+        restored = observed(bar) and distance > threshold
+        method, wait_reason = "level_close", "等待开盘纯净驱动闭合K确认"
     elif branch["kind"] in ("opening_breakout", "midday_wave_breakout"):
         cfg = settings or policy()
         span = float(bar.high - bar.low)
@@ -360,10 +367,14 @@ def start_branches(ordered, opening, settings, snapshots=None):
         kind, side = level["kind"], level["side"]
         branch = new_branch(kind, side, level["trigger"], level["atr"], bar, level["structure_start"], settings.structure_quality)
         identity = level["identity"]
-        branch.update(structure_id=identity, process_id=identity, structure_start=level["structure_start"].isoformat(),
+        process_id = level.get("process_id", identity)
+        branch.update(structure_id=identity, process_id=process_id, structure_start=level["structure_start"].isoformat(),
                       structure_end=level["frozen"].isoformat(), formation_available_at=level["available"].isoformat(),
                       execution_floor=level["last_receipt"].isoformat(),
                       atr_samples=level["atr_samples"], atr_source="observed_adjacent_true_ranges")
+        if level.get("opening_drive"):
+            branch["opening_drive"] = True
+            branch["expires_at"] = level["until"].isoformat()
         branch["triggered_at"] = branch["started_at"]
         if level["width"] is not None:
             edge = level["trigger"] - side * level["width"]

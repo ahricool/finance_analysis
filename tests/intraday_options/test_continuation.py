@@ -22,6 +22,7 @@ CONT_CFG = StartPolicy(
     box_enabled=True,
     opening_enabled=False,
     midday_wave_enabled=False,
+    entry_window_minutes=150,
     minimum_risk_return=0.0,
     maximum_risk_return=0.0,
     min_open_move=0.0,

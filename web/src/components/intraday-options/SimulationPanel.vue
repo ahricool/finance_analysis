@@ -185,7 +185,7 @@ function historyValue(t: SimTrade, key: string) {
       <span class="flex items-center gap-2"><span
         class="size-1.5 rounded-full"
         :class="disconnected ? 'bg-destructive' : 'bg-foreground/60'"
-      />{{ disconnected ? '连接中断，仅显示历史状态' : entryPaused ? '信号暂停 · 非交易窗口不产生新信号或行情告警' : '后台持续监测 · 每 5 秒更新' }}</span>
+      />{{ disconnected ? '连接中断，仅显示历史状态' : entryPaused ? '停止新进场 · 未平仓标的继续监测报价' : '后台持续监测 · 每 5 秒更新' }}</span>
       <span>快照 {{ clock(snapshot.generatedAt) }} · 时间均为纽约</span>
     </div>
 
@@ -256,7 +256,7 @@ function historyValue(t: SimTrade, key: string) {
         </template>
       </SimulationTable>
       <p class="border-b px-5 py-3 text-xs leading-relaxed text-muted-foreground">
-        下一步：监测保护位（1.5R 保本 / 2.5R 起 45 分钟结构跟踪）、90 分钟水下滞涨退出及收盘前清仓。单标的每日最多 1 笔；估值使用最后有效价格，行情异常时保留价格时间。
+        下一步：监测保护位（-2.5% 宏观止损 / 浮盈 +2.0% 锁盈 +0.2%）、+3.5% 波段止盈目标及收盘前清仓。单标的每日最多 1 笔；估值使用最后有效价格，行情异常时保留价格时间。
       </p>
     </section>
 

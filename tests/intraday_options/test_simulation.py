@@ -8,7 +8,7 @@ from finance_analysis.intraday_options.rules import StartPolicy
 from finance_analysis.intraday_options.simulation import transition, statistics
 from finance_analysis.market_stream.session import session_bounds
 
-NOW = datetime(2026, 11, 17, 16, 0, tzinfo=timezone.utc)
+NOW = datetime(2026, 11, 17, 14, 45, tzinfo=timezone.utc)
 
 
 def quote(now=NOW, price=100.5):
@@ -76,16 +76,16 @@ def test_live_price_outside_entry_zone(price):
 @pytest.mark.parametrize(
     "day,entry_hour,entry_min,exit_hour,exit_min",
     [
-        ("2026-11-27", 16, 30, 17, 50),
-        ("2025-07-03", 15, 30, 16, 50),
-        ("2026-11-17", 17, 0, 20, 50),
-        ("2026-06-17", 16, 0, 19, 50),
+        ("2026-11-27", 15, 0, 17, 50),
+        ("2025-07-03", 14, 0, 16, 50),
+        ("2026-11-17", 15, 0, 20, 50),
+        ("2026-06-17", 14, 0, 19, 50),
     ],
 )
 def test_calendar_cutoff_and_restart_outage_exit(day, entry_hour, entry_min, exit_hour, exit_min):
     day = datetime.fromisoformat(day).date()
     bounds = session_bounds("US", day)
-    entry_cutoff = min(bounds[0] + timedelta(minutes=150), bounds[1] - timedelta(minutes=90))
+    entry_cutoff = min(bounds[0] + timedelta(minutes=30), bounds[1] - timedelta(minutes=90))
     exit_cutoff = bounds[1] - timedelta(minutes=10)
     assert (entry_cutoff.hour, entry_cutoff.minute) == (entry_hour, entry_min)
     assert (exit_cutoff.hour, exit_cutoff.minute) == (exit_hour, exit_min)
@@ -207,7 +207,7 @@ def test_held_opportunity_validity_degrades_independently(failure):
 @pytest.mark.parametrize("scenario", ["normal", "late_recovery", "stale_price", "interrupted"])
 def test_cutoff_classifies_actual_price_and_processing_continuity(day, scenario):
     bounds = session_bounds("US", datetime.fromisoformat(day).date())
-    entry_cutoff = min(bounds[0] + timedelta(minutes=150), bounds[1] - timedelta(minutes=90))
+    entry_cutoff = min(bounds[0] + timedelta(minutes=30), bounds[1] - timedelta(minutes=90))
     exit_cutoff = bounds[1] - timedelta(minutes=10)
     open_at = entry_cutoff - timedelta(minutes=1)
     state, _ = transition({}, "SPY.US", result(open_at), quote(open_at, 100.5), open_at)
@@ -236,6 +236,7 @@ def test_cutoff_classifies_actual_price_and_processing_continuity(day, scenario)
     [
         ("2026-11-17T11:00:00+00:00", "preopen"),
         ("2026-11-17T14:29:59+00:00", "preopen"),
+        ("2026-11-17T15:00:00+00:00", "stopped"),
         ("2026-11-17T17:00:00+00:00", "stopped"),
         ("2026-11-17T19:30:00+00:00", "stopped"),
         ("2026-11-17T21:00:00+00:00", "closed"),

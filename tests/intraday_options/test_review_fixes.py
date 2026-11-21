@@ -136,7 +136,11 @@ def test_executed_valid_branch_drives_api_ranking_not_highest_shape(side, monkey
 
 
 @pytest.mark.parametrize('reverse', [False, True])
-def test_ranking_prefers_actual_entry_then_uses_stable_quality_order(reverse):
+def test_ranking_prefers_actual_entry_then_uses_stable_quality_order(reverse, monkeypatch):
+    from finance_analysis.intraday_options import simulation
+
+    # Exercise the second admission on a deliberately two-entry configuration.
+    monkeypatch.setattr(simulation, "CONFIG", replace(simulation.CONFIG, max_daily_entries=2))
     r, b, now = multi_branch_result()
     a = {**deepcopy(b), 'structure_id': 'A', 'process_id': 'already_traded', 'quality_score': 99}
     r['opportunities'].update(primary=a, branches=[a, b] if reverse else [b, a])

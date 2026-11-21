@@ -22,7 +22,7 @@ class ExecutionConfig:
     trail_after_r: float = 2.5
     trail_giveback_r: float = 1.2
     trail_bars: int = 45
-    entry_window_minutes: int = 150
+    entry_window_minutes: int = 30
     min_entry_before_close_minutes: int = 90
     exit_stop_before_close_minutes: int = 10
     max_daily_entries: int = 1
@@ -107,7 +107,15 @@ def entry_quote_floor(branch, previous_plan, minute_as_of):
         and not previous_plan.get("superseded_by")
         and previous_plan.get("entry_quote_not_before")
         and branch.get("confirmation_run_available_at")
-        and all(previous_plan.get(k) == branch.get(k) for k in ("confirmed_at", "trigger", "invalidation", "atr"))
+        and all(
+            (
+                previous_plan.get("structure_invalidation", previous_plan.get("invalidation"))
+                if k == "invalidation"
+                else previous_plan.get(k)
+            )
+            == branch.get(k)
+            for k in ("confirmed_at", "trigger", "invalidation", "atr")
+        )
     ):
         # A tick can miss both the original and its correction. A post-close version
         # of a minute we never observed cannot prove continuity before its receipt.
@@ -146,7 +154,7 @@ def target_space(price, invalidation, target, side, required, settings):
 
 
 def _context_rejection(kind, side, result, cfg):
-    """Check causal VWAP, open-move, SPY alignment, relative-strength, and pool leader rank gates."""
+    """Check causal VWAP, open-move, opening efficiency, SPY alignment, RS, leader rank, and breadth gates."""
     market_context = result.get("market_context")
     has_market_context = "market_context" in result
     spy_context = result.get("spy_context")
@@ -173,6 +181,16 @@ def _context_rejection(kind, side, result, cfg):
         ):
             return f"日内相对开盘推进不足{cfg.min_open_move * 100:.2f}%，过滤窄幅波动"
 
+    if kind == "opening_breakout" and cfg.opening_min_efficiency > 0 and has_market_context:
+        open_eff = (market_context or {}).get("open_efficiency")
+        if open_eff is None:
+            return "缺少连续开盘路径效率基准数据，暂不进场"
+        if open_eff < cfg.opening_min_efficiency and not math.isclose(
+            open_eff, cfg.opening_min_efficiency, rel_tol=1e-10
+        ):
+            return f"开盘路径效率不足{cfg.opening_min_efficiency * 100:.0f}%，过滤锯齿震荡"
+
+    spy_open_dir = None
     if needs_spy and has_spy_context:
         if not spy_context or spy_context.get("vwap") is None or spy_context.get("as_of") is None:
             return "缺少同期SPY基准数据，暂不进场"
@@ -180,9 +198,11 @@ def _context_rejection(kind, side, result, cfg):
             return "SPY基准分钟数据未对齐，暂不进场"
         if (spy_context["last_close"] - spy_context["vwap"]) * side <= 0:
             return "SPY大盘未位于当日VWAP顺向侧"
+        spy_open = spy_context.get("open_return")
+        if spy_open is not None:
+            spy_open_dir = spy_open * side
         if cfg.min_relative_strength > 0 and result.get("symbol") != "SPY.US":
             sym_open = (market_context or {}).get("open_return")
-            spy_open = spy_context.get("open_return")
             rs_open = (sym_open - spy_open) * side if sym_open is not None and spy_open is not None else None
             if kind == "opening_breakout":
                 rel = rs_open
@@ -207,6 +227,48 @@ def _context_rejection(kind, side, result, cfg):
             return "缺少观察池横向强弱排名数据，暂不进场"
         if rank > cfg.pool_leader_top_k:
             return f"横向强弱排名第{rank}位（需前{cfg.pool_leader_top_k}龙头），过滤非主浪标的"
+
+    if needs_leader and (cfg.min_spy_open_move > 0 or cfg.min_pool_breadth > 0) and (has_spy_context or has_pool_rank):
+        spy_aligned = bool(
+            spy_context
+            and spy_context.get("as_of") is not None
+            and (
+                not result.get("as_of")
+                or abs((dt(result["as_of"]) - dt(spy_context["as_of"])).total_seconds()) <= 120
+            )
+        )
+        if spy_open_dir is None and spy_aligned and spy_context.get("open_return") is not None:
+            spy_open_dir = spy_context["open_return"] * side
+        pool_aligned = bool(
+            pool_rank
+            and pool_rank.get("as_of") is not None
+            and (
+                not result.get("as_of")
+                or abs((dt(result["as_of"]) - dt(pool_rank["as_of"])).total_seconds()) <= 120
+            )
+        )
+        breadth = pool_rank.get("breadth_up" if side == 1 else "breadth_down") if pool_aligned else None
+        spy_ok = (
+            cfg.min_spy_open_move > 0
+            and spy_aligned
+            and spy_open_dir is not None
+            and (
+                spy_open_dir >= cfg.min_spy_open_move
+                or math.isclose(spy_open_dir, cfg.min_spy_open_move, rel_tol=1e-10)
+            )
+        )
+        breadth_ok = (
+            cfg.min_pool_breadth > 0
+            and breadth is not None
+            and (breadth >= cfg.min_pool_breadth or math.isclose(breadth, cfg.min_pool_breadth, rel_tol=1e-10))
+        )
+        if not (spy_ok or breadth_ok):
+            parts = []
+            if cfg.min_spy_open_move > 0:
+                parts.append(f"SPY顺向≥{cfg.min_spy_open_move * 100:.2f}%")
+            if cfg.min_pool_breadth > 0:
+                parts.append(f"全池广度≥{cfg.min_pool_breadth * 100:.0f}%")
+            return f"大盘共振不足（需{'或'.join(parts)}）"
     return None
 
 
@@ -217,9 +279,18 @@ def plan(branch, result, price, now, quote_time=None, previous_plan=None, settin
     rule = RULES[kind]
     interval = entry_interval(branch)
     needs_vwap = cfg.require_vwap and kind in ("opening_breakout", "midday_wave_breakout", "box_breakout")
-    needs_spy = cfg.require_spy_alignment and kind in ("opening_breakout", "midday_wave_breakout")
-    needs_open_move = cfg.min_open_move > 0 and kind in ("opening_breakout", "midday_wave_breakout")
-    needs_pool_rank = cfg.pool_leader_top_k > 0 and kind in ("opening_breakout", "midday_wave_breakout")
+    needs_spy = (
+        (cfg.require_spy_alignment or cfg.min_spy_open_move > 0)
+        and kind in ("opening_breakout", "midday_wave_breakout")
+    )
+    needs_open_move = (
+        (cfg.min_open_move > 0 or (kind == "opening_breakout" and cfg.opening_min_efficiency > 0))
+        and kind in ("opening_breakout", "midday_wave_breakout")
+    )
+    needs_pool_rank = (
+        (cfg.pool_leader_top_k > 0 or cfg.min_pool_breadth > 0)
+        and kind in ("opening_breakout", "midday_wave_breakout")
+    )
     quote_floor = entry_quote_floor(branch, previous_plan, result.get("as_of"))
     if quote_floor and cfg.use_pivot_target and result.get("target_evidence_at"):
         quote_floor = max(quote_floor, dt(result["target_evidence_at"]))
@@ -235,6 +306,12 @@ def plan(branch, result, price, now, quote_time=None, previous_plan=None, settin
         quote_floor = max(quote_floor, dt(pool_rank["evidence_at"]))
 
     previous_plan = previous_plan or {}
+    fixed_wave = not cfg.use_pivot_target and kind in START_KINDS and (cfg.stop_loss_pct > 0 or cfg.take_profit_pct > 0)
+    exec_invalidation = (
+        price * (1.0 - side * cfg.stop_loss_pct)
+        if fixed_wave and cfg.stop_loss_pct > 0 and price is not None
+        else branch.get("invalidation")
+    )
     if cfg.use_pivot_target:
         # Confirmed pivots are raw intraday prices, the same basis as execution quotes.
         candidates = [
@@ -266,11 +343,15 @@ def plan(branch, result, price, now, quote_time=None, previous_plan=None, settin
         if locked is not None and (target is None or (target - locked) * side >= 0):
             target, source = locked, lock_source
         required = kind in START_KINDS or kind.startswith("box")
+    elif fixed_wave and cfg.take_profit_pct > 0:
+        target = price * (1.0 + side * cfg.take_profit_pct) if price is not None else None
+        source = f"V7波段止盈(+{cfg.take_profit_pct * 100:.1f}%)"
+        locked, lock_source, exhausted, required = None, None, False, False
     else:
         target, source = None, "移动止损跟踪"
         locked, lock_source, exhausted, required = None, None, False, False
 
-    economics = target_space(price, branch.get("invalidation"), target, side, required, cfg)
+    economics = target_space(price, exec_invalidation, target, side, required, cfg)
     context_reason = _context_rejection(kind, side, result, cfg)
     reason = "可以模拟进场"
     if branch.get("superseded_by"):
@@ -291,9 +372,13 @@ def plan(branch, result, price, now, quote_time=None, previous_plan=None, settin
                   else "等待确认后的有效报价")
     elif economics["initial_risk"] is None or economics["initial_risk"] <= 0:
         reason = economics["space_rejections"][0]
-    elif not interval[0] <= price <= interval[1]:
+    elif not (
+        (interval[0] < price <= interval[1] if side == 1 else interval[0] <= price < interval[1])
+        if rule.confirm_atr == 0
+        else interval[0] <= price <= interval[1]
+    ):
         reason = "形态已确认，当前报价不在冻结执行区间（不补记触发价成交）"
-    elif rule.max_risk_atr is not None and (price - branch["invalidation"]) * side > rule.max_risk_atr * branch["atr"]:
+    elif rule.max_risk_atr is not None and (price - exec_invalidation) * side > rule.max_risk_atr * branch["atr"]:
         reason = f"当前报价到结构失效位超过{rule.max_risk_atr:g} ATR，风险距离过大"
     elif (
         cfg.minimum_risk_return > 0
@@ -322,6 +407,8 @@ def plan(branch, result, price, now, quote_time=None, previous_plan=None, settin
     return {
         **deepcopy(branch),
         "process_id": branch.get("process_id", branch["structure_id"]),
+        "invalidation": exec_invalidation,
+        "structure_invalidation": branch.get("invalidation"),
         "entry_low": interval[0],
         "entry_high": interval[1],
         "target": target,
@@ -368,6 +455,7 @@ def consumed_structure(item, window):
 
 
 def transition(previous, symbol, result, quote, now, settings=None):
+    cfg = settings or policy()
     state = deepcopy(previous or {})
     previous_calculation = dt(state.get("calculated_at"))
     previous_healthy = state.get("healthy", False)
@@ -376,7 +464,7 @@ def transition(previous, symbol, result, quote, now, settings=None):
     bounds = session_bounds("US", day)
     entry_cutoff = (
         min(
-            bounds[0] + timedelta(minutes=CONFIG.entry_window_minutes),
+            bounds[0] + timedelta(minutes=cfg.entry_window_minutes),
             bounds[1] - timedelta(minutes=CONFIG.min_entry_before_close_minutes),
         )
         if bounds
@@ -425,91 +513,124 @@ def transition(previous, symbol, result, quote, now, settings=None):
             state["confirmations"], state["used_processes"], state["consumed_windows"] = {}, [], []
     state["trading_date"] = day.isoformat()
     healthy = price is not None
-    state["data_issue"] = quote_issue(quote, now) if phase == "active" else None
-    monitor_data(state, phase == "active", state["data_issue"], quote, now, event)
+    monitor_quotes = phase == "active" or (
+        phase == "stopped" and position is not None and now < dt(position["cutoff"])
+    )
+    state["data_issue"] = quote_issue(quote, now) if monitor_quotes else None
+    monitor_data(state, monitor_quotes, state["data_issue"], quote, now, event)
     state["healthy"] = healthy
     if position:
         side = position["side"]
         due = now >= dt(position["cutoff"])
-        # Never substitute next-day or post-cutoff quotes for a missed planned exit.
-        usable = price is not None and quote.event_time <= dt(position["cutoff"])
+        # Never substitute next-day, out-of-order, or post-cutoff quotes for a missed planned exit.
+        usable = price is not None and dt(position["last_price_at"]) <= quote.event_time <= dt(position["cutoff"])
         if usable:
             position.update(last_price=price, last_price_at=quote.event_time.isoformat())
         exit_price = position["last_price"] if due else price
         reason = None
         if due:
             reason = "当日收盘前清仓"
-        elif price is not None:
+        elif usable:
             risk = abs(position["entry_price"] - position["invalidation"])
             gain = side * (price - position["entry_price"])
             position["peak_gain"] = max(position["peak_gain"], gain)
-            if side * (price - position["protection"]) <= 0:
-                reason = "移动止损或保护位触及" if position.get("protection_active") else "结构失效或保护位触及"
-            elif position["target"] is not None and side * (price - position["target"]) >= 0:
-                reason = "到达目标"
-            elif (
-                now - dt(position["entry_at"]) >= timedelta(minutes=CONFIG.no_progress_minutes)
-                and (gain <= 0 if CONFIG.no_progress_underwater_only else gain < risk * CONFIG.minimum_progress_r)
-            ):
-                reason = (
-                    f"{CONFIG.no_progress_minutes}分钟水下滞涨退出"
-                    if CONFIG.no_progress_underwater_only
-                    else "持有超时且未有效推进"
-                )
-            elif risk > 0:
-                candidate = None
-                stage = None
-                if position["peak_gain"] >= CONFIG.trail_after_r * risk:
-                    giveback_level = position["entry_price"] + side * (
-                        position["peak_gain"] - CONFIG.trail_giveback_r * risk
-                    )
-                    recent = [
-                        b
-                        for b in (result or {}).get("recent_bars", [])
-                        if result
-                        and result.get("trading_date") == position.get("trading_date")
-                        and dt(b["close_at"]) > dt(position["entry_at"])
-                    ][-CONFIG.trail_bars:]
-                    if recent:
-                        struct_level = (
-                            min(b["low"] for b in recent) if side == 1 else max(b["high"] for b in recent)
-                        )
-                        candidate = (
-                            min(struct_level, giveback_level) if side == 1 else max(struct_level, giveback_level)
-                        )
-                        candidate = (
-                            max(position["entry_price"], candidate)
-                            if side == 1
-                            else min(position["entry_price"], candidate)
-                        )
-                    else:
-                        candidate = giveback_level
-                    stage = "trailing"
-                elif position["peak_gain"] >= CONFIG.breakeven_after_r * risk:
-                    candidate = position["entry_price"]
-                    stage = "breakeven"
-                if candidate is not None and side * (candidate - position["protection"]) > 0:
-                    position["protection"] = candidate
-                    if stage == "trailing" and position.get("protection_stage") != "trailing":
-                        position["protection_active"] = True
-                        position["protection_stage"] = "trailing"
-                        event(
-                            "hold",
-                            f"浮盈已达{CONFIG.trail_after_r:g}R，启动{CONFIG.trail_bars}分钟结构移动止损",
-                            trade_id=position["id"],
-                            side=side,
-                        )
-                    elif stage == "breakeven" and not position.get("protection_active"):
-                        position["protection_active"] = True
-                        position["protection_stage"] = "breakeven"
-                        event(
-                            "hold",
-                            f"浮盈已达{CONFIG.breakeven_after_r:g}R，保护位上移至成本价",
-                            trade_id=position["id"],
-                            side=side,
-                        )
+            if position.get("exit_policy") == "v7_fixed_wave":
                 if side * (price - position["protection"]) <= 0:
-                    reason = "浮盈回撤保护"
+                    reason = "保本锁盈保护触及" if position.get("protection_active") else "宏观止损触及"
+                elif position["target"] is not None and side * (price - position["target"]) >= 0:
+                    reason = "到达波段止盈目标"
+                else:
+                    trigger_pct = float(position.get("profit_lock_trigger_pct") or 0.0)
+                    lock_pct = float(position.get("profit_lock_level_pct") or 0.0)
+                    if trigger_pct > 0 and position["entry_price"] > 0:
+                        peak_pct = position["peak_gain"] / position["entry_price"]
+                        if peak_pct >= trigger_pct or math.isclose(peak_pct, trigger_pct, rel_tol=1e-10):
+                            candidate = position["entry_price"] * (1.0 + side * lock_pct)
+                            if side * (candidate - position["protection"]) > 0:
+                                position["protection"] = candidate
+                                if not position.get("protection_active"):
+                                    position["protection_active"] = True
+                                    position["protection_stage"] = "profit_lock"
+                                    lock_label = "成本价保本" if lock_pct == 0 else f"+{lock_pct * 100:.2f}%锁盈"
+                                    event(
+                                        "hold",
+                                        f"浮盈已达{trigger_pct * 100:.1f}%，保护位上移至{lock_label}",
+                                        trade_id=position["id"],
+                                        side=side,
+                                    )
+                        if side * (price - position["protection"]) <= 0:
+                            reason = "保本锁盈保护触及"
+            else:
+                if side * (price - position["protection"]) <= 0:
+                    reason = "移动止损或保护位触及" if position.get("protection_active") else "结构失效或保护位触及"
+                elif position["target"] is not None and side * (price - position["target"]) >= 0:
+                    reason = "到达目标"
+                elif (
+                    now - dt(position["entry_at"]) >= timedelta(minutes=CONFIG.no_progress_minutes)
+                    and (gain <= 0 if CONFIG.no_progress_underwater_only else gain < risk * CONFIG.minimum_progress_r)
+                ):
+                    reason = (
+                        f"{CONFIG.no_progress_minutes}分钟水下滞涨退出"
+                        if CONFIG.no_progress_underwater_only
+                        else "持有超时且未有效推进"
+                    )
+                elif risk > 0:
+                    candidate = None
+                    stage = None
+                    if position["peak_gain"] >= CONFIG.trail_after_r * risk:
+                        giveback_level = position["entry_price"] + side * (
+                            position["peak_gain"] - CONFIG.trail_giveback_r * risk
+                        )
+                        recent = [
+                            b
+                            for b in (result or {}).get("recent_bars", [])
+                            if result
+                            and result.get("trading_date") == position.get("trading_date")
+                            and dt(b["close_at"]) > dt(position["entry_at"])
+                        ][-CONFIG.trail_bars:]
+                        if recent:
+                            struct_level = (
+                                min(b["low"] for b in recent) if side == 1 else max(b["high"] for b in recent)
+                            )
+                            candidate = (
+                                min(struct_level, giveback_level) if side == 1 else max(struct_level, giveback_level)
+                            )
+                            candidate = (
+                                max(position["entry_price"], candidate)
+                                if side == 1
+                                else min(position["entry_price"], candidate)
+                            )
+                        else:
+                            candidate = giveback_level
+                        stage = "trailing"
+                    elif position["peak_gain"] >= CONFIG.breakeven_after_r * risk:
+                        candidate = position["entry_price"]
+                        stage = "breakeven"
+                    # A revised or excluded bar can tighten the structure stop after the latest quote.
+                    evidence = (result or {}).get("target_evidence_at") if stage == "trailing" else None
+                    observed_stop = evidence is None or quote.event_time >= dt(evidence)
+                    if candidate is not None and observed_stop and side * (candidate - position["protection"]) > 0:
+                        position["protection"] = candidate
+                        if stage == "trailing" and position.get("protection_stage") != "trailing":
+                            position["protection_active"] = True
+                            position["protection_stage"] = "trailing"
+                            event(
+                                "hold",
+                                f"浮盈已达{CONFIG.trail_after_r:g}R，启动{CONFIG.trail_bars}分钟结构移动止损",
+                                trade_id=position["id"],
+                                side=side,
+                            )
+                        elif stage == "breakeven" and not position.get("protection_active"):
+                            position["protection_active"] = True
+                            position["protection_stage"] = "breakeven"
+                            event(
+                                "hold",
+                                f"浮盈已达{CONFIG.breakeven_after_r:g}R，保护位上移至成本价",
+                                trade_id=position["id"],
+                                side=side,
+                            )
+                    if side * (price - position["protection"]) <= 0:
+                        reason = "浮盈回撤保护"
         if reason:
             estimated = due and (
                 not previous_healthy
@@ -565,14 +686,21 @@ def transition(previous, symbol, result, quote, now, settings=None):
     state["start_levels"] = frozen_levels
     for item in plans:
         identity = item["structure_id"]
-        if identity not in frozen_levels:
-            continue
-        original = frozen_levels[identity]
-        current = opportunities.get("start_levels", {}).get(identity, {})
-        if any(original.get(k) != current.get(k) for k in ("atr", "width", "trigger")):
-            item.update(executable=False, execution_reason="历史修订改变已冻结结构，等待独立新机会")
-        elif original.setdefault("first_break", item["started_at"]) != item["started_at"]:
-            item.update(executable=False, execution_reason="历史修订改变首次突破时刻，原过程不延长")
+        if identity in frozen_levels:
+            original = frozen_levels[identity]
+            current = opportunities.get("start_levels", {}).get(identity, {})
+            if any(original.get(k) != current.get(k) for k in ("atr", "width", "trigger")):
+                item.update(executable=False, execution_reason="历史修订改变已冻结结构，等待独立新机会")
+            elif original.setdefault("first_break", item["started_at"]) != item["started_at"]:
+                item.update(executable=False, execution_reason="历史修订改变首次突破时刻，原过程不延长")
+        elif item.get("opening_drive"):
+            side_dir = 1 if item["direction"] == "bullish" else -1
+            range_key = f"opening_range:{side_dir}:{item.get('formation_start')}"
+            if range_key in frozen_levels:
+                original = frozen_levels[range_key]
+                current = opportunities.get("start_levels", {}).get(range_key, {})
+                if any(original.get(k) != current.get(k) for k in ("atr", "width", "trigger")):
+                    item.update(executable=False, execution_reason="历史修订改变已冻结结构，等待独立新机会")
     state["plans"] = plans
     data_ok = bool(
         result
@@ -595,11 +723,17 @@ def transition(previous, symbol, result, quote, now, settings=None):
             and bounds[0] <= dt(item["confirmed_at"]) <= now
             and item["structure_id"] not in evidence
         ):
+            already_confirmed_process = bool(
+                item.get("opening_drive")
+                and any(v.get("process_id") == item["process_id"] for v in evidence.values())
+            )
             evidence[item["structure_id"]] = deepcopy(item)
-            event("confirmed", "首次观察到形态确认", evidence=deepcopy(item))
+            if not already_confirmed_process:
+                event("confirmed", "首次观察到形态确认", evidence=deepcopy(item))
     used = state.setdefault("used_processes", [])
     windows = state.setdefault("consumed_windows", [])
-    daily_entries = int(state.get("daily_entry_count") or 0)
+    # V4 persisted one consumed process per fill but had no daily counter.
+    daily_entries = int(state.setdefault("daily_entry_count", len(used)) or 0)
     last_exit = dt(state.get("last_exit_at"))
     last_stop_map = state.get("last_stop_by_side") or {}
     for item in plans:
@@ -679,6 +813,16 @@ def transition(previous, symbol, result, quote, now, settings=None):
                 last_price_at=quote.event_time.isoformat(),
                 return_pct=0,
             )
+            if not cfg.use_pivot_target and chosen["kind"] in START_KINDS and (
+                cfg.stop_loss_pct > 0 or cfg.take_profit_pct > 0
+            ):
+                position.update(
+                    exit_policy="v7_fixed_wave",
+                    stop_loss_pct=cfg.stop_loss_pct,
+                    take_profit_pct=cfg.take_profit_pct,
+                    profit_lock_trigger_pct=cfg.profit_lock_trigger_pct,
+                    profit_lock_level_pct=cfg.profit_lock_level_pct,
+                )
             state["position"] = position
             state["daily_entry_count"] = daily_entries + 1
             state["entered_opportunity_id"] = chosen["structure_id"]

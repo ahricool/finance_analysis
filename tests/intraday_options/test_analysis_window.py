@@ -30,7 +30,14 @@ def test_fourteen_is_warming_fifteen_can_judge_direction_with_longer_reference_w
     assert data_status(ready, START + timedelta(minutes=15), START.date(), "open") == "ready"
 
 
-BOX_CFG = StartPolicy(box_enabled=True, opening_enabled=False, midday_wave_enabled=False, minimum_risk_return=0.0, maximum_risk_return=0.0)
+BOX_CFG = StartPolicy(
+    box_enabled=True,
+    opening_enabled=False,
+    midday_wave_enabled=False,
+    entry_window_minutes=150,
+    minimum_risk_return=0.0,
+    maximum_risk_return=0.0,
+)
 
 
 @pytest.mark.parametrize("side", [1, -1])
@@ -111,7 +118,7 @@ def test_filled_input_evidence_freezes_across_history_repair_and_cannot_bypass_l
     assert not state.get("position")
     state, _ = transition({}, "SPY.US", result, quote(now, price), now, settings=BOX_CFG)
     frozen = deepcopy(state["position"])
-    assert frozen["version"] == "underlying_sim_v6"
+    assert frozen["version"] == "underlying_sim_v7"
     assert frozen["entry_evidence"]["analysis_coverage"]["filled_bars"] == 1
     repaired = calculate("SPY.US", bars, now + timedelta(seconds=5), settings=BOX_CFG)
     state, events = transition(state, "SPY.US", repaired, quote(now + timedelta(seconds=5), price),
