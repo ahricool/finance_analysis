@@ -1,6 +1,6 @@
 import { flushPromises, mount } from '@vue/test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { CandleStyle, CandleTooltipLegendsCustomCallback, DataLoader, KLineData } from 'klinecharts';
+import type { CandleStyle, CandleTooltipLegendsCustomCallback, DataLoader, KLineData, OverlayCreate } from 'klinecharts';
 import MarketKLineChart from '../MarketKLineChart.vue';
 import { useTheme } from '@/composables/useTheme';
 import { fetchMinuteForecast } from '@/api/minuteForecast';
@@ -8,7 +8,7 @@ import { fetchMinuteForecast } from '@/api/minuteForecast';
 const chart = vi.hoisted(() => ({
   removeOverlay: vi.fn(), createOverlay: vi.fn((overlays: { id?: string }[]) => overlays.map(overlay => overlay.id)),
   setStyles: vi.fn(), setSymbol: vi.fn(), setPeriod: vi.fn(), setDataLoader: vi.fn(),
-  getSize: vi.fn(() => ({ width: 1000 })), convertToPixel: vi.fn(() => ({ x: 995 })), scrollByDistance: vi.fn(),
+  getDom: vi.fn(), getSize: vi.fn(() => ({ width: 1000 })), convertToPixel: vi.fn(() => ({ x: 995 })), scrollByDistance: vi.fn(),
   scrollToTimestamp: vi.fn(), scrollToRealTime: vi.fn(), createIndicator: vi.fn(), resetData: vi.fn(), resize: vi.fn(),
   overrideYAxis: vi.fn(), overrideXAxis: vi.fn(), setBarSpace: vi.fn(), setOffsetRightDistance: vi.fn(),
   setScrollEnabled: vi.fn(), setZoomEnabled: vi.fn(),
@@ -58,6 +58,24 @@ describe('MarketKLineChart v10 lifecycle', () => {
     await wrapper.setProps({ focusTimestamp: undefined, focusRequest: 2 });
     await wrapper.setProps({ focusRequest: 3 });
     expect(chart.scrollToRealTime).toHaveBeenCalledTimes(2);
+    wrapper.unmount();
+  });
+  it('shows a marker hint on hover and clears obsolete evidence after a live refresh', async () => {
+    const annotation = { name: 'optionsStructureMark', id: 'structure-event', hint: '箱体向上突破 · 待确认' };
+    const wrapper = mount(MarketKLineChart, { props: { symbol: 'SPY.US', period: '1m', bars: [bar], overlays: [annotation] } });
+    const event = { chart: { getSize: () => ({ left: 0, top: 0, width: 800, height: 300 }) }, x: 70, y: 30 };
+    const drawn = () => chart.createOverlay.mock.lastCall![0][0] as OverlayCreate;
+    drawn().onMouseMove!(event as never);
+    await wrapper.vm.$nextTick();
+    expect(wrapper.get('[role=tooltip]').text()).toBe(annotation.hint);
+    await wrapper.setProps({ overlays: [{ ...annotation, hint: '箱体向上突破 · 已确认' }] });
+    expect(wrapper.find('[role=tooltip]').exists()).toBe(false);
+    drawn().onMouseMove!(event as never);
+    await wrapper.vm.$nextTick();
+    expect(wrapper.get('[role=tooltip]').text()).toContain('已确认');
+    drawn().onMouseLeave!(event as never);
+    await wrapper.vm.$nextTick();
+    expect(wrapper.find('[role=tooltip]').exists()).toBe(false);
     wrapper.unmount();
   });
   it('plots the minute forecast as a separately removable overlay without changing OHLC data', async () => {

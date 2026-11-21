@@ -1,6 +1,7 @@
-import { registerOverlay, type OverlayCreate } from 'klinecharts';
+import { registerOverlay } from 'klinecharts';
 import type { IntradayBar } from '@/api/intradayMarket';
 import type { SimTrade, SimulationSnapshot } from '@/api/intradayOptions';
+import { markerWidth, type ChartAnnotation } from '@/components/market-data/chartAnnotation';
 import { MARKET_HEX } from '@/utils/marketColors';
 import { confirmationLabel, opportunityKinds } from './labels';
 
@@ -68,26 +69,30 @@ export function simulationMarkers(operations: SimulationOperation[], bars: Intra
 }
 
 let registered = false;
-export function simulationTradeOverlays(markers: SimulationMarker[], dark: boolean, select: (timestamp: number) => void): OverlayCreate[] {
+export function simulationTradeOverlays(markers: SimulationMarker[], dark: boolean, select: (timestamp: number) => void): ChartAnnotation[] {
   if (!registered) {
     registerOverlay<{ marker: SimulationMarker; dark: boolean }>({
       name: 'intradaySimulationTrade', totalStep: 1, needDefaultPointFigure: false,
       needDefaultXAxisFigure: false, needDefaultYAxisFigure: false,
-      createPointFigures: ({ coordinates, overlay }) => {
+      createPointFigures: ({ chart, coordinates, overlay, bounding }) => {
         const point = coordinates[0];
-        if (!point) return [];
+        if (!point || point.y < 0 || point.y > bounding.height) return [];
         const { marker, dark } = overlay.extendData;
         const palette = dark ? MARKET_HEX.dark : MARKET_HEX.light;
-        return [{ type: 'text', attrs: { x: point.x, y: point.y + (marker.action === 'B' ? 18 : -18),
-          text: marker.label, align: 'center', baseline: 'middle' }, styles: { size: 12, weight: 'bold',
+        const size = Math.max(15, markerWidth(chart) * 1.4);
+        const y = point.y + (marker.action === 'B' ? 1 : -1) * (size / 2 + 5);
+        return [{ type: 'text', ignoreEvent: ['onRightClick'], attrs: { x: point.x,
+          y: Math.min(bounding.height - size / 2, Math.max(size / 2, y)),
+          text: marker.label, align: 'center', baseline: 'middle' }, styles: { size, weight: 'bold',
           color: marker.action === 'B' ? palette.up : marker.action === 'S' ? palette.down : '#a855f7',
-          backgroundColor: dark ? '#171717' : '#ffffff', paddingLeft: 3, paddingRight: 3 } }];
+          backgroundColor: dark ? '#171717' : '#ffffff', borderSize: 0, paddingLeft: 1, paddingRight: 1, paddingTop: 0, paddingBottom: 0 } }];
       },
     });
     registered = true;
   }
   return markers.map(marker => ({ name: 'intradaySimulationTrade', id: `simulation-trade-${marker.timestamp}`,
-    groupId: 'intraday-simulation-trades', lock: true,
+    groupId: 'intraday-simulation-trades', lock: true, fixedZLevel: true, zLevel: 5,
+    hint: `${marker.label} · ${[...new Set(marker.operations.map(op => op.label))].join('、')}${marker.label.endsWith('*') ? '（含估算退场）' : ''}，点击查看记录`,
     points: [{ timestamp: marker.timestamp, value: marker.anchor }], extendData: { marker, dark },
     onClick: () => { select(marker.timestamp); return true; },
   }));
