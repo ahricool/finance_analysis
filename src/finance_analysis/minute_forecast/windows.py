@@ -1,12 +1,12 @@
 """Use original candles and exchange boundaries when building model inputs."""
 
 from collections.abc import Iterable
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 from finance_analysis.integrations.crypto.binance import from_ms
 from finance_analysis.integrations.market_data.realtime_state.models import CandleState, unique_minute_bars
 from finance_analysis.market_stream.config import is_regular_trade_session, market_spec, market_trading_date
-from finance_analysis.market_stream.session import in_session
+from finance_analysis.market_stream.session import in_session, session_bounds
 from finance_analysis.minute_forecast.models import (
     BTC_SYMBOL, HORIZON, LOOKBACK, MIN_LOOKBACK, ForecastWindow, ObservedBar,
 )
@@ -38,11 +38,26 @@ def stock_window(symbol: str, market: MarketType, candles: Iterable[CandleState]
         if not in_session(market, target):
             break
         targets.append(millis(target))
+    return _stock_input(symbol, market, candles, minute, targets)
+
+
+def stock_close_window(symbol: str, market: MarketType, candles: Iterable[CandleState],
+                       day: date) -> ForecastWindow | None:
+    bounds = session_bounds(market, day)
+    if bounds is None:
+        return None
+    close = bounds[1]
+    # These are hypothetical minute steps immediately after the regular close.
+    return _stock_input(symbol, market, candles, close, [millis(close + i * MINUTE) for i in range(HORIZON)])
+
+
+def _stock_input(symbol: str, market: MarketType, candles: Iterable[CandleState], minute: datetime,
+                 targets: list[int]) -> ForecastWindow | None:
     day = market_trading_date(minute, market)
     bars = []
-    for candle in unique_minute_bars(candles)[-LOOKBACK:]:
+    for candle in unique_minute_bars(candle for candle in candles if candle.bar_time < minute)[-LOOKBACK:]:
         if (candle.confirmed and not candle.sampled and not candle.partial and candle.is_valid()
-                and candle.bar_time < minute and market_trading_date(candle.bar_time, market) == day
+                and market_trading_date(candle.bar_time, market) == day
                 and is_regular_trade_session(candle.trade_session) and in_session(market, candle.bar_time)):
             try:
                 bars.append(ObservedBar(
@@ -51,7 +66,7 @@ def stock_window(symbol: str, market: MarketType, candles: Iterable[CandleState]
                 ))
             except ValueError:
                 continue
-    return make_window(symbol, market_spec(market).timezone.key, bars, now, targets)
+    return make_window(symbol, market_spec(market).timezone.key, bars, minute, targets)
 
 
 def btc_window(rows: list, now: datetime) -> ForecastWindow | None:

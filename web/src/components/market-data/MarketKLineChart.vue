@@ -36,8 +36,10 @@ const future = computed(() => {
   const value = forecast.value;
   const last = props.bars.at(-1)?.timestamp;
   if (!value || last == null || !props.bars.some(bar => bar.timestamp === value.anchor)) return [];
+  if (value.closeReplay) return value.anchor === last && (props.current?.timestamp ?? last) <= last ? value.bars : [];
   return value.bars.filter(bar => bar.timestamp > last && bar.timestamp + 60_000 > now.value.getTime());
 });
+const closeReplayBars = computed(() => showForecast.value && forecast.value?.closeReplay ? future.value : []);
 const forecastOverlayKey = computed(() => {
   const value = forecast.value;
   return value && future.value.length
@@ -56,6 +58,9 @@ const comparison = computed(() => {
 });
 const forecastTime = (timestamp: number) => new Date(timestamp).toLocaleTimeString('zh-CN', {
   timeZone: props.timezone ?? 'UTC', hour: '2-digit', minute: '2-digit', hour12: false,
+});
+const forecastDate = (timestamp: number) => new Date(timestamp).toLocaleDateString('zh-CN', {
+  timeZone: props.timezone ?? 'UTC', month: '2-digit', day: '2-digit',
 });
 const forecastPrice = (value: number) => value.toLocaleString('zh-CN', { maximumFractionDigits: props.pricePrecision ?? 3 });
 let chart: Chart | null = null;
@@ -155,13 +160,17 @@ function destroy() {
   appliedOverlayIds = [];
   forecastDrawn = false;
 }
-function applyReferenceRange() {
-  if (!chart || props.referencePrice == null) return;
+function applyPriceRange() {
+  if (!chart || (props.referencePrice == null && props.period !== '1m')) return;
   chart.overrideYAxis({ paneId: 'candle_pane', createRange: ({ defaultRange }) => {
-    const reference = props.referencePrice;
-    if (reference == null || !Number.isFinite(reference) || reference <= 0) return defaultRange;
-    const low = Math.min(defaultRange.from, reference);
-    const high = Math.max(defaultRange.to, reference);
+    const reference = props.referencePrice ?? 0;
+    const prices = Number.isFinite(reference) && reference > 0 ? [reference] : [];
+    if (chart && chart.getVisibleRange().to >= chart.getDataList().length) {
+      prices.push(...closeReplayBars.value.map(bar => bar.close));
+    }
+    if (!prices.length) return defaultRange;
+    const low = Math.min(defaultRange.from, ...prices);
+    const high = Math.max(defaultRange.to, ...prices);
     const padding = Math.max(high - low, reference * 0.002) * 0.05;
     const from = low - padding, to = high + padding, range = to - from;
     return { from, to, range, realFrom: from, realTo: to, realRange: range,
@@ -180,9 +189,10 @@ function fitSession() {
     // Reserve future trading minutes without adding fabricated OHLC or volume rows.
     const total = (close - open - (breakEnd - breakStart)) / 60_000;
     const remaining = Math.max(0, (close - last.timestamp - Math.max(0, breakEnd - Math.max(last.timestamp, breakStart))) / 60_000 - 1);
-    const space = width / (total + 2);
+    const replay = closeReplayBars.value.length;
+    const space = width / (total + replay + 2);
     chart.setBarSpace(space);
-    chart.setOffsetRightDistance((remaining + 1) * space);
+    chart.setOffsetRightDistance((remaining + replay + 1) * space);
   });
 }
 function applyOverlays() {
@@ -228,7 +238,7 @@ function initialize() {
     ...(props.session ? { formatter: { formatDate: formatSessionDate }, layout: { barSpaceLimit: { min: 0.25, max: 50 } } } : {}) });
   if (!chart) return;
   styles();
-  applyReferenceRange();
+  applyPriceRange();
   if (props.session) {
     chart.setScrollEnabled(false);
     chart.setZoomEnabled(false);
@@ -284,6 +294,10 @@ watch(() => props.overlays, applyOverlays);
 // Chart and API refreshes can reallocate the same data. Update the overlay only
 // when a published forecast or its remaining target minutes actually change.
 watch([forecastOverlayKey, showForecast, resolvedTheme], applyForecastOverlay);
+watch(() => closeReplayBars.value.length, () => {
+  applyPriceRange();
+  fitSession();
+});
 watch([() => props.focusTimestamp, () => props.focusRequest], ([timestamp, request], [, previousRequest]) => {
   // Live snapshots may add or remove a selected marker without a navigation request.
   if (props.liveSnapshot && request === previousRequest) return;
@@ -291,7 +305,7 @@ watch([() => props.focusTimestamp, () => props.focusRequest], ([timestamp, reque
   else chart?.scrollToRealTime();
 });
 watch(() => [props.symbol, props.period, props.sourceKey, props.pricePrecision, props.timezone, props.session?.open], initialize);
-watch(() => props.referencePrice, applyReferenceRange);
+watch(() => props.referencePrice, applyPriceRange);
 watch([() => props.bars, () => props.current], ([bars], [previousBars]) => {
   const bar = liveBar();
   if (bars === previousBars && bar && (!props.liveSnapshot || bar.timestamp >= (chart?.getDataList().at(-1)?.timestamp ?? 0))) {
@@ -335,6 +349,7 @@ onBeforeUnmount(() => { observer?.disconnect(); destroy(); });
         分钟线预测
       </label>
       <template v-if="showForecast && forecast && future.length">
+        <span v-if="forecast.closeReplay">收盘试算 · {{ forecastDate(forecast.anchor) }} · 收盘后 5 分钟</span>
         <span>Kronos {{ forecast.model }} · 截至 {{ forecastTime(forecast.anchor + 60_000) }} · {{ forecast.lookback }} 根</span>
         <details>
           <summary class="cursor-pointer text-foreground">
