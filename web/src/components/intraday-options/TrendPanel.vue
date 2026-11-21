@@ -250,7 +250,7 @@ onBeforeUnmount(() => { stopped = true; generation++; controller?.abort(); clear
         {{ reason }}
       </p>
       <p class="text-xs text-muted-foreground">
-        图中橙线为箱体边界，圆点为已确认高低点，◆为突破阶段的确认/触发位置；拐点需右侧2根K闭合才确认。结构描述与入场确认分开，机会分支另行判断，不代表买卖指令。
+        橙线标出箱体边界，▼ 指向已确认高点，▲ 指向已确认低点，◆ 标出当前突破阶段。悬停可查看标记含义。拐点需右侧2根K闭合才确认。结构描述与入场确认分开，机会分支另行判断，不代表买卖指令。
       </p>
     </article>
     <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
