@@ -386,9 +386,16 @@ function historyValue(t: SimTrade, key: string) {
             </p>
           </template>
           <template v-else-if="column === 'remainingSpace'">
-            {{ price(p.remainingSpace) }}<p class="mt-1 text-xs text-muted-foreground">
-              止盈幅度 {{ pct(p.remainingReturn == null ? null : 100 * p.remainingReturn) }} · {{ fmt(p.rewardRisk, 2) }}R
-            </p>
+            <template v-if="p.target == null">
+              初始风险 {{ p.initialRiskReturn == null ? '—' : `${fmt(100 * p.initialRiskReturn, 2)}%` }}<p class="mt-1 text-xs text-muted-foreground">
+                移动止损跟踪 · 不设固定止盈
+              </p>
+            </template>
+            <template v-else>
+              {{ price(p.remainingSpace) }}<p class="mt-1 text-xs text-muted-foreground">
+                止盈幅度 {{ pct(p.remainingReturn == null ? null : 100 * p.remainingReturn) }} · {{ fmt(p.rewardRisk, 2) }}R
+              </p>
+            </template>
           </template>
         </template>
       </SimulationTable>
@@ -464,7 +471,12 @@ function historyValue(t: SimTrade, key: string) {
               <p>报价时间 {{ clock(t.entryPriceAt) }}</p>
               <p>目标 {{ price(t.target) }} · {{ t.entryEvidence?.targetSource ?? '来源未记录' }}</p>
               <p>初始失效 {{ price(t.invalidation) }} · ATR {{ fmt(t.entryEvidence?.atr, 4) }}</p>
-              <p>计划幅度 {{ pct(plannedReturn(t)) }} · {{ fmt(t.entryEvidence?.rewardRisk, 2) }}R</p>
+              <p v-if="t.target == null">
+                初始风险 {{ t.entryEvidence?.initialRiskReturn == null ? '—' : `${fmt(100 * t.entryEvidence.initialRiskReturn, 2)}%` }} · 移动止损跟踪
+              </p>
+              <p v-else>
+                计划幅度 {{ pct(plannedReturn(t)) }} · {{ fmt(t.entryEvidence?.rewardRisk, 2) }}R
+              </p>
             </div>
           </template>
           <template v-else-if="column === 'returnPct'">

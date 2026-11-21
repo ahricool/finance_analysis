@@ -62,7 +62,7 @@ def breakout_seeds(ordered, opening, settings, snapshots=None):
         elapsed_minutes = (bar.bar_time - opening) / MINUTE
         if (
             settings.midday_wave_enabled
-            and settings.midday_start_minutes <= elapsed_minutes <= settings.midday_end_minutes
+            and settings.midday_start_minutes <= elapsed_minutes < settings.midday_end_minutes
             and len(run) >= settings.midday_min_bars
         ):
             prior = run[-settings.midday_window_minutes:]

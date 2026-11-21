@@ -71,7 +71,7 @@ export async function fetchIntradayOptions(signal: AbortSignal): Promise<Intrada
 export interface SimulationPlan extends OpportunityBranch {
   entryQuoteNotBefore?: string | null;
   processId: string; entryLow: number; entryHigh: number; target: number | null; targetSource: string;
-  remainingReturn?: number | null; initialRisk?: number | null;
+  remainingReturn?: number | null; initialRisk?: number | null; initialRiskReturn?: number | null;
   remainingSpace: number | null; rewardRisk: number | null; ageSeconds: number | null;
   opportunityValid?: boolean; opportunityReason?: string; executable: boolean; executionReason: string;
 }

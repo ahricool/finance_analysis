@@ -293,6 +293,29 @@ def test_v6_policy_rejects_inverted_risk_bounds(monkeypatch):
         policy.cache_clear()
 
 
+def test_v6_midday_wave_stops_before_1200_ny_entry_cutoff():
+    # Bar at elapsed_minutes == 150 (12:00 NY, closes at 12:01 NY) is after 12:00 entry cutoff -> ignored.
+    coil = [100.0 + (1.0 if i % 6 in (1, 2, 3) else -1.0) for i in range(150)]
+    bars = _make_bars(coil + [101.65], symbol="NVDA.US", wick=Decimal("0.02"))
+    assert (bars[-1].bar_time - START) == timedelta(minutes=150)
+    res = calculate("NVDA.US", bars, bars[-1].bar_time + timedelta(minutes=1, seconds=2))
+    assert not any(b["kind"] == "midday_wave_breakout" for b in res["opportunities"]["branches"])
+
+
+def test_scheduler_peer_snapshot_keeps_opening_and_recent_tail_only():
+    from finance_analysis.intraday_options.scheduler import _peer_open_and_latest_bars
+
+    yesterday = _make_bars([99.0, 99.5], symbol="AMD.US", start=START - timedelta(days=1))
+    today = _make_bars([100.0 + 0.05 * i for i in range(30)], symbol="AMD.US", start=START)
+    now = START + timedelta(minutes=30, seconds=5)
+    snap = _peer_open_and_latest_bars([*yesterday, *today], START, now)
+    times = [b.bar_time for b in snap]
+    assert START in times
+    assert all(t >= START for t in times)
+    assert (START + timedelta(minutes=10)) not in times
+    assert (START + timedelta(minutes=29)) in times
+
+
 def test_pool_rank_context_works_when_symbol_omitted_from_peer_dict():
     nvda_bars = _make_bars([100.0, 100.4, 100.8, 101.2, 101.6, 102.0], symbol="NVDA.US")
     peers = _make_peer_pool(nvda_bars, side=1, nvda_rank=1, count=12)
