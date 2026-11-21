@@ -15,17 +15,19 @@ VERSION = SIMULATION_VERSION
 @dataclass(frozen=True)
 class ExecutionConfig:
     quote_age_seconds: int = 30
-    no_progress_minutes: int = 35
+    no_progress_minutes: int = 90
+    no_progress_underwater_only: bool = True
     minimum_progress_r: float = 0.25
-    breakeven_after_r: float = 1.2
-    trail_after_r: float = 2.0
-    trail_giveback_r: float = 1.0
-    trail_bars: int = 15
-    entry_stop_before_close_minutes: int = 90
+    breakeven_after_r: float = 1.5
+    trail_after_r: float = 2.5
+    trail_giveback_r: float = 1.2
+    trail_bars: int = 45
+    entry_window_minutes: int = 150
+    min_entry_before_close_minutes: int = 90
     exit_stop_before_close_minutes: int = 10
-    max_daily_entries: int = 2
-    cooldown_minutes: int = 10
-    stop_cooldown_minutes: int = 20
+    max_daily_entries: int = 1
+    cooldown_minutes: int = 30
+    stop_cooldown_minutes: int = 60
     workers: int = 4
     cutoff_processing_grace_seconds: int = 30
     data_alert_seconds: int = 30
@@ -144,19 +146,32 @@ def target_space(price, invalidation, target, side, required, settings):
 
 
 def _context_rejection(kind, side, result, cfg):
-    """Check causal VWAP, SPY market alignment, and relative-strength gates when context is present."""
+    """Check causal VWAP, open-move, SPY alignment, relative-strength, and pool leader rank gates."""
     market_context = result.get("market_context")
     has_market_context = "market_context" in result
     spy_context = result.get("spy_context")
     has_spy_context = "spy_context" in result
+    pool_rank = result.get("pool_rank_context")
+    has_pool_rank = "pool_rank_context" in result
     needs_vwap = cfg.require_vwap and kind in ("opening_breakout", "midday_wave_breakout", "box_breakout")
     needs_spy = cfg.require_spy_alignment and kind in ("opening_breakout", "midday_wave_breakout")
+    needs_leader = kind in ("opening_breakout", "midday_wave_breakout")
 
     if needs_vwap and has_market_context:
         if not market_context or market_context.get("vwap") is None:
             return "缺少当日有效VWAP，暂不执行突破进场"
         if (market_context["last_close"] - market_context["vwap"]) * side <= 0:
             return "价格未位于当日VWAP顺向侧"
+
+    if needs_leader and cfg.min_open_move > 0 and has_market_context:
+        sym_open = (market_context or {}).get("open_return")
+        if sym_open is None:
+            return "缺少开盘至今涨幅基准数据，暂不进场"
+        directional_move = sym_open * side
+        if directional_move < cfg.min_open_move and not math.isclose(
+            directional_move, cfg.min_open_move, rel_tol=1e-10
+        ):
+            return f"日内相对开盘推进不足{cfg.min_open_move * 100:.2f}%，过滤窄幅波动"
 
     if needs_spy and has_spy_context:
         if not spy_context or spy_context.get("vwap") is None or spy_context.get("as_of") is None:
@@ -166,14 +181,32 @@ def _context_rejection(kind, side, result, cfg):
         if (spy_context["last_close"] - spy_context["vwap"]) * side <= 0:
             return "SPY大盘未位于当日VWAP顺向侧"
         if cfg.min_relative_strength > 0 and result.get("symbol") != "SPY.US":
-            ret_key = "open_return" if kind == "opening_breakout" else "return_20m"
-            sym_ret = (market_context or {}).get(ret_key)
-            spy_ret = spy_context.get(ret_key)
-            if sym_ret is None or spy_ret is None:
+            sym_open = (market_context or {}).get("open_return")
+            spy_open = spy_context.get("open_return")
+            rs_open = (sym_open - spy_open) * side if sym_open is not None and spy_open is not None else None
+            if kind == "opening_breakout":
+                rel = rs_open
+            else:
+                sym_20 = (market_context or {}).get("return_20m")
+                spy_20 = spy_context.get("return_20m")
+                rs_20 = (sym_20 - spy_20) * side if sym_20 is not None and spy_20 is not None else None
+                rel_candidates = [x for x in (rs_20, rs_open) if x is not None]
+                rel = max(rel_candidates) if rel_candidates else None
+            if rel is None:
                 return "缺少相对SPY强弱基准数据，暂不进场"
-            rel = (sym_ret - spy_ret) * side
             if rel < cfg.min_relative_strength and not math.isclose(rel, cfg.min_relative_strength, rel_tol=1e-10):
                 return f"相对SPY强弱不足{cfg.min_relative_strength * 100:.2f}%，过滤弱势突破"
+
+    if needs_leader and cfg.pool_leader_top_k > 0 and has_pool_rank:
+        if not pool_rank or pool_rank.get("as_of") is None:
+            return "缺少观察池横向强弱排名数据，暂不进场"
+        if result.get("as_of") and abs((dt(result["as_of"]) - dt(pool_rank["as_of"])).total_seconds()) > 120:
+            return "观察池横向强弱排名未对齐，暂不进场"
+        rank = pool_rank.get("long_rank" if side == 1 else "short_rank")
+        if rank is None:
+            return "缺少观察池横向强弱排名数据，暂不进场"
+        if rank > cfg.pool_leader_top_k:
+            return f"横向强弱排名第{rank}位（需前{cfg.pool_leader_top_k}龙头），过滤非主浪标的"
     return None
 
 
@@ -185,15 +218,21 @@ def plan(branch, result, price, now, quote_time=None, previous_plan=None, settin
     interval = entry_interval(branch)
     needs_vwap = cfg.require_vwap and kind in ("opening_breakout", "midday_wave_breakout", "box_breakout")
     needs_spy = cfg.require_spy_alignment and kind in ("opening_breakout", "midday_wave_breakout")
+    needs_open_move = cfg.min_open_move > 0 and kind in ("opening_breakout", "midday_wave_breakout")
+    needs_pool_rank = cfg.pool_leader_top_k > 0 and kind in ("opening_breakout", "midday_wave_breakout")
     quote_floor = entry_quote_floor(branch, previous_plan, result.get("as_of"))
     if quote_floor and cfg.use_pivot_target and result.get("target_evidence_at"):
         quote_floor = max(quote_floor, dt(result["target_evidence_at"]))
     market_context = result.get("market_context")
-    if quote_floor and (needs_vwap or needs_spy) and market_context and market_context.get("evidence_at"):
+    needs_market = needs_vwap or needs_spy or needs_open_move
+    if quote_floor and needs_market and market_context and market_context.get("evidence_at"):
         quote_floor = max(quote_floor, dt(market_context["evidence_at"]))
     spy_context = result.get("spy_context")
     if quote_floor and needs_spy and spy_context and spy_context.get("evidence_at"):
         quote_floor = max(quote_floor, dt(spy_context["evidence_at"]))
+    pool_rank = result.get("pool_rank_context")
+    if quote_floor and needs_pool_rank and pool_rank and pool_rank.get("evidence_at"):
+        quote_floor = max(quote_floor, dt(pool_rank["evidence_at"]))
 
     previous_plan = previous_plan or {}
     if cfg.use_pivot_target:
@@ -263,6 +302,13 @@ def plan(branch, result, price, now, quote_time=None, previous_plan=None, settin
         and not math.isclose(economics["initial_risk_return"], cfg.minimum_risk_return, rel_tol=1e-10)
     ):
         reason = f"初始风险幅度不足{cfg.minimum_risk_return * 100:.2f}%，过滤低波动噪音"
+    elif (
+        cfg.maximum_risk_return > 0
+        and economics["initial_risk_return"] is not None
+        and economics["initial_risk_return"] > cfg.maximum_risk_return
+        and not math.isclose(economics["initial_risk_return"], cfg.maximum_risk_return, rel_tol=1e-10)
+    ):
+        reason = f"初始风险幅度超过{cfg.maximum_risk_return * 100:.2f}%，控制单笔止损上限"
     elif context_reason:
         reason = context_reason
     elif exhausted:
@@ -328,7 +374,14 @@ def transition(previous, symbol, result, quote, now, settings=None):
     events = []
     day = market_trading_date(now, "US")
     bounds = session_bounds("US", day)
-    entry_cutoff = bounds[1] - timedelta(minutes=CONFIG.entry_stop_before_close_minutes) if bounds else None
+    entry_cutoff = (
+        min(
+            bounds[0] + timedelta(minutes=CONFIG.entry_window_minutes),
+            bounds[1] - timedelta(minutes=CONFIG.min_entry_before_close_minutes),
+        )
+        if bounds
+        else None
+    )
     exit_cutoff = bounds[1] - timedelta(minutes=CONFIG.exit_stop_before_close_minutes) if bounds else None
     phase = (
         "closed"
@@ -396,9 +449,13 @@ def transition(previous, symbol, result, quote, now, settings=None):
                 reason = "到达目标"
             elif (
                 now - dt(position["entry_at"]) >= timedelta(minutes=CONFIG.no_progress_minutes)
-                and gain < risk * CONFIG.minimum_progress_r
+                and (gain <= 0 if CONFIG.no_progress_underwater_only else gain < risk * CONFIG.minimum_progress_r)
             ):
-                reason = "持有超时且未有效推进"
+                reason = (
+                    f"{CONFIG.no_progress_minutes}分钟水下滞涨退出"
+                    if CONFIG.no_progress_underwater_only
+                    else "持有超时且未有效推进"
+                )
             elif risk > 0:
                 candidate = None
                 stage = None
@@ -436,11 +493,21 @@ def transition(previous, symbol, result, quote, now, settings=None):
                     if stage == "trailing" and position.get("protection_stage") != "trailing":
                         position["protection_active"] = True
                         position["protection_stage"] = "trailing"
-                        event("hold", "浮盈已达2.0R，启动15分钟结构移动止损", trade_id=position["id"], side=side)
+                        event(
+                            "hold",
+                            f"浮盈已达{CONFIG.trail_after_r:g}R，启动{CONFIG.trail_bars}分钟结构移动止损",
+                            trade_id=position["id"],
+                            side=side,
+                        )
                     elif stage == "breakeven" and not position.get("protection_active"):
                         position["protection_active"] = True
                         position["protection_stage"] = "breakeven"
-                        event("hold", "浮盈已达1.2R，保护位上移至成本价", trade_id=position["id"], side=side)
+                        event(
+                            "hold",
+                            f"浮盈已达{CONFIG.breakeven_after_r:g}R，保护位上移至成本价",
+                            trade_id=position["id"],
+                            side=side,
+                        )
                 if side * (price - position["protection"]) <= 0:
                     reason = "浮盈回撤保护"
         if reason:

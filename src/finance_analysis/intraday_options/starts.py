@@ -17,6 +17,9 @@ def breakout_seeds(ordered, opening, settings, snapshots=None):
     run = []
     volatility_window = []
     midday_active_until = {}
+    session_hi = None
+    session_lo = None
+    session_max_receipt = None
     n = settings.opening_minutes
     end = ordered[-1].bar_time
     # Opening and midday wave breakouts replay from session open to preserve exact rolling identity.
@@ -83,8 +86,16 @@ def breakout_seeds(ordered, opening, settings, snapshots=None):
                         active_until = midday_active_until.get(side)
                         if active_until is not None and when < active_until:
                             continue
+                        if settings.midday_require_session_extreme:
+                            tol = settings.midday_session_extreme_tolerance
+                            if side == 1 and session_hi is not None and hi < session_hi * (1.0 - tol):
+                                continue
+                            if side == -1 and session_lo is not None and lo > session_lo * (1.0 + tol):
+                                continue
                         if (bar_close - trigger) * side > rule.confirm_atr * scale:
                             available = max(bar.bar_time, *(b.received_at for b in prior))
+                            if settings.midday_require_session_extreme and session_max_receipt is not None:
+                                available = max(available, session_max_receipt)
                             if available > max(bar.received_at, when):
                                 continue
                             expires = when + rule.lifetime * MINUTE
@@ -115,6 +126,12 @@ def breakout_seeds(ordered, opening, settings, snapshots=None):
 
         run.append(bar)
         volatility_window.append(bar)
+        bar_hi, bar_lo = float(bar.high), float(bar.low)
+        session_hi = bar_hi if session_hi is None else max(session_hi, bar_hi)
+        session_lo = bar_lo if session_lo is None else min(session_lo, bar_lo)
+        session_max_receipt = (
+            bar.received_at if session_max_receipt is None else max(session_max_receipt, bar.received_at)
+        )
         group = run[-5:]
         seeds = []
         if settings.opening_enabled and len(run) == n and run[0].bar_time == opening:

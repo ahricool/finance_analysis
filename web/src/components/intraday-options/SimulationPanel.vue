@@ -256,7 +256,7 @@ function historyValue(t: SimTrade, key: string) {
         </template>
       </SimulationTable>
       <p class="border-b px-5 py-3 text-xs leading-relaxed text-muted-foreground">
-        下一步：监测保护位、目标位、未推进超时及截止清仓。估值使用最后有效价格；行情或连接异常时保留价格时间。
+        下一步：监测保护位（1.5R 保本 / 2.5R 起 45 分钟结构跟踪）、90 分钟水下滞涨退出及收盘前清仓。单标的每日最多 1 笔；估值使用最后有效价格，行情异常时保留价格时间。
       </p>
     </section>
 

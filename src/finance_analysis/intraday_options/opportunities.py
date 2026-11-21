@@ -251,8 +251,11 @@ def recoveries(session_bars, visible_from, opening):
     return [*archive, *branches.values()]
 
 
-def detect(bars):
+def detect(bars, settings=None):
     """Replay bounded input in chronological order; no future pivot or rolling event level."""
+    cfg = settings or policy()
+    if not cfg.box_enabled and not cfg.continuation_enabled:
+        return [], []
     branches = {}
     archive = []
     diagnostics = {}
@@ -264,34 +267,35 @@ def detect(bars):
         # Use up to 30 contiguous background minutes; opening needs only 15.
         prior = contiguous_suffix(prior)
         for branch in [*archive, *branches.values()]:
-            advance(branch, history)
+            advance(branch, history, cfg)
         # Do not rediscover old structures with a truncated background when the
         # 60m replay moves forward. Live lifetimes fit inside the full context.
         if window_start > opening and bar.bar_time < window_start + CONFIG.background * MINUTE:
             continue
-        for side in (1, -1):
-            details, reason = setup(history, side)
-            if details and window_start > opening and datetime.fromisoformat(details["structure_start"]) < (
-                window_start + CONTINUATION.background * MINUTE
-            ):
-                details = None
-            diagnostics[side] = reason
-            key = ("trend_continuation", side)
-            existing = branches.get(key)
-            if details and (existing is None or (
-                details["structure_start"] > existing["structure_end"]
-                and details["structure_start"] > (existing.get("triggered_at") or existing["started_at"])
-            )):
-                branch = new_branch("trend_continuation", side, details["trigger"], details["atr"], bar,
-                                    datetime.fromisoformat(details["structure_start"]), details.pop("structure_quality"))
-                branch.update(details, triggered_at=None)
-                branch["structure_id"] = f"trend_continuation:{side}:{details['structure_start']}"
-                if existing:
-                    existing["superseded_by"] = branch["structure_id"]
-                    archive.append(existing)
-                branches[key] = branch
-                advance(branch, history)
-        if (not observed(bar) or not continuous(prior, CONFIG.minimum_background)
+        if cfg.continuation_enabled:
+            for side in (1, -1):
+                details, reason = setup(history, side)
+                if details and window_start > opening and datetime.fromisoformat(details["structure_start"]) < (
+                    window_start + CONTINUATION.background * MINUTE
+                ):
+                    details = None
+                diagnostics[side] = reason
+                key = ("trend_continuation", side)
+                existing = branches.get(key)
+                if details and (existing is None or (
+                    details["structure_start"] > existing["structure_end"]
+                    and details["structure_start"] > (existing.get("triggered_at") or existing["started_at"])
+                )):
+                    branch = new_branch("trend_continuation", side, details["trigger"], details["atr"], bar,
+                                        datetime.fromisoformat(details["structure_start"]), details.pop("structure_quality"))
+                    branch.update(details, triggered_at=None)
+                    branch["structure_id"] = f"trend_continuation:{side}:{details['structure_start']}"
+                    if existing:
+                        existing["superseded_by"] = branch["structure_id"]
+                        archive.append(existing)
+                    branches[key] = branch
+                    advance(branch, history, cfg)
+        if (not cfg.box_enabled or not observed(bar) or not continuous(prior, CONFIG.minimum_background)
                 or bar.bar_time - prior[-1].bar_time != MINUTE):
             continue
         bounds = box(prior, prior[-1].bar_time)
@@ -383,7 +387,7 @@ def calculate_opportunities(ordered, settings=None):
     cfg = settings or policy()
     end = ordered[-1].bar_time
     bars, coverage, reasons = analysis_window(ordered)
-    branches, diagnostics = detect(bars) if bars else ([], [])
+    branches, diagnostics = detect(bars, cfg) if bars else ([], [])
     if bars and cfg.recovery_enabled:
         opening, _ = session_bounds("US", market_trading_date(end, "US"))
         visible_from = max(opening, end - (HORIZON - 1) * MINUTE)

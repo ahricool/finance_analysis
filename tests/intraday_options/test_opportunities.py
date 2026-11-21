@@ -13,9 +13,17 @@ from tests.intraday_options.test_scoring import candles, score
 from tests.intraday_options.test_structure import oscillation, prices
 
 
+BOX_CFG = StartPolicy(box_enabled=True, opening_enabled=False, midday_wave_enabled=False)
+
+
 def entry(values, settings=None):
     bars = prices(values)
-    result = calculate(bars[0].symbol, bars, max(b.bar_time for b in bars) + timedelta(minutes=1), settings=settings)
+    result = calculate(
+        bars[0].symbol,
+        bars,
+        max(b.bar_time for b in bars) + timedelta(minutes=1),
+        settings=settings or BOX_CFG,
+    )
     TrendResult.model_validate(result)
     return result["opportunities"]
 

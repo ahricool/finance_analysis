@@ -109,12 +109,72 @@ def _market_summary(bars, opening):
     )
 
 
-def execution_context(closed, spy_closed=None):
-    """Same-session untouched target pivots, VWAP/SPY context, recent bars and evidence receipt."""
+def pool_rank_context(symbol, closed, peer_bars, opening, day, min_peers=10):
+    """Causal cross-sectional intraday return rank across observed peers at closed[-1].bar_time."""
+    valid_self = [b for b in closed if observed(b) and b.is_valid() and not b.partial and not b.sampled]
+    if not valid_self:
+        return None
+    target_time = valid_self[-1].bar_time
+    peer_returns = {}
+    evidence_times = []
+    for peer_sym, bars in peer_bars.items():
+        if not bars:
+            continue
+        open_bar = None
+        last_bar = None
+        for b in bars:
+            if (
+                not observed(b)
+                or not b.is_valid()
+                or b.partial
+                or b.sampled
+                or b.bar_time > target_time
+                or market_trading_date(b.bar_time, "US") != day
+            ):
+                continue
+            if b.bar_time == opening and (open_bar is None or b.received_at >= open_bar.received_at):
+                open_bar = b
+            if target_time - MINUTE <= b.bar_time <= target_time:
+                if (
+                    last_bar is None
+                    or b.bar_time > last_bar.bar_time
+                    or (b.bar_time == last_bar.bar_time and b.received_at >= last_bar.received_at)
+                ):
+                    last_bar = b
+        if open_bar is not None and last_bar is not None and float(open_bar.open) > 0:
+            peer_returns[peer_sym] = float(last_bar.close) / float(open_bar.open) - 1.0
+            evidence_times.append(max(open_bar.bar_time + MINUTE, open_bar.received_at))
+            evidence_times.append(max(last_bar.bar_time + MINUTE, last_bar.received_at))
+    if symbol not in peer_returns:
+        self_open = next((b for b in valid_self if b.bar_time == opening and float(b.open) > 0), None)
+        if self_open is not None:
+            self_last = valid_self[-1]
+            peer_returns[symbol] = float(self_last.close) / float(self_open.open) - 1.0
+            evidence_times.append(max(self_open.bar_time + MINUTE, self_open.received_at))
+            evidence_times.append(max(self_last.bar_time + MINUTE, self_last.received_at))
+    if symbol not in peer_returns or len(peer_returns) < min_peers:
+        return None
+    sym_ret = peer_returns[symbol]
+    long_rank = 1 + sum(1 for r in peer_returns.values() if r > sym_ret)
+    short_rank = 1 + sum(1 for r in peer_returns.values() if r < sym_ret)
+    return dict(
+        as_of=(target_time + MINUTE).isoformat(),
+        long_rank=long_rank,
+        short_rank=short_rank,
+        pool_size=len(peer_returns),
+        open_return=sym_ret,
+        evidence_at=max(evidence_times).isoformat(),
+    )
+
+
+def execution_context(closed, spy_closed=None, peer_bars=None):
+    """Same-session untouched target pivots, VWAP/SPY/pool-rank context, recent bars and evidence receipt."""
     if not closed:
         out = dict(execution_pivots=[], target_evidence_at=None, market_context=None, recent_bars=[])
         if spy_closed is not None:
             out["spy_context"] = None
+        if peer_bars is not None:
+            out["pool_rank_context"] = None
         return out
     day = market_trading_date(closed[-1].bar_time, "US")
     bounds = session_bounds("US", day)
@@ -135,7 +195,7 @@ def execution_context(closed, spy_closed=None):
             high=float(b.high),
             low=float(b.low),
         )
-        for b in valid[-20:]
+        for b in valid[-60:]
     ]
     output = dict(
         execution_pivots=levels,
@@ -146,6 +206,8 @@ def execution_context(closed, spy_closed=None):
     if spy_closed is not None:
         same_day_spy = [b for b in spy_closed if market_trading_date(b.bar_time, "US") == day]
         output["spy_context"] = _market_summary(same_day_spy, opening) if same_day_spy else None
+    if peer_bars is not None:
+        output["pool_rank_context"] = pool_rank_context(closed[-1].symbol, closed, peer_bars, opening, day)
     return output
 
 

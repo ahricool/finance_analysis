@@ -21,15 +21,20 @@ from tests.intraday_options.test_simulation import NOW, quote, result
 LEGACY_POLICY = StartPolicy(
     pivot_enabled=True,
     midday_wave_enabled=False,
+    box_enabled=True,
+    continuation_enabled=True,
     use_pivot_target=True,
     minimum_return=0.001,
     minimum_rr=0.5,
     minimum_risk_return=0.0,
+    maximum_risk_return=0.0,
     opening_min_range_pct=0.0,
+    min_open_move=0.0,
+    pool_leader_top_k=0,
 )
 
 
-def ramp(count, side=1, step=.12):
+def ramp(count, side=1, step=.22):
     bars = prices([100 + side * i * step for i in range(count)])
     return [replace(b, high=max(b.open, b.close) + Decimal(".001"),
                     low=min(b.open, b.close) - Decimal(".001")) for b in bars]
@@ -39,7 +44,13 @@ def ramp(count, side=1, step=.12):
 @pytest.mark.parametrize("minutes", [5, 15])
 def test_opening_first_close_executes_without_consolidation_and_can_stop_immediately(side, minutes):
     bars = ramp(minutes + 1, side)
-    config = StartPolicy(opening_minutes=minutes, minimum_risk_return=0.0)
+    config = StartPolicy(
+        opening_minutes=minutes,
+        minimum_risk_return=0.0,
+        maximum_risk_return=0.0,
+        min_open_move=0.0,
+        pool_leader_top_k=0,
+    )
     assert not calculate_opportunities(bars[:-1], config)["branches"]
     o = calculate_opportunities(bars, config)
     b = next(b for b in o["branches"] if b["kind"] == "opening_breakout")
@@ -50,7 +61,7 @@ def test_opening_first_close_executes_without_consolidation_and_can_stop_immedia
     assert o["reference"] == (minutes == 5)
     r = dict(trading_date=now.date().isoformat(), as_of=o["as_of"], opportunities=o)
     price = b["trigger"] + side * .5 * b["atr"]
-    far = b["trigger"] + side * 2.0 * b["atr"]
+    far = b["trigger"] + side * 2.5 * b["atr"]
     state, events = transition({}, "SPY.US", r, quote(now, far), now, settings=config)
     assert not state.get("position") and not any(e["kind"] == "entry" for e in events)
     state, events = transition(state, "SPY.US", r, quote(now, price), now, settings=config)

@@ -7,6 +7,7 @@ import math
 import pytest
 
 from finance_analysis.intraday_options.analysis_window import analysis_window, observed
+from finance_analysis.intraday_options.rules import StartPolicy
 from finance_analysis.intraday_options.runtime import data_status
 from finance_analysis.intraday_options.scoring import calculate
 from finance_analysis.intraday_options.simulation import transition
@@ -29,11 +30,16 @@ def test_fourteen_is_warming_fifteen_can_judge_direction_with_longer_reference_w
     assert data_status(ready, START + timedelta(minutes=15), START.date(), "open") == "ready"
 
 
+BOX_CFG = StartPolicy(box_enabled=True, opening_enabled=False, midday_wave_enabled=False, minimum_risk_return=0.0, maximum_risk_return=0.0)
+
+
 @pytest.mark.parametrize("side", [1, -1])
 def test_fifteen_background_minutes_can_produce_confirmed_entry_after_two_real_trigger_closes(side):
     background = [100 + math.cos((i - 7) * math.pi / 3) for i in range(15)]
     values = [100 + side * (p - 100) for p in background + [101.3, 101.4]]
-    forming, ready = score(prices(values[:-1])), score(prices(values))
+    b1, b2 = prices(values[:-1]), prices(values)
+    forming = calculate("SPY.US", b1, b1[-1].bar_time + timedelta(minutes=1), settings=BOX_CFG)
+    ready = calculate("SPY.US", b2, b2[-1].bar_time + timedelta(minutes=1), settings=BOX_CFG)
     assert not any(b["kind"] == "box_breakout" and b["confirmed_at"] for b in forming["opportunities"]["branches"])
     assert ready["opportunities"]["primary"]["kind"] == "box_breakout"
     assert ready["opportunities"]["primary"]["direction"] == ("bullish" if side == 1 else "bearish")
@@ -42,13 +48,13 @@ def test_fifteen_background_minutes_can_produce_confirmed_entry_after_two_real_t
 def test_old_invalid_history_is_reference_only_recent_invalid_minute_still_blocks():
     bars = prices(oscillation() + [101.3, 101.4])
     old = [replace(b, partial=True) if i == 5 else b for i, b in enumerate(bars)]
-    result = score(old)
+    result = calculate("SPY.US", old, old[-1].bar_time + timedelta(minutes=1), settings=BOX_CFG)
     assert result["opportunities"]["primary"]
     assert result["opportunities"]["missing_bars"] == 1
     assert result["opportunities"]["recent_missing_bars"] == 0
     assert data_status(result, bars[-1].bar_time + timedelta(minutes=1), START.date(), "open") == "ready"
     recent = [replace(b, partial=True) if i == len(bars) - 5 else b for i, b in enumerate(bars)]
-    result = score(recent)
+    result = calculate("SPY.US", recent, recent[-1].bar_time + timedelta(minutes=1), settings=BOX_CFG)
     assert result["opportunities"]["reference"]
     assert result["opportunities"]["filled_bars"] == 0
     assert data_status(result, bars[-1].bar_time + timedelta(minutes=1), START.date(), "open") == "gap"
@@ -98,18 +104,18 @@ def test_synthetic_close_cannot_confirm_breakout():
 def test_filled_input_evidence_freezes_across_history_repair_and_cannot_bypass_live_quote_checks():
     bars = prices(oscillation() + [101.3, 101.4])
     now = bars[-1].bar_time + timedelta(minutes=1, seconds=5)
-    result = calculate("SPY.US", bars[:5] + bars[6:], now)
+    result = calculate("SPY.US", bars[:5] + bars[6:], now, settings=BOX_CFG)
     branch = result["opportunities"]["primary"]
     price = branch["trigger"] + branch["atr"] * .5
-    state, _ = transition({}, "SPY.US", result, quote(now - timedelta(seconds=31), price), now)
+    state, _ = transition({}, "SPY.US", result, quote(now - timedelta(seconds=31), price), now, settings=BOX_CFG)
     assert not state.get("position")
-    state, _ = transition({}, "SPY.US", result, quote(now, price), now)
+    state, _ = transition({}, "SPY.US", result, quote(now, price), now, settings=BOX_CFG)
     frozen = deepcopy(state["position"])
-    assert frozen["version"] == "underlying_sim_v5"
+    assert frozen["version"] == "underlying_sim_v6"
     assert frozen["entry_evidence"]["analysis_coverage"]["filled_bars"] == 1
-    repaired = calculate("SPY.US", bars, now + timedelta(seconds=5))
+    repaired = calculate("SPY.US", bars, now + timedelta(seconds=5), settings=BOX_CFG)
     state, events = transition(state, "SPY.US", repaired, quote(now + timedelta(seconds=5), price),
-                               now + timedelta(seconds=5))
+                               now + timedelta(seconds=5), settings=BOX_CFG)
     assert state["position"]["entry_evidence"] == frozen["entry_evidence"]
     assert state["position"]["evidence"] == frozen["evidence"]
     assert not any(e["kind"] in {"entry", "exit"} for e in events)

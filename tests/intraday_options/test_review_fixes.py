@@ -15,9 +15,8 @@ from finance_analysis.interfaces.api.v1.schemas.intraday_options import Intraday
 from finance_analysis.intraday_options.runtime import ranked_opportunity, read_snapshot, result_key
 from finance_analysis.intraday_options.scoring import calculate, closed_session_bars
 from finance_analysis.intraday_options.simulation import transition
-from finance_analysis.intraday_options.rules import StartPolicy, entry_interval
-from tests.intraday_options.test_continuation import continuation, path
-from tests.intraday_options.test_scoring import score
+from finance_analysis.intraday_options.rules import StartPolicy, entry_interval, policy
+from tests.intraday_options.test_continuation import CONT_CFG, continuation, path
 from tests.intraday_options.test_structure import prices
 from tests.intraday_options.test_simulation import quote
 from tests.market_stream.fakes import FakeRedis
@@ -29,12 +28,12 @@ def test_entry_waits_for_post_confirmation_quote_and_rechecks_live_price(side, m
     bars = path(side)
     confirmed = bars[-1].bar_time + timedelta(minutes=1)
     now = confirmed + timedelta(seconds=5)
-    r = calculate('SPY.US', bars, now)
+    r = calculate('SPY.US', bars, now, settings=CONT_CFG)
     b = continuation(r)
     assert b['confirmed_at'] == confirmed.isoformat()
     price = sum(entry_interval(b)) / 2
     early = replace(quote(confirmed - timedelta(seconds=10), price), received_at=now)
-    state, events = transition({}, 'SPY.US', r, early, now)
+    state, events = transition({}, 'SPY.US', r, early, now, settings=CONT_CFG)
     assert not state.get('position')
     assert not any(e['kind'] == 'entry' for e in events)
     assert state['plans'][0]['execution_reason'] == '等待确认后的有效报价'
@@ -42,7 +41,7 @@ def test_entry_waits_for_post_confirmation_quote_and_rechecks_live_price(side, m
     when = now + timedelta(seconds=5)
     new_price = b['trigger'] + side * 1.1 * b['atr'] if moves_out else price
     fresh = replace(quote(when - timedelta(seconds=2), new_price), received_at=when)
-    state, events = transition(state, 'SPY.US', r, fresh, when)
+    state, events = transition(state, 'SPY.US', r, fresh, when, settings=CONT_CFG)
     if moves_out:
         assert not state.get('position')
         assert '不在冻结执行区间' in state['plans'][0]['execution_reason']
@@ -54,14 +53,14 @@ def test_entry_waits_for_post_confirmation_quote_and_rechecks_live_price(side, m
         later = when + timedelta(seconds=5)
         r['opportunities']['branches'][0]['confirmed_at'] = later.isoformat()
         exit_quote = quote(later - timedelta(seconds=1), state['position']['invalidation'] - side * .01)
-        state, events = transition(state, 'SPY.US', r, exit_quote, later)
+        state, events = transition(state, 'SPY.US', r, exit_quote, later, settings=CONT_CFG)
         assert not state['position'] and sum(e['kind'] == 'exit' for e in events) == 1
 
 
 def multi_branch_result(side=1):
     bars = path(side)
     now = bars[-1].bar_time + timedelta(minutes=1, seconds=5)
-    r = calculate('SPY.US', bars, now)
+    r = calculate('SPY.US', bars, now, settings=CONT_CFG)
     b = continuation(r)
     b['quality_score'] = 75
     a = {**deepcopy(b), 'kind': 'trend_recovery', 'structure_id': 'A', 'process_id': 'A',
@@ -74,12 +73,17 @@ def multi_branch_result(side=1):
 
 
 @pytest.mark.parametrize('side', [1, -1])
-def test_executed_valid_branch_drives_api_ranking_not_highest_shape(side):
+def test_executed_valid_branch_drives_api_ranking_not_highest_shape(side, monkeypatch):
+    monkeypatch.setenv('INTRADAY_TREND_CONTINUATION', 'true')
+    monkeypatch.setenv('INTRADAY_MIN_RISK_RETURN', '0')
+    monkeypatch.setenv('INTRADAY_MAX_RISK_RETURN', '0')
+    policy.cache_clear()
+
     async def run():
         repo = RealtimeStateRepository(FakeRedis())
         r, b, now = multi_branch_result(side)
         q = quote(now, sum(entry_interval(b)) / 2)
-        state, _ = transition({}, 'SPY.US', r, q, now)
+        state, _ = transition({}, 'SPY.US', r, q, now, settings=CONT_CFG)
         assert state['position']['opportunity_id'] == b['structure_id']
         assert not state['plans'][0]['opportunity_valid']
         assert state['plans'][1]['opportunity_valid'] and not state['plans'][1]['executable']
@@ -124,7 +128,11 @@ def test_executed_valid_branch_drives_api_ranking_not_highest_shape(side):
             await repo.redis.set('rt:intraday-simulation:SPY.US', json.dumps(altered))
             row = (await read_snapshot(repo, {}, check_at))['items'][0]
             assert not row['opportunity_eligible'] and row['ranked_opportunity'] is None, change
-    asyncio.run(run())
+
+    try:
+        asyncio.run(run())
+    finally:
+        policy.cache_clear()
 
 
 @pytest.mark.parametrize('reverse', [False, True])
@@ -133,7 +141,7 @@ def test_ranking_prefers_actual_entry_then_uses_stable_quality_order(reverse):
     a = {**deepcopy(b), 'structure_id': 'A', 'process_id': 'already_traded', 'quality_score': 99}
     r['opportunities'].update(primary=a, branches=[a, b] if reverse else [b, a])
     previous = {'trading_date': r['trading_date'], 'used_processes': ['already_traded']}
-    state, _ = transition(previous, 'SPY.US', r, quote(now, sum(entry_interval(b)) / 2), now)
+    state, _ = transition(previous, 'SPY.US', r, quote(now, sum(entry_interval(b)) / 2), now, settings=CONT_CFG)
     # A is valid for display but consumed for trading; B is the actual new entry.
     assert all(p['opportunity_valid'] for p in state['plans'])
     assert state['position']['opportunity_id'] == b['structure_id']
@@ -141,7 +149,7 @@ def test_ranking_prefers_actual_entry_then_uses_stable_quality_order(reverse):
     state['entered_opportunity_id'] = None
     assert ranked_opportunity(r, state, now)['structure_id'] == 'A'
     # With no consumed processes, execution uses the same order regardless of input order.
-    state, _ = transition({}, 'SPY.US', r, quote(now, sum(entry_interval(b)) / 2), now)
+    state, _ = transition({}, 'SPY.US', r, quote(now, sum(entry_interval(b)) / 2), now, settings=CONT_CFG)
     assert state['position']['opportunity_id'] == 'A'
 
 
@@ -151,7 +159,7 @@ def test_recovery_identity_cannot_borrow_distant_pause_that_slides_out_next_minu
     values += [values[-1] - .8, values[-1] - .75]
     bars = [replace(b, high=max(b.open, b.close) + Decimal('.3'), low=min(b.open, b.close) - Decimal('.3'))
             for b in prices([100 + side * (v - 100) for v in values])]
-    recovery_cfg = StartPolicy(recovery_enabled=True)
+    recovery_cfg = StartPolicy(recovery_enabled=True, opening_enabled=False, midday_wave_enabled=False)
     eval_bars = lambda xs: calculate('SPY.US', xs, max(b.bar_time for b in xs) + timedelta(minutes=1), settings=recovery_cfg)
     first = next(b for b in eval_bars(bars[:60])['opportunities']['branches'] if b['kind'] == 'trend_recovery')
     second = next(b for b in eval_bars(bars)['opportunities']['branches'] if b['structure_id'] == first['structure_id'])
@@ -173,16 +181,16 @@ def test_minute_selection_excludes_unreceived_versions_before_deduplicating(orig
     selected = closed_session_bars('SPY.US', inputs, now)
     assert selected == available
     assert closed_session_bars('SPY.US', list(reversed(inputs)), now) == available
-    assert calculate('SPY.US', inputs, now) == calculate('SPY.US', available, now)
+    assert calculate('SPY.US', inputs, now, settings=CONT_CFG) == calculate('SPY.US', available, now, settings=CONT_CFG)
     after = revised.received_at
     assert closed_session_bars('SPY.US', inputs, after)[-1] == revised
-    assert calculate('SPY.US', inputs, after) != calculate('SPY.US', available, after)
+    assert calculate('SPY.US', inputs, after, settings=CONT_CFG) != calculate('SPY.US', available, after, settings=CONT_CFG)
     if original_available:
-        r = calculate('SPY.US', inputs, now)
-        state, _ = transition({}, 'SPY.US', r, quote(now, 104), now)
+        r = calculate('SPY.US', inputs, now, settings=CONT_CFG)
+        state, _ = transition({}, 'SPY.US', r, quote(now, 104), now, settings=CONT_CFG)
         frozen = deepcopy(state['position'])
-        changed = calculate('SPY.US', inputs, after)
-        state, _ = transition(state, 'SPY.US', changed, quote(after, 104), after)
+        changed = calculate('SPY.US', inputs, after, settings=CONT_CFG)
+        state, _ = transition(state, 'SPY.US', changed, quote(after, 104), after, settings=CONT_CFG)
         assert state['position']['evidence'] == frozen['evidence']
         assert state['position']['entry_evidence'] == frozen['entry_evidence']
         assert state['confirmations'][frozen['opportunity_id']] == frozen['evidence']
