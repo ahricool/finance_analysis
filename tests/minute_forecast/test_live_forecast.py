@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from unittest.mock import AsyncMock, Mock
 from zoneinfo import ZoneInfo
@@ -10,8 +10,9 @@ from fastapi import HTTPException, Response
 from finance_analysis.integrations.market_data.realtime_state.models import CandleState
 from finance_analysis.interfaces.api.v1.endpoints import market_data
 from finance_analysis.minute_forecast import publisher
-from finance_analysis.minute_forecast.cache import close_replay_key, forecast_key
-from finance_analysis.minute_forecast.models import ForecastSnapshot
+from finance_analysis.minute_forecast.cache import close_replay_key, forecast_key, pending_error_key
+from finance_analysis.minute_forecast.evaluation import evaluation_day, read_accuracy, settle_forecasts
+from finance_analysis.minute_forecast.models import ForecastAccuracy, ForecastSnapshot, RecentErrors
 from finance_analysis.minute_forecast.publisher import ForecastPublisher
 from finance_analysis.minute_forecast.windows import btc_window, millis, stock_close_window, stock_window
 
@@ -52,7 +53,7 @@ def test_cn_forecast_ends_at_lunch_and_begins_with_a_completed_afternoon_candle(
     assert stock_window("600519.SH", "CN", morning, afternoon) is None
     window = stock_window("600519.SH", "CN", morning + candles("600519.SH", afternoon, 1), afternoon + MINUTE)
     assert len(window.bars) == 35
-    assert window.targets[-1] == millis(afternoon + 5 * MINUTE)
+    assert window.targets[-1] == millis(afternoon + 10 * MINUTE)
 
 
 def test_close_replay_anchors_to_early_close_and_excludes_postmarket_candles():
@@ -62,7 +63,7 @@ def test_close_replay_anchors_to_early_close_and_excludes_postmarket_candles():
     replay = stock_close_window("QQQ.US", "US", bars, close.date())
     assert replay is not None
     assert replay.bars[-1].timestamp == millis(close - MINUTE)
-    assert replay.targets == [millis(close + i * MINUTE) for i in range(5)]
+    assert replay.targets == [millis(close + i * MINUTE) for i in range(10)]
     bars[-3].confirmed = False
     assert stock_close_window("QQQ.US", "US", bars, close.date()) is None
 
@@ -72,6 +73,8 @@ async def test_batches_keep_all_active_symbols_and_btc_independent(monkeypatch):
     now = datetime(2026, 11, 20, 15, 45, 6, tzinfo=timezone.utc)
     monkeypatch.setattr(publisher, "utc_now", lambda: now)
     redis = Mock(eval=AsyncMock())
+    settle = AsyncMock()
+    monkeypatch.setattr(publisher, "settle_forecasts", settle)
     writer = ForecastPublisher(redis, "http://mps", "small")
     symbols = [f"STK{i}.US" for i in range(12)]
     inputs = {symbol: candles(symbol, now.replace(second=0) - 30 * MINUTE, 30) for symbol in symbols}
@@ -85,10 +88,13 @@ async def test_batches_keep_all_active_symbols_and_btc_independent(monkeypatch):
 
         batch = json.loads(request.content)["windows"]
         posted.append([item["symbol"] for item in batch])
-        return httpx.Response(200, json={"protocol": 1, "model": "small", "weights_revision": "fixed",
-                                        "predictions": [{"symbol": item["symbol"], "bars": [
-                                            {"timestamp": edge, "open": 10, "high": 11, "low": 9, "close": 10}
-                                            for edge in item["targets"]]} for item in batch]})
+        return httpx.Response(200, json={
+            "protocol": 1, "model": "small", "weights_revision": "fixed",
+            "predictions": [{"symbol": item["symbol"], "bars": [
+                {"timestamp": edge, "open": 10, "high": 11, "low": 9, "close": 10}
+                for edge in item["targets"]
+            ]} for item in batch],
+        })
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(predict)) as client:
         await writer.tick(inputs, markets, client, binance, now)
@@ -96,12 +102,63 @@ async def test_batches_keep_all_active_symbols_and_btc_independent(monkeypatch):
     assert posted == [symbols[:10], symbols[10:], ["BTCUSDT"]]
     assert [call.args[2] for call in redis.eval.call_args_list] == list(map(forecast_key, [*symbols, "BTCUSDT"]))
     binance.spot_minute_rows.assert_awaited_once()
-    assert len(btc_window(binance_rows(now), now).bars) == 30
+    assert len(btc_window(binance_rows(now), now).targets) == 10
+    settle.assert_awaited_once()
+    assert settle.await_args.args[2] == markets and settle.await_args.args[3].symbol == "BTCUSDT"
+
+
+@pytest.mark.asyncio
+async def test_settlement_waits_for_late_bars_and_only_scores_confirmed_observations():
+    issued = datetime(2026, 11, 20, 15, 45, tzinfo=NY)
+    forecast = ForecastSnapshot(
+        symbol="QQQ.US", model="small", weights_revision="fixed", anchor=millis(issued - MINUTE),
+        anchor_close=9, generated_at=millis(issued), lookback=240,
+        bars=[dict(timestamp=millis(issued + step * MINUTE), open=12, high=13, low=11, close=12)
+              for step in range(10)],
+    )
+    bars = candles("QQQ.US", issued, 10)
+    bars[1].partial = True
+    bars[3].sampled = True
+    bars[5].confirmed = False
+    raw = forecast.model_dump_json()
+    reads = Mock(execute=AsyncMock(return_value=[[raw]]))
+    writes = Mock(execute=AsyncMock(return_value=[]))
+    redis = Mock(pipeline=Mock(side_effect=[reads, writes, reads, writes]))
+    source = {"QQQ.US": bars}
+    markets = {"QQQ.US": "US"}
+
+    await settle_forecasts(redis, source, markets, None, issued + 10 * MINUTE)
+    writes.eval.assert_not_called()
+    await settle_forecasts(redis, source, markets, None, issued + 12 * MINUTE)
+    reads.zrangebyscore.assert_called_with(pending_error_key("QQQ.US"), "-inf", millis(issued + 12 * MINUTE))
+    _, _, _, date_key, _, original, report, _ = writes.eval.call_args.args
+    assert date_key.endswith(":small:2026-11-20") and original == raw
+    settled = RecentErrors.model_validate_json(report)
+    assert [row.step for row in settled.rows] == [1, 3, 5, 7, 8, 9, 10]
+    assert {(row.error, row.baseline_error) for row in settled.rows} == {(2.0, 1.0)}
+
+
+@pytest.mark.asyncio
+async def test_daily_average_divides_errors_by_each_steps_sample_count():
+    now = datetime(2026, 11, 21, 0, 5, tzinfo=timezone.utc)
+    assert evaluation_day(now, None) == date(2026, 11, 21)
+    assert evaluation_day(now, "US") == date(2026, 11, 20)
+    totals = {"count:1": "4", "error:1": "6", "baseline:1": "10",
+              "count:10": "2", "error:10": "10", "baseline:10": "12"}
+    pipe = Mock(execute=AsyncMock(return_value=([None, None], totals)))
+    result, previous = await read_accuracy(Mock(pipeline=Mock(return_value=pipe)), "BTCUSDT", "small", now.date())
+    assert previous is None
+    assert [(row.step, row.count, row.mae, row.baseline_mae) for row in result.daily] == [
+        (1, 4, 1.5, 2.5), (10, 2, 5.0, 6.0),
+    ]
+    assert pipe.hgetall.call_args.args[0].endswith(":small:2026-11-21")
 
 
 @pytest.mark.asyncio
 async def test_forecast_read_reuses_stock_entitlement_and_btc_needs_no_stock_lookup(monkeypatch):
     monkeypatch.setattr(market_data, "forecast_url", lambda: "http://mps")
+    accuracy = AsyncMock(side_effect=lambda redis, symbol, model, day: (ForecastAccuracy(trading_date=day), None))
+    monkeypatch.setattr(market_data, "read_accuracy", accuracy)
     access = AsyncMock(side_effect=HTTPException(404))
     monkeypatch.setattr(market_data, "_require_intraday_access", access)
     redis = Mock(get=AsyncMock(return_value=None), zrevrangebyscore=AsyncMock(return_value=[]))
@@ -124,6 +181,7 @@ async def test_forecast_read_reuses_stock_entitlement_and_btc_needs_no_stock_loo
     redis.get.side_effect = [None, replay.model_dump_json()]
     result = await market_data.minute_forecast("QQQ.US", request, Response())
     assert result.forecast == replay and result.comparison is None
+    assert result.accuracy is not None and result.accuracy.daily == []
     assert [call.args[0] for call in redis.get.call_args_list] == [forecast_key("QQQ.US"), close_replay_key("QQQ.US")]
     redis.get.reset_mock()
     redis.get.side_effect = [live.model_dump_json()]

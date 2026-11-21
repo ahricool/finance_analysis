@@ -12,6 +12,7 @@ from finance_analysis.core.time import utc_now
 from finance_analysis.crypto.config import get_crypto_config
 from finance_analysis.integrations.crypto.binance import BinanceClient
 from finance_analysis.minute_forecast.cache import publish_forecast
+from finance_analysis.minute_forecast.evaluation import settle_forecasts
 from finance_analysis.minute_forecast.models import (
     BATCH_SIZE, BTC_SYMBOL, LOOKBACK, MINUTE_MS, PROTOCOL, ForecastSnapshot, ForecastWindow, InferenceResult,
 )
@@ -25,6 +26,10 @@ def forecast_url() -> str:
     return (env_str("KRONOS_URL", "") or "").strip().rstrip("/")
 
 
+def forecast_model() -> str:
+    return env_str("KRONOS_MODEL", "small") or "small"
+
+
 class ForecastPublisher:
     def __init__(self, redis, url: str, expected_model: str) -> None:
         self.redis = redis
@@ -33,6 +38,8 @@ class ForecastPublisher:
         self.published: dict[str, int] = {}
         self.btc_requested_at: datetime | None = None
         self.btc_input: ForecastWindow | None = None
+        self.stock_evaluated_at: int | None = None
+        self.btc_evaluated_at: int | None = None
         self.retry_after = 0
 
     async def run(self, bars: Mapping, targets: Callable[[], Mapping[str, MarketType]]) -> None:
@@ -54,12 +61,11 @@ class ForecastPublisher:
                    now: datetime) -> None:
         minute = now.replace(second=0, microsecond=0)
         anchor = millis(minute) - MINUTE_MS
-        if millis(now) < self.retry_after:
-            return
+        ready = millis(now) >= self.retry_after
         groups: dict[tuple[int, int], list[ForecastWindow]] = defaultdict(list)
         self.published = {symbol: value for symbol, value in self.published.items()
                           if symbol in targets or (binance is not None and symbol == BTC_SYMBOL)}
-        for symbol, market in targets.items():
+        for symbol, market in (targets.items() if ready else ()):
             if not bars.get(symbol) or self.published.get(symbol) == anchor:
                 continue
             try:
@@ -78,7 +84,6 @@ class ForecastPublisher:
                 and (self.btc_requested_at is None or (now - self.btc_requested_at).total_seconds() >= 8)):
             self.btc_requested_at = now
             btc_task = asyncio.create_task(self.read_btc(binance, now))
-        ready = True
         try:
             for windows in groups.values():
                 for start in range(0, len(windows), BATCH_SIZE):
@@ -91,6 +96,18 @@ class ForecastPublisher:
                 self.btc_input = await btc_task
             if ready and self.btc_input is not None and self.published.get(BTC_SYMBOL) != anchor:
                 await self.infer(predictor, [self.btc_input])
+            # Keep settlement moving during inference backoff. BTC can arrive
+            # a tick later than the equity candles, so track its cadence separately.
+            stock_due = self.stock_evaluated_at != anchor and now.second >= 5
+            btc_due = self.btc_evaluated_at != anchor and self.btc_input is not None
+            if stock_due or btc_due:
+                await settle_forecasts(
+                    self.redis, bars, targets if stock_due else {}, self.btc_input if btc_due else None, now,
+                )
+                if stock_due:
+                    self.stock_evaluated_at = anchor
+                if btc_due:
+                    self.btc_evaluated_at = anchor
         finally:
             if btc_task is not None and not btc_task.done():
                 btc_task.cancel()

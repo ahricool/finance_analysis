@@ -120,6 +120,35 @@ describe('MarketKLineChart v10 lifecycle', () => {
     wrapper.unmount();
   });
 
+  it('shows ten forecast rows and the sample-weighted daily error separately from the latest batch', async () => {
+    const start = Math.floor(Date.now() / 60_000) * 60_000;
+    const actual = { ...bar, timestamp: start - 60_000 };
+    vi.mocked(fetchMinuteForecast).mockResolvedValueOnce({
+      enabled: true,
+      comparison: null,
+      forecast: { symbol: 'QQQ.US', model: 'small', weightsRevision: 'fixed', anchor: actual.timestamp,
+        anchorClose: 2, generatedAt: start, lookback: 240, bars: Array.from({ length: 10 }, (_, index) => ({
+          timestamp: start + index * 60_000, open: 2, high: 4, low: 2, close: 3,
+        })) },
+      accuracy: { tradingDate: '2026-11-20', recent: { issuedAt: start - 15 * 60_000,
+        rows: [{ step: 10, close: 5, error: 2, baselineError: 3 }] }, daily: [
+        { step: 1, count: 3, mae: 1, baselineMae: 2 }, { step: 10, count: 1, mae: 5, baselineMae: 6 },
+      ] },
+    });
+    const wrapper = mount(MarketKLineChart, { props: { symbol: 'QQQ.US', period: '1m', bars: [actual] } });
+    await flushPromises();
+    const panel = wrapper.get('[data-testid="minute-forecast"]');
+    const summary = panel.findAll('dl > div');
+    expect(summary[0]?.text()).toContain('10 根');
+    expect(summary[1]?.text()).toContain('基线 3 · 1 个样本');
+    expect(summary[2]?.get('strong').text()).toBe('2');
+    expect(summary[2]?.text()).toContain('基线 3 · 4 个样本');
+    expect(panel.findAll('details')[0]?.findAll('li')).toHaveLength(10);
+    expect(panel.findAll('details')[1]?.text()).toContain('+10 分钟');
+    expect(chart.createOverlay.mock.lastCall?.[0]?.[0]).toHaveProperty('points.length', 11);
+    wrapper.unmount();
+  });
+
   it('updates polled candles in place and restores the visible minute after a history correction', async () => {
     let displayed: KLineData[] = [];
     chart.getDataList.mockImplementation(() => displayed);

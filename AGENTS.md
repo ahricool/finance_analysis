@@ -506,4 +506,4 @@ GET只读，行级机会资格排除缺线、延迟和非交易时段；默认�
 
 ## Kronos Minute Forecast
 
-`minute_forecast/` 由 Streamer leader 对 CN/HK/US 订阅并集和 Binance BTCUSDT 的已收盘原生 `1m` 生成预测。模型运行于独立 macOS MPS LaunchAgent，发布默认 Small，保留 Base 与本地 Large 权重配置。预测以有限 TTL 写入独立 Redis 键，GET 使用原分钟图授权，只读缓存。原 `MarketKLineChart` 以覆盖物展示预测和近期误差，见 `docs/kronos.md`。
+`minute_forecast/` 由 Streamer leader 对 CN/HK/US 订阅并集和 Binance BTCUSDT 的已收盘原生 `1m` 生成最多 10 步预测，并按已确认的真实收盘价结算最近和日均误差。模型运行于独立 macOS MPS LaunchAgent，发布默认 Small，保留 Base 与本地 Large 权重配置。预测和误差以有限 TTL 写入 Redis，GET 使用原分钟图授权，只读缓存。原 `MarketKLineChart` 展示预测覆盖物，图下展示误差，见 `docs/kronos.md`。

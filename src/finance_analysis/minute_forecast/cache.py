@@ -5,6 +5,7 @@ from pydantic import ValidationError
 from finance_analysis.minute_forecast.models import HORIZON, MINUTE_MS, ForecastSnapshot
 
 TTL_SECONDS = 15 * 60
+EVALUATION_TTL_SECONDS = 3 * 24 * 60 * 60
 
 # The first result for a minute is frozen across a Streamer restart/retry. An
 # older inference must never replace the snapshot for a later confirmed minute.
@@ -21,6 +22,8 @@ redis.call('SET', KEYS[1], ARGV[2], 'EX', ARGV[3])
 redis.call('ZADD', KEYS[2], ARGV[1], ARGV[2])
 redis.call('ZREMRANGEBYRANK', KEYS[2], 0, -17)
 redis.call('EXPIRE', KEYS[2], ARGV[3])
+redis.call('ZADD', KEYS[3], ARGV[5], ARGV[2])
+redis.call('EXPIRE', KEYS[3], ARGV[6])
 return 1
 """
 
@@ -52,7 +55,7 @@ async def close_replay_forecast(redis, symbol: str) -> ForecastSnapshot | None:
 
 
 async def comparison_forecast(redis, symbol: str, now_ms: int) -> ForecastSnapshot | None:
-    # A full horizon is settled after all five target candles could have closed.
+    # Compatibility fallback for pre-upgrade snapshots and older chart clients.
     cutoff = now_ms - now_ms % MINUTE_MS - (HORIZON + 1) * MINUTE_MS
     found = await redis.zrevrangebyscore(f"{forecast_key(symbol)}:recent", cutoff, "-inf", start=0, num=1)
     return _decode(found[0]) if found else None
@@ -60,5 +63,12 @@ async def comparison_forecast(redis, symbol: str, now_ms: int) -> ForecastSnapsh
 
 async def publish_forecast(redis, forecast: ForecastSnapshot) -> None:
     key = forecast_key(forecast.symbol)
-    await redis.eval(_PUBLISH, 2, key, f"{key}:recent", forecast.anchor, forecast.model_dump_json(),
-                     TTL_SECONDS, forecast.bars[0].timestamp + MINUTE_MS)
+    await redis.eval(
+        _PUBLISH, 3, key, f"{key}:recent", pending_error_key(forecast.symbol),
+        forecast.anchor, forecast.model_dump_json(), TTL_SECONDS, forecast.bars[0].timestamp + MINUTE_MS,
+        forecast.bars[-1].timestamp + MINUTE_MS, EVALUATION_TTL_SECONDS,
+    )
+
+
+def pending_error_key(symbol: str) -> str:
+    return f"{forecast_key(symbol)}:pending-errors"
