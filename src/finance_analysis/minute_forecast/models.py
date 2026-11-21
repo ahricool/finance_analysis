@@ -62,6 +62,7 @@ class ForecastSnapshot(BaseModel):
     generated_at: int
     lookback: int
     bars: list[PredictedBar] = Field(min_length=1, max_length=HORIZON)
+    close_replay: bool = False
 
 
 class MinuteForecastResponse(BaseModel):

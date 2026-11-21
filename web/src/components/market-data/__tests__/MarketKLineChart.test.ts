@@ -104,6 +104,22 @@ describe('MarketKLineChart v10 lifecycle', () => {
     wrapper.unmount();
   });
 
+  it('labels a historical close replay and removes it when a newer real candle arrives', async () => {
+    vi.mocked(fetchMinuteForecast).mockResolvedValueOnce({ enabled: true, comparison: null, forecast: {
+      symbol: 'QQQ.US', model: 'small', weightsRevision: 'fixed', anchor: bar.timestamp,
+      anchorClose: 2, generatedAt: Date.now(), lookback: 30, closeReplay: true,
+      bars: [{ timestamp: 61_000, open: 2, high: 4, low: 2, close: 3 }],
+    } });
+    const wrapper = mount(MarketKLineChart, { props: { symbol: 'QQQ.US', period: '1m', bars: [bar] } });
+    await flushPromises();
+    expect(chart.createOverlay).toHaveBeenCalled();
+    expect(wrapper.get('[data-testid="minute-forecast"]').text()).toContain('收盘试算');
+    await wrapper.setProps({ bars: [bar, { ...bar, timestamp: 61_000 }] });
+    expect(chart.removeOverlay).toHaveBeenCalledWith({ id: 'minute-forecast' });
+    expect(wrapper.get('[data-testid="minute-forecast"]').text()).not.toContain('收盘试算');
+    wrapper.unmount();
+  });
+
   it('updates polled candles in place and restores the visible minute after a history correction', async () => {
     let displayed: KLineData[] = [];
     chart.getDataList.mockImplementation(() => displayed);

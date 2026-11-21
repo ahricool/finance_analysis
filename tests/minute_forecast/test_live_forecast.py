@@ -10,9 +10,10 @@ from fastapi import HTTPException, Response
 from finance_analysis.integrations.market_data.realtime_state.models import CandleState
 from finance_analysis.interfaces.api.v1.endpoints import market_data
 from finance_analysis.minute_forecast import publisher
-from finance_analysis.minute_forecast.cache import forecast_key
+from finance_analysis.minute_forecast.cache import close_replay_key, forecast_key
+from finance_analysis.minute_forecast.models import ForecastSnapshot
 from finance_analysis.minute_forecast.publisher import ForecastPublisher
-from finance_analysis.minute_forecast.windows import btc_window, millis, stock_window
+from finance_analysis.minute_forecast.windows import btc_window, millis, stock_close_window, stock_window
 
 MINUTE = timedelta(minutes=1)
 NY = ZoneInfo("America/New_York")
@@ -52,6 +53,18 @@ def test_cn_forecast_ends_at_lunch_and_begins_with_a_completed_afternoon_candle(
     window = stock_window("600519.SH", "CN", morning + candles("600519.SH", afternoon, 1), afternoon + MINUTE)
     assert len(window.bars) == 35
     assert window.targets[-1] == millis(afternoon + 5 * MINUTE)
+
+
+def test_close_replay_anchors_to_early_close_and_excludes_postmarket_candles():
+    close = datetime(2026, 11, 27, 13, 0, tzinfo=NY)
+    bars = candles("QQQ.US", close - 32 * MINUTE, 34)
+    assert stock_window("QQQ.US", "US", bars, close) is None
+    replay = stock_close_window("QQQ.US", "US", bars, close.date())
+    assert replay is not None
+    assert replay.bars[-1].timestamp == millis(close - MINUTE)
+    assert replay.targets == [millis(close + i * MINUTE) for i in range(5)]
+    bars[-3].confirmed = False
+    assert stock_close_window("QQQ.US", "US", bars, close.date()) is None
 
 
 @pytest.mark.asyncio
@@ -101,3 +114,18 @@ async def test_forecast_read_reuses_stock_entitlement_and_btc_needs_no_stock_loo
     redis.get.assert_not_called()
     assert (await market_data.minute_forecast("BTCUSDT", request, Response())).forecast is None
     redis.get.assert_awaited_once_with(forecast_key("BTCUSDT"))
+
+    access.side_effect = None
+    live = ForecastSnapshot(model="small", weights_revision="fixed", symbol="QQQ.US", anchor=0,
+                            anchor_close=10, generated_at=60_000, lookback=240,
+                            bars=[dict(timestamp=60_000, open=10, high=11, low=9, close=10)])
+    replay = live.model_copy(update={"close_replay": True})
+    redis.get.reset_mock()
+    redis.get.side_effect = [None, replay.model_dump_json()]
+    result = await market_data.minute_forecast("QQQ.US", request, Response())
+    assert result.forecast == replay and result.comparison is None
+    assert [call.args[0] for call in redis.get.call_args_list] == [forecast_key("QQQ.US"), close_replay_key("QQQ.US")]
+    redis.get.reset_mock()
+    redis.get.side_effect = [live.model_dump_json()]
+    assert (await market_data.minute_forecast("QQQ.US", request, Response())).forecast == live
+    redis.get.assert_awaited_once_with(forecast_key("QQQ.US"))

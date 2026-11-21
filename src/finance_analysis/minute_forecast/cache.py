@@ -29,6 +29,10 @@ def forecast_key(symbol: str) -> str:
     return f"rt:forecast:1m:v1:{symbol}"
 
 
+def close_replay_key(symbol: str) -> str:
+    return f"{forecast_key(symbol)}:close"
+
+
 def _decode(raw) -> ForecastSnapshot | None:
     if raw is None:
         return None
@@ -40,6 +44,11 @@ def _decode(raw) -> ForecastSnapshot | None:
 
 async def latest_forecast(redis, symbol: str) -> ForecastSnapshot | None:
     return _decode(await redis.get(forecast_key(symbol)))
+
+
+async def close_replay_forecast(redis, symbol: str) -> ForecastSnapshot | None:
+    replay = _decode(await redis.get(close_replay_key(symbol)))
+    return replay if replay is not None and replay.close_replay else None
 
 
 async def comparison_forecast(redis, symbol: str, now_ms: int) -> ForecastSnapshot | None:

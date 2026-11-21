@@ -18,6 +18,7 @@ export interface MinuteForecast {
   generatedAt: number;
   lookback: number;
   bars: ForecastBar[];
+  closeReplay?: boolean;
 }
 
 export interface MinuteForecastResponse {

@@ -45,7 +45,7 @@ from finance_analysis.market_stream.config import (
 )
 from finance_analysis.market_stream.patterns.config import PatternConfig
 from finance_analysis.market_stream.patterns.models import PatternSignal, PatternState
-from finance_analysis.minute_forecast.cache import comparison_forecast, latest_forecast
+from finance_analysis.minute_forecast.cache import close_replay_forecast, comparison_forecast, latest_forecast
 from finance_analysis.minute_forecast.models import BTC_SYMBOL, MinuteForecastResponse
 from finance_analysis.minute_forecast.publisher import forecast_url
 from finance_analysis.minute_forecast.windows import millis
@@ -101,6 +101,8 @@ async def minute_forecast(symbol: str, request: Request, response: Response) -> 
         forecast, comparison = await asyncio.gather(
             latest_forecast(repository.redis, code), comparison_forecast(repository.redis, code, millis(utc_now())),
         )
+        if forecast is None and code != BTC_SYMBOL:
+            forecast = await close_replay_forecast(repository.redis, code)
         return MinuteForecastResponse(enabled=True, forecast=forecast, comparison=comparison)
     finally:
         await repository.close()
