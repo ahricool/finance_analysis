@@ -12,7 +12,8 @@ from finance_analysis.intraday_options.config import SYMBOLS
 from finance_analysis.intraday_options.simulation import dt, statistics, transition
 
 
-def process(symbol, result, quote, now):
+def process_with_events(symbol, result, quote, now):
+    committed_events = []
     with DatabaseManager.get_instance().session_scope() as session:
         # Lock also covers absent state rows and serializes independent Streamer instances.
         session.execute(
@@ -21,7 +22,7 @@ def process(symbol, result, quote, now):
         row = session.get(State, symbol)
         previous = row.payload if row else {}
         if previous.get("calculated_at") and dt(previous["calculated_at"]) >= now:
-            return previous
+            return previous, []
         state, events = transition(previous, symbol, result, quote, now)
         if row is None:
             session.add(State(symbol=symbol, payload=state))
@@ -44,7 +45,13 @@ def process(symbol, result, quote, now):
             elif event["kind"] == "exit":
                 trade = session.get(Trade, event["trade_id"])
                 trade.status, trade.payload = "closed", event["trade"]
-        return state
+        committed_events = events
+    return state, committed_events
+
+
+def process(symbol, result, quote, now):
+    state, _ = process_with_events(symbol, result, quote, now)
+    return state
 
 
 def open_retired_symbols():

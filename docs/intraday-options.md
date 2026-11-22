@@ -242,7 +242,7 @@ API行级 `opportunity_eligible` 只在交易中、分钟/报价有效且有匹�
 
 本节替代此前“无历史持久化／不交易”的范围说明。趋势质量和三类形态保持独立；
 新增 `simulation.py` 执行状态机、`scheduler.py` 调度器、专用 PostgreSQL state/trade/event 表。
-这是全观察池共享研究模拟，与任何用户真实持仓、期权行情、订单、notification 无关。
+这是全观察池共享研究模拟，与任何用户真实持仓、期权行情或真实下单无关；开仓/平仓事件在事务提交后经 `NotificationService` 写入全局 `notification` 并异步推送 Telegram/ntfy（`INTRADAY_TRADE_NOTIFICATIONS=false` 可关闭）。
 收益只计算标的价格变化，做空镜像，不计费用或滑点；逐笔收益不能相加当作组合收益。
 
 ### 默认参数与执行

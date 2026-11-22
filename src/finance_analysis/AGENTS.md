@@ -310,5 +310,6 @@ LLM允许web_search，但只能建议已有position；BUY为加仓，数量不�
 
 日内期权面板新增标的虚拟交易：`intraday_options/scheduler.py` 在Streamer每5秒用有界线程池运行，
 仅输入自身分钟K/报价。`intraday_simulation_*` 为独立共享研究表，事务锁与唯一约束防重入；
-不关联portfolio或notification。首次确认／入场依据冻结，收盘前2小时截止（实际日历），
-停机恢复补记估算退出，正常与估算分开统计。详见 `docs/intraday-options.md`（仓库根）。
+不关联portfolio。开仓/平仓事件在事务提交后由独立有界通知线程池经 `NotificationService` 写入全局 `notification`
+并推送 Telegram/ntfy（fail-open、不阻塞行情与交易状态机）。首次确认／入场依据冻结，停机恢复补记估算退出，
+正常与估算分开统计。详见 `docs/intraday-options.md` 与 `docs/intraday-starts.md`（仓库根）。

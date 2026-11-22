@@ -40,6 +40,14 @@ V7 在 V6 的低频长持基础上，进一步聚焦 **同时提升单笔胜率�
 
 配置见 `.env.example`，调整环境变量后重启对应进程生效。完整旧路线阈值见[原有规则](intraday-options.md)及[趋势延续](intraday-trend-continuation.md)。
 
+## 模拟开平仓通知
+
+当模拟交易真正发生 **开仓（`entry`）** 或 **平仓（`exit`）** 并完成数据库提交后，`scheduler.py` 会在独立的后台通知线程池中调用 `intraday_options/notification.py::notify_trade_events()`，复用全局 `NotificationService.send()`（`uid=None`、`route_type="alert"`）：
+
+- 先写入 PostgreSQL `notification` 消息中心，再向全局已配置的 Telegram / ntfy 渠道推送（支持 `TELEGRAM_BOT_TOKEN`、`TELEGRAM_CHAT_ID`、`TELEGRAM_MESSAGE_THREAD_ID`）。
+- 仅通知实际成交的开仓与平仓，不推送形态确认、浮盈锁盈调整或行情心跳事件；重启补记的估算退出会显式标注估算原因并使用 `warning` 级别。
+- 通知发送采用 fail-open 与非阻塞隔离：通知异常或网络超时不会回滚模拟成交，也不会阻塞 5 秒行情调度或止损检查；设置 `INTRADAY_TRADE_NOTIFICATIONS=false` 可关闭推送。
+
 ## 2026-11-17 历史核查
 
 **QQQ 13:26 纽约时间。** 旧版箱体突破按 655.44 报价做多，交易冻结证据记载 ATR 0.52665、触发位 655.208、初始失效位 654.8130125。顺向最近的已确认阻力是 656.06，优先于箱体高度估计的 657.166。剩余空间 0.62 美元、幅度 0.0945929%、初始风险 0.6269875 美元、计划 0.988855R。默认仅幅度未达标；改为 1.0R 会同时触发两项过滤。35.026 秒后实际退出报价 656.27，标的实际毛收益 +0.126632%，只用于事后结果。旧冻结记录没有保存选中拐点的具体分钟或全量备选列表。
