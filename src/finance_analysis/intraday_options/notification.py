@@ -35,35 +35,49 @@ def trade_notifications_enabled() -> bool:
 
 def is_trade_event(event: Any) -> bool:
     """Return True when *event* is a committed entry or exit trade event."""
-    return isinstance(event, Mapping) and event.get("kind") in TRADE_EVENT_KINDS and isinstance(event.get("trade"), Mapping)
+    return (
+        isinstance(event, Mapping)
+        and event.get("kind") in TRADE_EVENT_KINDS
+        and isinstance(event.get("trade"), Mapping)
+    )
+
+
+def _safe_float(value: Any) -> float | None:
+    if value is None:
+        return None
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if math.isfinite(parsed) else None
 
 
 def _clean_text(value: str) -> str:
-    """Normalize ASCII brackets/underscores so Telegram legacy Markdown renders cleanly."""
-    return value.replace("(", "（").replace(")", "）").replace("[", "【").replace("]", "】").replace("_", " ")
+    """Normalize Markdown-sensitive ASCII tokens so Telegram legacy Markdown renders cleanly."""
+    return (
+        value.replace("(", "（")
+        .replace(")", "）")
+        .replace("[", "【")
+        .replace("]", "】")
+        .replace("_", " ")
+        .replace("*", "＊")
+        .replace("`", "'")
+    )
 
 
 def _fmt_price(value: Any) -> str:
-    if value is None:
-        return "—"
-    try:
-        price = float(value)
-    except (TypeError, ValueError):
-        return "—"
-    if not math.isfinite(price):
+    price = _safe_float(value)
+    if price is None:
         return "—"
     return f"{price:.4f}" if 0 < abs(price) < 1 else f"{price:.2f}"
 
 
 def _fmt_signed_pct(value: Any) -> str:
-    if value is None:
+    pct = _safe_float(value)
+    if pct is None:
         return "—"
-    try:
-        pct = float(value)
-    except (TypeError, ValueError):
-        return "—"
-    if not math.isfinite(pct):
-        return "—"
+    if abs(pct) < 5e-4:
+        return "0.00%"
     return f"{pct:+.2f}%"
 
 
@@ -73,24 +87,22 @@ def _fmt_dual_clock(value: Any, *, include_seconds: bool = True) -> str:
     try:
         parsed = datetime.fromisoformat(value) if isinstance(value, str) else value
         if not isinstance(parsed, datetime):
-            return str(value)
-        if parsed.tzinfo is None:
-            return parsed.strftime("%H:%M:%S" if include_seconds else "%H:%M")
+            return _clean_text(str(value))
         fmt = "%H:%M:%S" if include_seconds else "%H:%M"
+        if parsed.tzinfo is None:
+            return parsed.strftime(fmt)
         ny = parsed.astimezone(_NY_TZ).strftime(fmt)
         cn = parsed.astimezone(_CN_TZ).strftime(fmt)
         return f"{ny} 美东 / {cn} 北京"
     except (TypeError, ValueError):
-        return str(value)
+        return _clean_text(str(value))
 
 
 def _fmt_duration(seconds: Any) -> str:
-    if seconds is None:
+    value = _safe_float(seconds)
+    if value is None:
         return "—"
-    try:
-        total = max(0, int(round(float(seconds))))
-    except (TypeError, ValueError):
-        return "—"
+    total = max(0, int(round(value)))
     hours, rem = divmod(total, 3600)
     minutes, secs = divmod(rem, 60)
     if hours > 0:
@@ -127,17 +139,18 @@ def render_trade_notification(
     if not isinstance(trade, Mapping):
         raise ValueError("Trade notification event requires a trade payload")
 
-    symbol = str(trade.get("symbol") or event.get("symbol") or "").strip()
-    side = int(trade.get("side") or 1)
+    symbol = _clean_text(str(trade.get("symbol") or event.get("symbol") or "").strip())
+    raw_side = _safe_float(trade.get("side"))
+    side = -1 if raw_side is not None and raw_side < 0 else 1
     direction = "做多" if side == 1 else "做空"
     strategy_label = _kind_label(trade.get("kind"))
     header_symbol = _symbol_header(symbol, symbol_name)
-    trading_date = str(trade.get("trading_date") or "—")
+    trading_date = _clean_text(str(trade.get("trading_date") or "—"))
 
     if kind == "entry":
-        entry_price = trade.get("entry_price")
-        invalidation = trade.get("invalidation")
-        target = trade.get("target")
+        entry_price = _safe_float(trade.get("entry_price"))
+        invalidation = _safe_float(trade.get("invalidation"))
+        target = _safe_float(trade.get("target"))
         emoji = "📈" if side == 1 else "📉"
         title = f"日内模拟开仓 · {direction} {symbol} @ {_fmt_price(entry_price)}"
         lines = [
@@ -146,8 +159,8 @@ def render_trade_notification(
             f"- 策略路线：{strategy_label}",
             f"- 进场价格：{_fmt_price(entry_price)}",
         ]
-        if invalidation is not None and entry_price:
-            stop_pct = side * (float(invalidation) - float(entry_price)) / float(entry_price) * 100.0
+        if invalidation is not None and entry_price is not None and entry_price > 0:
+            stop_pct = side * (invalidation - entry_price) / entry_price * 100.0
             lines.append(f"- 止损保护：{_fmt_price(invalidation)}（{_fmt_signed_pct(stop_pct)}）")
         elif invalidation is not None:
             lines.append(f"- 止损保护：{_fmt_price(invalidation)}")
@@ -158,8 +171,8 @@ def render_trade_notification(
             target_source = "V7波段止盈"
         else:
             target_source = _clean_text(raw_target_source)
-        if target is not None and entry_price:
-            tp_pct = side * (float(target) - float(entry_price)) / float(entry_price) * 100.0
+        if target is not None and entry_price is not None and entry_price > 0:
+            tp_pct = side * (target - entry_price) / entry_price * 100.0
             suffix = f" · {target_source}" if target_source else ""
             lines.append(f"- 目标止盈：{_fmt_price(target)}（{_fmt_signed_pct(tp_pct)}{suffix}）")
         elif target is not None:
@@ -168,8 +181,8 @@ def render_trade_notification(
             lines.append(f"- 目标止盈：{target_source or '移动止损跟踪'}")
 
         if trade.get("exit_policy") == "v7_fixed_wave":
-            trigger_pct = float(trade.get("profit_lock_trigger_pct") or 0.0)
-            lock_pct = float(trade.get("profit_lock_level_pct") or 0.0)
+            trigger_pct = _safe_float(trade.get("profit_lock_trigger_pct")) or 0.0
+            lock_pct = _safe_float(trade.get("profit_lock_level_pct")) or 0.0
             if trigger_pct > 0:
                 lock_label = "成本价保本" if lock_pct == 0 else f"+{lock_pct * 100:.2f}%锁盈"
                 lines.append(f"- 锁盈规则：浮盈达 +{trigger_pct * 100:.1f}% 时保护位上移至{lock_label}")
@@ -180,16 +193,16 @@ def render_trade_notification(
         lines.append(f"- 交易日：{trading_date}")
         return title[:300], "\n".join(lines)
 
-    entry_price = trade.get("entry_price")
-    exit_price = trade.get("exit_price")
-    return_pct = trade.get("return_pct")
+    entry_price = _safe_float(trade.get("entry_price"))
+    exit_price = _safe_float(trade.get("exit_price"))
+    return_pct = _safe_float(trade.get("return_pct"))
     estimated = bool(trade.get("estimated"))
     exit_reason = _clean_text(str(trade.get("exit_reason") or event.get("reason") or "模拟平仓"))
     if estimated:
         emoji = "⚠️"
-    elif return_pct is not None and float(return_pct) > 0:
+    elif return_pct is not None and return_pct > 0:
         emoji = "✅"
-    elif return_pct is not None and float(return_pct) < 0:
+    elif return_pct is not None and return_pct < 0:
         emoji = "❌"
     else:
         emoji = "➖"
@@ -214,7 +227,7 @@ def render_trade_notification(
 
 
 def _load_symbol_names(symbols: Iterable[str]) -> dict[str, str]:
-    codes = sorted({str(symbol).strip() for symbol in symbols if str(symbol or "").strip()})
+    codes = sorted({str(symbol).strip().upper() for symbol in symbols if str(symbol or "").strip()})
     if not codes:
         return {}
     try:
@@ -251,6 +264,12 @@ def notify_trade_events(
         symbol_names = {}
 
     factory = notifier_factory or _default_notifier
+    try:
+        notifier = factory()
+    except Exception:
+        logger.exception("初始化日内模拟交易通知服务失败")
+        return 0
+
     sent_count = 0
     for event in trade_events:
         trade = event["trade"]
@@ -259,9 +278,10 @@ def notify_trade_events(
         trade_id = str(event.get("trade_id") or trade.get("id") or f"{symbol}:{event.get('at') or ''}")
         dedup_key = f"intraday-simulation:{kind}:{trade_id}"
         severity = "warning" if kind == "exit" and bool(trade.get("estimated")) else "info"
+        symbol_name = symbol_names.get(symbol) or symbol_names.get(symbol.upper())
         try:
-            title, content = render_trade_notification(event, symbol_name=symbol_names.get(symbol))
-            result = factory().send(
+            title, content = render_trade_notification(event, symbol_name=symbol_name)
+            result = notifier.send(
                 content,
                 route_type="alert",
                 severity=severity,
@@ -270,7 +290,10 @@ def notify_trade_events(
                 uid=None,
                 title=title,
             )
-            if getattr(result, "notification_id", None) is not None or getattr(result, "push_sent", False):
+            notification_id = getattr(result, "notification_id", None)
+            if notification_id is None:
+                logger.warning("日内模拟交易消息未能写入 notification: kind=%s symbol=%s trade_id=%s", kind, symbol, trade_id)
+            if notification_id is not None or getattr(result, "push_sent", False):
                 sent_count += 1
         except Exception:
             logger.exception("日内模拟交易通知失败: kind=%s symbol=%s trade_id=%s", kind, symbol, trade_id)

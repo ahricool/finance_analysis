@@ -277,6 +277,7 @@ def test_scheduler_dispatches_committed_trade_notifications_without_blocking_red
                 received_at=now,
             )
         )
+        loop = asyncio.get_running_loop()
         stop_event = asyncio.Event()
         dispatched = []
         entry = _entry_event()
@@ -297,7 +298,7 @@ def test_scheduler_dispatches_committed_trade_notifications_without_blocking_red
         def fake_notify(events):
             dispatched.extend(events)
             if len(dispatched) >= 2:
-                stop_event.set()
+                loop.call_soon_threadsafe(stop_event.set)
             return len(events)
 
         monkeypatch.setattr(scheduler, "SYMBOLS", ("NVDA.US",))
@@ -321,11 +322,12 @@ def test_scheduler_does_not_notify_when_process_raises_and_survives_notify_failu
         redis = FakeRedis()
         repo = RealtimeStateRepository(redis)
         now = datetime(2026, 11, 20, 14, 41, 5, tzinfo=timezone.utc)
+        loop = asyncio.get_running_loop()
         stop_event = asyncio.Event()
         notified = []
 
         def failing_process(symbol, result, quote, when):
-            stop_event.set()
+            loop.call_soon_threadsafe(stop_event.set)
             raise RuntimeError("db rollback")
 
         monkeypatch.setattr(scheduler, "SYMBOLS", ("NVDA.US",))
@@ -345,7 +347,7 @@ def test_scheduler_does_not_notify_when_process_raises_and_survives_notify_failu
             return {"symbol": symbol, "position": entry["trade"]}, [entry]
 
         def failing_notify(batch):
-            stop_event2.set()
+            loop.call_soon_threadsafe(stop_event2.set)
             raise RuntimeError("telegram unreachable")
 
         monkeypatch.setattr(scheduler, "process_with_events", ok_process)
@@ -468,5 +470,52 @@ def test_real_v7_transition_events_render_and_notify_cleanly():
     assert "_" not in entry_body and "_" not in exit_body
     assert "(" not in entry_body and ")" not in entry_body
     assert "(" not in exit_body and ")" not in exit_body
+
+
+def test_render_handles_non_finite_values_breakeven_and_markdown_chars():
+    event = _exit_event(return_pct=-0.0, estimated=False)
+    event["trade"]["duration_seconds"] = float("nan")
+    event["trade"]["exit_reason"] = "测试_原因*带`符号`(ok)"
+    title, content = render_trade_notification(event, symbol_name="Tech *ETF* [3x]_test")
+    assert "0.00%" in title and "-0.00%" not in title
+    assert "➖ **日内模拟平仓 · 做多 NVDA.US（Tech ＊ETF＊ 【3x】 test）**" in content
+    assert "持仓时长：—" in content
+    assert "_" not in content and "`" not in content
+    assert "(" not in content and ")" not in content
+
+    bad_entry = _entry_event()
+    bad_entry["trade"]["entry_price"] = float("nan")
+    bad_entry["trade"]["invalidation"] = "bad"
+    bad_entry["trade"]["target"] = float("inf")
+    bad_title, bad_content = render_trade_notification(bad_entry)
+    assert "@ —" in bad_title
+    assert "进场价格：—" in bad_content
+
+
+def test_notify_trade_events_factory_failure_is_fail_open_and_persistence_warning(caplog):
+    assert (
+        notify_trade_events(
+            [_entry_event()],
+            notifier_factory=lambda: (_ for _ in ()).throw(RuntimeError("config error")),
+            names_loader=lambda _: {},
+        )
+        == 0
+    )
+
+    class PushOnlyNotifier:
+        def send(self, content, **kwargs):
+            return NotificationResult(notification_id=None, push_attempted=True, push_sent=True)
+
+    with caplog.at_level("WARNING"):
+        assert (
+            notify_trade_events(
+                [_entry_event()],
+                notifier_factory=PushOnlyNotifier,
+                names_loader=lambda _: {"NVDA.US": "英伟达"},
+            )
+            == 1
+        )
+    assert "未能写入 notification" in caplog.text
+
 
 
