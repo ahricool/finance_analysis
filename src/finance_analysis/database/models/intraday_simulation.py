@@ -1,4 +1,4 @@
-"""Shared research simulation, deliberately independent of portfolio and notifications."""
+"""Shared research simulation tables, deliberately independent of user portfolios."""
 
 from sqlalchemy import JSON, Column, Date, DateTime, Index, Integer, String, UniqueConstraint, text
 from finance_analysis.database.base import Base

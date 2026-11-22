@@ -295,3 +295,13 @@ def test_removed_symbol_only_drains_existing_position(isolated_store, monkeypatc
             assert trade.symbol == symbol and trade.payload["exit_reason"] == "到达目标"
     finally:
         policy.cache_clear()
+
+
+def test_process_with_events_returns_committed_events_and_skips_stale_ticks(isolated_store):
+    state, events = store.process_with_events("SPY.US", result(), quote(), NOW)
+    assert state["position"] is not None
+    assert [e["kind"] for e in events if e["kind"] in ("entry", "exit")] == ["entry"]
+    # Duplicate or older timestamp must be a no-op with zero newly committed events.
+    same_state, stale_events = store.process_with_events("SPY.US", result(), quote(), NOW)
+    assert same_state["position"] is not None
+    assert stale_events == []

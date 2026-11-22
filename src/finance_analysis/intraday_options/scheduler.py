@@ -8,8 +8,13 @@ import json
 import logging
 
 from finance_analysis.core.time import utc_now
-from finance_analysis.database.repositories.intraday_simulation import open_retired_symbols, process
+from finance_analysis.database.repositories.intraday_simulation import (
+    open_retired_symbols,
+    process as _store_process,
+    process_with_events,
+)
 from finance_analysis.intraday_options.config import SYMBOLS
+from finance_analysis.intraday_options.notification import is_trade_event, notify_trade_events
 from finance_analysis.intraday_options.scoring import calculate, closed_session_bars
 from finance_analysis.intraday_options.simulation import CONFIG
 from finance_analysis.intraday_options.structure import execution_context
@@ -17,6 +22,13 @@ from finance_analysis.market_stream.session import cache_ttl
 from finance_analysis.market_stream.config import market_trading_date
 
 logger = logging.getLogger(__name__)
+process = _store_process
+
+
+def _run_process(symbol, result, quote, now):
+    if process is _store_process:
+        return process_with_events(symbol, result, quote, now)
+    return process(symbol, result, quote, now), []
 
 
 def relative_strength(symbol, bars, benchmark, now):
@@ -73,6 +85,8 @@ async def run(repository, bars_by_symbol, stop_event):
     from finance_analysis.market_stream.session import session_bounds
 
     pool = ThreadPoolExecutor(max_workers=CONFIG.workers, thread_name_prefix="intraday-simulation")
+    notify_pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="intraday-notify")
+    notify_tasks = set()
     pending = {}
     cache = {}
     retiring = None
@@ -80,7 +94,8 @@ async def run(repository, bars_by_symbol, stop_event):
     def compute(symbol, bars, benchmark, spy_bars, peer_bars, quote, now):
         now = utc_now()  # Queue wait must not make an old quote look fresh.
         if symbol not in SYMBOLS:
-            return None, process(symbol, None, quote, now)
+            state, events = _run_process(symbol, None, quote, now)
+            return None, state, [e for e in events if is_trade_event(e)]
         closed = closed_session_bars(symbol, bars, now)
         spy_closed = closed_session_bars("SPY.US", spy_bars, now)
         peer_closed = {
@@ -120,9 +135,15 @@ async def run(repository, bars_by_symbol, stop_event):
         else:
             result = None
         cache[symbol] = (signature, base_result, spy_signature, peer_signature, result)
-        state = process(symbol, result, quote, now)
+        state, events = _run_process(symbol, result, quote, now)
         state["relative_strength"] = relative_strength(symbol, bars, benchmark, now)
-        return result, state
+        return result, state, [e for e in events if is_trade_event(e)]
+
+    async def dispatch_notifications(batch, sym):
+        try:
+            await asyncio.get_running_loop().run_in_executor(notify_pool, notify_trade_events, batch)
+        except Exception:
+            logger.exception("日内模拟交易通知发送失败: %s", sym)
 
     async def tick(symbol):
         try:
@@ -146,9 +167,13 @@ async def run(repository, bars_by_symbol, stop_event):
                 if opening is not None
                 else {}
             )
-            result, state = await asyncio.get_running_loop().run_in_executor(
+            result, state, trade_events = await asyncio.get_running_loop().run_in_executor(
                 pool, compute, symbol, bars, benchmark, spy_bars, peer_bars, quote, now
             )
+            if trade_events:
+                task = asyncio.create_task(dispatch_notifications(trade_events, symbol))
+                notify_tasks.add(task)
+                task.add_done_callback(notify_tasks.discard)
             ttl = cache_ttl("US", market_trading_date(now, "US"), now)
             if symbol not in SYMBOLS and not state.get("position"):
                 retiring.discard(symbol)
@@ -168,7 +193,18 @@ async def run(repository, bars_by_symbol, stop_event):
             for symbol in (*SYMBOLS, *(retiring or ())):
                 if symbol not in pending or pending[symbol].done():
                     pending[symbol] = asyncio.create_task(tick(symbol))
-            await asyncio.sleep(5)
+            try:
+                await asyncio.wait_for(stop_event.wait(), timeout=5)
+            except asyncio.TimeoutError:
+                pass
     finally:
-        await asyncio.gather(*pending.values(), return_exceptions=True)
-        pool.shutdown(wait=True)
+        try:
+            await asyncio.gather(*pending.values(), return_exceptions=True)
+            if notify_tasks:
+                try:
+                    await asyncio.wait_for(asyncio.gather(*list(notify_tasks), return_exceptions=True), timeout=5)
+                except asyncio.TimeoutError:
+                    logger.warning("日内模拟交易通知关闭等待超时，跳过未完成推送")
+        finally:
+            pool.shutdown(wait=True)
+            notify_pool.shutdown(wait=False, cancel_futures=True)
