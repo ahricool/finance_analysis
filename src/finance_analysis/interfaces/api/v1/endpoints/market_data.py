@@ -68,11 +68,12 @@ def _minute_history_version(items: list[dict]) -> str:
 
 
 async def _require_intraday_access(request: Request, code: str, market: str) -> int:
-    from finance_analysis.intraday_options.config import SYMBOLS
+    from finance_analysis.database.repositories.intraday_simulation import load_universe_symbols
     from finance_analysis.portfolio.service import PortfolioService
 
     uid = get_effective_uid(request)
-    if code not in SYMBOLS:
+    shared_symbols = await asyncio.to_thread(load_universe_symbols)
+    if code not in shared_symbols:
         tracked = await asyncio.to_thread(_load_tracked_stocks, uid, market)
         if code not in {stock.symbol for stock in tracked}:
             _, held = await asyncio.to_thread(PortfolioService().read_snapshot, uid, market)

@@ -2,16 +2,17 @@
 
 入口：市场 → 日内期权交易，`/market/intraday-options`；仅 US。
 分析股票/ETF自身的分钟走势，不读取期权链，不限制0DTE，不选择合约、不下单、不输出盈利概率。
-趋势评分只保留 Redis 最新结果。模拟持仓、成交及事件另存专表。V7 开盘纯净驱动龙头入场、跨池广度与固定波段止损止盈机制见[策略与回放](intraday-starts.md)。
+趋势评分只保留 Redis 最新结果。模拟持仓、成交及事件另存专表。V8 QQQ（纳指 100）扩容池、2 小时开盘纯净驱动做多与两档 ATR 棘轮锁盈机制见[策略与回放](intraday-starts.md)。
 
-## 固定观察池和页面
+## 观察池和页面
 
-唯一注册表 `src/finance_analysis/intraday_options/config.py`，固定28个canonical `.US` 标的：
-SPY、QQQ、NVDA、IWM、TSLA、MU、AAPL、AMD、SPCX、INTC、AMZN、IBIT、CRWV、TLT、GOOGL、META、MSFT、SOXL、IREN、GLD、AVGO、MSTR、SMH、HYG、SOFI、SLV、WULF、SMCI。
-不随成交量排名变化；名称批量读Instrument，缺失显示“主数据未识别”，订阅错误另行标记，不替换代码。固定池订阅失败逐标的隔离；连接健康检查失败仍走原有重连，不能把连接故障误当个别代码问题。
+观察池由 PostgreSQL `us_nasdaq100` Universe 动态同步（`database/repositories/intraday_simulation.py::load_universe_symbols`，5 分钟 TTL 缓存，自动去除双股重复 `GOOG.US`、保留 `GOOGL.US`，并前置基准 `SPY.US`、`QQQ.US`，当前共 102 只 `.US` 标的）；`src/finance_analysis/intraday_options/config.py::SYMBOLS` 保留同构 102 只代码降级快照，确保数据库不可用或离线测试时平滑回退。
+名称批量读 Instrument，缺失显示“主数据未识别”，订阅错误另行标记，不替换代码。观察池订阅失败逐标的隔离；连接健康检查失败仍走原有重连，不能把连接故障误当个别代码问题。
 观察池不修改任何用户的自选股或持仓。
 
-2026-11-14人工更新依据：[OCC逐日合约成交量文件](https://www.theocc.com/market-data/market-data-reports/other-market-data-info/batch-processing/contract-volume-download-batch-processing)，
+2026-11-24 扩容升级依据：结合 2025/2026 双年分池实证与 Longbridge 500 并发配额核查，将原 28 只 OCC 固定观察池切换为 QQQ（`us_nasdaq100`）成分股 + SPY/QQQ 基准，移除原高噪声非成分股与杠杆/商品 ETF（既有未平仓旧标的通过 `open_retired_symbols` 持续接收退出报价直至平仓，历史成交完整保留）。
+以下保留 2026-11-14 原 28 只固定池人工更新记录备查：
+[OCC逐日合约成交量文件](https://www.theocc.com/market-data/market-data-reports/other-market-data-info/batch-processing/contract-volume-download-batch-processing)，
 统计2026-11-06、09、10、11、12五个完整交易日（13日文件当时尚不可用）。仅取OSTK股票/ETF期权，
 按Underlying汇总全部交易所、到期日和Call/Put；Customer、Firm、Market Maker合计除以2，消除双边重复计数，
 按五日成交张数降序取前30。11月12日汇总66,953,360张，与OCC官方Equity总量核对一致。
@@ -52,7 +53,7 @@ VWAP有完整成交额时为累计成交额/成交量，否则明确显示HLC3×
 
 ## 窗口指标和公式
 
-评分缓存版本为intraday_options_v17；所有阈值都是可解释规则假设，不代表未来收益保证。
+评分缓存版本为intraday_options_v18；所有阈值都是可解释规则假设，不代表未来收益保证。
 令 `y0=ln(首根open)`，`yi=ln(第i根close)`，`r=yN-y0`，`clip(x)=min(1,max(0,x))`。
 
 - **稳定度 S**：等权线性回归 `y ~ 实际经过分钟数` 的 `100×R²`；零方差为0。
@@ -106,10 +107,10 @@ VWAP有完整成交额时为累计成交额/成交量，否则明确显示HLC3×
 ## 技术边界与验证
 
 - 后端独立领域包 `intraday_options/`，纯函数评分与Redis发布/读取分离。
-- Streamer默认订阅并集扩展为自选＋持仓＋固定池。复用Longbridge原生分钟线，不新增行情Provider或外部请求链。
-- Redis key `rt:intraday-options:intraday_options_v14:{symbol}` 只存最新结果，复用交易日TTL跨周末保留到下一交易日；无历史列表。
+- Streamer默认订阅并集扩展为自选＋持仓＋QQQ（`us_nasdaq100`）观察池（含SPY/QQQ与未平仓旧标的）。复用Longbridge原生分钟线，不新增行情Provider或外部请求链。
+- Redis key `rt:intraday-options:intraday_options_v18:{symbol}` 只存最新结果，复用交易日TTL跨周末保留到下一交易日；无历史列表。
 - `GET /api/v1/intraday-options` 会话鉴权，只读行情缓存及DB名称；不会在GET中计算指标或拉取外部行情。
-- 共享分钟图接口仅给固定白名单额外只读权限，其余证券继续要求本人自选/持仓。
+- 共享分钟图接口仅给观察池白名单额外只读权限，其余证券继续要求本人自选/持仓。
 - 页面当前分数、解释、窗口明细同源；前端仅计算图表参考线，不计算趋势评分。
 - 暂缓：具体合约、点差/Greeks、0DTE资格、订单/账户止损、推送、历史持久化、胜率校准和自动下单。
 

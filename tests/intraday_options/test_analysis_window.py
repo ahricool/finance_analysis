@@ -118,7 +118,7 @@ def test_filled_input_evidence_freezes_across_history_repair_and_cannot_bypass_l
     assert not state.get("position")
     state, _ = transition({}, "SPY.US", result, quote(now, price), now, settings=BOX_CFG)
     frozen = deepcopy(state["position"])
-    assert frozen["version"] == "underlying_sim_v7"
+    assert frozen["version"] == "underlying_sim_v8"
     assert frozen["entry_evidence"]["analysis_coverage"]["filled_bars"] == 1
     repaired = calculate("SPY.US", bars, now + timedelta(seconds=5), settings=BOX_CFG)
     state, events = transition(state, "SPY.US", repaired, quote(now + timedelta(seconds=5), price),

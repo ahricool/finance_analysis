@@ -250,13 +250,13 @@ function historyValue(t: SimTrade, key: string) {
           </template>
           <template v-else-if="column === 'target'">
             {{ price(p.target) }}<p class="mt-1 text-xs text-muted-foreground">
-              {{ p.target == null ? '移动止损跟踪' : '触及后模拟退场' }}
+              {{ p.target == null ? (p.entryEvidence?.targetSource || '移动止损跟踪') : '触及后模拟退场' }}
             </p>
           </template>
         </template>
       </SimulationTable>
       <p class="border-b px-5 py-3 text-xs leading-relaxed text-muted-foreground">
-        下一步：监测保护位（-2.5% 宏观止损 / 浮盈 +2.0% 锁盈 +0.2%）、+3.5% 波段止盈目标及收盘前清仓。单标的每日最多 1 笔；估值使用最后有效价格，行情异常时保留价格时间。
+        下一步：监测保护位（14日 ATR 缩放 1.2×ATR 止损；浮盈 0.5×ATR 锁盈 +0.08×ATR，1.2×ATR 锁盈 +0.60×ATR）、不设固定止盈并拿满至收盘前 10 分钟清仓（旧仓位兼容原规则）。单标的每日最多 1 笔；估值使用最后有效价格，行情异常时保留价格时间。
       </p>
     </section>
 

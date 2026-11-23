@@ -27,7 +27,10 @@ LEGACY_POLICY = StartPolicy(
     opening_min_elapsed_minutes=5,
     opening_min_efficiency=0.0,
     opening_require_directional_bar=False,
+    opening_direction_mode="both",
+    exclude_benchmark_from_opening=False,
     entry_window_minutes=150,
+    atr_scaled_exits=False,
     stop_loss_pct=0.0,
     take_profit_pct=0.0,
     profit_lock_trigger_pct=0.0,
@@ -37,6 +40,7 @@ LEGACY_POLICY = StartPolicy(
     minimum_risk_return=0.0,
     maximum_risk_return=0.0,
     opening_min_range_pct=0.0,
+    min_gap_directional=None,
     min_open_move=0.0,
     min_spy_open_move=0.0,
     min_pool_breadth=0.0,
@@ -59,13 +63,17 @@ def test_opening_first_close_executes_without_consolidation_and_can_stop_immedia
         opening_min_elapsed_minutes=minutes,
         opening_min_efficiency=0.0,
         opening_require_directional_bar=False,
+        opening_direction_mode="both",
+        exclude_benchmark_from_opening=False,
         entry_window_minutes=150,
+        atr_scaled_exits=False,
         stop_loss_pct=0.0,
         take_profit_pct=0.0,
         profit_lock_trigger_pct=0.0,
         profit_lock_level_pct=0.0,
         minimum_risk_return=0.0,
         maximum_risk_return=0.0,
+        min_gap_directional=None,
         min_open_move=0.0,
         min_spy_open_move=0.0,
         min_pool_breadth=0.0,
@@ -201,20 +209,20 @@ def test_quote_improvement_rechecks_interval_expiry_freshness_and_structure_dedu
 
 
 def test_observed_opening_boundaries_survive_revision_before_break_and_restart():
-    # 8 bars (09:30..09:37 -> closes 09:38 NY) with +2.45% clean move (eff=1.0) triggers V7 opening drive.
-    bars = ramp(8, step=.35)
+    # 12 bars (09:30..09:41 -> closes 09:42 NY) with +3.85% clean move (eff=1.0) triggers V8 long-only opening drive.
+    bars = [replace(b, symbol="NVDA.US") for b in ramp(12, step=.35)]
     now = START + timedelta(minutes=5, seconds=2)
-    r = calculate("SPY.US", bars[:5], now)
-    state, _ = transition({}, "SPY.US", r, quote(now, 101.4), now)
+    r = calculate("NVDA.US", bars[:5], now)
+    state, _ = transition({}, "NVDA.US", r, quote(now, 101.4), now)
     frozen = deepcopy(state["start_levels"])
-    assert len(frozen) == 2
+    assert len(frozen) == 1
     revised = replace(bars[4], high=bars[4].high+Decimal(".005"), received_at=now+timedelta(seconds=10))
-    now = START + timedelta(minutes=8, seconds=2)
-    r = calculate("SPY.US", [*bars[:5], revised, *bars[5:]], now)
+    now = START + timedelta(minutes=12, seconds=2)
+    r = calculate("NVDA.US", [*bars[:5], revised, *bars[5:]], now)
     b = r["opportunities"]["primary"]
     assert b is not None
     price = b["trigger"]+.5*b["atr"]
-    state, events = transition(json.loads(json.dumps(state)), "SPY.US", r, quote(now, price), now)
+    state, events = transition(json.loads(json.dumps(state)), "NVDA.US", r, quote(now, price), now)
     assert state["start_levels"] == frozen and not state.get("position")
     assert "冻结结构" in state["plans"][0]["execution_reason"] and not ranked_opportunity(r, state, now)
     assert not any(e["kind"] == "entry" for e in events)

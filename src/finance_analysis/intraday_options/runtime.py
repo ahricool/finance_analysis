@@ -31,8 +31,9 @@ class Publisher:
         self.published: dict[str, datetime] = {}
         self._published_inputs: dict[str, tuple] = {}
 
-    async def publish(self, symbol, bars, now):
-        if symbol not in SYMBOLS:
+    async def publish(self, symbol, bars, now, active_symbols=None):
+        allowed = active_symbols if active_symbols is not None else SYMBOLS
+        if symbol not in allowed:
             return
         # Avoid computing again for quote/unconfirmed-candle updates.
         closed = closed_session_bars(symbol, bars, now)
@@ -126,8 +127,9 @@ def ranked_opportunity(result, simulation, now, quote=None):
     return min(candidates, key=lambda p: (p["structure_id"] != entered, *plan_order(p)), default=None)
 
 
-async def read_snapshot(repository, names, now):
+async def read_snapshot(repository, names, now, symbols=None):
     day, market_status = session_context(now)
+    target_symbols = tuple(symbols) if symbols is not None else SYMBOLS
 
     async def read_row(symbol):
         raw, quote, subscription, sim_raw = await asyncio.gather(
@@ -183,5 +185,5 @@ async def read_snapshot(repository, names, now):
             "result": result,
         }
 
-    rows = await asyncio.gather(*(read_row(symbol) for symbol in SYMBOLS))
+    rows = await asyncio.gather(*(read_row(symbol) for symbol in target_symbols))
     return {"trading_date": day, "market_status": market_status, "generated_at": now, "version": VERSION, "items": rows}

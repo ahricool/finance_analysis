@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 from finance_analysis.integrations.market_data.realtime_state.repository import RealtimeStateRepository
 from finance_analysis.interfaces.api.deps import require_current_user
 from finance_analysis.interfaces.api.v1.endpoints import intraday_options, market_data
+from finance_analysis.intraday_options.config import SYMBOLS
 from tests.intraday_options.test_scoring import START
 from tests.market_stream.fakes import FakeRedis
 
@@ -15,6 +16,7 @@ def test_snapshot_contract_requires_auth_and_never_fetches_remote(monkeypatch):
     from finance_analysis.database.repositories import intraday_simulation
     monkeypatch.setattr(intraday_simulation, "read", lambda day, after_event_id=None: dict(states=[], trades=[], events=[], statistics=[]))
     monkeypatch.setattr(intraday_simulation, "references", lambda day: {})
+    monkeypatch.setattr(intraday_options, "load_universe_symbols", lambda: SYMBOLS)
     app = FastAPI()
     app.include_router(intraday_options.router, prefix="/api/v1/intraday-options")
     repo = RealtimeStateRepository(FakeRedis())
@@ -28,14 +30,17 @@ def test_snapshot_contract_requires_auth_and_never_fetches_remote(monkeypatch):
         assert response.status_code == 200
         assert response.headers["cache-control"] == "private, no-store"
         body = response.json()
-        assert len(body["items"]) == 28
+        assert len(body["items"]) == len(SYMBOLS)
         missing = next(item for item in body["items"] if item["symbol"] == "SPCX.US")
         assert missing["data_status"] == "waiting"
         assert missing["result"] is None
 
 
 def test_shared_pool_chart_does_not_require_personal_watchlist(monkeypatch):
+    from finance_analysis.database.repositories import intraday_simulation
+
     repo = RealtimeStateRepository(FakeRedis())
+    monkeypatch.setattr(intraday_simulation, "load_universe_symbols", lambda: SYMBOLS)
     monkeypatch.setattr(market_data.RealtimeStateRepository, "from_url", lambda url: repo)
     monkeypatch.setattr(market_data, "get_effective_uid", lambda request: 1)
     monkeypatch.setattr(market_data, "utc_now", lambda: START)

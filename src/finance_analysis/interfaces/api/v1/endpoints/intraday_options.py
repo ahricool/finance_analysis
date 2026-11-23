@@ -1,4 +1,4 @@
-"""Authenticated fixed-universe screen; GET never requests remote market data."""
+"""Authenticated QQQ (Nasdaq-100) + SPY/QQQ screen; GET never requests remote market data."""
 
 import asyncio
 
@@ -6,19 +6,20 @@ from anyio import CancelScope
 from fastapi import APIRouter, Depends, HTTPException, Response
 
 from finance_analysis.core.time import utc_now
+from finance_analysis.database.repositories.intraday_simulation import load_universe_symbols
 from finance_analysis.database.repositories.stock import InstrumentRepository
 from finance_analysis.integrations.market_data.realtime_state.repository import RealtimeStateRepository
 from finance_analysis.interfaces.api.deps import require_current_user
 from finance_analysis.interfaces.api.v1.schemas.intraday_options import IntradayOptionsResponse
-from finance_analysis.intraday_options.config import SYMBOLS
 from finance_analysis.intraday_options.runtime import read_snapshot
 from finance_analysis.market_stream.config import MarketStreamConfig
 
 router = APIRouter(dependencies=[Depends(require_current_user)])
 
 
-def load_names():
-    return InstrumentRepository().names_by_codes(SYMBOLS)
+def load_names(symbols=None):
+    target_symbols = tuple(symbols) if symbols is not None else load_universe_symbols()
+    return InstrumentRepository().names_by_codes(target_symbols)
 
 
 @router.get("", response_model=IntradayOptionsResponse)
@@ -38,7 +39,8 @@ async def snapshot(response: Response):
 async def full_snapshot(repository, names, now, after_event_id=None):
     from finance_analysis.database.repositories.intraday_simulation import read
 
-    result = await read_snapshot(repository, names, now)
+    symbols = await asyncio.to_thread(load_universe_symbols)
+    result = await read_snapshot(repository, names, now, symbols=symbols)
     result["simulation"] = await asyncio.to_thread(read, result["trading_date"], after_event_id)
     from finance_analysis.database.repositories.intraday_simulation import references
 

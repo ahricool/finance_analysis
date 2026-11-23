@@ -160,8 +160,39 @@ it('displays V7 entry cutoff, fixed wave target, profit-lock summary, and stoppe
   const wrapper = mount(SimulationPanel, { props: { snapshot, disconnected: false }, global: { stubs: { FieldSelect: true } } });
   expect(wrapper.text()).toContain('停止进场 10:00:00 · 清仓 15:50:00');
   expect(wrapper.text()).toContain('停止新进场 · 未平仓标的继续监测报价');
-  expect(wrapper.text()).toContain('-2.5% 宏观止损 / 浮盈 +2.0% 锁盈 +0.2%');
+  expect(wrapper.text()).toContain('1.2×ATR 止损');
   expect(wrapper.text()).toContain('触及后模拟退场');
+  wrapper.unmount();
+});
+
+it('displays V8 two-hour entry cutoff and uncapped ATR ratchet target label', async () => {
+  vi.useFakeTimers(); vi.setSystemTime(new Date('2026-11-17T16:40:00Z'));
+  const state = {
+    symbol: 'NVDA.US', calculatedAt: '2026-11-17T16:40:00Z',
+    cutoff: '2026-11-17T16:30:00Z', exitCutoff: '2026-11-17T20:50:00Z',
+    quoteTime: '2026-11-17T16:39:58Z', currentPrice: 103.5,
+    plans: [{
+      structureId: 'opening:v8', kind: 'opening_breakout', direction: 'bullish',
+      status: 'confirmed', trigger: 101.2, invalidation: 96.8, atr: 0.4,
+      entryLow: 101.2, entryHigh: 105.2, target: null, targetSource: '两档ATR棘轮锁盈·尾盘清仓',
+      initialRiskReturn: 0.042, remainingSpace: null, remainingReturn: null, rewardRisk: null,
+      executionReason: '今日已停止进场或尚未开盘', confirmedAt: '2026-11-17T14:42:00Z',
+    }],
+    position: {
+      id: 'nvda-v8', symbol: 'NVDA.US', side: 1, kind: 'opening_breakout',
+      entryPrice: 101.5, entryAt: '2026-11-17T14:42:05Z', returnPct: 1.97,
+      invalidation: 97.237, protection: 101.784, target: null, lastPriceAt: '2026-11-17T16:39:58Z',
+      entryEvidence: { targetSource: '两档ATR棘轮锁盈·尾盘清仓', initialRiskReturn: 0.042 },
+    },
+  };
+  const snapshot = {
+    marketStatus: 'open',
+    items: [{ symbol: 'NVDA.US', simulation: state }],
+    simulation: { states: [state], trades: [], statistics: [], events: [] },
+  } as unknown as IntradayOptionsSnapshot;
+  const wrapper = mount(SimulationPanel, { props: { snapshot, disconnected: false }, global: { stubs: { FieldSelect: true } } });
+  expect(wrapper.text()).toContain('停止进场 11:30:00 · 清仓 15:50:00');
+  expect(wrapper.text()).toContain('两档ATR棘轮锁盈·尾盘清仓');
   wrapper.unmount();
 });
 

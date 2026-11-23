@@ -422,27 +422,29 @@ def test_process_with_events_commits_skips_stale_and_propagates_rollback(monkeyp
 
 
 def test_real_v7_transition_events_render_and_notify_cleanly():
+    from finance_analysis.intraday_options.rules import StartPolicy
     from finance_analysis.intraday_options.scoring import calculate
     from finance_analysis.intraday_options.simulation import transition
     from finance_analysis.intraday_options.structure import execution_context
     from tests.intraday_options.test_simulation import quote
-    from tests.intraday_options.test_v7_optimization import _make_bars, _make_peer_pool
+    from tests.intraday_options.test_v7_optimization import V7_POLICY, _make_bars, _make_peer_pool
 
     vals8 = [100.0 + x for x in (0.0, 0.35, 0.70, 1.05, 1.40, 1.80, 2.20, 2.60)]
     nvda8 = _make_bars(vals8, symbol="NVDA.US", wick=Decimal("0.01"))
     spy_ok = _make_bars([500.0 + x for x in (0.0, 0.15, 0.30, 0.45, 0.60, 0.75, 0.90, 1.05)], symbol="SPY.US")
     peers = _make_peer_pool(nvda8, side=1, nvda_rank=1, breadth_ratio=0.75, count=12)
     t_entry = nvda8[-1].bar_time + timedelta(minutes=1, seconds=5)
-    base8 = calculate("NVDA.US", nvda8, t_entry)
-    res = {**base8, **execution_context(nvda8, spy_ok, peer_bars=peers)}
+    base8 = calculate("NVDA.US", nvda8, t_entry, settings=V7_POLICY)
+    res = {**base8, **execution_context(nvda8, spy_ok, peer_bars=peers, settings=V7_POLICY)}
     entry_price = 102.65
-    state, entry_events = transition({}, "NVDA.US", res, quote(t_entry, entry_price), t_entry)
+    state, entry_events = transition({}, "NVDA.US", res, quote(t_entry, entry_price), t_entry, settings=V7_POLICY)
     assert any(e["kind"] == "entry" for e in entry_events)
 
     # Trigger V7 +3.5% take profit on a later tick.
     t_exit = t_entry + timedelta(minutes=15)
-    state, exit_events = transition(state, "NVDA.US", res, quote(t_exit, 106.30), t_exit)
+    state, exit_events = transition(state, "NVDA.US", res, quote(t_exit, 106.30), t_exit, settings=V7_POLICY)
     assert any(e["kind"] == "exit" for e in exit_events)
+    assert isinstance(V7_POLICY, StartPolicy)
 
     sent_payloads = []
 
