@@ -507,4 +507,4 @@ GET只读，行级机会资格排除缺线、延迟和非交易时段；默认�
 ## Kronos K 线预测
 
 `minute_forecast/` 由 Streamer leader 对 CN/HK/US 订阅并集和 Binance BTCUSDT 的已收盘原生 `1m` 生成最多 10 步预测，并按已确认的真实收盘价结算最近和日均误差。模型运行于独立 macOS MPS LaunchAgent，发布默认 Small，保留 Base 与本地 Large 权重配置。预测和误差以有限 TTL 写入 Redis，GET 使用原分钟图授权，只读缓存。
-`daily_forecast/` 在 CN/US 日线同步结束后异步复用其全量 Universe，读取前复权已收盘日线并预测最多 10 个交易日。PostgreSQL 按市场事务替换最新批次，日线 API 独立返回 `forecast`。两种周期复用 macOS MPS LaunchAgent；共享图表以空心虚边蜡烛显示预测 OHLC，见 `docs/kronos.md`。
+`daily_forecast/` 在 CN/US 日线同步结束后异步复用其全量 Universe，读取前复权已收盘日线并预测最多 10 个交易日。PostgreSQL 按市场事务替换最新批次，日线 API 独立返回 `forecast`。两种周期复用 macOS MPS LaunchAgent；共享图表以空心实边蜡烛显示预测 OHLC，跳过休市日。日 K 只核对下一交易日收盘误差，最新误差和累计统计写 PostgreSQL，见 `docs/kronos.md`。

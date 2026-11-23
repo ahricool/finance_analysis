@@ -45,7 +45,7 @@ export function forecastOverlay(
               { x: left, y: top }, { x: right, y: top }, { x: right, y: bottom },
               { x: left, y: bottom }, { x: left, y: top },
             ] },
-            styles: { color, style: 'dashed', size: 1, dashedValue: [2, 2] },
+            styles: { color, style: 'solid', size: 1 },
             ignoreEvent: hoverOnly,
           });
         }
@@ -58,7 +58,7 @@ export function forecastOverlay(
     name: OVERLAY_NAME,
     id,
     lock: true, fixedZLevel: true, zLevel: 1,
-    hint: `${label} · 空心虚线蜡烛为预测开高低收`,
+    hint: `${label} · 空心蜡烛为预测开高低收`,
     points: future.flatMap(({ timestamp, open, high, low, close }) =>
       [open, high, low, close].map(value => ({ timestamp, value }))),
     extendData: { colors: future.map(bar => bar.close === bar.open ? muted : bar.close > bar.open ? up : down) },

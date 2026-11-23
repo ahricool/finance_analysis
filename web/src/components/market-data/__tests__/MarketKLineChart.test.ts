@@ -1,7 +1,7 @@
 import { flushPromises, mount } from '@vue/test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { registerOverlay, type CandleStyle, type CandleTooltipLegendsCustomCallback, type DataLoader,
-  type KLineData, type OverlayCreate, type OverlayCreateFiguresCallbackParams } from 'klinecharts';
+import { registerOverlay, utils, type CandleStyle, type CandleTooltipLegendsCustomCallback, type DataLoader,
+  type FormatDate, type KLineData, type OverlayCreate, type OverlayCreateFiguresCallbackParams } from 'klinecharts';
 import MarketKLineChart from '../MarketKLineChart.vue';
 import { useTheme } from '@/composables/useTheme';
 import { fetchMinuteForecast } from '@/api/minuteForecast';
@@ -100,7 +100,7 @@ describe('MarketKLineChart v10 lifecycle', () => {
     expect(figures).toHaveLength(2);
     if (!Array.isArray(figures)) throw new Error('Expected separate wick and body figures');
     expect(figures[0]).toMatchObject({ type: 'line', styles: { color: '#dc2626' } });
-    expect(figures[1]).toMatchObject({ type: 'line', styles: { color: '#dc2626', style: 'dashed' },
+    expect(figures[1]).toMatchObject({ type: 'line', styles: { color: '#dc2626', style: 'solid' },
       attrs: { coordinates: [{ x: 17, y: 20 }, { x: 23, y: 20 }, { x: 23, y: 30 },
         { x: 17, y: 30 }, { x: 17, y: 20 }] } });
     const callback = vi.fn();
@@ -114,26 +114,43 @@ describe('MarketKLineChart v10 lifecycle', () => {
     expect(vi.mocked(fetchMinuteForecast)).toHaveBeenCalledTimes(1);
     wrapper.unmount();
   });
-  it('shows only future daily candles with their full range and keeps them out of the price series', async () => {
+  it('packs future daily candles into consecutive trading slots and labels them with the actual sessions', async () => {
     const anchor = { ...bar, timestamp: Date.parse('2026-11-25T00:00:00Z') };
     const actual = { ...bar, timestamp: Date.parse('2026-11-27T00:00:00Z') };
     const wrapper = mount(MarketKLineChart, { props: { symbol: 'AAPL.US', period: '1d', bars: [anchor, actual],
       dailyForecast: { symbol: 'AAPL.US', anchorDate: '2026-11-25', anchorClose: 2,
         generatedAt: '2026-11-26T04:00:00Z', model: 'small', weightsRevision: 'fixed', lookback: 240,
         bars: [{ tradeDate: '2026-11-27', open: 2, high: 5, low: 1, close: 4 },
-          { tradeDate: '2026-11-30', open: 3, high: 8, low: 0.5, close: 2.5 }],
+          { tradeDate: '2026-11-30', open: 3, high: 8, low: 0.5, close: 2.5 },
+          { tradeDate: '2026-12-01', open: 3, high: 7, low: 1, close: 2.6 }],
+        accuracy: { tradingDate: '2026-11-27', recent: { issuedAt: anchor.timestamp,
+          rows: [{ step: 1, close: 2, error: 1, baselineError: 1.2 }] },
+          average: [{ step: 1, count: 3, mae: 0.9, baselineMae: 1.3 }] },
       } } });
-    const timestamp = Date.parse('2026-11-30T00:00:00Z');
+    const saturday = Date.parse('2026-11-28T00:00:00Z');
+    const sunday = Date.parse('2026-11-29T00:00:00Z');
+    const monday = Date.parse('2026-11-30T00:00:00Z');
     expect(chart.createOverlay).toHaveBeenLastCalledWith([expect.objectContaining({ id: 'daily-forecast',
-      points: [3, 8, 0.5, 2.5].map(value => ({ timestamp, value })), extendData: { colors: ['#16854e'] },
+      points: [...[3, 8, 0.5, 2.5].map(value => ({ timestamp: saturday, value })),
+        ...[3, 7, 1, 2.6].map(value => ({ timestamp: sunday, value }))],
+      extendData: { colors: ['#16854e', '#16854e'] },
     })]);
-    expect(chart.setOffsetRightDistance).toHaveBeenLastCalledWith(40);
+    const label = lifecycle.init.mock.lastCall![1].formatter.formatDate as FormatDate;
+    const dateTimeFormat = new Intl.DateTimeFormat('en', { timeZone: 'UTC' });
+    label({ timestamp: saturday, type: 'crosshair', dateTimeFormat, template: 'YYYY-MM-DD' });
+    expect(utils.formatDate).toHaveBeenLastCalledWith(dateTimeFormat, monday, 'YYYY-MM-DD');
+    label({ timestamp: sunday, type: 'xAxis', dateTimeFormat, template: 'MM-DD' });
+    expect(utils.formatDate).toHaveBeenLastCalledWith(dateTimeFormat, Date.parse('2026-12-01T00:00:00Z'), 'MM-DD');
+    expect(label({ timestamp: monday, type: 'crosshair', dateTimeFormat, template: 'YYYY-MM-DD' })).toBe('');
+    expect(chart.setOffsetRightDistance).toHaveBeenLastCalledWith(30);
     const callback = vi.fn();
     loader().getBars({ ...context, type: 'init', timestamp: null, callback });
     expect(callback).toHaveBeenLastCalledWith([anchor, actual], false);
     const panel = wrapper.get('[data-testid="daily-forecast"]');
     expect(panel.text()).toContain('2026-11-30');
-    expect(panel.text()).not.toContain('2026-11-27');
+    expect(panel.findAll('details')[0]?.text()).not.toContain('2026-11-28');
+    expect(panel.text()).toContain('平均误差');
+    expect(panel.text()).toContain('3 个样本');
     chart.getDataList.mockReturnValue([anchor, actual]);
     chart.getVisibleRange.mockReturnValue({ to: 2 });
     const range = chart.overrideYAxis.mock.lastCall![0].createRange({ defaultRange: { from: 1, to: 3 } });

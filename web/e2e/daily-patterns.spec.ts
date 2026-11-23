@@ -42,6 +42,11 @@ for (const theme of ['light', 'dark']) {
         body = { symbol: snapshot.code, market: 'CN', interval: '1d', adjustment: 'forward', items,
           forecast: { symbol: snapshot.code, anchor_date: highlightedDate, anchor_close: items[67]!.close,
             generated_at: '2026-11-08T02:00:00Z', model: 'small', weights_revision: 'test', lookback: 68,
+            accuracy: { trading_date: highlightedDate,
+              recent: { issued_at: Date.parse('2026-11-06T10:00:00Z'),
+                rows: [{ step: 1, close: 103, error: 0.5, baseline_error: 1 }] },
+              average: [{ step: 1, count: 2, mae: 0.7, baseline_mae: 1.2 }],
+            },
             bars: [{ trade_date: '2026-11-17', open: 99, high: 107, low: 97, close: 104 },
               { trade_date: '2026-11-18', open: 104, high: 108, low: 95, close: 98 }],
           },
@@ -69,9 +74,11 @@ for (const theme of ['light', 'dark']) {
     await expect(detail).toContainText('看涨吞没');
     await expect(detail).toContainText('阳线实体完整吞没');
     const forecast = daily.getByTestId('daily-forecast');
-    await expect(forecast).toContainText('2 个交易日');
-    await forecast.getByText('查看预测开高低收').click();
-    await expect(forecast.getByText('2026-11-17')).toBeVisible();
+    await expect(forecast.getByRole('heading', { name: 'Kronos small' })).toBeVisible();
+    await expect(forecast.getByText('平均误差', { exact: true }).first()).toBeVisible();
+    await expect(forecast.getByText('2 根', { exact: false })).toBeVisible();
+    await forecast.getByText('预测 OHLC', { exact: true }).click();
+    await expect(forecast.getByText('2026-11-17', { exact: true })).toBeVisible();
     const chart = daily.getByRole('img');
     const before = await chart.screenshot();
     const toggle = forecast.getByRole('checkbox', { name: '显示预测 K 线' });
