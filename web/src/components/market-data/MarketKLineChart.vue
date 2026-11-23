@@ -8,8 +8,7 @@ import { useMinuteForecast } from '@/composables/useMinuteForecast';
 import { readMarketCanvasColors } from '@/utils/marketColors';
 import type { DailyForecast } from '@/api/marketData';
 import { DAILY_FORECAST_OVERLAY_ID, MINUTE_FORECAST_OVERLAY_ID, forecastOverlay } from './kronosForecastOverlay';
-import DailyForecastPanel from './DailyForecastPanel.vue';
-import MinuteForecastPanel from './MinuteForecastPanel.vue';
+import KronosForecastPanel from './KronosForecastPanel.vue';
 import type { ChartAnnotation } from './chartAnnotation';
 
 const props = defineProps<{
@@ -45,20 +44,32 @@ const future = computed(() => {
   return value.bars.filter(bar => bar.timestamp > last && bar.timestamp + 60_000 > now.value.getTime());
 });
 const dayTimestamp = (day: string) => Date.parse(`${day}T00:00:00Z`);
-const dailyForecast = computed(() => props.period === '1d' && props.dailyForecast?.symbol === props.symbol
-  ? props.dailyForecast : null);
+const DAY_MS = 86_400_000;
+const lastDailyTimestamp = computed(() => props.bars.at(-1)?.timestamp);
+const dailyForecast = computed(() => {
+  const value = props.dailyForecast;
+  return props.period === '1d' && value?.symbol === props.symbol &&
+    props.bars.some(bar => bar.timestamp === dayTimestamp(value.anchorDate)) ? value : null;
+});
 const dailyFuture = computed(() => {
   const value = dailyForecast.value;
-  if (!value || !props.bars.some(bar => bar.timestamp === dayTimestamp(value.anchorDate))) return [];
-  const last = props.bars.at(-1)!.timestamp;
-  return value.bars.filter(bar => dayTimestamp(bar.tradeDate) > last);
+  const last = lastDailyTimestamp.value;
+  if (!value || last == null) return [];
+  return value.bars.map(({ tradeDate, ...bar }) => ({ ...bar, timestamp: dayTimestamp(tradeDate) }))
+    .filter(bar => bar.timestamp > last);
+});
+const dailyProjection = computed(() => {
+  const last = lastDailyTimestamp.value;
+  return last == null ? [] : dailyFuture.value.map((bar, index) => ({
+    ...bar, timestamp: last + (index + 1) * DAY_MS,
+  }));
 });
 const futurePrices = computed(() => props.period === '1d' ? dailyFuture.value : future.value);
 const closeReplayLength = computed(() => showForecast.value && forecast.value?.closeReplay ? future.value.length : 0);
 const forecastOverlayKey = computed(() => {
   const daily = dailyForecast.value;
   if (daily && dailyFuture.value.length) {
-    return `${daily.symbol}:${daily.weightsRevision}:${daily.generatedAt}:${dailyFuture.value.map(bar => bar.tradeDate).join(',')}`;
+    return `${daily.symbol}:${daily.weightsRevision}:${daily.generatedAt}:${lastDailyTimestamp.value}:${dailyFuture.value.map(bar => bar.timestamp).join(',')}`;
   }
   const value = forecast.value;
   return value && future.value.length
@@ -75,9 +86,8 @@ const hintPosition = ref<{ left?: string; right?: string; top: string; transform
 const forecastAnnotation = computed(() => {
   if (!showForecast.value) return null;
   const dark = resolvedTheme.value === 'dark';
-  if (dailyForecast.value && dailyFuture.value.length) {
-    return forecastOverlay(DAILY_FORECAST_OVERLAY_ID, 'Kronos 日 K 预测',
-      dailyFuture.value.map(bar => ({ ...bar, timestamp: dayTimestamp(bar.tradeDate) })), dark);
+  if (dailyForecast.value && dailyProjection.value.length) {
+    return forecastOverlay(DAILY_FORECAST_OVERLAY_ID, 'Kronos 日 K 预测', dailyProjection.value, dark);
   }
   const value = forecast.value;
   if (!value || !future.value.length) return null;
@@ -258,11 +268,8 @@ function applyOverlays() {
 }
 function fitDailyForecast() {
   if (!chart || props.period !== '1d') return;
-  const last = props.bars.at(-1)?.timestamp;
-  const target = dailyFuture.value.at(-1);
-  if (showForecast.value && last != null && target) {
-    const days = (dayTimestamp(target.tradeDate) - last) / 86_400_000;
-    chart.setOffsetRightDistance((days + 1) * chart.getBarSpace().bar);
+  if (showForecast.value && dailyFuture.value.length) {
+    chart.setOffsetRightDistance((dailyFuture.value.length + 1) * chart.getBarSpace().bar);
   } else if (drawnForecastId === DAILY_FORECAST_OVERLAY_ID) {
     chart.setOffsetRightDistance(80);
   }
@@ -290,10 +297,21 @@ const formatSessionDate: FormatDate = ({ dateTimeFormat, timestamp, template, ty
     && !(showForecast.value && future.value.some(bar => bar.timestamp === timestamp))) return '';
   return utils.formatDate(dateTimeFormat, timestamp, template);
 };
+const formatDailyDate: FormatDate = ({ dateTimeFormat, timestamp, template }) => {
+  const last = lastDailyTimestamp.value;
+  if (dailyForecast.value && last != null && timestamp > last) {
+    // The library assigns one calendar day to each future slot. Label the
+    // compact forecast slots with their actual exchange session dates.
+    const target = dailyFuture.value[(timestamp - last) / DAY_MS - 1];
+    return showForecast.value && target ? utils.formatDate(dateTimeFormat, target.timestamp, template) : '';
+  }
+  return utils.formatDate(dateTimeFormat, timestamp, template);
+};
 function initialize() {
   destroy();
   if (!element.value) return;
   chart = init(element.value, { timezone: props.timezone ?? 'UTC', locale: 'zh-CN',
+    ...(props.period === '1d' ? { formatter: { formatDate: formatDailyDate } } : {}),
     ...(props.session ? { formatter: { formatDate: formatSessionDate }, layout: { barSpaceLimit: { min: 0.25, max: 50 } } } : {}) });
   if (!chart) return;
   chart.getDom('candle_pane', 'main')?.addEventListener('pointerleave', clearHover);
@@ -413,20 +431,14 @@ onBeforeUnmount(() => { observer?.disconnect(); destroy(); });
         {{ hoverHint }}
       </div>
     </div>
-    <MinuteForecastPanel
-      v-if="period === '1m' && forecastResponse?.enabled"
+    <KronosForecastPanel
+      v-if="dailyForecast || (period === '1m' && forecastResponse?.enabled)"
       v-model:show-forecast="showForecast"
-      :forecast="forecast"
-      :bars="future"
-      :accuracy="forecastResponse.accuracy"
+      :period="period === '1d' ? '1d' : '1m'"
+      :forecast="dailyForecast ?? forecast"
+      :bars="period === '1d' ? dailyFuture : future"
+      :accuracy="period === '1d' ? dailyForecast?.accuracy : forecastResponse?.accuracy"
       :timezone="timezone"
-      :price-precision="pricePrecision"
-    />
-    <DailyForecastPanel
-      v-if="dailyForecast && dailyFuture.length"
-      v-model:show-forecast="showForecast"
-      :forecast="dailyForecast"
-      :bars="dailyFuture"
       :price-precision="pricePrecision"
     />
   </div>

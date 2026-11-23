@@ -2,25 +2,39 @@
 import { computed } from 'vue';
 import { ChevronDown } from 'lucide-vue-next';
 import type { ForecastAccuracy, ForecastBar, MinuteForecast } from '@/api/minuteForecast';
+import type { DailyForecast, DailyForecastAccuracy } from '@/api/marketData';
 
 const props = defineProps<{
-  forecast: MinuteForecast | null;
+  period: '1m' | '1d';
+  forecast: MinuteForecast | DailyForecast | null;
   bars: ForecastBar[];
-  accuracy?: ForecastAccuracy | null;
+  accuracy?: ForecastAccuracy | DailyForecastAccuracy | null;
   timezone?: string;
   pricePrecision?: number;
 }>();
 const showForecast = defineModel<boolean>('showForecast', { required: true });
 
-const time = (at: number) => new Date(at).toLocaleTimeString('zh-CN', {
-  timeZone: props.timezone ?? 'UTC', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+const isDay = computed(() => props.period === '1d');
+const averageTitle = computed(() => isDay.value ? '平均误差' : '今日平均误差');
+const averages = computed(() => {
+  const value = props.accuracy;
+  return value ? ('average' in value ? value.average : value.daily) : [];
 });
+const time = (at: number) => isDay.value ? new Date(at).toISOString().slice(0, 10)
+  : new Date(at).toLocaleTimeString('zh-CN', {
+    timeZone: props.timezone ?? 'UTC', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+  });
 const dateTime = (at: number) => new Date(at).toLocaleString('zh-CN', {
   timeZone: props.timezone ?? 'UTC', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
 });
 const price = (value: number) => value.toLocaleString('zh-CN', { maximumFractionDigits: props.pricePrecision ?? 3 });
 const first = computed(() => props.bars[0]);
 const last = computed(() => props.bars.at(-1));
+const anchorLabel = computed(() => {
+  const forecast = props.forecast;
+  return forecast && ('anchorDate' in forecast ? forecast.anchorDate : dateTime(forecast.anchor + 60_000));
+});
+const closeReplay = computed(() => !!(props.forecast && 'closeReplay' in props.forecast && props.forecast.closeReplay));
 const recent = computed(() => {
   const rows = props.accuracy?.recent?.rows ?? [];
   if (!rows.length) return null;
@@ -30,8 +44,8 @@ const recent = computed(() => {
     baseline: rows.reduce((total, row) => total + row.baselineError, 0) / rows.length,
   };
 });
-const daily = computed(() => {
-  const rows = props.accuracy?.daily ?? [];
+const average = computed(() => {
+  const rows = averages.value;
   const count = rows.reduce((total, row) => total + row.count, 0);
   if (!count) return null;
   return {
@@ -42,29 +56,25 @@ const daily = computed(() => {
 });
 const errorSteps = computed(() => {
   const recentRows = new Map(props.accuracy?.recent?.rows.map(row => [row.step, row]));
-  const dayRows = new Map(props.accuracy?.daily.map(row => [row.step, row]));
-  const steps = [...new Set([...recentRows.keys(), ...dayRows.keys()])].sort((a, b) => a - b);
-  return steps.map(step => ({ step, recent: recentRows.get(step), daily: dayRows.get(step) }));
+  const averageRows = new Map(averages.value.map(row => [row.step, row]));
+  const steps = [...new Set([...recentRows.keys(), ...averageRows.keys()])].sort((a, b) => a - b);
+  return steps.map(step => ({ step, recent: recentRows.get(step), average: averageRows.get(step) }));
 });
 </script>
 
 <template>
   <section
     class="mt-3 overflow-hidden rounded-xl border border-border/75 bg-card text-card-foreground"
-    aria-label="分钟线预测"
-    data-testid="minute-forecast"
+    :aria-label="isDay ? '日 K 预测' : '分钟线预测'"
+    :data-testid="isDay ? 'daily-forecast' : 'minute-forecast'"
   >
     <header class="flex flex-wrap items-center justify-between gap-2 border-b border-border/70 bg-muted/30 px-3 py-2.5 sm:px-4">
       <div class="flex items-center gap-2.5">
-        <span
-          class="h-3 w-2 border border-dashed border-current"
-          aria-hidden="true"
-        />
         <h3 class="text-sm font-semibold">
           Kronos{{ forecast?.model ? ` ${forecast.model}` : '' }}
         </h3>
         <span
-          v-if="forecast?.closeReplay && bars.length"
+          v-if="closeReplay && bars.length"
           class="rounded-md bg-blue-100 px-1.5 py-0.5 text-[11px] font-medium text-blue-800 dark:bg-blue-950 dark:text-blue-200"
         >收盘试算</span>
       </div>
@@ -92,14 +102,14 @@ const errorSteps = computed(() => {
             {{ time(first.timestamp) }}–{{ time(last.timestamp) }} · {{ bars.length }} 根
           </span>
           <span class="block text-[11px] text-muted-foreground tabular-nums">
-            截至 {{ dateTime(forecast.anchor + 60_000) }} · {{ forecast.lookback }} 根输入
+            截至 {{ anchorLabel }} · {{ forecast.lookback }} 根输入
           </span>
         </dd>
         <dd
           v-else
           class="text-sm text-muted-foreground"
         >
-          等待最新分钟预测
+          {{ isDay ? '暂无后续日 K 预测' : '等待最新分钟预测' }}
         </dd>
       </div>
 
@@ -116,7 +126,7 @@ const errorSteps = computed(() => {
             基线 {{ price(recent.baseline) }} · {{ recent.count }} 个样本
           </span>
           <span class="block text-[11px] text-muted-foreground tabular-nums">
-            {{ dateTime(accuracy.recent.issuedAt) }} 发出
+            {{ isDay ? `${accuracy.tradingDate} 核对` : `${dateTime(accuracy.recent.issuedAt)} 发出` }}
           </span>
         </dd>
         <dd
@@ -129,23 +139,23 @@ const errorSteps = computed(() => {
 
       <div class="min-w-0 space-y-1 px-3 py-3 sm:px-4">
         <dt class="text-xs font-medium text-muted-foreground">
-          今日平均误差
+          {{ averageTitle }}
         </dt>
         <dd
-          v-if="daily"
+          v-if="average"
           class="space-y-1"
         >
-          <strong class="block text-lg font-semibold leading-tight tabular-nums">{{ price(daily.mae) }}</strong>
+          <strong class="block text-lg font-semibold leading-tight tabular-nums">{{ price(average.mae) }}</strong>
           <span class="block text-xs text-muted-foreground tabular-nums">
-            基线 {{ price(daily.baseline) }} · {{ daily.count.toLocaleString('zh-CN') }} 个样本
+            基线 {{ price(average.baseline) }} · {{ average.count.toLocaleString('zh-CN') }} 个样本
           </span>
-          <span class="block text-[11px] text-muted-foreground tabular-nums">{{ accuracy?.tradingDate }}</span>
+          <span class="block text-[11px] text-muted-foreground tabular-nums">{{ isDay ? '截至 ' : '' }}{{ accuracy?.tradingDate }}</span>
         </dd>
         <dd
           v-else
           class="text-sm text-muted-foreground"
         >
-          今日暂无已核对样本
+          {{ isDay ? '暂无已核对样本' : '今日暂无已核对样本' }}
         </dd>
       </div>
     </dl>
@@ -166,14 +176,18 @@ const errorSteps = computed(() => {
           />
         </summary>
         <div class="px-3 pb-3 sm:px-4">
-          <div class="grid grid-cols-5 gap-x-2 border-b border-border/70 py-1.5 text-right text-[11px] text-muted-foreground">
-            <span class="text-left">时间</span><span>开盘</span><span>最高</span><span>最低</span><span>收盘</span>
+          <div
+            class="grid gap-x-2 border-b border-border/70 py-1.5 text-right text-[11px] text-muted-foreground"
+            :class="isDay ? 'grid-cols-[5rem_repeat(4,minmax(0,1fr))]' : 'grid-cols-5'"
+          >
+            <span class="text-left">{{ isDay ? '交易日' : '时间' }}</span><span>开盘</span><span>最高</span><span>最低</span><span>收盘</span>
           </div>
           <ol class="divide-y divide-border/50">
             <li
               v-for="bar in bars"
               :key="bar.timestamp"
-              class="grid grid-cols-5 gap-x-2 py-1.5 text-right text-xs tabular-nums"
+              class="grid gap-x-2 py-1.5 text-right text-xs tabular-nums"
+              :class="isDay ? 'grid-cols-[5rem_repeat(4,minmax(0,1fr))]' : 'grid-cols-5'"
             >
               <span class="text-left text-muted-foreground">{{ time(bar.timestamp) }}</span>
               <span>{{ price(bar.open) }}</span><span>{{ price(bar.high) }}</span><span>{{ price(bar.low) }}</span>
@@ -195,10 +209,11 @@ const errorSteps = computed(() => {
         </summary>
         <div class="px-3 pb-3 sm:px-4">
           <p class="pb-2 text-xs text-muted-foreground">
-            误差按收盘价计算。基线沿用预测起点的收盘价，每个到期步长计一个样本。
+            {{ isDay ? '只核对下一交易日的收盘价。基线沿用预测起点的收盘价。'
+              : '误差按收盘价计算。基线沿用预测起点的收盘价，每个到期步长计一个样本。' }}
           </p>
           <div class="grid grid-cols-[4rem_minmax(0,1fr)_minmax(0,1fr)] gap-x-3 border-b border-border/70 py-1.5 text-right text-[11px] text-muted-foreground">
-            <span class="text-left">步长</span><span>最近误差</span><span>今日平均误差</span>
+            <span class="text-left">步长</span><span>最近误差</span><span>{{ averageTitle }}</span>
           </div>
           <ol class="divide-y divide-border/50">
             <li
@@ -206,7 +221,7 @@ const errorSteps = computed(() => {
               :key="row.step"
               class="grid grid-cols-[4rem_minmax(0,1fr)_minmax(0,1fr)] gap-x-3 py-1.5 text-right text-xs tabular-nums"
             >
-              <span class="text-left font-medium">+{{ row.step }} 分钟</span>
+              <span class="text-left font-medium">{{ isDay ? '下一交易日' : `+${row.step} 分钟` }}</span>
               <span v-if="row.recent">
                 <strong class="block font-semibold">{{ price(row.recent.error) }}</strong>
                 <span class="text-[11px] text-muted-foreground">实际 {{ price(row.recent.close) }} · 基线 {{ price(row.recent.baselineError) }}</span>
@@ -215,9 +230,9 @@ const errorSteps = computed(() => {
                 v-else
                 class="text-muted-foreground"
               >—</span>
-              <span v-if="row.daily">
-                <strong class="block font-semibold">{{ price(row.daily.mae) }}</strong>
-                <span class="text-[11px] text-muted-foreground">基线 {{ price(row.daily.baselineMae) }} · {{ row.daily.count }} 个样本</span>
+              <span v-if="row.average">
+                <strong class="block font-semibold">{{ price(row.average.mae) }}</strong>
+                <span class="text-[11px] text-muted-foreground">基线 {{ price(row.average.baselineMae) }} · {{ row.average.count }} 个样本</span>
               </span>
               <span
                 v-else

@@ -13,7 +13,8 @@ from finance_analysis.integrations.market_data.registry import DAILY_BARS, Provi
 from finance_analysis.integrations.market_data.service import MarketDataService
 from finance_analysis.integrations.market_data import service as market_service
 from finance_analysis.interfaces.api.v1.endpoints import market_data
-from finance_analysis.daily_forecast.models import DailyForecast, DailyForecastBar
+from finance_analysis.daily_forecast.models import DailyForecast, DailyForecastAccuracy, DailyForecastBar
+from finance_analysis.minute_forecast.models import AverageError, ForecastError, RecentErrors
 
 
 @pytest.fixture
@@ -48,6 +49,13 @@ def test_daily_forecast_is_separate_from_actual_bars_and_requires_visible_anchor
         symbol=code, anchor_date=date(2026, 9, 18), anchor_close=103, generated_at=market_data.utc_now(),
         model="small", weights_revision="fixed", lookback=240,
         bars=[DailyForecastBar(trade_date=date(2026, 9, 21), open=104, high=110, low=102, close=108)],
+        accuracy=DailyForecastAccuracy(
+            trading_date=date(2026, 9, 18),
+            recent=RecentErrors(issued_at=1789668000000, rows=[
+                ForecastError(step=1, close=103, error=1.5, baseline_error=2),
+            ]),
+            average=[AverageError(step=1, count=2, mae=1.25, baseline_mae=2.5)],
+        ),
     )
     repository = Mock(latest=Mock(return_value=forecast))
     monkeypatch.setattr(market_data, "DailyForecastRepository", lambda: repository)
@@ -56,6 +64,8 @@ def test_daily_forecast_is_separate_from_actual_bars_and_requires_visible_anchor
     assert [item["trade_date"] for item in response["items"]] == ["2026-09-18"]
     assert response["forecast"]["bars"] == [{"trade_date": "2026-09-21", "open": 104, "high": 110,
                                              "low": 102, "close": 108}]
+    assert response["forecast"]["accuracy"]["trading_date"] == "2026-09-18"
+    assert response["forecast"]["accuracy"]["average"][0]["mae"] == 1.25
     historical = client.get(f"/api/v1/market-data/daily-bars/{code}?end_date=2026-09-17").json()
     assert historical["forecast"] is None
 

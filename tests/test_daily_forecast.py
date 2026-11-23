@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 
 from finance_analysis.daily_forecast import service
 from finance_analysis.daily_forecast.models import DailyForecast, DailyForecastBar
+from finance_analysis.database.models.daily_forecast import DailyForecastAccuracyState, DailyForecastSnapshot
 from finance_analysis.database.models.stock import Instrument, StockDaily
 from finance_analysis.database.repositories.daily_forecast import DailyForecastRepository
 from finance_analysis.market_review.trading_calendar import get_trading_days_between, get_upcoming_trading_days
@@ -149,10 +150,16 @@ def test_latest_only_migration_and_market_replacement(backend):
         migration = runpy.run_path(
             str(Path(__file__).parents[1] / "alembic/versions/0094_daily_kronos_forecast.py"),
         )
+        accuracy_migration = runpy.run_path(
+            str(Path(__file__).parents[1] / "alembic/versions/0095_daily_forecast_accuracy.py"),
+        )
         operations = Operations(MigrationContext.configure(conn))
         migration["upgrade"].__globals__["op"] = operations
         migration["upgrade"]()
+        accuracy_migration["upgrade"].__globals__["op"] = operations
+        accuracy_migration["upgrade"]()
         assert inspect(conn).has_table("daily_forecast_snapshot")
+        assert inspect(conn).has_table("daily_forecast_accuracy")
 
         @contextmanager
         def session_scope():
@@ -192,8 +199,79 @@ def test_latest_only_migration_and_market_replacement(backend):
             ])
             rows = repo.histories("US", [1], AS_OF, 3)["MSFT.US"]
             assert [row.date for row in rows] == [row.date for row in _history()[-3:]]
+        accuracy_migration["downgrade"]()
+        assert not inspect(conn).has_table("daily_forecast_accuracy")
         migration["downgrade"]()
         assert not inspect(conn).has_table("daily_forecast_snapshot")
         if backend == "postgres":
             conn.exec_driver_sql(f'DROP SCHEMA "{schema}" CASCADE')
+    engine.dispose()
+
+
+def test_accuracy_scores_only_next_session_and_accumulates_once_on_same_weights():
+    engine = create_engine("sqlite://")
+    symbol = "AAPL.US"
+    paths = [date(2026, 11, day) for day in (19, 20, 23, 24, 25, 27, 30)]
+    with engine.begin() as connection:
+        for model in (Instrument, StockDaily, DailyForecastSnapshot, DailyForecastAccuracyState):
+            model.__table__.create(connection)
+        connection.execute(Instrument.__table__.insert(), {
+            "id": 1, "market": "US", "code": symbol, "native_code": "AAPL", "name": "Apple",
+            "instrument_type": "STOCK", "currency": "USD", "source": "TEST",
+        })
+        connection.execute(StockDaily.__table__.insert(), [
+            {"id": index, "instrument_id": 1, "date": day, "open": close, "high": close,
+             "low": close, "close": close, "volume": 5, "data_source": "TEST"}
+            for index, (day, close) in enumerate(zip(paths, [50, 52, 54, 57, 58, 64, 66], strict=True), 1)
+        ])
+
+    @contextmanager
+    def session_scope():
+        with Session(engine) as session, session.begin():
+            yield session
+
+    def forecast(index, anchor_close, closes, revision="fixed"):
+        return DailyForecast(
+            symbol=symbol, anchor_date=paths[index], anchor_close=anchor_close, model="small",
+            weights_revision=revision, generated_at=datetime.combine(
+                paths[index], datetime.min.time(), tzinfo=timezone.utc,
+            ).replace(hour=23),
+            lookback=240,
+            bars=[
+                DailyForecastBar(trade_date=day, open=close, high=close, low=close, close=close)
+                for day, close in zip(paths[index + 1:], closes)
+            ],
+        )
+
+    repo = DailyForecastRepository(SimpleNamespace(session_scope=session_scope, get_session=lambda: Session(engine)))
+    friday = forecast(1, 52, [56, 59])
+    assert repo.replace_market("US", paths[0], [forecast(0, 100, [102, 999])])
+    assert repo.latest("US", symbol).accuracy is None
+    # The actual anchor close was restated from 100 to 50. Forecast 102 is now 51.
+    assert repo.replace_market("US", paths[1], [friday])
+    first = repo.latest("US", symbol).accuracy
+    assert first.trading_date == paths[1]
+    assert first.recent.rows[0].error == 1
+    assert first.average[0].count == 1
+    assert repo.replace_market("US", paths[1], [friday])
+    assert repo.latest("US", symbol).accuracy == first
+
+    assert repo.replace_market("US", paths[2], [forecast(2, 54, [61])])
+    accuracy = repo.latest("US", symbol).accuracy
+    assert accuracy.recent.rows[0].error == 2
+    assert accuracy.average[0].count == 2
+    assert accuracy.average[0].mae == 1.5
+    assert accuracy.average[0].baseline_mae == 2
+
+    assert repo.replace_market("US", paths[3], [forecast(3, 57, [58], revision="new")])
+    assert repo.latest("US", symbol).accuracy is None
+    next_run = forecast(4, 58, [60], revision="new").model_copy(update={
+        "generated_at": datetime(2026, 11, 27, 15, tzinfo=timezone.utc),
+    })
+    assert repo.replace_market("US", paths[4], [next_run])
+    reset = repo.latest("US", symbol).accuracy
+    assert reset.average[0].count == 1
+    assert reset.average[0].mae == 0
+    assert repo.replace_market("US", paths[5], [forecast(5, 64, [65], revision="new")])
+    assert repo.latest("US", symbol).accuracy == reset
     engine.dispose()

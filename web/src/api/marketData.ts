@@ -1,4 +1,5 @@
 import apiClient from './index';
+import type { ForecastAccuracy } from './minuteForecast';
 import { toCamelCase } from './utils';
 
 export interface DailyBar {
@@ -11,6 +12,11 @@ export interface DailyBar {
   amount: number | null;
 }
 export type DailyForecastBar = Omit<DailyBar, 'volume' | 'amount'>;
+export interface DailyForecastAccuracy {
+  tradingDate: string;
+  recent: ForecastAccuracy['recent'];
+  average: ForecastAccuracy['daily'];
+}
 export interface DailyForecast {
   symbol: string;
   anchorDate: string;
@@ -20,6 +26,7 @@ export interface DailyForecast {
   weightsRevision: string;
   lookback: number;
   bars: DailyForecastBar[];
+  accuracy?: DailyForecastAccuracy | null;
 }
 export interface DailyBarsResponse {
   symbol: string;

@@ -7,7 +7,7 @@ from sqlalchemy import create_engine, text, inspect
 
 def test_retire_catalog_preserves_other_tasks_and_schema(monkeypatch):
     scripts = ScriptDirectory.from_config(Config("alembic.ini"))
-    assert scripts.get_current_head() == "0094_daily_kronos_forecast"
+    assert scripts.get_current_head() == "0095_daily_forecast_accuracy"
     migration = scripts.get_revision("0092_retire_prediction_catalog").module
     # The deletion itself is portable; production/empty bootstrap also verified on PostgreSQL.
     engine = create_engine("sqlite://")
