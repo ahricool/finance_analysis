@@ -57,7 +57,7 @@ const errorSteps = computed(() => {
     <header class="flex flex-wrap items-center justify-between gap-2 border-b border-border/70 bg-muted/30 px-3 py-2.5 sm:px-4">
       <div class="flex items-center gap-2.5">
         <span
-          class="w-4 border-t-2 border-dashed border-blue-600 dark:border-blue-300"
+          class="h-3 w-2 border border-dashed border-current"
           aria-hidden="true"
         />
         <h3 class="text-sm font-semibold">
@@ -74,7 +74,7 @@ const errorSteps = computed(() => {
           type="checkbox"
           class="accent-blue-600"
         >
-        显示预测线
+        显示预测 K 线
       </label>
     </header>
 

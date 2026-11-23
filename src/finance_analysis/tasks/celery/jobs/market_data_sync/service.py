@@ -37,6 +37,14 @@ class MarketDataSyncError(RuntimeError):
     pass
 
 
+def resolve_daily_sync_scope(market: str, resolver: UniverseResolver) -> list[Any]:
+    """Resolve the explicit system-owned daily synchronization universe."""
+    return [
+        instrument for instrument in resolver.resolve_universe(f"{market.lower()}_daily_sync")
+        if instrument.market == market and instrument.listing_status == "ACTIVE"
+    ]
+
+
 class MarketDataSyncService:
     def __init__(
         self,
@@ -221,13 +229,7 @@ class MarketDataSyncService:
         }
 
     def load_scope(self) -> list[Any]:
-        """Resolve the explicit system-owned daily synchronization universe."""
-        key = "cn_daily_sync" if self.market == "CN" else "us_daily_sync"
-        return [
-            instrument
-            for instrument in self.universe_resolver.resolve_universe(key)
-            if instrument.market == self.market and instrument.listing_status == "ACTIVE"
-        ]
+        return resolve_daily_sync_scope(self.market, self.universe_resolver)
 
     def _refresh_days(self, natural_days: int) -> list[date]:
         end = get_completed_trading_days(self.market.lower(), 1, self.now)[-1]

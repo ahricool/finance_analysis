@@ -66,11 +66,13 @@ from finance_analysis.database.models.crypto import (
 )  # pragma: allowlist secret
 
 from .dragon_tiger_flow import DragonTigerFlowBatch
+from .daily_forecast import DailyForecastSnapshot
 
 __all__ = [
     "HoldingsReview",
     "WatchListTag",
     "DragonTigerFlowBatch",
+    "DailyForecastSnapshot",
     "ConfluenceRun",
     "ConfluenceSnapshot",
     "PortfolioAccount",

@@ -22,6 +22,7 @@ EXPECTED_CUSTOM_TASKS = {
     "scheduled.options_intelligence_intraday",
     "scheduled.options_intelligence_daily",
     "analysis.earnings_outlook",
+    "analysis.kronos_daily_forecast",
     "scheduled.earnings_outlook_final",
     "scheduled.earnings_outlook_review",
     "scheduled.intraday_confirmation_cn",
@@ -84,11 +85,10 @@ def test_each_task_package_has_one_explicit_tasks_module_and_expected_tasks():
             expected_count = 5
         elif package.endswith("quant_training"):
             expected_count = 4
-        elif package.endswith(("earnings_outlook", "options_intelligence", "industry_strength")):
+        elif package.endswith(("earnings_outlook", "options_intelligence", "industry_strength", "market_data_sync")):
             expected_count = 3
         elif package.endswith(
             (
-                "market_data_sync",
                 "market_structure",
                 "confluence",
                 "intraday_confirmation",
@@ -110,7 +110,7 @@ def test_all_custom_task_names_and_job_ids_are_unique():
     celery_names.extend(item.celery_task_name for item in scheduled)
     job_ids = [item.job_id for item in scheduled]
 
-    assert len(celery_names) == len(set(celery_names)) == 45
+    assert len(celery_names) == len(set(celery_names)) == 46
     assert len(job_ids) == len(set(job_ids))
 
 

@@ -13,6 +13,7 @@ from finance_analysis.integrations.market_data.registry import DAILY_BARS, Provi
 from finance_analysis.integrations.market_data.service import MarketDataService
 from finance_analysis.integrations.market_data import service as market_service
 from finance_analysis.interfaces.api.v1.endpoints import market_data
+from finance_analysis.daily_forecast.models import DailyForecast, DailyForecastBar
 
 
 @pytest.fixture
@@ -33,9 +34,30 @@ def setup_api(monkeypatch):
     route = service.router.route_daily
     service.router.route_daily = lambda request, providers=None: route(request, ["daily"])
     monkeypatch.setattr(market_data, "MarketDataService", lambda: service)
+    monkeypatch.setattr(market_data, "DailyForecastRepository", lambda: Mock(latest=Mock(return_value=None)))
     app = FastAPI()
     app.include_router(market_data.router, prefix="/api/v1/market-data")
     return TestClient(app), stocks, provider
+
+
+def test_daily_forecast_is_separate_from_actual_bars_and_requires_visible_anchor(setup_api, monkeypatch):
+    client, _, provider = setup_api
+    code = "AAPL.US"
+    provider.fetch_daily_bars.return_value = BatchBarResult(data={code: [bar(code)]})
+    forecast = DailyForecast(
+        symbol=code, anchor_date=date(2026, 9, 18), anchor_close=103, generated_at=market_data.utc_now(),
+        model="small", weights_revision="fixed", lookback=240,
+        bars=[DailyForecastBar(trade_date=date(2026, 9, 21), open=104, high=110, low=102, close=108)],
+    )
+    repository = Mock(latest=Mock(return_value=forecast))
+    monkeypatch.setattr(market_data, "DailyForecastRepository", lambda: repository)
+    response = client.get(f"/api/v1/market-data/daily-bars/{code}").json()
+    repository.latest.assert_called_once_with("US", code)
+    assert [item["trade_date"] for item in response["items"]] == ["2026-09-18"]
+    assert response["forecast"]["bars"] == [{"trade_date": "2026-09-21", "open": 104, "high": 110,
+                                             "low": 102, "close": 108}]
+    historical = client.get(f"/api/v1/market-data/daily-bars/{code}?end_date=2026-09-17").json()
+    assert historical["forecast"] is None
 
 
 def bar(code="600519.SH", day=date(2026, 9, 18)):

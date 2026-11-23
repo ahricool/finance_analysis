@@ -6,13 +6,15 @@ import logging
 import math
 import os
 import sys
+from datetime import datetime, time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from threading import BoundedSemaphore
+from threading import BoundedSemaphore, Lock
+from time import monotonic
+from typing import Literal
 from zoneinfo import ZoneInfo
 
 import pandas as pd
-import torch
 from pydantic import BaseModel, Field, FiniteFloat, model_validator
 
 PROTOCOL = 1
@@ -39,19 +41,25 @@ class Window(BaseModel):
     bars: list[Bar] = Field(min_length=MIN_LOOKBACK, max_length=240)
     targets: list[int] = Field(min_length=1, max_length=MAX_HORIZON)
 
-    @model_validator(mode="after")
-    def validate_times(self):
-        minutes = [bar.timestamp for bar in self.bars]
-        if minutes != sorted(set(minutes)) or any(minute <= 0 or minute % MINUTE_MS for minute in minutes):
-            raise ValueError("input timestamps must be distinct, ordered minute starts")
-        if self.targets != [minutes[-1] + MINUTE_MS * i for i in range(1, len(self.targets) + 1)]:
-            raise ValueError("targets must follow the last confirmed candle")
-        ZoneInfo(self.timezone)
-        return self
+    def validate_times(self, interval: str) -> None:
+        stamps = [bar.timestamp for bar in self.bars] + self.targets
+        if stamps != sorted(set(stamps)) or stamps[0] <= 0:
+            raise ValueError("timestamps must be positive, distinct and ordered")
+        zone = ZoneInfo(self.timezone)
+        if interval == "1d":
+            if any(datetime.fromtimestamp(stamp / 1000, zone).time() != time.min for stamp in stamps):
+                raise ValueError("daily timestamps must be at market-local midnight")
+        else:
+            if any(stamp % MINUTE_MS for stamp in stamps):
+                raise ValueError("timestamps must be minute starts")
+            last = self.bars[-1].timestamp
+            if self.targets != [last + MINUTE_MS * i for i in range(1, len(self.targets) + 1)]:
+                raise ValueError("targets must follow the last confirmed candle")
 
 
 class Request(BaseModel):
     protocol: int
+    interval: Literal["1m", "1d"] = "1m"
     windows: list[Window] = Field(min_length=1, max_length=10)
 
     @model_validator(mode="after")
@@ -62,6 +70,8 @@ class Request(BaseModel):
             raise ValueError("duplicate symbol")
         if len({(len(item.bars), len(item.targets)) for item in self.windows}) != 1:
             raise ValueError("a batch must use the same lookback and horizon")
+        for window in self.windows:
+            window.validate_times(self.interval)
         return self
 
 
@@ -79,6 +89,8 @@ def prices(frame: pd.DataFrame, timestamps: list[int]) -> list[dict] | None:
 
 class Runner:
     def __init__(self, args):
+        import torch
+
         sys.path.insert(0, str(args.source))
         from model import Kronos, KronosPredictor, KronosTokenizer
 
@@ -91,9 +103,11 @@ class Runner:
         self.predictor = KronosPredictor(model, tokenizer, device="mps", max_context=512)
         self.identity = {
             "protocol": PROTOCOL, "model": args.model, "weights_revision": args.weights_revision,
-            "device": "mps", "release": args.release,
+            "device": "mps", "release": args.release, "intervals": ["1m", "1d"],
         }
         self.slot = BoundedSemaphore(1)
+        self._priority_lock = Lock()
+        self._minute_retry_until = 0.0
         # Trigger real MPS kernels before advertising readiness to deployment.
         stamps = pd.Series(pd.date_range("2026-01-01", periods=MIN_LOOKBACK + MAX_HORIZON, tz="UTC", freq="min"))
         values = [100.0 + i / 100 for i in range(MIN_LOOKBACK)]
@@ -102,6 +116,17 @@ class Runner:
             [frame], [stamps[:MIN_LOOKBACK]], [stamps[MIN_LOOKBACK:]], pred_len=MAX_HORIZON, verbose=False,
         )
         torch.mps.synchronize()
+
+    def acquire_slot(self, interval: str) -> bool:
+        with self._priority_lock:
+            if interval == "1d" and monotonic() < self._minute_retry_until:
+                return False
+            if self.slot.acquire(blocking=False):
+                return True
+            if interval == "1m":
+                # The Streamer retries in ten seconds after a busy response.
+                self._minute_retry_until = monotonic() + 12
+            return False
 
     def predict(self, request: Request) -> dict:
         inputs, starts, ends = [], [], []
@@ -156,11 +181,11 @@ class Handler(BaseHTTPRequestHandler):
                 self.respond(413, {"error": "invalid request size"})
                 return
             request = Request.model_validate_json(self.rfile.read(length))
-        except (LookupError, TimeoutError, ValueError):
+        except (LookupError, OSError, OverflowError, ValueError):
             self.respond(400, {"error": "invalid forecast request"})
             return
         runner = self.server.runner
-        if not runner.slot.acquire(blocking=False):
+        if not runner.acquire_slot(request.interval):
             self.respond(503, {"error": "inference busy"})
             return
         try:

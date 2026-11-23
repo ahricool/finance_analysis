@@ -46,12 +46,17 @@ EARNINGS_OUTLOOK_TASK = CeleryTaskMetadata(
 OPTIONS_TASK = CeleryTaskMetadata(
     celery_name="options.request", task_type="options_intelligence", display_name="期权分析", source="celery_manual"
 )
+DAILY_KRONOS_TASK = CeleryTaskMetadata(
+    celery_name="analysis.kronos_daily_forecast", task_type="kronos_daily_forecast",
+    display_name="Kronos 日 K 预测", source="celery",
+)
 
 QUANT_EXPERIMENT_TASK = CeleryTaskMetadata(
     celery_name="quant.experiment.prepare", task_type="quant_training", display_name="准备量化训练实验", source="celery_manual"
 )
 
 ON_DEMAND_TASKS = (
+    DAILY_KRONOS_TASK,
     QUANT_EXPERIMENT_TASK,
     OPTIONS_TASK,
     EARNINGS_OUTLOOK_TASK,
@@ -69,6 +74,7 @@ def get_on_demand_task_metadata(task_name: str) -> Optional[CeleryTaskMetadata]:
 
 __all__ = [
     "CeleryTaskMetadata",
+    "DAILY_KRONOS_TASK",
     "DEMO_ADD_TASK",
     "MARKET_CALENDAR_IMPORTANCE_TASK",
     "QUANT_DATASET_TASK",

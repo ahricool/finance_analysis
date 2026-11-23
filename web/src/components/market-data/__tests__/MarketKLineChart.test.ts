@@ -1,6 +1,7 @@
 import { flushPromises, mount } from '@vue/test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { CandleStyle, CandleTooltipLegendsCustomCallback, DataLoader, KLineData, OverlayCreate } from 'klinecharts';
+import { registerOverlay, type CandleStyle, type CandleTooltipLegendsCustomCallback, type DataLoader,
+  type KLineData, type OverlayCreate, type OverlayCreateFiguresCallbackParams } from 'klinecharts';
 import MarketKLineChart from '../MarketKLineChart.vue';
 import { useTheme } from '@/composables/useTheme';
 import { fetchMinuteForecast } from '@/api/minuteForecast';
@@ -13,6 +14,7 @@ const chart = vi.hoisted(() => ({
   overrideYAxis: vi.fn(), overrideXAxis: vi.fn(), setBarSpace: vi.fn(), setOffsetRightDistance: vi.fn(),
   setScrollEnabled: vi.fn(), setZoomEnabled: vi.fn(),
   getDataList: vi.fn<() => KLineData[]>(), getVisibleRange: vi.fn(),
+  getBarSpace: vi.fn(() => ({ bar: 10, halfGapBar: 3 })),
 }));
 const lifecycle = vi.hoisted(() => ({ dispose: vi.fn(), init: vi.fn() }));
 vi.mock('klinecharts', () => ({ init: lifecycle.init, dispose: lifecycle.dispose,
@@ -89,8 +91,18 @@ describe('MarketKLineChart v10 lifecycle', () => {
     const wrapper = mount(MarketKLineChart, { props: { symbol: 'BTCUSDT', period: '1m', bars: [actual] } });
     await flushPromises();
     expect(chart.createOverlay).toHaveBeenLastCalledWith([expect.objectContaining({ id: 'minute-forecast', points: [
-      { timestamp, value: 2 }, { timestamp: predicted.timestamp, value: 3 },
+      ...[2, 4, 2, 3].map(value => ({ timestamp: predicted.timestamp, value })),
     ] })]);
+    const overlay = chart.createOverlay.mock.lastCall![0][0] as OverlayCreate;
+    const figures = vi.mocked(registerOverlay).mock.lastCall![0].createPointFigures!({
+      chart, overlay, coordinates: [{ x: 20, y: 30 }, { x: 20, y: 10 }, { x: 20, y: 30 }, { x: 20, y: 20 }],
+    } as unknown as OverlayCreateFiguresCallbackParams<unknown>);
+    expect(figures).toHaveLength(2);
+    if (!Array.isArray(figures)) throw new Error('Expected separate wick and body figures');
+    expect(figures[0]).toMatchObject({ type: 'line', styles: { color: '#dc2626' } });
+    expect(figures[1]).toMatchObject({ type: 'line', styles: { color: '#dc2626', style: 'dashed' },
+      attrs: { coordinates: [{ x: 17, y: 20 }, { x: 23, y: 20 }, { x: 23, y: 30 },
+        { x: 17, y: 30 }, { x: 17, y: 20 }] } });
     const callback = vi.fn();
     loader().getBars({ ...context, type: 'init', timestamp: null, callback });
     expect(callback).toHaveBeenLastCalledWith([actual], false);
@@ -100,6 +112,37 @@ describe('MarketKLineChart v10 lifecycle', () => {
     await wrapper.setProps({ period: '5m' });
     expect(wrapper.find('[data-testid="minute-forecast"]').exists()).toBe(false);
     expect(vi.mocked(fetchMinuteForecast)).toHaveBeenCalledTimes(1);
+    wrapper.unmount();
+  });
+  it('shows only future daily candles with their full range and keeps them out of the price series', async () => {
+    const anchor = { ...bar, timestamp: Date.parse('2026-11-25T00:00:00Z') };
+    const actual = { ...bar, timestamp: Date.parse('2026-11-27T00:00:00Z') };
+    const wrapper = mount(MarketKLineChart, { props: { symbol: 'AAPL.US', period: '1d', bars: [anchor, actual],
+      dailyForecast: { symbol: 'AAPL.US', anchorDate: '2026-11-25', anchorClose: 2,
+        generatedAt: '2026-11-26T04:00:00Z', model: 'small', weightsRevision: 'fixed', lookback: 240,
+        bars: [{ tradeDate: '2026-11-27', open: 2, high: 5, low: 1, close: 4 },
+          { tradeDate: '2026-11-30', open: 3, high: 8, low: 0.5, close: 2.5 }],
+      } } });
+    const timestamp = Date.parse('2026-11-30T00:00:00Z');
+    expect(chart.createOverlay).toHaveBeenLastCalledWith([expect.objectContaining({ id: 'daily-forecast',
+      points: [3, 8, 0.5, 2.5].map(value => ({ timestamp, value })), extendData: { colors: ['#16854e'] },
+    })]);
+    expect(chart.setOffsetRightDistance).toHaveBeenLastCalledWith(40);
+    const callback = vi.fn();
+    loader().getBars({ ...context, type: 'init', timestamp: null, callback });
+    expect(callback).toHaveBeenLastCalledWith([anchor, actual], false);
+    const panel = wrapper.get('[data-testid="daily-forecast"]');
+    expect(panel.text()).toContain('2026-11-30');
+    expect(panel.text()).not.toContain('2026-11-27');
+    chart.getDataList.mockReturnValue([anchor, actual]);
+    chart.getVisibleRange.mockReturnValue({ to: 2 });
+    const range = chart.overrideYAxis.mock.lastCall![0].createRange({ defaultRange: { from: 1, to: 3 } });
+    expect(range.from).toBeLessThanOrEqual(0.5);
+    expect(range.to).toBeGreaterThanOrEqual(8);
+    await wrapper.setProps({ period: '1w' });
+    expect(wrapper.find('[data-testid="daily-forecast"]').exists()).toBe(false);
+    await wrapper.setProps({ period: '1d', bars: [actual] });
+    expect(wrapper.find('[data-testid="daily-forecast"]').exists()).toBe(false);
     wrapper.unmount();
   });
   it('pushes live bars only while subscribed and follows theme', async () => {
@@ -163,7 +206,7 @@ describe('MarketKLineChart v10 lifecycle', () => {
     expect(summary[2]?.text()).toContain('基线 3 · 4 个样本');
     expect(panel.findAll('details')[0]?.findAll('li')).toHaveLength(10);
     expect(panel.findAll('details')[1]?.text()).toContain('+10 分钟');
-    expect(chart.createOverlay.mock.lastCall?.[0]?.[0]).toHaveProperty('points.length', 11);
+    expect(chart.createOverlay.mock.lastCall?.[0]?.[0]).toHaveProperty('points.length', 40);
     wrapper.unmount();
   });
 
