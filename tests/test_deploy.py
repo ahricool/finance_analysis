@@ -208,11 +208,11 @@ def test_interrupt_only_disconnects_docker_stop_client(deployment, monkeypatch):
 
 
 def test_kronos_external_service_is_checked_from_old_application_container(deployment):
-    deployment.compose.return_value = '{"protocol":1,"device":"mps","model":"small"}'
+    deployment.compose.return_value = '{"protocol":1,"device":"mps","model":"small","intervals":["1m","1d"]}'
     config = {"services": {"streamer": {"environment": {"KRONOS_URL": "http://host.docker.internal:18081"}}}}
     runtime = deployment.prepare_kronos(config, {"server": {"state": {"Running": True}}})
     assert runtime == {"url": "http://host.docker.internal:18081",
-                       "identity": {"protocol": 1, "device": "mps", "model": "small"}}
+                       "identity": {"protocol": 1, "device": "mps", "model": "small", "intervals": ["1m", "1d"]}}
     call = deployment.compose.call_args
     assert call.args[:3] == ("exec", "-T", "server")
     assert call.args[-1] == "http://host.docker.internal:18081/healthz"

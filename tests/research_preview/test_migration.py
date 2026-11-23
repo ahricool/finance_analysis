@@ -22,7 +22,7 @@ def test_migration_matches_models_and_reverses():
     root = Path(__file__).resolve().parents[2]
     cfg = Config(str(root / 'alembic.ini'))
     cfg.set_main_option('script_location', str(root / 'alembic'))
-    assert ScriptDirectory.from_config(cfg).get_current_head() == '0093_intraday_simulation'
+    assert ScriptDirectory.from_config(cfg).get_current_head() == '0094_daily_kronos_forecast'
     module = migration()
     with create_engine('sqlite://').begin() as connection:
         module.op = Operations(MigrationContext.configure(connection))

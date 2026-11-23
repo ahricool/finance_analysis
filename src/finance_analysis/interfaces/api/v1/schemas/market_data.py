@@ -5,6 +5,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from finance_analysis.daily_forecast.models import DailyForecast
+
 
 class DailyBarItem(BaseModel):
     trade_date: date
@@ -24,6 +26,7 @@ class DailyBarsResponse(BaseModel):
     source: str | None = None
     history_fallback: bool = False
     items: list[DailyBarItem]
+    forecast: DailyForecast | None = None
 
 
 class ForwardReturnsRequest(BaseModel):

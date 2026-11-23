@@ -35,6 +35,8 @@ class TaskAdvisoryLockId(IntEnum):
     STOCK_STRATEGIES_US = 16
     MARKET_HEATMAP_CN = 17
     MARKET_HEATMAP_US = 18
+    DAILY_KRONOS_CN = 19
+    DAILY_KRONOS_US = 20
 
 
 @dataclass

@@ -237,6 +237,15 @@ def get_trading_days_between(market: str, start_date: date, end_date: date) -> l
     return [stamp.date() for stamp in cal.sessions_in_range(start_date, end_date)]
 
 
+def get_upcoming_trading_days(market: str, after: date, count: int) -> list[date]:
+    """Return up to count known exchange sessions strictly after the given date."""
+    if count <= 0 or not _XCALS_AVAILABLE:
+        return []
+    sessions = xcals.get_calendar(MARKET_EXCHANGE[market]).sessions
+    start = sessions.searchsorted(datetime.combine(after, time.min), side="right")
+    return [stamp.date() for stamp in sessions[start:start + count]]
+
+
 def get_completed_trading_days(
     market: str,
     count: int,

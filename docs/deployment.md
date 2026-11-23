@@ -16,7 +16,7 @@
    Celery SIGTERM 等待执行中的任务完成，Docker 不设置强杀期限。只在容器正常退出后推进，
    不用 `inspect active` 无回复或 PostgreSQL processing 数量推断排空。
 6. 停止 API/streamer，在新后端镜像中完成现有数据库迁移和种子初始化，再更新应用服务。
-7. 等待 API、Web、两个 worker 健康，检查目标镜像及 streamer 运行状态。启用 Kronos 时由新 Streamer 容器验证目标 MPS 服务。
+7. 等待 API、Web、两个 worker 健康，检查目标镜像及 streamer 运行状态。启用 Kronos 时由新 Streamer 和普通 Worker 验证目标 MPS 服务。
 8. 最后重建 Beat（即使发布提交相同也使用新容器），要求它写入本次启动后的新心跳；再次检查应用状态。
 9. 记录发布结果，释放部署锁。
 
@@ -126,4 +126,4 @@ Beat 的调度状态仍使用容器内默认文件，不挂载到宿主机持久
 ## Kronos 宿主机服务
 
 Apple Silicon 发布使用独立的 macOS MPS 进程，权重和 PyTorch 环境由宿主机维护。
-首次上线、模型切换和外部服务配置见 [Kronos 分钟线预测](kronos.md)。
+首次上线、模型切换和外部服务配置见 [Kronos K 线预测](kronos.md)。

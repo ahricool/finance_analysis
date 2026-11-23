@@ -10,6 +10,17 @@ export interface DailyBar {
   volume: number;
   amount: number | null;
 }
+export type DailyForecastBar = Omit<DailyBar, 'volume' | 'amount'>;
+export interface DailyForecast {
+  symbol: string;
+  anchorDate: string;
+  anchorClose: number;
+  generatedAt: string;
+  model: string;
+  weightsRevision: string;
+  lookback: number;
+  bars: DailyForecastBar[];
+}
 export interface DailyBarsResponse {
   symbol: string;
   market: string;
@@ -18,6 +29,7 @@ export interface DailyBarsResponse {
   source: string | null;
   historyFallback?: boolean;
   items: DailyBar[];
+  forecast?: DailyForecast | null;
 }
 export interface ForwardReturnItem {
   code: string;

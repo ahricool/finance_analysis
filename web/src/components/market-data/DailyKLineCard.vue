@@ -250,6 +250,7 @@ onBeforeUnmount(() => controller?.abort());
         :price-precision="pricePrecision"
         :overlays="overlays"
         :bars="bars"
+        :daily-forecast="data?.forecast"
         :focus-timestamp="focusTimestamp"
         :focus-request="focusRequest"
         :source-key="`${symbol}:${endDate ?? 'latest'}`"

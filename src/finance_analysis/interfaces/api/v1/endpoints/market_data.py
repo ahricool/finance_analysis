@@ -18,6 +18,7 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.responses import StreamingResponse
 
 from finance_analysis.core.time import utc_isoformat, utc_now
+from finance_analysis.database.repositories.daily_forecast import DailyForecastRepository
 from finance_analysis.database.repositories.user import UserRepository
 from finance_analysis.database.repositories.watch_list import WatchListRepo
 from finance_analysis.integrations.market_data.forward_returns import forward_returns
@@ -269,11 +270,20 @@ def daily_bars(symbol: str, start_date: date | None = None, end_date: date | Non
             by_date[today_bar.trade_date] = today_bar
     except Exception:
         logger.warning("Intraday daily overlay unavailable: %s", code, exc_info=True)
+    forecast = None
+    if by_date and market.value in {"CN", "US"}:
+        try:
+            latest = DailyForecastRepository().latest(market.value, code)
+            if latest is not None and start <= latest.anchor_date <= end and latest.anchor_date in by_date:
+                forecast = latest
+        except Exception:
+            logger.warning("Daily forecast unavailable: %s", code, exc_info=True)
     return DailyBarsResponse(
         symbol=code,
         market=market.value,
         source=source,
         history_fallback=history_fallback,
+        forecast=forecast,
         items=[
             DailyBarItem(
                 trade_date=bar.trade_date,

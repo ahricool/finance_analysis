@@ -38,5 +38,7 @@ def earnings_review_outcome(result: dict[str, Any]) -> TaskOutcome | None:
 def market_sync_outcome(result: dict[str, Any]) -> TaskOutcome | None:
     if result["sync_status"] != "partial":
         return None
+    if result.get("kronos_forecast_dispatch_failed"):
+        return TaskOutcome(TaskExecutionStatus.PARTIAL, "日线同步已结束，Kronos 日 K 预测入队失败")
     return TaskOutcome(TaskExecutionStatus.PARTIAL,
                        f"日线同步部分失败：partial={result['partial_symbols']}, failed={result['failed_symbols']}")

@@ -76,10 +76,10 @@ for (const width of [1280, 1440, 1920]) {
     await expect(forecast.getByText('Kronos small', { exact: false })).toBeVisible();
     if (width === 1440) {
       const withForecast = await chart.getByRole('img').screenshot();
-      await forecast.getByRole('checkbox', { name: '分钟线预测' }).uncheck();
+      await forecast.getByRole('checkbox', { name: '显示预测 K 线' }).uncheck();
       const withoutForecast = await chart.getByRole('img').screenshot();
       expect(withForecast.equals(withoutForecast)).toBe(false);
-      await forecast.getByRole('checkbox', { name: '分钟线预测' }).check();
+      await forecast.getByRole('checkbox', { name: '显示预测 K 线' }).check();
     }
     expect((await chart.locator('canvas').first().boundingBox())!.height).toBeGreaterThan(250);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);

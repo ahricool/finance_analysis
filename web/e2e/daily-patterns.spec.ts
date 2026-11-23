@@ -39,7 +39,13 @@ for (const theme of ['light', 'dark']) {
         universeSize: 1, dataReadyCount: 1, dataCoverage: 1, rankableSize: 1, rankableCoverage: 1, warnings: [], marketSnapshot: null, items: [snapshot] };
       else if (path.includes('/daily-bars/')) {
         dailyRequests++;
-        body = { symbol: snapshot.code, market: 'CN', interval: '1d', adjustment: 'forward', items };
+        body = { symbol: snapshot.code, market: 'CN', interval: '1d', adjustment: 'forward', items,
+          forecast: { symbol: snapshot.code, anchor_date: highlightedDate, anchor_close: items[67]!.close,
+            generated_at: '2026-11-08T02:00:00Z', model: 'small', weights_revision: 'test', lookback: 68,
+            bars: [{ trade_date: '2026-11-17', open: 99, high: 107, low: 97, close: 104 },
+              { trade_date: '2026-11-18', open: 104, high: 108, low: 95, close: 98 }],
+          },
+        };
       } else if (path.endsWith('/etf-rotation/510300.SH')) body = { market: 'CN', metadata: snapshot, latest: snapshot, history: [snapshot], marketSnapshot: null };
       await route.fulfill({ json: body });
     });
@@ -62,6 +68,16 @@ for (const theme of ['light', 'dark']) {
     await page.mouse.click(box.x + x, box.y + y);
     await expect(detail).toContainText('看涨吞没');
     await expect(detail).toContainText('阳线实体完整吞没');
+    const forecast = daily.getByTestId('daily-forecast');
+    await expect(forecast).toContainText('2 个交易日');
+    await forecast.getByText('查看预测开高低收').click();
+    await expect(forecast.getByText('2026-11-17')).toBeVisible();
+    const chart = daily.getByRole('img');
+    const before = await chart.screenshot();
+    const toggle = forecast.getByRole('checkbox', { name: '显示预测 K 线' });
+    await toggle.uncheck();
+    expect(before.equals(await chart.screenshot())).toBe(false);
+    await toggle.check();
     expect(dailyRequests).toBe(1);
     expect(errors).toEqual([]);
     await daily.screenshot({ path: testInfo.outputPath(`daily-patterns-${theme}.png`) });

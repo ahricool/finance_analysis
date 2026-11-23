@@ -6,7 +6,9 @@ import { useTheme } from '@/composables/useTheme';
 import { useCurrentTime } from '@/composables/useCurrentTime';
 import { useMinuteForecast } from '@/composables/useMinuteForecast';
 import { readMarketCanvasColors } from '@/utils/marketColors';
-import { MINUTE_FORECAST_OVERLAY_ID, minuteForecastOverlay } from './minuteForecastOverlay';
+import type { DailyForecast } from '@/api/marketData';
+import { DAILY_FORECAST_OVERLAY_ID, MINUTE_FORECAST_OVERLAY_ID, forecastOverlay } from './kronosForecastOverlay';
+import DailyForecastPanel from './DailyForecastPanel.vue';
 import MinuteForecastPanel from './MinuteForecastPanel.vue';
 import type { ChartAnnotation } from './chartAnnotation';
 
@@ -15,6 +17,7 @@ const props = defineProps<{
   period: '1m' | '5m' | '15m' | '1h' | '4h' | '1d' | '1w' | '1M';
   pricePrecision?: number;
   bars: KLineData[];
+  dailyForecast?: DailyForecast | null;
   current?: KLineData | null;
   liveSnapshot?: boolean;
   sourceKey?: string;
@@ -41,8 +44,22 @@ const future = computed(() => {
   if (value.closeReplay) return value.anchor === last && (props.current?.timestamp ?? last) <= last ? value.bars : [];
   return value.bars.filter(bar => bar.timestamp > last && bar.timestamp + 60_000 > now.value.getTime());
 });
+const dayTimestamp = (day: string) => Date.parse(`${day}T00:00:00Z`);
+const dailyForecast = computed(() => props.period === '1d' && props.dailyForecast?.symbol === props.symbol
+  ? props.dailyForecast : null);
+const dailyFuture = computed(() => {
+  const value = dailyForecast.value;
+  if (!value || !props.bars.some(bar => bar.timestamp === dayTimestamp(value.anchorDate))) return [];
+  const last = props.bars.at(-1)!.timestamp;
+  return value.bars.filter(bar => dayTimestamp(bar.tradeDate) > last);
+});
+const futurePrices = computed(() => props.period === '1d' ? dailyFuture.value : future.value);
 const closeReplayLength = computed(() => showForecast.value && forecast.value?.closeReplay ? future.value.length : 0);
 const forecastOverlayKey = computed(() => {
+  const daily = dailyForecast.value;
+  if (daily && dailyFuture.value.length) {
+    return `${daily.symbol}:${daily.weightsRevision}:${daily.generatedAt}:${dailyFuture.value.map(bar => bar.tradeDate).join(',')}`;
+  }
   const value = forecast.value;
   return value && future.value.length
     ? `${value.symbol}:${value.weightsRevision}:${value.generatedAt}:${future.value.map(bar => bar.timestamp).join(',')}`
@@ -51,15 +68,25 @@ const forecastOverlayKey = computed(() => {
 let chart: Chart | null = null;
 let observer: ResizeObserver | undefined;
 let appliedOverlayIds: string[] = [];
-let forecastDrawn = false;
+let drawnForecastId: string | undefined;
 const hoveredId = ref<string>();
 const hoveredHint = ref('');
 const hintPosition = ref<{ left?: string; right?: string; top: string; transform?: string }>();
-const forecastAnnotation = computed(() => showForecast.value && forecast.value && future.value.length
-  ? minuteForecastOverlay(forecast.value, future.value, resolvedTheme.value === 'dark') : null);
+const forecastAnnotation = computed(() => {
+  if (!showForecast.value) return null;
+  const dark = resolvedTheme.value === 'dark';
+  if (dailyForecast.value && dailyFuture.value.length) {
+    return forecastOverlay(DAILY_FORECAST_OVERLAY_ID, 'Kronos 日 K 预测',
+      dailyFuture.value.map(bar => ({ ...bar, timestamp: dayTimestamp(bar.tradeDate) })), dark);
+  }
+  const value = forecast.value;
+  if (!value || !future.value.length) return null;
+  return forecastOverlay(MINUTE_FORECAST_OVERLAY_ID, value.closeReplay ? 'Kronos 收盘试算' : 'Kronos 分钟线预测',
+    future.value, dark);
+});
 const hoverHint = computed(() => {
   if (!hoveredId.value) return undefined;
-  const current = hoveredId.value === MINUTE_FORECAST_OVERLAY_ID
+  const current = hoveredId.value === forecastAnnotation.value?.id
     ? forecastAnnotation.value : props.overlays?.find(item => item.id === hoveredId.value);
   return current?.hint === hoveredHint.value ? current.hint : undefined;
 });
@@ -166,7 +193,8 @@ function styles() {
   const colors = { upColor: up, downColor: down, noChangeColor: muted };
   chart.setStyles({
     candle: { bar: { ...colors, upBorderColor: up, downBorderColor: down,
-      upWickColor: up, downWickColor: down }, priceMark: { last: colors },
+      noChangeBorderColor: muted, upWickColor: up, downWickColor: down, noChangeWickColor: muted },
+    priceMark: { last: colors },
     tooltip: { showRule: 'follow_cross', showType: 'rect',
       legend: { defaultValue: '--', template: candleTooltipLegends } } },
     indicator: { bars: [colors] },
@@ -180,15 +208,15 @@ function destroy() {
   if (element.value && chart) dispose(element.value);
   chart = null;
   appliedOverlayIds = [];
-  forecastDrawn = false;
+  drawnForecastId = undefined;
 }
 function applyPriceRange() {
-  if (!chart || (props.referencePrice == null && props.period !== '1m')) return;
+  if (!chart || (props.referencePrice == null && props.period !== '1m' && props.period !== '1d')) return;
   chart.overrideYAxis({ paneId: 'candle_pane', createRange: ({ defaultRange }) => {
     const reference = props.referencePrice ?? 0;
     const prices = Number.isFinite(reference) && reference > 0 ? [reference] : [];
-    if (showForecast.value && future.value.length && chart && chart.getVisibleRange().to >= chart.getDataList().length) {
-      prices.push(...future.value.map(bar => bar.close));
+    if (showForecast.value && futurePrices.value.length && chart && chart.getVisibleRange().to >= chart.getDataList().length) {
+      for (const bar of futurePrices.value) prices.push(bar.low, bar.high);
     }
     if (!prices.length) return defaultRange;
     const low = Math.min(defaultRange.from, ...prices);
@@ -228,14 +256,23 @@ function applyOverlays() {
     appliedOverlayIds = (Array.isArray(created) ? created : [created]).filter((id): id is string => id != null);
   }
 }
+function fitDailyForecast() {
+  if (!chart || props.period !== '1d') return;
+  const last = props.bars.at(-1)?.timestamp;
+  const target = dailyFuture.value.at(-1);
+  if (showForecast.value && last != null && target) {
+    const days = (dayTimestamp(target.tradeDate) - last) / 86_400_000;
+    chart.setOffsetRightDistance((days + 1) * chart.getBarSpace().bar);
+  } else if (drawnForecastId === DAILY_FORECAST_OVERLAY_ID) {
+    chart.setOffsetRightDistance(80);
+  }
+}
 function applyForecastOverlay() {
   if (!chart) return;
-  if (forecastDrawn) chart.removeOverlay({ id: MINUTE_FORECAST_OVERLAY_ID });
-  forecastDrawn = false;
-  if (forecastAnnotation.value) {
-    chart.createOverlay([withHover(forecastAnnotation.value)]);
-    forecastDrawn = true;
-  }
+  if (drawnForecastId) chart.removeOverlay({ id: drawnForecastId });
+  const annotation = forecastAnnotation.value;
+  drawnForecastId = annotation?.id;
+  if (annotation) chart.createOverlay([withHover(annotation)]);
 }
 function focusOnTimestamp(timestamp: number) {
   if (!chart) return;
@@ -315,6 +352,7 @@ function initialize() {
     unsubscribeBar: () => { pushBar = undefined; },
   });
   applyOverlays();
+  fitDailyForecast();
   applyForecastOverlay();
 }
 watch(() => props.overlays, applyOverlays);
@@ -322,6 +360,7 @@ watch(() => props.overlays, applyOverlays);
 // when a published forecast or its remaining target minutes actually change.
 watch([forecastOverlayKey, showForecast], () => {
   applyPriceRange();
+  fitDailyForecast();
   applyForecastOverlay();
 });
 watch(resolvedTheme, applyForecastOverlay);
@@ -381,6 +420,13 @@ onBeforeUnmount(() => { observer?.disconnect(); destroy(); });
       :bars="future"
       :accuracy="forecastResponse.accuracy"
       :timezone="timezone"
+      :price-precision="pricePrecision"
+    />
+    <DailyForecastPanel
+      v-if="dailyForecast && dailyFuture.length"
+      v-model:show-forecast="showForecast"
+      :forecast="dailyForecast"
+      :bars="dailyFuture"
       :price-precision="pricePrecision"
     />
   </div>

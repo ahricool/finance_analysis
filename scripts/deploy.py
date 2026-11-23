@@ -155,7 +155,7 @@ class Deployment:
             return None
         if model not in {"small", "base", "large"}:
             raise DeployError("KRONOS_MODEL must be small, base, or large")
-        identity = {"protocol": 1, "device": "mps", "model": model}
+        identity = {"protocol": 1, "device": "mps", "model": model, "intervals": ["1m", "1d"]}
         if managed:
             port = self.positive_seconds("KRONOS_HOST_PORT", 18081)
             state = self.directory / "kronos"
@@ -233,7 +233,7 @@ class Deployment:
                     raise DeployError(f"{service} 将 SIGTERM 映射到了强制停止，拒绝部署")
         kronos = self.prepare_kronos(config, old)
         if kronos:
-            for service in ("server", "streamer"):
+            for service in ("server", "streamer", "worker"):
                 images[service]["environment"] = {"KRONOS_URL": kronos["url"],
                                                   "KRONOS_MODEL": kronos["identity"]["model"]}
         write_json(self.override_path, {"services": images})
@@ -317,6 +317,7 @@ class Deployment:
         self.verify_apps(APP_SERVICES[:-1])
         if kronos := self.pending.get("kronos"):
             self.verify_kronos(kronos, service="streamer", target=True)
+            self.verify_kronos(kronos, service="worker", target=True)
         self.pending["beat_starting_at"] = utc_now()
         self.phase("starting_beat")
         # Even a same-revision deployment starts Beat with fresh ephemeral state;
