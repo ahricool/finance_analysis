@@ -8,7 +8,10 @@ PROTOCOL = 1
 MINUTE_MS = 60_000
 LOOKBACK = 240
 MIN_LOOKBACK = 15
-HORIZON = 10
+MAX_SESSION_MINUTES = 390
+BTC_HORIZON = 10
+CLOSE_REPLAY_HORIZON = 10
+ERROR_HORIZON = 10
 BATCH_SIZE = 10
 BTC_SYMBOL = "BTCUSDT"
 
@@ -45,7 +48,7 @@ class ForecastWindow(BaseModel):
 
 class Prediction(BaseModel):
     symbol: str
-    bars: list[PredictedBar] = Field(min_length=1, max_length=HORIZON)
+    bars: list[PredictedBar] = Field(min_length=1, max_length=MAX_SESSION_MINUTES)
 
 
 class InferenceResult(BaseModel):
@@ -63,8 +66,9 @@ class ForecastSnapshot(BaseModel):
     anchor_close: FiniteFloat = Field(gt=0)
     generated_at: int
     lookback: int
-    bars: list[PredictedBar] = Field(min_length=1, max_length=HORIZON)
+    bars: list[PredictedBar] = Field(min_length=1, max_length=MAX_SESSION_MINUTES)
     close_replay: bool = False
+    session_close: int | None = None
 
 
 class ForecastError(BaseModel):

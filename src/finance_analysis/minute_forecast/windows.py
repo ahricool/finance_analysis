@@ -1,14 +1,17 @@
 """Use original candles and exchange boundaries when building model inputs."""
 
+from bisect import bisect_left
 from collections.abc import Iterable
 from datetime import date, datetime, timedelta
+from functools import lru_cache
 
 from finance_analysis.integrations.crypto.binance import from_ms
 from finance_analysis.integrations.market_data.realtime_state.models import CandleState, unique_minute_bars
 from finance_analysis.market_stream.config import is_regular_trade_session, market_spec, market_trading_date
-from finance_analysis.market_stream.session import in_session, session_bounds
+from finance_analysis.market_stream.session import session_bounds
 from finance_analysis.minute_forecast.models import (
-    BTC_SYMBOL, HORIZON, LOOKBACK, MIN_LOOKBACK, ForecastWindow, ObservedBar,
+    BTC_HORIZON, BTC_SYMBOL, CLOSE_REPLAY_HORIZON, LOOKBACK, MAX_SESSION_MINUTES, MIN_LOOKBACK, MINUTE_MS,
+    ForecastWindow, ObservedBar,
 )
 from finance_analysis.stocks.markets import MarketType
 
@@ -19,54 +22,67 @@ def millis(at: datetime) -> int:
     return int(at.timestamp() * 1000)
 
 
-def make_window(symbol: str, timezone: str, bars: list[ObservedBar], now: datetime,
+def make_window(symbol: str, timezone: str, bars: list[ObservedBar], anchor: int,
                 targets: list[int]) -> ForecastWindow | None:
-    anchor = millis(now.replace(second=0, microsecond=0) - MINUTE)
     if targets and len(bars) >= MIN_LOOKBACK and bars[-1].timestamp == anchor:
-        return ForecastWindow(symbol=symbol, timezone=timezone, bars=bars[-LOOKBACK:], targets=targets)
+        return ForecastWindow(symbol=symbol, timezone=timezone, bars=bars, targets=targets)
     return None
+
+
+@lru_cache(maxsize=32)
+def _session_minutes(market: MarketType, day: date) -> tuple[int, ...]:
+    bounds = session_bounds(market, day)
+    if bounds is None:
+        return ()
+    spec = market_spec(market)
+    minutes = []
+    for opened, closed in spec.regular_sessions:
+        start = max(bounds[0], datetime.combine(day, opened, spec.timezone))
+        end = min(bounds[1], datetime.combine(day, closed, spec.timezone))
+        minutes.extend(range(millis(start), millis(end), MINUTE_MS))
+    return tuple(minutes)
 
 
 def stock_window(symbol: str, market: MarketType, candles: Iterable[CandleState],
                  now: datetime) -> ForecastWindow | None:
-    minute = now.replace(second=0, microsecond=0)
-    if not in_session(market, minute) or not in_session(market, minute - MINUTE):
+    minute = millis(now.replace(second=0, microsecond=0))
+    session = _session_minutes(market, market_trading_date(now, market))
+    split = bisect_left(session, minute)
+    if not MIN_LOOKBACK <= split < len(session) <= MAX_SESSION_MINUTES or session[split] != minute:
         return None
-    targets: list[int] = []
-    for step in range(HORIZON):
-        target = minute + step * MINUTE
-        if not in_session(market, target):
-            break
-        targets.append(millis(target))
-    return _stock_input(symbol, market, candles, minute, targets)
+    expected = session[:split]
+    bars = _stock_bars(candles, expected)
+    if len(bars) != len(expected):
+        return None  # A data gap must be repaired by the feed before using a full session window.
+    return make_window(symbol, market_spec(market).timezone.key, bars, expected[-1], list(session[split:]))
 
 
 def stock_close_window(symbol: str, market: MarketType, candles: Iterable[CandleState],
                        day: date) -> ForecastWindow | None:
-    bounds = session_bounds(market, day)
-    if bounds is None:
+    session = _session_minutes(market, day)
+    if not session:
         return None
-    close = bounds[1]
+    bars = _stock_bars(candles, session[-LOOKBACK:])
     # These are hypothetical minute steps immediately after the regular close.
-    return _stock_input(symbol, market, candles, close, [millis(close + i * MINUTE) for i in range(HORIZON)])
+    targets = [session[-1] + step * MINUTE_MS for step in range(1, CLOSE_REPLAY_HORIZON + 1)]
+    return make_window(symbol, market_spec(market).timezone.key, bars, session[-1], targets)
 
 
-def _stock_input(symbol: str, market: MarketType, candles: Iterable[CandleState], minute: datetime,
-                 targets: list[int]) -> ForecastWindow | None:
-    day = market_trading_date(minute, market)
+def _stock_bars(candles: Iterable[CandleState], expected: tuple[int, ...]) -> list[ObservedBar]:
+    eligible = set(expected)
     bars = []
-    for candle in unique_minute_bars(candle for candle in candles if candle.bar_time < minute)[-LOOKBACK:]:
-        if (candle.confirmed and not candle.sampled and not candle.partial and candle.is_valid()
-                and market_trading_date(candle.bar_time, market) == day
-                and is_regular_trade_session(candle.trade_session) and in_session(market, candle.bar_time)):
+    for candle in unique_minute_bars(candles):
+        timestamp = millis(candle.bar_time)
+        if (timestamp in eligible and candle.confirmed and not candle.sampled and not candle.partial
+                and candle.is_valid() and is_regular_trade_session(candle.trade_session)):
             try:
                 bars.append(ObservedBar(
-                    timestamp=millis(candle.bar_time), open=candle.open, high=candle.high, low=candle.low,
+                    timestamp=timestamp, open=candle.open, high=candle.high, low=candle.low,
                     close=candle.close, volume=candle.volume, amount=candle.turnover,
                 ))
             except ValueError:
                 continue
-    return make_window(symbol, market_spec(market).timezone.key, bars, minute, targets)
+    return bars
 
 
 def btc_window(rows: list, now: datetime) -> ForecastWindow | None:
@@ -83,5 +99,6 @@ def btc_window(rows: list, now: datetime) -> ForecastWindow | None:
         except (IndexError, KeyError, TypeError, ValueError, OverflowError, OSError):
             continue
         parsed[bar.timestamp] = bar
-    return make_window(BTC_SYMBOL, "UTC", [parsed[key] for key in sorted(parsed)], now,
-                       [millis(minute + step * MINUTE) for step in range(HORIZON)])
+    anchor = millis(minute) - MINUTE_MS
+    return make_window(BTC_SYMBOL, "UTC", [parsed[key] for key in sorted(parsed)[-LOOKBACK:]], anchor,
+                       [millis(minute + step * MINUTE) for step in range(BTC_HORIZON)])

@@ -5,6 +5,7 @@ import { dispose, init, utils, type FormatDate, type Chart, type OverlayCreate, 
 import { useTheme } from '@/composables/useTheme';
 import { useCurrentTime } from '@/composables/useCurrentTime';
 import { useMinuteForecast } from '@/composables/useMinuteForecast';
+import { Button } from '@/components/ui/button';
 import { readMarketCanvasColors } from '@/utils/marketColors';
 import type { DailyForecast } from '@/api/marketData';
 import { DAILY_FORECAST_OVERLAY_ID, MINUTE_FORECAST_OVERLAY_ID, forecastOverlay } from './kronosForecastOverlay';
@@ -35,13 +36,26 @@ const forecast = computed(() => {
   const value = forecastResponse.value?.forecast;
   return props.period === '1m' && value?.symbol === props.symbol ? value : null;
 });
+const MINUTE_MS = 60_000;
 const future = computed(() => {
   const value = forecast.value;
   const last = props.bars.at(-1)?.timestamp;
   if (!value || last == null || !props.bars.some(bar => bar.timestamp === value.anchor)) return [];
   if (value.closeReplay) return value.anchor === last && (props.current?.timestamp ?? last) <= last ? value.bars : [];
-  return value.bars.filter(bar => bar.timestamp > last && bar.timestamp + 60_000 > now.value.getTime());
+  return value.bars.filter(bar => bar.timestamp > last && bar.timestamp + MINUTE_MS > now.value.getTime());
 });
+const minuteSlots = computed(() => {
+  const value = forecast.value;
+  const latest = liveBar() ?? props.bars.at(-1);
+  if (!latest || !value?.sessionClose || value.closeReplay || !props.bars.some(bar => bar.timestamp === value.anchor)) return null;
+  const targets = value.bars.filter(bar => bar.timestamp > latest.timestamp);
+  const positions = new Map(targets.map((bar, index) => [bar.timestamp, latest.timestamp + (index + 1) * MINUTE_MS]));
+  return { base: latest.timestamp, targets, positions };
+});
+const minuteProjection = computed(() => future.value.map(bar => {
+  const slot = minuteSlots.value?.positions.get(bar.timestamp);
+  return slot == null ? bar : { ...bar, timestamp: slot };
+}));
 const dayTimestamp = (day: string) => Date.parse(`${day}T00:00:00Z`);
 const DAY_MS = 86_400_000;
 const lastDailyTimestamp = computed(() => props.bars.at(-1)?.timestamp);
@@ -70,14 +84,17 @@ const forecastOverlayKey = computed(() => {
     return `${daily.symbol}:${daily.weightsRevision}:${daily.generatedAt}:${lastDailyTimestamp.value}:${dailyFuture.value.map(bar => bar.timestamp).join(',')}`;
   }
   const value = forecast.value;
-  return value && future.value.length
-    ? `${value.symbol}:${value.weightsRevision}:${value.generatedAt}:${future.value.map(bar => bar.timestamp).join(',')}`
+  return value && minuteProjection.value.length
+    ? `${value.symbol}:${value.weightsRevision}:${value.generatedAt}:${minuteProjection.value.map(bar => bar.timestamp).join(',')}`
     : '';
 });
 let chart: Chart | null = null;
 let observer: ResizeObserver | undefined;
 let appliedOverlayIds: string[] = [];
 let drawnForecastId: string | undefined;
+let followSession = true;
+let fittedMinuteForecast = false;
+let restoringViewport = false;
 const hoveredId = ref<string>();
 const hoveredHint = ref('');
 const hintPosition = ref<{ left?: string; right?: string; top: string; transform?: string }>();
@@ -90,7 +107,7 @@ const forecastAnnotation = computed(() => {
   const value = forecast.value;
   if (!value || !future.value.length) return null;
   return forecastOverlay(MINUTE_FORECAST_OVERLAY_ID, value.closeReplay ? 'Kronos 收盘试算' : 'Kronos 分钟线预测',
-    future.value, dark);
+    minuteProjection.value, dark);
 });
 const hoverHint = computed(() => {
   if (!hoveredId.value) return undefined;
@@ -215,14 +232,26 @@ function destroy() {
   chart = null;
   appliedOverlayIds = [];
   drawnForecastId = undefined;
+  followSession = true;
+  fittedMinuteForecast = false;
 }
 function applyPriceRange() {
   if (!chart || (props.referencePrice == null && props.period !== '1m' && props.period !== '1d')) return;
   chart.overrideYAxis({ paneId: 'candle_pane', createRange: ({ defaultRange }) => {
     const reference = props.referencePrice ?? 0;
     const prices = Number.isFinite(reference) && reference > 0 ? [reference] : [];
-    if (showForecast.value && futurePrices.value.length && chart && chart.getVisibleRange().to >= chart.getDataList().length) {
-      for (const bar of futurePrices.value) prices.push(bar.low, bar.high);
+    if (showForecast.value && futurePrices.value.length && chart) {
+      const visible = chart.getVisibleRange();
+      const latestIndex = chart.getDataList().length - 1;
+      const slots = minuteSlots.value;
+      if (slots) {
+        for (const bar of minuteProjection.value) {
+          const index = latestIndex + (bar.timestamp - slots.base) / MINUTE_MS;
+          if (index >= visible.realFrom && index < visible.realTo) prices.push(bar.low, bar.high);
+        }
+      } else if (visible.to > latestIndex) {
+        for (const bar of futurePrices.value) prices.push(bar.low, bar.high);
+      }
     }
     if (!prices.length) return defaultRange;
     const low = Math.min(defaultRange.from, ...prices);
@@ -252,6 +281,31 @@ function fitDailyForecast() {
     chart.setOffsetRightDistance(80);
   }
 }
+function fitMinuteForecast() {
+  const slots = minuteSlots.value;
+  if (!chart || !followSession) return;
+  if (!showForecast.value && fittedMinuteForecast) {
+    chart.setBarSpace(10);
+    chart.setOffsetRightDistance(120);
+    fittedMinuteForecast = false;
+    return;
+  }
+  if (!slots || !showForecast.value || !future.value.length) return;
+  const width = chart.getSize('candle_pane', 'main')?.width;
+  const dataCount = chart.getDataList().length;
+  if (!width || !dataCount) return;
+  const space = Math.min(10, width / (dataCount + slots.targets.length + 2));
+  chart.setBarSpace(space);
+  chart.setOffsetRightDistance((slots.targets.length + 1) * space);
+  fittedMinuteForecast = true;
+}
+function handOffViewport() {
+  if (!restoringViewport) followSession = false;
+}
+function fitSessionOnRequest() {
+  followSession = true;
+  fitMinuteForecast();
+}
 function applyForecastOverlay() {
   if (!chart) return;
   if (drawnForecastId) chart.removeOverlay({ id: drawnForecastId });
@@ -261,6 +315,7 @@ function applyForecastOverlay() {
 }
 function focusOnTimestamp(timestamp: number) {
   if (!chart) return;
+  followSession = false;
   chart.scrollToTimestamp(timestamp);
   const width = chart.getSize('candle_pane', 'main')?.width;
   const x = candleX(timestamp);
@@ -268,6 +323,14 @@ function focusOnTimestamp(timestamp: number) {
     chart.scrollByDistance(width / 2 - x);
   }
 }
+const formatMinuteDate: FormatDate = ({ dateTimeFormat, timestamp, template }) => {
+  const slots = showForecast.value ? minuteSlots.value : null;
+  if (slots && timestamp > slots.base) {
+    const target = slots.targets[(timestamp - slots.base) / MINUTE_MS - 1];
+    return target ? utils.formatDate(dateTimeFormat, target.timestamp, template) : '';
+  }
+  return utils.formatDate(dateTimeFormat, timestamp, template);
+};
 const formatDailyDate: FormatDate = ({ dateTimeFormat, timestamp, template }) => {
   const last = lastDailyTimestamp.value;
   if (dailyForecast.value && last != null && timestamp > last) {
@@ -282,6 +345,8 @@ function initialize() {
   destroy();
   if (!element.value) return;
   chart = init(element.value, { timezone: props.timezone ?? 'UTC', locale: 'zh-CN',
+    ...(props.period === '1m' && props.timezone ? { formatter: { formatDate: formatMinuteDate },
+      layout: { barSpaceLimit: { min: 0.25, max: 50 } } } : {}),
     ...(props.period === '1d' ? { formatter: { formatDate: formatDailyDate } } : {}) });
   if (!chart) return;
   chart.getDom('candle_pane', 'main')?.addEventListener('pointerleave', clearHover);
@@ -290,6 +355,8 @@ function initialize() {
   if (props.period === '1m') {
     // Leave room for ten forecast steps at the default zoom without fabricating candles.
     chart.setOffsetRightDistance(120);
+    chart.subscribeAction('onZoom', handOffViewport);
+    chart.subscribeAction('onScroll', handOffViewport);
   }
   chart.createIndicator('VOL');
   if (['1d', '1w', '1M'].includes(props.period)) {
@@ -321,10 +388,15 @@ function initialize() {
       if (anchor && oldX != null && bars.length) {
         // Preserve the rightmost visible candle, or the live edge if it was in view.
         const newX = candleX(followLatest ? bars.at(-1)!.timestamp : anchor.timestamp);
-        if (newX != null) chart?.scrollByDistance(oldX - newX);
+        if (newX != null) {
+          restoringViewport = true;
+          try { chart?.scrollByDistance(oldX - newX); }
+          finally { restoringViewport = false; }
+        }
       } else if (props.focusTimestamp != null) {
         focusOnTimestamp(props.focusTimestamp);
       }
+      fitMinuteForecast();
     },
     subscribeBar: ({ callback }) => { pushBar = callback; },
     unsubscribeBar: () => { pushBar = undefined; },
@@ -339,8 +411,10 @@ watch(() => props.overlays, applyOverlays);
 watch([forecastOverlayKey, showForecast], () => {
   applyPriceRange();
   fitDailyForecast();
+  fitMinuteForecast();
   applyForecastOverlay();
 });
+watch(() => minuteSlots.value?.base, fitMinuteForecast, { flush: 'post' });
 watch(resolvedTheme, applyForecastOverlay);
 watch([() => props.focusTimestamp, () => props.focusRequest], ([timestamp, request], [, previousRequest]) => {
   // Live snapshots may add or remove a selected marker without a navigation request.
@@ -360,7 +434,7 @@ watch([() => props.bars, () => props.current], ([bars], [previousBars]) => {
 watch(resolvedTheme, styles);
 onMounted(() => {
   initialize();
-  observer = new ResizeObserver(() => { chart?.resize(); });
+  observer = new ResizeObserver(() => { chart?.resize(); fitMinuteForecast(); });
   if (element.value) observer.observe(element.value);
 });
 onBeforeUnmount(() => { observer?.disconnect(); destroy(); });
@@ -388,6 +462,18 @@ onBeforeUnmount(() => { observer?.disconnect(); destroy(); });
       >
         {{ hoverHint }}
       </div>
+    </div>
+    <div
+      v-if="minuteSlots && showForecast && future.length"
+      class="mb-2 flex justify-end"
+    >
+      <Button
+        size="sm"
+        variant="ghost"
+        @click="fitSessionOnRequest"
+      >
+        查看全天
+      </Button>
     </div>
     <KronosForecastPanel
       v-if="dailyForecast || (period === '1m' && forecastResponse?.enabled)"

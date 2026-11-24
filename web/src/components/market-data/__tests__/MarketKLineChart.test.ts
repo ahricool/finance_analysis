@@ -11,7 +11,7 @@ const chart = vi.hoisted(() => ({
   setStyles: vi.fn(), setSymbol: vi.fn(), setPeriod: vi.fn(), setDataLoader: vi.fn(),
   getDom: vi.fn(), getSize: vi.fn(() => ({ width: 1000 })), convertToPixel: vi.fn(() => ({ x: 995 })), scrollByDistance: vi.fn(),
   scrollToTimestamp: vi.fn(), scrollToRealTime: vi.fn(), createIndicator: vi.fn(), resetData: vi.fn(), resize: vi.fn(),
-  overrideYAxis: vi.fn(), setOffsetRightDistance: vi.fn(),
+  overrideYAxis: vi.fn(), setBarSpace: vi.fn(), setOffsetRightDistance: vi.fn(), subscribeAction: vi.fn(),
   getDataList: vi.fn<() => KLineData[]>(), getVisibleRange: vi.fn(),
   getBarSpace: vi.fn(() => ({ bar: 10, halfGapBar: 3 })),
 }));
@@ -94,7 +94,8 @@ describe('MarketKLineChart v10 lifecycle', () => {
     ] })]);
     const overlay = chart.createOverlay.mock.lastCall![0][0] as OverlayCreate;
     const figures = vi.mocked(registerOverlay).mock.lastCall![0].createPointFigures!({
-      chart, overlay, coordinates: [{ x: 20, y: 30 }, { x: 20, y: 10 }, { x: 20, y: 30 }, { x: 20, y: 20 }],
+      chart, overlay, bounding: { width: 1000 },
+      coordinates: [{ x: 20, y: 30 }, { x: 20, y: 10 }, { x: 20, y: 30 }, { x: 20, y: 20 }],
     } as unknown as OverlayCreateFiguresCallbackParams<unknown>);
     expect(figures).toHaveLength(2);
     if (!Array.isArray(figures)) throw new Error('Expected separate wick and body figures');
@@ -195,6 +196,56 @@ describe('MarketKLineChart v10 lifecycle', () => {
     expect(chart.removeOverlay).toHaveBeenCalledWith({ id: 'minute-forecast' });
     expect(wrapper.get('[data-testid="minute-forecast"]').text()).not.toContain('收盘试算');
     wrapper.unmount();
+  });
+
+  it('fits a stock session through the close, compresses lunch and respects manual zoom', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const anchor = Date.parse('2026-11-24T11:28:00+08:00');
+    const afternoon = Date.parse('2026-11-24T13:00:00+08:00');
+    vi.setSystemTime(anchor + 60_000);
+    const bars = Array.from({ length: 119 }, (_, index) => ({ ...bar, timestamp: anchor - (118 - index) * 60_000 }));
+    const prediction = (timestamp: number) => ({ timestamp, open: 2, high: 4, low: 2, close: 3 });
+    const future = [prediction(anchor + 60_000), ...Array.from({ length: 120 }, (_, i) => prediction(afternoon + i * 60_000))];
+    vi.mocked(fetchMinuteForecast).mockResolvedValueOnce({ enabled: true, comparison: null, forecast: {
+      symbol: '600519.SH', model: 'small', weightsRevision: 'fixed', anchor,
+      anchorClose: 2, generatedAt: Date.now(), lookback: 119, bars: future, sessionClose: afternoon + 120 * 60_000,
+    } });
+    chart.getDataList.mockReturnValue(bars);
+    const wrapper = mount(MarketKLineChart, { props: { symbol: '600519.SH', period: '1m', timezone: 'Asia/Shanghai', bars } });
+    try {
+      await flushPromises();
+      const annotation = chart.createOverlay.mock.lastCall![0][0] as OverlayCreate;
+      expect(annotation.points?.[4]?.timestamp).toBe(anchor + 120_000);
+      expect(annotation.points?.at(-1)?.timestamp).toBe(anchor + 121 * 60_000);
+      expect(chart.setBarSpace).toHaveBeenLastCalledWith(1000 / 242);
+      expect(chart.setOffsetRightDistance).toHaveBeenLastCalledWith(122 * (1000 / 242));
+      const formatter = lifecycle.init.mock.lastCall![1].formatter.formatDate as FormatDate;
+      const dateTimeFormat = new Intl.DateTimeFormat('en', { timeZone: 'Asia/Shanghai' });
+      formatter({ timestamp: anchor + 120_000, type: 'xAxis', dateTimeFormat, template: 'HH:mm' });
+      expect(utils.formatDate).toHaveBeenLastCalledWith(dateTimeFormat, afternoon, 'HH:mm');
+      expect(wrapper.get('[data-testid="minute-forecast"]').text()).toContain('15:00 收盘 · 121 根');
+      const callback = vi.fn();
+      loader().getBars({ ...context, type: 'init', timestamp: null, callback });
+      expect(callback).toHaveBeenLastCalledWith(bars, false);
+
+      const confirmed = [...bars, { ...bar, timestamp: anchor + 60_000 }];
+      chart.getDataList.mockReturnValue(confirmed);
+      await wrapper.setProps({ bars: confirmed });
+      expect(chart.setOffsetRightDistance).toHaveBeenLastCalledWith(121 * (1000 / 242));
+      chart.subscribeAction.mock.calls.find(([name]) => name === 'onZoom')![1]();
+      chart.setBarSpace.mockClear();
+      chart.getDataList.mockReturnValue([...confirmed, { ...bar, timestamp: afternoon }]);
+      await wrapper.setProps({ current: { ...bar, timestamp: afternoon } });
+      expect(chart.setBarSpace).not.toHaveBeenCalled();
+      await wrapper.get('button').trigger('click');
+      expect(chart.setBarSpace).toHaveBeenLastCalledWith(1000 / 242);
+      await wrapper.get('input[type="checkbox"]').setValue(false);
+      expect(chart.setBarSpace).toHaveBeenLastCalledWith(10);
+      expect(chart.setOffsetRightDistance).toHaveBeenLastCalledWith(120);
+    } finally {
+      wrapper.unmount();
+      vi.useRealTimers();
+    }
   });
 
   it('shows ten forecast rows and the sample-weighted daily error separately from the latest batch', async () => {

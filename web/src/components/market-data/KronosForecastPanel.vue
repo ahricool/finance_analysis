@@ -30,6 +30,7 @@ const dateTime = (at: number) => new Date(at).toLocaleString('zh-CN', {
 const price = (value: number) => value.toLocaleString('zh-CN', { maximumFractionDigits: props.pricePrecision ?? 3 });
 const first = computed(() => props.bars[0]);
 const last = computed(() => props.bars.at(-1));
+const sessionClose = computed(() => props.forecast && 'sessionClose' in props.forecast ? props.forecast.sessionClose : null);
 const anchorLabel = computed(() => {
   const forecast = props.forecast;
   return forecast && ('anchorDate' in forecast ? forecast.anchorDate : dateTime(forecast.anchor + 60_000));
@@ -91,7 +92,7 @@ const errorSteps = computed(() => {
     <dl class="grid divide-y divide-border/70 sm:grid-cols-3 sm:divide-x sm:divide-y-0">
       <div class="min-w-0 space-y-1 px-3 py-3 sm:px-4">
         <dt class="text-xs font-medium text-muted-foreground">
-          最后一根预测收盘价
+          {{ sessionClose ? '预测收盘价' : '最后一根预测收盘价' }}
         </dt>
         <dd
           v-if="first && last && forecast"
@@ -99,7 +100,7 @@ const errorSteps = computed(() => {
         >
           <strong class="block text-lg font-semibold leading-tight text-blue-700 tabular-nums dark:text-blue-300">{{ price(last.close) }}</strong>
           <span class="block text-xs text-muted-foreground tabular-nums">
-            {{ time(first.timestamp) }}–{{ time(last.timestamp) }} · {{ bars.length }} 根
+            {{ time(first.timestamp) }}–{{ time(sessionClose ?? last.timestamp) }}{{ sessionClose ? ' 收盘' : '' }} · {{ bars.length }} 根
           </span>
           <span class="block text-[11px] text-muted-foreground tabular-nums">
             截至 {{ anchorLabel }} · {{ forecast.lookback }} 根输入
@@ -182,7 +183,7 @@ const errorSteps = computed(() => {
           >
             <span class="text-left">{{ isDay ? '交易日' : '时间' }}</span><span>开盘</span><span>最高</span><span>最低</span><span>收盘</span>
           </div>
-          <ol class="divide-y divide-border/50">
+          <ol class="max-h-80 overflow-y-auto divide-y divide-border/50">
             <li
               v-for="bar in bars"
               :key="bar.timestamp"
@@ -210,7 +211,7 @@ const errorSteps = computed(() => {
         <div class="px-3 pb-3 sm:px-4">
           <p class="pb-2 text-xs text-muted-foreground">
             {{ isDay ? '只核对下一交易日的收盘价。基线沿用预测起点的收盘价。'
-              : '误差按收盘价计算。基线沿用预测起点的收盘价，每个到期步长计一个样本。' }}
+              : '每轮核对前 10 步的收盘价。基线沿用预测起点的收盘价，每个到期步长计一个样本。' }}
           </p>
           <div class="grid grid-cols-[4rem_minmax(0,1fr)_minmax(0,1fr)] gap-x-3 border-b border-border/70 py-1.5 text-right text-[11px] text-muted-foreground">
             <span class="text-left">步长</span><span>最近误差</span><span>{{ averageTitle }}</span>

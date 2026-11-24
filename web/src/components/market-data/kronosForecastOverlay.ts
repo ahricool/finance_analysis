@@ -20,13 +20,14 @@ export function forecastOverlay(
       needDefaultPointFigure: false,
       needDefaultXAxisFigure: false,
       needDefaultYAxisFigure: false,
-      createPointFigures: ({ coordinates, overlay, chart }) => {
+      createPointFigures: ({ coordinates, overlay, chart, bounding }) => {
         const halfWidth = Math.max(1, chart.getBarSpace().halfGapBar);
         const figures: OverlayFigure[] = [];
         for (const [index, color] of overlay.extendData.colors.entries()) {
           const [open, high, low, close] = coordinates.slice(index * 4, (index + 1) * 4);
           if (!open || !high || !low || !close) continue;
           const x = open.x;
+          if (x + halfWidth < 0 || x - halfWidth > bounding.width) continue;
           const top = Math.min(open.y, close.y);
           const bottom = Math.max(top + 2, open.y, close.y);
           const left = x - halfWidth;

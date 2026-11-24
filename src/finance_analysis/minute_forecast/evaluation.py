@@ -7,7 +7,7 @@ from finance_analysis.integrations.market_data.realtime_state.models import Cand
 from finance_analysis.market_stream.config import is_regular_trade_session, market_trading_date
 from finance_analysis.minute_forecast.cache import EVALUATION_TTL_SECONDS, forecast_key, pending_error_key
 from finance_analysis.minute_forecast.models import (
-    BTC_SYMBOL, HORIZON, MINUTE_MS, AverageError, ForecastAccuracy, ForecastError, ForecastSnapshot,
+    BTC_SYMBOL, ERROR_HORIZON, MINUTE_MS, AverageError, ForecastAccuracy, ForecastError, ForecastSnapshot,
     ForecastWindow, RecentErrors,
 )
 from finance_analysis.minute_forecast.windows import millis
@@ -106,7 +106,7 @@ async def read_accuracy(redis, symbol: str, model: str, day: date) -> tuple[Fore
     pipe.hgetall(f"{key}:{day}")
     (recent, comparison), totals = await pipe.execute()
     daily = []
-    for step in range(1, HORIZON + 1):
+    for step in range(1, ERROR_HORIZON + 1):
         count = int(totals.get(f"count:{step}", 0))
         if count:
             daily.append(AverageError(

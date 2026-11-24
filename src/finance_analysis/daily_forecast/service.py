@@ -11,11 +11,11 @@ import httpx
 from pydantic import ValidationError
 
 from finance_analysis.core.time import utc_now
-from finance_analysis.daily_forecast.models import DailyForecast, DailyForecastBar
+from finance_analysis.daily_forecast.models import DAILY_HORIZON, DailyForecast, DailyForecastBar
 from finance_analysis.database.repositories.daily_forecast import DailyForecastRepository
 from finance_analysis.market_review.trading_calendar import MARKET_TIMEZONE, get_upcoming_trading_days
 from finance_analysis.minute_forecast.models import (
-    BATCH_SIZE, HORIZON, LOOKBACK, MIN_LOOKBACK, PROTOCOL, ForecastWindow, InferenceResult, ObservedBar,
+    BATCH_SIZE, LOOKBACK, MIN_LOOKBACK, PROTOCOL, ForecastWindow, InferenceResult, ObservedBar,
 )
 
 HISTORY_BATCH_SIZE = 100
@@ -69,7 +69,7 @@ def run_daily_forecast(
 ) -> dict:
     """Publish a complete market replacement after all transport batches finish."""
     zone = ZoneInfo(MARKET_TIMEZONE[market.lower()])
-    days = get_upcoming_trading_days(market.lower(), as_of, HORIZON)
+    days = get_upcoming_trading_days(market.lower(), as_of, DAILY_HORIZON)
     if not days:
         raise ValueError(f"{market} exchange calendar did not provide upcoming forecast sessions")
     targets = [_timestamp(day, zone) for day in days]
