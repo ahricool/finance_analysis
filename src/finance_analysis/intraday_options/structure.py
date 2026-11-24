@@ -9,6 +9,7 @@ from finance_analysis.market_stream.config import market_trading_date
 from finance_analysis.market_stream.session import session_bounds
 from finance_analysis.market_stream.patterns.features import swing_high_indices, swing_low_indices, true_ranges
 from finance_analysis.intraday_options.analysis_window import REQUIRED_MINUTES, analysis_window, observed
+from finance_analysis.intraday_options.config import BENCHMARK_SYMBOL_SET
 from finance_analysis.intraday_options.rules import policy
 
 MINUTE = timedelta(minutes=1)
@@ -163,15 +164,16 @@ def _market_summary(bars, opening, *, max_wick_pct=None):
 
 
 def pool_rank_context(symbol, closed, peer_bars, opening, day, min_peers=10):
-    """Causal cross-sectional intraday return rank and directional breadth across observed peers."""
+    """Bound directional rank and breadth using the full active roster in peer_bars."""
     valid_self = [b for b in closed if observed(b) and b.is_valid() and not b.partial and not b.sampled]
     if not valid_self:
         return None
     target_time = valid_self[-1].bar_time
+    pool = (set(peer_bars) | {symbol}) - BENCHMARK_SYMBOL_SET
     peer_returns = {}
     evidence_times = []
     for peer_sym, bars in peer_bars.items():
-        if not bars:
+        if peer_sym not in pool or not bars:
             continue
         open_bar = None
         last_bar = None
@@ -194,28 +196,33 @@ def pool_rank_context(symbol, closed, peer_bars, opening, day, min_peers=10):
                     last_bar = b
         if open_bar is not None and last_bar is not None and float(open_bar.open) > 0:
             peer_returns[peer_sym] = float(last_bar.close) / float(open_bar.open) - 1.0
-    if symbol not in peer_returns:
+    sym_ret = peer_returns.get(symbol)
+    if sym_ret is None:
         self_open = next((b for b in valid_self if b.bar_time == opening and float(b.open) > 0), None)
-        if self_open is not None:
-            self_last = valid_self[-1]
-            peer_returns[symbol] = float(self_last.close) / float(self_open.open) - 1.0
-            evidence_times.append(max(self_open.bar_time + MINUTE, self_open.received_at))
-            evidence_times.append(max(self_last.bar_time + MINUTE, self_last.received_at))
-    if symbol not in peer_returns or len(peer_returns) < min_peers:
+        if self_open is None:
+            return None
+        self_last = valid_self[-1]
+        sym_ret = float(self_last.close) / float(self_open.open) - 1.0
+        if symbol in pool:
+            peer_returns[symbol] = sym_ret
+        evidence_times.append(max(self_open.bar_time + MINUTE, self_open.received_at))
+        evidence_times.append(max(self_last.bar_time + MINUTE, self_last.received_at))
+    if len(peer_returns) < min_peers:
         return None
-    sym_ret = peer_returns[symbol]
-    pool_size = len(peer_returns)
-    long_rank = 1 + sum(1 for r in peer_returns.values() if r > sym_ret)
-    short_rank = 1 + sum(1 for r in peer_returns.values() if r < sym_ret)
-    breadth_up = sum(1 for r in peer_returns.values() if r > 0) / pool_size
-    breadth_down = sum(1 for r in peer_returns.values() if r < 0) / pool_size
+    pool_size = len(pool)
+    missing = pool_size - len(peer_returns)
+    long_rank = 1 + sum(r > sym_ret for r in peer_returns.values())
+    short_rank = 1 + sum(r < sym_ret for r in peer_returns.values())
     return dict(
         as_of=(target_time + MINUTE).isoformat(),
         long_rank=long_rank,
         short_rank=short_rank,
+        long_rank_upper=long_rank + missing,
+        short_rank_upper=short_rank + missing,
         pool_size=pool_size,
-        breadth_up=breadth_up,
-        breadth_down=breadth_down,
+        observed_pool_size=len(peer_returns),
+        breadth_up=sum(r > 0 for r in peer_returns.values()) / pool_size,
+        breadth_down=sum(r < 0 for r in peer_returns.values()) / pool_size,
         open_return=sym_ret,
         evidence_at=max(evidence_times).isoformat(),
     )

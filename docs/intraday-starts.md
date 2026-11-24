@@ -37,6 +37,9 @@ V8 针对 V7“28 只固定池 + 22 分钟窄窗口导致单日成交过于稀�
 | 盘中关键位突破 (`pivot_breakout`) | 默认关闭 | 5 根摆动位单根突破（`INTRADAY_PIVOT_BREAKOUT=true` 可重新开启）。 |
 | EMA20 顺势回撤恢复 (`trend_recovery`) | 默认关闭 | 1 分钟均线回撤恢复（`INTRADAY_TREND_RECOVERY=true` 可重新开启）。 |
 
+排名与广度以完整成分池为准。缺行情的成员可能排在候选之前，候选的最差可能名次仍处于 Top 10 才通过排名门槛。
+广度是已确认顺向的成员数除以完整成分池大小，SPY、QQQ 不参与排名和广度计算。
+
 配置见 `.env.example`，调整环境变量后重启对应进程生效。完整旧路线阈值见[原有规则](intraday-options.md)及[趋势延续](intraday-trend-continuation.md)。
 
 ## 模拟开平仓通知

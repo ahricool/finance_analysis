@@ -32,6 +32,7 @@ from finance_analysis.market_stream.leader_lock import LeaderLock
 from finance_analysis.market_stream.patterns.detector import calculate_pattern_state
 from finance_analysis.market_stream.patterns.features import quote_updates_preview_bar
 from finance_analysis.market_stream.patterns.models import PatternState
+from finance_analysis.market_stream.session import previous_session_date, session_bounds
 from finance_analysis.market_stream.subscription_manager import (
     SubscriptionManager,
     WarmupFinalizer,
@@ -322,10 +323,9 @@ class MarketStreamService:
             quote = self.quotes.setdefault(event.symbol, QuoteState(symbol=event.symbol))
             payload = dict(event.payload)
             quote_date = market_trading_date(event.event_time, state.market_type)
-            previous_closes = self.regular_session_closes.get(event.symbol, {})
-            previous_dates = [session_date for session_date in previous_closes if session_date < quote_date]
-            if previous_dates:
-                payload["pre_close"] = previous_closes[max(previous_dates)]
+            previous_close = self._previous_regular_close(event.symbol, state.market_type, quote_date)
+            if previous_close is not None:
+                payload["pre_close"] = previous_close
             event_time = (
                 quote.event_time if event.event_type == "quote_reference" and quote.event_time else event.event_time
             )
@@ -482,37 +482,36 @@ class MarketStreamService:
         self.pending_candles[candle.symbol] = current
         return True, len(updated)
 
+    def _previous_regular_close(self, symbol: str, market_type: MarketType, quote_date: date) -> Decimal | None:
+        closes = self.regular_session_closes.get(symbol)
+        return closes.get(previous_session_date(market_type, quote_date)) if closes else None
+
     def _remember_regular_session_closes(
         self,
         symbol: str,
         market_type: MarketType,
         bars: Iterable[CandleState],
     ) -> None:
-        latest_by_date: dict[date, CandleState] = {}
+        closes: dict[date, Decimal] = {}
         for bar in bars:
-            if (
-                not bar.confirmed
-                or not is_regular_session_minute(bar.bar_time, market_type)
-                or not is_regular_trade_session(bar.trade_session)
-            ):
+            if not bar.confirmed or bar.partial or bar.sampled or not is_regular_trade_session(bar.trade_session):
                 continue
             session_date = market_trading_date(bar.bar_time, market_type)
-            previous = latest_by_date.get(session_date)
-            if previous is None or bar.bar_time > previous.bar_time:
-                latest_by_date[session_date] = bar
-        if not latest_by_date:
+            bounds = session_bounds(market_type, session_date)
+            if bounds and bar.bar_time == bounds[1] - timedelta(minutes=1):
+                closes[session_date] = bar.close
+        if not closes:
             return
         remembered = self.regular_session_closes.setdefault(symbol, {})
-        remembered.update({session_date: bar.close for session_date, bar in latest_by_date.items()})
-        retained = sorted(remembered)[-2:]
-        self.regular_session_closes[symbol] = {session_date: remembered[session_date] for session_date in retained}
+        remembered.update(closes)
+        self.regular_session_closes[symbol] = {day: remembered[day] for day in sorted(remembered)[-2:]}
         quote = self.quotes.get(symbol)
         if quote is None or quote.event_time is None:
             return
         quote_date = market_trading_date(quote.event_time, market_type)
-        previous_dates = [session_date for session_date in retained if session_date < quote_date]
-        if previous_dates:
-            quote.pre_close = remembered[max(previous_dates)]
+        previous_close = self._previous_regular_close(symbol, market_type, quote_date)
+        if previous_close is not None:
+            quote.pre_close = previous_close
             self.pending_quotes[symbol] = quote
 
     async def _update_trend_state(

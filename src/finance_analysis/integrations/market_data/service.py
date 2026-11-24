@@ -520,8 +520,10 @@ class MarketDataService:
         include_incomplete: bool = False,
         minimum_latest_bar_time: datetime | None = None,
         required_bar_starts: Iterable[datetime] = (),
+        recover_partial_minutes: bool = False,
         budget_seconds: float | None = None,
     ) -> BatchBarResult:
+        """Read minute bars, optionally recovering valid required minutes after full-window fallback."""
         request = MinuteBarsRequest(
             self._canonical_symbols(symbols),
             start_time,
@@ -536,7 +538,7 @@ class MarketDataService:
         if budget is None and interval == "1m" and infer_market(request.symbols[0]) is Market.CN:
             budget = max(15, min(90, len(request.symbols) * 3 + 12))
         with request_budget(budget):
-            return self.router.route_minute(request, providers)
+            return self.router.route_minute(request, providers, recover_partial_minutes=recover_partial_minutes)
 
     def get_option_chain(self, symbol: str, *, now=None):
         """US options: Yahoo primary, Alpaca capability fallback without cross-feed stitching."""

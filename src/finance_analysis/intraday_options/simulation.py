@@ -255,11 +255,14 @@ def _context_rejection(kind, side, result, cfg):
             return "缺少观察池横向强弱排名数据，暂不进场"
         if result.get("as_of") and abs((dt(result["as_of"]) - dt(pool_rank["as_of"])).total_seconds()) > 120:
             return "观察池横向强弱排名未对齐，暂不进场"
-        rank = pool_rank.get("long_rank" if side == 1 else "short_rank")
+        rank_key = "long_rank" if side == 1 else "short_rank"
+        rank = pool_rank.get(rank_key)
         if rank is None:
             return "缺少观察池横向强弱排名数据，暂不进场"
         if rank > cfg.pool_leader_top_k:
             return f"横向强弱排名第{rank}位（需前{cfg.pool_leader_top_k}龙头），过滤非主浪标的"
+        if pool_rank.get(f"{rank_key}_upper", rank) > cfg.pool_leader_top_k:
+            return f"行情覆盖不足，无法确认全池排名前{cfg.pool_leader_top_k}"
 
     if needs_leader and (cfg.min_spy_open_move > 0 or cfg.min_pool_breadth > 0) and (has_spy_context or has_pool_rank):
         spy_aligned = bool(

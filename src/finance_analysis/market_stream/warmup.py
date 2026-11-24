@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from itertools import chain
@@ -14,6 +15,8 @@ from finance_analysis.integrations.market_data.registry import MINUTE_BARS
 from finance_analysis.integrations.market_data.realtime_state.models import CandleState, unique_minute_bars
 from finance_analysis.market_stream.config import is_regular_session_minute, latest_completed_bar_time, market_trading_date
 from finance_analysis.stocks.markets import MarketType
+
+logger = logging.getLogger(__name__)
 
 
 def warmup_bar_starts(now: datetime, market_type: MarketType) -> list[datetime]:
@@ -55,6 +58,7 @@ class LongbridgeHistoryLoader:
         day = display_day(market_type, requested_at)
         start, close = session_bounds(market_type, day)
         end = min(requested_at, close)
+        required_minutes = warmup_bar_starts(requested_at, market_type)
         result = await asyncio.to_thread(
             self.market_data.get_minute_bars,
             [symbol],
@@ -62,7 +66,8 @@ class LongbridgeHistoryLoader:
             end,
             interval="1m",
             providers=tuple(name for name in provider_order(market_type, MINUTE_BARS) if name != "streaming"),
-            required_bar_starts=warmup_bar_starts(requested_at, market_type),
+            required_bar_starts=required_minutes,
+            recover_partial_minutes=True,
         )
         received_at = datetime.now(timezone.utc)
         values = result.data.get(symbol)
@@ -92,6 +97,12 @@ class LongbridgeHistoryLoader:
             )
             if bar.is_valid():
                 bars.append(bar)
+        if symbol in result.failed_symbols and bars:
+            closed_minutes = {bar.bar_time for bar in bars if bar.confirmed}
+            logger.warning(
+                "历史分钟回补部分可用: symbol=%s missing=%s error=%s",
+                symbol, len(set(required_minutes) - closed_minutes), result.failed_symbols[symbol],
+            )
         return sorted(bars, key=lambda item: item.bar_time)
 
 
