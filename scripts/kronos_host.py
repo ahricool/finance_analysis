@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import errno
 import hashlib
 import json
 import os
@@ -19,6 +20,9 @@ from pathlib import Path
 
 SOURCE_COMMIT = "67b630e67f6a18c9e9be918d9b4337c960db1e9a"
 LABEL = "cool.ahri.finance-analysis.kronos"
+UNLOAD_TIMEOUT_SECONDS = 15
+BOOTSTRAP_RETRY_SECONDS = 3
+LAUNCHCTL_POLL_SECONDS = 0.2
 CHECKPOINTS = {
     "small": ("Kronos-small", "901c26c1332695a2a8f243eb2f37243a37bea320",
               "b082dfcbd8e8c142a725c8bbb99781802f38fec81210e13479effb32b3c3e020"),
@@ -140,6 +144,37 @@ def matches(manifest: dict) -> bool:
         return False
 
 
+def service_loaded(target: str) -> bool:
+    result = subprocess.run(("launchctl", "print", target), capture_output=True, text=True)
+    if result.returncode and "Could not find service" in result.stderr:
+        return False
+    result.check_returncode()
+    return True
+
+
+def wait_until_unloaded(target: str) -> None:
+    deadline = time.monotonic() + UNLOAD_TIMEOUT_SECONDS
+    while service_loaded(target):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise ValueError(f"Kronos LaunchAgent 卸载超时: {target}")
+        time.sleep(min(remaining, LAUNCHCTL_POLL_SECONDS))
+
+
+def bootstrap_agent(domain: str, target: str, path: Path) -> None:
+    deadline = time.monotonic() + BOOTSTRAP_RETRY_SECONDS
+    while True:
+        try:
+            run("launchctl", "bootstrap", domain, str(path), capture_output=True, text=True)
+            return
+        except subprocess.CalledProcessError as exc:
+            remaining = deadline - time.monotonic()
+            # launchctl can still report EIO while launchd finishes removing the prior registration.
+            if exc.returncode != errno.EIO or remaining <= 0 or service_loaded(target):
+                raise ValueError(f"Kronos LaunchAgent 注册失败: {(exc.stderr or '').strip() or exc}") from exc
+            time.sleep(min(remaining, LAUNCHCTL_POLL_SECONDS))
+
+
 def activate(state: Path, manifest: dict) -> None:
     domain = f"gui/{os.getuid()}"
     target = f"{domain}/{LABEL}"
@@ -157,35 +192,43 @@ def activate(state: Path, manifest: dict) -> None:
     })
     previous = path.read_bytes() if path.is_file() else None
 
-    def loaded() -> bool:
-        return subprocess.run(("launchctl", "print", target), stdout=subprocess.DEVNULL,
-                              stderr=subprocess.DEVNULL).returncode == 0
-
-    was_loaded = loaded()
+    was_loaded = service_loaded(target)
     if previous == setup and was_loaded and matches(manifest):
         return
-    if was_loaded:
-        run("launchctl", "bootout", target)
+    unload_requested = False
+    setup_written = False
     try:
+        if was_loaded:
+            run("launchctl", "bootout", target)
+            unload_requested = True
+            wait_until_unloaded(target)
         atomic_write(path, setup)
-        run("launchctl", "bootstrap", domain, str(path))
+        setup_written = True
+        bootstrap_agent(domain, target, path)
         deadline = time.monotonic() + 75
         while time.monotonic() < deadline:
             if matches(manifest):
                 return
             time.sleep(1)
         raise ValueError(f"MPS service is not ready; see {state / 'kronos.log'}")
-    except BaseException:
+    except BaseException as exc:
         # A bad checkpoint or failed startup should leave the previous agent
         # available to the still-running application.
-        if loaded():
-            run("launchctl", "bootout", target)
-        if previous is not None:
-            atomic_write(path, previous)
-            if was_loaded:
-                run("launchctl", "bootstrap", domain, str(path))
-        else:
-            path.unlink(missing_ok=True)
+        try:
+            if setup_written:
+                if service_loaded(target):
+                    run("launchctl", "bootout", target)
+                wait_until_unloaded(target)
+                if previous is None:
+                    path.unlink(missing_ok=True)
+                else:
+                    atomic_write(path, previous)
+            if unload_requested and previous is not None:
+                if not setup_written:
+                    wait_until_unloaded(target)
+                bootstrap_agent(domain, target, path)
+        except (OSError, ValueError, subprocess.SubprocessError) as restore_error:
+            raise ValueError(f"{exc}；恢复旧的 Kronos LaunchAgent 失败: {restore_error}") from exc
         raise
 
 
