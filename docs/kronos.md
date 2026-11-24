@@ -36,3 +36,4 @@ Apple Silicon 主机需要 `uv` 和已登录的 macOS 用户会话。脚本在�
 - `KRONOS_MODEL=large` 需另行提供兼容的完整 `config.json` 与 `model.safetensors`，以 `KRONOS_LARGE_CHECKPOINT` 指向目录。默认注册表只自动下载 Small、Base 和共享 tokenizer。
 - `KRONOS_HOST_PORT` 可改宿主机端口。已自行托管 MPS 时，在 Compose 环境填 `KRONOS_URL` 并设置匹配的 `KRONOS_MODEL`，宿主 `/healthz` 应报告 `1m` 和 `1d` 两个周期。全天分钟预测需同步更新外部宿主服务与 Streamer。独立开发默认关闭，生产发布可用 `DEPLOY_KRONOS_HOST=off` 取消自动接入。
 - 用 `bash deploy.sh --status` 查看最近发布的 Kronos 版本。可在宿主机请求 `curl -fsS http://127.0.0.1:18081/healthz`，响应中的 `device` 应为 `mps`。启动失败时检查宿主日志，修复后从正常发布入口重试。
+- 更换本机 LaunchAgent 时，部署在注册新版前等待 `launchd` 移除旧服务。对服务尚未注册时的短暂 `bootstrap` I/O 错误做限时重试。若新版启动失败，恢复旧启动项前同样等待卸载完成。这些操作在暂停 Beat 前执行。
