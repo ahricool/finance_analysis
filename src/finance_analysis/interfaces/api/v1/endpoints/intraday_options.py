@@ -10,7 +10,11 @@ from finance_analysis.database.repositories.intraday_simulation import load_univ
 from finance_analysis.database.repositories.stock import InstrumentRepository
 from finance_analysis.integrations.market_data.realtime_state.repository import RealtimeStateRepository
 from finance_analysis.interfaces.api.deps import require_current_user
-from finance_analysis.interfaces.api.v1.schemas.intraday_options import IntradayOptionsResponse
+from finance_analysis.interfaces.api.v1.schemas.intraday_options import (
+    IndustryMapMetadataResponse,
+    IntradayOptionsResponse,
+)
+from finance_analysis.intraday_options.industry_map import read_industry_map_metadata
 from finance_analysis.intraday_options.runtime import read_snapshot
 from finance_analysis.market_stream.config import MarketStreamConfig
 
@@ -34,6 +38,12 @@ async def snapshot(response: Response):
     finally:
         with CancelScope(shield=True):
             await repository.close()
+
+
+@router.get("/industry-map", response_model=IndustryMapMetadataResponse)
+def industry_map(response: Response):
+    response.headers["Cache-Control"] = "private, no-store"
+    return read_industry_map_metadata()
 
 
 async def full_snapshot(repository, names, now, after_event_id=None):

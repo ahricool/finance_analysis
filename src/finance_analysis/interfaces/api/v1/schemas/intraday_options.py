@@ -173,3 +173,15 @@ class IntradayOptionsResponse(BaseModel):
     generated_at: datetime
     version: str
     items: list[IntradayOptionRow]
+
+
+class IndustryMapMember(BaseModel):
+    symbol: str
+    sector: str | None
+    industry: str | None
+    market_cap: float | None
+
+
+class IndustryMapMetadataResponse(BaseModel):
+    market_cap_as_of: datetime | None
+    items: list[IndustryMapMember]

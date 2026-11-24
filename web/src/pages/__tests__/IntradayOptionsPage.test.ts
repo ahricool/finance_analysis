@@ -2,11 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils';
 import IntradayOptionsPage from '../market/IntradayOptionsPage.vue';
 import type { IntradayOptionRow, IntradayOptionsSnapshot } from '@/api/intradayOptions';
-import { fetchIntradayOptions } from '@/api/intradayOptions';
+import { fetchIndustryMapMetadata, fetchIntradayOptions } from '@/api/intradayOptions';
 import { toCamelCase } from '@/api/utils';
 import rankedContract from '../../../../tests/intraday_options/fixtures/ranked_opportunity.json';
 
-vi.mock('@/api/intradayOptions', () => ({ fetchIntradayOptions: vi.fn() }));
+vi.mock('@/api/intradayOptions', () => ({ fetchIndustryMapMetadata: vi.fn(), fetchIntradayOptions: vi.fn() }));
 vi.mock('@/composables/useRealtimeQuotes', async () => {
   const { shallowRef, ref, onMounted, onUnmounted } = await import('vue');
   return { useRealtimeQuotes: () => {
@@ -53,6 +53,7 @@ beforeEach(() => {
   vi.useFakeTimers(); vi.setSystemTime(new Date('2026-11-12T16:00:05Z'));
   data = { tradingDate: '2026-11-12', marketStatus: 'open', generatedAt: new Date().toISOString(), version: 'v1',
     items: [row('AAA.US', 70), row('BBB.US', 90, 'bearish'), row('CCC.US', null)] };
+  vi.mocked(fetchIndustryMapMetadata).mockResolvedValue({ marketCapAsOf: null, items: [] });
   vi.mocked(fetchIntradayOptions).mockImplementation(async () => structuredClone(data));
 });
 afterEach(() => { page?.unmount(); vi.useRealTimers(); vi.clearAllMocks(); });
