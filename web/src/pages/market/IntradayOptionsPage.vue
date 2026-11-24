@@ -14,6 +14,7 @@ import { clock, entryScore, entryLabel, entryBranch, entryReason, rowDirectionVa
 
 import { useRealtimeQuotes } from '@/composables/useRealtimeQuotes';
 import SimulationPanel from '@/components/intraday-options/SimulationPanel.vue';
+import IndustryMap from '@/components/intraday-options/IndustryMap.vue';
 
 const TrendPanel = defineAsyncComponent(() => import('@/components/intraday-options/TrendPanel.vue'));
 const snapshot = shallowRef<IntradayOptionsSnapshot | null>(null);
@@ -100,15 +101,22 @@ watch(stream.intradayOptions, result => {
           class="text-destructive"
         >连接中断或响应过期，保留上次评分，仅供参考</span>
       </div>
-      <Button
-        variant="outline"
-        size="sm"
-        :disabled="loading || disconnected"
-        data-testid="options-refresh-order"
-        @click="refreshOrder"
-      >
-        更新排序
-      </Button>
+      <div class="flex flex-wrap items-center gap-3">
+        <a
+          v-if="snapshot?.items.length"
+          href="#intraday-industry-map"
+          class="text-sm text-primary underline-offset-4 hover:underline"
+        >查看行业图</a>
+        <Button
+          variant="outline"
+          size="sm"
+          :disabled="loading || disconnected"
+          data-testid="options-refresh-order"
+          @click="refreshOrder"
+        >
+          更新排序
+        </Button>
+      </div>
     </div>
     <AppApiErrorAlert
       v-if="error"
@@ -336,5 +344,10 @@ watch(stream.intradayOptions, result => {
     <p class="text-xs text-muted-foreground">
       {{ rows.length }} / {{ snapshot?.items.length ?? 0 }} 个标的 · 仅正常交易时段评分 · 不选择期权合约，不自动下单 · 趋势评分保留最新缓存；模拟交易与事件独立保存
     </p>
+    <IndustryMap
+      v-if="snapshot?.items.length"
+      :rows="snapshot.items"
+      :disconnected="disconnected"
+    />
   </div>
 </template>

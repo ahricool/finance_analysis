@@ -144,3 +144,81 @@ for (const width of [390, 768, 1024, 1280, 1440, 1920]) {
     expect(errors).toEqual([]);
   });
 }
+
+for (const width of [390, 1440]) {
+  test(`QQQ industry map groups quotes and preserves expansion at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 920 });
+    await page.addInitScript(theme => localStorage.setItem('theme', theme), width < 800 ? 'dark' : 'light');
+    await page.clock.setFixedTime(new Date(now));
+    let updateQuote = () => {};
+    const items = [
+      ['QQQ.US', 1.25, 'ready'], ['SPY.US', 0.5, 'ready'],
+      ['AMD.US', 2, 'ready'], ['AAPL.US', -1, 'ready'],
+      ['NVDA.US', 4, 'ready'], ['MU.US', 20, 'delayed'],
+      ['UNKNOWN.US', null, 'missing'],
+    ].map(([symbol, change_pct, quote_status]) => ({
+      symbol, name: symbol, change_pct, quote_status, data_status: 'waiting', issues: [], result: null,
+    }));
+    const metadata = [
+      { symbol: 'NVDA.US', sector: '科技', industry: 'Semiconductors', market_cap: 4e12 },
+      { symbol: 'AMD.US', sector: '科技', industry: 'Semiconductors', market_cap: 4e11 },
+      { symbol: 'MU.US', sector: '科技', industry: 'Semiconductors', market_cap: null },
+      { symbol: 'AAPL.US', sector: '科技', industry: 'Consumer Electronics', market_cap: 3e12 },
+    ];
+    await page.route('**/api/v1/**', route => {
+      const path = new URL(route.request().url()).pathname;
+      if (path === '/api/v1/auth/status') return route.fulfill({ json: {
+        loggedIn: true, user: { uid: 1, username: 'Tester', role: 'user', extra: {} },
+      } });
+      if (path === '/api/v1/intraday-options/industry-map') return route.fulfill({ json: {
+        market_cap_as_of: now, items: metadata,
+      } });
+      return route.fulfill({ json: { items: [] } });
+    });
+    await page.routeWebSocket('**/api/v1/market-data/ws?**', ws => {
+      const send = (change: number) => ws.send(JSON.stringify({
+        type: 'quotes', quotes: [], generated_at: now,
+        intraday_options: {
+          trading_date: '2026-11-12', market_status: 'open', generated_at: now, version: 'intraday_options_v18',
+          items: items.map(item => item.symbol === 'NVDA.US' ? { ...item, change_pct: change } : item),
+        },
+      }));
+      send(4);
+      updateQuote = () => send(-4);
+    });
+    await page.goto('/market/intraday-options');
+    const tree = page.getByTestId('industry-map-tree');
+    await page.getByRole('link', { name: '查看行业图' }).click();
+    await expect(tree).toBeInViewport();
+    const root = tree.getByRole('button', { name: /QQQ/ });
+    const tech = tree.getByRole('button', { name: /科技/ });
+    const chips = tree.getByRole('button', { name: /Semiconductors/ });
+    await expect(root).toHaveText('QQQ+1.25%');
+    await expect(root).toHaveCSS('border-top-style', 'solid');
+    await expect(root.getByText('QQQ', { exact: true })).toHaveCSS('white-space', 'nowrap');
+    const sectorConnector = await tech.evaluate(el => getComputedStyle(el.closest('li')!, '::before').borderTopStyle);
+    expect(sectorConnector).toBe('solid');
+    await expect(tech).toContainText('+1.67%');
+    await expect(tech).toContainText('3/4');
+    await expect(chips).toHaveCount(0);
+    await tech.focus();
+    await tech.press('Enter');
+    await expect(chips).toContainText('+3.00%');
+    await expect(chips).toContainText('2/3');
+    await chips.click();
+    await expect(chips.locator('xpath=..').getByRole('listitem')).toHaveText(['NVDA+4.00%', 'AMD+2.00%', /MU—/]);
+    await expect(tree.getByText('SPY', { exact: true })).toHaveCount(0);
+    await expect(tree.getByRole('button', { name: /未分类/ })).toBeVisible();
+
+    updateQuote();
+    await expect(tech).toContainText('-1.00%');
+    await expect(chips).toContainText('-1.00%');
+    await expect(chips).toHaveAttribute('aria-expanded', 'true');
+    await expect(tree.getByText('NVDA', { exact: true })).toBeVisible();
+    expect(await tree.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+    await root.click();
+    await expect(tech).toHaveCount(0);
+    await root.click();
+    await expect(chips).toHaveAttribute('aria-expanded', 'true');
+  });
+}

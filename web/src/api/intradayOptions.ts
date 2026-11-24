@@ -68,6 +68,21 @@ export async function fetchIntradayOptions(signal: AbortSignal): Promise<Intrada
   return toCamelCase<IntradayOptionsSnapshot>(data);
 }
 
+export interface IndustryMapMember {
+  symbol: string;
+  sector: string | null;
+  industry: string | null;
+  marketCap: number | null;
+}
+export interface IndustryMapMetadata {
+  marketCapAsOf: string | null;
+  items: IndustryMapMember[];
+}
+export async function fetchIndustryMapMetadata(signal: AbortSignal): Promise<IndustryMapMetadata> {
+  const { data } = await apiClient.get('/api/v1/intraday-options/industry-map', { signal });
+  return toCamelCase<IndustryMapMetadata>(data);
+}
+
 export interface SimulationPlan extends OpportunityBranch {
   entryQuoteNotBefore?: string | null;
   processId: string; entryLow: number; entryHigh: number; target: number | null; targetSource: string;
