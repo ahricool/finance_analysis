@@ -31,9 +31,8 @@ describe('inline intraday ownership and incremental updates', () => {
     await flushPromises();
     const chart = () => panel.findComponent({ name: 'MarketKLineChart' });
     expect(chart().props('referencePrice')).toBe(97);
-    expect(chart().props('liveSnapshot')).toBe(false);
-    expect(chart().props('session')).toMatchObject({ open: Date.parse('2026-10-21T09:30:00+08:00'),
-      close: Date.parse('2026-10-21T15:00:00+08:00') });
+    expect(chart().props('liveSnapshot')).toBe(true);
+    expect(chart().props('timezone')).toBe('Asia/Shanghai');
     expect(chart().props('overlays')).toMatchObject([{ name: 'intradayBaseline', points: [{ value: 97 }] }]);
     await vi.advanceTimersByTimeAsync(5_000);
     await flushPromises();

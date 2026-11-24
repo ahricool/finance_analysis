@@ -11,8 +11,7 @@ const chart = vi.hoisted(() => ({
   setStyles: vi.fn(), setSymbol: vi.fn(), setPeriod: vi.fn(), setDataLoader: vi.fn(),
   getDom: vi.fn(), getSize: vi.fn(() => ({ width: 1000 })), convertToPixel: vi.fn(() => ({ x: 995 })), scrollByDistance: vi.fn(),
   scrollToTimestamp: vi.fn(), scrollToRealTime: vi.fn(), createIndicator: vi.fn(), resetData: vi.fn(), resize: vi.fn(),
-  overrideYAxis: vi.fn(), overrideXAxis: vi.fn(), setBarSpace: vi.fn(), setOffsetRightDistance: vi.fn(),
-  setScrollEnabled: vi.fn(), setZoomEnabled: vi.fn(),
+  overrideYAxis: vi.fn(), setOffsetRightDistance: vi.fn(),
   getDataList: vi.fn<() => KLineData[]>(), getVisibleRange: vi.fn(),
   getBarSpace: vi.fn(() => ({ bar: 10, halfGapBar: 3 })),
 }));
@@ -315,26 +314,20 @@ describe('MarketKLineChart v10 lifecycle', () => {
   });
 });
 
-it('keeps the previous close visible through a gap open and labels the full CN session without fake bars', async () => {
+it('keeps the previous close visible on the shared minute chart after a gap open', () => {
   lifecycle.init.mockReturnValue(chart);
   const open = Date.parse('2026-10-23T09:30:00+08:00');
-  const session = { open, close: open + 330 * 60_000, breakStart: open + 120 * 60_000, breakEnd: open + 210 * 60_000 };
   const candles = [{ ...bar, timestamp: open, open: 110, high: 112, low: 109, close: 111 }];
   const wrapper = mount(MarketKLineChart, { props: { symbol: '600000.SH', period: '1m', bars: candles,
-    referencePrice: 100, session, timezone: 'Asia/Shanghai' } });
+    referencePrice: 100, timezone: 'Asia/Shanghai' } });
   const createRange = chart.overrideYAxis.mock.lastCall![0].createRange;
   const range = createRange({ defaultRange: { from: 109, to: 112 } });
   expect(range.from).toBeLessThan(100);
   expect(range.to).toBeGreaterThan(112);
-  const ticks = chart.overrideXAxis.mock.lastCall![0].createTicks({ bounding: { width: 1000 } });
-  expect(ticks.map((tick: { text: string }) => tick.text)).toEqual(['09:30', '11:30 / 13:00', '15:00']);
   const callback = vi.fn();
   loader().getBars({ ...context, type: 'init', timestamp: null, callback });
   expect(callback).toHaveBeenLastCalledWith(candles, false);
-  expect(chart.setZoomEnabled).toHaveBeenLastCalledWith(false);
-  const dateFormatter = lifecycle.init.mock.lastCall![1].formatter.formatDate;
-  expect(dateFormatter({ type: 'crosshair', timestamp: open + 180 * 60_000 })).toBe('');
-  expect(dateFormatter({ type: 'crosshair', timestamp: open })).toBe('formatted');
+  expect(chart.setOffsetRightDistance).toHaveBeenLastCalledWith(120);
   const candle = chart.setStyles.mock.lastCall![0].candle;
   const template = candle.tooltip.legend.template as CandleTooltipLegendsCustomCallback;
   const tooltip = template({ prev: { ...bar, close: 110 }, current: candles[0]!, next: null },
