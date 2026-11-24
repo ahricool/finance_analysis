@@ -32,7 +32,7 @@ import { useAuth } from '@/composables/useAuth';
 import { useCurrentTime } from '@/composables/useCurrentTime';
 import { useTheme, type ThemePreference } from '@/composables/useTheme';
 import { APP_NAME } from '@/config/app';
-import { mainNavItems, type MainNavItem, type NavDestination } from '@/config/mainNav';
+import { mainNavItems, profileNavItems, type MainNavItem, type NavDestination } from '@/config/mainNav';
 import { useAuthStore } from '@/stores/authStore';
 import { DISPLAY_TIMEZONES, useTimezoneStore } from '@/stores/timezoneStore';
 
@@ -63,6 +63,11 @@ const visibleMainNavItems = computed(() => mainNavItems.map((item) => ({
   ...item,
   children: item.children?.filter((child) => !child.adminOnly || currentUser.value?.role === 'admin'),
 })));
+
+const mobileMainNavItems = computed<MainNavItem[]>(() => [
+  ...visibleMainNavItems.value,
+  { key: 'profile', label: '个人中心', to: '/profile/info', icon: UserRound, children: profileNavItems },
+]);
 
 const THEME_OPTIONS: Array<{ value: ThemePreference; label: string; icon: typeof Monitor }> = [
   { value: 'system', label: '跟随系统', icon: Monitor },
@@ -117,7 +122,7 @@ watch(
 </script>
 
 <template>
-  <div class="flex min-h-screen flex-col overflow-x-hidden bg-background text-foreground">
+  <div class="flex min-h-screen flex-col overflow-x-clip bg-background text-foreground">
     <header class="sticky top-0 z-40 border-b border-border/80 bg-background/95 shadow-sm backdrop-blur-md supports-[backdrop-filter]:bg-background/80">
       <div
         class="mx-auto flex h-14 w-full max-w-[1500px] items-center gap-2 px-4 sm:px-6"
@@ -344,7 +349,7 @@ watch(
         class="w-[min(20rem,85vw)] p-0"
         data-testid="mobile-nav-sheet"
       >
-        <SheetHeader class="h-14 justify-center border-b px-4 py-0 text-left">
+        <SheetHeader class="h-14 shrink-0 justify-center border-b px-4 py-0 text-left">
           <SheetTitle class="flex min-w-0 items-center gap-2">
             <span class="flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-md bg-brand/15">
               <img
@@ -357,12 +362,12 @@ watch(
           </SheetTitle>
         </SheetHeader>
         <nav
-          class="flex flex-col gap-1 overflow-y-auto p-3"
+          class="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto p-3"
           aria-label="移动端主导航"
           data-testid="mobile-main-nav"
         >
           <template
-            v-for="item in visibleMainNavItems"
+            v-for="item in mobileMainNavItems"
             :key="item.key"
           >
             <template v-if="item.children">
@@ -400,7 +405,8 @@ watch(
       </SheetContent>
     </Sheet>
 
-    <main class="mx-auto w-full max-w-[1500px] min-w-0 flex-1 px-4 pb-10 pt-1 sm:px-6">
+    <!-- Leave symmetric gutters for the floating module sidebar on desktop. -->
+    <main class="mx-auto w-full max-w-[1500px] min-w-0 flex-1 px-4 pb-10 pt-1 sm:px-6 lg:has-[.module-layout]:w-[calc(100%-6rem)]">
       <RouterView v-slot="{ Component, route: activeRoute }">
         <Transition
           name="page"

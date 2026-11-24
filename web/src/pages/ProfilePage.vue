@@ -17,8 +17,9 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
+import { profileNavItems } from '@/config/mainNav';
 import { useAuthStore } from '@/stores/authStore';
-import { Bell, Camera, LockKeyhole, Save, Upload, UserRound } from 'lucide-vue-next';
+import { Camera, Save, Upload } from 'lucide-vue-next';
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue';
 import { useRoute } from 'vue-router';
 
@@ -50,12 +51,6 @@ const notificationForm = reactive({
   telegramBotToken: '',
   telegramChatId: '',
 });
-
-const tabs: Array<{ key: ProfileTab; label: string; icon: typeof UserRound; to: string }> = [
-  { key: 'info', label: '我的信息', icon: UserRound, to: '/profile/info' },
-  { key: 'password', label: '更改密码', icon: LockKeyhole, to: '/profile/password' },
-  { key: 'notification', label: '消息通知', icon: Bell, to: '/profile/notification' },
-];
 
 const genderOptions: Array<{ value: UserGender; label: string }> = [
   { value: 'unknown', label: '未知' },
@@ -217,10 +212,9 @@ onBeforeUnmount(clearAvatarSource);
     </Alert>
 
     <ModuleLayout
-      :items="tabs"
+      :items="profileNavItems"
       :active-key="activeTab"
       label="个人中心设置导航"
-      keep-sidebar-on-mobile
     >
       <section class="min-w-0">
         <Card v-if="activeTab === 'info'">
