@@ -204,7 +204,7 @@ def test_budget_keeps_provider_partial_data_and_publishes_missing_candidate_wait
     monkeypatch.setattr(md, "get_daily_bars", lambda *a, **kw: BatchBarResult())
 
     class Cache:
-        def save(self, session, payload):
+        def save_evaluation(self, session, payload):
             self.payload = payload
 
     cache = Cache()

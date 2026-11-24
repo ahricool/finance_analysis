@@ -1,5 +1,6 @@
 """Durable daily confirmation evidence; live providers are used only by evaluation tasks."""
 
+import logging
 from datetime import date, datetime, timedelta
 from time import monotonic
 from zoneinfo import ZoneInfo
@@ -10,6 +11,9 @@ from .session import resolve_session
 from .engine import metrics, decision, stabilize, pending_status
 from .trend import temporary_trend
 from .market_data import collect_data
+from .notification import ALERT_ROUTE, ALERT_SEVERITY
+
+logger = logging.getLogger(__name__)
 
 
 def project_pending(row):
@@ -20,10 +24,11 @@ def project_pending(row):
 
 
 class ConfirmationService:
-    def __init__(self, store=None, repository=None, market_data=None):
+    def __init__(self, store=None, repository=None, market_data=None, notifier=None):
         self._store = store
         self.repository = repository
         self.market_data = market_data
+        self.notifier = notifier
 
     @property
     def store(self):
@@ -209,7 +214,29 @@ class ConfirmationService:
                 return dict(status="skipped", reason="午休")
             if not payload["items"]:
                 return dict(status="empty", count=0)
-            return self._evaluate(session, payload, now + timedelta(seconds=monotonic() - started))
+            alert = self._evaluate(session, payload, now + timedelta(seconds=monotonic() - started))
+        if alert is not None:
+            self._push_alert(*alert)
+        return dict(status="evaluated", count=len(payload["items"]), market=market, trade_date=session.day.isoformat())
+
+    def _push_alert(self, notification_id, title, content):
+        key = f"intraday-confirmation:{notification_id}"
+        try:
+            if self.notifier is None:
+                from finance_analysis.notification.service import NotificationService
+
+                self.notifier = NotificationService()
+            self.notifier.push_existing(
+                content,
+                notification_id=notification_id,
+                title=title,
+                route_type=ALERT_ROUTE,
+                severity=ALERT_SEVERITY,
+                dedup_key=key,
+                cooldown_key=key,
+            )
+        except Exception:
+            logger.exception("Intraday confirmation notification push failed")
 
     def _evaluate(self, session, payload, now):
         started = monotonic()
@@ -251,5 +278,4 @@ class ConfirmationService:
                 )
             rows.append(row)
         payload.update(items=rows, generated_at=now, status="evaluated")
-        self.store.save(session, payload)
-        return dict(status="evaluated", count=len(rows), market=market, trade_date=session.day.isoformat())
+        return self.store.save_evaluation(session, payload)

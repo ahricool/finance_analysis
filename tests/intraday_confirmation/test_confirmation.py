@@ -179,6 +179,8 @@ class Store:
     def save(self, session, payload):
         self.value = json_ready(payload)
 
+    save_evaluation = save
+
     def dates(self, market):
         return [date(2026, 9, 21)]
 
