@@ -41,15 +41,16 @@ for (const width of [390, 768, 1024, 1280, 1440, 1920]) {
       await expect(page.getByTestId('global-market-switch')).toHaveAttribute('aria-checked', 'true');
       await expect(page.getByTestId('market-heatmap-page')).toContainText('Yahoo Finance');
       await expect(page.getByTestId('heatmap-stock')).toHaveCount(120);
-      const overflow = await page.getByTestId('heatmap-stock').evaluateAll(tiles => tiles.filter(tile => {
+      // Font loading and tile resizing schedule label fitting on the next animation frame.
+      await page.evaluate(async () => { await document.fonts.ready; });
+      await expect.poll(() => page.getByTestId('heatmap-stock').evaluateAll(tiles => tiles.filter(tile => {
         const box = tile.getBoundingClientRect();
         return [...tile.querySelectorAll('span')].some(label => {
           if (getComputedStyle(label).visibility === 'hidden' || getComputedStyle(label).display === 'none') return false;
           const rect = label.getBoundingClientRect();
           return label.scrollWidth > label.clientWidth + 1 || rect.left < box.left || rect.right > box.right + 1 || rect.top < box.top || rect.bottom > box.bottom + 1;
         });
-      }).map(tile => tile.getAttribute('data-code')));
-      expect(overflow).toEqual([]);
+      }).map(tile => tile.getAttribute('data-code')))).toEqual([]);
       const labels = page.getByTestId('heatmap-stock-name');
       await expect(labels).toHaveCount(120);
       const sizes = await labels.evaluateAll(nodes => nodes.map(node => parseFloat(getComputedStyle(node).fontSize)));
