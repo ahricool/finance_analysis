@@ -36,11 +36,15 @@ def cache_ttl(market, day, now):
     return max(60, int((expires - now).total_seconds()))
 
 
+@lru_cache(maxsize=512)
+def previous_session_date(market, day):
+    cal = get_calendar(market)
+    return cal.date_to_session((day - timedelta(days=1)).isoformat(), direction="previous").date()
+
+
 def display_day(market, now):
     local_day = market_trading_date(now, market)
     bounds = session_bounds(market, local_day)
     if bounds is not None and now >= bounds[0]:
         return local_day
-    cal = get_calendar(market.lower())
-    previous = cal.date_to_session((local_day - timedelta(days=1)).isoformat(), direction="previous")
-    return previous.date()
+    return previous_session_date(market, local_day)

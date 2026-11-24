@@ -148,7 +148,7 @@ def test_market_local_cross_day_clears_old_in_memory_bars() -> None:
 @pytest.mark.asyncio
 async def test_history_loader_preserves_multiple_market_trading_dates() -> None:
     class Fetcher:
-        def get_minute_bars(self, symbols, start_time, end_time, interval, required_bar_starts, providers):
+        def get_minute_bars(self, symbols, start_time, end_time, **kwargs):
             bars = [
                 MarketBar(
                     symbol="600519.SH", market=Market.CN, interval="1m", trade_date=timestamp.date(),
@@ -172,46 +172,73 @@ async def test_history_loader_preserves_multiple_market_trading_dates() -> None:
 
 
 @pytest.mark.asyncio
-async def test_history_loader_skips_cache_and_rejects_remote_with_opening_gap(monkeypatch):
+@pytest.mark.parametrize(
+    "primary_missing, backup_missing, invalid_primary, expected_sources, remaining",
+    [
+        ((), (), (), ("longbridge",) * 4, ()),
+        ((0,), (), (), ("yfinance",) * 4, ()),
+        ((0,), (1,), (2,), ("yfinance", "longbridge", "yfinance", "longbridge"), ()),
+        ((0, 2), (1, 2), (), ("yfinance", "longbridge", "longbridge"), (2,)),
+    ],
+    ids=["primary-complete", "backup-complete", "complementary-gaps-and-invalid-bar", "both-incomplete"],
+)
+async def test_warmup_history_preserves_usable_minutes(
+    monkeypatch, caplog, primary_missing, backup_missing, invalid_primary, expected_sources, remaining,
+):
     from finance_analysis.integrations.market_data.registry import MINUTE_BARS, ProviderRegistry
     from finance_analysis.integrations.market_data.service import MarketDataService
     from finance_analysis.market_stream import warmup
 
-    now = datetime(2026, 6, 26, 15, 15, 5, tzinfo=timezone.utc)
-
-    completed_at = now + timedelta(minutes=1)
+    now = datetime(2026, 6, 26, 13, 34, 5, tzinfo=timezone.utc)
+    completed_at = now + timedelta(seconds=1)
     ticks = iter([now, completed_at])
+
     class Clock(datetime):
         @classmethod
         def now(cls, tz=None):
             return next(ticks)
 
-    monkeypatch.setattr(warmup, 'datetime', Clock)
-    required = warmup.warmup_bar_starts(now, 'US')
+    monkeypatch.setattr(warmup, "datetime", Clock)
+    required = warmup.warmup_bar_starts(now, "US")
     calls = []
 
     class Provider:
-        def __init__(self, name, missing):
-            self.name, self.missing = name, missing
+        def __init__(self, name, missing, invalid=()):
+            self.name, self.missing, self.invalid = name, missing, invalid
 
         def fetch_minute_bars(self, request):
             calls.append(self.name)
             assert request.required_bar_starts == tuple(required)
             bars = [MarketBar(
-                symbol='AAPL.US', market=Market.US, interval='1m', trade_date=t.date(),
+                symbol="AAPL.US", market=Market.US, interval="1m", trade_date=t.date(),
                 bar_time=t, bar_start=t, bar_end=t + timedelta(minutes=1),
-                open=10, high=11, low=9, close=10, volume=1, amount=None, currency='USD',
-                adjustment=Adjustment.RAW, provider=self.name,
-            ) for t in required if t != self.missing]
-            return BatchBarResult(data={'AAPL.US': bars})
+                open=0 if i in self.invalid else 10, high=11, low=9, close=10, volume=1, amount=None,
+                currency="USD", adjustment=Adjustment.RAW, provider=self.name,
+            ) for i, t in enumerate(required) if i not in self.missing]
+            return BatchBarResult(data={"AAPL.US": bars})
 
     registry = ProviderRegistry()
-    for name, missing in [('streaming', None), ('longbridge', required[0]), ('yfinance', None)]:
-        registry.register(name, Provider(name, missing), capabilities={MINUTE_BARS})
-    bars = await LongbridgeHistoryLoader(MarketDataService(registry)).fetch('AAPL.US', 'US', 420)
-    assert calls == ['longbridge', 'yfinance']
-    assert [b.bar_time for b in bars] == required
-    assert all(b.confirmed and b.source == "yfinance" and b.received_at == completed_at for b in bars)
+    for provider in (
+        Provider("streaming", ()),
+        Provider("longbridge", primary_missing, invalid_primary),
+        Provider("yfinance", backup_missing),
+    ):
+        registry.register(provider.name, provider, capabilities={MINUTE_BARS})
+    market_data = MarketDataService(registry)
+    bars = await LongbridgeHistoryLoader(market_data).fetch("AAPL.US", "US", 420)
+
+    assert calls == (["longbridge", "yfinance"] if primary_missing else ["longbridge"])
+    assert [b.bar_time for b in bars] == [t for i, t in enumerate(required) if i not in remaining]
+    assert tuple(b.source for b in bars) == expected_sources
+    assert all(b.confirmed and b.received_at == completed_at for b in bars)
+    if remaining:
+        assert "历史分钟回补部分可用: symbol=AAPL.US missing=1" in caplog.text
+        strict = market_data.get_minute_bars(
+            ["AAPL.US"], required[0], now, providers=("longbridge", "yfinance"), required_bar_starts=required,
+        )
+        assert "AAPL.US" not in strict.data
+        assert "AAPL.US" in strict.failed_symbols
+
 
 @pytest.mark.asyncio
 async def test_history_loader_reports_exhausted_providers():

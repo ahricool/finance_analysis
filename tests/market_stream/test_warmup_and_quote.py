@@ -1016,6 +1016,24 @@ async def test_remembered_close_repairs_quote_that_arrived_before_warmup() -> No
 
 
 @pytest.mark.asyncio
+async def test_partial_prior_session_keeps_provider_close_even_with_an_older_full_close():
+    app = service()
+    state = set_warming(app, connection=2)
+    state.status = SymbolStatus.ACTIVE
+    state.quote_subscribed = True
+    app._remember_regular_session_closes("AAPL.US", "US", [bar(389, close="11")])
+    tuesday = BASE + timedelta(days=4)
+    await app._handle_event(quote_event("12", 10, 2, received_at=tuesday, pre_close="11.5"))
+
+    monday_partial = bar(3 * 1440 + 20, close="10.5")
+    app._remember_regular_session_closes("AAPL.US", "US", [monday_partial])
+    assert app.quotes["AAPL.US"].pre_close == Decimal("11.5")
+
+    await app._handle_event(quote_event("12", 11, 2, received_at=tuesday, pre_close="11.6"))
+    assert app.quotes["AAPL.US"].pre_close == Decimal("11.6")
+
+
+@pytest.mark.asyncio
 async def test_full_quote_snapshot_is_refreshed_and_marked_after_merge_each_market_date() -> None:
     app = service()
     state = set_warming(app)

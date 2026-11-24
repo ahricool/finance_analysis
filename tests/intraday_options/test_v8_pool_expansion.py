@@ -402,6 +402,41 @@ def test_v8_two_hour_window_long_only_benchmark_exclusion_and_no_counter_gap():
     assert not p_no_pre["executable"] and "缺少昨收基准数据" in p_no_pre["execution_reason"]
 
 
+def test_v8_opening_entry_uses_full_pool_when_peer_history_is_missing():
+    nvda = _make_bars(_drive_vals(12, 0.022), symbol="NVDA.US")
+    spy = _make_bars([500.0 + 0.05 * i for i in range(12)], symbol="SPY.US")
+    now = nvda[-1].bar_time + timedelta(minutes=1, seconds=2)
+    result = calculate("NVDA.US", nvda, now)
+    branch = next(b for b in result["opportunities"]["branches"] if b["kind"] == "opening_breakout")
+    price = float(nvda[-1].close) + 0.05
+    peers = _make_peer_pool(nvda, count=100, breadth_ratio=0.75)
+    observed_names = list(peers)
+    strong_spy = _make_bars([500.0 + 0.15 * i for i in range(12)], symbol="SPY.US")
+
+    def evaluate(count, benchmark, settings=None):
+        available = {symbol: peers[symbol] for symbol in observed_names[:count]}
+        roster = ("SPY.US", "QQQ.US", *peers)
+        peer_snapshot, _ = _build_round_peer_snapshot(available, roster, START, now)
+        context = execution_context(nvda, benchmark, peer_snapshot, pre_close=100)
+        return context["pool_rank_context"], plan(branch, {**result, **context}, price, now, now, settings=settings)
+
+    # All 10 observed names are rising, but 90 unobserved peers can outrank NVDA.
+    rank, candidate = evaluate(10, strong_spy)
+    assert rank["pool_size"] == 100 and rank["observed_pool_size"] == 10
+    assert rank["long_rank"] == 1 and rank["long_rank_upper"] == 91
+    assert rank["breadth_up"] == pytest.approx(0.10)
+    assert not candidate["executable"] and "无法确认全池排名" in candidate["execution_reason"]
+
+    # Exactly 10th in the worst case and 75 verified advances meet both guarantees.
+    rank, candidate = evaluate(91, spy)
+    assert rank["long_rank_upper"] == 10 and rank["breadth_up"] == pytest.approx(0.75)
+    assert candidate["executable"]
+
+    # With ranking disabled, peer breadth alone still uses all 100 members.
+    _, candidate = evaluate(10, spy, StartPolicy(pool_leader_top_k=0))
+    assert not candidate["executable"] and "大盘共振不足" in candidate["execution_reason"]
+
+
 def test_v8_atr_clamping_ratchet_tiers_uncapped_eod_and_ranked_opportunity():
     cfg = StartPolicy()
     low = resolve_atr_exit_levels(0.005, cfg)

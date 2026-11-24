@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import replace
+from datetime import datetime
 from time import monotonic
 from typing import Callable, Iterable, TypeVar
 
@@ -15,6 +16,7 @@ from .models import (
     DailyBarsRequest,
     InstrumentRequest,
     Market,
+    MarketBar,
     MarketIndex,
     MarketStats,
     MinuteBarsRequest,
@@ -36,7 +38,7 @@ from .registry import (
     ProviderRegistration,
     ProviderRegistry,
 )
-from .validator import validate_bars, validate_quote
+from .validator import MarketDataValidationError, validate_bars, validate_quote
 
 logger = logging.getLogger(__name__)
 T = TypeVar("T")
@@ -94,16 +96,30 @@ class MarketDataRouter:
     ) -> BatchBarResult:
         return self._route_bars(request, DAILY_BARS, "fetch_daily_bars", providers, complete_fallback=complete_fallback)
 
-    def route_minute(self, request: MinuteBarsRequest, providers: Iterable[str] | None = None) -> BatchBarResult:
-        return self._route_bars(request, MINUTE_BARS, "fetch_minute_bars", providers,
-                                complete_fallback=request.minimum_latest_bar_time is not None or bool(request.required_bar_starts))
+    def route_minute(
+        self,
+        request: MinuteBarsRequest,
+        providers: Iterable[str] | None = None,
+        *,
+        recover_partial_minutes: bool = False,
+    ) -> BatchBarResult:
+        return self._route_bars(
+            request, MINUTE_BARS, "fetch_minute_bars", providers,
+            complete_fallback=request.minimum_latest_bar_time is not None or bool(request.required_bar_starts),
+            recover_partial_minutes=recover_partial_minutes,
+        )
 
-    def _route_bars(self, request, capability: str, method_name: str, providers, *, complete_fallback=False) -> BatchBarResult:
+    def _route_bars(
+        self, request, capability: str, method_name: str, providers, *,
+        complete_fallback=False, recover_partial_minutes=False,
+    ) -> BatchBarResult:
         market = self._market_for_symbols(request.symbols)
         registrations = self._providers(market=market, capability=capability, providers=providers)
         pending = list(request.symbols)
         result = BatchBarResult()
         errors: dict[str, list[str]] = {symbol: [] for symbol in request.symbols}
+        required_minutes = set(request.required_bar_starts) if recover_partial_minutes else set()
+        partial_minutes: dict[str, dict[datetime, MarketBar]] = {}
         for registration in registrations:
             if not pending:
                 break
@@ -124,8 +140,9 @@ class MarketDataRouter:
                 failure = provider_result.request_errors.get(symbol) or provider_result.failed_symbols.get(symbol)
                 if failure:
                     result.request_errors[symbol] = f"{registration.name}: {failure}"
+                raw_bars = provider_result.data.get(symbol, [])
                 try:
-                    bars = validate_bars(provider_result.data.get(symbol, []))
+                    bars = validate_bars(raw_bars)
                     if capability == MINUTE_BARS and request.required_bar_starts:
                         observed = {bar.bar_start for bar in bars if bar.bar_end is not None and bar.bar_end <= request.end_time}
                         if set(request.required_bar_starts) - observed:
@@ -151,6 +168,19 @@ class MarketDataRouter:
                     errors[symbol].append(f"{registration.name}: {exc}")
                     if complete_fallback:
                         result.fallback_reasons.setdefault(symbol, []).append(f"{registration.name}: {exc}")
+                    if required_minutes:
+                        recovered = partial_minutes.setdefault(symbol, {})
+                        for bar in raw_bars:
+                            if (
+                                bar.bar_start not in required_minutes or bar.bar_end is None
+                                or bar.bar_end > request.end_time
+                            ):
+                                continue
+                            try:
+                                validate_bars((bar,))
+                            except MarketDataValidationError:
+                                continue
+                            recovered.setdefault(bar.bar_start, bar)
                     next_pending.append(symbol)
                     continue
                 if bars:
@@ -181,6 +211,18 @@ class MarketDataRouter:
                 )
             pending = next_pending
         for symbol in pending:
+            recovered = partial_minutes.get(symbol)
+            if recovered:
+                # Prefer a complete single-provider window. With none available, expose each
+                # usable minute in provider order and let the caller see any remaining gaps.
+                bars = [recovered[minute] for minute in sorted(recovered)]
+                result.data[symbol] = bars
+                sources = {bar.provider for bar in bars}
+                result.providers_used[symbol] = sources.pop() if len(sources) == 1 else "mixed"
+                if required_minutes <= recovered.keys():
+                    result.request_errors.pop(symbol, None)
+                    result.fallback_symbols.append(symbol)
+                    continue
             if errors[symbol]:
                 result.failed_symbols[symbol] = "; ".join(errors[symbol])
             else:
