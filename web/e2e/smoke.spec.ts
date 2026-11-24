@@ -80,6 +80,8 @@ async function mockAuthenticatedSession(page: Page) {
       };
     } else if (url.pathname === '/api/v1/watch-list') {
       body = { items: [], total: 0 };
+    } else if (url.pathname === '/api/v1/watch-list/tags') {
+      body = [];
     }
 
     await route.fulfill({
@@ -91,6 +93,74 @@ async function mockAuthenticatedSession(page: Page) {
 }
 
 test.describe('web smoke', () => {
+  test('module sidebar reveals labels without shifting centered content and follows scrolling', async ({ page }) => {
+    await mockAuthenticatedSession(page);
+    await page.routeWebSocket('**/api/v1/market-data/ws**', () => {});
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/market/watch-list');
+
+    const sidebar = page.getByRole('navigation', { name: '市场页面导航' });
+    const activeLink = sidebar.getByRole('link', { name: '自选股' });
+    const label = activeLink.getByText('自选股');
+    const content = page.getByTestId('module-content');
+    await expect(activeLink).toHaveAttribute('aria-current', 'page');
+    await content.evaluate(el => { el.style.minHeight = '1600px'; });
+    await expect(label).toBeHidden();
+
+    const viewportWidth = await page.evaluate(() => document.documentElement.clientWidth);
+    const initialContent = (await content.boundingBox())!;
+    const initialSidebar = (await sidebar.boundingBox())!;
+    expect(initialContent.x).toBeCloseTo((viewportWidth - initialContent.width) / 2, 0);
+    expect(initialSidebar.x + initialSidebar.width).toBeLessThan(initialContent.x);
+
+    await sidebar.hover();
+    await expect(label).toBeVisible();
+    await expect.poll(async () => (await sidebar.boundingBox())!.width).toBeGreaterThan(initialSidebar.width);
+    expect(await content.boundingBox()).toEqual(initialContent);
+
+    await page.mouse.move(800, 150);
+    await expect(label).toBeHidden();
+    await expect.poll(async () => (await sidebar.boundingBox())!.width).toBe(initialSidebar.width);
+    await page.keyboard.press('Tab');
+    await activeLink.focus();
+    await expect(label).toBeVisible();
+    await activeLink.blur();
+    await expect(label).toBeHidden();
+
+    await page.mouse.wheel(0, 430);
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(400);
+    const scrolledSidebar = (await sidebar.boundingBox())!;
+    const scrolledContent = (await content.boundingBox())!;
+    expect(scrolledSidebar.x).toBe(initialSidebar.x);
+    expect(scrolledSidebar.y).toBeGreaterThan(56);
+    expect(scrolledSidebar.y).toBeLessThanOrEqual(initialSidebar.y);
+    expect(scrolledContent.y).toBeLessThan(0);
+  });
+
+  test('profile subpages remain reachable through the mobile drawer', async ({ page }) => {
+    await mockAuthenticatedSession(page);
+    await page.route('**/api/v1/auth/profile', route => route.fulfill({ json: {
+      uid: 1, username: 'Mobile Tester', email: 'mobile@example.test', role: 'user', avatarUrl: null,
+      extra: { gender: 'unknown', notification: { ntfy: [], telegram: [] } },
+    } }));
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/profile/info');
+    const sidebar = page.locator('nav[aria-label="个人中心设置导航"]');
+    await expect(sidebar).toHaveCount(1);
+    await expect(sidebar).toBeHidden();
+
+    const logo = page.getByTestId('mobile-nav-trigger');
+    const drawer = page.getByTestId('mobile-main-nav');
+    await logo.click();
+    await expect(drawer.getByRole('link', { name: '我的信息' })).toHaveAttribute('aria-current', 'page');
+    await drawer.getByRole('link', { name: '更改密码' }).click();
+    await expect(page).toHaveURL(/\/profile\/password$/);
+    await expect(logo).toHaveAttribute('aria-expanded', 'false');
+    await logo.click();
+    await drawer.getByRole('link', { name: '消息通知' }).click();
+    await expect(page).toHaveURL(/\/profile\/notification$/);
+  });
+
   test('root keeps a stable vertical scrollbar gutter during route changes', async ({ page }) => {
     await mockAuthenticatedSession(page);
     await page.goto('/timeline');

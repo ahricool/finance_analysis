@@ -1,6 +1,7 @@
 import type { Component } from 'vue';
 import {
   Banknote,
+  Bell,
   Bitcoin,
   Building2,
   CalendarDays,
@@ -15,13 +16,16 @@ import {
   Globe2,
   LayoutDashboard,
   LayoutGrid,
+  LockKeyhole,
   RefreshCcw,
   Sigma,
   FlaskConical,
   Star,
   Target,
   TrendingUp,
+  UserRound,
   Wallet,
+  Zap,
 } from 'lucide-vue-next';
 
 export type NavDestination = {
@@ -42,7 +46,7 @@ export const marketNavItems: NavDestination[] = [
   { key: 'watch-list', label: '自选股', to: '/market/watch-list', icon: Star },
   { key: 'holdings', label: '投资组合', to: '/market/holdings', icon: Wallet },
   { key: 'holdings-review', label: '持仓复盘', to: '/market/holdings-review', icon: ClipboardCheck },
-  { key: 'intraday-options', label: '日内期权交易', to: '/market/intraday-options', icon: Star },
+  { key: 'intraday-options', label: '日内期权交易', to: '/market/intraday-options', icon: Zap },
   { key: 'heatmap', label: '热力图', to: '/market/heatmap', icon: LayoutGrid },
 ];
 
@@ -83,6 +87,12 @@ export const cryptoNavItems: NavDestination[] = [
 export const taskNavItems: NavDestination[] = [
   { key: 'scheduled', label: '定时任务', to: '/tasks/scheduled', icon: ClipboardCheck, adminOnly: true },
   { key: 'runs', label: '执行记录', to: '/tasks/runs', icon: ListChecks },
+];
+
+export const profileNavItems: NavDestination[] = [
+  { key: 'info', label: '我的信息', icon: UserRound, to: '/profile/info' },
+  { key: 'password', label: '更改密码', icon: LockKeyhole, to: '/profile/password' },
+  { key: 'notification', label: '消息通知', icon: Bell, to: '/profile/notification' },
 ];
 
 export const mainNavItems: MainNavItem[] = [

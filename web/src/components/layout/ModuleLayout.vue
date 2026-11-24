@@ -1,20 +1,20 @@
 <script setup lang="ts">
-import ModuleSidebar, { type ModuleNavItem } from './ModuleSidebar.vue';
+import type { NavDestination } from '@/config/mainNav';
+import ModuleSidebar from './ModuleSidebar.vue';
 
-defineProps<{ items: ModuleNavItem[]; activeKey: string; label: string; keepSidebarOnMobile?: boolean }>();
+defineProps<{ items: NavDestination[]; activeKey: string; label: string }>();
 </script>
 
 <template>
   <div
-    class="grid min-w-0 items-start gap-4 lg:grid-cols-[12rem_minmax(0,1fr)] lg:gap-6"
-    :class="keepSidebarOnMobile && 'grid-cols-[8rem_minmax(0,1fr)] sm:grid-cols-[12rem_minmax(0,1fr)]'"
+    class="module-layout relative min-w-0"
     data-testid="module-layout"
   >
     <aside
-      class="min-w-0 lg:sticky lg:top-20 lg:block lg:max-h-[calc(100dvh-6rem)] lg:overflow-y-auto"
-      :class="keepSidebarOnMobile ? 'sticky top-20 max-h-[calc(100dvh-6rem)] overflow-y-auto' : 'hidden'"
+      class="absolute inset-y-0 right-full z-30 mr-3 hidden w-[3.25rem] lg:block"
     >
       <ModuleSidebar
+        class="sticky top-20 max-h-[calc(100dvh-6rem)]"
         :items="items"
         :active-key="activeKey"
         :label="label"
