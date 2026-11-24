@@ -27,7 +27,6 @@ LEGACY_POLICY = StartPolicy(
     opening_min_elapsed_minutes=5,
     opening_min_efficiency=0.0,
     opening_require_directional_bar=False,
-    opening_direction_mode="both",
     exclude_benchmark_from_opening=False,
     entry_window_minutes=150,
     atr_scaled_exits=False,
@@ -63,7 +62,6 @@ def test_opening_first_close_executes_without_consolidation_and_can_stop_immedia
         opening_min_elapsed_minutes=minutes,
         opening_min_efficiency=0.0,
         opening_require_directional_bar=False,
-        opening_direction_mode="both",
         exclude_benchmark_from_opening=False,
         entry_window_minutes=150,
         atr_scaled_exits=False,
@@ -209,13 +207,13 @@ def test_quote_improvement_rechecks_interval_expiry_freshness_and_structure_dedu
 
 
 def test_observed_opening_boundaries_survive_revision_before_break_and_restart():
-    # 12 bars (09:30..09:41 -> closes 09:42 NY) with +3.85% clean move (eff=1.0) triggers V8 long-only opening drive.
+    # 12 bars (09:30..09:41 -> closes 09:42 NY) with +3.85% clean move (eff=1.0) triggers V8 opening drive.
     bars = [replace(b, symbol="NVDA.US") for b in ramp(12, step=.35)]
     now = START + timedelta(minutes=5, seconds=2)
     r = calculate("NVDA.US", bars[:5], now)
     state, _ = transition({}, "NVDA.US", r, quote(now, 101.4), now)
     frozen = deepcopy(state["start_levels"])
-    assert len(frozen) == 1
+    assert len(frozen) == 2
     revised = replace(bars[4], high=bars[4].high+Decimal(".005"), received_at=now+timedelta(seconds=10))
     now = START + timedelta(minutes=12, seconds=2)
     r = calculate("NVDA.US", [*bars[:5], revised, *bars[5:]], now)

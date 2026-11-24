@@ -58,7 +58,6 @@ V6_POLICY = StartPolicy(
     opening_min_elapsed_minutes=5,
     opening_min_efficiency=0.0,
     opening_require_directional_bar=False,
-    opening_direction_mode="both",
     entry_window_minutes=150,
     atr_scaled_exits=False,
     stop_loss_pct=0.0,
@@ -83,7 +82,6 @@ def test_v6_policy_compatibility_flags_remain_configurable(monkeypatch):
         ("INTRADAY_OPENING_MIN_ELAPSED_MINUTES", "5"),
         ("INTRADAY_OPENING_MIN_EFFICIENCY", "0.0"),
         ("INTRADAY_OPENING_REQUIRE_DIRECTIONAL_BAR", "false"),
-        ("INTRADAY_DIRECTION_MODE", "both"),
         ("INTRADAY_ENTRY_WINDOW_MINUTES", "150"),
         ("INTRADAY_ATR_SCALED_EXITS", "false"),
         ("INTRADAY_STOP_LOSS_PCT", "0.0"),
@@ -111,7 +109,6 @@ def test_v6_policy_compatibility_flags_remain_configurable(monkeypatch):
         assert cfg.recovery_enabled is False
         assert cfg.use_pivot_target is False
         assert cfg.atr_scaled_exits is False
-        assert cfg.opening_direction_mode == "both"
         assert cfg.min_gap_directional is None
         assert cfg.opening_min_range_pct == pytest.approx(0.008)
         assert cfg.midday_window_minutes == 60

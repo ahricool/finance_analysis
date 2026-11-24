@@ -1,4 +1,4 @@
-"""V8 QQQ (Nasdaq-100) universe expansion, 2-hour long-only opening drive, ATR ratchet, and bar-0 sanitization tests."""
+"""V8 QQQ (Nasdaq-100) universe expansion, 2-hour bidirectional drive, ATR ratchet, and bar-0 sanitization tests."""
 
 from __future__ import annotations
 
@@ -224,7 +224,6 @@ def test_v8_policy_defaults_and_validation(monkeypatch):
         "INTRADAY_OPENING_END_MINUTES",
         "INTRADAY_OPENING_MIN_EFFICIENCY",
         "INTRADAY_OPENING_REQUIRE_DIRECTIONAL_BAR",
-        "INTRADAY_DIRECTION_MODE",
         "INTRADAY_OPENING_BAR_MAX_WICK_PCT",
         "INTRADAY_EXCLUDE_BENCHMARK_OPENING",
         "INTRADAY_ENTRY_WINDOW_MINUTES",
@@ -257,7 +256,7 @@ def test_v8_policy_defaults_and_validation(monkeypatch):
         assert cfg.opening_end_minutes == 120
         assert cfg.entry_window_minutes == 120
         assert cfg.opening_min_efficiency == pytest.approx(0.48)
-        assert cfg.opening_direction_mode == "long_only"
+        assert not hasattr(cfg, "opening_direction_mode")
         assert cfg.opening_bar_max_wick_pct == pytest.approx(0.03)
         assert cfg.exclude_benchmark_from_opening is True
         assert cfg.min_gap_directional == pytest.approx(-0.005)
@@ -290,7 +289,6 @@ def test_v8_policy_defaults_and_validation(monkeypatch):
 @pytest.mark.parametrize(
     "overrides,match",
     [
-        ({"INTRADAY_DIRECTION_MODE": "sideways"}, "INTRADAY_DIRECTION_MODE"),
         ({"INTRADAY_MIN_GAP_DIRECTIONAL": "not_a_number"}, "INTRADAY_MIN_GAP_DIRECTIONAL"),
         ({"INTRADAY_ATR_FLOOR_PCT": "0"}, "INTRADAY_ATR_FLOOR_PCT"),
         ({"INTRADAY_ATR_FLOOR_PCT": "0.05", "INTRADAY_ATR_CAP_PCT": "0.02"}, "INTRADAY_ATR_CAP_PCT"),
@@ -318,57 +316,52 @@ def test_v8_policy_rejects_invalid_env_combinations(monkeypatch, overrides, matc
         policy.cache_clear()
 
 
-def test_v8_two_hour_window_long_only_benchmark_exclusion_and_no_counter_gap():
+@pytest.mark.parametrize("side", [1, -1])
+def test_v8_two_hour_window_bidirectional_benchmark_exclusion_and_no_counter_gap(side):
+    expected_dir = "bullish" if side == 1 else "bearish"
+
     # 1. Minute 11 (09:41 NY): too early (V8 starts at 09:42 NY = minute 12).
-    nvda11 = _make_bars(_drive_vals(11, 0.022, side=1), symbol="NVDA.US")
+    nvda11 = _make_bars(_drive_vals(11, 0.022, side=side), symbol="NVDA.US")
     t11 = nvda11[-1].bar_time + timedelta(minutes=1, seconds=2)
     r11 = calculate("NVDA.US", nvda11, t11)
     assert not any(b["kind"] == "opening_breakout" for b in r11["opportunities"]["branches"])
 
-    # 2. Minute 12 (09:42 NY): long confirms, short is suppressed by default long_only!
-    nvda12 = _make_bars(_drive_vals(12, 0.022, side=1), symbol="NVDA.US")
+    # 2. Minute 12 (09:42 NY): both long and short confirm directly without any direction-mode toggle.
+    nvda12 = _make_bars(_drive_vals(12, 0.022, side=side), symbol="NVDA.US")
     t12 = nvda12[-1].bar_time + timedelta(minutes=1, seconds=2)
     base12 = calculate("NVDA.US", nvda12, t12)
     TrendResult.model_validate(base12)
     b12 = next(x for x in base12["opportunities"]["branches"] if x["kind"] == "opening_breakout")
-    assert b12["status"] == "confirmed" and b12["direction"] == "bullish"
-
-    short12 = _make_bars(_drive_vals(12, 0.022, side=-1), symbol="NVDA.US")
-    r_short = calculate("NVDA.US", short12, t12)
-    assert not any(b["kind"] == "opening_breakout" for b in r_short["opportunities"]["branches"])
-    # Explicitly configuring both restores short opening drive.
-    both_cfg = StartPolicy(opening_direction_mode="both")
-    r_short_both = calculate("NVDA.US", short12, t12, settings=both_cfg)
-    assert any(
-        b["kind"] == "opening_breakout" and b["direction"] == "bearish"
-        for b in r_short_both["opportunities"]["branches"]
-    )
+    assert b12["status"] == "confirmed" and b12["direction"] == expected_dir
 
     # 3. Minute 90 (11:00 NY, inside [09:42, 11:30)): still triggers! Minute 120 (11:30 NY): stopped!
-    nvda90 = _make_bars(_drive_vals(90, 0.026, side=1), symbol="NVDA.US")
+    nvda90 = _make_bars(_drive_vals(90, 0.026, side=side), symbol="NVDA.US")
     t90 = nvda90[-1].bar_time + timedelta(minutes=1, seconds=2)
     r90 = calculate("NVDA.US", nvda90, t90)
-    assert any(b["kind"] == "opening_breakout" for b in r90["opportunities"]["branches"])
+    assert any(
+        b["kind"] == "opening_breakout" and b["direction"] == expected_dir for b in r90["opportunities"]["branches"]
+    )
 
-    nvda120 = _make_bars(_drive_vals(120, 0.028, side=1), symbol="NVDA.US")
+    nvda120 = _make_bars(_drive_vals(120, 0.028, side=side), symbol="NVDA.US")
     t120 = nvda120[-1].bar_time + timedelta(minutes=1, seconds=2)
     r120 = calculate("NVDA.US", nvda120, t120)
     assert not any(b["kind"] == "opening_breakout" for b in r120["opportunities"]["branches"])
 
-    # 4. Benchmark ETFs (SPY/QQQ) are excluded from opening_breakout simulated entries.
-    spy12 = _make_bars([500.0 + 0.15 * i for i in range(12)], symbol="SPY.US")
-    peers12 = _make_peer_pool(nvda12, side=1, nvda_rank=1, breadth_ratio=0.75, count=12)
+    # 4. Benchmark ETFs (SPY/QQQ) are excluded from opening_breakout simulated entries on both sides.
+    spy12 = _make_bars([500.0 + side * 0.15 * i for i in range(12)], symbol="SPY.US")
+    peers12 = _make_peer_pool(nvda12, side=side, nvda_rank=1, breadth_ratio=0.75, count=12)
+    ok_pre_close = Decimal("100.3") if side == 1 else Decimal("99.7")
     res_nvda = {
         **base12,
         **execution_context(
             nvda12,
             spy12,
             peer_bars=peers12,
-            daily_context={"daily_atr_pct": 0.035, "prev_close": 100.3},
-            pre_close=Decimal("100.3"),
+            daily_context={"daily_atr_pct": 0.035, "prev_close": float(ok_pre_close)},
+            pre_close=ok_pre_close,
         ),
     }
-    price12 = float(nvda12[-1].close) + 0.05
+    price12 = float(nvda12[-1].close) + side * 0.05
     p_ok = plan(b12, res_nvda, price12, t12, t12)
     assert p_ok["executable"] is True
 
@@ -377,20 +370,22 @@ def test_v8_two_hour_window_long_only_benchmark_exclusion_and_no_counter_gap():
         p_bench = plan(b12, res_bench, price12, t12, t12)
         assert not p_bench["executable"] and "基准指数ETF" in p_bench["execution_reason"]
 
-    # 5. No-counter-gap gate: gap = -0.60% (< -0.50%) rejected; gap = -0.30% passes; missing prev_close fails closed!
+    # 5. Symmetric no-counter-gap gate: counter-gap > 0.50% rejected; <= 0.50% passes; missing prev_close fails closed!
     # Also verify quote.pre_close takes precedence over DB StockDaily.close (split-safe unadjusted basis).
+    bad_pre_close = Decimal("100.65") if side == 1 else Decimal("99.35")
+    db_favorable = 99.0 if side == 1 else 101.0
     res_bad_gap = {
         **base12,
         **execution_context(
             nvda12,
             spy12,
             peer_bars=peers12,
-            daily_context={"daily_atr_pct": 0.035, "prev_close": 99.0},  # DB would say +1%
-            pre_close=Decimal("100.65"),  # Live pre_close says open 100.0 -> gap = -0.65%!
+            daily_context={"daily_atr_pct": 0.035, "prev_close": db_favorable},
+            pre_close=bad_pre_close,
         ),
     }
     assert res_bad_gap["daily_context"]["prev_close_source"] == "quote_pre_close"
-    assert res_bad_gap["daily_context"]["gap_return"] == pytest.approx(100.0 / 100.65 - 1.0)
+    assert res_bad_gap["daily_context"]["gap_return"] == pytest.approx(100.0 / float(bad_pre_close) - 1.0)
     p_bad_gap = plan(b12, res_bad_gap, price12, t12, t12)
     assert not p_bad_gap["executable"] and "隔夜反向跳空过大" in p_bad_gap["execution_reason"]
 
@@ -437,7 +432,8 @@ def test_v8_opening_entry_uses_full_pool_when_peer_history_is_missing():
     assert not candidate["executable"] and "大盘共振不足" in candidate["execution_reason"]
 
 
-def test_v8_atr_clamping_ratchet_tiers_uncapped_eod_and_ranked_opportunity():
+@pytest.mark.parametrize("side", [1, -1])
+def test_v8_atr_clamping_ratchet_tiers_uncapped_eod_and_ranked_opportunity(side):
     cfg = StartPolicy()
     low = resolve_atr_exit_levels(0.005, cfg)
     assert low["daily_atr_pct"] == pytest.approx(0.012) and low["daily_atr_source"] == "stock_daily_14d"
@@ -450,11 +446,11 @@ def test_v8_atr_clamping_ratchet_tiers_uncapped_eod_and_ranked_opportunity():
     assert fb["daily_atr_pct"] == pytest.approx(0.030) and fb["daily_atr_source"] == "fallback_default"
     assert fb["stop_loss_pct"] == pytest.approx(0.036)
 
-    # Full V8 transition lifecycle with daily_atr_pct = 0.040:
+    # Full V8 transition lifecycle with daily_atr_pct = 0.040 (symmetric for long and short):
     # SL = 4.80%, Tier1 = +2.00% -> lock +0.32%, Tier2 = +4.80% -> lock +2.40%, no fixed TP.
-    nvda12 = _make_bars(_drive_vals(12, 0.022, side=1), symbol="NVDA.US")
-    spy12 = _make_bars([500.0 + 0.15 * i for i in range(12)], symbol="SPY.US")
-    peers12 = _make_peer_pool(nvda12, side=1, nvda_rank=1, breadth_ratio=0.75, count=12)
+    nvda12 = _make_bars(_drive_vals(12, 0.022, side=side), symbol="NVDA.US")
+    spy12 = _make_bars([500.0 + side * 0.15 * i for i in range(12)], symbol="SPY.US")
+    peers12 = _make_peer_pool(nvda12, side=side, nvda_rank=1, breadth_ratio=0.75, count=12)
     t12 = nvda12[-1].bar_time + timedelta(minutes=1, seconds=2)
     r12 = {
         **calculate("NVDA.US", nvda12, t12),
@@ -466,73 +462,75 @@ def test_v8_atr_clamping_ratchet_tiers_uncapped_eod_and_ranked_opportunity():
             pre_close=Decimal("100.0"),
         ),
     }
-    ep = 102.25
+    ep = 100.0 + side * 2.25
     q_entry = quote(t12, ep)
     state, ev_entry = transition({}, "NVDA.US", r12, q_entry, t12)
     pos = state["position"]
-    assert pos is not None and pos["exit_policy"] == "v8_atr_ratchet"
+    assert pos is not None and pos["side"] == side and pos["exit_policy"] == "v8_atr_ratchet"
     assert pos["target"] is None
     assert pos["daily_atr_pct"] == pytest.approx(0.040)
     assert pos["daily_atr_source"] == "stock_daily_14d"
-    assert pos["invalidation"] == pytest.approx(ep * (1.0 - 0.048))
+    assert pos["invalidation"] == pytest.approx(ep * (1.0 - side * 0.048))
     assert any(e["kind"] == "entry" for e in ev_entry)
 
     # ranked_opportunity() MUST still match cleanly (daily_atr_source must not clobber branch["atr_source"]).
     ranked = ranked_opportunity(r12, state, t12, q_entry)
     assert ranked is not None and ranked["kind"] == "opening_breakout"
-    assert ranked["invalidation"] == pytest.approx(ep * (1.0 - 0.048))
+    assert ranked["invalidation"] == pytest.approx(ep * (1.0 - side * 0.048))
 
     # Scenario A: Tier-1 (+2.1%) -> lock +0.32%, then Tier-2 (+5.0%) -> lock +2.40%, then pullback to +2.30% exits!
     t_a1 = t12 + timedelta(minutes=10)
-    s_a, ev_a1 = transition(deepcopy(state), "NVDA.US", None, quote(t_a1, ep * 1.021), t_a1)
+    s_a, ev_a1 = transition(deepcopy(state), "NVDA.US", None, quote(t_a1, ep * (1.0 + side * 0.021)), t_a1)
     assert s_a["position"]["protection_stage"] == "ratchet_tier1"
-    assert s_a["position"]["protection"] == pytest.approx(ep * 1.0032)
+    assert s_a["position"]["protection"] == pytest.approx(ep * (1.0 + side * 0.0032))
     assert any(e["kind"] == "hold" and "一档棘轮" in e["reason"] for e in ev_a1)
 
     t_a2 = t_a1 + timedelta(minutes=20)
-    s_a, ev_a2 = transition(s_a, "NVDA.US", None, quote(t_a2, ep * 1.050), t_a2)
+    s_a, ev_a2 = transition(s_a, "NVDA.US", None, quote(t_a2, ep * (1.0 + side * 0.050)), t_a2)
     assert s_a["position"]["protection_stage"] == "ratchet_tier2"
-    assert s_a["position"]["protection"] == pytest.approx(ep * 1.024)
+    assert s_a["position"]["protection"] == pytest.approx(ep * (1.0 + side * 0.024))
     assert any(e["kind"] == "hold" and "二档棘轮" in e["reason"] for e in ev_a2)
 
     # Uncapped right tail: +7.5% stays open!
     t_a3 = t_a2 + timedelta(minutes=30)
-    s_a, ev_a3 = transition(s_a, "NVDA.US", None, quote(t_a3, ep * 1.075), t_a3)
+    s_a, ev_a3 = transition(s_a, "NVDA.US", None, quote(t_a3, ep * (1.0 + side * 0.075)), t_a3)
     assert s_a["position"] is not None and not ev_a3
 
     # Pullback to +2.30% (below +2.40% lock) exits at observed quote!
     t_a4 = t_a3 + timedelta(minutes=5)
-    s_a, ev_a4 = transition(s_a, "NVDA.US", None, quote(t_a4, ep * 1.023), t_a4)
+    s_a, ev_a4 = transition(s_a, "NVDA.US", None, quote(t_a4, ep * (1.0 + side * 0.023)), t_a4)
     assert s_a["position"] is None
     tr_a = next(e["trade"] for e in ev_a4 if e["kind"] == "exit")
     assert tr_a["exit_reason"] == "二档棘轮锁盈触及"
-    assert tr_a["exit_price"] == pytest.approx(ep * 1.023)
+    assert tr_a["exit_price"] == pytest.approx(ep * (1.0 + side * 0.023))
+    assert tr_a["return_pct"] == pytest.approx(2.3)
 
     # Scenario B: Direct single-tick jump to +5.2% promotes straight to Tier-2 with one clean event.
     t_b1 = t12 + timedelta(minutes=5)
-    s_b, ev_b1 = transition(deepcopy(state), "NVDA.US", None, quote(t_b1, ep * 1.052), t_b1)
+    s_b, ev_b1 = transition(deepcopy(state), "NVDA.US", None, quote(t_b1, ep * (1.0 + side * 0.052)), t_b1)
     assert s_b["position"]["protection_stage"] == "ratchet_tier2"
-    assert s_b["position"]["protection"] == pytest.approx(ep * 1.024)
+    assert s_b["position"]["protection"] == pytest.approx(ep * (1.0 + side * 0.024))
     assert sum(1 for e in ev_b1 if e["kind"] == "hold") == 1
 
     # Scenario C: Tier-1 lock then reversal to +0.25% exits with "一档保本锁盈触及".
     t_c1 = t12 + timedelta(minutes=5)
-    s_c, _ = transition(deepcopy(state), "NVDA.US", None, quote(t_c1, ep * 1.022), t_c1)
+    s_c, _ = transition(deepcopy(state), "NVDA.US", None, quote(t_c1, ep * (1.0 + side * 0.022)), t_c1)
     t_c2 = t_c1 + timedelta(minutes=2)
-    s_c, ev_c2 = transition(s_c, "NVDA.US", None, quote(t_c2, ep * 1.0025), t_c2)
+    s_c, ev_c2 = transition(s_c, "NVDA.US", None, quote(t_c2, ep * (1.0 + side * 0.0025)), t_c2)
     assert s_c["position"] is None
     assert next(e["trade"] for e in ev_c2 if e["kind"] == "exit")["exit_reason"] == "一档保本锁盈触及"
 
     # Scenario D: Initial ATR stop loss (-4.9%) exits with "ATR止损触及".
     t_d1 = t12 + timedelta(minutes=5)
-    s_d, ev_d1 = transition(deepcopy(state), "NVDA.US", None, quote(t_d1, ep * 0.951), t_d1)
+    s_d, ev_d1 = transition(deepcopy(state), "NVDA.US", None, quote(t_d1, ep * (1.0 - side * 0.049)), t_d1)
     assert s_d["position"] is None
     assert next(e["trade"] for e in ev_d1 if e["kind"] == "exit")["exit_reason"] == "ATR止损触及"
 
     # Scenario E: Notification rendering for V8 ATR ratchet avoids Telegram Markdown hazards.
     entry_ev = next(e for e in ev_entry if e["kind"] == "entry")
     title, body = render_trade_notification(entry_ev, symbol_name="英伟达")
-    assert "日内模拟开仓 · 做多 NVDA.US" in title
+    expected_dir_label = "做多" if side == 1 else "做空"
+    assert f"日内模拟开仓 · {expected_dir_label} NVDA.US" in title
     assert "两档ATR棘轮锁盈·尾盘清仓" in body
     assert "14日ATR 4.00%" in body
     assert "浮盈达 +2.00% 锁盈 +0.32%" in body

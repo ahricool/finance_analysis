@@ -42,7 +42,6 @@ def scenarios():
                 opening_min_elapsed_minutes=opening or 5,
                 opening_min_efficiency=0.0,
                 opening_require_directional_bar=False,
-                opening_direction_mode="both",
                 exclude_benchmark_from_opening=False,
                 entry_window_minutes=270,
                 atr_scaled_exits=False,
