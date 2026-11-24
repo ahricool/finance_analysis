@@ -25,7 +25,6 @@ const props = defineProps<{
   overlays?: ChartAnnotation[];
   timezone?: string;
   referencePrice?: number;
-  session?: { open: number; close: number; breakStart: number; breakEnd: number };
 }>();
 const element = ref<HTMLElement>();
 const { resolvedTheme } = useTheme();
@@ -65,7 +64,6 @@ const dailyProjection = computed(() => {
   }));
 });
 const futurePrices = computed(() => props.period === '1d' ? dailyFuture.value : future.value);
-const closeReplayLength = computed(() => showForecast.value && forecast.value?.closeReplay ? future.value.length : 0);
 const forecastOverlayKey = computed(() => {
   const daily = dailyForecast.value;
   if (daily && dailyFuture.value.length) {
@@ -125,7 +123,6 @@ function withHover(annotation: ChartAnnotation): OverlayCreate {
   };
 }
 let pushBar: ((bar: KLineData) => void) | undefined;
-let fitFrame: number | undefined;
 
 const candleTooltipLegends: CandleTooltipLegendsCustomCallback = ({ prev, current }, styles) => {
   const { defaultValue, color } = styles.tooltip.legend;
@@ -211,7 +208,6 @@ function styles() {
   });
 }
 function destroy() {
-  if (fitFrame != null) cancelAnimationFrame(fitFrame);
   chart?.getDom('candle_pane', 'main')?.removeEventListener('pointerleave', clearHover);
   clearHover();
   pushBar = undefined;
@@ -236,24 +232,6 @@ function applyPriceRange() {
     return { from, to, range, realFrom: from, realTo: to, realRange: range,
       displayFrom: from, displayTo: to, displayRange: range };
   } });
-}
-function fitSession() {
-  if (!chart || !props.session) return;
-  if (fitFrame != null) cancelAnimationFrame(fitFrame);
-  fitFrame = requestAnimationFrame(() => {
-    if (!chart || !props.session) return;
-    const { open, close, breakStart, breakEnd } = props.session;
-    const width = chart.getSize('candle_pane', 'main')?.width;
-    const last = liveBar() ?? props.bars.at(-1);
-    if (!width || !last) return;
-    // Reserve future trading minutes without adding fabricated OHLC or volume rows.
-    const total = (close - open - (breakEnd - breakStart)) / 60_000;
-    const remaining = Math.max(0, (close - last.timestamp - Math.max(0, breakEnd - Math.max(last.timestamp, breakStart))) / 60_000 - 1);
-    const replay = closeReplayLength.value;
-    const space = width / (total + replay + 2);
-    chart.setBarSpace(space);
-    chart.setOffsetRightDistance((remaining + replay + 1) * space);
-  });
 }
 function applyOverlays() {
   if (!chart) return;
@@ -290,13 +268,6 @@ function focusOnTimestamp(timestamp: number) {
     chart.scrollByDistance(width / 2 - x);
   }
 }
-const formatSessionDate: FormatDate = ({ dateTimeFormat, timestamp, template, type }) => {
-  // The library extrapolates wall-clock minutes into empty space, including lunch.
-  // Keep future slots empty instead of showing a fabricated crosshair timestamp.
-  if (type === 'crosshair' && !props.bars.some(bar => bar.timestamp === timestamp) && liveBar()?.timestamp !== timestamp
-    && !(showForecast.value && future.value.some(bar => bar.timestamp === timestamp))) return '';
-  return utils.formatDate(dateTimeFormat, timestamp, template);
-};
 const formatDailyDate: FormatDate = ({ dateTimeFormat, timestamp, template }) => {
   const last = lastDailyTimestamp.value;
   if (dailyForecast.value && last != null && timestamp > last) {
@@ -311,24 +282,14 @@ function initialize() {
   destroy();
   if (!element.value) return;
   chart = init(element.value, { timezone: props.timezone ?? 'UTC', locale: 'zh-CN',
-    ...(props.period === '1d' ? { formatter: { formatDate: formatDailyDate } } : {}),
-    ...(props.session ? { formatter: { formatDate: formatSessionDate }, layout: { barSpaceLimit: { min: 0.25, max: 50 } } } : {}) });
+    ...(props.period === '1d' ? { formatter: { formatDate: formatDailyDate } } : {}) });
   if (!chart) return;
   chart.getDom('candle_pane', 'main')?.addEventListener('pointerleave', clearHover);
   styles();
   applyPriceRange();
-  if (props.period === '1m' && !props.session) {
+  if (props.period === '1m') {
     // Leave room for ten forecast steps at the default zoom without fabricating candles.
     chart.setOffsetRightDistance(120);
-  }
-  if (props.session) {
-    chart.setScrollEnabled(false);
-    chart.setZoomEnabled(false);
-    chart.overrideXAxis({ scrollZoomEnabled: false, createTicks: ({ bounding }) => [
-      { coord: 20, value: props.session!.open, text: '09:30' },
-      { coord: bounding.width / 2, value: props.session!.breakStart, text: '11:30 / 13:00' },
-      { coord: bounding.width - 20, value: props.session!.close, text: '15:00' },
-    ] });
   }
   chart.createIndicator('VOL');
   if (['1d', '1w', '1M'].includes(props.period)) {
@@ -364,7 +325,6 @@ function initialize() {
       } else if (props.focusTimestamp != null) {
         focusOnTimestamp(props.focusTimestamp);
       }
-      fitSession();
     },
     subscribeBar: ({ callback }) => { pushBar = callback; },
     unsubscribeBar: () => { pushBar = undefined; },
@@ -382,14 +342,13 @@ watch([forecastOverlayKey, showForecast], () => {
   applyForecastOverlay();
 });
 watch(resolvedTheme, applyForecastOverlay);
-watch(closeReplayLength, fitSession);
 watch([() => props.focusTimestamp, () => props.focusRequest], ([timestamp, request], [, previousRequest]) => {
   // Live snapshots may add or remove a selected marker without a navigation request.
   if (props.liveSnapshot && request === previousRequest) return;
   if (timestamp != null) focusOnTimestamp(timestamp);
   else chart?.scrollToRealTime();
 });
-watch(() => [props.symbol, props.period, props.sourceKey, props.pricePrecision, props.timezone, props.session?.open], initialize);
+watch(() => [props.symbol, props.period, props.sourceKey, props.pricePrecision, props.timezone], initialize);
 watch(() => props.referencePrice, applyPriceRange);
 watch([() => props.bars, () => props.current], ([bars], [previousBars]) => {
   const bar = liveBar();
@@ -397,12 +356,11 @@ watch([() => props.bars, () => props.current], ([bars], [previousBars]) => {
     pushBar?.(bar);
   } else if (props.liveSnapshot) updateLiveSnapshot();
   else chart?.resetData();
-  fitSession();
 });
 watch(resolvedTheme, styles);
 onMounted(() => {
   initialize();
-  observer = new ResizeObserver(() => { chart?.resize(); fitSession(); });
+  observer = new ResizeObserver(() => { chart?.resize(); });
   if (element.value) observer.observe(element.value);
 });
 onBeforeUnmount(() => { observer?.disconnect(); destroy(); });
@@ -420,7 +378,7 @@ onBeforeUnmount(() => { observer?.disconnect(); destroy(); });
         ref="element"
         class="h-80 min-w-0 w-full sm:h-[28rem]"
         role="img"
-        :aria-label="`${symbol} ${period} K线，红涨绿跌，时间为${timezone ?? 'UTC'}，${session ? '当日09:30至15:00，午休不占交易分钟' : '可拖动和缩放查看历史'}`"
+        :aria-label="`${symbol} ${period} K线，红涨绿跌，时间为${timezone ?? 'UTC'}，可拖动和缩放查看历史`"
       />
       <div
         v-if="hoverHint"

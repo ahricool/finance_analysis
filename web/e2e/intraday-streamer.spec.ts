@@ -10,8 +10,6 @@ for (const scope of ['watch-list', 'holdings'] as const) {
       await page.addInitScript(() => {
         const original = CanvasRenderingContext2D.prototype.fillText;
         CanvasRenderingContext2D.prototype.fillText = function (text, x, y, maxWidth) {
-          if (text === '09:30') this.canvas.dataset.sessionOpen = 'true';
-          if (text === '15:00') this.canvas.dataset.sessionClose = 'true';
           if (text === '昨收 · 0%') this.canvas.dataset.zeroLine = 'true';
           if (['▴', '▾', '◇'].includes(text)) this.canvas.dataset[`direction${text === '▴' ? 'Bull' : text === '▾' ? 'Bear' : 'Neutral'}`] = 'true';
           if (text === '▴') {
@@ -66,8 +64,6 @@ for (const scope of ['watch-list', 'holdings'] as const) {
       await expect(panel.getByRole('img', { name: /1m K线/ })).toBeVisible();
       await expect(panel).toContainText('多头确认');
       await expect(panel).toContainText('新浪 · 原生分钟线');
-      await expect(panel.locator('canvas[data-session-open]').first()).toBeAttached();
-      await expect(panel.locator('canvas[data-session-close]').first()).toBeAttached();
       await expect(panel.locator('canvas[data-zero-line]').first()).toBeAttached();
       await expect(panel).not.toContainText('突破后回踩守住参考位');
       const detail = panel.getByTestId('intraday-pattern-evidence');
@@ -77,8 +73,7 @@ for (const scope of ['watch-list', 'holdings'] as const) {
       }
       await expect(panel.locator('canvas[data-long-pattern-label]')).toHaveCount(0);
       const canvas = panel.locator('canvas[data-intraday-x]').first();
-      // The 10:28 observation belongs to the first quarter of the 240-minute session.
-      await expect.poll(async () => Number(await canvas.getAttribute('data-intraday-x'))).toBeLessThan(0.34);
+      await canvas.scrollIntoViewIfNeeded();
       const box = (await canvas.boundingBox())!;
       const markerX = Number(await canvas.getAttribute('data-intraday-x')) * box.width;
       const markerY = Number(await canvas.getAttribute('data-intraday-y')) * box.height;
@@ -106,6 +101,28 @@ for (const scope of ['watch-list', 'holdings'] as const) {
         await page.clock.runFor(5_000);
         await expect(row).toContainText('多头确认');
         await expect(panel).toContainText('多头确认');
+        await page.clock.resume();
+
+        await canvas.scrollIntoViewIfNeeded();
+        const { x, y, width, height } = (await canvas.boundingBox())!;
+        const readX = async () => Number(await canvas.getAttribute('data-intraday-x')) * width;
+        const initialX = await readX();
+        await page.mouse.move(x + initialX - 100, y + height / 2);
+        await page.mouse.wheel(0, -360);
+        await expect.poll(readX).toBeGreaterThan(initialX + 5);
+
+        const zoomedX = await readX();
+        await page.mouse.down();
+        await page.mouse.move(x + initialX - 60, y + height / 2, { steps: 5 });
+        await page.mouse.up();
+        await expect.poll(async () => Math.abs((await readX()) - zoomedX - 40)).toBeLessThan(2);
+
+        const pannedX = await readX();
+        const priorY = await canvas.getAttribute('data-intraday-y');
+        bars[58]!.low -= 3;
+        await page.clock.runFor(5_000);
+        await expect(canvas).not.toHaveAttribute('data-intraday-y', priorY!);
+        await expect.poll(async () => Math.abs((await readX()) - pannedX)).toBeLessThan(2);
       }
       await row.getByRole('button', { name: /贵州茅台/ }).first().click();
       await expect(page.getByRole('dialog', { name: /600519/ })).toBeVisible();

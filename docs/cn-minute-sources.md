@@ -73,8 +73,7 @@ docker exec -i finance-analysis-server python - < scripts/check_cn_minute_source
 ## 分钟图
 
 CN 展开图以 `quote.pre_close` 绘制“昨收 · 0%”水平线，并将昨收纳入纵向可见范围，跳空时仍可见。
-时间轴显示 09:30、11:30 / 13:00、15:00，预留尚未交易的分钟空间，不生成未来 OHLC。
-日/周/月图和 US/HK 的既有交互不使用 CN 的固定时段配置。
+时间轴随视口变化，与日内期权交易共用缩放和横向拖动行为。图表由实际分钟线驱动，午休和未来时段不生成 OHLC。
 
 ## 两轮代码自审与验证
 

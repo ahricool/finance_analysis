@@ -45,12 +45,6 @@ const referencePrice = computed(() => {
   const price = props.market === 'CN' ? quote.value?.preClose : null;
   return price != null && Number.isFinite(price) && price > 0 ? price : undefined;
 });
-const session = computed(() => {
-  const day = snapshot.value?.tradingDate;
-  if (props.market !== 'CN' || !day) return undefined;
-  return { open: Date.parse(`${day}T09:30:00+08:00`), close: Date.parse(`${day}T15:00:00+08:00`),
-    breakStart: Date.parse(`${day}T11:30:00+08:00`), breakEnd: Date.parse(`${day}T13:00:00+08:00`) };
-});
 let request: AbortController | null = null;
 let timer: ReturnType<typeof setTimeout> | undefined;
 let generation = 0;
@@ -143,13 +137,12 @@ const overlays = computed<OverlayCreate[]>(() => {
           :key="snapshot?.tradingDate"
           :symbol="symbol"
           period="1m"
-          :live-snapshot="!session"
+          live-snapshot
           :bars="bars"
           :current="current"
           :overlays="overlays"
           :timezone="timezone"
           :reference-price="referencePrice"
-          :session="session"
         />
         <p
           v-else

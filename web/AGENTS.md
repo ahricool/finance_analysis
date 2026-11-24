@@ -367,7 +367,7 @@ CN/HK只显示期权链空态，不请求美股期权API、不扩展后台采集
 失败/等待显示对应日期和原因，同时保留最后成功结算日；历史补算计划不能当作当前待执行计划。
 字段转换须保留`positions`/`exits`里的canonical证券代码键。见`../docs/stock-strategies.md`。
 
-CN 自选/持仓展开分钟图使用完整原生当日窗口（full_snapshot），更新时替换而非跨源拼接。以 quote.pre_close 绘制昨收0%线，时间轴固定显示09:30/15:00及午休边界，不填未来OHLC；日线与US/HK图不使用此固定时段。见 docs/cn-minute-sources.md（仓库根）。
+自选、持仓、日内期权和 BTC 的 1 分钟 K 线共用 `MarketKLineChart` 的缩放、拖动和实时快照更新。CN 展开图使用完整原生当日窗口（full_snapshot），更新时替换整个数据窗口，以 `quote.pre_close` 绘制昨收 0% 线。时间轴随视口变化，缺失分钟保留缺失。见 `../docs/cn-minute-sources.md`。
 
 ## 多信号共振 V2
 
