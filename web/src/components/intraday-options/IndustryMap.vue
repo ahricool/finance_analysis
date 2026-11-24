@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { computed, ref, shallowRef, watch } from 'vue';
-import { useIntervalFn } from '@vueuse/core';
+import { useElementSize, useIntervalFn } from '@vueuse/core';
 import { fetchIndustryMapMetadata, type IndustryMapMetadata, type IntradayOptionRow } from '@/api/intradayOptions';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import AppApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
+import { Button } from '@/components/ui/button';
 import { buildIndustryMap } from './industryMap';
+import { branchIds, layoutIndustryMap } from './industryMapLayout';
 import IndustryMapNode from './IndustryMapNode.vue';
 
 const props = defineProps<{ rows: IntradayOptionRow[]; disconnected: boolean }>();
@@ -17,9 +19,13 @@ const nyDateTime = new Intl.DateTimeFormat('zh-CN', {
 const metadata = shallowRef<IndustryMapMetadata>();
 const error = shallowRef<ParsedApiError | null>(null);
 const attempt = ref(0);
-const expanded = ref(new Set(['QQQ']));
+const collapsed = ref(new Set<string>());
+const canvas = ref<HTMLElement | null>(null);
+const { width } = useElementSize(canvas);
+const compact = computed(() => width.value > 0 && width.value < 900);
 const membership = computed(() => props.rows.map(row => row.symbol).sort().join(','));
 const map = computed(() => buildIndustryMap(props.rows, metadata.value?.items ?? []));
+const layout = computed(() => layoutIndustryMap(map.value.root, collapsed.value, compact.value));
 const capTime = computed(() => {
   const value = Date.parse(metadata.value?.marketCapAsOf ?? '');
   return Number.isFinite(value) ? nyDateTime.format(value) : null;
@@ -39,8 +45,8 @@ watch([membership, attempt], async (_value, _previous, onCleanup) => {
 }, { immediate: true });
 
 function toggle(id: string) {
-  if (expanded.value.has(id)) expanded.value.delete(id);
-  else expanded.value.add(id);
+  if (collapsed.value.has(id)) collapsed.value.delete(id);
+  else collapsed.value.add(id);
 }
 </script>
 
@@ -52,14 +58,42 @@ function toggle(id: string) {
     tabindex="-1"
   >
     <div class="space-y-1">
-      <h2
-        id="intraday-industry-map-title"
-        class="text-base font-semibold"
-      >
-        QQQ 成分股行业图
-      </h2>
+      <div class="flex flex-wrap items-center justify-between gap-2">
+        <h2
+          id="intraday-industry-map-title"
+          class="text-base font-semibold"
+        >
+          QQQ 成分股行业图
+        </h2>
+        <div
+          v-if="metadata"
+          class="flex gap-2"
+        >
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            @click="collapsed.clear()"
+          >
+            全部展开
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            @click="collapsed = new Set(branchIds(map.root))"
+          >
+            全部折叠
+          </Button>
+        </div>
+      </div>
       <p class="text-xs text-muted-foreground">
         行业涨跌为成分股等权平均，仅计入有效报价。个股在二级行业内按市值从大到小排列。
+      </p>
+      <p class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+        <span class="inline-flex items-center gap-1.5"><span class="h-0.5 w-4 bg-market-up" />上涨</span>
+        <span class="inline-flex items-center gap-1.5"><span class="h-0.5 w-4 bg-market-down" />下跌</span>
+        <span>线越粗，子节点与父节点的涨跌幅相差越大。</span>
       </p>
       <p
         v-if="metadata && (capTime || map.missingCaps)"
@@ -91,14 +125,58 @@ function toggle(id: string) {
     </p>
     <div
       v-else
-      class="@container max-h-[36rem] overflow-auto rounded-md bg-muted/35 p-3 sm:p-4"
-      data-testid="industry-map-tree"
+      class="rounded-md bg-muted/25 p-2 sm:p-4"
     >
-      <IndustryMapNode
-        :node="map.root"
-        :expanded="expanded"
-        @toggle="toggle"
-      />
+      <div
+        ref="canvas"
+        class="relative"
+        :style="{ height: `${layout.height}px`, '--map-underline-bottom': `${layout.underlineBottom}px` }"
+        data-testid="industry-map-tree"
+      >
+        <svg
+          class="pointer-events-none absolute inset-0 size-full"
+          aria-hidden="true"
+          :viewBox="`0 0 1000 ${layout.height}`"
+          preserveAspectRatio="none"
+        >
+          <path
+            v-for="edge in layout.edges"
+            :key="edge.to"
+            :d="edge.path"
+            :class="[`map-edge-${edge.direction}`, { 'map-edge-missing': edge.missing }]"
+            class="map-edge"
+            :stroke-width="edge.width"
+            :data-from="edge.from"
+            :data-to="edge.to"
+            vector-effect="non-scaling-stroke"
+          />
+        </svg>
+        <IndustryMapNode
+          v-for="position in layout.nodes"
+          :key="position.node.id"
+          :node="position.node"
+          :expanded="!collapsed.has(position.node.id)"
+          :compact="compact"
+          :style="{
+            left: `${position.x}%`,
+            top: `${position.y}px`,
+            width: `${position.width}%`,
+            height: `${layout.rowHeight}px`,
+          }"
+          @toggle="toggle"
+        />
+      </div>
     </div>
   </section>
 </template>
+
+<style scoped>
+.map-edge {
+  fill: none;
+  stroke-linecap: round;
+}
+.map-edge-up { stroke: hsl(var(--market-up) / 0.7); }
+.map-edge-down { stroke: hsl(var(--market-down) / 0.7); }
+.map-edge-neutral { stroke: hsl(var(--muted-foreground) / 0.46); }
+.map-edge-missing { stroke-dasharray: 3 3; }
+</style>

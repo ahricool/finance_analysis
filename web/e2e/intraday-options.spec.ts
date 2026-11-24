@@ -146,7 +146,7 @@ for (const width of [390, 768, 1024, 1280, 1440, 1920]) {
 }
 
 for (const width of [390, 1440]) {
-  test(`QQQ industry map groups quotes and preserves expansion at ${width}px`, async ({ page }) => {
+  test(`QQQ mind map positions branches and preserves expansion at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 920 });
     await page.addInitScript(theme => localStorage.setItem('theme', theme), width < 800 ? 'dark' : 'light');
     await page.clock.setFixedTime(new Date(now));
@@ -157,7 +157,7 @@ for (const width of [390, 1440]) {
       ['NVDA.US', 4, 'ready'], ['MU.US', 20, 'delayed'],
       ['UNKNOWN.US', null, 'missing'],
     ].map(([symbol, change_pct, quote_status]) => ({
-      symbol, name: symbol, change_pct, quote_status, data_status: 'waiting', issues: [], result: null,
+      symbol, name: symbol === 'NVDA.US' ? '英伟达' : symbol, change_pct, quote_status, data_status: 'waiting', issues: [], result: null,
     }));
     const metadata = [
       { symbol: 'NVDA.US', sector: '科技', industry: 'Semiconductors', market_cap: 4e12 },
@@ -190,35 +190,84 @@ for (const width of [390, 1440]) {
     const tree = page.getByTestId('industry-map-tree');
     await page.getByRole('link', { name: '查看行业图' }).click();
     await expect(tree).toBeInViewport();
-    const root = tree.getByRole('button', { name: /QQQ/ });
-    const tech = tree.getByRole('button', { name: /科技/ });
-    const chips = tree.getByRole('button', { name: /Semiconductors/ });
-    await expect(root).toHaveText('QQQ+1.25%');
-    await expect(root).toHaveCSS('border-top-style', 'solid');
+    const root = tree.getByRole('button', { name: /^QQQ/ });
+    const tech = tree.getByRole('button', { name: /^科技/ });
+    const chips = tree.getByRole('button', { name: /^半导体/ });
+    const nvda = tree.getByRole('button', { name: /^NVDA.*英伟达/ });
+    const nvdaEdge = tree.locator('path[data-to="NVDA.US"]');
+    const stocks = tree.locator('[data-map-kind="stock"]');
+    await expect(root).toContainText('+1.25%');
     await expect(root.getByText('QQQ', { exact: true })).toHaveCSS('white-space', 'nowrap');
-    const sectorConnector = await tech.evaluate(el => getComputedStyle(el.closest('li')!, '::before').borderTopStyle);
-    expect(sectorConnector).toBe('solid');
     await expect(tech).toContainText('+1.67%');
     await expect(tech).toContainText('3/4');
-    await expect(chips).toHaveCount(0);
-    await tech.focus();
-    await tech.press('Enter');
     await expect(chips).toContainText('+3.00%');
     await expect(chips).toContainText('2/3');
-    await chips.click();
-    await expect(chips.locator('xpath=..').getByRole('listitem')).toHaveText(['NVDA+4.00%', 'AMD+2.00%', /MU—/]);
+    await expect(chips).toHaveAttribute('aria-expanded', 'true');
+    await expect(stocks).toHaveCount(5);
+    const chipStocks = stocks.filter({ hasText: /^(NVDA|AMD|MU)/ });
+    await expect(chipStocks).toHaveText([/NVDA.*英伟达.*\+4.00%/, 'AMD+2.00%', 'MU—']);
     await expect(tree.getByText('SPY', { exact: true })).toHaveCount(0);
-    await expect(tree.getByRole('button', { name: /未分类/ })).toBeVisible();
+    await expect(tree.getByText('未分类', { exact: true })).toHaveCount(2);
+    await expect(nvdaEdge).toHaveAttribute('d', /^M .* C /);
+    await expect(nvdaEdge).toHaveClass(/map-edge-up/);
+    await expect(nvda).toHaveCSS('border-top-width', '0px');
+    await expect(nvda).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+    const anchorError = await nvda.evaluate(node => {
+      const underline = getComputedStyle(node, '::after');
+      const edge = node.parentElement!.querySelector<SVGPathElement>('path[data-to="NVDA.US"]')!;
+      const endpoint = edge.getPointAtLength(edge.getTotalLength()).y;
+      const lineY = node.getBoundingClientRect().bottom - edge.ownerSVGElement!.getBoundingClientRect().top
+        - Number.parseFloat(underline.bottom) - Number.parseFloat(underline.borderBottomWidth) / 2;
+      return Math.abs(endpoint - lineY);
+    });
+    expect(anchorError).toBeLessThan(1);
+    const originalWidth = Number(await nvdaEdge.getAttribute('stroke-width'));
+
+    const layout = await tree.evaluate(el => {
+      const centers = new Map(Array.from(el.querySelectorAll<HTMLElement>('[data-map-id]'), node => {
+        const rect = node.getBoundingClientRect();
+        return [node.dataset.mapId!, (rect.top + rect.bottom) / 2];
+      }));
+      const children = new Map<string, number[]>();
+      for (const path of el.querySelectorAll<SVGPathElement>('path[data-from]')) {
+        const { from, to } = path.dataset;
+        const siblings = children.get(from!) ?? [];
+        siblings.push(centers.get(to!)!);
+        children.set(from!, siblings);
+      }
+      const errors = [...children].map(([parent, ys]) => (
+        Math.abs(centers.get(parent)! - (Math.min(...ys) + Math.max(...ys)) / 2)
+      ));
+      return {
+        maxCenterError: Math.max(...errors),
+        fits: el.scrollWidth <= el.clientWidth && el.scrollHeight <= el.clientHeight,
+      };
+    });
+    expect(layout.maxCenterError).toBeLessThan(1);
+    expect(layout.fits).toBe(true);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+
+    await tech.focus();
+    await tech.press('Enter');
+    await expect(chips).toHaveCount(0);
+    await tech.press('Enter');
+    await expect(chips).toHaveAttribute('aria-expanded', 'true');
+    await page.getByRole('button', { name: '全部折叠', exact: true }).click();
+    await expect(tree.locator('[data-map-id]')).toHaveCount(1);
+    await root.click();
+    await expect(tech).toHaveAttribute('aria-expanded', 'false');
+    await page.getByRole('button', { name: '全部展开', exact: true }).click();
+    await expect(stocks).toHaveCount(5);
 
     updateQuote();
     await expect(tech).toContainText('-1.00%');
     await expect(chips).toContainText('-1.00%');
     await expect(chips).toHaveAttribute('aria-expanded', 'true');
-    await expect(tree.getByText('NVDA', { exact: true })).toBeVisible();
-    expect(await tree.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
-    await root.click();
-    await expect(tech).toHaveCount(0);
-    await root.click();
-    await expect(chips).toHaveAttribute('aria-expanded', 'true');
+    await expect(nvdaEdge).toHaveClass(/map-edge-down/);
+    expect(Number(await nvdaEdge.getAttribute('stroke-width'))).toBeGreaterThan(originalWidth);
+    await nvda.click();
+    const detail = page.getByRole('dialog');
+    await expect(detail.getByRole('heading', { name: /英伟达/ })).toBeVisible();
+    await expect(detail).toContainText('NVDA');
   });
 }

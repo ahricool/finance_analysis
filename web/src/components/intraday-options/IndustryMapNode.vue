@@ -1,167 +1,195 @@
 <script setup lang="ts">
-import { ChevronDown, ChevronRight } from 'lucide-vue-next';
+import { computed } from 'vue';
+import { Minus, Plus } from 'lucide-vue-next';
+import { useStockDetail } from '@/composables/useStockDetail';
 import { pct, tone } from './labels';
-import type { IndustryMapNode as Node } from './industryMap';
+import type { IndustryMapNode } from './industryMap';
 
-defineProps<{ node: Node; expanded: ReadonlySet<string> }>();
-defineEmits<{ toggle: [id: string] }>();
+const props = defineProps<{ node: IndustryMapNode; expanded: boolean; compact: boolean }>();
+const emit = defineEmits<{ toggle: [id: string] }>();
+const detail = useStockDetail();
+const branch = computed(() => props.node.kind !== 'stock' && props.node.children.length > 0);
+const chineseName = computed(() => {
+  const name = props.node.kind === 'stock' ? props.node.name?.trim() : null;
+  return name && /\p{Script=Han}/u.test(name) ? name : null;
+});
+
+function select() {
+  const node = props.node;
+  if (node.kind === 'stock') {
+    detail.open({ code: node.id, name: node.name, marketType: 'US' });
+  } else {
+    emit('toggle', node.id);
+  }
+}
 </script>
 
 <template>
-  <div :class="['map-branch', `map-${node.kind}`]">
-    <button
-      v-if="node.kind !== 'stock' && node.children.length"
-      type="button"
-      class="map-node focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-      :aria-expanded="expanded.has(node.id)"
-      @click="$emit('toggle', node.id)"
-    >
+  <button
+    type="button"
+    class="map-node"
+    :class="[`map-${node.kind}`, { 'map-compact': compact }]"
+    :aria-expanded="branch ? expanded : undefined"
+    :disabled="node.kind !== 'stock' && !branch"
+    :data-map-id="node.id"
+    :data-map-kind="node.kind"
+    @click="select"
+  >
+    <span class="map-identity">
       <component
-        :is="expanded.has(node.id) ? ChevronDown : ChevronRight"
-        class="mt-0.5 size-4 shrink-0 text-muted-foreground"
+        :is="expanded ? Minus : Plus"
+        v-if="branch"
+        class="map-toggle"
         aria-hidden="true"
       />
-      <span class="map-label min-w-0 break-words">{{ node.label }}</span>
-      <span class="map-change">
-        <span :class="tone(node.change)">{{ pct(node.change) }}</span>
-        <span
-          v-if="node.coverage && node.coverage.quoted < node.coverage.total"
-          class="block text-right text-xs font-normal text-muted-foreground"
-        >
-          <span class="sr-only">有效报价</span>{{ node.coverage.quoted }}/{{ node.coverage.total }}
-        </span>
-      </span>
-    </button>
-    <div
-      v-else
-      class="map-node"
-    >
-      <span>{{ node.label }}</span>
+      <span class="map-label">{{ node.label }}</span>
       <span
-        class="map-change"
+        v-if="chineseName"
+        class="map-name"
+      >{{ chineseName }}</span>
+    </span>
+    <span class="map-quote">
+      <span
+        class="font-semibold"
         :class="tone(node.change)"
       >{{ pct(node.change) }}</span>
       <span
-        v-if="node.kind === 'stock' && node.marketCap === null"
-        class="sr-only"
-      >暂无市值</span>
-    </div>
-    <ul
-      v-if="node.kind !== 'stock' && expanded.has(node.id) && node.children.length"
-      class="map-children"
-    >
-      <li
-        v-for="child in node.children"
-        :key="child.id"
+        v-if="node.kind !== 'stock' && node.coverage && node.coverage.quoted < node.coverage.total"
+        class="map-coverage"
       >
-        <IndustryMapNode
-          :node="child"
-          :expanded="expanded"
-          @toggle="$emit('toggle', $event)"
-        />
-      </li>
-    </ul>
-  </div>
+        <span class="sr-only">有效报价</span>{{ node.coverage.quoted }}/{{ node.coverage.total }}
+      </span>
+    </span>
+  </button>
 </template>
 
 <style scoped>
-.map-branch {
-  --gap: 0.85rem;
-  --connector: hsl(var(--muted-foreground) / 0.43);
-  --node-center: 1.25rem;
-  display: flex;
-  align-items: flex-start;
-}
-
 .map-node {
+  position: absolute;
   display: flex;
-  align-items: flex-start;
-  flex: none;
-  gap: 0.4rem;
-  padding: 0.55rem 0.65rem;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 0.45rem;
   min-inline-size: 0;
-  border: 1px solid hsl(var(--border));
-  border-radius: var(--radius-md);
-  background: hsl(var(--card));
+  padding: 0 0.25rem 0.37rem;
+  border: 0;
+  background: transparent;
   color: hsl(var(--card-foreground));
-  font-size: 0.875rem;
-  line-height: 1.25rem;
+  font-size: 0.8125rem;
+  line-height: 1.15;
   text-align: start;
+  transform: translateY(-50%);
 }
 
-button.map-node {
+.map-node::after {
+  position: absolute;
+  inset-inline: 0;
+  inset-block-end: var(--map-underline-bottom);
+  border-block-end: 1px solid hsl(var(--foreground) / 0.22);
+  content: '';
+}
+
+.map-node:enabled {
   cursor: pointer;
-  font-weight: 500;
 }
 
-button.map-node:hover {
+.map-node:focus-visible {
+  outline: none;
+}
+
+.map-node:focus-visible .map-label {
+  text-decoration: underline;
+  text-underline-offset: 0.12em;
+}
+
+.map-root {
+  font-size: 0.875rem;
+}
+
+.map-root::after {
+  border-color: hsl(var(--foreground) / 0.5);
+}
+
+.map-node:enabled:hover::after,
+.map-node:focus-visible::after {
   border-color: hsl(var(--ring));
-  background: hsl(var(--accent));
-  color: hsl(var(--accent-foreground));
 }
 
-.map-root > .map-node {
-  inline-size: 9rem;
-  border-color: color-mix(in oklab, hsl(var(--primary)) 42%, hsl(var(--border)));
+.map-identity {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-inline-size: 0;
+}
+
+.map-toggle {
+  flex: none;
+  inline-size: 0.8rem;
+  block-size: 0.8rem;
+  color: hsl(var(--muted-foreground));
+}
+
+.map-label {
   font-weight: 600;
+  overflow-wrap: anywhere;
 }
 
-.map-root > .map-node > .map-label { white-space: nowrap; }
-.map-sector > .map-node { inline-size: 10.5rem; }
-.map-industry > .map-node { inline-size: 15rem; }
-.map-stock > .map-node { inline-size: 8.5rem; }
-
-.map-change {
-  margin-inline-start: auto;
+.map-root .map-label,
+.map-stock .map-label {
   white-space: nowrap;
+}
+
+.map-stock .map-label {
   font-variant-numeric: tabular-nums;
 }
 
-.map-children {
-  position: relative;
-  margin-inline-start: var(--gap);
-  padding-inline-start: var(--gap);
+.map-name {
+  color: hsl(var(--muted-foreground));
+  overflow-wrap: anywhere;
 }
 
-.map-children::before,
-.map-children > li::before {
-  content: "";
-  position: absolute;
-  inset-block-start: var(--node-center);
-  inset-inline-start: calc(-1 * var(--gap));
-  inline-size: var(--gap);
-  border-block-start: 1px solid var(--connector);
+.map-quote {
+  display: block;
+  flex: none;
+  white-space: nowrap;
+  text-align: end;
+  font-variant-numeric: tabular-nums;
 }
 
-.map-children > li {
-  position: relative;
+.map-coverage {
+  display: block;
+  margin-block-start: 0.14rem;
+  color: hsl(var(--muted-foreground));
+  font-size: 0.625rem;
 }
 
-.map-children > li:not(:last-child) {
-  padding-block-end: 0.5rem;
+.map-compact {
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: stretch;
+  gap: 0.15rem;
+  padding-inline: 0.16rem;
+  font-size: 0.6875rem;
 }
 
-.map-children > li::after {
-  content: "";
-  position: absolute;
-  inset-block: 0;
-  inset-inline-start: calc(-1 * var(--gap));
-  border-inline-start: 1px solid var(--connector);
+.map-compact .map-identity {
+  gap: 0.13rem;
 }
 
-.map-children > li:first-child::after { inset-block-start: var(--node-center); }
-.map-children > li:last-child::after { inset-block-end: calc(100% - var(--node-center)); }
+.map-compact .map-toggle {
+  inline-size: 0.58rem;
+  block-size: 0.58rem;
+}
 
-@container (width < 49rem) {
-  .map-branch { display: block; }
-  .map-branch > .map-node { inline-size: 100%; }
-  .map-children { margin-inline-start: 0.75rem; }
-  .map-children::before { display: none; }
-  .map-children > li:first-child { padding-block-start: 0.5rem; }
-  .map-children > li:first-child::before { inset-block-start: calc(var(--node-center) + 0.5rem); }
-  .map-children > li:first-child::after { inset-block-start: 0; }
-  .map-children > li:first-child:last-child::after {
-    inset-block-end: calc(100% - var(--node-center) - 0.5rem);
-  }
+.map-compact .map-quote {
+  font-size: 0.625rem;
+}
+
+.map-stock.map-compact .map-identity {
+  flex-wrap: wrap;
+}
+
+.map-stock.map-compact .map-name {
+  flex: 1 0 100%;
 }
 </style>

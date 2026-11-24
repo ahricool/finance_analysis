@@ -1,4 +1,5 @@
 import type { IndustryMapMember, IntradayOptionRow } from '@/api/intradayOptions';
+import { yahooIndustryName } from './yahooIndustryNames';
 
 interface MapNode {
   id: string;
@@ -8,6 +9,7 @@ interface MapNode {
 
 interface StockNode extends MapNode {
   kind: 'stock';
+  name: string | null;
   marketCap: number | null;
 }
 
@@ -60,6 +62,7 @@ export function buildIndustryMap(rows: IntradayOptionRow[], metadata: IndustryMa
       kind: 'stock',
       id: row.symbol,
       label: row.symbol.replace(/\.US$/, ''),
+      name: row.name,
       change: quotedChange(row),
       marketCap,
     });
@@ -75,11 +78,13 @@ export function buildIndustryMap(rows: IntradayOptionRow[], metadata: IndustryMa
       label: sector ?? '未分类',
       ...summarize([...industries.values()].flat()),
       children: [...industries]
-        .sort(([left], [right]) => classificationOrder(left, right))
+        .sort(([left], [right]) => classificationOrder(
+          left && yahooIndustryName(left), right && yahooIndustryName(right),
+        ))
         .map(([industry, stocks]) => ({
           kind: 'industry',
           id: JSON.stringify([sector, industry]),
-          label: industry ?? '未分类',
+          label: yahooIndustryName(industry),
           ...summarize(stocks),
           children: stocks.sort((left, right) => (right.marketCap ?? 0) - (left.marketCap ?? 0)
             || left.id.localeCompare(right.id)),
