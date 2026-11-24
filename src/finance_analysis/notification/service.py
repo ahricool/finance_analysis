@@ -312,7 +312,7 @@ class NotificationService(
         title: Optional[str] = None,
         push_content: Optional[str] = None,
     ) -> NotificationResult:
-        """Push an already persisted in-app message. Never creates another notification row."""
+        """Push a persisted message, with an optional title for ntfy."""
         self.last_notification_id = notification_id
         result = NotificationResult(notification_id=notification_id)
         try:
@@ -323,6 +323,7 @@ class NotificationService(
                 severity=severity,
                 dedup_key=dedup_key,
                 cooldown_key=cooldown_key,
+                title=title,
             )
         except Exception:
             logger.exception("External notification delivery failed")
@@ -337,6 +338,7 @@ class NotificationService(
         severity: Optional[str],
         dedup_key: Optional[str],
         cooldown_key: Optional[str],
+        title: Optional[str] = None,
     ) -> None:
         if not self._available_channels:
             logger.info("未配置外部通知渠道，跳过推送")
@@ -372,11 +374,11 @@ class NotificationService(
             from datetime import datetime
 
             # Apply ntfy's complete wire limits once before dispatching either channel.
-            title = f"📈 Finance Analysis 报告 - {datetime.now():%Y-%m-%d}"
+            ntfy_title = title or f"📈 Finance Analysis 报告 - {datetime.now():%Y-%m-%d}"
             _, topic = self._resolve_ntfy_endpoint()
             if NotificationChannel.NTFY in target_channels and topic:
                 try:
-                    parts = split_ntfy_message(topic, title, content)
+                    parts = split_ntfy_message(topic, ntfy_title, content)
                 except ValueError:
                     # Invalid ntfy metadata must not block Telegram delivery.
                     parts = split_message(content)
@@ -392,7 +394,7 @@ class NotificationService(
                         else:
                             push_sent = all(self.send_to_telegram(part) for part in parts)
                     else:
-                        push_sent = all(self.send_to_ntfy(part, title=title) for part in parts)
+                        push_sent = all(self.send_to_ntfy(part, title=ntfy_title) for part in parts)
                     result.channel_results[channel.value] = bool(push_sent)
                     result.push_sent = bool(push_sent) or result.push_sent
                     if not push_sent:

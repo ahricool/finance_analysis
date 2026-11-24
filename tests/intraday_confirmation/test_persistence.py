@@ -4,14 +4,16 @@ from datetime import date, datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event, select
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
+from finance_analysis.database.models import Notification, User
 from finance_analysis.database.models.intraday_confirmation import IntradayConfirmationSnapshot, IntradayConfirmationEvaluation
 from finance_analysis.database.repositories.intraday_confirmation_store import (
     ConfirmationStore, StaleConfirmationWrite,
 )
+from finance_analysis.intraday_confirmation.config import RULE_VERSION
 from finance_analysis.intraday_confirmation.service import ConfirmationService
 from finance_analysis.intraday_confirmation.session import Session as TradingSession
 
@@ -25,6 +27,8 @@ def store():
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     IntradayConfirmationSnapshot.__table__.create(engine)
     IntradayConfirmationEvaluation.__table__.create(engine)
+    User.__table__.create(engine)
+    Notification.__table__.create(engine)
 
     class DB:
         @contextmanager
@@ -128,7 +132,7 @@ def test_failure_to_persist_does_not_report_evaluation_success(monkeypatch):
     def fail(*args):
         raise RuntimeError("database write unavailable")
     monkeypatch.setattr(module, "collect_data", lambda *args: ({}, {}, {}))
-    service = ConfirmationService(store=SimpleNamespace(save=fail), market_data=object())
+    service = ConfirmationService(store=SimpleNamespace(save_evaluation=fail), market_data=object())
     with pytest.raises(RuntimeError, match="database write"):
         service._evaluate(TRADING, frozen(), OPEN + timedelta(minutes=15))
 
@@ -317,7 +321,6 @@ def test_manual_outside_session_still_catches_up_historical_outcomes(monkeypatch
 
 
 def test_failed_return_write_rolls_back_check_timestamp_and_keeps_pending(store):
-    from sqlalchemy import event
     first = store.save(TRADING, frozen())
     saved = store.save(TRADING, evaluation(first))
     with store.db.get_session() as session:
@@ -360,7 +363,6 @@ def test_v2_evaluation_and_snapshot_commit_together_and_are_read_only(store, ver
 
 @pytest.mark.parametrize("version", ["intraday_v2", "intraday_v2_1", "intraday_v2_2"])
 def test_evaluation_write_failure_rolls_back_snapshot(store, monkeypatch, version):
-    from sqlalchemy import event
     first = store.save(TRADING, frozen(rule_version=version))
     def fail(*args):
         raise RuntimeError("evaluation write failed")
@@ -372,3 +374,142 @@ def test_evaluation_write_failure_rolls_back_snapshot(store, monkeypatch, versio
         event.remove(IntradayConfirmationEvaluation, "before_insert", fail)
     assert store.load("US", DAY) == first
     assert store.evaluations("US", DAY, "ABC.US") == []
+
+
+def test_stable_alerts_batch_once_and_push_after_commit_and_unlock(store, monkeypatch):
+    from finance_analysis.intraday_confirmation import service as module
+
+    pool = frozen(rule_version=RULE_VERSION)
+    pool["items"].extend(
+        [
+            {**pool["items"][0], "code": "NEW.US"},
+            {
+                **pool["items"][0],
+                "code": "OLD.US",
+                "state": "CONFIRMED",
+                "first_confirmed_at": (OPEN + timedelta(minutes=10)).isoformat(),
+            },
+        ]
+    )
+    store.save(TRADING, pool)
+    locked = False
+    pushes = []
+
+    @contextmanager
+    def lock(*args):
+        nonlocal locked
+        locked = True
+        try:
+            yield SimpleNamespace(acquired=True)
+        finally:
+            locked = False
+
+    def push(content, *, notification_id, **kwargs):
+        assert not locked
+        with store.db.get_session() as session:
+            message = session.get(Notification, notification_id)
+            assert message.uid is None and message.route_type == kwargs["route_type"] == "alert"
+            assert message.severity == kwargs["severity"] == "warning"
+            assert message.title == kwargs["title"] and message.title in content
+        assert kwargs["dedup_key"] == kwargs["cooldown_key"] == f"intraday-confirmation:{notification_id}"
+        pushes.append((notification_id, content))
+        if len(pushes) == 2:
+            raise RuntimeError("simulated channel error")
+
+    monkeypatch.setattr(ConfirmationStore, "lock", lock)
+    monkeypatch.setattr(module, "resolve_session", lambda *args: TRADING)
+    monkeypatch.setattr(module, "monotonic", lambda: 0)
+    monkeypatch.setattr(module, "collect_data", lambda _, codes, *args: ({code: code for code in codes}, {}, {}))
+    monkeypatch.setattr(module, "temporary_trend", lambda *args: {})
+    monkeypatch.setattr(
+        module,
+        "metrics",
+        lambda code, minute, bench, bars, session, now: dict(
+            code=code, price=105, open=100, quote_time=now, quote_usable=True, data_fresh=True,
+            bar_time=now, relative_to_market=0.02,
+        ),
+    )
+    proposed = {"ABC.US": "CONFIRMED", "NEW.US": "WAIT", "OLD.US": "FAILED"}
+    monkeypatch.setattr(
+        module,
+        "decision",
+        lambda metrics, trend: dict(
+            proposed_state=proposed[metrics["code"]],
+            data_status="READY",
+            reasons=[],
+            confirmation_score=90,
+            conditions={"opening_breakout": metrics["code"] == "ABC.US", "ma5_pullback": metrics["code"] == "NEW.US"},
+        ),
+    )
+
+    notifier = SimpleNamespace(push_existing=push)
+    service = ConfirmationService(store=store, market_data=object(), notifier=notifier)
+    assert service.run("US", OPEN + timedelta(minutes=15))["status"] == "evaluated"
+    assert pushes == []
+    service.run("US", OPEN + timedelta(minutes=20))
+    assert len(pushes) == 1
+    assert "ABC.US（开盘区间突破）" in pushes[0][1]
+    assert "OLD.US" not in pushes[0][1]
+
+    proposed.update({"ABC.US": "FAILED", "NEW.US": "CONFIRMED"})
+    service.run("US", OPEN + timedelta(minutes=25))
+    conflicting = store.load("US", DAY)
+    assert len(pushes) == 1
+
+    restarted = ConfirmationService(store=ConfirmationStore(store.db), market_data=object(), notifier=notifier)
+    assert restarted.run("US", OPEN + timedelta(minutes=30))["status"] == "evaluated"
+    assert len(pushes) == 2
+    assert "ABC.US（跌破开盘区间低点）" in pushes[1][1]
+    assert "NEW.US（MA5 回踩）" in pushes[1][1]
+    assert "OLD.US" not in pushes[1][1]
+    with pytest.raises(StaleConfirmationWrite):
+        store.save_evaluation(TRADING, evaluation(conflicting, minute=30))
+
+    proposed["ABC.US"] = "CONFIRMED"
+    restarted.run("US", OPEN + timedelta(minutes=35))
+    assert len(pushes) == 2
+    assert store.load("US", DAY)["alert_notification_ids"] == {
+        "ABC.US": {"confirmed": pushes[0][0], "failed": pushes[1][0]},
+        "NEW.US": {"confirmed": pushes[1][0]},
+    }
+    with store.db.get_session() as session:
+        messages = session.scalars(select(Notification).order_by(Notification.id)).all()
+        assert [message.id for message in messages] == [notice_id for notice_id, _ in pushes]
+        assert "[查看盘中确认](/research/intraday-confirmation)" in messages[1].content
+
+
+def test_alert_and_evaluation_rollback_together_allowing_retry(store):
+    first = store.save(TRADING, frozen(rule_version=RULE_VERSION))
+    with store.db.get_session() as session:
+        engine = session.bind
+
+    def fail_evaluation(conn, cursor, statement, parameters, context, executemany):
+        if statement.startswith("INSERT INTO intraday_confirmation_evaluation"):
+            raise RuntimeError("simulated evidence write failure")
+
+    event.listen(engine, "before_cursor_execute", fail_evaluation)
+    try:
+        with pytest.raises(RuntimeError, match="simulated evidence"):
+            store.save_evaluation(TRADING, evaluation(first))
+    finally:
+        event.remove(engine, "before_cursor_execute", fail_evaluation)
+
+    assert store.load("US", DAY) == first
+    with store.db.get_session() as session:
+        assert session.scalars(select(Notification)).all() == []
+    notification_id, _, _ = store.save_evaluation(TRADING, evaluation(first))
+    assert store.load("US", DAY)["alert_notification_ids"] == {"ABC.US": {"confirmed": notification_id}}
+
+
+def test_large_alert_uses_local_time_and_keeps_full_message_in_app():
+    from zoneinfo import ZoneInfo
+
+    from finance_analysis.intraday_confirmation.notification import render_alert
+
+    opened = OPEN.astimezone(ZoneInfo("America/New_York"))
+    trading = TradingSession("US", opened, TRADING.closed, TRADING.previous_date)
+    confirmed = [{"code": f"STOCK{i}.US"} for i in range(6)]
+    title, content, push = render_alert(trading, OPEN.isoformat(), confirmed, [])
+    assert title == "美股盘中确认 · 09:30 · 6 项变化"
+    assert "STOCK5.US" in content
+    assert "STOCK5.US" not in push and "另有 1 只" in push

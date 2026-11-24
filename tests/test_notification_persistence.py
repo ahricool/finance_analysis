@@ -222,3 +222,15 @@ def test_invalid_ntfy_metadata_does_not_block_telegram(service):
     result = service.send("汉" * 2000, uid=1)
     assert result.channel_results == {"telegram": True, "ntfy": False}
     assert service.send_to_telegram.call_count > 1
+
+
+def test_push_existing_uses_alert_title_for_ntfy(repo, service):
+    title = "美股盘中确认 · 09:45"
+    notification_id = repo.create(uid=None, title=title, content="完整消息", route_type="alert", severity="warning")
+    result = service.push_existing(
+        "完整消息", notification_id=notification_id, title=title, route_type="alert", push_content="推送摘要"
+    )
+    assert result.push_sent
+    service.send_to_ntfy.assert_called_once_with("推送摘要", title=title)
+    service.send_to_telegram.assert_called_once_with("推送摘要")
+    assert repo.list_messages(uid=1)["total"] == 1

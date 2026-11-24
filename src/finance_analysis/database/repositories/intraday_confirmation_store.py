@@ -7,9 +7,11 @@ from sqlalchemy import func, select, tuple_, update
 from finance_analysis.core.time import utc_now
 from finance_analysis.database.models.intraday_confirmation import IntradayConfirmationSnapshot as Snapshot
 from finance_analysis.database.models.intraday_confirmation import IntradayConfirmationEvaluation as Evaluation
+from finance_analysis.database.models.notification import Notification
 from finance_analysis.database.models.stock import Instrument, StockDaily
 from finance_analysis.trend_following.preview_cache import json_ready
 from finance_analysis.intraday_confirmation.config import OBSERVATION_VERSIONS
+from finance_analysis.intraday_confirmation.notification import ALERT_ROUTE, ALERT_SEVERITY, render_alert
 
 ANCHOR_FIELDS = (
     "first_confirmed_at",
@@ -95,6 +97,15 @@ class ConfirmationStore:
             )
 
     def save(self, trading_session, payload):
+        self._save(trading_session, payload)
+        return self.load(trading_session.market, trading_session.day)
+
+    def save_evaluation(self, trading_session, payload):
+        """Commit the evaluation and its in-app alert, then return the alert for external delivery."""
+        return self._save(trading_session, payload, notify=True)
+
+    def _save(self, trading_session, payload, *, notify=False):
+        alert = None
         market, day = trading_session.market, trading_session.day
         incoming = json_ready({k: v for k, v in payload.items() if k != "_revision"})
         if incoming.get("market") != market or incoming.get("trade_date") != day.isoformat():
@@ -129,6 +140,9 @@ class ConfirmationStore:
                 ):
                     raise StaleConfirmationWrite("Cannot publish older confirmation evidence")
                 merged = merge_evidence(row.payload, incoming)
+                evaluated = incoming.get("rule_version") in OBSERVATION_VERSIONS and incoming["status"] == "evaluated"
+                if notify and evaluated:
+                    alert = self._create_alert(session, trading_session, row.payload, merged)
                 # The version predicate also guards callers whose session lock was lost.
                 result = session.execute(
                     update(Snapshot)
@@ -147,7 +161,7 @@ class ConfirmationStore:
                 )
                 if result.rowcount != 1:
                     raise StaleConfirmationWrite("Concurrent confirmation write")
-                if incoming.get("rule_version") in OBSERVATION_VERSIONS and incoming["status"] == "evaluated":
+                if evaluated:
                     fields = (
                         "code",
                         "state",
@@ -173,7 +187,44 @@ class ConfirmationStore:
                             payload={"items": [{key: item.get(key) for key in fields} for item in merged["items"]]},
                         )
                     )
-        return self.load(market, day)
+        return alert
+
+    @staticmethod
+    def _create_alert(session, trading_session, previous, merged):
+        previous_by_code = {item["code"]: item for item in previous["items"]}
+        # This map is copied from persisted evidence by merge_evidence, never from a caller's evaluation.
+        recorded = merged.get("alert_notification_ids", {})
+        confirmed, failed = [], []
+        for item in merged["items"]:
+            old = previous_by_code[item["code"]]
+            flags = recorded.get(item["code"], {})
+            if (
+                old["state"] == "WAIT"
+                and item["state"] == "CONFIRMED"
+                and item.get("first_confirmed_at")
+                and not old.get("first_confirmed_at")
+                and "confirmed" not in flags
+            ):
+                confirmed.append(item)
+            elif (
+                old["state"] == "CONFIRMED"
+                and item["state"] == "FAILED"
+                and "confirmed" in flags
+                and "failed" not in flags
+            ):
+                failed.append(item)
+        if not confirmed and not failed:
+            return None
+
+        title, content, push_content = render_alert(trading_session, merged["generated_at"], confirmed, failed)
+        message = Notification(uid=None, title=title, content=content, route_type=ALERT_ROUTE, severity=ALERT_SEVERITY)
+        session.add(message)
+        session.flush()
+        for event, items in (("confirmed", confirmed), ("failed", failed)):
+            for item in items:
+                recorded.setdefault(item["code"], {})[event] = message.id
+        merged["alert_notification_ids"] = recorded
+        return message.id, title, push_content
 
     def evaluations(self, market, day, code):
         with self.db.get_session() as session:
