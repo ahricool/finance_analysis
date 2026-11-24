@@ -1,6 +1,6 @@
 # 实时行情 Streamer
 
-`finance-analysis-stream` 独立于 FastAPI / Celery 运行。采集池是所有用户自选股、未清仓持仓与日内期权固定28标的的去重并集，
+`finance-analysis-stream` 独立于 FastAPI / Celery 运行。采集池是所有用户自选股、未清仓持仓与日内期权观察池（PostgreSQL `us_nasdaq100` 成分股去重 `GOOG.US` + `SPY/QQQ` 基准，约 102 只，含移出观察池但尚未平仓的旧标的）的去重并集，
 从 PostgreSQL 只读加载；报价、分钟线、趋势、形态和观测事件只写 Redis，不写行情数据库。
 
 ## 两条独立采集链

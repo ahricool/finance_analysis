@@ -83,7 +83,7 @@ watch(stream.intradayOptions, result => {
     <PageHeader
       title="日内期权交易"
       en="Intraday Options"
-      description="固定标的观察池 · 趋势质量与日内入场机会分开观察；分数不是盈利概率。"
+      description="QQQ（纳指100）成分股 + SPY/QQQ 观察池 · 趋势质量与日内入场机会分开观察；分数不是盈利概率。"
     />
     <SimulationPanel
       v-if="snapshot"
@@ -162,7 +162,7 @@ watch(stream.intradayOptions, result => {
               :colspan="columns.length"
               class="py-12 text-center text-muted-foreground"
             >
-              {{ loading ? '加载固定观察池…' : error ? '行情连接失败，请等待重试。' : '没有符合筛选条件的标的。' }}
+              {{ loading ? '加载观察池…' : error ? '行情连接失败，请等待重试。' : '没有符合筛选条件的标的。' }}
             </TableCell>
           </TableRow>
           <template

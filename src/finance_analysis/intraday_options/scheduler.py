@@ -1,5 +1,7 @@
 """Bounded worker scheduling. Async Redis remains exclusively on its owning loop."""
 
+from __future__ import annotations
+
 import asyncio
 from concurrent.futures import ThreadPoolExecutor, wait as wait_futures
 from copy import deepcopy
@@ -7,23 +9,35 @@ from datetime import timedelta
 import json
 import logging
 import threading
+import time
 
 from finance_analysis.core.time import utc_now
 from finance_analysis.database.repositories.intraday_simulation import (
+    load_daily_context,
+    load_universe_symbols,
     open_retired_symbols,
     process as _store_process,
     process_with_events,
 )
-from finance_analysis.intraday_options.config import SYMBOLS
+from finance_analysis.intraday_options.config import BENCHMARK_SYMBOL_SET, SYMBOLS as _DEFAULT_SYMBOLS
 from finance_analysis.intraday_options.notification import is_trade_event, notify_trade_events
 from finance_analysis.intraday_options.scoring import calculate, closed_session_bars
 from finance_analysis.intraday_options.simulation import CONFIG
 from finance_analysis.intraday_options.structure import execution_context
-from finance_analysis.market_stream.session import cache_ttl
 from finance_analysis.market_stream.config import market_trading_date
+from finance_analysis.market_stream.session import cache_ttl
 
 logger = logging.getLogger(__name__)
+SYMBOLS = _DEFAULT_SYMBOLS
 process = _store_process
+_DAILY_CONTEXT_RETRY_SECONDS = 30.0
+
+
+def _active_symbols() -> tuple[str, ...]:
+    """Resolve active intraday universe from DB (with fallback), preserving test monkeypatches on SYMBOLS."""
+    if SYMBOLS is not _DEFAULT_SYMBOLS:
+        return tuple(SYMBOLS)
+    return load_universe_symbols()
 
 
 def _run_process(symbol, result, quote, now):
@@ -81,6 +95,29 @@ def _peer_open_and_latest_bars(raw_bars, opening, now):
     return [deepcopy(b) for b in raw_bars if b.bar_time == opening or b.bar_time >= tail_floor]
 
 
+def _build_round_peer_snapshot(bars_by_symbol, active_symbols, opening, now):
+    """Build one shared, read-only peer-closed snapshot + cache signature per 5s round (O(N), excludes benchmarks)."""
+    if opening is None:
+        return {}, ()
+    peer_closed = {}
+    for peer in active_symbols:
+        if peer in BENCHMARK_SYMBOL_SET:
+            continue
+        raw = _peer_open_and_latest_bars(bars_by_symbol.get(peer, ()), opening, now)
+        peer_closed[peer] = tuple(closed_session_bars(peer, raw, now))
+    peer_signature = tuple(
+        (
+            peer,
+            tuple(
+                (b.bar_time, b.received_at, b.open, b.close, b.is_valid(), b.partial, b.sampled)
+                for b in p_closed
+            ),
+        )
+        for peer, p_closed in sorted(peer_closed.items())
+    )
+    return peer_closed, peer_signature
+
+
 async def run(repository, bars_by_symbol, stop_event):
     from finance_analysis.intraday_options.runtime import result_key
     from finance_analysis.market_stream.session import session_bounds
@@ -92,6 +129,11 @@ async def run(repository, bars_by_symbol, stop_event):
     pending = {}
     cache = {}
     retiring = None
+    last_active_symbols: tuple[str, ...] = ()
+    daily_ctx_day = None
+    daily_ctx_symbols: tuple[str, ...] = ()
+    daily_ctx_map: dict[str, dict] = {}
+    daily_ctx_retry_after = 0.0
 
     def submit_notifications(events, sym):
         trade_events = [deepcopy(e) for e in events if is_trade_event(e)]
@@ -117,18 +159,26 @@ async def run(repository, bars_by_symbol, stop_event):
             notify_futures.add(future)
         future.add_done_callback(finish)
 
-    def compute(symbol, bars, benchmark, spy_bars, peer_bars, quote, now):
+    def compute(
+        symbol,
+        active_set,
+        bars,
+        benchmark,
+        spy_bars,
+        round_peer_closed,
+        round_peer_signature,
+        symbol_daily_ctx,
+        symbol_daily_ctx_day,
+        quote,
+        now,
+    ):
         now = utc_now()  # Queue wait must not make an old quote look fresh.
-        if symbol not in SYMBOLS:
+        if symbol not in active_set:
             state, events = _run_process(symbol, None, quote, now)
             submit_notifications(events, symbol)
             return None, state
         closed = closed_session_bars(symbol, bars, now)
         spy_closed = closed_session_bars("SPY.US", spy_bars, now)
-        peer_closed = {
-            peer: closed_session_bars(peer, p_bars, now)
-            for peer, p_bars in peer_bars.items()
-        }
         # All relevant OHLCV/validity revisions invalidate shape cache.
         signature = tuple(
             (b.bar_time, b.received_at, b.open, b.high, b.low, b.close, b.volume, b.partial, b.sampled)
@@ -138,15 +188,18 @@ async def run(repository, bars_by_symbol, stop_event):
             (b.bar_time, b.received_at, b.open, b.high, b.low, b.close, b.volume, b.partial, b.sampled)
             for b in spy_closed
         )
-        peer_signature = tuple(
-            (
-                peer,
-                tuple(
-                    (b.bar_time, b.received_at, b.open, b.close, b.is_valid(), b.partial, b.sampled)
-                    for b in p_closed
-                ),
-            )
-            for peer, p_closed in sorted(peer_closed.items())
+        day = market_trading_date(closed[-1].bar_time, "US") if closed else market_trading_date(now, "US")
+        effective_daily_ctx = symbol_daily_ctx if (symbol_daily_ctx and symbol_daily_ctx_day == day) else {}
+        live_pre_close = (
+            quote.pre_close
+            if quote is not None and quote.trading_date == day and quote.pre_close is not None and quote.pre_close > 0
+            else None
+        )
+        daily_signature = (
+            str(live_pre_close) if live_pre_close is not None else None,
+            effective_daily_ctx.get("prev_close") if effective_daily_ctx else None,
+            effective_daily_ctx.get("daily_atr_pct") if effective_daily_ctx else None,
+            effective_daily_ctx.get("as_of") if effective_daily_ctx else None,
         )
         prior = cache.get(symbol)
         base_result = (
@@ -155,45 +208,71 @@ async def run(repository, bars_by_symbol, stop_event):
             else calculate(symbol, closed, now) if closed else None
         )
         if base_result is not None:
-            if prior and prior[0] == signature and prior[2] == spy_signature and prior[3] == peer_signature:
-                result = prior[4]
+            if (
+                prior
+                and prior[0] == signature
+                and prior[2] == spy_signature
+                and prior[3] == round_peer_signature
+                and prior[4] == daily_signature
+            ):
+                result = prior[5]
             else:
-                result = {**base_result, **execution_context(closed, spy_closed, peer_bars=peer_closed)}
+                if symbol in BENCHMARK_SYMBOL_SET:
+                    peer_for_symbol = round_peer_closed
+                else:
+                    peer_for_symbol = {**round_peer_closed, symbol: closed}
+                result = {
+                    **base_result,
+                    **execution_context(
+                        closed,
+                        spy_closed,
+                        peer_bars=peer_for_symbol,
+                        daily_context=effective_daily_ctx,
+                        pre_close=live_pre_close,
+                    ),
+                }
         else:
             result = None
-        cache[symbol] = (signature, base_result, spy_signature, peer_signature, result)
+        cache[symbol] = (signature, base_result, spy_signature, round_peer_signature, daily_signature, result)
         state, events = _run_process(symbol, result, quote, now)
         submit_notifications(events, symbol)
         state["relative_strength"] = relative_strength(symbol, bars, benchmark, now)
         return result, state
 
-    async def tick(symbol):
+    async def tick(
+        symbol,
+        active_set,
+        round_qqq_bars,
+        round_spy_bars,
+        round_peer_closed,
+        round_peer_signature,
+        symbol_daily_ctx,
+        symbol_daily_ctx_day,
+    ):
         try:
             quote = await repository.get_quote(symbol)
             now = utc_now()
-            bounds = session_bounds("US", market_trading_date(now, "US"))
-            opening = bounds[0] if bounds else None
-            # Copy on the event loop with no intervening await; worker gets immutable ownership.
+            # Copy this symbol's bars on the event loop with no intervening await; worker gets immutable ownership.
             bars = deepcopy(list(bars_by_symbol.get(symbol, ())))
-            benchmark = deepcopy(list(bars_by_symbol.get("QQQ.US", ())))
-            spy_bars = bars if symbol == "SPY.US" else deepcopy(list(bars_by_symbol.get("SPY.US", ())))
-            peer_bars = (
-                {
-                    peer: (
-                        bars
-                        if peer == symbol
-                        else _peer_open_and_latest_bars(bars_by_symbol.get(peer, ()), opening, now)
-                    )
-                    for peer in SYMBOLS
-                }
-                if opening is not None
-                else {}
-            )
+            spy_bars = bars if symbol == "SPY.US" else round_spy_bars
+            benchmark = bars if symbol == "QQQ.US" else round_qqq_bars
             result, state = await asyncio.get_running_loop().run_in_executor(
-                pool, compute, symbol, bars, benchmark, spy_bars, peer_bars, quote, now
+                pool,
+                compute,
+                symbol,
+                active_set,
+                bars,
+                benchmark,
+                spy_bars,
+                round_peer_closed,
+                round_peer_signature,
+                symbol_daily_ctx,
+                symbol_daily_ctx_day,
+                quote,
+                now,
             )
             ttl = cache_ttl("US", market_trading_date(now, "US"), now)
-            if symbol not in SYMBOLS and not state.get("position"):
+            if symbol not in active_set and not state.get("position") and retiring is not None:
                 retiring.discard(symbol)
             if result:
                 await repository.redis.set(result_key(symbol), json.dumps(result, allow_nan=False), ex=ttl)
@@ -203,14 +282,54 @@ async def run(repository, bars_by_symbol, stop_event):
 
     try:
         while not stop_event.is_set():
-            if retiring is None:
+            active_symbols = await asyncio.to_thread(_active_symbols)
+            active_set = frozenset(active_symbols)
+            if retiring is None or active_symbols != last_active_symbols:
                 try:
                     retiring = await asyncio.to_thread(open_retired_symbols)
+                    last_active_symbols = active_symbols
                 except Exception:
                     logger.exception("读取移出观察池的未平仓模拟交易失败")
-            for symbol in (*SYMBOLS, *(retiring or ())):
+            now_round = utc_now()
+            today = market_trading_date(now_round, "US")
+            mono = time.monotonic()
+            if daily_ctx_day is not None and daily_ctx_day != today:
+                # Immediately purge yesterday's daily context on day rollover so stale prev_close never leaks.
+                daily_ctx_map = {}
+                daily_ctx_day = None
+                daily_ctx_symbols = ()
+                daily_ctx_retry_after = 0.0
+            if (daily_ctx_day != today or daily_ctx_symbols != active_symbols) and mono >= daily_ctx_retry_after:
+                try:
+                    daily_ctx_map = await asyncio.to_thread(load_daily_context, active_symbols, today)
+                    daily_ctx_day = today
+                    daily_ctx_symbols = active_symbols
+                    daily_ctx_retry_after = 0.0
+                except Exception:
+                    logger.warning("批量读取日线 ATR/昨收上下文失败，稍后重试", exc_info=True)
+                    daily_ctx_retry_after = mono + _DAILY_CONTEXT_RETRY_SECONDS
+            # Build shared read-only benchmark & peer snapshots once per round on the event loop (no intervening await).
+            bounds = session_bounds("US", today)
+            opening = bounds[0] if bounds else None
+            round_qqq_bars = tuple(deepcopy(list(bars_by_symbol.get("QQQ.US", ()))))
+            round_spy_bars = tuple(deepcopy(list(bars_by_symbol.get("SPY.US", ()))))
+            round_peer_closed, round_peer_signature = _build_round_peer_snapshot(
+                bars_by_symbol, active_symbols, opening, now_round
+            )
+            for symbol in (*active_symbols, *(retiring or ())):
                 if symbol not in pending or pending[symbol].done():
-                    pending[symbol] = asyncio.create_task(tick(symbol))
+                    pending[symbol] = asyncio.create_task(
+                        tick(
+                            symbol,
+                            active_set,
+                            round_qqq_bars,
+                            round_spy_bars,
+                            round_peer_closed,
+                            round_peer_signature,
+                            daily_ctx_map.get(symbol, {}),
+                            daily_ctx_day,
+                        )
+                    )
             try:
                 await asyncio.wait_for(stop_event.wait(), timeout=5)
             except asyncio.TimeoutError:

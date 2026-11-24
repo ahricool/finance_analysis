@@ -480,9 +480,9 @@ GET本人历史不重算，默认今日或上一交易日；手动触发仅当�
 
 ## Intraday Options
 
-`intraday_options/` 为固定28个US标的计算15/30/60分钟趋势机会分。Streamer复用原生分钟线后台计算，仅读闭合正常时段连续窗口，趋势分只缓存Redis最新结果；独立虚拟交易与信号事件由0093专用表持久化，不复用真实持仓。
-页面 `/market/intraday-options`（市场→日内期权交易），GET `/api/v1/intraday-options` 只读缓存及模拟表，实时复用WS/SSE scope=intraday-options。固定池加入Streamer订阅并集及登录用户分钟图只读白名单，不改变个人自选/持仓。
-所有数据列表头支持排序，实时更新保留阅读位置；无合约/下单/概率承诺。公式与数据边界见 `docs/intraday-options.md`。
+`intraday_options/` 为 QQQ（PostgreSQL `us_nasdaq100` 动态同步，去重 `GOOG.US`）+ `SPY/QQQ` 基准（内置 102 只快照降级）计算 15/30/60 分钟趋势机会分。Streamer 复用原生分钟线后台计算，仅读闭合正常时段连续窗口，趋势分只缓存 Redis 最新结果（`intraday_options_v18`）；独立虚拟交易（`underlying_sim_v8`）与信号事件由 0093 专用表持久化，不复用真实持仓。
+页面 `/market/intraday-options`（市场→日内期权交易），GET `/api/v1/intraday-options` 只读缓存及模拟表，实时复用 WS/SSE `scope=intraday-options`。观察池加入 Streamer 订阅并集、逐标的隔离集合及登录用户分钟图只读白名单，不改变个人自选/持仓。
+所有数据列表头支持排序，实时更新保留阅读位置；无合约/下单/概率承诺。公式与数据边界见 `docs/intraday-options.md` 与 `docs/intraday-starts.md`。
 
 ## Prediction Markets
 

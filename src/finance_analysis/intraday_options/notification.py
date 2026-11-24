@@ -169,6 +169,8 @@ def render_trade_notification(
         raw_target_source = str(evidence.get("target_source") or "").strip()
         if raw_target_source.startswith("V7波段止盈(") and raw_target_source.endswith(")"):
             target_source = "V7波段止盈"
+        elif raw_target_source.startswith("V8 ATR止盈(") and raw_target_source.endswith(")"):
+            target_source = "V8 ATR止盈"
         else:
             target_source = _clean_text(raw_target_source)
         if target is not None and entry_price is not None and entry_price > 0:
@@ -180,7 +182,31 @@ def render_trade_notification(
         else:
             lines.append(f"- 目标止盈：{target_source or '移动止损跟踪'}")
 
-        if trade.get("exit_policy") == "v7_fixed_wave":
+        if trade.get("exit_policy") == "v8_atr_ratchet":
+            daily_atr = _safe_float(trade.get("daily_atr_pct"))
+            t1_trig = _safe_float(trade.get("ratchet_tier1_trigger_pct")) or 0.0
+            t1_lock = _safe_float(trade.get("ratchet_tier1_lock_pct")) or 0.0
+            t2_trig = _safe_float(trade.get("ratchet_tier2_trigger_pct")) or 0.0
+            t2_lock = _safe_float(trade.get("ratchet_tier2_lock_pct")) or 0.0
+            if daily_atr is not None and daily_atr > 0:
+                if trade.get("daily_atr_source") == "fallback_default":
+                    atr_note = f"默认ATR {daily_atr * 100:.2f}%"
+                else:
+                    atr_note = f"14日ATR {daily_atr * 100:.2f}%"
+            else:
+                atr_note = "ATR缩放"
+            tiers = []
+            if t1_trig > 0:
+                t1_lbl = "成本价" if t1_lock == 0 else f"+{t1_lock * 100:.2f}%"
+                tiers.append(f"浮盈达 +{t1_trig * 100:.2f}% 锁盈 {t1_lbl}")
+            if t2_trig > 0:
+                t2_lbl = "成本价" if t2_lock == 0 else f"+{t2_lock * 100:.2f}%"
+                tiers.append(f"浮盈达 +{t2_trig * 100:.2f}% 锁盈 {t2_lbl}")
+            if tiers:
+                lines.append(f"- 棘轮规则：{atr_note} · {'；'.join(tiers)}")
+            else:
+                lines.append(f"- 波动基准：{atr_note}")
+        elif trade.get("exit_policy") == "v7_fixed_wave":
             trigger_pct = _safe_float(trade.get("profit_lock_trigger_pct")) or 0.0
             lock_pct = _safe_float(trade.get("profit_lock_level_pct")) or 0.0
             if trigger_pct > 0:

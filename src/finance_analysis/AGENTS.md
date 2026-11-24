@@ -308,8 +308,8 @@ LLM允许web_search，但只能建议已有position；BUY为加仓，数量不�
 
 `prediction_markets/` 只读已有证券名称/代码后访问官方 public-search，结果短Redis缓存。无Polymarket业务表、定时任务、管理写接口或LLM。详情/历史仍只读上游，见 `../../docs/prediction-markets.md`。
 
-日内期权面板新增标的虚拟交易：`intraday_options/scheduler.py` 在Streamer每5秒用有界线程池运行，
-仅输入自身分钟K/报价。`intraday_simulation_*` 为独立共享研究表，事务锁与唯一约束防重入；
-不关联portfolio。开仓/平仓事件在事务提交后由独立有界通知线程池经 `NotificationService` 写入全局 `notification`
+日内期权面板虚拟交易：`intraday_options/scheduler.py` 在 Streamer 每 5 秒用有界线程池（默认 6 workers）运行，
+动态读取 `us_nasdaq100` 成分股 + `SPY/QQQ` 基准并按日批量加载严格因果 14 日 ATR/昨收上下文，每轮共享一次只读 peer 快照；
+`intraday_simulation_*` 为独立共享研究表，事务锁与唯一约束防重入，不关联 portfolio。开仓/平仓事件在事务提交后由独立有界通知线程池经 `NotificationService` 写入全局 `notification`
 并推送 Telegram/ntfy（fail-open、不阻塞行情与交易状态机）。首次确认／入场依据冻结，停机恢复补记估算退出，
 正常与估算分开统计。详见 `docs/intraday-options.md` 与 `docs/intraday-starts.md`（仓库根）。

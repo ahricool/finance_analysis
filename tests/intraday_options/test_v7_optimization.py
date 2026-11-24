@@ -1,4 +1,4 @@
-"""V7 Clean Opening Drive Leader (win-rate & per-trade return) strategy tests."""
+"""V7 Clean Opening Drive Leader compatibility & regression tests."""
 
 from copy import deepcopy
 from dataclasses import replace
@@ -16,6 +16,36 @@ from finance_analysis.intraday_options.simulation import CONFIG, plan, transitio
 from finance_analysis.intraday_options.structure import execution_context
 from tests.intraday_options.test_scoring import START, candles
 from tests.intraday_options.test_simulation import quote
+
+
+V7_POLICY = StartPolicy(
+    opening_enabled=True,
+    midday_wave_enabled=False,
+    box_enabled=False,
+    continuation_enabled=False,
+    pivot_enabled=False,
+    recovery_enabled=False,
+    opening_minutes=5,
+    opening_min_range_pct=0.008,
+    opening_min_elapsed_minutes=8,
+    opening_end_minutes=30,
+    opening_min_efficiency=0.55,
+    opening_require_directional_bar=True,
+    opening_direction_mode="both",
+    entry_window_minutes=30,
+    use_pivot_target=False,
+    atr_scaled_exits=False,
+    stop_loss_pct=0.025,
+    take_profit_pct=0.035,
+    profit_lock_trigger_pct=0.020,
+    profit_lock_level_pct=0.002,
+    min_gap_directional=None,
+    min_open_move=0.020,
+    min_relative_strength=0.015,
+    min_spy_open_move=0.0015,
+    min_pool_breadth=0.68,
+    pool_leader_top_k=2,
+)
 
 
 def _make_bars(values, symbol="NVDA.US", start=START, wick=Decimal("0.01")):
@@ -53,52 +83,36 @@ def _make_peer_pool(nvda_bars, side=1, nvda_rank=1, breadth_ratio=0.75, count=12
     return peers
 
 
-def test_v7_policy_defaults_and_validation(monkeypatch):
-    env_keys = (
-        "INTRADAY_OPENING_BREAKOUT",
-        "INTRADAY_OPENING_MINUTES",
-        "INTRADAY_OPENING_MIN_RANGE_PCT",
-        "INTRADAY_OPENING_MIN_ELAPSED_MINUTES",
-        "INTRADAY_OPENING_END_MINUTES",
-        "INTRADAY_OPENING_MIN_EFFICIENCY",
-        "INTRADAY_OPENING_REQUIRE_DIRECTIONAL_BAR",
-        "INTRADAY_ENTRY_WINDOW_MINUTES",
-        "INTRADAY_MIDDAY_WAVE_BREAKOUT",
-        "INTRADAY_BOX_BREAKOUT",
-        "INTRADAY_TREND_CONTINUATION",
-        "INTRADAY_PIVOT_BREAKOUT",
-        "INTRADAY_TREND_RECOVERY",
-        "INTRADAY_USE_PIVOT_TARGET",
-        "INTRADAY_STOP_LOSS_PCT",
-        "INTRADAY_TAKE_PROFIT_PCT",
-        "INTRADAY_PROFIT_LOCK_TRIGGER_PCT",
-        "INTRADAY_PROFIT_LOCK_LEVEL_PCT",
-        "INTRADAY_MIN_TARGET_RETURN",
-        "INTRADAY_MIN_REWARD_RISK",
-        "INTRADAY_MIN_RISK_RETURN",
-        "INTRADAY_MAX_RISK_RETURN",
-        "INTRADAY_REQUIRE_VWAP",
-        "INTRADAY_REQUIRE_SPY_ALIGNMENT",
-        "INTRADAY_MIN_RELATIVE_STRENGTH",
-        "INTRADAY_MIN_OPEN_MOVE",
-        "INTRADAY_MIN_SPY_OPEN_MOVE",
-        "INTRADAY_MIN_POOL_BREADTH",
-        "INTRADAY_POOL_LEADER_TOP_K",
-    )
-    for k in env_keys:
-        monkeypatch.delenv(k, raising=False)
+def test_v7_policy_compatibility_flags_and_validation(monkeypatch):
+    for k, v in (
+        ("INTRADAY_OPENING_MIN_ELAPSED_MINUTES", "8"),
+        ("INTRADAY_OPENING_END_MINUTES", "30"),
+        ("INTRADAY_OPENING_MIN_EFFICIENCY", "0.55"),
+        ("INTRADAY_DIRECTION_MODE", "both"),
+        ("INTRADAY_ENTRY_WINDOW_MINUTES", "30"),
+        ("INTRADAY_ATR_SCALED_EXITS", "false"),
+        ("INTRADAY_STOP_LOSS_PCT", "0.025"),
+        ("INTRADAY_TAKE_PROFIT_PCT", "0.035"),
+        ("INTRADAY_PROFIT_LOCK_TRIGGER_PCT", "0.020"),
+        ("INTRADAY_PROFIT_LOCK_LEVEL_PCT", "0.002"),
+        ("INTRADAY_MIN_GAP_DIRECTIONAL", "none"),
+        ("INTRADAY_MIN_OPEN_MOVE", "0.020"),
+        ("INTRADAY_MIN_RELATIVE_STRENGTH", "0.015"),
+        ("INTRADAY_MIN_SPY_OPEN_MOVE", "0.0015"),
+        ("INTRADAY_MIN_POOL_BREADTH", "0.68"),
+        ("INTRADAY_POOL_LEADER_TOP_K", "2"),
+    ):
+        monkeypatch.setenv(k, v)
     policy.cache_clear()
     try:
         cfg = policy()
-        assert CACHE_VERSION == "intraday_options_v17"
-        assert ENTRY_VERSION == "intraday_entry_v7"
-        assert SIMULATION_VERSION == "underlying_sim_v7"
+        assert CACHE_VERSION == "intraday_options_v18"
+        assert ENTRY_VERSION == "intraday_entry_v8"
+        assert SIMULATION_VERSION == "underlying_sim_v8"
         assert cfg.opening_enabled is True
         assert cfg.midday_wave_enabled is False
-        assert cfg.box_enabled is False
-        assert cfg.continuation_enabled is False
-        assert cfg.pivot_enabled is False
-        assert cfg.recovery_enabled is False
+        assert cfg.atr_scaled_exits is False
+        assert cfg.opening_direction_mode == "both"
         assert cfg.opening_minutes == 5
         assert cfg.opening_min_range_pct == pytest.approx(0.008)
         assert cfg.opening_min_elapsed_minutes == 8
@@ -110,12 +124,12 @@ def test_v7_policy_defaults_and_validation(monkeypatch):
         assert cfg.take_profit_pct == pytest.approx(0.035)
         assert cfg.profit_lock_trigger_pct == pytest.approx(0.020)
         assert cfg.profit_lock_level_pct == pytest.approx(0.002)
+        assert cfg.min_gap_directional is None
         assert cfg.min_open_move == pytest.approx(0.020)
         assert cfg.min_relative_strength == pytest.approx(0.015)
         assert cfg.min_spy_open_move == pytest.approx(0.0015)
         assert cfg.min_pool_breadth == pytest.approx(0.68)
         assert cfg.pool_leader_top_k == 2
-        assert CONFIG.entry_window_minutes == 30
         assert CONFIG.max_daily_entries == 1
     finally:
         policy.cache_clear()
@@ -152,24 +166,24 @@ def test_v7_clean_opening_drive_gates_and_rolling_rank_admission(side):
 
     # 1. Before minute 8 (only 7 bars, 09:37 NY): V7 waits until 09:38 NY.
     t7 = nvda8[6].bar_time + timedelta(minutes=1, seconds=3)
-    r7 = calculate("NVDA.US", nvda8[:7], t7)
+    r7 = calculate("NVDA.US", nvda8[:7], t7, settings=V7_POLICY)
     assert not any(b["kind"] == "opening_breakout" for b in r7["opportunities"]["branches"])
 
     # 2. Choppy path (eff < 0.55) at minute 8 is rejected even with +2.6% move.
     choppy_vals = [100.0 + side * x for x in (0.0, 1.5, 0.1, 1.6, 0.2, 1.8, 0.5, 2.6)]
     choppy = _make_bars(choppy_vals, symbol="NVDA.US", wick=Decimal("0.01"))
     t8 = nvda8[-1].bar_time + timedelta(minutes=1, seconds=3)
-    r_chop = calculate("NVDA.US", choppy, t8)
+    r_chop = calculate("NVDA.US", choppy, t8, settings=V7_POLICY)
     assert not any(b["kind"] == "opening_breakout" for b in r_chop["opportunities"]["branches"])
 
     # 3. Counter-directional closing bar (red bar for long / green for short) is rejected.
     red_vals = [100.0 + side * x for x in (0.0, 0.40, 0.80, 1.20, 1.60, 2.10, 2.80, 2.60)]
     red_bars = _make_bars(red_vals, symbol="NVDA.US", wick=Decimal("0.01"))
-    red_branches = calculate("NVDA.US", red_bars, t8)["opportunities"]["branches"]
+    red_branches = calculate("NVDA.US", red_bars, t8, settings=V7_POLICY)["opportunities"]["branches"]
     assert not any(b["kind"] == "opening_breakout" for b in red_branches)
 
     # 4. At minute 8 (09:38 NY), clean drive confirms and passes Pydantic TrendResult validation!
-    base8 = calculate("NVDA.US", nvda8, t8)
+    base8 = calculate("NVDA.US", nvda8, t8, settings=V7_POLICY)
     TrendResult.model_validate(base8)
     b8 = next(x for x in base8["opportunities"]["branches"] if x["kind"] == "opening_breakout")
     assert b8["status"] == "confirmed" and b8["opening_drive"] is True
@@ -178,15 +192,15 @@ def test_v7_clean_opening_drive_gates_and_rolling_rank_admission(side):
 
     # 5. SPY flat (+0.01% < 0.15%) AND weak breadth (50% < 68%) -> blocked by macro resonance gate!
     peers_low_br = _make_peer_pool(nvda8, side=side, nvda_rank=1, breadth_ratio=0.50, count=12)
-    r_weak_macro = {**base8, **execution_context(nvda8, spy_flat, peer_bars=peers_low_br)}
-    p_weak = plan(b8, r_weak_macro, price8, t8, t8)
+    r_weak_macro = {**base8, **execution_context(nvda8, spy_flat, peer_bars=peers_low_br, settings=V7_POLICY)}
+    p_weak = plan(b8, r_weak_macro, price8, t8, t8, settings=V7_POLICY)
     assert not p_weak["executable"] and "大盘共振不足" in p_weak["execution_reason"]
 
     # 6. SPY flat (+0.01%) BUT strong breadth (75% >= 68%) -> PASSES via breadth confirmation!
     peers_hi_br = _make_peer_pool(nvda8, side=side, nvda_rank=1, breadth_ratio=0.75, count=12)
-    r_br_ok = {**base8, **execution_context(nvda8, spy_flat, peer_bars=peers_hi_br)}
+    r_br_ok = {**base8, **execution_context(nvda8, spy_flat, peer_bars=peers_hi_br, settings=V7_POLICY)}
     assert r_br_ok["pool_rank_context"]["breadth_up" if side == 1 else "breadth_down"] >= 0.68
-    p_br_ok = plan(b8, r_br_ok, price8, t8, t8)
+    p_br_ok = plan(b8, r_br_ok, price8, t8, t8, settings=V7_POLICY)
     assert p_br_ok["executable"]
     assert p_br_ok["invalidation"] == pytest.approx(price8 * (1.0 - side * 0.025))
     assert p_br_ok["target"] == pytest.approx(price8 * (1.0 + side * 0.035))
@@ -194,8 +208,8 @@ def test_v7_clean_opening_drive_gates_and_rolling_rank_admission(side):
 
     # 7. Rolling rank admission: Rank #3 at 09:38 blocks entry WITHOUT consuming process; Rank #2 at 09:39 enters!
     peers_r3 = _make_peer_pool(nvda8, side=side, nvda_rank=3, breadth_ratio=0.75, count=12)
-    r_r3 = {**base8, **execution_context(nvda8, spy_ok, peer_bars=peers_r3)}
-    state, ev8 = transition({}, "NVDA.US", r_r3, quote(t8, price8), t8)
+    r_r3 = {**base8, **execution_context(nvda8, spy_ok, peer_bars=peers_r3, settings=V7_POLICY)}
+    state, ev8 = transition({}, "NVDA.US", r_r3, quote(t8, price8), t8, settings=V7_POLICY)
     assert not state.get("position") and not any(e["kind"] == "entry" for e in ev8)
 
     vals9 = [*vals8, 100.0 + side * 3.05]
@@ -204,11 +218,11 @@ def test_v7_clean_opening_drive_gates_and_rolling_rank_admission(side):
         [500.0 + side * x for x in (0.0, 0.15, 0.30, 0.45, 0.60, 0.75, 0.90, 1.05, 1.20)], symbol="SPY.US"
     )
     t9 = nvda9[-1].bar_time + timedelta(minutes=1, seconds=3)
-    base9 = calculate("NVDA.US", nvda9, t9)
+    base9 = calculate("NVDA.US", nvda9, t9, settings=V7_POLICY)
     peers_r2 = _make_peer_pool(nvda9, side=side, nvda_rank=2, breadth_ratio=0.75, count=12)
-    r_r2 = {**base9, **execution_context(nvda9, spy9, peer_bars=peers_r2)}
+    r_r2 = {**base9, **execution_context(nvda9, spy9, peer_bars=peers_r2, settings=V7_POLICY)}
     price9 = float(nvda9[-1].close) + side * 0.05
-    state, ev9 = transition(json.loads(json.dumps(state)), "NVDA.US", r_r2, quote(t9, price9), t9)
+    state, ev9 = transition(json.loads(json.dumps(state)), "NVDA.US", r_r2, quote(t9, price9), t9, settings=V7_POLICY)
     assert state["position"] and state["position"]["exit_policy"] == "v7_fixed_wave"
     assert state["position"]["invalidation"] == pytest.approx(price9 * (1.0 - side * 0.025))
     assert state["position"]["target"] == pytest.approx(price9 * (1.0 + side * 0.035))
@@ -225,47 +239,54 @@ def test_v7_fixed_wave_exits_stop_profit_lock_tp_and_no_90m_underwater_cut(side)
     spy8 = _make_bars([500.0 + side * x for x in (0.0, 0.15, 0.30, 0.45, 0.60, 0.75, 0.90, 1.05)], symbol="SPY.US")
     peers = _make_peer_pool(nvda8, side=side, nvda_rank=1, breadth_ratio=0.75, count=12)
     t8 = nvda8[-1].bar_time + timedelta(minutes=1, seconds=3)
-    r8 = {**calculate("NVDA.US", nvda8, t8), **execution_context(nvda8, spy8, peer_bars=peers)}
+    r8 = {
+        **calculate("NVDA.US", nvda8, t8, settings=V7_POLICY),
+        **execution_context(nvda8, spy8, peer_bars=peers, settings=V7_POLICY),
+    }
     ep = 100.0 + side * 2.65
 
     # Scenario A: +2.0% floating gain promotes protection to +0.20%, then reversal exits at profit-lock!
-    s_lock, _ = transition({}, "NVDA.US", r8, quote(t8, ep), t8)
+    s_lock, _ = transition({}, "NVDA.US", r8, quote(t8, ep), t8, settings=V7_POLICY)
     assert s_lock["position"]["protection"] == pytest.approx(ep * (1.0 - side * 0.025))
     t_95m = t8 + timedelta(minutes=95)
     # V7 does NOT exit underwater at 95m (unlike V6's 90m underwater cut)!
-    s_lock, ev_95 = transition(s_lock, "NVDA.US", None, quote(t_95m, ep * (1.0 - side * 0.008)), t_95m)
+    s_lock, ev_95 = transition(s_lock, "NVDA.US", None, quote(t_95m, ep * (1.0 - side * 0.008)), t_95m, settings=V7_POLICY)
     assert s_lock["position"] and not ev_95
     # Rally to +2.1% triggers BE20_Lock20 (+0.20% lock).
     t_rally = t_95m + timedelta(minutes=10)
-    s_lock, ev_rally = transition(s_lock, "NVDA.US", None, quote(t_rally, ep * (1.0 + side * 0.021)), t_rally)
+    s_lock, ev_rally = transition(
+        s_lock, "NVDA.US", None, quote(t_rally, ep * (1.0 + side * 0.021)), t_rally, settings=V7_POLICY
+    )
     assert s_lock["position"]["protection"] == pytest.approx(ep * (1.0 + side * 0.002))
     assert s_lock["position"]["protection_stage"] == "profit_lock"
     assert any(e["kind"] == "hold" and "+0.20%锁盈" in e["reason"] for e in ev_rally)
     # Reversal touching +0.15% exits with profit-lock reason and positive return.
     t_rev = t_rally + timedelta(minutes=5)
-    s_lock, ev_rev = transition(s_lock, "NVDA.US", None, quote(t_rev, ep * (1.0 + side * 0.0015)), t_rev)
+    s_lock, ev_rev = transition(
+        s_lock, "NVDA.US", None, quote(t_rev, ep * (1.0 + side * 0.0015)), t_rev, settings=V7_POLICY
+    )
     assert not s_lock["position"]
     tr_lock = next(e["trade"] for e in ev_rev if e["kind"] == "exit")
     assert tr_lock["exit_reason"] == "保本锁盈保护触及" and tr_lock["return_pct"] > 0
 
     # Scenario B: Direct +3.5% hit exits cleanly at wave take-profit target.
-    s_tp, _ = transition({}, "NVDA.US", r8, quote(t8, ep), t8)
+    s_tp, _ = transition({}, "NVDA.US", r8, quote(t8, ep), t8, settings=V7_POLICY)
     t_tp = t8 + timedelta(minutes=30)
-    s_tp, ev_tp = transition(s_tp, "NVDA.US", None, quote(t_tp, ep * (1.0 + side * 0.036)), t_tp)
+    s_tp, ev_tp = transition(s_tp, "NVDA.US", None, quote(t_tp, ep * (1.0 + side * 0.036)), t_tp, settings=V7_POLICY)
     assert not s_tp["position"]
     tr_tp = next(e["trade"] for e in ev_tp if e["kind"] == "exit")
     assert tr_tp["exit_reason"] == "到达波段止盈目标" and tr_tp["return_pct"] >= 3.5
 
     # Scenario C: -2.5% hit exits cleanly at macro stop loss.
-    s_sl, _ = transition({}, "NVDA.US", r8, quote(t8, ep), t8)
+    s_sl, _ = transition({}, "NVDA.US", r8, quote(t8, ep), t8, settings=V7_POLICY)
     t_sl = t8 + timedelta(minutes=15)
-    s_sl, ev_sl = transition(s_sl, "NVDA.US", None, quote(t_sl, ep * (1.0 - side * 0.026)), t_sl)
+    s_sl, ev_sl = transition(s_sl, "NVDA.US", None, quote(t_sl, ep * (1.0 - side * 0.026)), t_sl, settings=V7_POLICY)
     assert not s_sl["position"]
     tr_sl = next(e["trade"] for e in ev_sl if e["kind"] == "exit")
     assert tr_sl["exit_reason"] == "宏观止损触及" and tr_sl["return_pct"] <= -2.5
 
     # Scenario D: Disabling profit lock (profit_lock_trigger_pct=0) matches pure SL25/TP35.
-    no_lock_cfg = StartPolicy(profit_lock_trigger_pct=0.0, profit_lock_level_pct=0.0)
+    no_lock_cfg = replace(V7_POLICY, profit_lock_trigger_pct=0.0, profit_lock_level_pct=0.0)
     s_pure, _ = transition({}, "NVDA.US", r8, quote(t8, ep), t8, settings=no_lock_cfg)
     s_pure, ev_p1 = transition(
         s_pure, "NVDA.US", None, quote(t_rally, ep * (1.0 + side * 0.022)), t_rally, settings=no_lock_cfg
@@ -320,60 +341,85 @@ def test_v7_late_session_bar_revision_advances_quote_floor_and_stale_macro_fails
     spy8 = _make_bars([500.0 + x for x in (0.0, 0.15, 0.30, 0.45, 0.60, 0.75, 0.90, 1.05)], symbol="SPY.US")
     peers = _make_peer_pool(nvda_rev, side=1, nvda_rank=1, breadth_ratio=0.75, count=12)
     now_after = late_rev + timedelta(seconds=2)
-    r_rev = {**calculate("NVDA.US", nvda_rev, now_after), **execution_context(nvda_rev, spy8, peer_bars=peers)}
+    r_rev = {
+        **calculate("NVDA.US", nvda_rev, now_after, settings=V7_POLICY),
+        **execution_context(nvda_rev, spy8, peer_bars=peers, settings=V7_POLICY),
+    }
     b = next(x for x in r_rev["opportunities"]["branches"] if x["kind"] == "opening_breakout")
     price = 102.65
-    p_early = plan(b, r_rev, price, now_after, t8)
+    p_early = plan(b, r_rev, price, now_after, t8, settings=V7_POLICY)
     assert not p_early["executable"] and "确认依据" in p_early["execution_reason"]
-    p_ok = plan(b, r_rev, price, now_after, late_rev + timedelta(seconds=1))
+    p_ok = plan(b, r_rev, price, now_after, late_rev + timedelta(seconds=1), settings=V7_POLICY)
     assert p_ok["executable"]
 
     # Stale pool_rank_context (>120s behind) cannot satisfy breadth resonance even if pool_leader_top_k=0.
-    breadth_only_cfg = StartPolicy(require_spy_alignment=False, pool_leader_top_k=0, min_spy_open_move=0.0)
+    breadth_only_cfg = replace(V7_POLICY, require_spy_alignment=False, pool_leader_top_k=0, min_spy_open_move=0.0)
     r_stale = deepcopy(r_rev)
     r_stale["pool_rank_context"]["as_of"] = (nvda8[0].bar_time - timedelta(minutes=5)).isoformat()
     p_stale = plan(b, r_stale, price, now_after, late_rev + timedelta(seconds=1), settings=breadth_only_cfg)
     assert not p_stale["executable"] and "大盘共振不足" in p_stale["execution_reason"]
 
-    # Bar closing at 10:00 NY (30th minute) does NOT emit an unexecutable dead opening-drive branch.
+    # Bar closing at 10:00 NY (30th minute) does NOT emit an unexecutable dead opening-drive branch under V7_POLICY.
     vals30 = [100.0 + 0.12 * i for i in range(30)]
     nvda30 = _make_bars(vals30, symbol="NVDA.US", wick=Decimal("0.01"))
     t30 = nvda30[-1].bar_time + timedelta(minutes=1, seconds=3)
-    r30 = calculate("NVDA.US", nvda30, t30)
+    r30 = calculate("NVDA.US", nvda30, t30, settings=V7_POLICY)
     assert not any(x["kind"] == "opening_breakout" for x in r30["opportunities"]["branches"])
 
 
-def test_v7_ranked_opportunity_matches_fixed_wave_plan_and_legacy_two_close_threshold():
+def test_v7_ranked_opportunity_matches_fixed_wave_plan_and_legacy_two_close_threshold(monkeypatch):
     from finance_analysis.intraday_options.runtime import ranked_opportunity
 
-    vals8 = [100.0 + x for x in (0.0, 0.35, 0.70, 1.05, 1.40, 1.80, 2.20, 2.60)]
-    nvda8 = _make_bars(vals8, symbol="NVDA.US", wick=Decimal("0.01"))
-    spy8 = _make_bars([500.0 + x for x in (0.0, 0.15, 0.30, 0.45, 0.60, 0.75, 0.90, 1.05)], symbol="SPY.US")
-    peers = _make_peer_pool(nvda8, side=1, nvda_rank=1, breadth_ratio=0.75, count=12)
-    t8 = nvda8[-1].bar_time + timedelta(minutes=1, seconds=3)
-    r8 = {**calculate("NVDA.US", nvda8, t8), **execution_context(nvda8, spy8, peer_bars=peers)}
-    q8 = quote(t8, 102.65)
-    sim_state, _ = transition({}, "NVDA.US", r8, q8, t8)
-    ranked = ranked_opportunity(r8, sim_state, t8, q8)
-    assert ranked is not None and ranked["kind"] == "opening_breakout"
-    assert ranked["invalidation"] == pytest.approx(102.65 * 0.975)
+    for k, v in (
+        ("INTRADAY_OPENING_MIN_ELAPSED_MINUTES", "8"),
+        ("INTRADAY_OPENING_END_MINUTES", "30"),
+        ("INTRADAY_OPENING_MIN_EFFICIENCY", "0.55"),
+        ("INTRADAY_DIRECTION_MODE", "both"),
+        ("INTRADAY_ENTRY_WINDOW_MINUTES", "30"),
+        ("INTRADAY_ATR_SCALED_EXITS", "false"),
+        ("INTRADAY_STOP_LOSS_PCT", "0.025"),
+        ("INTRADAY_TAKE_PROFIT_PCT", "0.035"),
+        ("INTRADAY_PROFIT_LOCK_TRIGGER_PCT", "0.020"),
+        ("INTRADAY_PROFIT_LOCK_LEVEL_PCT", "0.002"),
+        ("INTRADAY_MIN_GAP_DIRECTIONAL", "none"),
+        ("INTRADAY_MIN_OPEN_MOVE", "0.020"),
+        ("INTRADAY_MIN_RELATIVE_STRENGTH", "0.015"),
+        ("INTRADAY_POOL_LEADER_TOP_K", "2"),
+    ):
+        monkeypatch.setenv(k, v)
+    policy.cache_clear()
+    try:
+        vals8 = [100.0 + x for x in (0.0, 0.35, 0.70, 1.05, 1.40, 1.80, 2.20, 2.60)]
+        nvda8 = _make_bars(vals8, symbol="NVDA.US", wick=Decimal("0.01"))
+        spy8 = _make_bars([500.0 + x for x in (0.0, 0.15, 0.30, 0.45, 0.60, 0.75, 0.90, 1.05)], symbol="SPY.US")
+        peers = _make_peer_pool(nvda8, side=1, nvda_rank=1, breadth_ratio=0.75, count=12)
+        t8 = nvda8[-1].bar_time + timedelta(minutes=1, seconds=3)
+        r8 = {**calculate("NVDA.US", nvda8, t8), **execution_context(nvda8, spy8, peer_bars=peers)}
+        q8 = quote(t8, 102.65)
+        sim_state, _ = transition({}, "NVDA.US", r8, q8, t8)
+        ranked = ranked_opportunity(r8, sim_state, t8, q8)
+        assert ranked is not None and ranked["kind"] == "opening_breakout"
+        assert ranked["invalidation"] == pytest.approx(102.65 * 0.975)
 
-    # Legacy non-opening-drive opening_breakout still requires > 0.20 ATR on both closes for two_closes.
-    legacy_cfg = StartPolicy(
-        opening_min_efficiency=0.0,
-        opening_min_elapsed_minutes=5,
-        opening_require_directional_bar=False,
-        opening_min_range_pct=0.0,
-        strong_break_atr=10.0,
-    )
-    # 5m OR high=101.62, ATR~0.44 -> 0.20*ATR~0.088. Bar 5 closes +0.18 (>0.20 ATR), bar 6 closes +0.02 (<0.20 ATR).
-    legacy_bars = _make_bars(
-        [100.0, 100.4, 100.8, 101.2, 101.6, 101.80, 101.64], symbol="NVDA.US", wick=Decimal("0.02")
-    )
-    t_leg = legacy_bars[-1].bar_time + timedelta(minutes=1, seconds=2)
-    r_leg = calculate("NVDA.US", legacy_bars, t_leg, settings=legacy_cfg)
-    b_leg = next(x for x in r_leg["opportunities"]["branches"] if x["kind"] == "opening_breakout")
-    assert b_leg["status"] == "forming" and b_leg["confirmed_at"] is None
+        # Legacy non-opening-drive opening_breakout still requires > 0.20 ATR on both closes for two_closes.
+        legacy_cfg = replace(
+            V7_POLICY,
+            opening_min_efficiency=0.0,
+            opening_min_elapsed_minutes=5,
+            opening_require_directional_bar=False,
+            opening_min_range_pct=0.0,
+            strong_break_atr=10.0,
+        )
+        # 5m OR high=101.62, ATR~0.44 -> 0.20*ATR~0.088. Bar 5 closes +0.18 (>0.20 ATR), bar 6 closes +0.02 (<0.20 ATR).
+        legacy_bars = _make_bars(
+            [100.0, 100.4, 100.8, 101.2, 101.6, 101.80, 101.64], symbol="NVDA.US", wick=Decimal("0.02")
+        )
+        t_leg = legacy_bars[-1].bar_time + timedelta(minutes=1, seconds=2)
+        r_leg = calculate("NVDA.US", legacy_bars, t_leg, settings=legacy_cfg)
+        b_leg = next(x for x in r_leg["opportunities"]["branches"] if x["kind"] == "opening_breakout")
+        assert b_leg["status"] == "forming" and b_leg["confirmed_at"] is None
+    finally:
+        policy.cache_clear()
 
 
 @pytest.mark.parametrize(
@@ -440,26 +486,34 @@ def test_v7_ten_atr_chase_boundary_and_0959_signal_denied_at_1000(side):
     spy8 = _make_bars([500.0 + side * x for x in (0.0, 0.15, 0.30, 0.45, 0.60, 0.75, 0.90, 1.05)], symbol="SPY.US")
     peers = _make_peer_pool(nvda8, side=side, nvda_rank=1, breadth_ratio=0.75, count=12)
     t8 = nvda8[-1].bar_time + timedelta(minutes=1, seconds=3)
-    r8 = {**calculate("NVDA.US", nvda8, t8), **execution_context(nvda8, spy8, peer_bars=peers)}
+    r8 = {
+        **calculate("NVDA.US", nvda8, t8, settings=V7_POLICY),
+        **execution_context(nvda8, spy8, peer_bars=peers, settings=V7_POLICY),
+    }
     b = next(x for x in r8["opportunities"]["branches"] if x["kind"] == "opening_breakout")
 
     # Exactly at 10.0 ATR boundary -> executable; slightly past 10.0 ATR -> blocked!
     at_edge = b["trigger"] + side * 10.0 * b["atr"]
     over_edge = b["trigger"] + side * 10.01 * b["atr"]
-    assert plan(b, r8, at_edge, t8, t8)["executable"]
-    p_over = plan(b, r8, over_edge, t8, t8)
+    assert plan(b, r8, at_edge, t8, t8, settings=V7_POLICY)["executable"]
+    p_over = plan(b, r8, over_edge, t8, t8, settings=V7_POLICY)
     assert not p_over["executable"] and "冻结执行区间" in p_over["execution_reason"]
 
-    # 09:59 signal (bar 28 closing 09:59) cannot enter when quote only arrives at 10:00 NY!
+    # 09:59 signal (bar 28 closing 09:59) cannot enter when quote only arrives at 10:00 NY under V7_POLICY!
     vals29 = [100.0 + side * (0.30 * i if i < 5 else 1.40 + 0.04 * (i - 4)) for i in range(28)]
     vals29.append(100.0 + side * 2.60)
     nvda29 = _make_bars(vals29, symbol="NVDA.US", wick=Decimal("0.01"))
     spy29 = _make_bars([500.0 + side * 0.04 * i for i in range(29)], symbol="SPY.US")
     peers29 = _make_peer_pool(nvda29, side=side, nvda_rank=1, breadth_ratio=0.75, count=12)
     t_0959 = START + timedelta(minutes=29, seconds=2)
-    r29 = {**calculate("NVDA.US", nvda29, t_0959), **execution_context(nvda29, spy29, peer_bars=peers29)}
+    r29 = {
+        **calculate("NVDA.US", nvda29, t_0959, settings=V7_POLICY),
+        **execution_context(nvda29, spy29, peer_bars=peers29, settings=V7_POLICY),
+    }
     t_1000 = START + timedelta(minutes=30)
-    s_late, ev_late = transition({}, "NVDA.US", r29, quote(t_1000, float(nvda29[-1].close) + side * 0.05), t_1000)
+    s_late, ev_late = transition(
+        {}, "NVDA.US", r29, quote(t_1000, float(nvda29[-1].close) + side * 0.05), t_1000, settings=V7_POLICY
+    )
     assert s_late["session_phase"] == "stopped" and not s_late.get("position")
     assert not any(e["kind"] == "entry" for e in ev_late)
 
@@ -469,5 +523,5 @@ def test_v7_ten_atr_chase_boundary_and_0959_signal_denied_at_1000(side):
 
     early_open, early_close = session_bounds("US", date(2025, 11, 28))
     t_early = early_open + timedelta(minutes=10)
-    s_early, _ = transition({}, "NVDA.US", None, None, t_early)
+    s_early, _ = transition({}, "NVDA.US", None, None, t_early, settings=V7_POLICY)
     assert s_early["exit_cutoff"] == (early_close - timedelta(minutes=10)).isoformat()

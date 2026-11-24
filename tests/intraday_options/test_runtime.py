@@ -37,8 +37,8 @@ def test_publisher_and_read_only_snapshot_latest_cache_only():
         )
         result = await read_snapshot(repo, {"SPY.US": "标普500ETF"}, now)
         parsed = IntradayOptionsResponse.model_validate(result)
-        assert len(parsed.items) == 28
-        assert set(SYMBOLS).isdisjoint({"TQQQ.US", "DRAM.US"})
+        assert len(parsed.items) == len(SYMBOLS)
+        assert set(SYMBOLS).isdisjoint({"TQQQ.US", "DRAM.US", "GOOG.US"})
         row = parsed.items[0]
         assert row.symbol == "SPY.US" and row.data_status == "ready"
         assert row.result.direction == "bullish" and row.change_pct < 0  # day return never sets direction
@@ -77,9 +77,10 @@ def test_fixed_pool_is_added_without_modifying_personal_watchlists(monkeypatch):
 
     monkeypatch.setattr(watchlist_monitor, "load_watchlist_targets", lambda: {"KO.US": SimpleNamespace(symbol="KO.US")})
     from finance_analysis.database.repositories import intraday_simulation
+    monkeypatch.setattr(intraday_simulation, "load_universe_symbols", lambda: SYMBOLS)
     monkeypatch.setattr(intraday_simulation, "open_retired_symbols", lambda: set())
     values = load_stream_targets()
-    assert len(values) == 29 and set(SYMBOLS).issubset(values)
+    assert len(values) == len(SYMBOLS) + 1 and set(SYMBOLS).issubset(values)
     assert values["SPCX.US"].symbol == "SPCX.US"
 
 

@@ -158,6 +158,16 @@ class MarketStreamService:
     def request_stop(self) -> None:
         self.stop_event.set()
 
+    async def _sync_isolated_symbols(self) -> None:
+        from finance_analysis.database.repositories.intraday_simulation import load_universe_symbols
+
+        try:
+            symbols = await asyncio.to_thread(load_universe_symbols)
+            if symbols:
+                self.manager.isolated_symbols = frozenset(symbols)
+        except Exception as exc:
+            logger.debug("刷新日内期权隔离标的集合失败，沿用现有配置: %s", exc)
+
     async def run(self) -> bool:
         # Bootstrap once before any concurrent simulation/watchlist worker uses the singleton.
         from finance_analysis.database.session import DatabaseManager
@@ -186,6 +196,7 @@ class MarketStreamService:
             asyncio.create_task(self._refresh_quote_snapshots(), name="market-stream-quote-snapshots"),
         ]
         try:
+            await self._sync_isolated_symbols()
             snapshot = await self.watchlist_monitor.poll()
             self.manager.desired_targets = {s: t for s, t in snapshot.targets.items() if t.market_type != "CN"}
             await self.cn_feed.reconcile({s: t for s, t in snapshot.targets.items() if t.market_type == "CN"})
@@ -262,6 +273,7 @@ class MarketStreamService:
     async def _poll_watchlist(self) -> None:
         while not self.stop_event.is_set():
             try:
+                await self._sync_isolated_symbols()
                 snapshot = await self.watchlist_monitor.poll()
                 await self.cn_feed.reconcile({s: t for s, t in snapshot.targets.items() if t.market_type == "CN"})
                 previous = self.subscription_reconcile_task
@@ -281,6 +293,7 @@ class MarketStreamService:
             await asyncio.sleep(self.config.watchlist_poll_seconds)
 
     async def _reload_desired_targets(self) -> dict[str, SubscriptionTarget]:
+        await self._sync_isolated_symbols()
         targets = (await self.watchlist_monitor.poll()).targets
         return {s: t for s, t in targets.items() if t.market_type != "CN"}
 

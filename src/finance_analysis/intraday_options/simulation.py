@@ -7,7 +7,17 @@ import math
 
 from finance_analysis.market_stream.config import market_trading_date
 from finance_analysis.market_stream.session import session_bounds
-from finance_analysis.intraday_options.rules import RULES, SIMULATION_VERSION, START_KINDS, policy, entry_interval, plan_order
+from finance_analysis.intraday_options.config import BENCHMARK_SYMBOL_SET
+from finance_analysis.intraday_options.rules import (
+    RULES,
+    SIMULATION_VERSION,
+    START_KINDS,
+    direction_allowed,
+    entry_interval,
+    plan_order,
+    policy,
+    resolve_atr_exit_levels,
+)
 
 VERSION = SIMULATION_VERSION
 
@@ -22,13 +32,13 @@ class ExecutionConfig:
     trail_after_r: float = 2.5
     trail_giveback_r: float = 1.2
     trail_bars: int = 45
-    entry_window_minutes: int = 30
+    entry_window_minutes: int = 120
     min_entry_before_close_minutes: int = 90
     exit_stop_before_close_minutes: int = 10
     max_daily_entries: int = 1
     cooldown_minutes: int = 30
     stop_cooldown_minutes: int = 60
-    workers: int = 4
+    workers: int = 6
     cutoff_processing_grace_seconds: int = 30
     data_alert_seconds: int = 30
     data_recovery_seconds: int = 15
@@ -154,16 +164,39 @@ def target_space(price, invalidation, target, side, required, settings):
 
 
 def _context_rejection(kind, side, result, cfg):
-    """Check causal VWAP, open-move, opening efficiency, SPY alignment, RS, leader rank, and breadth gates."""
+    """Check causal direction, benchmark, gap, VWAP, open-move, efficiency, SPY, RS, leader rank, and breadth gates."""
+    if kind == "opening_breakout" and not direction_allowed(side, cfg.opening_direction_mode):
+        if cfg.opening_direction_mode == "long_only":
+            return "当前策略仅允许做多开盘驱动，过滤空头方向"
+        return "当前策略仅允许做空开盘驱动，过滤多头方向"
+    if (
+        kind == "opening_breakout"
+        and cfg.exclude_benchmark_from_opening
+        and result.get("symbol") in BENCHMARK_SYMBOL_SET
+    ):
+        return "基准指数ETF不参与开盘驱动模拟开仓"
+
     market_context = result.get("market_context")
     has_market_context = "market_context" in result
     spy_context = result.get("spy_context")
     has_spy_context = "spy_context" in result
     pool_rank = result.get("pool_rank_context")
     has_pool_rank = "pool_rank_context" in result
+    daily_context = result.get("daily_context")
+    has_daily_context = "daily_context" in result
     needs_vwap = cfg.require_vwap and kind in ("opening_breakout", "midday_wave_breakout", "box_breakout")
     needs_spy = cfg.require_spy_alignment and kind in ("opening_breakout", "midday_wave_breakout")
     needs_leader = kind in ("opening_breakout", "midday_wave_breakout")
+
+    if kind == "opening_breakout" and cfg.min_gap_directional is not None and has_daily_context:
+        gap_ret = (daily_context or {}).get("gap_return")
+        if gap_ret is None:
+            return "缺少昨收基准数据，无法校验隔夜跳空门槛"
+        directional_gap = gap_ret * side
+        if directional_gap < cfg.min_gap_directional and not math.isclose(
+            directional_gap, cfg.min_gap_directional, rel_tol=1e-10
+        ):
+            return f"隔夜反向跳空过大（{gap_ret * 100:+.2f}%），过滤反跳空突破"
 
     if needs_vwap and has_market_context:
         if not market_context or market_context.get("vwap") is None:
@@ -295,7 +328,8 @@ def plan(branch, result, price, now, quote_time=None, previous_plan=None, settin
     if quote_floor and cfg.use_pivot_target and result.get("target_evidence_at"):
         quote_floor = max(quote_floor, dt(result["target_evidence_at"]))
     market_context = result.get("market_context")
-    needs_market = needs_vwap or needs_spy or needs_open_move
+    needs_gap = kind == "opening_breakout" and cfg.min_gap_directional is not None
+    needs_market = needs_vwap or needs_spy or needs_open_move or needs_gap
     if quote_floor and needs_market and market_context and market_context.get("evidence_at"):
         quote_floor = max(quote_floor, dt(market_context["evidence_at"]))
     spy_context = result.get("spy_context")
@@ -306,12 +340,29 @@ def plan(branch, result, price, now, quote_time=None, previous_plan=None, settin
         quote_floor = max(quote_floor, dt(pool_rank["evidence_at"]))
 
     previous_plan = previous_plan or {}
-    fixed_wave = not cfg.use_pivot_target and kind in START_KINDS and (cfg.stop_loss_pct > 0 or cfg.take_profit_pct > 0)
-    exec_invalidation = (
-        price * (1.0 - side * cfg.stop_loss_pct)
-        if fixed_wave and cfg.stop_loss_pct > 0 and price is not None
-        else branch.get("invalidation")
+    use_atr_ratchet = (
+        not cfg.use_pivot_target
+        and kind in START_KINDS
+        and cfg.atr_scaled_exits
+        and cfg.stop_loss_atr_mult > 0
     )
+    fixed_wave = (
+        not cfg.use_pivot_target
+        and not use_atr_ratchet
+        and kind in START_KINDS
+        and (cfg.stop_loss_pct > 0 or cfg.take_profit_pct > 0)
+    )
+    atr_levels = (
+        resolve_atr_exit_levels((result.get("daily_context") or {}).get("daily_atr_pct"), cfg)
+        if use_atr_ratchet
+        else None
+    )
+    if use_atr_ratchet and atr_levels is not None and price is not None:
+        exec_invalidation = price * (1.0 - side * atr_levels["stop_loss_pct"])
+    elif fixed_wave and cfg.stop_loss_pct > 0 and price is not None:
+        exec_invalidation = price * (1.0 - side * cfg.stop_loss_pct)
+    else:
+        exec_invalidation = branch.get("invalidation")
     if cfg.use_pivot_target:
         # Confirmed pivots are raw intraday prices, the same basis as execution quotes.
         candidates = [
@@ -343,6 +394,14 @@ def plan(branch, result, price, now, quote_time=None, previous_plan=None, settin
         if locked is not None and (target is None or (target - locked) * side >= 0):
             target, source = locked, lock_source
         required = kind in START_KINDS or kind.startswith("box")
+    elif use_atr_ratchet and atr_levels is not None:
+        if atr_levels["take_profit_pct"] > 0:
+            target = price * (1.0 + side * atr_levels["take_profit_pct"]) if price is not None else None
+            source = f"V8 ATR止盈(+{atr_levels['take_profit_pct'] * 100:.1f}%)"
+        else:
+            target = None
+            source = "两档ATR棘轮锁盈·尾盘清仓"
+        locked, lock_source, exhausted, required = None, None, False, False
     elif fixed_wave and cfg.take_profit_pct > 0:
         target = price * (1.0 + side * cfg.take_profit_pct) if price is not None else None
         source = f"V7波段止盈(+{cfg.take_profit_pct * 100:.1f}%)"
@@ -404,6 +463,21 @@ def plan(branch, result, price, now, quote_time=None, previous_plan=None, settin
         reason == "可以模拟进场" or reason == "、".join(economics["space_rejections"])
     ):
         locked, lock_source = target, source
+    extra_exit = (
+        {
+            "exit_policy": "v8_atr_ratchet",
+            "daily_atr_pct": atr_levels["daily_atr_pct"],
+            "daily_atr_source": atr_levels["daily_atr_source"],
+            "stop_loss_pct": atr_levels["stop_loss_pct"],
+            "take_profit_pct": atr_levels["take_profit_pct"],
+            "ratchet_tier1_trigger_pct": atr_levels["ratchet_tier1_trigger_pct"],
+            "ratchet_tier1_lock_pct": atr_levels["ratchet_tier1_lock_pct"],
+            "ratchet_tier2_trigger_pct": atr_levels["ratchet_tier2_trigger_pct"],
+            "ratchet_tier2_lock_pct": atr_levels["ratchet_tier2_lock_pct"],
+        }
+        if use_atr_ratchet and atr_levels is not None
+        else {}
+    )
     return {
         **deepcopy(branch),
         "process_id": branch.get("process_id", branch["structure_id"]),
@@ -419,6 +493,7 @@ def plan(branch, result, price, now, quote_time=None, previous_plan=None, settin
         "entry_quote": price,
         "entry_quote_time": quote_time.isoformat() if quote_time else None,
         **economics,
+        **extra_exit,
         "minute_as_of": result.get("as_of"),
         "entry_quote_not_before": quote_floor.isoformat() if quote_floor else None,
         "rule_version": VERSION,
@@ -534,7 +609,54 @@ def transition(previous, symbol, result, quote, now, settings=None):
             risk = abs(position["entry_price"] - position["invalidation"])
             gain = side * (price - position["entry_price"])
             position["peak_gain"] = max(position["peak_gain"], gain)
-            if position.get("exit_policy") == "v7_fixed_wave":
+            if position.get("exit_policy") == "v8_atr_ratchet":
+                if side * (price - position["protection"]) <= 0:
+                    stage = position.get("protection_stage")
+                    if stage == "ratchet_tier2":
+                        reason = "二档棘轮锁盈触及"
+                    elif stage == "ratchet_tier1":
+                        reason = "一档保本锁盈触及"
+                    else:
+                        reason = "ATR止损触及"
+                elif position["target"] is not None and side * (price - position["target"]) >= 0:
+                    reason = "到达波段止盈目标"
+                elif position["entry_price"] > 0:
+                    peak_pct = position["peak_gain"] / position["entry_price"]
+                    t1_trig = float(position.get("ratchet_tier1_trigger_pct") or 0.0)
+                    t1_lock = float(position.get("ratchet_tier1_lock_pct") or 0.0)
+                    t2_trig = float(position.get("ratchet_tier2_trigger_pct") or 0.0)
+                    t2_lock = float(position.get("ratchet_tier2_lock_pct") or 0.0)
+                    promoted_stage = None
+                    promoted_trig = 0.0
+                    promoted_lock = 0.0
+                    if t2_trig > 0 and (peak_pct >= t2_trig or math.isclose(peak_pct, t2_trig, rel_tol=1e-10)):
+                        promoted_stage, promoted_trig, promoted_lock = "ratchet_tier2", t2_trig, t2_lock
+                    elif t1_trig > 0 and (peak_pct >= t1_trig or math.isclose(peak_pct, t1_trig, rel_tol=1e-10)):
+                        promoted_stage, promoted_trig, promoted_lock = "ratchet_tier1", t1_trig, t1_lock
+                    if promoted_stage is not None:
+                        candidate = position["entry_price"] * (1.0 + side * promoted_lock)
+                        if side * (candidate - position["protection"]) > 0:
+                            position["protection"] = candidate
+                            if position.get("protection_stage") != promoted_stage:
+                                position["protection_active"] = True
+                                position["protection_stage"] = promoted_stage
+                                tier_label = "二档" if promoted_stage == "ratchet_tier2" else "一档"
+                                lock_label = (
+                                    "成本价保本" if promoted_lock == 0 else f"+{promoted_lock * 100:.2f}%锁盈"
+                                )
+                                event(
+                                    "hold",
+                                    f"浮盈已达+{promoted_trig * 100:.2f}%，{tier_label}棘轮保护位上移至{lock_label}",
+                                    trade_id=position["id"],
+                                    side=side,
+                                )
+                        if side * (price - position["protection"]) <= 0:
+                            reason = (
+                                "二档棘轮锁盈触及"
+                                if position.get("protection_stage") == "ratchet_tier2"
+                                else "一档保本锁盈触及"
+                            )
+            elif position.get("exit_policy") == "v7_fixed_wave":
                 if side * (price - position["protection"]) <= 0:
                     reason = "保本锁盈保护触及" if position.get("protection_active") else "宏观止损触及"
                 elif position["target"] is not None and side * (price - position["target"]) >= 0:
@@ -813,7 +935,20 @@ def transition(previous, symbol, result, quote, now, settings=None):
                 last_price_at=quote.event_time.isoformat(),
                 return_pct=0,
             )
-            if not cfg.use_pivot_target and chosen["kind"] in START_KINDS and (
+            if chosen.get("exit_policy") == "v8_atr_ratchet":
+                position.update(
+                    exit_policy="v8_atr_ratchet",
+                    protection_stage="initial",
+                    daily_atr_pct=chosen["daily_atr_pct"],
+                    daily_atr_source=chosen["daily_atr_source"],
+                    stop_loss_pct=chosen["stop_loss_pct"],
+                    take_profit_pct=chosen["take_profit_pct"],
+                    ratchet_tier1_trigger_pct=chosen["ratchet_tier1_trigger_pct"],
+                    ratchet_tier1_lock_pct=chosen["ratchet_tier1_lock_pct"],
+                    ratchet_tier2_trigger_pct=chosen["ratchet_tier2_trigger_pct"],
+                    ratchet_tier2_lock_pct=chosen["ratchet_tier2_lock_pct"],
+                )
+            elif not cfg.use_pivot_target and chosen["kind"] in START_KINDS and (
                 cfg.stop_loss_pct > 0 or cfg.take_profit_pct > 0
             ):
                 position.update(
