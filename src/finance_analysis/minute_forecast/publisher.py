@@ -36,6 +36,7 @@ class ForecastPublisher:
         self.url = url
         self.expected_model = expected_model
         self.published: dict[str, int] = {}
+        self.last_attempted: dict[str, int] = {}
         self.btc_requested_at: datetime | None = None
         self.btc_input: ForecastWindow | None = None
         self.stock_evaluated_at: int | None = None
@@ -59,14 +60,15 @@ class ForecastPublisher:
 
     async def tick(self, bars, targets: Mapping[str, MarketType], predictor, binance,
                    now: datetime) -> None:
-        minute = now.replace(second=0, microsecond=0)
-        anchor = millis(minute) - MINUTE_MS
+        minute = millis(now.replace(second=0, microsecond=0))
+        anchor = minute - MINUTE_MS
         ready = millis(now) >= self.retry_after
         groups: dict[tuple[int, int], list[ForecastWindow]] = defaultdict(list)
         self.published = {symbol: value for symbol, value in self.published.items()
                           if symbol in targets or (binance is not None and symbol == BTC_SYMBOL)}
+        self.last_attempted = {symbol: value for symbol, value in self.last_attempted.items() if symbol in targets}
         for symbol, market in (targets.items() if ready else ()):
-            if not bars.get(symbol) or self.published.get(symbol) == anchor:
+            if not bars.get(symbol) or self.published.get(symbol) == minute:
                 continue
             try:
                 window = stock_window(symbol, market, bars[symbol], now)
@@ -84,18 +86,40 @@ class ForecastPublisher:
                 and (self.btc_requested_at is None or (now - self.btc_requested_at).total_seconds() >= 8)):
             self.btc_requested_at = now
             btc_task = asyncio.create_task(self.read_btc(binance, now))
+
+        async def infer_btc() -> bool:
+            if self.btc_input is not None and self.published.get(BTC_SYMBOL) != minute:
+                return await self.infer(predictor, [self.btc_input])
+            return True
+
         try:
+            def last_attempt(window: ForecastWindow) -> int:
+                return self.last_attempted.get(window.symbol, 0)
+
+            batches = []
             for windows in groups.values():
-                for start in range(0, len(windows), BATCH_SIZE):
-                    ready = await self.infer(predictor, windows[start:start + BATCH_SIZE])
-                    if not ready:
-                        break
+                windows.sort(key=last_attempt)
+                batches.extend(windows[start:start + BATCH_SIZE] for start in range(0, len(windows), BATCH_SIZE))
+            # If the minute budget is exhausted, start the next minute with the symbols that waited longest.
+            for batch in sorted(batches, key=lambda windows: last_attempt(windows[0])):
+                if millis(utc_now()) >= minute + MINUTE_MS:
+                    ready = False
+                    break
+                for window in batch:
+                    self.last_attempted[window.symbol] = minute
+                ready = await self.infer(predictor, batch)
                 if not ready:
                     break
+                if btc_task is not None and btc_task.done():
+                    self.btc_input = await btc_task
+                    btc_task = None
+                    ready = await infer_btc()
+                    if not ready:
+                        break
             if btc_task is not None:
                 self.btc_input = await btc_task
-            if ready and self.btc_input is not None and self.published.get(BTC_SYMBOL) != anchor:
-                await self.infer(predictor, [self.btc_input])
+            if ready:
+                await infer_btc()
             # Keep settlement moving during inference backoff. BTC can arrive
             # a tick later than the equity candles, so track its cadence separately.
             stock_due = self.stock_evaluated_at != anchor and now.second >= 5
@@ -123,16 +147,20 @@ class ForecastPublisher:
             return None
 
     async def infer(self, predictor, windows: list[ForecastWindow]) -> bool:
-        if millis(utc_now()) >= windows[0].targets[0] + MINUTE_MS:
+        remaining = (windows[0].targets[0] + MINUTE_MS - millis(utc_now())) / 1000
+        if remaining <= 0:
             return False
         try:
-            response = await predictor.post(f"{self.url}/predict", json={
-                "protocol": PROTOCOL, "windows": [window.model_dump(mode="json") for window in windows],
-            })
+            async with asyncio.timeout(remaining):
+                response = await predictor.post(f"{self.url}/predict", json={
+                    "protocol": PROTOCOL, "windows": [window.model_dump(mode="json") for window in windows],
+                })
             response.raise_for_status()
             result = InferenceResult.model_validate_json(response.content)
             if result.protocol != PROTOCOL or result.model != self.expected_model:
                 raise ValueError("incompatible Kronos model or protocol")
+        except TimeoutError:
+            return False
         except (httpx.HTTPError, ValueError) as error:
             if not self.retry_after:
                 logger.warning("Kronos 推理暂不可用: %s", error)
@@ -154,6 +182,7 @@ class ForecastPublisher:
                 model=result.model, weights_revision=result.weights_revision, symbol=window.symbol,
                 anchor=last.timestamp, anchor_close=last.close, generated_at=generated_at,
                 lookback=len(window.bars), bars=prediction.bars,
+                session_close=window.targets[-1] + MINUTE_MS if window.symbol != BTC_SYMBOL else None,
             ))
-            self.published[window.symbol] = last.timestamp
+            self.published[window.symbol] = window.targets[0]
         return True

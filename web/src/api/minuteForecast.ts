@@ -19,6 +19,7 @@ export interface MinuteForecast {
   lookback: number;
   bars: ForecastBar[];
   closeReplay?: boolean;
+  sessionClose?: number | null;
 }
 
 export interface MinuteForecastResponse {

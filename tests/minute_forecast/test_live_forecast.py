@@ -1,5 +1,8 @@
+import json
+import runpy
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
+from pathlib import Path
 from unittest.mock import AsyncMock, Mock
 from zoneinfo import ZoneInfo
 
@@ -10,7 +13,7 @@ from fastapi import HTTPException, Response
 from finance_analysis.integrations.market_data.realtime_state.models import CandleState
 from finance_analysis.interfaces.api.v1.endpoints import market_data
 from finance_analysis.minute_forecast import publisher
-from finance_analysis.minute_forecast.cache import close_replay_key, forecast_key, pending_error_key
+from finance_analysis.minute_forecast.cache import close_replay_key, forecast_key, pending_error_key, publish_forecast
 from finance_analysis.minute_forecast.evaluation import evaluation_day, read_accuracy, settle_forecasts
 from finance_analysis.minute_forecast.models import ForecastAccuracy, ForecastSnapshot, RecentErrors
 from finance_analysis.minute_forecast.publisher import ForecastPublisher
@@ -41,34 +44,57 @@ def test_stock_forecast_starts_with_fifteen_confirmed_minutes_after_open():
     window = stock_window("QQQ.US", "US", bars, first_forecast)
     assert window is not None
     assert len(window.bars) == 15
-    assert window.targets == [millis(first_forecast + step * MINUTE) for step in range(10)]
+    assert window.targets == [millis(first_forecast + step * MINUTE) for step in range(375)]
 
     bars[-1].confirmed = False
     assert stock_window("QQQ.US", "US", bars, first_forecast) is None
+    final = opened + 389 * MINUTE
+    window = stock_window("QQQ.US", "US", candles("QQQ.US", opened, 389), final)
+    assert len(window.bars) == 389 and window.targets == [millis(final)]
 
 
 def test_candle_window_uses_only_confirmed_observations_and_actual_early_close():
     now = datetime(2026, 11, 27, 12, 58, 7, tzinfo=NY)
-    bars = candles("QQQ.US", now.replace(second=0) - 35 * MINUTE, 36)
-    bars[0].sampled = True
+    opened = now.replace(hour=9, minute=30, second=0)
+    bars = candles("QQQ.US", opened, 209)
     bars[-1].confirmed = False
     value = stock_window("QQQ.US", "US", reversed(bars), now)
     assert value is not None
-    assert len(value.bars) == 34 and value.bars[-1].timestamp == millis(now.replace(second=0) - MINUTE)
+    assert len(value.bars) == 208 and value.bars[-1].timestamp == millis(now.replace(second=0) - MINUTE)
     assert value.targets == [millis(now.replace(second=0) + i * MINUTE) for i in range(2)]
+    bars[1].sampled = True
+    assert stock_window("QQQ.US", "US", bars, now) is None
+    bars[1].sampled = False
     bars[-2].partial = True
     assert stock_window("QQQ.US", "US", bars, now) is None
 
 
-def test_cn_forecast_ends_at_lunch_and_begins_with_a_completed_afternoon_candle():
+def test_cn_forecast_rolls_to_close_and_skips_lunch_in_both_directions():
     late = datetime(2026, 11, 20, 11, 28, tzinfo=SHANGHAI)
-    morning = candles("600519.SH", late - 32 * MINUTE, 34)
-    assert stock_window("600519.SH", "CN", morning, late).targets == [millis(late), millis(late + MINUTE)]
+    morning = candles("600519.SH", late.replace(hour=9, minute=30), 120)
     afternoon = late.replace(hour=13, minute=0)
-    assert stock_window("600519.SH", "CN", morning, afternoon) is None
+    pre_lunch = stock_window("600519.SH", "CN", morning, late)
+    assert len(pre_lunch.bars) == 118 and len(pre_lunch.targets) == 122
+    assert pre_lunch.targets[:3] == [millis(late), millis(late + MINUTE), millis(afternoon)]
+    assert stock_window("600519.SH", "CN", morning, late + 2 * MINUTE) is None
+    resumed = stock_window("600519.SH", "CN", morning, afternoon)
+    assert len(resumed.bars) == len(resumed.targets) == 120
+    assert resumed.bars[-1].timestamp == millis(late + MINUTE)
     window = stock_window("600519.SH", "CN", morning + candles("600519.SH", afternoon, 1), afternoon + MINUTE)
-    assert len(window.bars) == 35
-    assert window.targets[-1] == millis(afternoon + 10 * MINUTE)
+    assert len(window.bars) == 121 and len(window.targets) == 119
+    assert window.targets[-1] == millis(afternoon + 119 * MINUTE)
+
+
+def test_host_accepts_session_windows_and_only_allows_the_exchange_lunch_gap():
+    host_request = runpy.run_path(str(Path(__file__).parents[2] / "kronos_worker/server.py"))["Request"]
+    afternoon = datetime(2026, 11, 20, 13, tzinfo=SHANGHAI)
+    morning = candles("600519.SH", afternoon.replace(hour=9, minute=30), 120)
+    for at in (afternoon.replace(hour=11, minute=29), afternoon):
+        window = stock_window("600519.SH", "CN", morning, at).model_dump()
+        assert host_request(protocol=1, windows=[window]).windows[0].targets[-1] == millis(afternoon + 119 * MINUTE)
+        window["targets"].pop(1)
+        with pytest.raises(ValueError, match="targets must follow"):
+            host_request(protocol=1, windows=[window])
 
 
 def test_close_replay_anchors_to_early_close_and_excludes_postmarket_candles():
@@ -92,15 +118,13 @@ async def test_batches_keep_all_active_symbols_and_btc_independent(monkeypatch):
     monkeypatch.setattr(publisher, "settle_forecasts", settle)
     writer = ForecastPublisher(redis, "http://mps", "small")
     symbols = [f"STK{i}.US" for i in range(12)]
-    inputs = {symbol: candles(symbol, now.replace(second=0) - 30 * MINUTE, 30) for symbol in symbols}
+    inputs = {symbol: candles(symbol, now.replace(second=0) - 75 * MINUTE, 75) for symbol in symbols}
     inputs["REMOVED.US"] = inputs[symbols[0]]
     markets = dict.fromkeys(symbols, "US")
     binance = Mock(spot_minute_rows=AsyncMock(return_value=binance_rows(now)))
     posted = []
 
     async def predict(request):
-        import json
-
         batch = json.loads(request.content)["windows"]
         posted.append([item["symbol"] for item in batch])
         return httpx.Response(200, json={
@@ -120,6 +144,44 @@ async def test_batches_keep_all_active_symbols_and_btc_independent(monkeypatch):
     assert len(btc_window(binance_rows(now), now).targets) == 10
     settle.assert_awaited_once()
     assert settle.await_args.args[2] == markets and settle.await_args.args[3].symbol == "BTCUSDT"
+
+
+@pytest.mark.asyncio
+async def test_next_minute_starts_with_symbols_skipped_when_time_runs_out(monkeypatch):
+    opened = datetime(2026, 11, 20, 9, 30, tzinfo=NY)
+    minute = opened + 15 * MINUTE
+    clock = [minute]
+    monkeypatch.setattr(publisher, "utc_now", lambda: clock[0])
+    writer = ForecastPublisher(Mock(), "http://mps", "small")
+    inputs = {f"STK{i}.US": candles(f"STK{i}.US", opened, 16) for i in range(12)}
+    markets = dict.fromkeys(inputs, "US")
+
+    async def finish_at_deadline(_client, batch):
+        clock[0] += MINUTE
+        return True
+
+    writer.infer = AsyncMock(side_effect=finish_at_deadline)
+    await writer.tick(inputs, markets, None, None, minute)
+    assert len(writer.infer.call_args_list) == 1
+    await writer.tick(inputs, markets, None, None, minute + MINUTE)
+    assert [window.symbol for window in writer.infer.call_args.args[1]][:2] == list(inputs)[-2:]
+
+
+@pytest.mark.asyncio
+async def test_full_live_path_and_short_accuracy_queue_are_published_together():
+    first = millis(datetime(2026, 11, 20, 9, 45, tzinfo=SHANGHAI))
+    snapshots = [dict(timestamp=first + 60_000 * i, open=10, high=11, low=9, close=10) for i in range(25)]
+    forecast = ForecastSnapshot(symbol="600519.SH", model="small", weights_revision="fixed", anchor=first - 60_000,
+                                anchor_close=10, generated_at=first, lookback=15, bars=snapshots,
+                                session_close=first + 25 * 60_000)
+    redis = Mock(eval=AsyncMock())
+    await publish_forecast(redis, forecast)
+    args = redis.eval.await_args.args
+    assert ForecastSnapshot.model_validate_json(args[6]) == forecast
+    assert args[-2] == forecast.session_close
+    comparison = ForecastSnapshot.model_validate_json(args[-1])
+    assert comparison.bars == forecast.bars[:10] and comparison.session_close is None
+    assert args[-4] == comparison.bars[-1].timestamp + 60_000
 
 
 @pytest.mark.asyncio

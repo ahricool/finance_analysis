@@ -20,7 +20,11 @@ from pydantic import BaseModel, Field, FiniteFloat, model_validator
 PROTOCOL = 1
 MINUTE_MS = 60_000
 MIN_LOOKBACK = 15
-MAX_HORIZON = 10
+MAX_DAILY_LOOKBACK = 240
+MAX_DAILY_HORIZON = 10
+MAX_SESSION_MINUTES = 390
+MODEL_CONTEXT = 512
+LUNCH_LAST_MINUTE = {"Asia/Shanghai": time(11, 29), "Asia/Hong_Kong": time(11, 59)}
 MAX_BODY = 1_048_576
 logger = logging.getLogger(__name__)
 
@@ -38,8 +42,8 @@ class Bar(BaseModel):
 class Window(BaseModel):
     symbol: str = Field(min_length=1, max_length=36)
     timezone: str = Field(max_length=64)
-    bars: list[Bar] = Field(min_length=MIN_LOOKBACK, max_length=240)
-    targets: list[int] = Field(min_length=1, max_length=MAX_HORIZON)
+    bars: list[Bar] = Field(min_length=MIN_LOOKBACK, max_length=MAX_SESSION_MINUTES)
+    targets: list[int] = Field(min_length=1, max_length=MAX_SESSION_MINUTES)
 
     def validate_times(self, interval: str) -> None:
         stamps = [bar.timestamp for bar in self.bars] + self.targets
@@ -47,13 +51,20 @@ class Window(BaseModel):
             raise ValueError("timestamps must be positive, distinct and ordered")
         zone = ZoneInfo(self.timezone)
         if interval == "1d":
+            if len(self.bars) > MAX_DAILY_LOOKBACK or len(self.targets) > MAX_DAILY_HORIZON:
+                raise ValueError("daily forecast window is too long")
             if any(datetime.fromtimestamp(stamp / 1000, zone).time() != time.min for stamp in stamps):
                 raise ValueError("daily timestamps must be at market-local midnight")
-        else:
-            if any(stamp % MINUTE_MS for stamp in stamps):
-                raise ValueError("timestamps must be minute starts")
-            last = self.bars[-1].timestamp
-            if self.targets != [last + MINUTE_MS * i for i in range(1, len(self.targets) + 1)]:
+            return
+        if len(stamps) > MAX_SESSION_MINUTES or any(stamp % MINUTE_MS for stamp in stamps):
+            raise ValueError("minute windows must fit a regular session and use minute starts")
+        targets = [self.bars[-1].timestamp, *self.targets]
+        for before, after in zip(targets, targets[1:]):
+            if after - before == MINUTE_MS:
+                continue
+            start, end = (datetime.fromtimestamp(stamp / 1000, zone) for stamp in (before, after))
+            if (start.time() != LUNCH_LAST_MINUTE.get(self.timezone) or end.time() != time(13)
+                    or start.date() != end.date()):
                 raise ValueError("targets must follow the last confirmed candle")
 
 
@@ -87,12 +98,97 @@ def prices(frame: pd.DataFrame, timestamps: list[int]) -> list[dict] | None:
     return result
 
 
+def session_autoregression(predictor, x, x_stamp, y_stamp, sample):
+    """Use the pinned Kronos layers and FP32 sampling with a growing attention cache."""
+    from torch.nn import functional as F
+    import torch
+
+    def project(projection, values, attention):
+        return projection(values).unflatten(-1, (attention.n_heads, attention.head_dim)).transpose(1, 2)
+
+    def cache(attention):
+        shape = (batch_size, attention.n_heads, total, attention.head_dim)
+        return x.new_empty(shape), x.new_empty(shape)
+
+    tokenizer, model = predictor.tokenizer, predictor.model
+    initial = tokenizer.encode(x, half=True)
+    batch_size, history = initial[0].shape
+    horizon = y_stamp.size(1)
+    total = history + horizon
+    tokens = [part.new_empty((batch_size, total)) for part in initial]
+    for buffer, part in zip(tokens, initial, strict=True):
+        buffer[:, :history] = part
+    times = model.time_emb(torch.cat((x_stamp, y_stamp), dim=1))
+    layers = [(layer, *cache(layer.self_attn)) for layer in model.transformer]
+    dependency = model.dep_layer
+    cross_attention = dependency.cross_attn
+    cross_keys, cross_values = cache(cross_attention)
+
+    for length in range(history, total):
+        first_step = length == history
+        start = 0 if first_step else length - 1
+        hidden = model.embedding([part[:, start:length] for part in tokens]) + times[:, start:length]
+        for layer, keys, values in layers:
+            attention = layer.self_attn
+            norm = layer.norm1(hidden)
+            rotary = attention.rotary
+            cos, sin = rotary._update_cos_sin_cache(norm, total)
+            cos, sin = cos[..., start:length, :], sin[..., start:length, :]
+            query = project(attention.q_proj, norm, attention)
+            key = project(attention.k_proj, norm, attention)
+            query = query * cos + rotary._rotate_half(query) * sin
+            key = key * cos + rotary._rotate_half(key) * sin
+            value = project(attention.v_proj, norm, attention)
+            keys[..., start:length, :] = key
+            values[..., start:length, :] = value
+            result = F.scaled_dot_product_attention(
+                query, key if first_step else keys[..., :length, :],
+                value if first_step else values[..., :length, :], is_causal=first_step,
+            )
+            hidden = hidden + attention.out_proj(result.transpose(1, 2).flatten(-2))
+            hidden = hidden + layer.ffn(layer.norm2(hidden))
+
+        hidden = model.norm(hidden)
+        last = hidden[:, -1:, :]
+        first = sample(model.head(last)[:, 0, :])
+        # The pinned cross-attention sizes its rotary cache by the single sibling query. Its rotation is identity.
+        sibling = model.embedding.emb_s1(first)
+        query = project(cross_attention.q_proj, sibling, cross_attention)
+        key = project(cross_attention.k_proj, hidden, cross_attention)
+        value = project(cross_attention.v_proj, hidden, cross_attention)
+        cross_keys[..., start:length, :] = key
+        cross_values[..., start:length, :] = value
+        result = F.scaled_dot_product_attention(
+            query, key if first_step else cross_keys[..., :length, :],
+            value if first_step else cross_values[..., :length, :],
+        )
+        last = dependency.norm(last + cross_attention.out_proj(result.transpose(1, 2).flatten(-2)))
+        second = sample(model.head.cond_forward(last)[:, 0, :])
+        tokens[0][:, length] = first[:, 0]
+        tokens[1][:, length] = second[:, 0]
+    return tokenizer.decode(tokens, half=True)[:, -horizon:, :].cpu().numpy()
+
+
 class Runner:
     def __init__(self, args):
         import torch
 
         sys.path.insert(0, str(args.source))
         from model import Kronos, KronosPredictor, KronosTokenizer
+        from model.kronos import sample_from_logits
+
+        class SessionPredictor(KronosPredictor):
+            def generate(self, x, x_stamp, y_stamp, pred_len, T, top_k, top_p, sample_count, verbose):
+                if pred_len <= MAX_DAILY_HORIZON or sample_count != 1 or x.shape[1] + pred_len > self.max_context:
+                    return super().generate(x, x_stamp, y_stamp, pred_len, T, top_k, top_p, sample_count, verbose)
+
+                def sample(logits):
+                    return sample_from_logits(logits, temperature=T, top_k=top_k, top_p=top_p, sample_logits=True)
+
+                with torch.no_grad():
+                    inputs = [torch.as_tensor(value, dtype=torch.float32, device=self.device)
+                              for value in (x, x_stamp, y_stamp)]
+                    return session_autoregression(self, inputs[0].clamp(-self.clip, self.clip), *inputs[1:], sample)
 
         if not torch.backends.mps.is_available():
             raise RuntimeError("Kronos requires a working Apple MPS runtime")
@@ -100,7 +196,7 @@ class Runner:
         torch.set_num_interop_threads(1)
         model = Kronos.from_pretrained(args.model_dir, local_files_only=True).eval()
         tokenizer = KronosTokenizer.from_pretrained(args.tokenizer_dir, local_files_only=True).eval()
-        self.predictor = KronosPredictor(model, tokenizer, device="mps", max_context=512)
+        self.predictor = SessionPredictor(model, tokenizer, device="mps", max_context=MODEL_CONTEXT)
         self.identity = {
             "protocol": PROTOCOL, "model": args.model, "weights_revision": args.weights_revision,
             "device": "mps", "release": args.release, "intervals": ["1m", "1d"],
@@ -109,11 +205,12 @@ class Runner:
         self._priority_lock = Lock()
         self._minute_retry_until = 0.0
         # Trigger real MPS kernels before advertising readiness to deployment.
-        stamps = pd.Series(pd.date_range("2026-01-01", periods=MIN_LOOKBACK + MAX_HORIZON, tz="UTC", freq="min"))
+        warmup_horizon = MAX_DAILY_HORIZON + 1
+        stamps = pd.Series(pd.date_range("2026-01-01", periods=MIN_LOOKBACK + warmup_horizon, tz="UTC", freq="min"))
         values = [100.0 + i / 100 for i in range(MIN_LOOKBACK)]
         frame = pd.DataFrame({col: values for col in ("open", "high", "low", "close")})
         self.predictor.predict_batch(
-            [frame], [stamps[:MIN_LOOKBACK]], [stamps[MIN_LOOKBACK:]], pred_len=MAX_HORIZON, verbose=False,
+            [frame], [stamps[:MIN_LOOKBACK]], [stamps[MIN_LOOKBACK:]], pred_len=warmup_horizon, verbose=False,
         )
         torch.mps.synchronize()
 

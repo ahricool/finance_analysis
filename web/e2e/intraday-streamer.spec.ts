@@ -3,6 +3,7 @@ import { expect, test } from '@playwright/test';
 for (const scope of ['watch-list', 'holdings'] as const) {
   for (const width of [390, 768, 1024, 1280, 1440, 1920]) {
     test(`${scope} inline intraday chart and detail at ${width}px`, async ({ page }, testInfo) => {
+      const forecastToClose = scope === 'watch-list' && width === 768;
       await page.setViewportSize({ width, height: 1100 });
       if (width === 1280) await page.clock.install({ time: new Date('2026-10-21T02:30:00Z') });
       else await page.clock.setFixedTime(new Date('2026-10-21T02:30:00Z'));
@@ -11,6 +12,7 @@ for (const scope of ['watch-list', 'holdings'] as const) {
         const original = CanvasRenderingContext2D.prototype.fillText;
         CanvasRenderingContext2D.prototype.fillText = function (text, x, y, maxWidth) {
           if (text === '昨收 · 0%') this.canvas.dataset.zeroLine = 'true';
+          if (/^14:\d\d$/.test(text)) this.canvas.dataset.afternoonAxis = 'true';
           if (['▴', '▾', '◇'].includes(text)) this.canvas.dataset[`direction${text === '▴' ? 'Bull' : text === '▾' ? 'Bear' : 'Neutral'}`] = 'true';
           if (text === '▴') {
             const transform = this.getTransform();
@@ -49,6 +51,18 @@ for (const scope of ['watch-list', 'holdings'] as const) {
         if (url.pathname === '/api/v1/watch-list') { const rows = items.filter(item => item.market_type === (url.searchParams.get('market') ?? 'CN')); return route.fulfill({ json: { items: rows, total: rows.length } }); }
         if (url.pathname === '/api/v1/holdings/summary') return route.fulfill({ json: { market: 'CN', accounts: [{ id: 1, name: 'A股账户', market: 'CN', cash: '89000', currency: 'CNY' }], cash: '89000', market_value: '11000', total_asset: '100000', gross_exposure: '0.11', positions: [position] } });
         if (url.pathname.includes('/market-data/intraday/')) { intradayRequests++; return route.fulfill({ json: { symbol: '600519.SH', market: 'CN', trading_date: '2026-10-21', generated_at: '2026-10-21T02:30:00Z', reset: !url.searchParams.has('since'), full_snapshot: true, items: bars, quote, events } }); }
+        if (forecastToClose && url.pathname.includes('/minute-forecast/')) {
+          const afternoon = Date.parse('2026-10-21T13:00:00+08:00');
+          const first = bars[60]!.timestamp;
+          const targets = Array.from({ length: 180 }, (_, index) => ({
+            timestamp: index < 60 ? first + index * 60_000 : afternoon + (index - 60) * 60_000,
+            open: 111, high: 113, low: 110, close: 112,
+          }));
+          return route.fulfill({ json: { enabled: true, forecast: { symbol: '600519.SH', model: 'small',
+            weights_revision: 'fixture', anchor: bars[59]!.timestamp, anchor_close: bars[59]!.close,
+            generated_at: first, lookback: 60, bars: targets, session_close: afternoon + 120 * 60_000 },
+          comparison: null } });
+        }
         if (url.pathname.includes('/daily-bars/')) return route.fulfill({ json: { symbol: '600519.SH', market: 'CN', items: [], interval: '1d', adjustment: 'forward' } });
         if (/\/holdings\/positions\/\d+$/.test(url.pathname)) return route.fulfill({ json: position });
         if (url.pathname.includes('/stocks/600519.SH/info')) return route.fulfill({ json: { stock_code: '600519.SH', stock_name: '贵州茅台' } });
@@ -64,6 +78,16 @@ for (const scope of ['watch-list', 'holdings'] as const) {
       await expect(panel.getByRole('img', { name: /1m K线/ })).toBeVisible();
       await expect(panel).toContainText('多头确认');
       await expect(panel).toContainText('新浪 · 原生分钟线');
+      if (forecastToClose) {
+        const forecast = panel.getByTestId('minute-forecast');
+        await expect(forecast).toContainText('10:30–15:00 收盘 · 180 根');
+        await expect(forecast).toContainText('60 根输入');
+        await expect(panel.locator('canvas[data-afternoon-axis]').first()).toBeAttached();
+        await forecast.getByRole('checkbox', { name: '显示预测 K 线' }).uncheck();
+        await expect(panel.getByRole('button', { name: '查看全天' })).toHaveCount(0);
+        await forecast.getByRole('checkbox', { name: '显示预测 K 线' }).check();
+        await expect(panel.getByRole('button', { name: '查看全天' })).toBeVisible();
+      }
       await expect(panel.locator('canvas[data-zero-line]').first()).toBeAttached();
       await expect(panel).not.toContainText('突破后回踩守住参考位');
       const detail = panel.getByTestId('intraday-pattern-evidence');
