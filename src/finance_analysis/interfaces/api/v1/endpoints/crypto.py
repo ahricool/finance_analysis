@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 
 from finance_analysis.contracts.service import live_snapshot
+from finance_analysis.contracts.underlying import underlying_symbol
 from finance_analysis.database.models.contracts import FuturesContract
 from finance_analysis.database.repositories import contracts as repository
 from finance_analysis.database.repositories.user import UserRepository
@@ -31,7 +32,11 @@ def realtime():
 async def exchange_contracts():
     client = BinanceClient()
     try:
-        return await client.contracts()
+        return [
+            {"symbol": row["symbol"], "category": row["category"],
+             "underlying_symbol": underlying_symbol(row["symbol"], row["category"], row["base_asset"])}
+            for row in await client.contracts()
+        ]
     except (httpx.HTTPError, ValueError, KeyError) as exc:
         raise HTTPException(503, "交易所合约目录暂不可用") from exc
     finally:
@@ -51,13 +56,14 @@ async def add(payload: ContractCreate, db: Session = Depends(get_db)):
     if item is None:
         raise HTTPException(422, "仅支持交易中的 USDT 本位永续合约")
     category = (payload.category or item["category"]).strip() or "其他"
-    db.add(FuturesContract(symbol=symbol, category=category))
+    underlying = item["underlying_symbol"]
+    db.add(FuturesContract(symbol=symbol, category=category, underlying_symbol=underlying))
     try:
         db.commit()
     except IntegrityError as exc:
         db.rollback()
         raise HTTPException(409, "该合约已存在") from exc
-    return {"symbol": symbol, "category": category}
+    return {"symbol": symbol, "category": category, "underlying_symbol": underlying}
 
 
 @router.delete("/contracts/{symbol}", status_code=204, dependencies=[Depends(require_admin)])

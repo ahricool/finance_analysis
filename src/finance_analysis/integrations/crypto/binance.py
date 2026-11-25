@@ -54,7 +54,10 @@ class BinanceClient:
     async def contracts(self):
         data = await self._get("/fapi/v1/exchangeInfo")
         return [
-            {"symbol": item["symbol"], "category": item.get("underlyingType") or "其他"}
+            {
+                "symbol": item["symbol"], "category": item.get("underlyingType") or "其他",
+                "base_asset": item.get("baseAsset"),
+            }
             for item in data["symbols"]
             if item["contractType"] in {"PERPETUAL", "TRADIFI_PERPETUAL"} and item["status"] == "TRADING"
             and item["quoteAsset"] == "USDT" and item["marginAsset"] == "USDT"

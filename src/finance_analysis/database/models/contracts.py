@@ -10,6 +10,7 @@ class FuturesContract(Base):
 
     symbol = Column(String(32), primary_key=True)
     category = Column(String(32), nullable=False)
+    underlying_symbol = Column(String(64), nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
 
 

@@ -8,8 +8,9 @@ from finance_analysis.database.models.contracts import FuturesContract, FuturesD
 
 def contracts():
     with DatabaseManager.get_instance().session_scope() as session:
-        return [{"symbol": row.symbol, "category": row.category} for row in
-                session.scalars(select(FuturesContract).order_by(FuturesContract.created_at, FuturesContract.symbol))]
+        rows = session.scalars(select(FuturesContract).order_by(FuturesContract.created_at, FuturesContract.symbol))
+        return [{"symbol": row.symbol, "category": row.category, "underlying_symbol": row.underlying_symbol}
+                for row in rows]
 
 
 def latest_daily(symbol):
