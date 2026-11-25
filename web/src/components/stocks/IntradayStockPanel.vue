@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
+import { computed, onBeforeUnmount, ref, shallowRef, watch } from 'vue';
 import type { OverlayCreate } from 'klinecharts';
 import { fetchIntradayMarket, type IntradayBar, type IntradaySnapshot, type PatternEvent } from '@/api/intradayMarket';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import ApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
 import MarketKLineChart from '@/components/market-data/MarketKLineChart.vue';
+import TableExpansionPanel from '@/components/market-data/TableExpansionPanel.vue';
 import { intradayPatternOverlays } from './intradayPatternOverlay';
 import { Button } from '@/components/ui/button';
 import TrendStatus from './TrendStatus.vue';
@@ -14,18 +15,6 @@ import { useCurrentTime } from '@/composables/useCurrentTime';
 import { useTheme } from '@/composables/useTheme';
 
 const props = defineProps<{ symbol: string; market: 'CN' | 'US' }>();
-const panel = ref<HTMLElement>();
-const panelWidth = ref('100%');
-let resizeObserver: ResizeObserver | undefined;
-onMounted(() => {
-  const container = panel.value?.closest('[data-slot="table-container"]');
-  if (container) {
-    const resize = () => { panelWidth.value = `${Math.max(240, container.clientWidth - 24)}px`; };
-    resize();
-    resizeObserver = new ResizeObserver(resize);
-    resizeObserver.observe(container);
-  }
-});
 const snapshot = shallowRef<IntradaySnapshot | null>(null);
 const rows = shallowRef<IntradayBar[]>([]);
 const error = shallowRef<ParsedApiError | null>(null);
@@ -85,7 +74,7 @@ watch(() => [props.symbol, props.market], () => {
   snapshot.value = null; rows.value = []; clearSelection(); error.value = null; loading.value = true;
   void load();
 }, { immediate: true });
-onBeforeUnmount(() => { stopped = true; generation++; request?.abort(); clearTimeout(timer); resizeObserver?.disconnect(); });
+onBeforeUnmount(() => { stopped = true; generation++; request?.abort(); clearTimeout(timer); });
 
 const overlays = computed<OverlayCreate[]>(() => {
   const result = intradayPatternOverlays(snapshot.value?.events ?? [], rows.value, resolvedTheme.value === 'dark', events => {
@@ -107,12 +96,7 @@ const overlays = computed<OverlayCreate[]>(() => {
 </script>
 
 <template>
-  <section
-    ref="panel"
-    :style="{ width: panelWidth }"
-    class="sticky left-3 min-w-0 space-y-3 rounded-lg border bg-muted/20 p-3"
-    data-testid="intraday-panel"
-  >
+  <TableExpansionPanel data-testid="intraday-panel">
     <div class="flex flex-wrap items-center justify-between gap-2 text-sm">
       <strong>最近交易日 1 分钟 K 线 · {{ snapshot?.tradingDate ?? '加载中' }}</strong>
       <span class="text-xs text-muted-foreground">{{ market === 'CN' ? `${minuteSource} · 原生分钟线 · 上海时间` : 'Longbridge · 原生分钟线 · 纽约时间' }}</span>
@@ -238,5 +222,5 @@ const overlays = computed<OverlayCreate[]>(() => {
         </div>
       </aside>
     </div>
-  </section>
+  </TableExpansionPanel>
 </template>

@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
+import { computed, onBeforeUnmount, ref, shallowRef, watch } from 'vue';
 import { fetchIntradayMarket, type IntradayBar } from '@/api/intradayMarket';
 import type { SimulationSnapshot, TrendResult } from '@/api/intradayOptions';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import AppApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
 import MarketKLineChart from '@/components/market-data/MarketKLineChart.vue';
+import TableExpansionPanel from '@/components/market-data/TableExpansionPanel.vue';
 import { Button } from '@/components/ui/button';
 import { useTheme } from '@/composables/useTheme';
 import { clock, directions, fmt, pct, structureName, structurePhases } from './labels';
@@ -26,16 +27,6 @@ const error = shallowRef<ParsedApiError | null>(null);
 const loading = ref(true);
 const chartDate = ref('');
 const { resolvedTheme } = useTheme();
-const panel = ref<HTMLElement>();
-const panelWidth = ref('100%');
-let observer: ResizeObserver | undefined;
-onMounted(() => {
-  const container = panel.value?.closest('[data-slot="table-container"]');
-  if (container) {
-    const resize = () => { panelWidth.value = `${Math.max(240, container.clientWidth - 24)}px`; };
-    resize(); observer = new ResizeObserver(resize); observer.observe(container);
-  }
-});
 const closed = computed(() => rows.value.filter(b => b.confirmed));
 const bars = computed(() => closed.value.map(b => ({ ...b, turnover: b.turnover ?? undefined })));
 const current = computed(() => {
@@ -87,16 +78,11 @@ watch(() => props.symbol, () => {
   generation++; controller?.abort(); controller = null; clearTimeout(timer); rows.value = []; chartDate.value = ''; historyVersion = undefined;
   loading.value = true; error.value = null; void load();
 }, { immediate: true });
-onBeforeUnmount(() => { stopped = true; generation++; controller?.abort(); clearTimeout(timer); observer?.disconnect(); });
+onBeforeUnmount(() => { stopped = true; generation++; controller?.abort(); clearTimeout(timer); });
 </script>
 
 <template>
-  <section
-    ref="panel"
-    :style="{ width: panelWidth }"
-    class="sticky left-3 min-w-0 whitespace-normal break-words space-y-3 rounded-lg border bg-muted/20 p-3"
-    data-testid="options-trend-panel"
-  >
+  <TableExpansionPanel data-testid="options-trend-panel">
     <div class="flex flex-wrap items-center justify-between gap-2">
       <strong class="text-sm">{{ symbol }} · {{ chartDate || '当日' }} · 1分钟K线</strong>
       <span class="text-xs text-muted-foreground">纽约时间 · 未闭合K不参与评分</span>
@@ -303,5 +289,5 @@ onBeforeUnmount(() => { stopped = true; generation++; controller?.abort(); clear
         窗口权重：稳定度30% / 路径效率30% / 移动强度25% / 扰动控制15%；综合窗口权重15m/30m/60m = 30%/45%/25%。5分钟仅作短线观察，不参与综合分。趋势质量分不是盈利概率，不与日内机会分直接相加。
       </p>
     </div>
-  </section>
+  </TableExpansionPanel>
 </template>

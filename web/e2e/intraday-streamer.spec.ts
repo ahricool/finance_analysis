@@ -84,9 +84,9 @@ for (const scope of ['watch-list', 'holdings'] as const) {
         await expect(forecast).toContainText('60 根输入');
         await expect(panel.locator('canvas[data-afternoon-axis]').first()).toBeAttached();
         await forecast.getByRole('checkbox', { name: '显示预测 K 线' }).uncheck();
-        await expect(panel.getByRole('button', { name: '查看全天' })).toHaveCount(0);
+        await expect(panel.getByRole('button', { name: '查看完整分钟图' })).toHaveCount(0);
         await forecast.getByRole('checkbox', { name: '显示预测 K 线' }).check();
-        await expect(panel.getByRole('button', { name: '查看全天' })).toBeVisible();
+        await expect(panel.getByRole('button', { name: '查看完整分钟图' })).toBeVisible();
       }
       await expect(panel.locator('canvas[data-zero-line]').first()).toBeAttached();
       await expect(panel).not.toContainText('突破后回踩守住参考位');
