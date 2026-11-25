@@ -294,7 +294,8 @@ Cookie 会话，`apiClient` 设了 `withCredentials: true`。
 
 /crypto/contracts 位于一级“加密货币”导航。浏览器只连接本站 API；共享标的由管理员管理。
 WS 连续两次失败回落 SSE，列表显示价格、24h 涨跌幅、成交额、资金费率；复用 MarketKLineChart 展示日 K 和 1min K，
-无策略、预测、盘口。
+无策略、预测、盘口。合约代码/锚定标的点击打开统一 StockDetailDialog，独立 K 线按钮切换合约图；
+`underlying_symbol` 由后端提供，加密货币与其他暂不支持的市场显示空态，不调用股票接口。
 
 ## 消息中心
 

@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 from redis.exceptions import ConnectionError as RedisConnectionError
 
 from finance_analysis.contracts import service
+from finance_analysis.contracts.underlying import underlying_symbol
 from finance_analysis.integrations.crypto.binance import BinanceClient, parse_bar
 from finance_analysis.interfaces.api.v1.endpoints import crypto
 from finance_analysis.interfaces.api.middlewares.auth import add_auth_middleware
@@ -43,9 +44,9 @@ async def test_binance_usdm_only_and_native_kline():
         paths.append(request.url.path)
         if request.url.path.endswith("exchangeInfo"):
             base = {"symbol": "ETHUSDT", "contractType": "PERPETUAL", "status": "TRADING",
-                    "quoteAsset": "USDT", "marginAsset": "USDT", "underlyingType": "COIN"}
+                    "quoteAsset": "USDT", "marginAsset": "USDT", "underlyingType": "COIN", "baseAsset": "ETH"}
             return httpx.Response(200, json={"symbols": [
-                base, {**base, "symbol": "SOXLUSDT", "contractType": "TRADIFI_PERPETUAL", "underlyingType": "EQUITY"},
+                base, {**base, "symbol": "SOXLUSDT", "contractType": "TRADIFI_PERPETUAL", "underlyingType": "EQUITY", "baseAsset": "SOXL"},
                 {**base, "symbol": "BTCUSD_PERP", "marginAsset": "BTC"},
                 {**base, "symbol": "ETHUSDC", "quoteAsset": "USDC"},
                 {**base, "symbol": "ETHUSDT_261231", "contractType": "CURRENT_QUARTER"},
@@ -57,7 +58,8 @@ async def test_binance_usdm_only_and_native_kline():
     async with httpx.AsyncClient(base_url="https://test.invalid", transport=httpx.MockTransport(handler)) as http:
         client = BinanceClient(http)
         assert await client.contracts() == [
-            {"symbol": "ETHUSDT", "category": "COIN"}, {"symbol": "SOXLUSDT", "category": "EQUITY"},
+            {"symbol": "ETHUSDT", "category": "COIN", "base_asset": "ETH"},
+            {"symbol": "SOXLUSDT", "category": "EQUITY", "base_asset": "SOXL"},
         ]
         assert (await client.klines("ETHUSDT", "1m", NOW))[0]["close"] == 11
     assert paths == ["/fapi/v1/exchangeInfo", "/fapi/v1/klines"]
@@ -91,10 +93,10 @@ async def test_minute_refresh_full_then_incremental_and_closed_daily_only(monkey
 
 @pytest.mark.asyncio
 async def test_snapshot_is_db_scoped_and_missing_quotes_are_null(monkeypatch):
-    monkeypatch.setattr(service.repository, "contracts", lambda: [{"symbol": "ETHUSDT", "category": "COIN"}])
+    monkeypatch.setattr(service.repository, "contracts", lambda: [{"symbol": "ETHUSDT", "category": "COIN", "underlying_symbol": "ETH.CRYPTO"}])
     redis = Mock(mget=AsyncMock(return_value=[None]), get=AsyncMock())
     result = await service.live_snapshot(redis, "REMOVEDUSDT")
-    assert result["items"] == [{"symbol": "ETHUSDT", "category": "COIN", "quote": None}]
+    assert result["items"] == [{"symbol": "ETHUSDT", "category": "COIN", "underlying_symbol": "ETH.CRYPTO", "quote": None}]
     assert result["minutes"] is None
     redis.get.assert_not_called()
 
@@ -120,6 +122,13 @@ def test_old_tables_removed_and_default_seed_runs_once_on_fresh_and_existing_db(
             )
             symbols = set(connection.execute(text("SELECT symbol FROM futures_contract")).scalars())
             assert len(symbols) == 19 and "BTCUSDT" in symbols and "BTCUSD_PERP" not in symbols
+            targets = dict(connection.execute(text("SELECT symbol, underlying_symbol FROM futures_contract")).all())
+            assert targets["BTCUSDT"] == "BTC.CRYPTO"
+            assert targets["NVDAUSDT"] == "NVDA.US"
+            assert targets["SOXLUSDT"] == "SOXL.US"
+            assert targets["XAUUSDT"] == "XAU.OTHER"
+            assert targets["SKHYUSDT"] == "SKHY.OTHER"
+            assert all(targets.values())
             if existing:
                 assert connection.execute(text("SELECT task_type FROM task")).scalars().all() == ["other"]
             connection.execute(text("DELETE FROM futures_contract WHERE symbol = 'BTCUSDT'"))
@@ -159,7 +168,7 @@ async def test_redis_outage_does_not_hide_database_universe(monkeypatch):
 @pytest.mark.asyncio
 async def test_stream_requested_period_isolated(monkeypatch):
     monkeypatch.setattr(service.time, "time", lambda: NOW / 1000)
-    monkeypatch.setattr(service.repository, "contracts", lambda: [{"symbol": "ETHUSDT", "category": "COIN"}])
+    monkeypatch.setattr(service.repository, "contracts", lambda: [{"symbol": "ETHUSDT", "category": "COIN", "underlying_symbol": "ETH.CRYPTO"}])
     daily = bar(NOW // service.DAY * service.DAY)
     redis = Mock(mget=AsyncMock(return_value=[None]), get=AsyncMock(return_value=json.dumps(daily)))
     result = await service.live_snapshot(redis, "ETHUSDT", "1d")
@@ -186,23 +195,62 @@ def test_search_add_duplicate_remove_use_exchange_catalog_and_database(monkeypat
             yield db
 
     async def catalog():
-        return [{"symbol": "SOXLUSDT", "category": "EQUITY"}, {"symbol": "ETHUSDT", "category": "COIN"}]
+        return [{"symbol": "SOXLUSDT", "category": "EQUITY", "underlying_symbol": "SOXL.US"}, {"symbol": "ETHUSDT", "category": "COIN", "underlying_symbol": "ETH.CRYPTO"}]
 
     monkeypatch.setattr(crypto, "exchange_contracts", catalog)
     api.dependency_overrides[get_db] = session
     api.dependency_overrides[require_admin] = lambda: object()
     with TestClient(api) as client:
         base = "/api/v1/crypto/contracts"
-        assert client.get(base + "/search?q=soxl").json() == [{"symbol": "SOXLUSDT", "category": "EQUITY"}]
+        assert client.get(base + "/search?q=soxl").json() == [{"symbol": "SOXLUSDT", "category": "EQUITY", "underlying_symbol": "SOXL.US"}]
         assert client.post(base, json={"symbol": "BTCUSD_PERP"}).status_code == 422
-        payload = {"symbol": "soxlusdt", "category": "ETF"}
+        payload = {"symbol": "soxlusdt", "category": "ETF", "underlying_symbol": "WRONG.US"}
         created = client.post(base, json=payload)
-        assert created.status_code == 201 and created.json() == {"symbol": "SOXLUSDT", "category": "ETF"}
+        assert created.status_code == 201 and created.json() == {"symbol": "SOXLUSDT", "category": "ETF", "underlying_symbol": "SOXL.US"}
         assert client.post(base, json=payload).status_code == 409
         with session_factory() as db:
             assert db.get(FuturesContract, "SOXLUSDT").category == "ETF"
+            assert db.get(FuturesContract, "SOXLUSDT").underlying_symbol == "SOXL.US"
         assert client.delete(base + "/SOXLUSDT").status_code == 204
         assert client.delete(base + "/SOXLUSDT").status_code == 404
         with session_factory() as db:
             assert db.get(FuturesContract, "SOXLUSDT") is None
     engine.dispose()
+
+
+def test_underlying_migration_preserves_custom_universe_and_daily_history():
+    engine = create_engine("sqlite://")
+    config = Config()
+    config.set_main_option("script_location", str(Path(__file__).resolve().parents[2] / "alembic"))
+    config.attributes["connection"] = engine
+    with engine.begin() as connection:
+        connection.execute(text("CREATE TABLE futures_contract (symbol VARCHAR(32) PRIMARY KEY, category TEXT)"))
+        connection.execute(text("CREATE TABLE futures_daily_bar (symbol TEXT, timestamp INTEGER, close FLOAT)"))
+        connection.execute(text("INSERT INTO futures_contract VALUES ('DOGEUSDT', 'COIN'), ('AAPLUSDT', 'EQUITY'), "
+                                "('CUSTOMUSDT', '其他')"))
+        connection.execute(text("INSERT INTO futures_daily_bar VALUES ('DOGEUSDT', 1, 0.5)"))
+        connection.execute(text("CREATE TABLE alembic_version (version_num VARCHAR(32) PRIMARY KEY)"))
+        connection.execute(text("INSERT INTO alembic_version VALUES ('0100_minute_forecast_optin')"))
+    command.upgrade(config, "head")
+    with engine.connect() as connection:
+        assert dict(connection.execute(text("SELECT symbol, underlying_symbol FROM futures_contract")).all()) == {
+            "DOGEUSDT": "DOGE.CRYPTO", "AAPLUSDT": "AAPL.US", "CUSTOMUSDT": "CUSTOM.OTHER",
+        }
+        assert connection.execute(text("SELECT close FROM futures_daily_bar")).scalar() == 0.5
+    command.downgrade(config, "0100_minute_forecast_optin")
+    assert "underlying_symbol" not in {col["name"] for col in inspect(engine).get_columns("futures_contract")}
+    engine.dispose()
+
+
+@pytest.mark.parametrize("symbol,category,base,expected", [
+    ("NVDAUSDT", "EQUITY", "NVDA", "NVDA.US"),
+    ("BTCUSDT", "COIN", "BTC", "BTC.CRYPTO"),
+    ("ALIASUSDT", "COIN", "ETH", "ETH.CRYPTO"),
+    ("SKHYNIXUSDT", "KR_EQUITY", "SKHYNIX", "SKHYNIX.OTHER"),
+    ("SPCXUSDT", "EQUITY", "SPCX", "SPCX.OTHER"),
+    ("XAUUSDT", "COMMODITY", "XAU", "XAU.OTHER"),
+    ("ETHUSDT", "COIN", None, "ETH.CRYPTO"),
+    ("USDT", "COIN", None, None),
+])
+def test_underlying_identity_uses_exchange_base_and_type(symbol, category, base, expected):
+    assert underlying_symbol(symbol, category, base) == expected

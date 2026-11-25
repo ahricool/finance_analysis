@@ -10,6 +10,7 @@ class ContractCreate(BaseModel):
 class Contract(BaseModel):
     symbol: str
     category: str
+    underlying_symbol: str | None = None
 
 
 class Quote(BaseModel):

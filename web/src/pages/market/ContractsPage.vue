@@ -12,6 +12,7 @@ import MarketKLineChart from '@/components/market-data/MarketKLineChart.vue';
 import { useTableSort, sortField } from '@/composables/useTableSort';
 import { useContractMarket } from '@/composables/useContractMarket';
 import { useAuthStore } from '@/stores/authStore';
+import { useStockDetail } from '@/composables/useStockDetail';
 import { useCurrentTime } from '@/composables/useCurrentTime';
 
 const rows = ref<ContractQuote[]>([]);
@@ -30,6 +31,7 @@ const searched = ref(false);
 const busy = ref(false);
 const removing = ref('');
 const auth = useAuthStore();
+const detail = useStockDetail();
 const admin = computed(() => auth.currentUser?.role === 'admin');
 const now = useCurrentTime(5_000);
 const sort = useTableSort(() => rows.value, (row, key) => sortField(row, key));
@@ -148,6 +150,15 @@ function percent(value: number | null | undefined, digits = 2) {
 function categoryLabel(category: string) {
   return ({ COIN: '加密货币', EQUITY: '股票/ETF', KR_EQUITY: '韩股', COMMODITY: '商品' } as Record<string, string>)[category] ?? category;
 }
+function openDetail(row: ContractQuote) {
+  const target = row.underlying_symbol;
+  const marketType = target?.endsWith('.US') ? 'US' : target?.endsWith('.HK') ? 'HK'
+    : /\.(SH|SZ|BJ)$/.test(target ?? '') ? 'CN' : target?.endsWith('.CRYPTO') ? 'CRYPTO' : 'OTHER';
+  detail.open({ code: target ?? row.symbol, name: null, marketType });
+}
+function underlyingLabel(row: ContractQuote) {
+  return row.underlying_symbol?.replace(/\.(CRYPTO|OTHER)$/, '') ?? '锚定标的暂缺';
+}
 function delayed(row: ContractQuote) {
   return !row.quote || Math.abs(now.value.getTime() - row.quote.timestamp) > 60_000;
 }
@@ -228,7 +239,16 @@ onBeforeUnmount(() => { stopped = true; ++generation; ++searchGeneration; });
       <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 class="text-lg font-semibold">
-            {{ symbol || '选择合约' }}
+            <button
+              v-if="selection"
+              type="button"
+              class="rounded-sm hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              :aria-label="'打开当前标的 ' + selection.symbol + ' 详情'"
+              @click="openDetail(selection)"
+            >
+              {{ symbol }}
+            </button>
+            <span v-else>{{ symbol || '选择合约' }}</span>
           </h2>
           <p class="text-sm tabular-nums text-muted-foreground">
             {{ selection ? categoryLabel(selection.category) : '' }} · {{ format(selection?.quote?.price, precision) }} USDT
@@ -310,13 +330,24 @@ onBeforeUnmount(() => { stopped = true; ++generation; ++searchGeneration; });
             >
               <td class="whitespace-nowrap px-4 py-3">
                 <button
-                  class="font-semibold text-foreground hover:underline"
+                  class="rounded-sm font-semibold text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   type="button"
+                  :aria-label="row.symbol + ' 标的详情'"
+                  @click="openDetail(row)"
+                >
+                  {{ row.symbol }}
+                  <span class="ml-1 text-xs font-normal text-muted-foreground">{{ underlyingLabel(row) }}</span>
+                </button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  class="ml-2"
+                  :aria-label="'查看 ' + row.symbol + ' 合约 K 线'"
                   :aria-pressed="row.symbol === symbol"
                   @click="symbol = row.symbol"
                 >
-                  {{ row.symbol }}
-                </button>
+                  K 线
+                </Button>
                 <span
                   v-if="delayed(row)"
                   class="ml-2 text-xs text-muted-foreground"

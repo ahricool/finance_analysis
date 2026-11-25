@@ -25,6 +25,26 @@ async function tab(wrapper: ReturnType<typeof render>, label: string) {
   await button.trigger('mousedown', { button: 0, ctrlKey: false }); await flushPromises();
 }
 describe('unified StockDetailDialog', () => {
+  it('opens crypto and other assets without treating them as stocks or using contract prices', async () => {
+    const wrapper = render();
+    await flushPromises();
+    vi.mocked(stocksApi.quote).mockClear();
+    vi.mocked(stocksApi.classification).mockClear();
+    await wrapper.setProps({ stock: { code: 'BTC.CRYPTO', name: null, marketType: 'CRYPTO' } });
+    await flushPromises();
+    expect(wrapper.text()).toContain('BTC');
+    expect(wrapper.text()).toContain('加密货币');
+    expect(wrapper.get('[data-testid="underlying-empty"]').text()).toContain('暂无该标的的历史数据');
+    expect(wrapper.findAll('[role="tab"]').map(item => item.text())).toEqual(['行情']);
+    expect(wrapper.findComponent({ name: 'DailyKLineCard' }).exists()).toBe(false);
+    expect(stocksApi.quote).not.toHaveBeenCalled();
+    expect(stocksApi.classification).not.toHaveBeenCalled();
+    await wrapper.setProps({ stock: { code: 'NVDA.US', name: 'NVIDIA', marketType: 'US' } });
+    await flushPromises();
+    expect(stocksApi.quote).toHaveBeenCalledWith('NVDA.US', 'US', expect.any(AbortSignal));
+    expect(wrapper.find('[data-testid="underlying-empty"]').exists()).toBe(false);
+    wrapper.unmount();
+  });
   it('preserves legacy stock-driven opening and presents accessible responsive tabs', () => {
     const wrapper = render();
     expect(wrapper.text()).toContain('Apple');

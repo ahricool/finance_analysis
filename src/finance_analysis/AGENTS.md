@@ -260,7 +260,8 @@ uv run ./scripts/ci_gate.sh
 
 contracts/service.py 在已有 Streamer leader 下运行独立采集协程；integrations/crypto/binance.py 仅访问
 Binance 公开 USD-M REST。数据库 futures_contract、futures_daily_bar 与股票表隔离。
-/api/v1/crypto/contracts 及 WS/SSE 只读 DB/Redis，管理员可搜索、增删共享标的（新增校验交易所合约类型）。
+/api/v1/crypto/contracts 及 WS/SSE 只读 DB/Redis，管理员可搜索、增删共享标的（新增校验交易所合约类型）。`futures_contract.underlying_symbol`
+记录锚定代码，迁移0101回填既有标的；新增由交易所目录推断，快照/搜索/添加/WS/SSE 同源输出。
 详见 docs/contracts.md。
 
 ## A 股行业强度

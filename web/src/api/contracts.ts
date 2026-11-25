@@ -1,7 +1,7 @@
 import apiClient from './index';
 import { API_BASE_URL } from '@/utils/constants';
 
-export interface Contract { symbol: string; category: string }
+export interface Contract { symbol: string; category: string; underlying_symbol: string | null }
 export interface Quote {
   price: number; change_pct: number; turnover: number; funding_rate: number | null; timestamp: number;
 }
@@ -21,8 +21,8 @@ export const contractsApi = {
   async search(q: string): Promise<Contract[]> {
     return (await apiClient.get(path + '/search', { params: { q } })).data;
   },
-  async add(contract: Contract): Promise<Contract> {
-    return (await apiClient.post(path, contract)).data;
+  async add(contract: Pick<Contract, 'symbol' | 'category'>): Promise<Contract> {
+    return (await apiClient.post(path, { symbol: contract.symbol, category: contract.category })).data;
   },
   async remove(symbol: string): Promise<void> {
     await apiClient.delete(path + '/' + encodeURIComponent(symbol));

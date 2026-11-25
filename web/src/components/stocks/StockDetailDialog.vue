@@ -42,7 +42,7 @@ export interface StockDetailRecord {
   id?: number;
   code: string;
   name: string | null;
-  marketType: MarketType;
+  marketType: MarketType | 'CRYPTO' | 'OTHER';
   notes?: string | null;
   isFavorite?: boolean;
   quantity?: string;
@@ -65,7 +65,13 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{ 'update:open': [value: boolean] }>();
 
 const isOpen = computed(() => props.open ?? Boolean(props.stock));
-const tabs = computed<Array<{ value: StockDetailTab; label: string }>>(() => [
+const stockMarket = computed<MarketType | null>(() => {
+  const market = props.stock?.marketType;
+  return market === 'CN' || market === 'HK' || market === 'US' ? market : null;
+});
+const tabs = computed<Array<{ value: StockDetailTab; label: string }>>(() => !stockMarket.value ? [
+  { value: 'overview', label: '行情' },
+] : [
   { value: 'overview', label: '行情' },
   { value: 'holdings', label: '持仓' },
   { value: 'options', label: '期权' },
@@ -110,8 +116,9 @@ async function loadQuote() {
   const request = ++quoteRequest;
   quoteController?.abort();
   fetchedQuote.value = undefined; quoteError.value = null; quoteLoading.value = false;
-  if (!isOpen.value || activeTab.value !== 'overview' || !props.stock || suppliedQuote.value) return;
-  const { code, marketType: market } = props.stock;
+  if (!isOpen.value || activeTab.value !== 'overview' || !props.stock || !stockMarket.value || suppliedQuote.value) return;
+  const { code } = props.stock;
+  const market = stockMarket.value;
   const controller = new AbortController();
   quoteController = controller; quoteLoading.value = true;
   try {
@@ -131,7 +138,7 @@ watch([isOpen, activeTab, () => props.stock?.code, () => props.stock?.marketType
 onBeforeUnmount(() => { quoteRequest++; quoteController?.abort(); });
 
 const marketName = computed(
-  () => ({ CN: 'A 股', HK: '港股', US: '美股' })[props.stock?.marketType ?? 'CN'],
+  () => ({ CN: 'A 股', HK: '港股', US: '美股', CRYPTO: '加密货币', OTHER: '其他资产' })[props.stock?.marketType ?? 'CN'],
 );
 const currencyCode = computed(() => getMarketCurrencyCode(props.stock?.marketType));
 const holdingMarketValue = computed(() => {
@@ -203,14 +210,16 @@ function movementClass(value: number | null | undefined): string {
       <DialogHeader class="shrink-0 p-6 pr-16 text-left">
         <DialogTitle class="flex flex-wrap items-center gap-2 break-words">
           <StockIdentity
+            v-if="stockMarket"
             :code="stock?.code"
             :name="stock?.name"
           />
+          <span v-else>{{ stock?.code.replace(/\.(CRYPTO|OTHER)$/, '') }}</span>
           <span
             class="rounded-lg border border-border/60 bg-background px-2 py-0.5 text-xs text-muted-foreground"
           >{{ marketName }}</span>
         </DialogTitle>
-        <DialogDescription>查看同一股票或 ETF 的行情、持仓与研究详情；各页签保留各自的数据日期与口径。</DialogDescription>
+        <DialogDescription>{{ stockMarket ? '查看同一股票或 ETF 的行情、持仓与研究详情；各页签保留各自的数据日期与口径。' : '锚定资产详情；不使用永续合约行情替代标的资产数据。' }}</DialogDescription>
         <StockIndustryTags
           v-if="stock && ['CN', 'US'].includes(stock.marketType) && isOpen"
           :key="stock.code"
@@ -243,10 +252,32 @@ function movementClass(value: number | null | undefined): string {
           :value="activeTab"
           class="m-0 w-full min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain [scrollbar-gutter:stable]"
         >
+          <div
+            v-if="!stockMarket"
+            data-testid="underlying-empty"
+            class="space-y-6 p-6"
+          >
+            <section>
+              <h3 class="mb-3 text-sm font-semibold">
+                实时行情
+              </h3>
+              <p class="rounded-xl border border-dashed border-border/70 px-4 py-6 text-center text-sm text-muted-foreground">
+                暂无该标的的实时行情
+              </p>
+            </section>
+            <section>
+              <h3 class="mb-3 text-sm font-semibold">
+                历史 K 线
+              </h3>
+              <p class="rounded-xl border border-dashed border-border/70 px-4 py-6 text-center text-sm text-muted-foreground">
+                暂无该标的的历史数据
+              </p>
+            </section>
+          </div>
           <HoldingsDetailPanel
-            v-if="activeTab === 'holdings'"
+            v-else-if="activeTab === 'holdings'"
             :symbol="stock.code"
-            :market="stock.marketType"
+            :market="stockMarket"
             :context="detailContext"
             class="p-4 sm:p-6"
           />
@@ -254,7 +285,7 @@ function movementClass(value: number | null | undefined): string {
             :is="activePanel"
             v-else-if="activePanel"
             :symbol="stock.code"
-            :market="stock.marketType"
+            :market="stockMarket"
             :context="detailContext"
             class="p-4 sm:p-6"
           />
@@ -262,7 +293,7 @@ function movementClass(value: number | null | undefined): string {
             v-else-if="activeTab === 'options'"
             :key="stock.code"
             :symbol="stock.code"
-            :market="stock.marketType"
+            :market="stockMarket"
             :initial-view="optionsView ?? context?.view"
             :initial-date="optionsDate ?? context?.tradeDate"
             class="p-6"
