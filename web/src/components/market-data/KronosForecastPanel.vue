@@ -31,6 +31,7 @@ const price = (value: number) => value.toLocaleString('zh-CN', { maximumFraction
 const first = computed(() => props.bars[0]);
 const last = computed(() => props.bars.at(-1));
 const sessionClose = computed(() => props.forecast && 'sessionClose' in props.forecast ? props.forecast.sessionClose : null);
+const endsAtClose = computed(() => !!sessionClose.value && last.value?.timestamp === sessionClose.value - 60_000);
 const anchorLabel = computed(() => {
   const forecast = props.forecast;
   return forecast && ('anchorDate' in forecast ? forecast.anchorDate : dateTime(forecast.anchor + 60_000));
@@ -92,7 +93,7 @@ const errorSteps = computed(() => {
     <dl class="grid divide-y divide-border/70 sm:grid-cols-3 sm:divide-x sm:divide-y-0">
       <div class="min-w-0 space-y-1 px-3 py-3 sm:px-4">
         <dt class="text-xs font-medium text-muted-foreground">
-          {{ sessionClose ? '预测收盘价' : '最后一根预测收盘价' }}
+          {{ endsAtClose ? '预测收盘价' : '最后一根预测收盘价' }}
         </dt>
         <dd
           v-if="first && last && forecast"
@@ -100,7 +101,7 @@ const errorSteps = computed(() => {
         >
           <strong class="block text-lg font-semibold leading-tight text-blue-700 tabular-nums dark:text-blue-300">{{ price(last.close) }}</strong>
           <span class="block text-xs text-muted-foreground tabular-nums">
-            {{ time(first.timestamp) }}–{{ time(sessionClose ?? last.timestamp) }}{{ sessionClose ? ' 收盘' : '' }} · {{ bars.length }} 根
+            {{ time(first.timestamp) }}–{{ time(endsAtClose ? sessionClose! : last.timestamp + (isDay ? 0 : 60_000)) }}{{ endsAtClose ? ' 收盘' : '' }} · {{ bars.length }} 根
           </span>
           <span class="block text-[11px] text-muted-foreground tabular-nums">
             截至 {{ anchorLabel }} · {{ forecast.lookback }} 根输入

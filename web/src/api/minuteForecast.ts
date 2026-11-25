@@ -42,3 +42,21 @@ export async function fetchMinuteForecast(symbol: string, signal: AbortSignal): 
   const { data } = await apiClient.get(`/api/v1/market-data/minute-forecast/${encodeURIComponent(symbol)}`, { signal });
   return toCamelCase<MinuteForecastResponse>(data);
 }
+
+export interface MinuteForecastPreference {
+  enabled: boolean;
+}
+
+function preferencePath(symbol: string) {
+  return `/api/v1/market-data/minute-forecast/${encodeURIComponent(symbol)}/preference`;
+}
+
+export async function fetchMinuteForecastPreference(symbol: string, signal?: AbortSignal): Promise<MinuteForecastPreference> {
+  const { data } = await apiClient.get(preferencePath(symbol), { signal });
+  return toCamelCase<MinuteForecastPreference>(data);
+}
+
+export async function saveMinuteForecastPreference(symbol: string, enabled: boolean): Promise<MinuteForecastPreference> {
+  const { data } = await apiClient.put(preferencePath(symbol), { enabled });
+  return toCamelCase<MinuteForecastPreference>(data);
+}

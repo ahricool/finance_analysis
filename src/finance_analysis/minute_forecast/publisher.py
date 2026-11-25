@@ -1,4 +1,4 @@
-"""Batch all live inputs for the isolated Apple GPU service."""
+"""Batch opted-in live inputs for the isolated Apple GPU service."""
 
 import asyncio
 import logging
@@ -39,25 +39,30 @@ class ForecastPublisher:
         self.retry_after = 0
 
     async def run(self, bars: Mapping, targets: Callable[[], Mapping[str, MarketType]]) -> None:
+        from finance_analysis.database.repositories.minute_forecast import MinuteForecastPreferences
+
+        preferences = MinuteForecastPreferences()
         async with httpx.AsyncClient(timeout=12, trust_env=False) as predictor:
             while True:
                 try:
-                    await self.tick(bars, targets(), predictor, utc_now())
+                    enabled = await asyncio.to_thread(preferences.enabled_symbols)
+                    await self.tick(bars, targets(), predictor, utc_now(), enabled)
                 except Exception:
                     logger.exception("分钟线推理批次失败")
                 await asyncio.sleep(3)
 
     async def tick(self, bars, targets: Mapping[str, MarketType], predictor,
-                   now: datetime) -> None:
+                   now: datetime, enabled: set[str]) -> None:
         minute = millis(now.replace(second=0, microsecond=0))
         anchor = minute - MINUTE_MS
         ready = millis(now) >= self.retry_after
         groups: dict[tuple[int, int], list[ForecastWindow]] = defaultdict(list)
         self.published = {symbol: value for symbol, value in self.published.items()
-                          if symbol in targets}
-        self.last_attempted = {symbol: value for symbol, value in self.last_attempted.items() if symbol in targets}
+                          if symbol in targets and symbol in enabled}
+        self.last_attempted = {symbol: value for symbol, value in self.last_attempted.items()
+                               if symbol in targets and symbol in enabled}
         for symbol, market in (targets.items() if ready else ()):
-            if not bars.get(symbol) or self.published.get(symbol) == minute:
+            if symbol not in enabled or not bars.get(symbol) or self.published.get(symbol) == minute:
                 continue
             try:
                 window = stock_window(symbol, market, bars[symbol], now)
@@ -120,7 +125,7 @@ class ForecastPublisher:
                 model=result.model, weights_revision=result.weights_revision, symbol=window.symbol,
                 anchor=last.timestamp, anchor_close=last.close, generated_at=generated_at,
                 lookback=len(window.bars), bars=prediction.bars,
-                session_close=window.targets[-1] + MINUTE_MS,
+                session_close=window.session_close,
             ))
             self.published[window.symbol] = window.targets[0]
         return True

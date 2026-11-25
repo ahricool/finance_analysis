@@ -502,7 +502,7 @@ GET只读，行级机会资格排除缺线、延迟和非交易时段；默认�
 
 ## Kronos K 线预测
 
-`minute_forecast/` 由 Streamer leader 对 CN/HK/US 订阅并集的已收盘原生 `1m` 滚动预测至实际收盘。输入和输出覆盖当日全部交易分钟，午休跳过，未补齐历史前等待。分钟误差核对保留前 10 步。模型运行于独立 macOS MPS LaunchAgent，长分钟路径复用注意力 KV，发布默认 Small，保留 Base 与本地 Large 权重配置。预测和误差以有限 TTL 写入 Redis，GET 使用原分钟图授权，只读缓存。
+`minute_forecast/` 由 Streamer leader 仅对管理员在个股详情行业页开启的 CN/HK/US 订阅标的进行原生 `1m` 滚动预测，默认全站关闭。每轮最多 60 根且截止实际收盘，午休跳过，未补齐历史或无分钟线时跳过。共享开关存 PostgreSQL，迁移 `0100_minute_forecast_optin`；日 K 不受影响。分钟误差核对保留前 10 步。模型运行于独立 macOS MPS LaunchAgent，长分钟路径复用注意力 KV，发布默认 Small，保留 Base 与本地 Large 权重配置。预测和误差以有限 TTL 写入 Redis，GET 使用原分钟图授权，只读缓存。
 `daily_forecast/` 在 CN/US 日线同步结束后异步复用其全量 Universe，读取前复权已收盘日线并预测最多 10 个交易日。PostgreSQL 按市场事务替换最新批次，日线 API 独立返回 `forecast`。两种周期复用 macOS MPS LaunchAgent；共享图表以空心实边蜡烛显示预测 OHLC，跳过休市日。日 K 只核对下一交易日收盘误差，最新误差和累计统计写 PostgreSQL，见 `docs/kronos.md`。
 
 ## Binance Demo Paper Trade

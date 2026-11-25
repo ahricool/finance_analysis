@@ -285,7 +285,7 @@ function fitDailyForecast() {
 function fitMinuteForecast() {
   const slots = minuteSlots.value;
   if (!chart || !followSession) return;
-  if (!showForecast.value && fittedMinuteForecast) {
+  if ((!showForecast.value || !slots || !future.value.length) && fittedMinuteForecast) {
     chart.setBarSpace(10);
     chart.setOffsetRightDistance(120);
     fittedMinuteForecast = false;
@@ -473,7 +473,7 @@ onBeforeUnmount(() => { observer?.disconnect(); destroy(); });
         variant="ghost"
         @click="fitSessionOnRequest"
       >
-        查看全天
+        查看完整分钟图
       </Button>
     </div>
     <KronosForecastPanel

@@ -13,7 +13,7 @@ from fastapi import HTTPException, Response
 from finance_analysis.integrations.market_data.realtime_state.models import CandleState
 from finance_analysis.interfaces.api.v1.endpoints import market_data
 from finance_analysis.minute_forecast import publisher
-from finance_analysis.minute_forecast.cache import close_replay_key, forecast_key, pending_error_key, publish_forecast
+from finance_analysis.minute_forecast.cache import close_replay_key, live_forecast_key, pending_error_key, publish_forecast
 from finance_analysis.minute_forecast.evaluation import evaluation_day, read_accuracy, settle_forecasts
 from finance_analysis.minute_forecast.models import ForecastAccuracy, ForecastSnapshot, RecentErrors
 from finance_analysis.minute_forecast.publisher import ForecastPublisher
@@ -39,7 +39,9 @@ def test_stock_forecast_starts_with_fifteen_confirmed_minutes_after_open():
     window = stock_window("QQQ.US", "US", bars, first_forecast)
     assert window is not None
     assert len(window.bars) == 15
-    assert window.targets == [millis(first_forecast + step * MINUTE) for step in range(375)]
+    assert window.session_close == millis(opened + 390 * MINUTE)
+    assert "session_close" not in window.model_dump()
+    assert window.targets == [millis(first_forecast + step * MINUTE) for step in range(60)]
 
     bars[-1].confirmed = False
     assert stock_window("QQQ.US", "US", bars, first_forecast) is None
@@ -64,20 +66,20 @@ def test_candle_window_uses_only_confirmed_observations_and_actual_early_close()
     assert stock_window("QQQ.US", "US", bars, now) is None
 
 
-def test_cn_forecast_rolls_to_close_and_skips_lunch_in_both_directions():
+def test_cn_forecast_caps_horizon_and_skips_lunch_in_both_directions():
     late = datetime(2026, 11, 20, 11, 28, tzinfo=SHANGHAI)
     morning = candles("600519.SH", late.replace(hour=9, minute=30), 120)
     afternoon = late.replace(hour=13, minute=0)
     pre_lunch = stock_window("600519.SH", "CN", morning, late)
-    assert len(pre_lunch.bars) == 118 and len(pre_lunch.targets) == 122
+    assert len(pre_lunch.bars) == 118 and len(pre_lunch.targets) == 60
     assert pre_lunch.targets[:3] == [millis(late), millis(late + MINUTE), millis(afternoon)]
     assert stock_window("600519.SH", "CN", morning, late + 2 * MINUTE) is None
     resumed = stock_window("600519.SH", "CN", morning, afternoon)
-    assert len(resumed.bars) == len(resumed.targets) == 120
+    assert len(resumed.bars) == 120 and len(resumed.targets) == 60
     assert resumed.bars[-1].timestamp == millis(late + MINUTE)
     window = stock_window("600519.SH", "CN", morning + candles("600519.SH", afternoon, 1), afternoon + MINUTE)
-    assert len(window.bars) == 121 and len(window.targets) == 119
-    assert window.targets[-1] == millis(afternoon + 119 * MINUTE)
+    assert len(window.bars) == 121 and len(window.targets) == 60
+    assert window.targets[-1] == millis(afternoon + 60 * MINUTE)
 
 
 def test_host_accepts_session_windows_and_only_allows_the_exchange_lunch_gap():
@@ -86,7 +88,7 @@ def test_host_accepts_session_windows_and_only_allows_the_exchange_lunch_gap():
     morning = candles("600519.SH", afternoon.replace(hour=9, minute=30), 120)
     for at in (afternoon.replace(hour=11, minute=29), afternoon):
         window = stock_window("600519.SH", "CN", morning, at).model_dump()
-        assert host_request(protocol=1, windows=[window]).windows[0].targets[-1] == millis(afternoon + 119 * MINUTE)
+        assert len(host_request(protocol=1, windows=[window]).windows[0].targets) == 60
         window["targets"].pop(1)
         with pytest.raises(ValueError, match="targets must follow"):
             host_request(protocol=1, windows=[window])
@@ -130,10 +132,10 @@ async def test_batches_keep_all_active_stock_symbols(monkeypatch):
         })
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(predict)) as client:
-        await writer.tick(inputs, markets, client, now)
-        await writer.tick(inputs, markets, client, now + timedelta(seconds=3))
+        await writer.tick(inputs, markets, client, now, set(symbols))
+        await writer.tick(inputs, markets, client, now + timedelta(seconds=3), set(symbols))
     assert posted == [symbols[:10], symbols[10:]]
-    assert [call.args[2] for call in redis.eval.call_args_list] == list(map(forecast_key, symbols))
+    assert [call.args[2] for call in redis.eval.call_args_list] == list(map(live_forecast_key, symbols))
     settle.assert_awaited_once()
     assert settle.await_args.args[2] == markets
 
@@ -153,9 +155,9 @@ async def test_next_minute_starts_with_symbols_skipped_when_time_runs_out(monkey
         return True
 
     writer.infer = AsyncMock(side_effect=finish_at_deadline)
-    await writer.tick(inputs, markets, None, minute)
+    await writer.tick(inputs, markets, None, minute, set(inputs))
     assert len(writer.infer.call_args_list) == 1
-    await writer.tick(inputs, markets, None, minute + MINUTE)
+    await writer.tick(inputs, markets, None, minute + MINUTE, set(inputs))
     assert [window.symbol for window in writer.infer.call_args.args[1]][:2] == list(inputs)[-2:]
 
 
@@ -243,6 +245,12 @@ async def test_forecast_read_reuses_stock_entitlement_and_rejects_btc(monkeypatc
     redis.get.assert_not_called()
 
     access.side_effect = None
+    prefs = Mock()
+    prefs.enabled.return_value = False
+    monkeypatch.setattr(market_data, "MinuteForecastPreferences", lambda: prefs)
+    assert not (await market_data.minute_forecast("QQQ.US", request, Response())).enabled
+    redis.get.assert_not_called()
+    prefs.enabled.return_value = True
     live = ForecastSnapshot(model="small", weights_revision="fixed", symbol="QQQ.US", anchor=0,
                             anchor_close=10, generated_at=60_000, lookback=240,
                             bars=[dict(timestamp=60_000, open=10, high=11, low=9, close=10)])
@@ -252,8 +260,47 @@ async def test_forecast_read_reuses_stock_entitlement_and_rejects_btc(monkeypatc
     result = await market_data.minute_forecast("QQQ.US", request, Response())
     assert result.forecast == replay and result.comparison is None
     assert result.accuracy is not None and result.accuracy.daily == []
-    assert [call.args[0] for call in redis.get.call_args_list] == [forecast_key("QQQ.US"), close_replay_key("QQQ.US")]
+    assert [call.args[0] for call in redis.get.call_args_list] == [live_forecast_key("QQQ.US"), close_replay_key("QQQ.US")]
     redis.get.reset_mock()
     redis.get.side_effect = [live.model_dump_json()]
     assert (await market_data.minute_forecast("QQQ.US", request, Response())).forecast == live
-    redis.get.assert_awaited_once_with(forecast_key("QQQ.US"))
+    redis.get.assert_awaited_once_with(live_forecast_key("QQQ.US"))
+
+
+@pytest.mark.asyncio
+async def test_only_enabled_symbols_with_available_minutes_are_inferred(monkeypatch):
+    opened = datetime(2026, 11, 20, 9, 30, tzinfo=NY)
+    now = opened + 15 * MINUTE
+    monkeypatch.setattr(publisher, "utc_now", lambda: now)
+    writer = ForecastPublisher(Mock(), "http://mps", "small")
+    writer.infer = AsyncMock(return_value=True)
+    inputs = {symbol: candles(symbol, opened, 15) for symbol in ("AAPL.US", "QQQ.US")}
+    markets = dict.fromkeys([*inputs, "MISSING.US"], "US")
+
+    await writer.tick(inputs, markets, None, now, set())
+    writer.infer.assert_not_awaited()
+    await writer.tick(inputs, markets, None, now, {"QQQ.US", "MISSING.US"})
+    assert [window.symbol for window in writer.infer.await_args.args[1]] == ["QQQ.US"]
+    assert len(writer.infer.await_args.args[1][0].targets) == 60
+    writer.infer.reset_mock()
+    await writer.tick(inputs, markets, None, now, set())
+    writer.infer.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_shared_preference_endpoint_normalizes_and_persists(monkeypatch):
+    prefs = Mock()
+    prefs.enabled.return_value = False
+    prefs.set_enabled.return_value = True
+    monkeypatch.setattr(market_data, "MinuteForecastPreferences", lambda: prefs)
+    response = Response()
+    assert not (await market_data.get_minute_forecast_preference("00700.HK", response)).enabled
+    prefs.enabled.assert_called_once_with("700.HK")
+    assert response.headers["Cache-Control"] == "private, no-store"
+    from finance_analysis.minute_forecast.models import MinuteForecastPreferencePayload
+    assert (await market_data.set_minute_forecast_preference(
+        "00700.HK", MinuteForecastPreferencePayload(enabled=True), response,
+    )).enabled
+    prefs.set_enabled.assert_called_once_with("700.HK", True)
+    with pytest.raises(HTTPException):
+        await market_data.get_minute_forecast_preference("ABC.SG", response)

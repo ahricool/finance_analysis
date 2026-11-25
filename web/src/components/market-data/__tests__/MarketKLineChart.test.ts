@@ -198,14 +198,14 @@ describe('MarketKLineChart v10 lifecycle', () => {
     wrapper.unmount();
   });
 
-  it('fits a stock session through the close, compresses lunch and respects manual zoom', async () => {
+  it('fits the rolling 60-minute path, compresses lunch and respects manual zoom', async () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     const anchor = Date.parse('2026-11-24T11:28:00+08:00');
     const afternoon = Date.parse('2026-11-24T13:00:00+08:00');
     vi.setSystemTime(anchor + 60_000);
     const bars = Array.from({ length: 119 }, (_, index) => ({ ...bar, timestamp: anchor - (118 - index) * 60_000 }));
     const prediction = (timestamp: number) => ({ timestamp, open: 2, high: 4, low: 2, close: 3 });
-    const future = [prediction(anchor + 60_000), ...Array.from({ length: 120 }, (_, i) => prediction(afternoon + i * 60_000))];
+    const future = [prediction(anchor + 60_000), ...Array.from({ length: 59 }, (_, i) => prediction(afternoon + i * 60_000))];
     vi.mocked(fetchMinuteForecast).mockResolvedValueOnce({ enabled: true, comparison: null, forecast: {
       symbol: '600519.SH', model: 'small', weightsRevision: 'fixed', anchor,
       anchorClose: 2, generatedAt: Date.now(), lookback: 119, bars: future, sessionClose: afternoon + 120 * 60_000,
@@ -216,14 +216,14 @@ describe('MarketKLineChart v10 lifecycle', () => {
       await flushPromises();
       const annotation = chart.createOverlay.mock.lastCall![0][0] as OverlayCreate;
       expect(annotation.points?.[4]?.timestamp).toBe(anchor + 120_000);
-      expect(annotation.points?.at(-1)?.timestamp).toBe(anchor + 121 * 60_000);
-      expect(chart.setBarSpace).toHaveBeenLastCalledWith(1000 / 242);
-      expect(chart.setOffsetRightDistance).toHaveBeenLastCalledWith(122 * (1000 / 242));
+      expect(annotation.points?.at(-1)?.timestamp).toBe(anchor + 60 * 60_000);
+      expect(chart.setBarSpace).toHaveBeenLastCalledWith(1000 / 181);
+      expect(chart.setOffsetRightDistance).toHaveBeenLastCalledWith(61 * (1000 / 181));
       const formatter = lifecycle.init.mock.lastCall![1].formatter.formatDate as FormatDate;
       const dateTimeFormat = new Intl.DateTimeFormat('en', { timeZone: 'Asia/Shanghai' });
       formatter({ timestamp: anchor + 120_000, type: 'xAxis', dateTimeFormat, template: 'HH:mm' });
       expect(utils.formatDate).toHaveBeenLastCalledWith(dateTimeFormat, afternoon, 'HH:mm');
-      expect(wrapper.get('[data-testid="minute-forecast"]').text()).toContain('15:00 收盘 · 121 根');
+      expect(wrapper.get('[data-testid="minute-forecast"]').text()).toContain('13:59 · 60 根');
       const callback = vi.fn();
       loader().getBars({ ...context, type: 'init', timestamp: null, callback });
       expect(callback).toHaveBeenLastCalledWith(bars, false);
@@ -231,14 +231,14 @@ describe('MarketKLineChart v10 lifecycle', () => {
       const confirmed = [...bars, { ...bar, timestamp: anchor + 60_000 }];
       chart.getDataList.mockReturnValue(confirmed);
       await wrapper.setProps({ bars: confirmed });
-      expect(chart.setOffsetRightDistance).toHaveBeenLastCalledWith(121 * (1000 / 242));
+      expect(chart.setOffsetRightDistance).toHaveBeenLastCalledWith(60 * (1000 / 181));
       chart.subscribeAction.mock.calls.find(([name]) => name === 'onZoom')![1]();
       chart.setBarSpace.mockClear();
       chart.getDataList.mockReturnValue([...confirmed, { ...bar, timestamp: afternoon }]);
       await wrapper.setProps({ current: { ...bar, timestamp: afternoon } });
       expect(chart.setBarSpace).not.toHaveBeenCalled();
       await wrapper.get('button').trigger('click');
-      expect(chart.setBarSpace).toHaveBeenLastCalledWith(1000 / 242);
+      expect(chart.setBarSpace).toHaveBeenLastCalledWith(1000 / 181);
       await wrapper.get('input[type="checkbox"]').setValue(false);
       expect(chart.setBarSpace).toHaveBeenLastCalledWith(10);
       expect(chart.setOffsetRightDistance).toHaveBeenLastCalledWith(120);

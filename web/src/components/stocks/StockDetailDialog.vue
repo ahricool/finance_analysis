@@ -78,7 +78,7 @@ const tabs = computed<Array<{ value: StockDetailTab; label: string }>>(() => [
     { value: 'quant' as const, label: '量化' },
   ] : []),
   ...(props.stock?.marketType === 'CN' ? [{ value: 'dragon-tiger' as const, label: '龙虎榜' }] : []),
-  ...(props.stock?.marketType === 'CN' ? [{ value: 'industry' as const, label: '行业' }] : []),
+  { value: 'industry', label: '行业' },
 ]);
 const activeTab = ref<StockDetailTab>('overview');
 const detailContext = computed<StockDetailContext>(() => ({
