@@ -80,5 +80,5 @@ export function useContractMarket(symbol: Ref<string>, interval: Ref<'1d' | '1m'
   }
   watch([symbol, interval], connect, { immediate: true });
   onBeforeUnmount(() => { ++generation; clear(); });
-  return { status };
+  return { status, reconnect: connect };
 }

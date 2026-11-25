@@ -18,8 +18,8 @@ export const contractsApi = {
   async snapshot(): Promise<MarketSnapshot> {
     return (await apiClient.get(path)).data;
   },
-  async search(q: string): Promise<Contract[]> {
-    return (await apiClient.get(path + '/search', { params: { q } })).data;
+  async search(q: string, signal?: AbortSignal): Promise<Contract[]> {
+    return (await apiClient.get(path + '/search', { params: { q }, signal })).data;
   },
   async add(contract: Pick<Contract, 'symbol' | 'category'>): Promise<Contract> {
     return (await apiClient.post(path, { symbol: contract.symbol, category: contract.category })).data;
@@ -27,8 +27,8 @@ export const contractsApi = {
   async remove(symbol: string): Promise<void> {
     await apiClient.delete(path + '/' + encodeURIComponent(symbol));
   },
-  async bars(symbol: string): Promise<Candle[]> {
-    return (await apiClient.get(path + '/' + encodeURIComponent(symbol) + '/bars', { params: { interval: '1d' } })).data;
+  async bars(symbol: string, signal?: AbortSignal): Promise<Candle[]> {
+    return (await apiClient.get(path + '/' + encodeURIComponent(symbol) + '/bars', { params: { interval: '1d' }, signal })).data;
   },
 };
 
