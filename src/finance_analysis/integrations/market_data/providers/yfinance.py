@@ -290,7 +290,7 @@ class YFinanceProvider:
                 tickers=symbols,
                 progress=False,
                 auto_adjust=auto_adjust,
-                prepost=False,
+                prepost=kwargs.pop("prepost", False),
                 group_by="ticker",
                 multi_level_index=True,
                 threads=self.max_workers,
@@ -413,6 +413,8 @@ class YFinanceProvider:
             "back_adjust": False,
             "timeout": 8,
         }
+        if request.include_extended:
+            download_kwargs["prepost"] = True
         if request.period:
             download_kwargs["period"] = request.period
         else:

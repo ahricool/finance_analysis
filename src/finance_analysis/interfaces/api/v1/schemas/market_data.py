@@ -61,6 +61,7 @@ class IntradayBarItem(BaseModel):
     sample_count: int
     partial: bool
     source: str = ""
+    trade_session: str | None = None
 
 
 class IntradayBarsResponse(BaseModel):

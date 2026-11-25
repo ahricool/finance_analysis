@@ -70,6 +70,7 @@ class MinuteBarsRequest:
     include_incomplete: bool = False
     minimum_latest_bar_time: datetime | None = None
     required_bar_starts: tuple[datetime, ...] = ()
+    include_extended: bool = False
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "symbols", _symbols(self.symbols))
@@ -128,6 +129,7 @@ class MarketBar:
     amount_estimated: bool = False
     bar_start: datetime | None = None
     bar_end: datetime | None = None
+    trade_session: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         value = asdict(self)

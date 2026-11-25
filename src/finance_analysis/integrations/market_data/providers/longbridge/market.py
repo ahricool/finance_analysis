@@ -136,6 +136,8 @@ def _sanitize_longbridge_env() -> None:
             del os.environ[key]
             logger.debug("[Longbridge] 删除空环境变量 %s", key)
 
+    os.environ.setdefault("LONGBRIDGE_ENABLE_OVERNIGHT", "true")
+
     # App default: quiet (false). Matches README / docs/full-guide / .env.example; SDK alone may default verbose.
     if "LONGBRIDGE_PRINT_QUOTE_PACKAGES" not in os.environ:
         os.environ["LONGBRIDGE_PRINT_QUOTE_PACKAGES"] = "false"
@@ -431,6 +433,7 @@ class LongbridgeProvider:
                     SimpleNamespace(code=symbol, market=market.value),
                     request.start_time,
                     request.end_time,
+                    **({"session_type": "all"} if request.include_extended else {}),
                 )
                 bars = bars_from_frame(frame, symbol=symbol, provider=self.name, interval=request.interval)
                 if bars:
@@ -650,14 +653,15 @@ class LongbridgeProvider:
         end_time: datetime,
         session_type: str = "regular",
     ) -> pd.DataFrame:
-        if session_type != "regular":
-            raise ValueError("Only regular minute sessions are supported")
+        if session_type not in {"regular", "all"}:
+            raise ValueError("Unsupported minute session type")
         candles = self._fetch_history_pages(
             symbol=symbol,
             period_name="Min_1",
             start_time=start_time,
             end_time=end_time,
             data_type="minute",
+            include_extended=session_type == "all",
         )
         frame = pd.DataFrame(
             [
@@ -677,7 +681,8 @@ class LongbridgeProvider:
         return frame
 
     def _fetch_history_pages(
-        self, *, symbol, period_name: str, start_time: datetime, end_time: datetime, data_type: str
+        self, *, symbol, period_name: str, start_time: datetime, end_time: datetime, data_type: str,
+        include_extended: bool = False,
     ):
         from longbridge.openapi import AdjustType, Period, TradeSessions
 
@@ -704,7 +709,7 @@ class LongbridgeProvider:
                     False,
                     self._HISTORY_PAGE_SIZE,
                     cursor,
-                    TradeSessions.Intraday,
+                    TradeSessions.All if include_extended else TradeSessions.Intraday,
                 ))
                 if not page:
                     break
@@ -767,6 +772,8 @@ class LongbridgeProvider:
         }
         if minute:
             row["bar_time"] = timestamp
+            session = getattr(candle, "trade_session", None)
+            row["trade_session"] = (getattr(session, "name", None) or str(session)) if session is not None else None
         elif isinstance(raw_timestamp, datetime):
             # SDK history daily timestamps are calendar labels represented as a
             # local datetime. Converting midnight to UTC before taking .date()

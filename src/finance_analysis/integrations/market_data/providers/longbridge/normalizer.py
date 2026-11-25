@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from finance_analysis.integrations.market_data.realtime_state.models import (
@@ -161,7 +161,40 @@ def normalize_quote_snapshot(symbol: str, quote: Any, *, generation: int) -> Mar
     """Normalize a full pre-subscription snapshot without treating it as a live push."""
     event = normalize_quote(symbol, quote, generation=generation)
     event.event_type = "quote_snapshot"
-    return event
+    if longbridge_market_from_symbol(symbol) != "US":
+        return event
+    from finance_analysis.market_stream.config import market_trading_date
+
+    regular_time = try_parse_longbridge_datetime(getattr(quote, "timestamp", None))
+    event.trade_session = "Intraday"
+    event.payload["trade_session"] = "Intraday"
+    candidates = []
+    for attr, session in (("pre_market_quote", "Pre"), ("post_market_quote", "Post"), ("overnight_quote", "Overnight")):
+        raw = getattr(quote, attr, None)
+        stamp = try_parse_longbridge_datetime(getattr(raw, "timestamp", None))
+        try:
+            price = Decimal(str(getattr(raw, "last_done", None)))
+        except (InvalidOperation, TypeError, ValueError):
+            continue
+        if stamp is not None and price.is_finite() and price > 0 and (
+            regular_time is None or stamp > regular_time
+        ) and stamp <= event.received_at:
+            candidates.append((stamp, session, raw))
+    if not candidates:
+        return event
+    stamp, session, raw = max(candidates, key=lambda item: item[0])
+    extended = normalize_quote(symbol, raw, generation=generation)
+    extended.event_type = "quote_snapshot"
+    extended.trade_session = session
+    extended.payload["trade_session"] = session
+    # Compare consistently against the prior regular close rather than a previous extended session.
+    extended.payload.pop("pre_close", None)
+    if regular_time is not None:
+        same_day = market_trading_date(regular_time, "US") == market_trading_date(stamp, "US")
+        reference = getattr(quote, "prev_close" if same_day else "last_done", None)
+        if reference is not None:
+            extended.payload["pre_close"] = reference
+    return extended
 
 
 def normalize_candlestick(symbol: str, push: Any, *, generation: int) -> MarketEvent:

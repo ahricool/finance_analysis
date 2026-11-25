@@ -39,12 +39,14 @@ from finance_analysis.interfaces.api.v1.schemas.market_data import (
 from finance_analysis.interfaces.api.deps import get_effective_uid, require_admin, require_current_user
 from finance_analysis.portfolio.valuation import portfolio_summary
 from finance_analysis.market_stream.config import (
+    MarketStreamConfig,
+    US_MINUTE_LIMIT,
     is_regular_session_minute,
     is_regular_trade_session,
     latest_completed_bar_time,
-    MarketStreamConfig,
     market_spec,
     market_trading_date,
+    us_minute_cutoff,
 )
 from finance_analysis.market_stream.patterns.config import PatternConfig
 from finance_analysis.market_stream.patterns.models import PatternSignal, PatternState
@@ -159,28 +161,30 @@ async def intraday_bars(
     try:
         now = utc_now()
         day = _display_trading_date(market, now)
-        async def read_candles():
-            if market == "CN":
-                return await repository.get_intraday_snapshot(code)
-            return await asyncio.gather(repository.get_recent_bars(code, 420), repository.get_current_candle(code))
-
         (bars, current), snapshot, events = await asyncio.gather(
-            read_candles(),
+            repository.get_intraday_snapshot(code),
             _build_snapshot(uid, repository, stocks=[TrackedStock(code, market, code)]),
             repository.get_pattern_events(code, day),
         )
-        reset = since is None or market_trading_date(since, market) != day
+        from finance_analysis.market_stream.session import us_minute_session
+
+        reset = since is None or (market == "CN" and market_trading_date(since, market) != day)
+        cutoff = us_minute_cutoff(now)
         by_time = {bar.bar_time: bar for bar in bars}
         if current is not None and (current.bar_time not in by_time or not by_time[current.bar_time].confirmed):
             by_time[current.bar_time] = current
         visible = [
             bar
             for bar in sorted(by_time.values(), key=lambda b: b.bar_time)
-            if market_trading_date(bar.bar_time, market) == day
-            and bar.is_valid()
-            and is_regular_session_minute(bar.bar_time, market)
+            if bar.is_valid()
+            and ((market == "US" and bar.bar_time >= cutoff) or (
+                market == "CN" and market_trading_date(bar.bar_time, market) == day
+                and is_regular_session_minute(bar.bar_time, market)
+            ))
             and bar.bar_time <= now
         ]
+        if market == "US":
+            visible = visible[-US_MINUTE_LIMIT:]
         items = [
             {
                 "timestamp": int(bar.bar_time.timestamp() * 1000),
@@ -195,6 +199,7 @@ async def intraday_bars(
                 "sample_count": bar.sample_count,
                 "partial": bar.partial,
                 "source": bar.source,
+                "trade_session": us_minute_session(bar.bar_time, bar.trade_session) if market == "US" else "regular",
             }
             for bar in visible
         ]
@@ -206,9 +211,11 @@ async def intraday_bars(
             if not reset and since is not None:
                 cursor = int(since.timestamp() * 1000)
                 first = next((i for i, row in enumerate(items) if row["timestamp"] >= cursor), len(items))
-                if history_version is not None:
+                if first == len(items) or items[first]["timestamp"] != cursor:
+                    full_snapshot = True
+                elif history_version is not None:
                     previous = next_version if first == len(items) - 1 else _minute_history_version(items[:first])
-                    full_snapshot = first == len(items) or items[first]["timestamp"] != cursor or previous != history_version
+                    full_snapshot = previous != history_version
                 if not full_snapshot:
                     items = items[first:]
         elif market == "US" and history_version is not None:
@@ -470,9 +477,11 @@ def _quote_payload(
 ) -> dict[str, Any]:
     try:
         display_date = _display_trading_date(stock.market_type, now)
+        from finance_analysis.market_stream.session import quote_display_date_matches
+
         quote_is_current = (
             quote is not None
-            and quote.trading_date == display_date
+            and quote_display_date_matches(stock.market_type, now, quote.trading_date)
             and quote.last_price is not None
             and quote.last_price > 0
             and quote.event_time is not None

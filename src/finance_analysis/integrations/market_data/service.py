@@ -135,6 +135,8 @@ class _StreamingStateProvider:
         return result
 
     def fetch_minute_bars(self, request: MinuteBarsRequest) -> BatchBarResult:
+        if request.include_extended:
+            raise ValueError("regular-session streaming capability cannot supply an extended history request")
         if request.interval != "1m":
             raise ValueError("streaming minute bars are 1m only; refusing to relabel as " + request.interval)
         source = self._get_source()
@@ -521,6 +523,7 @@ class MarketDataService:
         minimum_latest_bar_time: datetime | None = None,
         required_bar_starts: Iterable[datetime] = (),
         recover_partial_minutes: bool = False,
+        include_extended: bool = False,
         budget_seconds: float | None = None,
     ) -> BatchBarResult:
         """Read minute bars, optionally recovering valid required minutes after full-window fallback."""
@@ -533,6 +536,7 @@ class MarketDataService:
             include_incomplete=include_incomplete,
             minimum_latest_bar_time=minimum_latest_bar_time,
             required_bar_starts=tuple(required_bar_starts),
+            include_extended=include_extended,
         )
         budget = budget_seconds
         if budget is None and interval == "1m" and infer_market(request.symbols[0]) is Market.CN:

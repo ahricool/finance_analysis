@@ -4,6 +4,8 @@ import { fetchIntradayMarket, type IntradayBar } from '@/api/intradayMarket';
 import type { SimulationSnapshot, TrendResult } from '@/api/intradayOptions';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import AppApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
+import TradingSessionLegend from '@/components/market-data/TradingSessionLegend.vue';
+import { tradingSessionOverlays } from '@/components/market-data/tradingSessionOverlay';
 import MarketKLineChart from '@/components/market-data/MarketKLineChart.vue';
 import TableExpansionPanel from '@/components/market-data/TableExpansionPanel.vue';
 import { Button } from '@/components/ui/button';
@@ -28,6 +30,8 @@ const loading = ref(true);
 const chartDate = ref('');
 const { resolvedTheme } = useTheme();
 const closed = computed(() => rows.value.filter(b => b.confirmed));
+const regularClosed = computed(() => closed.value.filter(b => (!b.tradeSession || b.tradeSession === 'regular') &&
+  (!b.tradeSession || new Date(b.timestamp).toLocaleDateString('sv-SE', { timeZone: 'America/New_York' }) === chartDate.value)));
 const bars = computed(() => closed.value.map(b => ({ ...b, turnover: b.turnover ?? undefined })));
 const current = computed(() => {
   const b = rows.value.find(row => !row.confirmed);
@@ -46,10 +50,10 @@ const tradeColumns = [
   { key: 'processedAt', label: '实际处理时间' }, { key: 'reason', label: '原因' },
 ];
 const timestampLabel = (at: string | undefined) => at ? new Date(at).toLocaleString('zh-CN', { timeZone: 'America/New_York', hour12: false }) : '未知';
-const overlays = computed(() => [...trendOverlays(closed.value, window.value, mode.value, resolvedTheme.value === 'dark'),
+const overlays = computed(() => [...tradingSessionOverlays(rows.value), ...trendOverlays(regularClosed.value, window.value, mode.value, resolvedTheme.value === 'dark'),
   ...structureOverlays(props.result?.structure),
   ...(showTrades.value ? simulationTradeOverlays(tradeMarkers.value, resolvedTheme.value === 'dark', selectTrade) : [])]);
-const referenceLabel = computed(() => mode.value === 'off' ? '参考线已隐藏' : referenceSeries(closed.value, mode.value).label);
+const referenceLabel = computed(() => mode.value === 'off' ? '参考线已隐藏' : referenceSeries(regularClosed.value, mode.value).label);
 let historyVersion: string | null | undefined;
 let controller: AbortController | null = null;
 let timer: ReturnType<typeof setTimeout> | undefined;
@@ -84,8 +88,8 @@ onBeforeUnmount(() => { stopped = true; generation++; controller?.abort(); clear
 <template>
   <TableExpansionPanel data-testid="options-trend-panel">
     <div class="flex flex-wrap items-center justify-between gap-2">
-      <strong class="text-sm">{{ symbol }} · {{ chartDate || '当日' }} · 1分钟K线</strong>
-      <span class="text-xs text-muted-foreground">纽约时间 · 未闭合K不参与评分</span>
+      <strong class="text-sm">{{ symbol }} · {{ chartDate || '当日' }} · 最近24小时1分钟K线</strong>
+      <span class="text-xs text-muted-foreground">纽约时间 · 仅常规盘中闭合K参与评分</span>
     </div>
     <AppApiErrorAlert
       v-if="error"
@@ -115,12 +119,14 @@ onBeforeUnmount(() => { stopped = true; generation++; controller?.abort(); clear
         {{ item.label }}
       </Button>
     </div>
+    <TradingSessionLegend v-if="rows.length" />
     <MarketKLineChart
       v-if="rows.length"
-      :key="chartDate"
+      :key="symbol"
       :symbol="symbol"
       period="1m"
       live-snapshot
+      full-minute-window
       :bars="bars"
       :current="current"
       :overlays="overlays"

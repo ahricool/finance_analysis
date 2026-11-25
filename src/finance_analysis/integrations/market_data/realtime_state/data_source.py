@@ -30,6 +30,8 @@ from finance_analysis.integrations.market_data.realtime_types import (
 )  # pragma: allowlist secret
 from finance_analysis.market_stream.config import (  # pragma: allowlist secret
     MarketStreamConfig,
+    is_regular_session_minute,
+    is_regular_trade_session,
     latest_completed_bar_time,
     market_spec,
     market_trading_date,
@@ -171,7 +173,9 @@ class RealtimeMarketDataSource:
             )
             if reason:
                 return self._miss(canonical_symbol, reason)
-            bars = await self.repository.get_recent_bars(canonical_symbol, requested_count)
+            bars = await self.repository.get_recent_bars(
+                canonical_symbol, self.repository.bar_limit if normalized_market == "US" else requested_count,
+            )
             current_candle = None
             if include_incomplete:
                 current_candle = await self.repository.get_current_candle(canonical_symbol)
@@ -215,7 +219,9 @@ class RealtimeMarketDataSource:
         if target is None:
             return []
         canonical_symbol, normalized_market = target
-        bars = await self.repository.get_recent_bars(canonical_symbol, max(1, int(count)))
+        bars = await self.repository.get_recent_bars(
+            canonical_symbol, self.repository.bar_limit if normalized_market == "US" else max(1, int(count)),
+        )
         spec = market_spec(normalized_market)
         by_identity: dict[datetime, CandleState] = {}
         for bar in bars:
@@ -227,6 +233,7 @@ class RealtimeMarketDataSource:
                 or not bar.is_valid()
                 or local_time is None
                 or not any(start <= local_time < end for start, end in spec.regular_sessions)
+                or not is_regular_trade_session(bar.trade_session)
             ):
                 continue
             existing = by_identity.get(bar.identity)
@@ -234,7 +241,7 @@ class RealtimeMarketDataSource:
                 by_identity[bar.identity] = bar
         return [
             _candle_to_bar(bar, normalized_market)
-            for bar in sorted(by_identity.values(), key=lambda item: item.bar_time)
+            for bar in sorted(by_identity.values(), key=lambda item: item.bar_time)[-max(1, int(count)):]
         ]
 
     async def _availability_reason(
@@ -542,6 +549,8 @@ def _validated_bars(
             or not bar.is_valid()
             or not bar.confirmed
             or bar.bar_time.astimezone(market_timezone(market_type)).date() != trading_date
+            or not is_regular_session_minute(bar.bar_time, market_type)
+            or not is_regular_trade_session(bar.trade_session)
         ):
             continue
         existing = by_identity.get(bar.identity)
@@ -577,6 +586,7 @@ def _merge_current(
         or current_local is None
         or current_local.date() != now_local.date()
         or not any(start <= current_local.time() < end for start, end in spec.regular_sessions)
+        or not is_regular_trade_session(current.trade_session)
     ):
         return bars
     if current.confirmed:

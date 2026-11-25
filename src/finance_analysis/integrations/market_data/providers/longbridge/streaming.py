@@ -58,7 +58,8 @@ class LongbridgeStreamingClient:
         ordered = sorted(symbols)
         await self.prepare_quotes(symbols - self.prepared_symbols)
         for symbol in ordered:
-            await self.context.subscribe_candlesticks(symbol, Period.Min_1, TradeSessions.Intraday)
+            sessions = TradeSessions.All if symbol.endswith(".US") else TradeSessions.Intraday
+            await self.context.subscribe_candlesticks(symbol, Period.Min_1, sessions)
 
     async def prepare_quotes(self, symbols: set[str]) -> None:
         """Batch snapshot and quote subscription; only the SDK's candle API is per symbol."""
