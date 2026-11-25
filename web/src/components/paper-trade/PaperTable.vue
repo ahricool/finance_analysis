@@ -19,6 +19,7 @@ const visible = computed(() => sort.sorted.slice((page.value - 1) * 10, page.val
 watch(() => sort.sortKey + sort.direction, () => { page.value = 1; });
 watch(pages, value => { page.value = Math.min(page.value, value); });
 const labels: Record<string, string> = {
+  ema_cross: 'EMA 交叉', perpetual_drive: '24/7 永续驱动 (V8)',
   STRATEGY: 'FA 策略', FA_MANUAL: 'FA 手动', EXTERNAL: 'App / 外部', CONFLICT: '外部冲突',
   OBSERVED: '观察', QUEUED: '待提交', SUBMITTING: '提交中', UNKNOWN: '待核对',
   SUBMITTED: '已委托', PARTIALLY_FILLED: '部分成交', FILLED: '已成交', CANCELED: '已取消',

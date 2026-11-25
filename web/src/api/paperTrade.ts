@@ -8,6 +8,7 @@ export interface PaperView {
   open_algos?: Row[];
   shared_symbols?: string[];
   demo_symbols?: string[];
+  demo_coin_symbols?: string[];
   synced_at: string;
   complete: boolean;
 }

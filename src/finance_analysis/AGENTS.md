@@ -319,6 +319,7 @@ LLM允许web_search，但只能建议已有position；BUY为加仓，数量不�
 `paper_trade/` 在 Streamer leader 下同步账户、普通和 Algo 订单、成交、流水，独立 DB 表保留意图和快照。
 0099 持久化管理员 Demo 新增仓位开关，缺记录默认关闭，保持减仓与保护管理。
 单向持仓；策略使用已有 Redis 闭合分钟线，执行用 Demo 规则与报价，按实际成交核对所有权。
+`paper_trade/strategies/perpetual_drive.py` 独立移植 V8 开盘驱动为 UTC 重叠窗口，不引用日内期权代码；初始 Algo 止损与标记价棘轮分离，退出档位在入场意图持久化。
 `/api/v1/crypto/paper-trade` 全部管理员权限，GET 只读，写入操作由 Streamer 消费持久化意图。
 详见 `docs/binance-paper-trade.md`。
 
