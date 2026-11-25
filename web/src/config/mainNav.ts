@@ -81,7 +81,7 @@ export const researchNavItems: NavDestination[] = [
 ];
 
 export const cryptoNavItems: NavDestination[] = [
-  { key: 'crypto-btc', label: 'BTC 交易', to: '/crypto/btc', icon: Bitcoin },
+  { key: 'crypto-contracts', label: '合约行情', to: '/crypto/contracts', icon: Bitcoin },
 ];
 
 export const taskNavItems: NavDestination[] = [
@@ -118,7 +118,7 @@ export const mainNavItems: MainNavItem[] = [
   {
     key: 'crypto',
     label: '加密货币',
-    to: '/crypto/btc',
+    to: '/crypto/contracts',
     icon: Bitcoin,
     activePathPrefix: '/crypto/',
     children: cryptoNavItems,

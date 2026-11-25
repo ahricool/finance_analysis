@@ -153,7 +153,6 @@ Provider、交易所、市场、页、单行及单次写入失败分别隔离。
 - `src/finance_analysis/timeline/service.py`：去 star，补中立详情字段。
 - `alembic/versions/0045_calendar_sources.py`：迁移。
 - `tests/test_market_calendar_event_repo.py`、`test_market_calendar_task.py`、`test_market_calendar_importance.py`、`test_longbridge_calendar_fetcher.py`、`test_yfinance_calendar_fetcher.py`、`test_market_calendar_migration.py`、`test_celery_job_services.py`：更新/新增回归测试。
-- `tests/crypto/test_migration.py`：将写死的当前 head 检查改为单一 head 与 BTC revision 祖先检查，允许新增迁移；不改变 BTC 业务。
 - `docs/market-calendar.md`：本说明。
 
 IPO/dividend/split 只从财经日历类别映射、fetch 方法、通知/排序规则、评分文案及旧测试中移除。行情复权、Corporate Action 和其他独立业务的 dividend/split 保留。工作区原有 Trend Following/前端改动未纳入本次实现。

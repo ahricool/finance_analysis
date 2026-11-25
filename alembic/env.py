@@ -43,6 +43,8 @@ def _bootstrap_empty_database(connection) -> bool:
     if inspect(connection).get_table_names():
         return False
     target_metadata.create_all(bind=connection)
+    # Fresh databases skip historical revisions; execute this creation-time seed once.
+    ScriptDirectory.from_config(config).get_revision("0096_contract_market").module.seed(connection)
     version_table = Table(
         "alembic_version",
         MetaData(),

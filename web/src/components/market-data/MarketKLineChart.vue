@@ -14,6 +14,7 @@ import type { ChartAnnotation } from './chartAnnotation';
 
 const props = defineProps<{
   symbol: string;
+  disableForecast?: boolean;
   period: '1m' | '5m' | '15m' | '1h' | '4h' | '1d' | '1w' | '1M';
   pricePrecision?: number;
   bars: KLineData[];
@@ -30,7 +31,7 @@ const props = defineProps<{
 const element = ref<HTMLElement>();
 const { resolvedTheme } = useTheme();
 const now = useCurrentTime(3_000);
-const forecastResponse = useMinuteForecast(() => props.symbol, () => props.period === '1m' && props.bars.length > 0);
+const forecastResponse = useMinuteForecast(() => props.symbol, () => !props.disableForecast && props.period === '1m' && props.bars.length > 0);
 const showForecast = ref(true);
 const forecast = computed(() => {
   const value = forecastResponse.value?.forecast;

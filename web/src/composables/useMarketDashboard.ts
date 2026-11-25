@@ -1,4 +1,3 @@
-import { useVisiblePolling } from './useVisiblePolling';
 import { onUnmounted, shallowReactive, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 import { parseDate } from '@internationalized/date';
@@ -7,7 +6,6 @@ import { quantApi } from '@/api/quant';
 import { timelineApi } from '@/api/timeline';
 import { etfRotationApi } from '@/api/etfRotation';
 import { trendFollowingApi } from '@/api/trendFollowing';
-import { cryptoApi } from '@/api/crypto';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import { useTimezoneStore } from '@/stores/timezoneStore';
 import { getTodayInDisplayTimezone } from '@/utils/format';
@@ -55,15 +53,11 @@ export function useMarketDashboard() {
   const upcoming = resource(() => timelineApi.list({
     category: 'event', end_date: parseDate(getTodayInDisplayTimezone()).add({ days: 7 }).toString(), limit: 100,
   }));
-  const btc = resource(() => cryptoApi.overview());
   for (const market of markets) {
     for (const section of [market.structure, market.signals, market.etf, market.trend]) void section.refresh();
   }
-  void btc.refresh();
   const { displayTimezone } = storeToRefs(useTimezoneStore());
   watch(displayTimezone, () => { void latest.refresh(); void upcoming.refresh(); }, { immediate: true });
-  // Use the existing public overview, without duplicating the BTC socket or loading chart history.
-  useVisiblePolling(() => { void btc.refresh(); }, 30_000);
   onUnmounted(() => { stopped = true; });
-  return { markets, latest, upcoming, btc };
+  return { markets, latest, upcoming };
 }

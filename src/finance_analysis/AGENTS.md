@@ -256,13 +256,12 @@ uv run ./scripts/ci_gate.sh
 8. schema 变更是否包含 ORM、Alembic 和迁移测试。
 9. 聚焦测试与离线门禁是否通过。
 
-## BTC 策略
+## U 本位合约
 
-`crypto/` 负责 BTCUSDT 原生15m/1h指标、LONG/FLAT与ATR风险；`integrations/crypto` 仅做 Binance 公共 REST。
-Beat `crypto_btc_strategy` 每15m收盘后一分钟执行，只读闭合K线，不持久化行情，不维护行情WS/Redis/同步进程。
-仓储原子写state与15m快照，以唯一时间点和行锁防重放及跳步；已有快照按15m顺序补算，冷启动只算最新。
-`0060_crypto_positions` 增加0–1仓位、平均成本及snapshot前后仓位/delta；绩效和执行/持仓周期从完整连续snapshot动态派生，不新增表。
-这是共享研究状态，不是用户仓位/Paper Trading。不要添加资金、订单或AI执行。详见 `docs/crypto-btc.md`。
+contracts/service.py 在已有 Streamer leader 下运行独立采集协程；integrations/crypto/binance.py 仅访问
+Binance 公开 USD-M REST。数据库 futures_contract、futures_daily_bar 与股票表隔离。
+/api/v1/crypto/contracts 及 WS/SSE 只读 DB/Redis，管理员可搜索、增删共享标的（新增校验交易所合约类型）。
+详见 docs/contracts.md。
 
 ## A 股行业强度
 

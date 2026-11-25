@@ -308,16 +308,12 @@ pnpm run test:smoke
 6. 聚焦测试及相应门禁是否实际通过。
 7. 未提交 secret、日志、缓存、Playwright 报告、`node_modules` 或生成的 `static/`。
 
-## BTC V0.1
+## U 本位永续合约行情
 
-`crypto/` 仅负责 BTCUSDT 策略；`integrations/crypto/binance.py` 是薄公共 REST client，不接股票 Provider 链。
-页面行情由浏览器直接访问 Binance REST / 单一 WS（八档周期），策略通过后端 REST 独立读取。
-Beat `crypto_btc_strategy` 每 15m 收盘后读取原生 15m/1h 闭合线，只保存策略状态与快照；不保存行情，不使用行情 Redis 或后端 WS。
-已有快照按15m逐根补算；仓位为position_pct（0–1），仓位变化保存在snapshot，绩效从完整快照动态计算。
-详见 `docs/crypto-btc.md`；测试位于 `tests/crypto/`。
-
-
-BTC 多策略以 `strategy_key + symbol` 隔离，代码注册表当前仅 `btc_breakout_v1`。共享 Binance REST 窗口、独立 catch-up 与状态行锁；仓位变化保存于 snapshot，绩效/CAGR/负值回撤动态派生，selector 不影响行情连接。详见 `docs/crypto-btc.md`。
+contracts/ 共享行情模块由已选举的 Streamer 独立采集 Binance USD-M USDT 永续合约。
+标的及已收盘 UTC 日线写 PostgreSQL；最近 24 小时原生 1min、行情及当日预览写 Redis（分钟窗口 24h TTL，行情短 TTL）。
+管理员增删共享标的，默认 19 个仅由 0096 迁移和空库创建时插入；GET 只读，前端只走后端 WS/SSE/API。
+旧 BTC 策略、定时任务、数据表和现货分钟预测已经退役。详见 docs/contracts.md。
 
 ## 消息边界
 
@@ -506,5 +502,5 @@ GET只读，行级机会资格排除缺线、延迟和非交易时段；默认�
 
 ## Kronos K 线预测
 
-`minute_forecast/` 由 Streamer leader 对 CN/HK/US 订阅并集的已收盘原生 `1m` 滚动预测至实际收盘。输入和输出覆盖当日全部交易分钟，午休跳过，未补齐历史前等待。BTCUSDT 预测及分钟误差核对均保留前 10 步。模型运行于独立 macOS MPS LaunchAgent，长分钟路径复用注意力 KV，发布默认 Small，保留 Base 与本地 Large 权重配置。预测和误差以有限 TTL 写入 Redis，GET 使用原分钟图授权，只读缓存。
+`minute_forecast/` 由 Streamer leader 对 CN/HK/US 订阅并集的已收盘原生 `1m` 滚动预测至实际收盘。输入和输出覆盖当日全部交易分钟，午休跳过，未补齐历史前等待。分钟误差核对保留前 10 步。模型运行于独立 macOS MPS LaunchAgent，长分钟路径复用注意力 KV，发布默认 Small，保留 Base 与本地 Large 权重配置。预测和误差以有限 TTL 写入 Redis，GET 使用原分钟图授权，只读缓存。
 `daily_forecast/` 在 CN/US 日线同步结束后异步复用其全量 Universe，读取前复权已收盘日线并预测最多 10 个交易日。PostgreSQL 按市场事务替换最新批次，日线 API 独立返回 `forecast`。两种周期复用 macOS MPS LaunchAgent；共享图表以空心实边蜡烛显示预测 OHLC，跳过休市日。日 K 只核对下一交易日收盘误差，最新误差和累计统计写 PostgreSQL，见 `docs/kronos.md`。

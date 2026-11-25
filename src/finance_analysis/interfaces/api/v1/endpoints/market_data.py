@@ -48,7 +48,7 @@ from finance_analysis.market_stream.patterns.config import PatternConfig
 from finance_analysis.market_stream.patterns.models import PatternSignal, PatternState
 from finance_analysis.minute_forecast.cache import close_replay_forecast, comparison_forecast, latest_forecast
 from finance_analysis.minute_forecast.evaluation import evaluation_day, read_accuracy
-from finance_analysis.minute_forecast.models import BTC_SYMBOL, MinuteForecastResponse
+from finance_analysis.minute_forecast.models import MinuteForecastResponse
 from finance_analysis.minute_forecast.publisher import forecast_model, forecast_url
 from finance_analysis.minute_forecast.windows import millis
 from finance_analysis.stocks.markets import MarketType
@@ -86,18 +86,14 @@ async def _require_intraday_access(request: Request, code: str, market: str) -> 
 async def minute_forecast(symbol: str, request: Request, response: Response) -> MinuteForecastResponse:
     """Serve only an already-published forecast within the chart's data scope."""
     response.headers["Cache-Control"] = "private, no-store"
-    market = None
-    if symbol.upper() == BTC_SYMBOL:
-        code = BTC_SYMBOL
-    else:
-        try:
-            code = canonical_symbol(symbol)
-            market = infer_market(code).value
-        except ValueError as exc:
-            raise HTTPException(422, "证券代码无效") from exc
-        if market not in {"CN", "US", "HK"}:
-            raise HTTPException(422, "证券市场不支持分钟预测")
-        await _require_intraday_access(request, code, market)
+    try:
+        code = canonical_symbol(symbol)
+        market = infer_market(code).value
+    except ValueError as exc:
+        raise HTTPException(422, "证券代码无效") from exc
+    if market not in {"CN", "US", "HK"}:
+        raise HTTPException(422, "证券市场不支持分钟预测")
+    await _require_intraday_access(request, code, market)
     if not forecast_url():
         return MinuteForecastResponse(enabled=False)
     repository = RealtimeStateRepository.from_url(MarketStreamConfig.from_env().redis_url)
@@ -109,7 +105,7 @@ async def minute_forecast(symbol: str, request: Request, response: Response) -> 
         )
         if comparison is None:
             comparison = await comparison_forecast(repository.redis, code, millis(now))
-        if forecast is None and code != BTC_SYMBOL:
+        if forecast is None:
             forecast = await close_replay_forecast(repository.redis, code)
         return MinuteForecastResponse(enabled=True, forecast=forecast, comparison=comparison, accuracy=accuracy)
     finally:

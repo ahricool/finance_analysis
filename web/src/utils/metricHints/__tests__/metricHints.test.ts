@@ -9,7 +9,6 @@ const required: Record<string, string[]> = {
   holdings: ['总资产', '现金', '持仓市值', '总仓位', '现价', '数量（股）', '平均成本', '市值', '仓位', '盈亏'],
   quant: ['最终得分', '横截面', '时间序列', '风险扣分', '预测收益', '3D收益', '5D收益', '至今收益', '信号', '市场得分', '目标权重', 'dailyRankIcMean', 'dailyRankIcMeanStd', 'rocAuc', 'rocAucStd', 'trend_ma20', 'max_drawdown_60d', 'Embargo'],
   quantDataset: ['状态', '股票数量', '数据行数', '价格模式'],
-  crypto: ['marketRegime', 'action', '形态', '策略状态', 'EMA20 · 1h', '量比 · 15m', 'totalReturn', 'annualized', 'winRate', '当前 BTC 浮盈率'],
   confluence: ['strongConfluence', 'ignitionTopIndustry', 'confluence', 'signals', 'lifecycleFragility', 'quantRank', 'etfRank'],
   'confluence-trend': ['trendQuality', 'state', 'fragilityScore'],
   flow: ['上榜股票', '买入额', '卖出额', '所选口径净额', '机构净额', '游资净额', 'Top5正流入占比', '所选概念贡献', '已采集日净额', '样本净额', '股票整体净额', '所选口径原始净额'],

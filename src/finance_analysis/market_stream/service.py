@@ -183,8 +183,11 @@ class MarketStreamService:
         from finance_analysis.intraday_options.runtime import Publisher
         from finance_analysis.minute_forecast.publisher import ForecastPublisher, forecast_model, forecast_url
 
+        from finance_analysis.contracts.service import run_collector
+
         options_publisher = Publisher(self.repository)
         tasks = [
+            asyncio.create_task(run_collector(self.repository.redis), name="contract-market"),
             asyncio.create_task(options_publisher.run(self.bars_1m, self.stop_event), name="intraday-options"),
             asyncio.create_task(self._renew_leader_lock(), name="market-stream-lock"),
             asyncio.create_task(self._consume_events(), name="market-stream-events"),

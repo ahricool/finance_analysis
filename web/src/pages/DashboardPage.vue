@@ -3,7 +3,7 @@ import { formatRank } from '@/utils/rank';
 import StockLink from '@/components/stocks/StockLink.vue';
 import { computed } from 'vue';
 import { RouterLink } from 'vue-router';
-import { ArrowUpRight, Bitcoin } from 'lucide-vue-next';
+import { ArrowUpRight } from 'lucide-vue-next';
 import { useMarketDashboard } from '@/composables/useMarketDashboard';
 import { useCurrentTime } from '@/composables/useCurrentTime';
 import MarketStructureCard from '@/components/dashboard/MarketStructureCard.vue';
@@ -17,12 +17,9 @@ import { importanceNames, kindLabel, marketLabel, sessionLabel } from '@/compone
 import { formatDateTimeInDisplayTimezone, getDisplayTimezone } from '@/utils/format';
 import { formatScore } from '@/utils/quant';
 
-const { markets, latest, upcoming, btc } = useMarketDashboard();
+const { markets, latest, upcoming } = useMarketDashboard();
 const now = useCurrentTime();
 const nextEvents = computed(() => upcomingEvents(upcoming.data?.items ?? [], now.value));
-const btcPrice = computed(() => btc.data?.strategy?.price);
-const number = (value: string | undefined) => value && Number.isFinite(Number(value))
-  ? Number(value).toLocaleString('en-US', { maximumFractionDigits: 2 }) : '—';
 </script>
 
 <template>
@@ -384,39 +381,6 @@ const number = (value: string | undefined) => value && Number.isFinite(Number(va
             </RouterLink>
           </DashboardState>
         </div>
-      </div>
-      <div class="mt-5 rounded-lg border px-5 py-4">
-        <RouterLink
-          to="/crypto/btc"
-          class="flex items-center gap-2 text-sm font-semibold"
-        >
-          <Bitcoin class="size-4" /> BTCUSDT <span class="ml-auto text-xs font-normal text-muted-foreground">24 / 7</span><ArrowUpRight class="size-4" />
-        </RouterLink>
-        <DashboardState
-          :state="btc"
-          :empty="!btc.data"
-          @retry="btc.refresh"
-        >
-          <div class="mt-4 flex items-end justify-between gap-4">
-            <div>
-              <p class="text-3xl font-semibold tabular-nums">
-                {{ number(btcPrice) }} <span class="text-xs font-normal text-muted-foreground">USDT</span>
-              </p><p class="mt-2 text-xs text-muted-foreground">
-                策略评估价格 · 每 15 分钟收盘后更新
-              </p>
-            </div>
-            <div class="text-right">
-              <p
-                class="text-xl font-semibold"
-                :class="regimeTone(btc.data?.strategy?.regime)"
-              >
-                {{ btc.data?.strategy?.regime ?? '等待数据' }}
-              </p><p class="mt-2 text-xs">
-                {{ btc.data?.strategy?.setup ?? '—' }} · {{ btc.data?.strategy?.action ?? '—' }} · {{ btc.data?.strategy?.positionState ?? '—' }}
-              </p>
-            </div>
-          </div>
-        </DashboardState>
       </div>
     </section>
   </div>

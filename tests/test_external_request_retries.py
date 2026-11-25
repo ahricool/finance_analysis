@@ -11,7 +11,6 @@ import pytest
 import requests
 
 from finance_analysis.core import retry
-from finance_analysis.crypto.config import CryptoConfig
 from finance_analysis.integrations.crypto.binance import BinanceClient
 from finance_analysis.integrations.market_data.providers.fuyao import FuyaoProvider
 from finance_analysis.integrations.market_data.providers.yfinance import YFinanceProvider
@@ -116,7 +115,7 @@ def test_binance_server_error_recovery(external_retry_waits):
 
     async def run():
         async with httpx.AsyncClient(base_url="https://test.invalid", transport=httpx.MockTransport(handler)) as http:
-            return await BinanceClient(CryptoConfig(), http).server_time()
+            return await BinanceClient(http).server_time()
 
     assert asyncio.run(run()).timestamp() == .001
     assert len(seen) == 4

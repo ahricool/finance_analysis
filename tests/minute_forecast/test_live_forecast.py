@@ -17,7 +17,7 @@ from finance_analysis.minute_forecast.cache import close_replay_key, forecast_ke
 from finance_analysis.minute_forecast.evaluation import evaluation_day, read_accuracy, settle_forecasts
 from finance_analysis.minute_forecast.models import ForecastAccuracy, ForecastSnapshot, RecentErrors
 from finance_analysis.minute_forecast.publisher import ForecastPublisher
-from finance_analysis.minute_forecast.windows import btc_window, millis, stock_close_window, stock_window
+from finance_analysis.minute_forecast.windows import millis, stock_close_window, stock_window
 
 MINUTE = timedelta(minutes=1)
 NY = ZoneInfo("America/New_York")
@@ -28,11 +28,6 @@ def candles(symbol, start, count):
     return [CandleState(symbol, start + i * MINUTE, Decimal(10), Decimal(11), Decimal(9), Decimal(10), 100,
                         Decimal(1000), None, True, start + (i + 1) * MINUTE) for i in range(count)]
 
-
-def binance_rows(now):
-    minute = now.replace(second=0, microsecond=0)
-    return [[millis(minute + offset * MINUTE), "10", "11", "9", "10", "100",
-             millis(minute + (offset + 1) * MINUTE) - 1, "1000"] for offset in range(-30, 1)]
 
 
 def test_stock_forecast_starts_with_fifteen_confirmed_minutes_after_open():
@@ -110,7 +105,7 @@ def test_close_replay_anchors_to_early_close_and_excludes_postmarket_candles():
 
 
 @pytest.mark.asyncio
-async def test_batches_keep_all_active_symbols_and_btc_independent(monkeypatch):
+async def test_batches_keep_all_active_stock_symbols(monkeypatch):
     now = datetime(2026, 11, 20, 15, 45, 6, tzinfo=timezone.utc)
     monkeypatch.setattr(publisher, "utc_now", lambda: now)
     redis = Mock(eval=AsyncMock())
@@ -121,7 +116,6 @@ async def test_batches_keep_all_active_symbols_and_btc_independent(monkeypatch):
     inputs = {symbol: candles(symbol, now.replace(second=0) - 75 * MINUTE, 75) for symbol in symbols}
     inputs["REMOVED.US"] = inputs[symbols[0]]
     markets = dict.fromkeys(symbols, "US")
-    binance = Mock(spot_minute_rows=AsyncMock(return_value=binance_rows(now)))
     posted = []
 
     async def predict(request):
@@ -136,14 +130,12 @@ async def test_batches_keep_all_active_symbols_and_btc_independent(monkeypatch):
         })
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(predict)) as client:
-        await writer.tick(inputs, markets, client, binance, now)
-        await writer.tick(inputs, markets, client, binance, now + timedelta(seconds=3))
-    assert posted == [symbols[:10], symbols[10:], ["BTCUSDT"]]
-    assert [call.args[2] for call in redis.eval.call_args_list] == list(map(forecast_key, [*symbols, "BTCUSDT"]))
-    binance.spot_minute_rows.assert_awaited_once()
-    assert len(btc_window(binance_rows(now), now).targets) == 10
+        await writer.tick(inputs, markets, client, now)
+        await writer.tick(inputs, markets, client, now + timedelta(seconds=3))
+    assert posted == [symbols[:10], symbols[10:]]
+    assert [call.args[2] for call in redis.eval.call_args_list] == list(map(forecast_key, symbols))
     settle.assert_awaited_once()
-    assert settle.await_args.args[2] == markets and settle.await_args.args[3].symbol == "BTCUSDT"
+    assert settle.await_args.args[2] == markets
 
 
 @pytest.mark.asyncio
@@ -161,9 +153,9 @@ async def test_next_minute_starts_with_symbols_skipped_when_time_runs_out(monkey
         return True
 
     writer.infer = AsyncMock(side_effect=finish_at_deadline)
-    await writer.tick(inputs, markets, None, None, minute)
+    await writer.tick(inputs, markets, None, minute)
     assert len(writer.infer.call_args_list) == 1
-    await writer.tick(inputs, markets, None, None, minute + MINUTE)
+    await writer.tick(inputs, markets, None, minute + MINUTE)
     assert [window.symbol for window in writer.infer.call_args.args[1]][:2] == list(inputs)[-2:]
 
 
@@ -204,9 +196,9 @@ async def test_settlement_waits_for_late_bars_and_only_scores_confirmed_observat
     source = {"QQQ.US": bars}
     markets = {"QQQ.US": "US"}
 
-    await settle_forecasts(redis, source, markets, None, issued + 10 * MINUTE)
+    await settle_forecasts(redis, source, markets, issued + 10 * MINUTE)
     writes.eval.assert_not_called()
-    await settle_forecasts(redis, source, markets, None, issued + 12 * MINUTE)
+    await settle_forecasts(redis, source, markets, issued + 12 * MINUTE)
     reads.zrangebyscore.assert_called_with(pending_error_key("QQQ.US"), "-inf", millis(issued + 12 * MINUTE))
     _, _, _, date_key, _, original, report, _ = writes.eval.call_args.args
     assert date_key.endswith(":small:2026-11-20") and original == raw
@@ -223,7 +215,7 @@ async def test_daily_average_divides_errors_by_each_steps_sample_count():
     totals = {"count:1": "4", "error:1": "6", "baseline:1": "10",
               "count:10": "2", "error:10": "10", "baseline:10": "12"}
     pipe = Mock(execute=AsyncMock(return_value=([None, None], totals)))
-    result, previous = await read_accuracy(Mock(pipeline=Mock(return_value=pipe)), "BTCUSDT", "small", now.date())
+    result, previous = await read_accuracy(Mock(pipeline=Mock(return_value=pipe)), "QQQ.US", "small", now.date())
     assert previous is None
     assert [(row.step, row.count, row.mae, row.baseline_mae) for row in result.daily] == [
         (1, 4, 1.5, 2.5), (10, 2, 5.0, 6.0),
@@ -232,7 +224,7 @@ async def test_daily_average_divides_errors_by_each_steps_sample_count():
 
 
 @pytest.mark.asyncio
-async def test_forecast_read_reuses_stock_entitlement_and_btc_needs_no_stock_lookup(monkeypatch):
+async def test_forecast_read_reuses_stock_entitlement_and_rejects_btc(monkeypatch):
     monkeypatch.setattr(market_data, "forecast_url", lambda: "http://mps")
     accuracy = AsyncMock(side_effect=lambda redis, symbol, model, day: (ForecastAccuracy(trading_date=day), None))
     monkeypatch.setattr(market_data, "read_accuracy", accuracy)
@@ -246,8 +238,9 @@ async def test_forecast_read_reuses_stock_entitlement_and_btc_needs_no_stock_loo
         await market_data.minute_forecast("AAPL.US", request, Response())
     assert error.value.status_code == 404
     redis.get.assert_not_called()
-    assert (await market_data.minute_forecast("BTCUSDT", request, Response())).forecast is None
-    redis.get.assert_awaited_once_with(forecast_key("BTCUSDT"))
+    with pytest.raises(HTTPException):
+        await market_data.minute_forecast("BTCUSDT", request, Response())
+    redis.get.assert_not_called()
 
     access.side_effect = None
     live = ForecastSnapshot(model="small", weights_revision="fixed", symbol="QQQ.US", anchor=0,

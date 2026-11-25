@@ -9,14 +9,12 @@ from datetime import datetime
 import httpx
 from finance_analysis.config.env_parsing import env_str
 from finance_analysis.core.time import utc_now
-from finance_analysis.crypto.config import get_crypto_config
-from finance_analysis.integrations.crypto.binance import BinanceClient
 from finance_analysis.minute_forecast.cache import publish_forecast
 from finance_analysis.minute_forecast.evaluation import settle_forecasts
 from finance_analysis.minute_forecast.models import (
-    BATCH_SIZE, BTC_SYMBOL, LOOKBACK, MINUTE_MS, PROTOCOL, ForecastSnapshot, ForecastWindow, InferenceResult,
+    BATCH_SIZE, MINUTE_MS, PROTOCOL, ForecastSnapshot, ForecastWindow, InferenceResult,
 )
-from finance_analysis.minute_forecast.windows import btc_window, millis, stock_window
+from finance_analysis.minute_forecast.windows import millis, stock_window
 from finance_analysis.stocks.markets import MarketType
 
 logger = logging.getLogger(__name__)
@@ -37,35 +35,26 @@ class ForecastPublisher:
         self.expected_model = expected_model
         self.published: dict[str, int] = {}
         self.last_attempted: dict[str, int] = {}
-        self.btc_requested_at: datetime | None = None
-        self.btc_input: ForecastWindow | None = None
         self.stock_evaluated_at: int | None = None
-        self.btc_evaluated_at: int | None = None
         self.retry_after = 0
 
     async def run(self, bars: Mapping, targets: Callable[[], Mapping[str, MarketType]]) -> None:
-        crypto = get_crypto_config()
-        binance = BinanceClient(crypto)
-        try:
-            async with httpx.AsyncClient(timeout=12, trust_env=False) as predictor:
-                while True:
-                    try:
-                        # Strategy enablement is unrelated to the BTC chart's public 1m feed.
-                        await self.tick(bars, targets(), predictor, binance, utc_now())
-                    except Exception:
-                        logger.exception("分钟线推理批次失败")
-                    await asyncio.sleep(3)
-        finally:
-            await binance.close()
+        async with httpx.AsyncClient(timeout=12, trust_env=False) as predictor:
+            while True:
+                try:
+                    await self.tick(bars, targets(), predictor, utc_now())
+                except Exception:
+                    logger.exception("分钟线推理批次失败")
+                await asyncio.sleep(3)
 
-    async def tick(self, bars, targets: Mapping[str, MarketType], predictor, binance,
+    async def tick(self, bars, targets: Mapping[str, MarketType], predictor,
                    now: datetime) -> None:
         minute = millis(now.replace(second=0, microsecond=0))
         anchor = minute - MINUTE_MS
         ready = millis(now) >= self.retry_after
         groups: dict[tuple[int, int], list[ForecastWindow]] = defaultdict(list)
         self.published = {symbol: value for symbol, value in self.published.items()
-                          if symbol in targets or (binance is not None and symbol == BTC_SYMBOL)}
+                          if symbol in targets}
         self.last_attempted = {symbol: value for symbol, value in self.last_attempted.items() if symbol in targets}
         for symbol, market in (targets.items() if ready else ()):
             if not bars.get(symbol) or self.published.get(symbol) == minute:
@@ -77,74 +66,23 @@ class ForecastPublisher:
             if window is not None:
                 groups[len(window.bars), len(window.targets)].append(window)
 
-        # BTC has an independent source. Start its fetch concurrently so a slow
-        # Binance response cannot hold up the stock batches or subscription flow.
-        btc_task = None
-        if self.btc_input is not None and self.btc_input.bars[-1].timestamp != anchor:
-            self.btc_input = None
-        if (binance is not None and self.btc_input is None and now.second >= 3
-                and (self.btc_requested_at is None or (now - self.btc_requested_at).total_seconds() >= 8)):
-            self.btc_requested_at = now
-            btc_task = asyncio.create_task(self.read_btc(binance, now))
+        def last_attempt(window: ForecastWindow) -> int:
+            return self.last_attempted.get(window.symbol, 0)
 
-        async def infer_btc() -> bool:
-            if self.btc_input is not None and self.published.get(BTC_SYMBOL) != minute:
-                return await self.infer(predictor, [self.btc_input])
-            return True
-
-        try:
-            def last_attempt(window: ForecastWindow) -> int:
-                return self.last_attempted.get(window.symbol, 0)
-
-            batches = []
-            for windows in groups.values():
-                windows.sort(key=last_attempt)
-                batches.extend(windows[start:start + BATCH_SIZE] for start in range(0, len(windows), BATCH_SIZE))
-            # If the minute budget is exhausted, start the next minute with the symbols that waited longest.
-            for batch in sorted(batches, key=lambda windows: last_attempt(windows[0])):
-                if millis(utc_now()) >= minute + MINUTE_MS:
-                    ready = False
-                    break
-                for window in batch:
-                    self.last_attempted[window.symbol] = minute
-                ready = await self.infer(predictor, batch)
-                if not ready:
-                    break
-                if btc_task is not None and btc_task.done():
-                    self.btc_input = await btc_task
-                    btc_task = None
-                    ready = await infer_btc()
-                    if not ready:
-                        break
-            if btc_task is not None:
-                self.btc_input = await btc_task
-            if ready:
-                await infer_btc()
-            # Keep settlement moving during inference backoff. BTC can arrive
-            # a tick later than the equity candles, so track its cadence separately.
-            stock_due = self.stock_evaluated_at != anchor and now.second >= 5
-            btc_due = self.btc_evaluated_at != anchor and self.btc_input is not None
-            if stock_due or btc_due:
-                await settle_forecasts(
-                    self.redis, bars, targets if stock_due else {}, self.btc_input if btc_due else None, now,
-                )
-                if stock_due:
-                    self.stock_evaluated_at = anchor
-                if btc_due:
-                    self.btc_evaluated_at = anchor
-        finally:
-            if btc_task is not None and not btc_task.done():
-                btc_task.cancel()
-                await asyncio.gather(btc_task, return_exceptions=True)
-
-    async def read_btc(self, binance, now: datetime) -> ForecastWindow | None:
-        try:
-            async with asyncio.timeout(5):
-                rows = await binance.spot_minute_rows(end=now, limit=LOOKBACK + 1)
-            return btc_window(rows, now)
-        except (TimeoutError, httpx.HTTPError, ValueError, TypeError):
-            logger.warning("BTCUSDT 预测分钟线暂不可用", exc_info=True)
-            return None
+        batches = []
+        for windows in groups.values():
+            windows.sort(key=last_attempt)
+            batches.extend(windows[start:start + BATCH_SIZE] for start in range(0, len(windows), BATCH_SIZE))
+        for batch in sorted(batches, key=lambda windows: last_attempt(windows[0])):
+            if millis(utc_now()) >= minute + MINUTE_MS:
+                break
+            for window in batch:
+                self.last_attempted[window.symbol] = minute
+            if not await self.infer(predictor, batch):
+                break
+        if self.stock_evaluated_at != anchor and now.second >= 5:
+            await settle_forecasts(self.redis, bars, targets, now)
+            self.stock_evaluated_at = anchor
 
     async def infer(self, predictor, windows: list[ForecastWindow]) -> bool:
         remaining = (windows[0].targets[0] + MINUTE_MS - millis(utc_now())) / 1000
@@ -182,7 +120,7 @@ class ForecastPublisher:
                 model=result.model, weights_revision=result.weights_revision, symbol=window.symbol,
                 anchor=last.timestamp, anchor_close=last.close, generated_at=generated_at,
                 lookback=len(window.bars), bars=prediction.bars,
-                session_close=window.targets[-1] + MINUTE_MS if window.symbol != BTC_SYMBOL else None,
+                session_close=window.targets[-1] + MINUTE_MS,
             ))
             self.published[window.symbol] = window.targets[0]
         return True

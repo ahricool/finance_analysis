@@ -5,7 +5,7 @@
 `subscribeBar/unsubscribeBar`。切换标的、周期或 sourceKey 时销毁并重新初始化；
 历史数据替换时 `resetData`；ResizeObserver 与 Vue 卸载一起清理。
 红涨绿跌，主题跟随 `useTheme`，默认 VOL，日线叠加 MA5/10/20。
-其他统计图继续使用 ECharts。通用组件接受 `pricePrecision`，BTC 明确传 2；
+其他统计图继续使用 ECharts。通用组件接受 `pricePrecision`，合约根据价格动态调整精度；
 DailyKLineCard 从展示的 OHLC 推导 2～4 位小数（12.35 → 2、1.237 → 3、0.8567 → 4），
 忽略第 4 位之后的浮点噪声。KLineChart 将 symbol 精度同步到 MA 等价格指标。
 
@@ -68,7 +68,7 @@ DailyKLineCard 从展示的 OHLC 推导 2～4 位小数（12.35 → 2、1.237 �
 
 ## 页面
 
-- BTC：`BtcKlineChart` 仅转换现有 `useCryptoBtc` 的历史和当前分钟，REST/WS/HTTP fallback 不变。
+- 合约：ContractsPage 读取后端日线及 WS/SSE 分钟快照，不调用预测 API。
 - ETF Rotation 详情：Factor Grid 后、Raw Metrics 前。
 - Trend Following 详情：核心指标后、breakdown 前。
 - Quant Signal 详情：核心得分后、原因说明前。

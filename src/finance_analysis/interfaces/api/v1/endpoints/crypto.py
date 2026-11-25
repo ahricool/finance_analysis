@@ -1,66 +1,126 @@
-"""Authenticated, database-only BTC strategy reads."""
+"""Authenticated USD-M perpetual prices and admin-managed shared watchlist."""
+import asyncio
+import json
+from typing import Literal
 
-from datetime import datetime
+import httpx
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import StreamingResponse
+from anyio import CancelScope
+from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-
-from finance_analysis.crypto.registry import BREAKOUT_KEY, SYMBOL
-from finance_analysis.crypto.service import CryptoService
-from finance_analysis.interfaces.api.v1.schemas.crypto import (
-    CryptoOverviewResponse,
-    CryptoPerformanceResponse,
-    CryptoPerformanceSummary,
-    CryptoSignalsResponse,
-    CryptoStrategyResponse,
-)
+from finance_analysis.contracts.service import live_snapshot
+from finance_analysis.database.models.contracts import FuturesContract
+from finance_analysis.database.repositories import contracts as repository
+from finance_analysis.database.repositories.user import UserRepository
+from finance_analysis.integrations.crypto.binance import BinanceClient
+from finance_analysis.integrations.market_data.realtime_state.repository import RealtimeStateRepository
+from finance_analysis.interfaces.api.deps import get_db, require_admin
+from finance_analysis.interfaces.api.v1.schemas.contracts import Candle, Contract, ContractCreate, MarketSnapshot
+from finance_analysis.market_stream.config import MarketStreamConfig
+from finance_analysis.users.auth import COOKIE_NAME, parse_session_uid
 
 router = APIRouter()
 
 
-def get_crypto_service():
-    return CryptoService()
+def realtime():
+    return RealtimeStateRepository.from_url(MarketStreamConfig.from_env().redis_url)
 
 
-def require_strategy(service, strategy_key):
-    if service.definition(strategy_key) is None:
-        raise HTTPException(404, "Unknown BTC strategy")
+async def exchange_contracts():
+    client = BinanceClient()
+    try:
+        return await client.contracts()
+    except (httpx.HTTPError, ValueError, KeyError) as exc:
+        raise HTTPException(503, "交易所合约目录暂不可用") from exc
+    finally:
+        await client.close()
 
 
-@router.get("/btc/strategies", response_model=list[CryptoStrategyResponse])
-def strategies(service: CryptoService = Depends(get_crypto_service)):
-    return service.get_strategies()
+@router.get("/contracts/search", response_model=list[Contract])
+async def search(q: str = Query(min_length=1, max_length=32)):
+    query = q.upper().strip()
+    return [row for row in await exchange_contracts() if query in row["symbol"]][:30]
 
 
-@router.get("/btc/strategies/performance", response_model=list[CryptoPerformanceSummary])
-def performance_summaries(service: CryptoService = Depends(get_crypto_service)):
-    return [service.get_performance(item.key, SYMBOL) for item in service.definitions if item.enabled]
+@router.post("/contracts", response_model=Contract, status_code=201, dependencies=[Depends(require_admin)])
+async def add(payload: ContractCreate, db: Session = Depends(get_db)):
+    symbol = payload.symbol.upper()
+    item = next((row for row in await exchange_contracts() if row["symbol"] == symbol), None)
+    if item is None:
+        raise HTTPException(422, "仅支持交易中的 USDT 本位永续合约")
+    category = (payload.category or item["category"]).strip() or "其他"
+    db.add(FuturesContract(symbol=symbol, category=category))
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(409, "该合约已存在") from exc
+    return {"symbol": symbol, "category": category}
 
 
-@router.get("/btc/overview", response_model=CryptoOverviewResponse)
-@router.get("/btc/strategies/{strategy_key}/overview", response_model=CryptoOverviewResponse)
-def overview(strategy_key: str = BREAKOUT_KEY, service: CryptoService = Depends(get_crypto_service)):
-    require_strategy(service, strategy_key)
-    return service.get_overview(strategy_key, SYMBOL)
+@router.delete("/contracts/{symbol}", status_code=204, dependencies=[Depends(require_admin)])
+def delete(symbol: str, db: Session = Depends(get_db)):
+    contract = db.get(FuturesContract, symbol)
+    if contract is None:
+        raise HTTPException(404, "合约不存在")
+    db.delete(contract)
+    db.commit()
 
 
-@router.get("/btc/signals", response_model=CryptoSignalsResponse)
-@router.get("/btc/strategies/{strategy_key}/signals", response_model=CryptoSignalsResponse)
-def signals(
-    strategy_key: str = BREAKOUT_KEY,
-    limit: int = Query(50, ge=1, le=2000),
-    start: datetime | None = None,
-    end: datetime | None = None,
-    actions_only: bool = False,
-    service: CryptoService = Depends(get_crypto_service),
-):
-    require_strategy(service, strategy_key)
-    if (start is None) != (end is None) or (start and (not start.tzinfo or not end.tzinfo or start > end)):
-        raise HTTPException(422, "Supply an ordered, timezone-aware start/end pair")
-    return {"items": service.get_signals(strategy_key, SYMBOL, limit, start=start, end=end, actions_only=actions_only)}
+@router.get("/contracts", response_model=MarketSnapshot)
+async def snapshot(symbol: str | None = Query(default=None, max_length=32)):
+    store = realtime()
+    try:
+        return await live_snapshot(store.redis, symbol)
+    finally:
+        await store.close()
 
 
-@router.get("/btc/performance", response_model=CryptoPerformanceResponse)
-@router.get("/btc/strategies/{strategy_key}/performance", response_model=CryptoPerformanceResponse)
-def performance(strategy_key: str = BREAKOUT_KEY, service: CryptoService = Depends(get_crypto_service)):
-    require_strategy(service, strategy_key)
-    return service.get_performance(strategy_key, SYMBOL)
+@router.get("/contracts/{symbol}/bars", response_model=list[Candle])
+async def bars(symbol: str, interval: Literal["1m", "1d"] = "1d"):
+    if symbol not in {row["symbol"] for row in await asyncio.to_thread(repository.contracts)}:
+        raise HTTPException(404, "合约不存在")
+    if interval == "1d":
+        return await asyncio.to_thread(repository.daily, symbol)
+    store = realtime()
+    try:
+        return (await live_snapshot(store.redis, symbol))["minutes"] or []
+    finally:
+        await store.close()
+
+
+@router.get("/contracts/events")
+async def events(request: Request, symbol: str | None = Query(default=None, max_length=32),
+                 interval: Literal["1d", "1m"] = "1m"):
+    async def stream():
+        store = realtime()
+        try:
+            while not await request.is_disconnected():
+                yield "data: " + json.dumps(await live_snapshot(store.redis, symbol, interval)) + "\n\n"
+                await asyncio.sleep(5)
+        finally:
+            with CancelScope(shield=True):
+                await store.close()
+    return StreamingResponse(stream(), media_type="text/event-stream",
+                             headers={"Cache-Control": "private, no-store", "X-Accel-Buffering": "no"})
+
+
+@router.websocket("/contracts/ws")
+async def websocket(socket: WebSocket, symbol: str | None = Query(default=None, max_length=32),
+                    interval: Literal["1d", "1m"] = "1m"):
+    uid = parse_session_uid(socket.cookies.get(COOKIE_NAME) or "")
+    await socket.accept()
+    if not uid or not await asyncio.to_thread(lambda: UserRepository().get_by_uid(uid)):
+        await socket.close(code=4401, reason="Login required")
+        return
+    store = realtime()
+    try:
+        while True:
+            await socket.send_json(await live_snapshot(store.redis, symbol, interval))
+            await asyncio.sleep(5)
+    except (WebSocketDisconnect, RuntimeError):
+        pass
+    finally:
+        await store.close()

@@ -38,7 +38,7 @@ describe('market navigation', () => {
       '/research/intraday-confirmation', '/research/signal-center']) {
       expect(router.resolve(path).meta.marketScope).toBe('selectable');
     }
-    for (const path of ['/dashboard', '/profile/info', '/tasks/runs', '/notifications', '/crypto/btc', '/missing']) {
+    for (const path of ['/dashboard', '/profile/info', '/tasks/runs', '/notifications', '/crypto/contracts', '/missing']) {
       expect(router.resolve(path).meta.marketScope).toBeUndefined();
     }
     expect(router.resolve('/research/options-intelligence').meta.marketScope).toBe('US');
