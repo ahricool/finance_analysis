@@ -32,7 +32,11 @@ def response():
 @pytest.fixture
 def config():
     return LLMConfig(
-        model="openai/gpt-6.1-sol", api_key="test", api_effort="medium", api_search_mode="responses"
+        model="openai/gpt-6.1-sol",
+        api_key="test",
+        api_effort="medium",
+        api_search_mode="responses",
+        codex_service_tier="fast",
     )
 
 
@@ -48,6 +52,7 @@ def test_responses_search_request_and_evidence(config, response, monkeypatch):
     assert kwargs["input"] == request.prompt and kwargs["instructions"] == request.system_prompt
     assert kwargs["api_base"] == "https://api.openai.com/v1"
     assert kwargs["reasoning"] == {"effort": "medium"}
+    assert "service_tier" not in kwargs
     assert kwargs["tools"] == [{"type": "web_search", "search_context_size": "medium"}]
     assert kwargs["num_retries"] == 0 and kwargs["store"] is False
     assert not {"temperature", "max_tokens", "max_completion_tokens", "max_output_tokens"} & kwargs.keys()

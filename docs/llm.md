@@ -25,7 +25,9 @@ LLM任务没有固定Celery软/硬时限；多事件、多桶和重试会使整�
 ## 配置
 
 - 通用：`LLM_ATTEMPT_TIMEOUT`、`LLM_MAX_RETRIES`、`LLM_LOG_DIR`。
-- Codex：`LLM_CODEX_MODEL`、`LLM_CODEX_EFFORT`（low/medium/high/xhigh）；留空使用Host默认模型。
+- Codex：`LLM_CODEX_MODEL`、`LLM_CODEX_EFFORT`（low/medium/high/xhigh）；留空不传对应 CLI 参数。
+  `LLM_CODEX_SERVICE_TIER=fast` 显式请求 Fast 服务级别，留空不传该参数，保持 Codex 默认行为。
+  此配置只影响 Codex CLI，不影响 API 渠道。
 - Host：`LLM_CLI_CODEX_PATH`、`LLM_CLI_PYTHON_PATH`、`LLM_CLI_SSH_HOST/PORT/USERNAME/PASSWORD`、
   `LLM_CLI_REMOTE_WORKDIR`。Codex及Python使用绝对路径，Python仅需要标准库。
 - API：`LLM_MODEL`、`LLM_API_KEY`、`LLM_BASE_URL`、`LLM_API_EFFORT`、`LLM_API_SEARCH_MODE`。
@@ -38,12 +40,16 @@ LLM任务没有固定Celery软/硬时限；多事件、多桶和重试会使整�
 生产升级时将现有 `LLM_ATTEMPT_TIMEOUT` 更新为300，移除旧总预算、路由及单渠道模型配置；
 这些旧变量不再被读取。凭据继续使用现有私有环境配置，不写入仓库。本改动不需要数据库迁移。
 按 `docs/deployment.md` 使用生产部署入口，不直接替换正在运行的worker。
+如果此前通过 Host 包装脚本启用 Fast，可先保留包装脚本并设置 `LLM_CODEX_SERVICE_TIER=fast`，
+待支持本配置的新版本部署成功后，将 `LLM_CLI_CODEX_PATH` 恢复为原始 Codex 可执行文件绝对路径，
+重启相关应用服务使配置生效，再移除包装脚本。避免旧 Worker 在部署期间丢失 Fast 设置。
 
 ## SSH与清理
 
 Host安装并登录Codex，容器通过SSH密码认证运行专用目录下的CLI。Prompt仅经stdin传入，不进入shell参数。
 实际命令由 `remote_cli.py` 构建，使用 `exec --json --sandbox read-only --skip-git-repo-check --ephemeral`
 及独立配置，不启用绕过sandbox的选项。
+Fast 配置非空时，命令显式传入 `-c 'service_tier="fast"'`，不依赖 Host 用户级配置。
 
 远端标准库supervisor启动独立进程组，同时读取stdout/stderr；为清理预留最多2秒，
 先TERM、必要时KILL，确认进程组消失后返回安全回执。SSH断开时处理HUP。
