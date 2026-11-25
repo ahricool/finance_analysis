@@ -11,7 +11,7 @@ API 依赖注入模块
 
 from typing import Generator, Optional
 
-from fastapi import HTTPException, Request
+from fastapi import Response, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from finance_analysis.database.models.user import User
@@ -88,3 +88,9 @@ def require_admin(request: Request) -> User:
     if user.role != "admin":
         raise HTTPException(status_code=403, detail="Admin permission required")
     return user
+
+
+
+def private_no_store(response: Response) -> None:
+    """Prevent caching of authenticated private account responses."""
+    response.headers["Cache-Control"] = "private, no-store"

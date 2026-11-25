@@ -401,3 +401,17 @@ V2历史仍标“宏观环境”并说明统一风险偏好语义，不用V2.1�
 日内期权页新增独立SimulationPanel，使用现有WS/SSE `scope=intraday-options`，
 当日事件按持久化ID随完整快照替换，重连不追加重复。当前持仓及收益均明确为标的模拟，
 正常／估算统计分开；保留行情时间和计算时间。专用历史存储替代此前“不保存历史”说明。
+
+## Binance Demo Paper Trade
+
+`/crypto/paper-trade` 仅管理员可见/进入，独立于 `/crypto/contracts`；低频轮询本站后端。
+管理员独立 Demo 交易总开关默认关闭，关闭只禁止新增仓位；模拟委托、撤单、平仓和策略启用有明确确认；默认不预填交易指令、不自动执行。
+状态明确区分信号、意图、普通订单、Algo 与真实 Demo 成交；无数据不补零。
+现有 MarketKLineChart 显示共享生产行情，不用生产价格计算 Demo 成交及收益。见 `../docs/binance-paper-trade.md`。
+
+## Binance Live Trade
+
+管理员专属 `/crypto/live-trade`，明确真实账户标识，复用现有表格、图表与低频本站 API 轮询。
+唯一可改变状态的开关为本地自动交易 Switch，PUT 后重新 GET 核对真实状态，不乐观开启。
+V1 没有交易策略、手动订单表单或撤单/平仓等交易控件。Paper Trade 独立保留。
+见 `../docs/binance-live-trade.md`。

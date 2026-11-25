@@ -67,6 +67,8 @@ describe('main navigation', () => {
       'quant',
       'strategies',
       'crypto-contracts',
+      'crypto-paper-trade',
+      'crypto-live-trade',
       'scheduled',
       'runs',
     ]);

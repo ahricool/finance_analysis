@@ -312,3 +312,19 @@ LLM允许web_search，但只能建议已有position；BUY为加仓，数量不�
 `intraday_simulation_*` 为独立共享研究表，事务锁与唯一约束防重入，不关联 portfolio。开仓/平仓事件在事务提交后由独立有界通知线程池经 `NotificationService` 写入全局 `notification`
 并推送 Telegram/ntfy（fail-open、不阻塞行情与交易状态机）。首次确认／入场依据冻结，停机恢复补记估算退出，
 正常与估算分开统计。详见 `docs/intraday-options.md` 与 `docs/intraday-starts.md`（仓库根）。
+
+## Binance Demo Paper Trade
+
+`integrations/crypto/binance_demo.py` 固定 Demo 域名及签名，不复用公开行情 client，不重试写操作。
+`paper_trade/` 在 Streamer leader 下同步账户、普通和 Algo 订单、成交、流水，独立 DB 表保留意图和快照。
+0099 持久化管理员 Demo 新增仓位开关，缺记录默认关闭，保持减仓与保护管理。
+单向持仓；策略使用已有 Redis 闭合分钟线，执行用 Demo 规则与报价，按实际成交核对所有权。
+`/api/v1/crypto/paper-trade` 全部管理员权限，GET 只读，写入操作由 Streamer 消费持久化意图。
+详见 `docs/binance-paper-trade.md`。
+
+## Binance Live Trade
+
+`integrations/crypto/binance_live.py` 为生产账户独立只读 client，固定生产域名，只允许特定 GET 与 listenKey 订阅生命周期。
+`live_trade/` 独立于 Demo，后台仅同步、无交易执行 transport，空策略注册集合及内部 fail-closed 网关。
+`/api/v1/crypto/live-trade` 全部管理员权限，仅 GET 及 PUT 本地持久化交易开关，审计 actor/前后状态。
+详见 `docs/binance-live-trade.md`。
