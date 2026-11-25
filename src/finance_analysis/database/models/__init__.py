@@ -147,3 +147,15 @@ __all__.extend(["QuantModelRelease", "QuantExecution"])
 from .intraday_simulation import IntradaySimulationState, IntradaySimulationTrade, IntradaySimulationEvent
 
 __all__.extend(['IntradaySimulationState', 'IntradaySimulationTrade', 'IntradaySimulationEvent'])
+
+from .paper_trade import PaperStrategy, PaperIntent, PaperExchangeRecord, PaperAccountSnapshot
+
+__all__.extend(["PaperStrategy", "PaperIntent", "PaperExchangeRecord", "PaperAccountSnapshot"])
+
+from .live_trade import LiveTradeControl, LiveTradeControlEvent, LiveExchangeRecord, LiveAccountSnapshot
+
+__all__.extend(["LiveTradeControl", "LiveTradeControlEvent", "LiveExchangeRecord", "LiveAccountSnapshot"])
+
+from .paper_trade import PaperTradeControl
+
+__all__.append("PaperTradeControl")

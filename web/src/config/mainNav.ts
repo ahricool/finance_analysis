@@ -82,6 +82,8 @@ export const researchNavItems: NavDestination[] = [
 
 export const cryptoNavItems: NavDestination[] = [
   { key: 'crypto-contracts', label: '合约行情', to: '/crypto/contracts', icon: Bitcoin },
+  { key: 'crypto-paper-trade', label: 'Paper Trade', to: '/crypto/paper-trade', icon: FlaskConical, adminOnly: true },
+  { key: 'crypto-live-trade', label: '实盘交易', to: '/crypto/live-trade', icon: Wallet, adminOnly: true },
 ];
 
 export const taskNavItems: NavDestination[] = [

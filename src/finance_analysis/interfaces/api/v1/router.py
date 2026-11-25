@@ -121,3 +121,9 @@ router.include_router(intraday_options.router, prefix="/intraday-options", tags=
 
 from .endpoints import prediction_markets
 router.include_router(prediction_markets.router, prefix='/prediction-markets', tags=['Prediction Markets'])
+
+from .endpoints import paper_trade
+router.include_router(paper_trade.router, prefix="/crypto/paper-trade", tags=["Binance Demo"])
+
+from .endpoints import live_trade
+router.include_router(live_trade.router, prefix="/crypto/live-trade", tags=["Binance Live"])

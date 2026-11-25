@@ -504,3 +504,18 @@ GET只读，行级机会资格排除缺线、延迟和非交易时段；默认�
 
 `minute_forecast/` 由 Streamer leader 对 CN/HK/US 订阅并集的已收盘原生 `1m` 滚动预测至实际收盘。输入和输出覆盖当日全部交易分钟，午休跳过，未补齐历史前等待。分钟误差核对保留前 10 步。模型运行于独立 macOS MPS LaunchAgent，长分钟路径复用注意力 KV，发布默认 Small，保留 Base 与本地 Large 权重配置。预测和误差以有限 TTL 写入 Redis，GET 使用原分钟图授权，只读缓存。
 `daily_forecast/` 在 CN/US 日线同步结束后异步复用其全量 Universe，读取前复权已收盘日线并预测最多 10 个交易日。PostgreSQL 按市场事务替换最新批次，日线 API 独立返回 `forecast`。两种周期复用 macOS MPS LaunchAgent；共享图表以空心实边蜡烛显示预测 OHLC，跳过休市日。日 K 只核对下一交易日收盘误差，最新误差和累计统计写 PostgreSQL，见 `docs/kronos.md`。
+
+## Binance Demo Paper Trade
+
+`paper_trade/` 独立管理员单账户模拟交易，固定官方 Demo REST/私有流；公开 contracts 行情不变。
+由现有 Streamer leader 驱动，API GET 只读 DB/Redis，POST 仅保存明确意图，不直接写交易所。
+密钥配置后持续同步，默认禁用新增仓位及自动策略；持久化策略/信号/交易所记录/权益（0097）及管理员 Demo 交易总开关（0099），不恢复 BTC 现货策略。
+订单不确定时按固定 client ID 核对，禁止盲目重试；交易所实际成交归属独立于信号。
+页面 `/crypto/paper-trade`。配置、运行和限制见 `docs/binance-paper-trade.md`。
+
+## Binance Live Trade
+
+`live_trade/` 仅管理员正式账户监控，固定 Live 独立密钥及只读 REST/私有流。
+现有 Streamer leader 启动只读账户监控，不启动实盘策略。迁移 `0098_live_trade` 独立历史及不依赖环境变量的本地交易开关、审计。
+V1 注册集合为空且无真实写入 transport；内部网关任何交易意图均拒绝，API 无手动交易入口。
+页面 `/crypto/live-trade`，关闭或开启开关均持续同步，不改变 Paper Trade。见 `docs/binance-live-trade.md`。
