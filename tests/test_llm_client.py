@@ -1,6 +1,7 @@
 """Offline API/SSH boundaries, one retry budget and credential-safe auditing."""
 
 import json
+import shlex
 from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -66,6 +67,7 @@ def test_api_effort_from_env_reaches_openai_without_temperature(monkeypatch):
 
     monkeypatch.setenv("LLM_MODEL", "openai/gpt-6.1-sol")
     monkeypatch.setenv("LLM_API_EFFORT", "medium")
+    monkeypatch.setenv("LLM_CODEX_SERVICE_TIER", "fast")
     monkeypatch.setenv("LLM_BASE_URL", "https://api.openai.com/v1")
     get_llm_config.cache_clear()
     try:
@@ -77,6 +79,7 @@ def test_api_effort_from_env_reaches_openai_without_temperature(monkeypatch):
         assert kwargs["reasoning_effort"] == "medium"
         assert kwargs["allowed_openai_params"] == ["reasoning_effort"]
         assert kwargs["api_base"] == "https://api.openai.com/v1"
+        assert "service_tier" not in kwargs
         assert "temperature" not in kwargs
     finally:
         get_llm_config.cache_clear()
@@ -85,6 +88,40 @@ def test_api_effort_from_env_reaches_openai_without_temperature(monkeypatch):
 def test_api_effort_invalid():
     with pytest.raises(ValueError, match="LLM_API_EFFORT"):
         LLMConfig(api_effort="invalid")
+
+
+def test_codex_service_tier_invalid():
+    with pytest.raises(ValueError, match="LLM_CODEX_SERVICE_TIER"):
+        LLMConfig(codex_service_tier="invalid")
+
+
+@pytest.mark.parametrize("tier", [None, "", " fast "])
+def test_codex_service_tier_from_env(monkeypatch, tier):
+    if tier is None:
+        monkeypatch.delenv("LLM_CODEX_SERVICE_TIER", raising=False)
+    else:
+        monkeypatch.setenv("LLM_CODEX_SERVICE_TIER", tier)
+    monkeypatch.setenv("LLM_CODEX_MODEL", "gpt-6.2-sol")
+    monkeypatch.setenv("LLM_CODEX_EFFORT", "high")
+    get_llm_config.cache_clear()
+    try:
+        cfg = get_llm_config()
+        codex, _ = cfg.providers()
+        assert codex.codex_service_tier == (tier or "").strip()
+        argv = shlex.split(remote_cli.build_command(codex, 180))
+        assert argv[argv.index("--model") + 1] == "gpt-6.2-sol"
+        assert 'model_reasoning_effort="high"' in argv
+        assert "--ignore-user-config" in argv
+        assert "--ignore-rules" in argv
+        assert ('service_tier="fast"' in argv) == bool(tier)
+        if tier:
+            assert argv[argv.index('service_tier="fast"') - 1] == "-c"
+        else:
+            assert not any(arg.startswith("service_tier=") for arg in argv)
+        supervised = shlex.split(remote_cli.supervised_command(codex, 180))
+        assert json.loads(supervised[-1])[0] == argv
+    finally:
+        get_llm_config.cache_clear()
 
 
 @pytest.mark.parametrize("model", ["openai/gpt-6.1-sol", "openai/kimi-k2.6", "openai/test"])

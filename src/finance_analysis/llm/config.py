@@ -16,6 +16,7 @@ class LLMConfig:
     attempt_timeout: float = 300
     codex_model: str = ""
     codex_effort: str = ""
+    codex_service_tier: str = ""
     cli_codex_path: str = "/usr/local/bin/codex"
     cli_python_path: str = "/usr/bin/python3"
     log_dir: Path = field(default_factory=lambda: get_log_dir() / "llm")
@@ -63,6 +64,8 @@ class LLMConfig:
                 raise ValueError("CLI executable paths must be absolute")
         if self.codex_effort not in {"", "low", "medium", "high", "xhigh"}:
             raise ValueError("Invalid Codex effort")
+        if self.codex_service_tier not in {"", "fast"}:
+            raise ValueError("LLM_CODEX_SERVICE_TIER must be empty or fast")
 
     def providers(self) -> list["LLMConfig"]:
         return [

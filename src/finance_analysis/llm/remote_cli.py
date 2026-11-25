@@ -23,6 +23,8 @@ def build_command(config: LLMConfig, timeout: float, web_search: bool = False, d
         command += " --model " + shlex.quote(config.cli_model)
     if config.cli_effort:
         command += " -c " + shlex.quote("model_reasoning_effort=" + json.dumps(config.cli_effort))
+    if config.codex_service_tier:
+        command += " -c " + shlex.quote("service_tier=" + json.dumps(config.codex_service_tier))
     if web_search or disable_search:
         command += " -c " + shlex.quote('web_search="live"' if web_search else 'web_search="disabled"')
     command += " -"
