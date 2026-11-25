@@ -101,3 +101,10 @@ def test_configuration_independent_and_bounds():
         StrategyConfig.model_validate({**CONFIG, "stop_pct": "6"})
     with pytest.raises(ValueError):
         StrategyConfig.model_validate({**CONFIG, "strategy_type": "ema_cross", "fast": 30, "slow": 20})
+
+
+def test_ws_unconfirmed_historical_bar_is_not_a_drive_signal():
+    rows = minutes()
+    end = ANCHOR + 15 * drive.MINUTE
+    rows[14]["closed"] = False
+    assert drive.evaluate(rows, rows, days(), end + 20_000, CONFIG) is None

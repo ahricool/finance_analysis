@@ -37,6 +37,7 @@ class TaskAdvisoryLockId(IntEnum):
     MARKET_HEATMAP_US = 18
     DAILY_KRONOS_CN = 19
     DAILY_KRONOS_US = 20
+    CONTRACT_DAILY_SYNC = 21
 
 
 @dataclass

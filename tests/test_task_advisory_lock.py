@@ -263,6 +263,7 @@ def test_lock_ids_are_stable_and_readable() -> None:
         "MARKET_HEATMAP_US": 18,
         "DAILY_KRONOS_CN": 19,
         "DAILY_KRONOS_US": 20,
+        "CONTRACT_DAILY_SYNC": 21,
     }
 
 
@@ -282,6 +283,7 @@ def test_scheduled_lock_declarations_remain_nonblocking() -> None:
             )
 
     assert locked == {
+        "contract_daily_sync": (TaskAdvisoryLockId.CONTRACT_DAILY_SYNC, False),
         "market_heatmap_cn": (TaskAdvisoryLockId.MARKET_HEATMAP_CN, False),
         "market_heatmap_us": (TaskAdvisoryLockId.MARKET_HEATMAP_US, False),
         "options_intelligence_intraday": (TaskAdvisoryLockId.OPTIONS_INTELLIGENCE, False),

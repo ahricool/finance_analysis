@@ -310,8 +310,8 @@ pnpm run test:smoke
 
 ## U 本位永续合约行情
 
-contracts/ 共享行情模块由已选举的 Streamer 独立采集 Binance USD-M USDT 永续合约。
-标的及已收盘 UTC 日线写 PostgreSQL；最近 24 小时原生 1min、行情及当日预览写 Redis（分钟窗口 24h TTL，行情短 TTL）。
+contracts/ 共享行情模块由已选举的 Streamer 订阅 Binance USD-M 公共 WS；报价、近 1440 根原生 1min 与当日预览写 Redis，缺口才用 REST 补齐。
+定时任务 contract_daily_sync 每天 UTC 00:30 在 ingestion 队列检查完整历史（上市日与约五年范围），只写 PostgreSQL 已闭合日线；Streamer 不写日线。
 管理员增删共享标的，默认 19 个仅由 0096 迁移和空库创建时插入；GET 只读，前端只走后端 WS/SSE/API。
 迁移 0101 增加锚定代码 `underlying_symbol`；合约列表点击代码进入证券详情，非股票市场暂无数据时显示空态。
 旧 BTC 策略、定时任务、数据表和现货分钟预测已经退役。详见 docs/contracts.md。
