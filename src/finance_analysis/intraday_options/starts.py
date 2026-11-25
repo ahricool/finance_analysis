@@ -3,7 +3,7 @@
 from datetime import timedelta
 
 from finance_analysis.intraday_options.analysis_window import observed
-from finance_analysis.intraday_options.rules import RULES, direction_allowed
+from finance_analysis.intraday_options.rules import RULES
 from finance_analysis.intraday_options.structure import metrics, observed_atr, pivots, sanitize_opening_bar
 
 MINUTE = timedelta(minutes=1)
@@ -186,15 +186,13 @@ def breakout_seeds(ordered, opening, settings, snapshots=None):
                             ) * MINUTE
                             if end < or_exp:
                                 for s_dir, s_lvl in ((1, high), (-1, low)):
-                                    if direction_allowed(s_dir, settings.opening_direction_mode):
-                                        snapshots[f"opening_range:{s_dir}:{opening.isoformat()}"] = dict(
-                                            trigger=s_lvl, width=width, atr=scale, expires_at=or_exp.isoformat()
-                                        )
+                                    snapshots[f"opening_range:{s_dir}:{opening.isoformat()}"] = dict(
+                                        trigger=s_lvl, width=width, atr=scale, expires_at=or_exp.isoformat()
+                                    )
                 else:
                     seeds = [
                         ("opening_breakout", side, price, run, scale, samples, width)
                         for side, price in ((1, high), (-1, low))
-                        if direction_allowed(side, settings.opening_direction_mode)
                     ]
         if (
             opening_drive_mode
@@ -212,8 +210,6 @@ def breakout_seeds(ordered, opening, settings, snapshots=None):
                     rule = RULES["opening_breakout"]
                     expires = min(when + rule.lifetime * MINUTE, opening + settings.opening_end_minutes * MINUTE)
                     for side, trigger in ((1, or_state["high"]), (-1, or_state["low"])):
-                        if not direction_allowed(side, settings.opening_direction_mode):
-                            continue
                         if (bar_close - trigger) * side <= rule.confirm_atr * or_state["atr"]:
                             continue
                         if settings.opening_require_directional_bar and (bar_close - bar_open) * side <= 0:

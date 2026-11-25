@@ -11,7 +11,6 @@ from finance_analysis.config import env_bool, env_float, env_int, env_str, load_
 
 ENTRY_VERSION = "intraday_entry_v8"
 SIMULATION_VERSION = "underlying_sim_v8"
-DIRECTION_MODES = frozenset({"long_only", "both", "short_only"})
 
 
 @dataclass(frozen=True)
@@ -77,17 +76,6 @@ def plan_order(branch):
     return (-(branch.get("quality_score") or 0), branch["kind"], branch["structure_id"])
 
 
-def direction_allowed(side: int, mode: str) -> bool:
-    """Return whether opening-drive direction `side` (+1/-1) is permitted under `mode`."""
-    if mode == "both":
-        return True
-    if mode == "long_only":
-        return side == 1
-    if mode == "short_only":
-        return side == -1
-    return False
-
-
 @dataclass(frozen=True)
 class StartPolicy:
     opening_enabled: bool = True
@@ -102,7 +90,6 @@ class StartPolicy:
     opening_end_minutes: int = 120
     opening_min_efficiency: float = .48
     opening_require_directional_bar: bool = True
-    opening_direction_mode: str = "long_only"
     opening_bar_max_wick_pct: float = .0300
     exclude_benchmark_from_opening: bool = True
     opening_level_minutes: int = 85
@@ -226,7 +213,6 @@ def policy():
     t1_lock_atr = env_float("INTRADAY_RATCHET_TIER1_LOCK_ATR", defaults.ratchet_tier1_lock_atr, minimum=0)
     t2_trig_atr = env_float("INTRADAY_RATCHET_TIER2_TRIGGER_ATR", defaults.ratchet_tier2_trigger_atr, minimum=0)
     t2_lock_atr = env_float("INTRADAY_RATCHET_TIER2_LOCK_ATR", defaults.ratchet_tier2_lock_atr, minimum=0)
-    direction_mode = env_str("INTRADAY_DIRECTION_MODE", defaults.opening_direction_mode).lower()
     opening_min_elapsed = env_int(
         "INTRADAY_OPENING_MIN_ELAPSED_MINUTES", defaults.opening_min_elapsed_minutes, minimum=5, maximum=60
     )
@@ -242,10 +228,6 @@ def policy():
         )
     ):
         raise ValueError("Intraday thresholds must be finite")
-    if direction_mode not in DIRECTION_MODES:
-        raise ValueError(
-            f"INTRADAY_DIRECTION_MODE must be one of {sorted(DIRECTION_MODES)}, got {direction_mode!r}"
-        )
     if max_risk > 0 and max_risk < min_risk:
         raise ValueError("INTRADAY_MAX_RISK_RETURN must be >= INTRADAY_MIN_RISK_RETURN")
     if min_or_eff > 1.0:
@@ -293,7 +275,6 @@ def policy():
         opening_require_directional_bar=env_bool(
             "INTRADAY_OPENING_REQUIRE_DIRECTIONAL_BAR", defaults.opening_require_directional_bar
         ),
-        opening_direction_mode=direction_mode,
         opening_bar_max_wick_pct=max_bar0_wick,
         exclude_benchmark_from_opening=env_bool(
             "INTRADAY_EXCLUDE_BENCHMARK_OPENING", defaults.exclude_benchmark_from_opening

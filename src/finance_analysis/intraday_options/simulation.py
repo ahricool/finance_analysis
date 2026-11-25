@@ -12,7 +12,6 @@ from finance_analysis.intraday_options.rules import (
     RULES,
     SIMULATION_VERSION,
     START_KINDS,
-    direction_allowed,
     entry_interval,
     plan_order,
     policy,
@@ -164,11 +163,7 @@ def target_space(price, invalidation, target, side, required, settings):
 
 
 def _context_rejection(kind, side, result, cfg):
-    """Check causal direction, benchmark, gap, VWAP, open-move, efficiency, SPY, RS, leader rank, and breadth gates."""
-    if kind == "opening_breakout" and not direction_allowed(side, cfg.opening_direction_mode):
-        if cfg.opening_direction_mode == "long_only":
-            return "当前策略仅允许做多开盘驱动，过滤空头方向"
-        return "当前策略仅允许做空开盘驱动，过滤多头方向"
+    """Check causal benchmark, gap, VWAP, open-move, efficiency, SPY, RS, leader rank, and breadth gates."""
     if (
         kind == "opening_breakout"
         and cfg.exclude_benchmark_from_opening

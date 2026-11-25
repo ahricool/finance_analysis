@@ -31,7 +31,6 @@ V7_POLICY = StartPolicy(
     opening_end_minutes=30,
     opening_min_efficiency=0.55,
     opening_require_directional_bar=True,
-    opening_direction_mode="both",
     entry_window_minutes=30,
     use_pivot_target=False,
     atr_scaled_exits=False,
@@ -88,7 +87,6 @@ def test_v7_policy_compatibility_flags_and_validation(monkeypatch):
         ("INTRADAY_OPENING_MIN_ELAPSED_MINUTES", "8"),
         ("INTRADAY_OPENING_END_MINUTES", "30"),
         ("INTRADAY_OPENING_MIN_EFFICIENCY", "0.55"),
-        ("INTRADAY_DIRECTION_MODE", "both"),
         ("INTRADAY_ENTRY_WINDOW_MINUTES", "30"),
         ("INTRADAY_ATR_SCALED_EXITS", "false"),
         ("INTRADAY_STOP_LOSS_PCT", "0.025"),
@@ -112,7 +110,6 @@ def test_v7_policy_compatibility_flags_and_validation(monkeypatch):
         assert cfg.opening_enabled is True
         assert cfg.midday_wave_enabled is False
         assert cfg.atr_scaled_exits is False
-        assert cfg.opening_direction_mode == "both"
         assert cfg.opening_minutes == 5
         assert cfg.opening_min_range_pct == pytest.approx(0.008)
         assert cfg.opening_min_elapsed_minutes == 8
@@ -374,7 +371,6 @@ def test_v7_ranked_opportunity_matches_fixed_wave_plan_and_legacy_two_close_thre
         ("INTRADAY_OPENING_MIN_ELAPSED_MINUTES", "8"),
         ("INTRADAY_OPENING_END_MINUTES", "30"),
         ("INTRADAY_OPENING_MIN_EFFICIENCY", "0.55"),
-        ("INTRADAY_DIRECTION_MODE", "both"),
         ("INTRADAY_ENTRY_WINDOW_MINUTES", "30"),
         ("INTRADAY_ATR_SCALED_EXITS", "false"),
         ("INTRADAY_STOP_LOSS_PCT", "0.025"),

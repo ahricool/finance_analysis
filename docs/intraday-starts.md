@@ -1,19 +1,19 @@
-# 日内标的模拟 V8（QQQ 纳指 100 观察池 · 2 小时开盘纯净驱动做多与两档 ATR 棘轮）
+# 日内标的模拟 V8（QQQ 纳指 100 观察池 · 2 小时开盘纯净驱动多空双向与两档 ATR 棘轮）
 
 观察池切换为 **QQQ（`us_nasdaq100`）成分股动态同步池**：运行时经 PostgreSQL `UniverseResolver().resolve_universe("us_nasdaq100")` 缓存读取（5 分钟 TTL，自动去除双股重复 `GOOG.US`、保留 `GOOGL.US`，并前置基准 `SPY.US`、`QQQ.US` 共约 102 只），数据库不可用时平滑降级到代码内置 102 只快照。交易、形态、缓存版本分别为 `underlying_sim_v8`、`intraday_entry_v8`、`intraday_options_v18`。重启或成分调整时，旧 V4/V5/V6/V7 未平仓模拟持仓继续按原仓位冻结的目标位、退出模式（含 `v7_fixed_wave` 与旧移动止损）及截止时间接收退出报价直至平仓，历史交易保留原版本及冻结证据。
 
 ## V8 核心定位与改进（相对 V7）
 
-V8 针对 V7“28 只固定池 + 22 分钟窄窗口导致单日成交过于稀疏、3.5% 固定止盈截断大趋势右尾、反跳空空头拖累胜率及 09:30 首分钟异常坏点影线干扰 OR5/VWAP”四项实盘痛点，基于 2025/2026 双年分池研究验证做出以下升级：
+V8 针对 V7“28 只固定池 + 22 分钟窄窗口导致单日成交过于稀疏、3.5% 固定止盈截断大趋势右尾、隔夜反向跳空拖累胜率及 09:30 首分钟异常坏点影线干扰 OR5/VWAP”四项实盘痛点，基于 2025/2026 双年分池研究验证做出以下升级：
 
 1. **观察池扩容至 QQQ 成分股（100 只去重纳指 100 + SPY/QQQ 基准）**：
    - `SPY.US` 与 `QQQ.US` 作为大盘基准继续展示在 `/market/intraday-options` 面板，但不计入个股横向强弱排名/广度分母，且默认不参与 `opening_breakout` 模拟开仓（`INTRADAY_EXCLUDE_BENCHMARK_OPENING=true`）；
    - `scheduler.py` 每 5 秒轮次仅在事件循环构建一次共享只读 `peer_bars` 快照（复杂度由 `O(N²)` 降至 `O(N)`），并将工作线程数提升至 `6`；
    - `SubscriptionManager.isolated_symbols` 同步跟随动态 QQQ 成分池，单标的订阅错误逐标的隔离。
-2. **开仓窗口放宽至 09:42–11:30 NY（纯做多 + 过滤隔夜反向跳空）**：
+2. **开仓窗口放宽至 09:42–11:30 NY（多空双向 + 过滤隔夜反向跳空）**：
    - 仅启用 `opening_breakout` 开盘纯净驱动，窗口设为开盘后第 **12 至第 120 分钟**（**09:42–11:30 纽约时间**，跳过开盘前 12 分钟高噪音假动作，并将覆盖窗口从 22 分钟扩展至 108 分钟；早收盘日仍受收盘前 90 分钟保护）；
-   - 默认 **仅做多**（`INTRADAY_DIRECTION_MODE=long_only`，可通过 `both` / `short_only` 切换）；
-   - 新增因果 **隔夜跳空保护**（`INTRADAY_MIN_GAP_DIRECTIONAL=-0.005`）：`gap = (first_open - prev_close) / prev_close >= -0.5%`，优先使用当日实时报价 `quote.pre_close`（未复权同口径），缺省回退严格 `< trading_date` 的 `StockDaily.close`，均缺失时 fail-closed；
+   - **同时支持做多与做空**（镜像规则，已移除方向模式开关配置）；
+   - 新增因果 **隔夜跳空保护**（`INTRADAY_MIN_GAP_DIRECTIONAL=-0.005`）：`directional_gap = ((first_open - prev_close) / prev_close) × side >= -0.5%`（做多拒绝低开超 `0.5%`、做空拒绝高开超 `0.5%`），优先使用当日实时报价 `quote.pre_close`（未复权同口径），缺省回退严格 `< trading_date` 的 `StockDaily.close`，均缺失时 fail-closed；
    - 适配 100 股池的纯净驱动门槛：`opening_min_range_pct=0.008`、`opening_min_efficiency=0.48`、`min_open_move=0.012`、`min_relative_strength=0.008`、`min_spy_open_move=0.0015`、`min_pool_breadth=0.68`、`pool_leader_top_k=10`。
 3. **两档 14 日 ATR 棘轮锁盈 + 放开盈利右尾至尾盘清仓（`v8_atr_ratchet`）**：
    - 每日批量读取严格 `< trading_date` 的最近 14 日日线真实波幅均值 `Daily ATR%`（至少 7 个有效 TR 样本，缺失时回退 `3.0%`），并截断到 `[1.2%, 8.0%]`；
@@ -26,11 +26,11 @@ V8 针对 V7“28 只固定池 + 22 分钟窄窗口导致单日成交过于稀�
 
 ## 入场路线明细
 
-以下按默认做多模式描述；如配置 `INTRADAY_DIRECTION_MODE=both`，做空将镜像反转价格比较并使用区间低点。
+做多与做空采用完全对称的镜像规则：以下顺向比较在做空时镜像反转并使用区间低点。
 
 | 路线 | 默认状态 | 结构、确认与执行 |
 | --- | --- | --- |
-| 开盘区间突破 / 纯净驱动 (`opening_breakout`) | 启用（默认做多） | 常规开盘起前 5 根连续真实 K（含 09:30 异常影线清洗）确定区间（幅度 `≥ 0.80%`）。在开盘第 12–120 分钟（09:42–11:30 NY），每根闭合 K 顺向收在区间外、实体同向、无反向跳空（`gap ≥ -0.5%`）、开盘推进 `≥ 1.2%`、开盘路径效率 `≥ 0.48`、相对 SPY `≥ 0.8%`、全池（不含 SPY/QQQ）Top 10 且 SPY 顺向 `≥ 0.15%` 或全池广度 `≥ 68%` 时可执行；入场后按 14 日 ATR 缩放 `1.2×ATR` 止损、`0.5×ATR → +0.08×ATR` 一档锁盈、`1.2×ATR → +0.60×ATR` 二档锁盈、无固定止盈，15:50 清仓。 |
+| 开盘区间突破 / 纯净驱动 (`opening_breakout`) | 启用（多空双向） | 常规开盘起前 5 根连续真实 K（含 09:30 异常影线清洗）确定区间（幅度 `≥ 0.80%`）。在开盘第 12–120 分钟（09:42–11:30 NY），每根闭合 K 顺向收在区间外、实体同向、无反向跳空（顺向跳空 `≥ -0.5%`）、开盘推进 `≥ 1.2%`、开盘路径效率 `≥ 0.48`、相对 SPY `≥ 0.8%`、全池（不含 SPY/QQQ）Top 10 且 SPY 顺向 `≥ 0.15%` 或全池广度 `≥ 68%` 时可执行；入场后按 14 日 ATR 缩放 `1.2×ATR` 止损、`0.5×ATR → +0.08×ATR` 一档锁盈、`1.2×ATR → +0.60×ATR` 二档锁盈、无固定止盈，15:50 清仓。 |
 | 盘中主浪突破 (`midday_wave_breakout`) | 默认关闭 | 60 分钟整理基底突破新日高/低（`INTRADAY_MIDDAY_WAVE_BREAKOUT=true` 且放宽 `INTRADAY_ENTRY_WINDOW_MINUTES=150` 可恢复）。 |
 | 箱体突破 / 回测 (`box_breakout` / `box_retest`) | 默认关闭 | 15–30 分钟横向箱体突破与回测（`INTRADAY_BOX_BREAKOUT=true` 可重新开启）。 |
 | 整理后趋势延续 (`trend_continuation`) | 默认关闭 | 趋势背景后 3 根窄幅整理突破（`INTRADAY_TREND_CONTINUATION=true` 可重新开启）。 |
