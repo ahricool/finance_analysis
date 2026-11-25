@@ -15,8 +15,8 @@
 5. 同时通过 `docker stop --timeout -1` 停止普通 worker 和 Qlib worker。
    Celery SIGTERM 等待执行中的任务完成，Docker 不设置强杀期限。只在容器正常退出后推进，
    不用 `inspect active` 无回复或 PostgreSQL processing 数量推断排空。
-6. 停止 API/streamer，在新后端镜像中完成现有数据库迁移和种子初始化，再更新应用服务。
-7. 等待 API、Web、两个 worker 健康，检查目标镜像及 streamer 运行状态。启用 Kronos 时由新 Streamer 和普通 Worker 验证目标 MPS 服务。
+6. 优雅停止旧 Trader/Streamer（拆分前交易由旧 Streamer 承担），再停止 API，在新后端镜像中完成数据库迁移和种子初始化，再更新应用服务。
+7. 等待 API、Web、两个 worker、Trader 健康，检查目标镜像及 streamer 运行状态。启用 Kronos 时由新 Streamer 和普通 Worker 验证目标 MPS 服务。
 8. 最后重建 Beat（即使发布提交相同也使用新容器），要求它写入本次启动后的新心跳；再次检查应用状态。
 9. 记录发布结果，释放部署锁。
 

@@ -195,6 +195,34 @@ services:
       - ./.env:/workspace/.env:ro
       - ./src:/workspace/src
 
+  trader:
+    image: ghcr.io/ahricool/finance_analysis:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: finance-analysis-dev-trader
+    restart: unless-stopped
+    command: ["finance-analysis-trader"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      TZ: Asia/Shanghai
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      REDIS_URL: redis://redis:6379/0
+    volumes:
+      - ./data:/workspace/data
+      - ./.env:/workspace/.env:ro
+      - ./src:/workspace/src
+    healthcheck:
+      test: ["CMD", "python", "-m", "finance_analysis.trader.health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
 volumes:
   postgres_data_dev:
     name: finance-analysis-dev-postgres-data

@@ -32,8 +32,14 @@ async def test_leader_lock_prevents_second_instance_and_checks_token() -> None:
 
 @pytest.mark.asyncio
 async def test_service_request_stop_is_graceful_and_heartbeat_has_ttl(monkeypatch) -> None:
+    from unittest.mock import AsyncMock
     from finance_analysis.intraday_options import scheduler
-    monkeypatch.setattr(scheduler, 'process', lambda *args: {})
+    from finance_analysis.paper_trade import runtime as paper
+    from finance_analysis.live_trade import runtime as live
+    forbidden = AsyncMock(side_effect=AssertionError("Streamer must not start trading"))
+    monkeypatch.setattr(scheduler, "run", forbidden)
+    monkeypatch.setattr(paper, "run_paper_trade", forbidden)
+    monkeypatch.setattr(live, "run_live_monitor", forbidden)
     from finance_analysis.contracts import service as contracts
     monkeypatch.setattr(contracts, 'run_collector', lambda redis: asyncio.sleep(3600))
     from finance_analysis.database.session import DatabaseManager
@@ -71,6 +77,8 @@ async def test_service_request_stop_is_graceful_and_heartbeat_has_ttl(monkeypatc
     assert FakeStreamingClient.instances[0].closed
     assert redis.closed
     assert await redis.ttl(keys.STREAMER_HEARTBEAT_KEY) == 30
+    assert redis.hashes[keys.STREAMER_HEARTBEAT_KEY]["trading_owner"] == "trader"
+    forbidden.assert_not_called()
 
 
 @pytest.mark.asyncio

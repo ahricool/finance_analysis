@@ -21,7 +21,8 @@ Vue WebUI ──HTTP/SSE/WS──> FastAPI
                     PostgreSQL（业务事实源） <!-- pragma: allowlist secret -->
                               │
               Celery Worker <─┴─> Redis <── Celery Beat
-                    │                    └── 实时行情 Streamer
+                    │                    ├── 实时行情 Streamer
+                    │                    └── 策略与交易 Trader
                     └── qlib queue ──> Python 3.12 Qlib Worker
 ```
 
@@ -29,6 +30,7 @@ Vue WebUI ──HTTP/SSE/WS──> FastAPI
 - PostgreSQL 是用户、证券、前复权日线、任务状态及策略结果的权威存储。 <!-- pragma: allowlist secret -->
 - Redis 是 Celery broker/result backend、Beat 心跳、实时行情状态和量化“最新结果”缓存；不是业务事实源。
 - Celery Worker 执行按需及周期任务，Celery Beat 根据代码注册表发任务；没有 APScheduler。
+- `finance-analysis-trader` 独立常驻，使用 Redis 行情及 PostgreSQL 业务事实；运行日内期权模拟、Demo 执行和 Live 只读监控，独立 leader。
 - `finance-analysis-stream` 对自选与持仓并集采集 US/HK Longbridge 推送及 CN 扶摇报价与新浪→腾讯原生分钟线，把 Quote、1 分钟 K 线、趋势和形态状态写入 Redis，不写 PostgreSQL 行情。 <!-- pragma: allowlist secret -->
 - Qlib 0.9.7 只能运行在独立 Python 3.12 Worker；主应用为 Python 3.13。两侧只经 Redis Celery 协议和 `data/quant` 工件交换，不共享数据库凭据。
 - WebUI 是 Vue 3 SPA；开发时由 Vite 代理 `/api`，生产由 nginx 同源代理到 FastAPI。
@@ -58,6 +60,7 @@ Use them when checking deployment state, logs, runtime files, migrations, or ser
 | 后台任务 | Celery 5、Redis | `finance_analysis.tasks.celery.app:celery_app` | <!-- pragma: allowlist secret -->
 | 周期调度 | Celery Beat、代码定义的 crontab | `tasks/celery/schedule/definitions.py` |
 | 实时行情 | asyncio、Longbridge、Redis | `finance-analysis-stream` → `market_stream/__main__.py` |
+| 策略与交易 | asyncio、Redis、PostgreSQL | `finance-analysis-trader` → `trader/__main__.py` |
 | 量化 Worker | Python 3.12、Qlib 0.9.7、LightGBM | `qlib_worker.celery_app:celery_app`，仅消费 `qlib` 队列 |
 | 前端 | Vue 3、TypeScript、Vite、Pinia、Tailwind 4 | `web/index.html` → `web/src/main.ts` → `App.vue` |
 
@@ -65,6 +68,7 @@ Python 包使用 `src/` layout。主应用 CLI 来自 `pyproject.toml`：
 
 - `finance-analysis`：FastAPI 服务。
 - `finance-analysis-stream`：实时行情常驻服务。
+- `finance-analysis-trader`：独立策略和交易常驻服务。
 
 服务地址由 `SERVER_HOST` / `SERVER_PORT` 控制，默认 `0.0.0.0:8000`；健康检查为 `GET /status`，OpenAPI 为 `/docs`。
 
@@ -79,7 +83,8 @@ src/finance_analysis/ <!-- pragma: allowlist secret -->
   stocks/                  代码/市场规范化、证券查询、前端股票索引
   database/                ORM、仓储、连接、启动迁移和种子数据
   tasks/                   Celery 应用、任务生命周期、队列、周期定义与 jobs
-  market_stream/           独立 Longbridge streamer、订阅、预热、趋势/形态
+  market_stream/           独立行情 streamer、订阅、预热、趋势/形态
+  trader/                  独立策略与交易生命周期、Redis 闭合分钟缓存
  quant/                   Qlib 数据集导出、市场状态、信号融合和目标组合构建
   etf_rotation/            ETF 动量轮动领域模型与服务
   trend_following/         多市场趋势跟踪领域模型与服务
@@ -182,6 +187,7 @@ cp .env.example .env               # 填写本地连接与可选外部服务
 uv run alembic upgrade head
 uv run python main.py              # FastAPI :8000
 uv run finance-analysis-stream     # 可选：独立实时行情
+uv run finance-analysis-trader     # 可选：独立策略与交易
 
 cd web
 pnpm install --frozen-lockfile
@@ -195,7 +201,7 @@ docker compose -f docker-compose.dev.yml up --build
 # docker-compose.yml 默认 include 开发配置
 ```
 
-开发 Compose 会启动 PostgreSQL、Redis、server、web、普通 worker、beat、qlib-worker 和 streamer。生产使用： <!-- pragma: allowlist secret -->
+开发 Compose 会启动 PostgreSQL、Redis、server、web、普通 worker、beat、qlib-worker、streamer 和 trader。生产使用： <!-- pragma: allowlist secret -->
 
 ```bash
 docker compose -f docker-compose.prod.yml up -d
@@ -477,7 +483,7 @@ GET本人历史不重算，默认今日或上一交易日；手动触发仅当�
 
 ## Intraday Options
 
-`intraday_options/` 为 QQQ（PostgreSQL `us_nasdaq100` 动态同步，去重 `GOOG.US`）+ `SPY/QQQ` 基准（内置 102 只快照降级）计算 15/30/60 分钟趋势机会分。Streamer 复用原生分钟线后台计算，仅读闭合正常时段连续窗口，趋势分只缓存 Redis 最新结果（`intraday_options_v18`）；独立虚拟交易（`underlying_sim_v8`）与信号事件由 0093 专用表持久化，不复用真实持仓。
+`intraday_options/` 为 QQQ（PostgreSQL `us_nasdaq100` 动态同步，去重 `GOOG.US`）+ `SPY/QQQ` 基准（内置 102 只快照降级）计算 15/30/60 分钟趋势机会分。Trader 从 Streamer 写入的 Redis 原生分钟线后台计算，仅读闭合正常时段连续窗口，趋势分只缓存 Redis 最新结果（`intraday_options_v18`）；独立虚拟交易（`underlying_sim_v8`）与信号事件由 0093 专用表持久化，不复用真实持仓。
 页面 `/market/intraday-options`（市场→日内期权交易），GET `/api/v1/intraday-options` 只读缓存及模拟表，实时复用 WS/SSE `scope=intraday-options`。观察池加入 Streamer 订阅并集、逐标的隔离集合及登录用户分钟图只读白名单，不改变个人自选/持仓。
 所有数据列表头支持排序，实时更新保留阅读位置；无合约/下单/概率承诺。公式与数据边界见 `docs/intraday-options.md` 与 `docs/intraday-starts.md`。
 
@@ -509,7 +515,7 @@ GET只读，行级机会资格排除缺线、延迟和非交易时段；默认�
 ## Binance Demo Paper Trade
 
 `paper_trade/` 独立管理员单账户模拟交易，固定官方 Demo REST/私有流；公开 contracts 行情不变。
-由现有 Streamer leader 驱动，API GET 只读 DB/Redis，POST 仅保存明确意图，不直接写交易所。
+由独立 Trader leader 驱动，API GET 只读 DB/Redis，POST 仅保存明确意图，不直接写交易所。
 密钥配置后持续同步，默认禁用新增仓位及自动策略；持久化策略/信号/交易所记录/权益（0097）及管理员 Demo 交易总开关（0099），不恢复 BTC 现货策略。
 订单不确定时按固定 client ID 核对，禁止盲目重试；交易所实际成交归属独立于信号。
 新增独立 `perpetual_drive`（V8 24/7）：UTC 整点滚动窗口、BTC 同向 VWAP、闭合日 ATR 与持久化棘轮；仅 Demo 加密货币永续，默认暂停。
@@ -518,6 +524,6 @@ GET只读，行级机会资格排除缺线、延迟和非交易时段；默认�
 ## Binance Live Trade
 
 `live_trade/` 仅管理员正式账户监控，固定 Live 独立密钥及只读 REST/私有流。
-现有 Streamer leader 启动只读账户监控，不启动实盘策略。迁移 `0098_live_trade` 独立历史及不依赖环境变量的本地交易开关、审计。
+独立 Trader leader 启动只读账户监控，不启动实盘策略。迁移 `0098_live_trade` 独立历史及不依赖环境变量的本地交易开关、审计。
 V1 注册集合为空且无真实写入 transport；内部网关任何交易意图均拒绝，API 无手动交易入口。
 页面 `/crypto/live-trade`，关闭或开启开关均持续同步，不改变 Paper Trade。见 `docs/binance-live-trade.md`。

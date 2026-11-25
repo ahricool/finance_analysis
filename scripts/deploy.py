@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlsplit
 
-APP_SERVICES = ("server", "worker", "qlib-worker", "streamer", "web", "beat")
+APP_SERVICES = ("server", "worker", "qlib-worker", "streamer", "trader", "web", "beat")
 WORKERS = ("worker", "qlib-worker")
 READ_COMMANDS = ("logs", "ps", "images", "top", "version", "ls")
 INSPECT_FORMAT = (
@@ -306,14 +306,19 @@ class Deployment:
 
     def replace(self) -> None:
         self.phase("replacing")
-        self.compose("stop", "server", "streamer")
+        # Old Streamer (before the split) may still own trading. Drain both
+        # old processes before starting the new independent Trader.
+        current = self.containers(("trader", "streamer"))
+        self.stop([current[name]["id"] for name in ("trader", "streamer")
+                   if name in current and current[name]["state"].get("Running")])
+        self.compose("stop", "server")
         self.compose(
             "run", "--rm", "--no-deps", "--pull", "never", "server", "python", "-c",
             "from finance_analysis.database.session import DatabaseManager; DatabaseManager.get_instance()",
             target=True,
         )
         self.up(("server",))
-        self.up(("worker", "qlib-worker", "streamer", "web"))
+        self.up(("worker", "qlib-worker", "streamer", "trader", "web"))
         self.verify_apps(APP_SERVICES[:-1])
         if kronos := self.pending.get("kronos"):
             self.verify_kronos(kronos, service="streamer", target=True)

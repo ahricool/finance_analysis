@@ -57,7 +57,8 @@ CN 分钟线独立于报价轮询：新浪免费 1min OHLC 为主源，腾讯 m1
 | rt:pattern:1m:{symbol} | Hash | 正式形态与未闭合线预览 |
 | rt:pattern:1m:{symbol}:events | Hash | 首次观测的形态阶段证据，幂等且不覆盖 |
 | rt:subscription:{symbol} | Hash | 采集／预热状态 |
-| rt:streamer:heartbeat | Hash | 全局及 CN 状态，TTL 30 秒 |
+| rt:streamer:heartbeat | Hash | 全局及 CN 状态，TTL 30 秒，trading_owner=trader |
+| rt:bars:1m:{symbol}:revision | String | 与闭合分钟数据同事务提交的 revision，供 Trader 增量缓存 |
 
 分钟只保留最近一个市场交易日，新日期写入时删除旧日期，迟到旧包不能补回旧日期。
 Streamer 写入按交易日历设置 TTL，保留到下一交易日收盘后两小时，覆盖周末和长假。
@@ -105,5 +106,7 @@ REALTIME_REDIS_URL 留空时回退 REDIS_URL，读写两侧保持一致。凭证
 
 ## 日内期权观察
 
-固定US观察池额外纳入Streamer，后端每根闭合分钟计算15/30/60分钟趋势质量分及独立日内机会，只存Redis最新结果，不归档历史。
+固定US观察池额外纳入Streamer，独立 Trader 从 Redis 读取闭合分钟线并计算15/30/60分钟趋势质量分及独立日内机会，只存Redis最新结果，不归档历史。
 页面 `/market/intraday-options` 只读缓存；共享分钟接口允许已登录用户读取该固定白名单，不修改个人自选。见 [intraday-options.md](intraday-options.md)。
+
+日内策略、Demo/Live 账户与执行独立运行于 Trader，见 [Trader](trader.md)。

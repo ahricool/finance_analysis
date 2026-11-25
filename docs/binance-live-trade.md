@@ -24,7 +24,7 @@ BINANCE_LIVE_API_SECRET=
 不要复制 Demo 凭据或把密钥提供给浏览器/Git。正式环境现有 Compose 已挂载 `.env`。
 代码合入并生成 SHA 镜像后，按现有流程在 `~/svr/finance_analysis` 执行 `bash deploy.sh`。
 迁移 `0098_live_trade` 位于 Demo 0097 之后，新增四张独立表；另有 0099 单独保存按用户要求迁移的 Demo 总开关。Live 不修改原行情及 Paper Trade 交易逻辑。
-首次配置密钥或修改密钥需要重启应用与 Streamer（正常发布即可）。
+首次配置密钥或修改密钥需要重启应用与 Trader（正常发布即可）。
 
 管理员进入「加密货币 → 实盘交易 / Live Trade」，核对权益、余额和持仓与 Binance App 一致。
 未配密钥不启动私有 reader，页面仍可读取本地开关；认证/同步失败显示实际状态。
@@ -32,7 +32,7 @@ BINANCE_LIVE_API_SECRET=
 
 ## 账户数据和开关
 
-- Streamer leader 独立启动只读监控协程，连接后以 REST 核对账户、余额、持仓、杠杆/保证金、普通/Algo 订单及收入流水。
+- Trader leader 独立启动只读监控协程，连接后以 REST 核对账户、余额、持仓、杠杆/保证金、普通/Algo 订单及收入流水。
   ORDER_TRADE_UPDATE 按真实交易所 ID 持久化订单/成交；账户和 Algo 更新触发 REST 核对。
   断线重连与周期性 REST 同步独立于浏览器和开关。
 - 只显示 USDT 本位永续合约的持仓、订单及成交；账户总额是交易所 USD-M 返回值，多资产模式可能以 USD 计价。
