@@ -27,7 +27,7 @@ const QuantModelRunPage = () => import('@/pages/market/quant/QuantModelRunPage.v
 const QuantPortfoliosPage = () => import('@/pages/market/quant/QuantPortfoliosPage.vue');
 const ETFRotationPage = () => import('@/pages/market/ETFRotationPage.vue');
 const TrendFollowingPage = () => import('@/pages/market/TrendFollowingPage.vue');
-const CryptoBtcPage = () => import('@/pages/market/CryptoBtcPage.vue');
+const ContractsPage = () => import('@/pages/market/ContractsPage.vue');
 const LoginPage = () => import('@/pages/LoginPage.vue');
 const TimelinePage = () => import('@/pages/TimelinePage.vue');
 const ProfilePage = () => import('@/pages/ProfilePage.vue');
@@ -73,11 +73,10 @@ const router = createRouter({
           path: 'crypto',
           component: CryptoPage,
           children: [
-            { path: '', redirect: redirectWithQuery('/crypto/btc') },
-            { path: 'btc', name: 'crypto-btc', component: CryptoBtcPage, meta: { title: 'BTC交易' } },
+            { path: '', redirect: redirectWithQuery('/crypto/contracts') },
+            { path: 'contracts', name: 'crypto-contracts', component: ContractsPage, meta: { title: '合约行情' } },
           ],
         },
-        { path: 'research/crypto/btc', name: 'research-crypto-btc', redirect: redirectWithQuery('/crypto/btc') },
         { path: 'timeline', name: 'timeline', component: TimelinePage, meta: { title: '投资时间线', marketScope: 'selectable' } },
         {
           path: 'research',
@@ -189,7 +188,6 @@ const router = createRouter({
         { path: 'market/quant/:pathMatch(.*)*', redirect: redirectLegacyQuant },
         { path: 'market/etf-rotation', redirect: redirectWithQuery('/research/etf-rotation') },
         { path: 'market/trend-following', redirect: redirectWithQuery('/research/trend-following') },
-        { path: 'market/crypto/btc', redirect: redirectWithQuery('/crypto/btc') },
         { path: ':pathMatch(.*)*', name: 'not-found', component: NotFoundPage, meta: { title: '页面未找到' } },
       ],
     },

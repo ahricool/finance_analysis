@@ -1,0 +1,75 @@
+import { mount } from '@vue/test-utils';
+import { defineComponent, ref, nextTick } from 'vue';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { useContractMarket } from '../useContractMarket';
+
+class Socket {
+  static instances: Socket[] = [];
+  onmessage: ((event: { data: string }) => void) | null = null;
+  onerror: (() => void) | null = null;
+  onclose: ((event: { code: number }) => void) | null = null;
+  close = vi.fn();
+  constructor(public url: string) { Socket.instances.push(this); }
+}
+
+class Events {
+  static instances: Events[] = [];
+  onmessage: ((event: { data: string }) => void) | null = null;
+  onerror: (() => void) | null = null;
+  close = vi.fn();
+  constructor(public url: string) { Events.instances.push(this); }
+}
+
+describe('contract live connection', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    Socket.instances = [];
+    Events.instances = [];
+  });
+  it('tries WS twice, then sticks to SSE across symbol and interval switches', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('WebSocket', Socket);
+    vi.stubGlobal('EventSource', Events);
+    const symbol = ref('SOXLUSDT'), interval = ref<'1d' | '1m'>('1d');
+    const receive = vi.fn();
+    const wrapper = mount(defineComponent({
+      setup() { return useContractMarket(symbol, interval, receive); },
+      template: '<p>{{ status }}</p>',
+    }));
+    expect(Socket.instances[0]?.url).toContain('/api/v1/crypto/contracts/ws?symbol=SOXLUSDT&interval=1d');
+    Socket.instances[0]!.onerror!();
+    await vi.advanceTimersByTimeAsync(1500);
+    Socket.instances[1]!.onclose!({ code: 1006 });
+    await vi.advanceTimersByTimeAsync(1500);
+    expect(Events.instances).toHaveLength(1);
+    const snap = { items: [], symbol: 'SOXLUSDT', minutes: null, daily_current: null };
+    Events.instances[0]!.onmessage!({ data: JSON.stringify(snap) });
+    expect(receive).toHaveBeenCalledWith(snap);
+    await nextTick();
+    expect(wrapper.text()).toContain('SSE 已连接');
+    const previous = Events.instances[0]!.onmessage!;
+    symbol.value = 'ETHUSDT'; interval.value = '1m';
+    await nextTick();
+    expect(Events.instances[0]!.close).toHaveBeenCalled();
+    expect(Events.instances[1]!.url).toContain('/events?symbol=ETHUSDT&interval=1m');
+    previous({ data: JSON.stringify(snap) });
+    expect(receive).toHaveBeenCalledTimes(1);
+    wrapper.unmount();
+    expect(Events.instances[1]!.close).toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+  it('falls back when a socket never receives a payload', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('WebSocket', Socket);
+    vi.stubGlobal('EventSource', Events);
+    const wrapper = mount(defineComponent({
+      setup() { return useContractMarket(ref('ETHUSDT'), ref('1m'), vi.fn()); },
+      template: '<p>{{ status }}</p>',
+    }));
+    await vi.advanceTimersByTimeAsync(27_000);
+    expect(Socket.instances).toHaveLength(2);
+    expect(Events.instances).toHaveLength(1);
+    wrapper.unmount();
+  });
+});

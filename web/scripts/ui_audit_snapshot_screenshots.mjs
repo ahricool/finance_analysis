@@ -39,39 +39,11 @@ const routes = [
   { id: 'market-sentiment', path: '/research/market-sentiment' },
   { id: 'macro', path: '/research/macro' },
   { id: 'quant', path: '/research/quant' },
-  { id: 'crypto-btc', path: '/crypto/btc' },
+  { id: 'crypto-contracts', path: '/crypto/contracts' },
   { id: 'tasks', path: '/tasks/scheduled' },
   { id: 'notifications', path: '/notifications' },
   { id: 'timeline', path: '/timeline' },
 ];
-
-async function stubBinance(page) {
-  await page.route('https://data-api.binance.vision/**', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify(
-        Array.from({ length: 120 }, (_, i) => [
-          1_725_000_000_000 + i * 900_000,
-          '110000',
-          '111000',
-          '109000',
-          String(110000 + i * 10),
-          '12.5',
-          1_725_000_000_000 + i * 900_000 + 899_999,
-          '1.2',
-          100,
-          '0',
-          '0',
-          '0',
-        ]),
-      ),
-    });
-  });
-  await page.routeWebSocket('wss://data-stream.binance.vision/ws', (ws) => {
-    ws.close();
-  });
-}
 
 async function auditPage(page, width, routeId) {
   return page.evaluate(({ width: w, routeId: id }) => {
@@ -245,7 +217,6 @@ async function capture() {
       localStorage.setItem('display_timezone', 'Asia/Shanghai');
     });
     await installFaSnapshotMocks(page, { useSyntheticHoldings: true });
-    await stubBinance(page);
 
     await page.goto(`${WEB_ORIGIN}/dashboard`, { waitUntil: 'networkidle' });
     await page.waitForTimeout(1000);
@@ -287,7 +258,6 @@ async function capture() {
         localStorage.setItem('display_timezone', 'Asia/Shanghai');
       });
       await installFaSnapshotMocks(emptyPage, { useSyntheticHoldings: false });
-      await stubBinance(emptyPage);
       await emptyPage.goto(`${WEB_ORIGIN}/market/holdings`, { waitUntil: 'domcontentloaded' });
       await emptyPage.waitForTimeout(1200);
       await shot(emptyPage, dir, 'holdings-empty-prod', width);
@@ -309,7 +279,6 @@ async function capture() {
       localStorage.setItem('display_timezone', 'Asia/Shanghai');
     });
     await installFaSnapshotMocks(page, { useSyntheticHoldings: true });
-    await stubBinance(page);
 
     await page.goto(`${WEB_ORIGIN}/research/etf-rotation`, { waitUntil: 'domcontentloaded' });
     await page.waitForTimeout(1500);

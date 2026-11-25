@@ -11,7 +11,6 @@
 - 共振概览、表格及分来源详情证据；同名字段按来源选择说明
 - 盘中确认的状态、固定开盘窗口收益、VWAP、量能近似与追高风险
 - 投资组合估值、现金维护、仓位及未实现盈亏
-- BTC 策略规则、仓位、绩效和完整交易周期
 - 宏观状态、得分、信号覆盖、资产/比值表及贡献拆解
 - Quant 排名、模型评价、数据集、市场得分拆解、训练参数与目标组合
 - 行业排名、历史、成分股；明确正式收盘和盘中预览差别
@@ -30,7 +29,6 @@
 - `intraday_confirmation/engine.py` 的5/15/30分钟收益是从开盘起的固定窗口，非滚动收益；量比是日均量按交易时间线性估算，VWAP由闭合5分钟典型价格近似。
 - `macro/service.py` 宏观Risk Score越高越偏Risk On。宏观、Trend、Quant三个同名环境的分数尺度与阈值分别说明。
 - `interfaces/api/v1/endpoints/holdings.py::summary` 缺失/过期报价持仓不计入总市值，本次只揭示估值不完整风险，不改变估值行为。
-- `crypto/performance.py` 只用末尾连续且完整的15分钟仓位快照；CAGR按365自然日年化，胜率只计完整持仓周期。
 - `quant/signals/fusion.py` 最终分=60%横截面+40%时间序列−风险扣分，可为负。`qlib_worker/models/targets.py` 预测T+1开盘到T+5收盘的超额收益；`quant/signal_returns.py` 实际回看却是信号日收盘到后续存储K线的绝对价格收益，不能混同。
 - `qlib_worker/models/{metrics,training}.py` 模型详情主要标量是有效Walk-forward测试折等权均值；`*Std` 是折间总体标准差。MAE误差与交易研究最大不利变动是不同指标。
 - `confluence/{engine,service}.py` 缺失维度不入分母；证据详情保留原始单位，例如预测超额字段数值1表示1个百分点，而行业原始收益差0.01表示1个百分点。

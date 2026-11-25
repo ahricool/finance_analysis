@@ -39,7 +39,6 @@ EXPECTED_JOBS = {
     "confluence_us": ("scheduled_confluence_us", "America/New_York"),
     "dragon_tiger_flow_cn": ("scheduled_dragon_tiger_flow_cn", "Asia/Shanghai"),
     "industry_strength_preview_cn": ("scheduled_industry_strength_preview_cn", "Asia/Shanghai"),
-    "crypto_btc_strategy": ("scheduled_crypto_btc_strategy", "UTC"),
     "market_sentiment_cn": ("scheduled_market_sentiment_cn", "Asia/Shanghai"),
     "industry_strength_cn": ("scheduled_industry_strength_cn", "Asia/Shanghai"),
     "market_structure_cn": ("scheduled_market_structure_cn", "Asia/Shanghai"),

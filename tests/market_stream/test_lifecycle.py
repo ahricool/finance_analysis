@@ -34,6 +34,8 @@ async def test_leader_lock_prevents_second_instance_and_checks_token() -> None:
 async def test_service_request_stop_is_graceful_and_heartbeat_has_ttl(monkeypatch) -> None:
     from finance_analysis.intraday_options import scheduler
     monkeypatch.setattr(scheduler, 'process', lambda *args: {})
+    from finance_analysis.contracts import service as contracts
+    monkeypatch.setattr(contracts, 'run_collector', lambda redis: asyncio.sleep(3600))
     from finance_analysis.database.session import DatabaseManager
     monkeypatch.setattr(DatabaseManager, 'get_instance', lambda: None)
     FakeStreamingClient.instances.clear()

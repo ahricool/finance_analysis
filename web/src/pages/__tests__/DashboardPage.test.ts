@@ -33,7 +33,7 @@ describe('public market dashboard', () => {
   it('uses only public endpoints and preserves the API feed order including future events', async () => {
     const { wrapper } = await render();
     const paths = get.mock.calls.map(([path]) => path);
-    expect(new Set(paths)).toEqual(new Set(['/api/v1/stocks/search', '/api/v1/market-structure', '/api/v1/quant/signals/ranking', '/api/v1/etf-rotation/ranking', '/api/v1/trend-following/dashboard', '/api/v1/crypto/btc/overview', '/api/v1/timeline']));
+    expect(new Set(paths)).toEqual(new Set(['/api/v1/stocks/search', '/api/v1/market-structure', '/api/v1/quant/signals/ranking', '/api/v1/etf-rotation/ranking', '/api/v1/trend-following/dashboard', '/api/v1/timeline']));
     expect(paths.join()).not.toMatch(/portfolio|holdings|watch-list|history|preferences/);
     expect(wrapper.get('[aria-label="Market Structure"]').text()).toContain('Breadth Divergence');
     expect(wrapper.get('[aria-label="Market Structure"]').text()).toContain('高脆弱趋势数23');
@@ -50,7 +50,7 @@ describe('public market dashboard', () => {
     const timelineCalls = get.mock.calls.filter(([path]) => path === '/api/v1/timeline');
     expect(timelineCalls[0]![1]?.params).toEqual({ limit: 10, timezone: 'Asia/Shanghai' });
     expect(timelineCalls[1]![1]?.params).toMatchObject({ end_date: '2026-09-16', category: 'event' });
-    for (const path of ['/timeline', '/crypto/btc', '/research/quant?market=CN', '/research/quant?market=US', '/research/etf-rotation?market=CN', '/research/trend-following?market=CN']) expect(wrapper.find(`a[href="${path}"]`).exists()).toBe(true);
+    for (const path of ['/timeline', '/research/quant?market=CN', '/research/quant?market=US', '/research/etf-rotation?market=CN', '/research/trend-following?market=CN']) expect(wrapper.find(`a[href="${path}"]`).exists()).toBe(true);
     wrapper.unmount();
   });
 
@@ -125,7 +125,6 @@ describe('public market dashboard', () => {
     expect(wrapper.text()).toContain('请求失败');
     expect(wrapper.get('[aria-label="市场环境"]').text()).toContain('风险偏好RISK_ON');
     expect(wrapper.findAll('[data-testid="dashboard-feed-item"]')).toHaveLength(8);
-    expect(wrapper.text()).toContain('114,820');
     get.mockImplementation(async (path, config) => response(path, config));
     await wrapper.findAll('button').find(button => button.text() === '重试')!.trigger('click');
     await flushPromises();

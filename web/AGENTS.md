@@ -98,7 +98,7 @@ layout（Shell / PageHeader / ModuleLayout）+ ui/app 组件
 | `/research/etf-rotation` | `research-etf-rotation` | ETF 动量轮动 |
 | `/research/trend-following` | `research-trend-following` | 趋势跟踪 |
 | `/research/quant` 及子路径 | `research-quant*` | 量化研究（总览 / 选股 / 数据集 / 模型 / 组合） |
-| `/crypto/btc` | `crypto-btc` | BTC 交易 |
+| `/crypto/contracts` | `crypto-contracts` | 合约行情 |
 | `/market/watch-list` | `market-watch-list` | 自选股 |
 | `/market/holdings` | `market-holdings` | 投资组合 |
 | `/market/heatmap` | `market-heatmap` | A股/美股行业热力图，后端每15分钟刷新共享缓存 |
@@ -107,14 +107,14 @@ layout（Shell / PageHeader / ModuleLayout）+ ui/app 组件
 
 要点：
 
-- `/market/holdings` 使用 `pages/market/HoldingsPage.vue`。DB 是普通股票/ETF 唯一真实持仓来源。现金独立修改，买卖不改变现金；买入复用 instrument 搜索建议并由后端校验证券主数据。API 为 `/api/v1/holdings`。日 K BST 来自 `trade_operation`，BTC BST 来自策略快照。交易引擎及其建议与开关已删除。
+- `/market/holdings` 使用 `pages/market/HoldingsPage.vue`。DB 是普通股票/ETF 唯一真实持仓来源。现金独立修改，买卖不改变现金；买入复用 instrument 搜索建议并由后端校验证券主数据。API 为 `/api/v1/holdings`。日 K BST 来自 `trade_operation`。交易引擎及其建议与开关已删除。
 - `meta.public === true` 才是公开页（目前只有登录）。
 - `meta.title` 用于 `document.title`（`「页面名 - Finance Analysis」`）。嵌套路由取最近一层有 title 的记录。
 - ETF 轮动和趋势排名的「导出 Excel」在浏览器中导出当前筛选、排序后的完整数据（含虚拟滚动未渲染行），保留数值格式；文件名包含市场、快照日期和 official/preview。导出库按需加载，不调用后端导出接口。
-- 研究走 `/research/**`，市场走 `/market/**`。加密货币走 `/crypto/**`。不要把 Quant / ETF / 趋势跟踪 / BTC 再挂到 `/market`。
-- 旧 `/market/quant*`、`/market/etf-rotation`、`/market/trend-following`、`/market/crypto/btc` 只作为 compatibility redirect，内部导航必须用 canonical URL。
-- 加密货币使用 `CryptoPage` 二级侧栏，BTC 子页保留自身介绍；任务中心顶栏下拉与侧栏共用 `taskNavItems`，定时任务仅向管理员显示。
-- BTC 的旧 `/research/crypto/btc` 同样重定向到 `/crypto/btc`；一级“加密货币”菜单位于“任务中心”之前。
+- 研究走 `/research/**`，市场走 `/market/**`。加密货币走 `/crypto/**`。不要把 Quant / ETF / 趋势跟踪 / 合约 再挂到 `/market`。
+- 旧 `/market/quant*`、`/market/etf-rotation`、`/market/trend-following` 只作为 compatibility redirect，内部导航必须用 canonical URL。
+- 加密货币使用 `CryptoPage` 二级侧栏，合约行情子页保留自身介绍；任务中心顶栏下拉与侧栏共用 `taskNavItems`，定时任务仅向管理员显示。
+- 一级“加密货币”菜单位于“任务中心”之前。
 - `/chat` 只保留到 `/dashboard` 的 legacy redirect，前端不再有问股或个股分析页面。
 - 全局 A 股／美股开关固定在顶栏头像左侧，头像保持最右。`marketStore` 保存选择到 `localStorage.selected_market`，默认 CN；`useMarket()` 优先读取合法 URL `?market=CN|US`，无 query 时复用全局选择。路由成功后同步显式 URL 市场，跨页面/刷新保留选择。
 - `meta.marketScope` 标记 `selectable` 的页面启用开关；单市场页标记 `CN`/`US` 并置灰显示对应市场，其他页面（含主页）置灰但不改变已选偏好。禁止添加页内市场选择器。
@@ -239,7 +239,7 @@ Cookie 会话，`apiClient` 设了 `withCredentials: true`。
 - 根滚动条使用 `scrollbar-gutter: stable`，路由切换时不要让页面左右跳。
 - WebUI 面向桌面优先，并做基础响应式适配：去掉根 `min-width: 1200px`；`<1024px`（`lg`）顶栏通过点击 Logo 打开左侧抽屉导航，不显示独立汉堡按钮；表格在容器内横向滚动，页面本身不横向溢出；卡片/统计格子可换行；弹窗限制在视口内。验证 390 / 768 / 1024 / 1280 / 1440 / 1920px。
 - 标签语言：中文为主、英文 muted 小号副标题。复用 `BilingualLabel` / `BilingualEnum` 与 `i18n/labels.ts`；表头空间紧时用 `compact`（英文只保留在 `aria-label`）。按钮与普通操作文案只用中文。业务枚举仅改展示，不改 API 字段。
-- Dashboard 保留双市场概览，顶栏市场开关置灰；策略变化同时展示两市，不提供局部市场选择。按市场结构、Trend Market Regime、ETF/Trend Changes、Timeline、Quant Signals/BTC overview 排序；市场环境通过 `/trend-following/dashboard` 读取正式 Trend 的 0–100 分数、breakdown、完整变化计数和最多3条变化摘要，不下载 ranking 明细，不请求 Quant Regime 或展示风险敞口。不得读取持仓、自选股、分析历史等私人数据；各模块独立加载和失败。
+- Dashboard 保留双市场概览，顶栏市场开关置灰；策略变化同时展示两市，不提供局部市场选择。按市场结构、Trend Market Regime、ETF/Trend Changes、Timeline、Quant Signals 排序；市场环境通过 `/trend-following/dashboard` 读取正式 Trend 的 0–100 分数、breakdown、完整变化计数和最多3条变化摘要，不下载 ranking 明细，不请求 Quant Regime 或展示风险敞口。不得读取持仓、自选股、分析历史等私人数据；各模块独立加载和失败。
 
 新增 shadcn 组件：按 `components.json` 生成到 `src/components/ui/`，不要改 aliases，不要另开一套 primitive。
 
@@ -290,14 +290,11 @@ Cookie 会话，`apiClient` 设了 `withCredentials: true`。
 - 不要把 shadcn `ui/` 组件改成业务耦合实现；业务变体放到 `app/` 或领域目录。
 - 不要提交 `node_modules`、`playwright-report`、`test-results`，以及构建生成的 `static/` 内容（除非任务明确要求更新静态资源）。
 
-## BTC 页面
+## 合约行情页面
 
-`/crypto/btc` 位于一级“加密货币”导航。`useBinanceBtcMarket()` 直接访问 Binance REST 与单一 WS，支持1m/5m/15m/1h/4h/1D/1W/1M，断线自动重连，无 HTTP 轮询兜底。`useCryptoStrategy()` 独立读取后端策略，传输、错误、加载状态不得与行情混合。
-`BtcKlineChart` 使用已加载K线映射BUY/EXIT overlay，点击查看策略详情；Performance由后端快照派生，当前浮盈用浏览器Binance price计算。
-`BtcKlineChart` 是 `MarketKLineChart` 的轻量 wrapper，已闭合 history 与单根 current 分开传入。统一图表使用 KLineChart 10.x 的 data loader / subscription API，卸载时 dispose。单证券日 K 使用 `DailyKLineCard` 独立请求 `/api/v1/market-data/daily-bars/{symbol}`；历史策略详情传返回快照的 tradeDate 作为 highlightDate，行情加载至最新并标记查看日；endDate 仅用于明确需要截断的图表。
-
-
-BTC 多策略以 `strategy_key + symbol` 隔离，代码注册表当前仅 `btc_breakout_v1`。共享 Binance REST 窗口、独立 catch-up 与状态行锁；仓位变化保存于 snapshot，绩效/CAGR/负值回撤动态派生，selector 不影响行情连接。详见 `../docs/crypto-btc.md`。
+/crypto/contracts 位于一级“加密货币”导航。浏览器只连接本站 API；共享标的由管理员管理。
+WS 连续两次失败回落 SSE，列表显示价格、24h 涨跌幅、成交额、资金费率；复用 MarketKLineChart 展示日 K 和 1min K，
+无策略、预测、盘口。
 
 ## 消息中心
 
@@ -367,7 +364,7 @@ CN/HK只显示期权链空态，不请求美股期权API、不扩展后台采集
 失败/等待显示对应日期和原因，同时保留最后成功结算日；历史补算计划不能当作当前待执行计划。
 字段转换须保留`positions`/`exits`里的canonical证券代码键。见`../docs/stock-strategies.md`。
 
-自选、持仓、日内期权和 BTC 的 1 分钟 K 线共用 `MarketKLineChart` 的缩放、拖动和实时快照更新。CN 展开图使用完整原生当日窗口（full_snapshot），更新时替换整个数据窗口，以 `quote.pre_close` 绘制昨收 0% 线。时间轴随视口变化，缺失分钟保留缺失。见 `../docs/cn-minute-sources.md`。
+自选、持仓、日内期权和永续合约的 1 分钟 K 线共用 `MarketKLineChart` 的缩放、拖动和实时快照更新。CN 展开图使用完整原生当日窗口（full_snapshot），更新时替换整个数据窗口，以 `quote.pre_close` 绘制昨收 0% 线。时间轴随视口变化，缺失分钟保留缺失。见 `../docs/cn-minute-sources.md`。
 
 股票分钟预测绘制到实际收盘，预测时间轴按交易分钟跳过午休，空心蜡烛独立于行情和技术指标。默认适配全天，用户缩放或拖动后保留视口，可点「查看全天」恢复。分钟误差只核对前 10 步。见 `../docs/kronos.md`。
 

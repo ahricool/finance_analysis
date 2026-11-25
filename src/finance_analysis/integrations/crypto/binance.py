@@ -1,38 +1,42 @@
-"""Binance public spot transport only; no strategy or stock-provider integration."""
-
+"""Public Binance USD-M market data; no trading endpoints."""
 from datetime import datetime, timezone
-from decimal import Decimal
+import math
+import logging
 
 import httpx
 
+from finance_analysis.config.env_parsing import env_str
 from finance_analysis.core.retry import retry_async
 
-from finance_analysis.crypto.config import CryptoConfig
-from finance_analysis.crypto.models import Kline
+logger = logging.getLogger(__name__)
 
 
 def from_ms(value) -> datetime:
     return datetime.fromtimestamp(int(value) / 1000, timezone.utc)
 
 
-def parse_rest(row, as_of: datetime, interval: str) -> Kline:
-    start = from_ms(row[0])
-    end = from_ms(int(row[6]) + 1)
-    return Kline(
-        start,
-        end,
-        *(Decimal(str(row[i])) for i in (1, 2, 3, 4, 5, 7)),
-        int(row[8]),
-        Decimal(str(row[9])),
-        Decimal(str(row[10])),
-        closed=end <= as_of,
-        interval=interval,
-    )
+def number(value):
+    result = float(value)
+    if not math.isfinite(result):
+        raise ValueError("Non-finite market data")
+    return result
+
+
+def parse_bar(row):
+    bar = dict(zip(("open", "high", "low", "close", "volume", "turnover"),
+                   (number(row[index]) for index in (1, 2, 3, 4, 5, 7)), strict=True))
+    if not 0 < bar["low"] <= min(bar["open"], bar["close"]) <= max(bar["open"], bar["close"]) <= bar["high"]:
+        raise ValueError("Invalid OHLC")
+    if min(bar["volume"], bar["turnover"]) < 0:
+        raise ValueError("Invalid volume")
+    return {"timestamp": int(row[0]), **bar}
 
 
 class BinanceClient:
-    def __init__(self, config: CryptoConfig, http=None):
-        self.http = http or httpx.AsyncClient(base_url=config.rest_base_url.rstrip("/"), timeout=10)
+    def __init__(self, http=None):
+        self.http = http or httpx.AsyncClient(
+            base_url=env_str("BINANCE_FUTURES_REST_BASE_URL", "https://fapi.binance.com"), timeout=10,
+        )
 
     async def close(self):
         await self.http.aclose()
@@ -41,51 +45,55 @@ class BinanceClient:
         async def request():
             response = await self.http.get(path, params=params)
             response.raise_for_status()
-            result = response.json()
-            if isinstance(result, dict) and "code" in result:
-                raise ValueError("Binance returned an error")
-            return result
-
+            return response.json()
         return await retry_async(request)
 
     async def server_time(self):
-        return from_ms((await self._get("/api/v3/time"))["serverTime"])
+        return from_ms((await self._get("/fapi/v1/time"))["serverTime"])
 
-    async def spot_minute_rows(self, *, end: datetime, limit: int) -> list:
-        """Read native spot minutes for the forecast; the strategy keeps its own timeframes."""
-        rows = await self._get("/api/v3/klines", {
-            "symbol": "BTCUSDT", "interval": "1m", "limit": limit,
-            "endTime": int(end.timestamp() * 1000) - 1,
+    async def contracts(self):
+        data = await self._get("/fapi/v1/exchangeInfo")
+        return [
+            {"symbol": item["symbol"], "category": item.get("underlyingType") or "其他"}
+            for item in data["symbols"]
+            if item["contractType"] in {"PERPETUAL", "TRADIFI_PERPETUAL"} and item["status"] == "TRADING"
+            and item["quoteAsset"] == "USDT" and item["marginAsset"] == "USDT"
+        ]
+
+    async def quotes(self):
+        tickers = await self._get("/fapi/v1/ticker/24hr")
+        rates = {}
+        try:
+            funding = await self._get("/fapi/v1/premiumIndex")
+            for item in funding:
+                try:
+                    rates[item["symbol"]] = number(item["lastFundingRate"])
+                except (KeyError, TypeError, ValueError):
+                    continue
+        except (httpx.HTTPError, TypeError, ValueError):
+            logger.warning("USD-M funding rates unavailable", exc_info=True)
+        quotes = {}
+        for item in tickers:
+            try:
+                quotes[item["symbol"]] = {
+                    "price": number(item["lastPrice"]), "change_pct": number(item["priceChangePercent"]),
+                    "turnover": number(item["quoteVolume"]), "funding_rate": rates.get(item["symbol"]),
+                    "timestamp": int(item["closeTime"]),
+                }
+            except (KeyError, TypeError, ValueError):
+                continue
+        return quotes
+
+    async def klines(self, symbol, interval, start, limit=1000):
+        rows = await self._get("/fapi/v1/klines", {
+            "symbol": symbol, "interval": interval, "startTime": start, "limit": limit,
         })
-        if not isinstance(rows, list):
-            raise ValueError("Invalid Binance kline response")
-        return rows
-
-    async def klines(self, *, interval: str, end: datetime, limit: int):
-        if interval not in ("15m", "1h"):
-            raise ValueError("Strategy only uses 15m/1h candles")
-        candles = []
-        cursor = end
-        while len(candles) < limit:
-            size = min(1000, limit - len(candles))
-            rows = await self._get(
-                "/api/v3/klines",
-                {
-                    "symbol": "BTCUSDT",
-                    "interval": interval,
-                    "limit": size,
-                    "endTime": int(cursor.timestamp() * 1000) - 1,
-                },
-            )
-            if not isinstance(rows, list):
-                raise ValueError("Invalid Binance kline response")
-            page = sorted((parse_rest(row, end, interval) for row in rows), key=lambda row: row.open_time)
-            page = [row for row in page if row.closed and row.close_time <= cursor]
-            candles = page + candles
-            if len(page) < size:
-                break
-            following = page[0].open_time
-            if following >= cursor:
-                raise ValueError("Binance history did not advance")
-            cursor = following
-        return candles
+        period = {"1m": 60_000, "1d": 86_400_000}[interval]
+        result = {}
+        for row in rows:
+            bar = parse_bar(row)
+            timestamp = bar["timestamp"]
+            if timestamp % period or int(row[6]) != timestamp + period - 1 or timestamp < start:
+                raise ValueError("Invalid Binance candle boundary")
+            result[timestamp] = bar
+        return [result[key] for key in sorted(result)]

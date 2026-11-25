@@ -18,7 +18,7 @@ describe('router document titles', () => {
     ['/research/quant/portfolios', '目标组合 - Finance Analysis'],
     ['/research/etf-rotation', 'ETF动量轮动 - Finance Analysis'],
     ['/research/trend-following', '趋势跟踪 - Finance Analysis'],
-    ['/crypto/btc', 'BTC交易 - Finance Analysis'],
+    ['/crypto/contracts', '合约行情 - Finance Analysis'],
     ['/profile', '个人中心 - Finance Analysis'],
     ['/profile/info', '个人中心 - Finance Analysis'],
     ['/profile/password', '个人中心 - Finance Analysis'],
@@ -46,6 +46,8 @@ describe('router document titles', () => {
     expect(router.hasRoute('market-etf-rotation')).toBe(false);
     expect(router.hasRoute('market-trend-following')).toBe(false);
     expect(router.hasRoute('market-crypto-btc')).toBe(false);
+    expect(router.hasRoute('crypto-btc')).toBe(false);
+    expect(router.resolve('/crypto/btc').name).toBe('not-found');
     expect(router.hasRoute('research-quant')).toBe(true);
     expect(router.hasRoute('research-etf-rotation')).toBe(true);
     expect(router.hasRoute('analysis')).toBe(false);

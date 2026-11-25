@@ -66,7 +66,7 @@ describe('main navigation', () => {
       'macro',
       'quant',
       'strategies',
-      'crypto-btc',
+      'crypto-contracts',
       'scheduled',
       'runs',
     ]);

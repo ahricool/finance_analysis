@@ -7,8 +7,8 @@ from finance_analysis.integrations.market_data.realtime_state.models import Cand
 from finance_analysis.market_stream.config import is_regular_trade_session, market_trading_date
 from finance_analysis.minute_forecast.cache import EVALUATION_TTL_SECONDS, forecast_key, pending_error_key
 from finance_analysis.minute_forecast.models import (
-    BTC_SYMBOL, ERROR_HORIZON, MINUTE_MS, AverageError, ForecastAccuracy, ForecastError, ForecastSnapshot,
-    ForecastWindow, RecentErrors,
+    ERROR_HORIZON, MINUTE_MS, AverageError, ForecastAccuracy, ForecastError, ForecastSnapshot,
+    RecentErrors,
 )
 from finance_analysis.minute_forecast.windows import millis
 from finance_analysis.stocks.markets import MarketType
@@ -56,11 +56,9 @@ def _score(forecast: ForecastSnapshot, closes: Mapping[int, float]) -> RecentErr
 
 async def settle_forecasts(
     redis, bars: Mapping[str, Iterable[CandleState]], markets: Mapping[str, MarketType],
-    btc: ForecastWindow | None, now: datetime,
+    now: datetime,
 ) -> None:
     symbols = [symbol for symbol in markets if bars.get(symbol)]
-    if btc is not None:
-        symbols.append(BTC_SYMBOL)
     if not symbols:
         return
     now_ms = millis(now)
@@ -73,22 +71,18 @@ async def settle_forecasts(
     for symbol, pending in zip(symbols, candidates, strict=True):
         if not pending:
             continue
-        if symbol == BTC_SYMBOL and btc is not None:
-            closes = {bar.timestamp: bar.close for bar in btc.bars}
-        else:
-            closes = {
-                millis(bar.bar_time): float(bar.close) for bar in unique_minute_bars(bars[symbol])
-                if bar.confirmed and not bar.sampled and not bar.partial and bar.is_valid()
-                and is_regular_trade_session(bar.trade_session)
-            }
+        closes = {
+            millis(bar.bar_time): float(bar.close) for bar in unique_minute_bars(bars[symbol])
+            if bar.confirmed and not bar.sampled and not bar.partial and bar.is_valid()
+            and is_regular_trade_session(bar.trade_session)
+        }
         for raw in pending:
             forecast = ForecastSnapshot.model_validate_json(raw)
             recent = _score(forecast, closes)
             expiry = forecast.bars[-1].timestamp + MINUTE_MS + CONFIRMATION_GRACE_MS
             if len(recent.rows) < len(forecast.bars) and now_ms < expiry:
                 continue
-            # Use the issuance date for the whole batch, including BTC batches
-            # whose targets straddle UTC midnight.
+            # Use the issuance date for the whole batch.
             issued = datetime.fromtimestamp(recent.issued_at / 1000, tz=timezone.utc)
             day = evaluation_day(issued, markets.get(symbol))
             key = _accuracy_key(symbol, forecast.model)

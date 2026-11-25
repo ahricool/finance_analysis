@@ -8,7 +8,7 @@ import { cryptoNavItems } from '@/config/mainNav';
   <div class="page-shell">
     <ModuleLayout
       :items="cryptoNavItems"
-      active-key="crypto-btc"
+      active-key="crypto-contracts"
       label="加密货币页面导航"
     >
       <RouterView />

@@ -38,10 +38,6 @@ export function dashboardResponse(url: URL): object {
       { code: 'weak', name: market === 'CN' ? '贵州茅台' : 'Apple', previous_state: 'TRENDING', current_state: 'WEAKENING' },
     ] },
   };
-  if (path === '/api/v1/crypto/btc/overview') return {
-    symbol: 'BTCUSDT', strategy: { regime: 'BULL', setup: 'BREAKOUT', action: 'BUY', position_state: 'LONG', price: '114820' },
-    market: { last_update_time: '2026-09-09T08:00:00Z', latest_candle: { close: '114820' } },
-  };
   if (path === '/api/v1/timeline') {
     const base = { market: 'US', related_symbols: [], importance: 'high', impact: null, importance_score: null, detail_payload: {} };
     const items = [
