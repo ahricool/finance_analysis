@@ -33,22 +33,32 @@ const kpis = computed(() => [
   ['未实现盈亏', account.value.totalUnrealizedProfit], ['已同步净收益', data.value?.realized_net],
 ]);
 const symbols = computed(() => (view.value?.demo_symbols ?? []).map(value => ({ value, label: value })));
-const strategySymbols = computed(() => symbols.value.filter(s => view.value?.shared_symbols?.includes(s.value)));
+
 const manual = reactive({ symbol: '', side: '', order_type: '', quantity: '', price: '', trigger_price: '', reduce_only: false });
 let manualSubmission: { fingerprint: string; id: string } | null = null;
 const strategy = reactive({ symbol: '', name: '', strategy_type: 'ema_cross', fast: '9', slow: '21', direction: 'LONG',
+  drive_range_pct: '0.8', drive_move_pct: '1.2', drive_efficiency: '0.48', drive_relative_pct: '0.8',
   notional: '', margin: '', max_position: '', leverage_limit: '', max_loss: '', stop_pct: '' });
+const strategySymbols = computed(() => symbols.value.filter(s => view.value?.shared_symbols?.includes(s.value) &&
+  (strategy.strategy_type !== 'perpetual_drive' || view.value?.demo_coin_symbols?.includes(s.value))));
 const sideOptions = [{ value: 'BUY', label: 'BUY · 买入' }, { value: 'SELL', label: 'SELL · 卖出' }];
 const typeOptions = ['MARKET', 'LIMIT', 'STOP_MARKET', 'TAKE_PROFIT_MARKET'].map(value => ({ value, label: value }));
-const strategyFields = [
-  ['name', '策略名称'], ['fast', '快 EMA'], ['slow', '慢 EMA'], ['notional', '计划名义额度 (USDT)'],
+const commonStrategyFields = [
+  ['name', '策略名称'], ['notional', '计划名义额度 (USDT)'],
   ['margin', '计划保证金 (USDT)'], ['max_position', '最大名义持仓 (USDT)'], ['leverage_limit', '杠杆上限'],
   ['max_loss', '最大亏损 (USDT)'], ['stop_pct', '止损比例 (%)'],
 ] as const;
+const strategyFields = computed(() => [
+  ...commonStrategyFields,
+  ...(strategy.strategy_type === 'ema_cross'
+    ? [['fast', '快 EMA'], ['slow', '慢 EMA']] as const
+    : [['drive_range_pct', '初始振幅 (%)'], ['drive_move_pct', '方向涨跌幅 (%)'],
+       ['drive_efficiency', '路径效率 (0–1)'], ['drive_relative_pct', '相对 BTC 强度 (%)']] as const),
+]);
 const manualValid = computed(() => !!manual.symbol && !!manual.side && !!manual.order_type && Number(manual.quantity) > 0 &&
   (manual.order_type !== 'LIMIT' || Number(manual.price) > 0) &&
   (!['STOP_MARKET', 'TAKE_PROFIT_MARKET'].includes(manual.order_type) || Number(manual.trigger_price) > 0));
-const strategyValid = computed(() => !!strategy.symbol && !!strategy.name && strategyFields.slice(1).every(([key]) => Number(strategy[key]) > 0));
+const strategyValid = computed(() => strategySymbols.value.some(s => s.value === strategy.symbol) && !!strategy.name && strategyFields.value.slice(1).every(([key]) => strategy[key] !== '' && (key === 'drive_relative_pct' ? Number(strategy[key]) >= 0 : Number(strategy[key]) > 0)));
 const pending = ref<{ title: string; description: string; run: () => Promise<unknown> } | null>(null);
 const dialogOpen = ref(false);
 let timer: ReturnType<typeof setInterval>;
@@ -121,10 +131,14 @@ async function changeTradeControl(enabled: boolean) {
   }, enabled ? '已启用 Demo 新增仓位。' : '已禁止 Demo 新增仓位；账户同步、撤单、平仓及已有保护单管理继续。');
 }
 function saveStrategy() {
-  const payload = { ...strategy };
-  void mutate(() => paperTradeApi.saveStrategy(payload.symbol, payload), '策略已保存（默认暂停）。');
+  const payload = Object.fromEntries([
+    ['symbol', strategy.symbol], ['strategy_type', strategy.strategy_type], ['direction', strategy.direction],
+    ...strategyFields.value.map(([key]) => [key, strategy[key]]),
+  ]);
+  void mutate(() => paperTradeApi.saveStrategy(payload.symbol!, payload), '策略已保存（默认暂停）。');
 }
 function editStrategy(row: Row) {
+  Object.assign(strategy, { strategy_type: 'ema_cross', fast: '9', slow: '21', drive_range_pct: '0.8', drive_move_pct: '1.2', drive_efficiency: '0.48', drive_relative_pct: '0.8' });
   for (const key of Object.keys(strategy) as (keyof typeof strategy)[]) if (row[key] != null) strategy[key] = String(row[key]);
 }
 function control(row: Row) {
@@ -155,13 +169,13 @@ const curve = computed(() => {
 });
 function column(key: string, label: string, numeric = false, time = false): Column { return { key, label, numeric, time }; }
 const positions = [column('symbol','合约'), column('direction','方向'), column('positionSide','持仓模式'), column('positionAmt','数量（正多负空）',true), column('entryPrice','开仓均价',true), column('markPrice','标记价',true), column('leverage','杠杆',true), column('marginType','保证金模式'), column('positionInitialMargin','保证金',true), column('liquidationPrice','强平价',true),column('fundingRate','Demo 资金费率',true), column('unRealizedProfit','未实现盈亏',true), column('source','归属')];
-const strategies = [column('symbol','合约'),column('name','名称'),column('enabled','自动执行'),column('status','状态'),column('fast','快 EMA',true),column('slow','慢 EMA',true),column('direction','方向'),column('notional','计划额度',true),column('margin','保证金',true),column('current_leverage','Demo 杠杆',true),column('current_margin_type','Demo 保证金模式'),column('leverage_limit','杠杆上限',true),column('max_position','最大持仓',true),column('max_loss','最大亏损',true),column('stop_pct','止损 (%)',true),column('latest_signal.payload.direction','最近信号'),column('latest_signal.status','执行状态'),column('latest_signal.reason','原因'), column('latest_trade.time','最近成交 (UTC)',false,true)];
+const strategies = [column('symbol','合约'),column('name','名称'),column('strategy_type','策略类型'),column('enabled','自动执行'),column('status','状态'),column('fast','快 EMA',true),column('slow','慢 EMA',true),column('drive_range_pct','初始振幅 (%)',true),column('drive_move_pct','方向涨跌幅 (%)',true),column('drive_efficiency','路径效率',true),column('drive_relative_pct','相对 BTC (%)',true),column('direction','方向'),column('notional','计划额度',true),column('margin','保证金',true),column('current_leverage','Demo 杠杆',true),column('current_margin_type','Demo 保证金模式'),column('leverage_limit','杠杆上限',true),column('max_position','最大持仓',true),column('max_loss','最大亏损',true),column('stop_pct','止损 (%)',true),column('latest_signal.payload.direction','最近信号'),column('latest_signal.status','执行状态'),column('latest_signal.reason','原因'), column('latest_trade.time','最近成交 (UTC)',false,true)];
 const stats = [column('name','策略'), column('symbol','合约'), column('performance.trades','交易次数',true),column('performance.win_rate_pct','胜率 (%)',true),column('performance.average_hold_minutes','平均持仓 (分钟)',true),column('performance.net','累计净收益',true),column('performance.max_drawdown','已结算最大回撤 (USDT)',true)];
 const orders = [column('symbol','合约'),column('orderId','订单 ID'),column('side','方向'),column('type','类型'),column('status','状态'),column('price','价格',true),column('origQty','委托数量',true),column('executedQty','成交数量',true),column('time','时间 (UTC)',false,true),column('source','来源')];
 const algos = [column('symbol','合约'),column('algoId','Algo ID'),column('side','方向'),column('orderType','类型'),column('algoStatus','状态'),column('triggerPrice','触发价',true),column('quantity','数量',true),column('actualOrderId','实际订单 ID'),column('createTime','时间 (UTC)',false,true),column('source','来源')];
-const trades = [column('symbol','合约'),column('id','成交 ID'),column('orderId','订单 ID'),column('side','方向'),column('price','价格',true),column('qty','数量',true),column('realizedPnl','已实现盈亏',true),column('commission','手续费',true),column('commissionAsset','手续费币种'),column('time','时间 (UTC)',false,true),column('source','归属'),column('intent_action','开平仓意图'),column('net_excluding_funding','净收益（不含资金费）',true)];
+const trades = [column('symbol','合约'),column('id','成交 ID'),column('orderId','订单 ID'),column('side','方向'),column('price','价格',true),column('qty','数量',true),column('realizedPnl','已实现盈亏',true),column('commission','手续费',true),column('commissionAsset','手续费币种'),column('time','时间 (UTC)',false,true),column('source','归属'),column('intent_action','开平仓意图'),column('strategy_type','开仓策略类型'),column('net_excluding_funding','净收益（不含资金费）',true)];
 const income = [column('symbol','合约'),column('incomeType','流水类型'),column('income','金额',true),column('asset','币种'),column('time','时间 (UTC)',false,true)];
-const intents = [column('symbol','合约'),column('strategy','策略'),column('action','意图'),column('payload.direction','信号方向'),column('bar_time','闭合时间 (UTC)',false,true),column('payload.fast_ema','快 EMA',true),column('payload.slow_ema','慢 EMA',true),column('status','执行状态'),column('reason','原因'),column('created_at','创建时间 (UTC)',false,true)];
+const intents = [column('symbol','合约'),column('strategy','策略'),column('action','意图'),column('payload.strategy_type','策略类型'),column('payload.direction','信号方向'),column('bar_time','闭合时间 (UTC)',false,true),column('payload.fast_ema','快 EMA',true),column('payload.slow_ema','慢 EMA',true),column('payload.anchor','驱动窗口 (UTC)',false,true),column('payload.range_pct','振幅 (%)',true),column('payload.move_pct','方向涨跌幅 (%)',true),column('payload.efficiency','路径效率',true),column('payload.ratchet_stage','棘轮档位',true),column('payload.exit_reason','退出原因'),column('status','执行状态'),column('reason','原因'),column('created_at','创建时间 (UTC)',false,true)];
 const openOrder = (row: Row) => ['NEW', 'PARTIALLY_FILLED'].includes(String(row.status)) &&
   view.value?.open_orders?.some(order => String(order.orderId) === String(row.orderId) && order.symbol === row.symbol);
 const openAlgo = (row: Row) => row.algoStatus === 'NEW' &&
@@ -356,7 +370,7 @@ onBeforeUnmount(() => { stopped = true; clearInterval(timer); });
         策略与控制
       </h2>
       <p class="text-sm text-muted-foreground">
-        EMA 交叉仅用于验证模拟交易闭环。保存后默认暂停，可观察信号；启用后才自动开仓。
+        EMA 交叉与 24/7 永续驱动（源自日内期权 V8）独立运行。保存后默认暂停，可观察信号；启用后才自动开仓。
       </p>
       <PaperTable
         :rows="data?.strategies ?? []"
@@ -392,6 +406,11 @@ onBeforeUnmount(() => { stopped = true; clearInterval(timer); });
           :options="strategySymbols"
         />
         <FieldSelect
+          v-model="strategy.strategy_type"
+          label="策略类型"
+          :options="[{ value:'ema_cross', label:'EMA 交叉' },{value:'perpetual_drive',label:'24/7 永续驱动 (V8)'}]"
+        />
+        <FieldSelect
           v-model="strategy.direction"
           label="允许方向"
           :options="[{ value:'LONG', label:'只做多' },{value:'BOTH',label:'双向'}]"
@@ -402,6 +421,12 @@ onBeforeUnmount(() => { stopped = true; clearInterval(timer); });
           v-model="strategy[key]"
           :label="label"
         />
+        <p
+          v-if="strategy.strategy_type === 'perpetual_drive'"
+          class="col-span-full text-sm text-muted-foreground"
+        >
+          仅适用于 24/7 加密货币永续，依赖 BTCUSDT 行情及连续 UTC 日线。初始止损取 ATR × 1.2 与止损上限较小值；棘轮由后台按 Demo 标记价执行。
+        </p>
         <div class="flex items-end">
           <Button
             type="submit"

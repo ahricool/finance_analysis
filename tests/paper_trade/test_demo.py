@@ -670,3 +670,138 @@ def test_reconcile_order_candidates_retained_after_partial_snapshot():
     new = {"symbol": SYMBOL, "algoId": "100", "clientAlgoId": "new"}
     partial = {"reconcile_open_orders": [old], "open_orders": [], "open_algos": [new]}
     assert reconciliation_orders(partial) == [old, new]
+
+
+@pytest.mark.asyncio
+async def test_drive_ratchet_persisted_and_paused_exit_no_duplicate(db_repo):
+    from finance_analysis.paper_trade.strategies import perpetual_drive as drive
+
+    cfg = {"name": "V8", "strategy_type": drive.TYPE, "symbol": SYMBOL,
+           "stop_pct": "2", "max_loss": "5", "direction": "BOTH"}
+    repo.save_strategy(SYMBOL, cfg)
+    repo.set_trade_control(True)
+    repo.control(SYMBOL, True)
+    entry = repo.queue(uuid4().hex, SYMBOL, "SIGNAL", {
+        "direction": "LONG", "exit_profile": drive.exit_profile(D("0.04"), "2"),
+    }, SYMBOL)
+    repo.transition(entry["id"], "FILLED", payload={**entry["payload"], "exchange_request": {"quantity": "0.001"}})
+    repo.control(SYMBOL, False)
+    repo.set_trade_control(False)
+    trades = [{"symbol": SYMBOL, "strategy": SYMBOL, "intent_action": "SIGNAL", "intent_id": entry["id"],
+               "time": 100, "id": "1", "qty": "0.001", "side": "BUY", "commissionAsset": "USDT",
+               "commission": "0", "realizedPnl": "0"}]
+    position = {"symbol": SYMBOL, "positionSide": "BOTH", "positionAmt": "0.001",
+                "entryPrice": "10000", "markPrice": "10500", "unRealizedProfit": "0.5"}
+    fake = Mock(submit=AsyncMock())
+    runtime = PaperRuntime(Mock(), fake, Mock())
+    runtime.view = {"positions": [position], "open_algos": [], "shared_symbols": []}
+    await runtime.evaluate_strategy(repo.strategies()[0], trades, [])
+    assert repo.get_intent(entry["id"])["payload"]["ratchet_stage"] == 2
+    protect = [i for i in repo.intents() if i["action"] == "PROTECT"]
+    assert len(protect) == 1 and protect[0]["payload"]["initial_stop"] == "0.02"
+    assert not [i for i in repo.intents() if i["action"] == "CLOSE"]
+    # Restart, then retrace under tier 2 while both switches remain off.
+    runtime = PaperRuntime(Mock(), fake, Mock())
+    position.update(markPrice="10200", unRealizedProfit="0.2")
+    runtime.view = {"positions": [position], "open_algos": [], "shared_symbols": []}
+    await runtime.evaluate_strategy(repo.strategies()[0], trades, [])
+    assert repo.get_intent(entry["id"])["payload"]["ratchet_triggered"] is True
+    close = [i for i in repo.intents() if i["action"] == "CLOSE"]
+    assert len(close) == 1 and close[0]["payload"]["exit_reason"] == "DRIVE_RATCHET"
+    await runtime.evaluate_strategy(repo.strategies()[0], trades, [])
+    assert len([i for i in repo.intents() if i["action"] == "CLOSE"]) == 1
+    # A known unsubmitted timeout can requeue; an ambiguous submission cannot.
+    repo.transition(close[0]["id"], "BLOCKED", "INTENT_EXPIRED")
+    await runtime.evaluate_strategy(repo.strategies()[0], trades, [])
+    close = [i for i in repo.intents() if i["action"] == "CLOSE"]
+    assert len(close) == 2
+    repo.transition(close[-1]["id"], "UNKNOWN")
+    await runtime.evaluate_strategy(repo.strategies()[0], trades, [])
+    assert len([i for i in repo.intents() if i["action"] == "CLOSE"]) == 2
+    fake.submit.assert_not_awaited()
+
+
+def test_stale_strategy_snapshot_cannot_record_signal(db_repo):
+    repo.save_strategy(SYMBOL, {"name": "before", "strategy_type": "perpetual_drive"})
+    old = repo.strategies()[0]
+    repo.save_strategy(SYMBOL, {"name": "after", "strategy_type": "ema_cross"})
+    bar = repo.strategies()[0]["cursor"] + 300_000
+    assert repo.signal(SYMBOL, bar, {}, "SIGNAL", None, old["updated_at"]) is None
+    assert not repo.intents()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("external,global_enabled,expected", [
+    (False, False, "OBSERVED"), (False, True, "QUEUED"), (True, True, "BLOCKED"),
+])
+async def test_drive_runtime_closed_signal_and_demo_submission(db_repo, monkeypatch, external, global_enabled, expected):
+    from finance_analysis.paper_trade import runtime as runtime_module
+    from finance_analysis.paper_trade.strategies import perpetual_drive as drive
+
+    cfg = {"name": "V8", "strategy_type": drive.TYPE, "symbol": SYMBOL, "direction": "BOTH",
+           "stop_pct": "2", "max_loss": "5", "notional": "20", "margin": "10",
+           "max_position": "20", "leverage_limit": 2}
+    anchor = runtime_module.now_ms() // drive.HOUR * drive.HOUR
+    stamp = anchor + 15 * drive.MINUTE + 20_000
+    monkeypatch.setattr(runtime_module, "now_ms", lambda: stamp)
+    monkeypatch.setattr(repo.time, "time", lambda: stamp / 1000 - 300)
+    repo.save_strategy(SYMBOL, cfg)
+    repo.control(SYMBOL, True)
+    repo.set_trade_control(global_enabled)
+
+    def candle(t, o, c, wick):
+        return {"timestamp": t, "open": str(o), "close": str(c),
+                "high": str(max(o, c) + wick), "low": str(min(o, c) - wick),
+                "volume": "1", "turnover": str((o + c) / 2)}
+
+    rows = [candle(anchor + i * drive.MINUTE, D("10000") + i * 16,
+                   D("10000") + (i + 1) * 16, D(10)) for i in range(16)]
+    day = anchor // drive.DAY * drive.DAY
+    daily = [candle(t, D("10000"), D("10000"), D(200))
+             for t in range(day - 15 * drive.DAY, day, drive.DAY)]
+    monkeypatch.setattr(runtime_module, "read_json", AsyncMock(return_value=rows))
+    monkeypatch.setattr(runtime_module.contracts, "daily", lambda *_: daily)
+    pos = [{"symbol": SYMBOL, "positionSide": "BOTH", "positionAmt": "0.001"}] if external else []
+    fake = Mock(quote=AsyncMock(return_value={"price": "10240", "time": stamp}),
+                positions=AsyncMock(return_value=pos), open_orders=AsyncMock(return_value=[]),
+                account=AsyncMock(return_value={"availableBalance": "900"}),
+                submit=AsyncMock(return_value={"symbol": SYMBOL, "orderId": 40, "status": "NEW"}))
+    runtime = PaperRuntime(Mock(), fake, Mock(renew=AsyncMock(return_value=True)))
+    runtime.rules = [RULE]
+    runtime.view = {"positions": pos, "open_algos": [], "open_orders": [], "shared_symbols": [SYMBOL],
+                    "configuration": {"canTrade": True, "dualSidePosition": False},
+                    "sync_started": stamp, "symbol_config": [{"symbol": SYMBOL, "leverage": 2}],
+                    "account": {"availableBalance": "900"}}
+    await runtime.evaluate_strategy(repo.strategies()[0], [], [])
+    entry = repo.intents()[0]
+    assert entry["status"] == expected
+    assert entry["payload"]["direction"] == "LONG"
+    assert entry["payload"]["strategy_type"] == drive.TYPE
+    await runtime.evaluate_strategy(repo.strategies()[0], [], [])
+    assert len(repo.intents()) == 1
+    if expected == "QUEUED":
+        # The intent was just recorded. Freeze test age in the mock clock.
+        entry["created_at"] = datetime.fromtimestamp(stamp / 1000, timezone.utc).isoformat()
+        await runtime.submit(entry, [])
+        assert repo.get_intent(entry["id"])["status"] == "SUBMITTED"
+        order = fake.submit.await_args.args[0]
+        assert order["side"] == "BUY" and order["type"] == "MARKET"
+    else:
+        fake.submit.assert_not_awaited()
+        if external:
+            assert entry["reason"] == "EXTERNAL_POSITION_CONFLICT"
+
+
+def test_strategy_type_performance_isolated_by_completed_cycle():
+    base = {"symbol": SYMBOL, "strategy": SYMBOL, "qty": "1", "commissionAsset": "USDT",
+            "commission": "0.1", "realizedPnl": "0"}
+    trades = [
+        {**base, "id": 1, "time": 1, "side": "BUY"},
+        {**base, "id": 2, "time": 2, "side": "SELL", "realizedPnl": "-3"},
+        {**base, "id": 3, "time": 3, "side": "SELL", "strategy_type": "perpetual_drive"},
+        {**base, "id": 4, "time": 5, "side": "BUY", "realizedPnl": "5"},
+    ]
+    income = [{"symbol": SYMBOL, "time": 4, "incomeType": "FUNDING_FEE", "asset": "USDT", "income": "-0.1"}]
+    assert performance(SYMBOL, trades, income, "ema_cross")["net"] == "-3.2"
+    assert performance(SYMBOL, trades, income, "perpetual_drive")["net"] == "4.7"
+    assert performance(SYMBOL, trades, income)["trades"] == 2

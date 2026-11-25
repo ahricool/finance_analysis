@@ -7,10 +7,14 @@ from pydantic import BaseModel, Field, model_validator
 
 class StrategyConfig(BaseModel):
     name: str = Field(min_length=1, max_length=80)
-    strategy_type: Literal["ema_cross"] = "ema_cross"
+    strategy_type: Literal["ema_cross", "perpetual_drive"] = "ema_cross"
     symbol: str = Field(pattern=r"^[A-Z0-9]{2,32}$")
-    fast: int = Field(ge=2, le=40)
-    slow: int = Field(ge=3, le=90)
+    fast: int | None = Field(default=None, ge=2, le=40)
+    slow: int | None = Field(default=None, ge=3, le=90)
+    drive_range_pct: Decimal = Field(default=Decimal("0.8"), gt=0, le=10)
+    drive_move_pct: Decimal = Field(default=Decimal("1.2"), gt=0, le=20)
+    drive_efficiency: Decimal = Field(default=Decimal("0.48"), gt=0, le=1)
+    drive_relative_pct: Decimal = Field(default=Decimal("0.8"), ge=0, le=10)
     direction: Literal["LONG", "BOTH"]
     notional: Decimal = Field(gt=0, max_digits=20, decimal_places=8)
     margin: Decimal = Field(gt=0, max_digits=20, decimal_places=8)
@@ -21,8 +25,10 @@ class StrategyConfig(BaseModel):
 
     @model_validator(mode="after")
     def validate_limits(self):
-        if self.fast >= self.slow or self.notional > self.max_position:
-            raise ValueError("Fast EMA must be shorter than slow EMA; notional cannot exceed maximum position")
+        if self.strategy_type == "ema_cross" and (self.fast is None or self.slow is None or self.fast >= self.slow):
+            raise ValueError("Fast EMA must be shorter than slow EMA")
+        if self.notional > self.max_position:
+            raise ValueError("Notional cannot exceed maximum position")
         if self.notional * self.stop_pct / 100 > self.max_loss:
             raise ValueError("Planned stop loss exceeds loss limit")
         return self

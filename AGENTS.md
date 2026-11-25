@@ -511,6 +511,7 @@ GET只读，行级机会资格排除缺线、延迟和非交易时段；默认�
 由现有 Streamer leader 驱动，API GET 只读 DB/Redis，POST 仅保存明确意图，不直接写交易所。
 密钥配置后持续同步，默认禁用新增仓位及自动策略；持久化策略/信号/交易所记录/权益（0097）及管理员 Demo 交易总开关（0099），不恢复 BTC 现货策略。
 订单不确定时按固定 client ID 核对，禁止盲目重试；交易所实际成交归属独立于信号。
+新增独立 `perpetual_drive`（V8 24/7）：UTC 整点滚动窗口、BTC 同向 VWAP、闭合日 ATR 与持久化棘轮；仅 Demo 加密货币永续，默认暂停。
 页面 `/crypto/paper-trade`。配置、运行和限制见 `docs/binance-paper-trade.md`。
 
 ## Binance Live Trade

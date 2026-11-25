@@ -32,9 +32,9 @@ def save_daily(symbol, bars):
         ))
 
 
-def daily(symbol):
+def daily(symbol, limit=2000):
     with DatabaseManager.get_instance().session_scope() as session:
         rows = session.scalars(select(FuturesDailyBar).where(FuturesDailyBar.symbol == symbol)
-                               .order_by(FuturesDailyBar.timestamp.desc()).limit(2000)).all()
+                               .order_by(FuturesDailyBar.timestamp.desc()).limit(limit)).all()
         return [{key: getattr(row, key) for key in
                  ("timestamp", "open", "high", "low", "close", "volume", "turnover")} for row in reversed(rows)]

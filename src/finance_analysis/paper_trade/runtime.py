@@ -5,6 +5,7 @@ import json
 import logging
 import time
 from datetime import datetime, timezone
+from decimal import ROUND_CEILING
 import uuid
 
 import websockets
@@ -17,6 +18,7 @@ from finance_analysis.integrations.crypto.account_records import usdt_perpetual_
 
 from .config import DemoConfig
 from .ledger import attributed_trades, ownership, performance
+from .strategies import WINDOW_STRATEGIES, perpetual_drive as drive
 from .strategy import D, STRATEGIES, closed_closes, contract_rule, filters, floor_step, sized_quantity, validate_order
 
 logger = logging.getLogger(__name__)
@@ -228,10 +230,14 @@ class PaperRuntime:
             and r.get("marginAsset") == "USDT"
             and r.get("contractType") in {"PERPETUAL", "TRADIFI_PERPETUAL"}
         ]
+        demo_coin_symbols = [
+            r["symbol"] for r in self.rules if r["symbol"] in demo_symbols and r.get("underlyingType") == "COIN"
+        ]
         self.basic_view.update(
             configuration=configuration,
             symbol_config=configs,
             demo_symbols=demo_symbols,
+            demo_coin_symbols=demo_coin_symbols,
             shared_symbols=[r["symbol"] for r in shared],
         )
         orders = [repo.normalize_ids(r) for r in await self.client.open_orders() if r["symbol"] in supported]
@@ -408,6 +414,7 @@ class PaperRuntime:
             "synced_at": datetime.now(timezone.utc).isoformat(),
             "shared_symbols": [r["symbol"] for r in shared],
             "demo_symbols": demo_symbols,
+            "demo_coin_symbols": demo_coin_symbols,
         }
         await db(repo.save_snapshot, self.view)
         for symbol, generation in event_symbols.items():
@@ -484,6 +491,15 @@ class PaperRuntime:
                     "reduceOnly": "true",
                 }
             elif intent["action"] == "SIGNAL":
+                if strategy and strategy["strategy_type"] == drive.TYPE:
+                    if rule.get("underlyingType") != "COIN":
+                        raise ValueError("DRIVE_CRYPTO_ONLY")
+                    if drive.BENCHMARK not in self.view["shared_symbols"]:
+                        raise ValueError("DRIVE_BENCHMARK_REMOVED")
+                    if payload.get("strategy_type") != drive.TYPE or not drive.valid_profile(
+                        payload.get("exit_profile"), strategy["stop_pct"]
+                    ):
+                        raise ValueError("DRIVE_ENTRY_PROFILE_MISSING")
                 if (
                     not strategy
                     or not strategy["enabled"]
@@ -519,15 +535,20 @@ class PaperRuntime:
             elif intent["action"] == "PROTECT":
                 if not pos or not managed:
                     raise ValueError("NO_OWNED_POSITION")
-                stop = D(pos["entryPrice"]) * (
-                    1 - D(strategy["stop_pct"]) / 100 if actual > 0 else 1 + D(strategy["stop_pct"]) / 100
-                )
+                stop_ratio = min(D(strategy["stop_pct"]) / 100, D(payload.get("initial_stop", "1")))
+                if stop_ratio <= 0:
+                    raise ValueError("INVALID_PROTECTION_STOP")
+                stop = D(pos["entryPrice"]) * (1 - stop_ratio if actual > 0 else 1 + stop_ratio)
                 tick = filters(rule)["PRICE_FILTER"]["tickSize"]
+                trigger = (
+                    (stop / D(tick)).to_integral_value(rounding=ROUND_CEILING) * D(tick)
+                    if "initial_stop" in payload and actual > 0 else floor_step(stop, tick)
+                )
                 order = {
                     "type": "STOP_MARKET",
                     "side": "SELL" if actual > 0 else "BUY",
                     "quantity": str(abs(actual)),
-                    "triggerPrice": str(floor_step(stop, tick)),
+                    "triggerPrice": str(trigger),
                     "reduceOnly": "true",
                     "workingType": "MARK_PRICE",
                 }
@@ -621,6 +642,50 @@ class PaperRuntime:
             except (ValueError, KeyError, ArithmeticError):
                 await db(repo.status, strategy["symbol"], "INVALID_STRATEGY_DATA")
 
+    async def drive_position(self, symbol, position, actual, trades, active):
+        """Advance the frozen V8 exit ladder on exchange marks, even when paused."""
+        entries = [t for t in trades if t["symbol"] == symbol and t["strategy"] == symbol
+                   and t.get("intent_action") == "SIGNAL"]
+        if not entries:
+            await db(repo.status, symbol, "DRIVE_ENTRY_PROFILE_MISSING")
+            return {}, False
+        entry = max(entries, key=lambda t: (t["time"], int(t["id"])))
+        intent = await db(repo.get_intent, entry["intent_id"])
+        profile = (intent or {}).get("payload", {}).get("exit_profile")
+        if not profile:
+            await db(repo.status, symbol, "DRIVE_ENTRY_PROFILE_MISSING")
+            return {}, False
+        payload = intent["payload"]
+        try:
+            stage, triggered = drive.ratchet(
+                profile, payload.get("ratchet_stage", 0), position["entryPrice"], position["markPrice"], actual
+            )
+        except (KeyError, ValueError, ArithmeticError):
+            await db(repo.status, symbol, "DRIVE_MARK_UNAVAILABLE")
+            stage, triggered = payload.get("ratchet_stage", 0), payload.get("ratchet_triggered", False)
+        stage, triggered = await db(repo.drive_ratchet, intent["id"], stage, triggered)
+        if triggered:
+            if not any(i["action"] == "CLOSE" for i in active):
+                close_id = uuid.uuid5(
+                    uuid.NAMESPACE_URL, f"paper-drive-exit:{intent['id']}:{actual.normalize()}"
+                ).hex
+                existing = await db(repo.get_intent, close_id)
+                # A queued close may expire before being sent, e.g. during downtime.
+                # Only an explicitly unclaimed terminal intent can be replaced.
+                while (existing and existing["status"] == "BLOCKED"
+                       and existing["reason"] in {"INTENT_EXPIRED", "POSITION_CHANGED_CONFIRM_AGAIN"}
+                       and not existing["payload"].get("exchange_request")):
+                    close_id = uuid.uuid5(uuid.NAMESPACE_URL, f"paper-drive-retry:{close_id}").hex
+                    existing = await db(repo.get_intent, close_id)
+                queued = existing or await db(
+                    repo.queue, close_id, symbol, "CLOSE",
+                    {"exit_reason": "DRIVE_RATCHET" if stage else "DRIVE_INITIAL_STOP",
+                     "entry_intent": intent["id"]}, symbol,
+                )
+                await db(repo.status, symbol, "DRIVE_EXIT_" + queued["status"])
+            return {"initial_stop": profile["initial_stop"]}, True
+        return {"initial_stop": profile["initial_stop"]}, False
+
     async def evaluate_strategy(self, strategy, trades, income):
         symbol = strategy["symbol"]
         actual, managed, conflict = ownership(symbol, self.view["positions"], trades)
@@ -644,6 +709,11 @@ class PaperRuntime:
                     )
                     break
         if managed:
+            protection_payload = {}
+            drive_exit = False
+            if strategy["strategy_type"] == drive.TYPE:
+                position = position_for(self.view["positions"], symbol)
+                protection_payload, drive_exit = await self.drive_position(symbol, position, actual, trades, active)
             # Keep the already-created exchange protection alive while paused.
             protection = [i for i in active if i["action"] == "PROTECT"]
             entries = [t for t in trades if t["symbol"] == symbol and t["strategy"] == symbol]
@@ -652,7 +722,7 @@ class PaperRuntime:
             if not protection:
                 existing = next((i for i in await db(repo.intents) if i["id"] == protect_id), None)
                 if not existing:
-                    await db(repo.queue, protect_id, symbol, "PROTECT", {}, symbol)
+                    await db(repo.queue, protect_id, symbol, "PROTECT", protection_payload, symbol)
                 else:
                     await db(repo.status, symbol, "PROTECTION_MISSING")
             else:
@@ -672,8 +742,10 @@ class PaperRuntime:
                             symbol,
                         )
                     await db(repo.status, symbol, "PROTECTION_RESIZE_PENDING")
+            if drive_exit:
+                return
             unrealized = D(position_for(self.view["positions"], symbol)["unRealizedProfit"])
-            realized = D(performance(symbol, trades, income)["net"] or 0)
+            realized = D(performance(symbol, trades, income, strategy["strategy_type"])["net"] or 0)
             position = position_for(self.view["positions"], symbol)
             stop_loss = abs(actual) * D(position["entryPrice"]) * D(strategy["stop_pct"]) / 100
             if min(unrealized, realized + unrealized) <= -D(strategy["max_loss"]) or unrealized <= -stop_loss:
@@ -686,35 +758,66 @@ class PaperRuntime:
             await db(repo.status, symbol, "SIGNAL_SOURCE_REMOVED")
             return
         bars = await read_json(self.redis, key(symbol, "minute"), [])
-        signal = closed_closes(bars, now_ms(), strategy["slow"] * 3 + 1)
+        stamp = now_ms()
+        if strategy["strategy_type"] == drive.TYPE:
+            if drive.BENCHMARK not in self.view["shared_symbols"]:
+                await db(repo.status, symbol, "DRIVE_BENCHMARK_REMOVED")
+                return
+            try:
+                rule = contract_rule(self.rules, symbol)
+            except ValueError as exc:
+                await db(repo.status, symbol, str(exc))
+                return
+            if rule.get("underlyingType") != "COIN":
+                await db(repo.status, symbol, "DRIVE_CRYPTO_ONLY")
+                return
+            # Same durable closed-5m cursor as EMA; avoid daily reads between decisions.
+            if stamp // drive.PERIOD * drive.PERIOD <= strategy["cursor"]:
+                return
+            if not 15_000 <= stamp % drive.PERIOD <= 90_000:
+                return
+            benchmark = bars if symbol == drive.BENCHMARK else await read_json(
+                self.redis, key(drive.BENCHMARK, "minute"), []
+            )
+            daily = await db(contracts.daily, symbol, 17)
+            signal = WINDOW_STRATEGIES[strategy["strategy_type"]](bars, benchmark, daily, stamp, strategy)
+        else:
+            closed = closed_closes(bars, stamp, strategy["slow"] * 3 + 1)
+            signal = None
+            if closed:
+                bar, closes = closed
+                direction, evidence = STRATEGIES[strategy["strategy_type"]](closes, strategy)
+                signal = bar, direction, {**evidence, "production_close": str(closes[-1]), "strategy_type": strategy["strategy_type"]}
         if not signal:
             if strategy["enabled"] and not managed and not conflict and not active:
                 await db(repo.status, symbol, "WAITING_FRESH_CLOSED_BARS")
             return
-        bar, closes = signal
-        direction, evidence = STRATEGIES[strategy["strategy_type"]](closes, strategy)
+        bar, direction, evidence = signal
         if not direction:
-            await db(repo.signal, symbol, bar, {}, None)
+            await db(repo.signal, symbol, bar, {}, None, None, strategy["updated_at"])
             return
         reason = "EXTERNAL_POSITION_CONFLICT" if conflict else None
         action = "SIGNAL"
         if managed:
-            if (actual > 0 and direction == "SHORT") or (actual < 0 and direction == "LONG"):
+            if strategy["strategy_type"] != drive.TYPE and (
+                (actual > 0 and direction == "SHORT") or (actual < 0 and direction == "LONG")
+            ):
                 action = "CLOSE"
             else:
                 reason = "POSITION_ALREADY_OPEN"
         if any(i["action"] != "PROTECT" or i["status"] in {"UNKNOWN", "SUBMITTING"} for i in active):
             reason = "PENDING_INTENT"
-        stats = performance(symbol, trades, income)
+        stats = performance(symbol, trades, income, strategy["strategy_type"])
         if not managed and stats["net"] is not None and D(stats["net"]) <= -D(strategy["max_loss"]):
             reason = "MAX_LOSS_REACHED"
         await db(
             repo.signal,
             symbol,
             bar,
-            {**evidence, "direction": direction, "production_close": str(closes[-1])},
+            {**evidence, "direction": direction},
             action,
             reason,
+            strategy["updated_at"],
         )
 
     async def run(self):

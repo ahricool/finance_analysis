@@ -407,6 +407,7 @@ V2历史仍标“宏观环境”并说明统一风险偏好语义，不用V2.1�
 `/crypto/paper-trade` 仅管理员可见/进入，独立于 `/crypto/contracts`；低频轮询本站后端。
 管理员独立 Demo 交易总开关默认关闭，关闭只禁止新增仓位；模拟委托、撤单、平仓和策略启用有明确确认；默认不预填交易指令、不自动执行。
 状态明确区分信号、意图、普通订单、Algo 与真实 Demo 成交；无数据不补零。
+策略选择支持 EMA 与 24/7 永续驱动 (V8)，V8 仅列 Demo 加密货币共享标的，独立参数与信号证据展示。
 现有 MarketKLineChart 显示共享生产行情，不用生产价格计算 Demo 成交及收益。见 `../docs/binance-paper-trade.md`。
 
 ## Binance Live Trade

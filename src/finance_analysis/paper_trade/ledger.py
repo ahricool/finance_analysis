@@ -38,6 +38,11 @@ def attributed_trades(intents, orders, algos, trades):
             "strategy": owner.get("strategy") if owner else None,
             "source": "STRATEGY" if owner and owner.get("strategy") else "FA_MANUAL" if owner else "EXTERNAL",
             "intent_action": owner.get("action") if owner else None,
+            "intent_id": owner.get("id") if owner else None,
+            "strategy_type": (
+                owner["payload"].get("strategy_type", "ema_cross")
+                if owner and owner.get("strategy") and owner["action"] == "SIGNAL" else None
+            ),
             "net_excluding_funding": (
                 str(D(row["realizedPnl"]) - D(row["commission"])) if row.get("commissionAsset") == "USDT" else None
             ),
@@ -63,7 +68,7 @@ def ownership(symbol, positions, trades):
     return actual, bool(actual and managed == actual and not conflict), bool(conflict or actual != managed)
 
 
-def performance(symbol, trades, income):
+def performance(symbol, trades, income, strategy_type=None):
     """Round trips from attributable fills; funding only while exclusively owned."""
     qty = D(0)
     net = D(0)
@@ -71,6 +76,7 @@ def performance(symbol, trades, income):
     started = None
     trade_net = D(0)
     contaminated = False
+    cycle_type = None
     timeline = [(t["time"], 0, t) for t in trades if t["symbol"] == symbol]
     timeline += [(i["time"], 1, i) for i in income if i.get("symbol") == symbol and i["incomeType"] == "FUNDING_FEE"]
     for stamp, kind, row in sorted(timeline, key=lambda x: (x[0], x[1], int(x[2].get("id", 0)))):
@@ -84,12 +90,15 @@ def performance(symbol, trades, income):
             continue
         if not qty:
             started, trade_net, contaminated = stamp, D(0), False
+            cycle_type = row.get("strategy_type") or "ema_cross"
+        if row.get("strategy_type") and row["strategy_type"] != cycle_type:
+            contaminated = True
         if row.get("commissionAsset") != "USDT":
             contaminated = True
         trade_net += D(row["realizedPnl"]) - D(row["commission"])
         qty += D(row["qty"]) * (1 if row["side"] == "BUY" else -1)
         if not qty:
-            if not contaminated:
+            if not contaminated and (strategy_type is None or cycle_type == strategy_type):
                 net += trade_net
                 completed.append((trade_net, stamp - started))
             started = None

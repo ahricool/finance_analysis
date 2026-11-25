@@ -125,6 +125,7 @@ def save_strategy(symbol, config):
             s.add(row)
         else:
             row.config = config
+            row.cursor = max(row.cursor, int(time.time() * 1000) // 300_000 * 300_000)
             row.updated_at = utc_now()
         s.flush()
         return strategy_dict(row)
@@ -156,11 +157,13 @@ def status(symbol, reason):
             row.status = reason
 
 
-def signal(symbol, bar_time, payload, action, reason=None):
+def signal(symbol, bar_time, payload, action, reason=None, expected_updated_at=None):
     with session_scope() as s:
         global_enabled = locked_trade_control(s).enabled
         row = s.get(PaperStrategy, symbol, with_for_update=True)
-        if not row or bar_time <= row.cursor:
+        if not row or bar_time <= row.cursor or (
+            expected_updated_at is not None and strategy_dict(row)["updated_at"] != expected_updated_at
+        ):
             return
         row.cursor = bar_time
         if not action:
@@ -225,6 +228,25 @@ def intents(active=False):
                 PaperIntent.status.in_(["QUEUED", "SUBMITTING", "UNKNOWN", "SUBMITTED", "PARTIALLY_FILLED"])
             )
         return [intent_dict(row) for row in s.scalars(query)]
+
+
+def get_intent(intent_id):
+    with session_scope() as s:
+        row = s.get(PaperIntent, intent_id)
+        return intent_dict(row) if row else None
+
+
+def drive_ratchet(intent_id, stage, triggered):
+    """Persist monotonic protection state on the claimed entry, not market cache."""
+    with session_scope() as s:
+        row = s.get(PaperIntent, intent_id, with_for_update=True)
+        if not row or row.action != "SIGNAL" or not row.payload.get("exit_profile"):
+            raise ValueError("DRIVE_ENTRY_PROFILE_MISSING")
+        stage = max(stage, row.payload.get("ratchet_stage", 0))
+        triggered = triggered or row.payload.get("ratchet_triggered", False)
+        if stage != row.payload.get("ratchet_stage", 0) or triggered != row.payload.get("ratchet_triggered", False):
+            row.payload = {**row.payload, "ratchet_stage": stage, "ratchet_triggered": triggered}
+        return stage, triggered
 
 
 def transition(intent_id, state, reason=None, payload=None, expected=None):

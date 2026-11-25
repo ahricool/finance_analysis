@@ -108,3 +108,49 @@ test('ordinary user cannot open Demo page', async ({ page }) => {
   await expect(page.getByTestId('contracts-page')).toBeVisible();
   await expect(page.getByRole('link', { name: 'Paper Trade', exact: true })).toHaveCount(0);
 });
+
+test('24/7 drive has independent parameters and only sends a paused configuration', async ({ page }) => {
+  const writes: { path: string; payload: unknown }[] = [];
+  const snapshot: PaperSnapshot = {
+    ...empty, connection: { status: 'CONNECTED', stream_connected: true },
+    view: { account: {}, positions: [], complete: true, synced_at: new Date().toISOString(),
+      shared_symbols: ['BTCUSDT', 'ETHUSDT', 'QQQUSDT'],
+      demo_symbols: ['BTCUSDT', 'ETHUSDT', 'QQQUSDT'], demo_coin_symbols: ['BTCUSDT', 'ETHUSDT'] },
+  };
+  await page.route('**/api/v1/**', async route => {
+    const url = new URL(route.request().url());
+    if (url.pathname === '/api/v1/auth/status') return route.fulfill({ json: {
+      loggedIn: true, user: { uid: 1, username: 'Tester', email: 'test@example.com', role: 'admin' },
+    } });
+    if (url.pathname === '/api/v1/crypto/paper-trade') return route.fulfill({ json: snapshot });
+    if (url.pathname === '/api/v1/crypto/contracts') return route.fulfill({ json: { items: [] } });
+    if (route.request().method() === 'PUT' && url.pathname.includes('/paper-trade/strategies/')) {
+      writes.push({ path: url.pathname, payload: route.request().postDataJSON() });
+      return route.fulfill({ json: { enabled: false } });
+    }
+    return route.fulfill({ json: dashboardResponse(url) });
+  });
+  await page.goto('/crypto/paper-trade');
+  await expect(page.getByTestId('demo-connection')).toContainText('连接正常');
+  await page.getByRole('combobox', { name: '策略类型' }).click();
+  await page.getByRole('option', { name: '24/7 永续驱动 (V8)' }).click();
+  const form = page.locator('form').filter({ has: page.getByRole('button', { name: '保存策略' }) });
+  await expect(form.getByLabel('快 EMA', { exact: true })).toHaveCount(0);
+  await expect(form.getByLabel('初始振幅 (%)')).toHaveValue('0.8');
+  await expect(form.getByLabel('路径效率 (0–1)')).toHaveValue('0.48');
+  await page.getByRole('combobox', { name: '策略合约' }).click();
+  await expect(page.getByRole('option', { name: 'QQQUSDT' })).toHaveCount(0);
+  await page.getByRole('option', { name: 'ETHUSDT' }).click();
+  for (const [label, value] of [
+    ['策略名称', 'V8 ETH'], ['计划名义额度 (USDT)', '100'], ['计划保证金 (USDT)', '50'],
+    ['最大名义持仓 (USDT)', '100'], ['杠杆上限', '2'], ['最大亏损 (USDT)', '5'], ['止损比例 (%)', '2'],
+  ] as const) await form.getByLabel(label, { exact: true }).fill(value);
+  await page.getByRole('button', { name: '保存策略' }).click();
+  await expect.poll(() => writes.length).toBe(1);
+  expect(writes[0]).toMatchObject({
+    path: '/api/v1/crypto/paper-trade/strategies/ETHUSDT',
+    payload: { symbol: 'ETHUSDT', strategy_type: 'perpetual_drive', drive_efficiency: '0.48', drive_move_pct: '1.2' },
+  });
+  expect(writes[0]!.payload).not.toHaveProperty('fast');
+  await expect(page.getByTestId('paper-trading-switch')).toHaveAttribute('aria-checked', 'false');
+});

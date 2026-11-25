@@ -61,7 +61,7 @@ def data():
             owner = linked.get((row["symbol"], str(row["orderId"])))
         row["source"] = "STRATEGY" if owner and owner["strategy"] else "FA_MANUAL" if owner else "EXTERNAL"
     for s in strategies:
-        s["performance"] = performance(s["symbol"], trades, income)
+        s["performance"] = performance(s["symbol"], trades, income, s.get("strategy_type", "ema_cross"))
         stats = s["performance"]
         stats["win_rate_pct"] = (
             str((D(stats["win_rate"]) * 100).quantize(D("0.01"))) if stats["win_rate"] is not None else None
@@ -145,9 +145,17 @@ def save_strategy(symbol: str, payload: StrategyConfig):
     if symbol not in {s["symbol"] for s in contracts.contracts()}:
         raise HTTPException(422, "策略标的必须属于共享合约行情池")
     view, _ = repo.snapshots()
+    if payload.strategy_type == "perpetual_drive" and (
+        symbol not in (view or {}).get("demo_coin_symbols", [])
+        or "BTCUSDT" not in (view or {}).get("shared_symbols", [])
+    ):
+        raise HTTPException(422, "永续驱动要求 Demo 加密货币永续及 BTCUSDT 共享行情")
     if any(p["symbol"] == symbol and D(p["positionAmt"]) for p in (view or {}).get("positions", [])):
         raise HTTPException(409, "持仓期间不可修改策略参数；请先退出该仓位")
-    return mutation(repo.save_strategy, symbol, payload.model_dump(mode="json"))
+    ignored = {"fast", "slow"} if payload.strategy_type == "perpetual_drive" else {
+        "drive_range_pct", "drive_move_pct", "drive_efficiency", "drive_relative_pct"
+    }
+    return mutation(repo.save_strategy, symbol, payload.model_dump(mode="json", exclude=ignored))
 
 
 @router.post("/strategies/{symbol}/control")
@@ -158,6 +166,11 @@ async def control(symbol: str, payload: StrategyControl):
             raise HTTPException(409, "Demo 合约或共享行情标的不可用")
         if view.get("configuration", {}).get("dualSidePosition") is not False:
             raise HTTPException(409, "自动策略要求单向持仓模式")
+        strategy = next((s for s in await asyncio.to_thread(repo.strategies) if s["symbol"] == symbol), None)
+        if strategy and strategy.get("strategy_type") == "perpetual_drive" and (
+            symbol not in view.get("demo_coin_symbols", []) or "BTCUSDT" not in view.get("shared_symbols", [])
+        ):
+            raise HTTPException(409, "永续驱动要求 Demo 加密货币永续及 BTCUSDT 共享行情")
     return await asyncio.to_thread(mutation, repo.control, symbol, payload.enabled)
 
 
