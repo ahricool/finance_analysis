@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import uuid
 from dataclasses import asdict
 from datetime import date, datetime, time, timezone
 from decimal import Decimal
@@ -121,6 +122,7 @@ class RealtimeStateRepository:
         """Discard incompatible CN bars and indicators when changing acquisition semantics."""
         await self.redis.delete(
             keys.current_candle_key(symbol), keys.bars_index_key(symbol), keys.bars_data_key(symbol),
+            keys.bars_revision_key(symbol),
             keys.trend_key(symbol), keys.pattern_key(symbol), keys.pattern_events_key(symbol),
         )
 
@@ -144,6 +146,7 @@ class RealtimeStateRepository:
         ttl = self._ttl(symbol, market_trading_date(values[-1].bar_time, "CN"), self.bars_ttl_seconds)
         for key in (index_key, data_key, keys.current_candle_key(symbol)):
             pipe.expire(key, ttl)
+        pipe.set(keys.bars_revision_key(symbol), uuid.uuid4().hex, ex=ttl)
         await pipe.execute()
 
     @classmethod
@@ -319,6 +322,10 @@ class RealtimeStateRepository:
                             pipe.hset(data_key, mapping={field: _candle_json(bar) for field, bar in updates.items()})
                         pipe.expire(index_key, ttl)
                         pipe.expire(data_key, ttl)
+                        # Commit the revision together with the confirmed bars.
+                        # A UUID avoids collisions after Redis cache expiration.
+                        if obsolete or updates:
+                            pipe.set(keys.bars_revision_key(symbol), uuid.uuid4().hex, ex=ttl)
                     await pipe.execute()
                     return
                 except WatchError:
@@ -349,6 +356,41 @@ class RealtimeStateRepository:
             {field: bar for field, bar in updates.items() if field in keep},
             self._ttl(symbol, day, self.bars_ttl_seconds),
         )
+
+    async def get_bar_revisions(self, symbols: Iterable[str]) -> dict[str, str | None]:
+        unique = list(dict.fromkeys(symbols))
+        if not unique:
+            return {}
+        pipe = self.redis.pipeline(transaction=False)
+        for symbol in unique:
+            pipe.get(keys.bars_revision_key(symbol))
+        return dict(zip(unique, await pipe.execute(), strict=True))
+
+    async def get_confirmed_bar_snapshots(
+        self, symbols: Iterable[str],
+    ) -> dict[str, tuple[str | None, list[CandleState]]]:
+        """Read revisions and confirmed data atomically, in one batch round trip."""
+        unique = list(dict.fromkeys(symbols))
+        if not unique:
+            return {}
+        pipe = self.redis.pipeline(transaction=True)
+        for symbol in unique:
+            pipe.get(keys.bars_revision_key(symbol))
+            pipe.zrange(keys.bars_index_key(symbol), 0, -1)
+            pipe.hgetall(keys.bars_data_key(symbol))
+        values = await pipe.execute()
+        result = {}
+        for index, symbol in enumerate(unique):
+            revision, fields, raw = values[3 * index:3 * index + 3]
+            # Respect the authoritative index (including legacy session-suffixed
+            # entries); stray hash fields must not become strategy evidence.
+            lookup = set(fields) | {field.partition(":")[0] for field in fields if ":" in field}
+            bars = unique_minute_bars(
+                bar for field in lookup if field in raw
+                if (bar := CandleState.from_mapping(json.loads(raw[field]))).confirmed and bar.symbol == symbol
+            )[-self.bar_limit:]
+            result[symbol] = revision, bars
+        return result
 
     async def get_recent_bars(self, symbol: str, count: int) -> list[CandleState]:
         if count <= 0:
@@ -456,6 +498,7 @@ class RealtimeStateRepository:
             keys.current_candle_key(symbol),
             keys.bars_index_key(symbol),
             keys.bars_data_key(symbol),
+            keys.bars_revision_key(symbol),
             keys.trend_key(symbol),
             keys.pattern_key(symbol),
             keys.pattern_events_key(symbol),

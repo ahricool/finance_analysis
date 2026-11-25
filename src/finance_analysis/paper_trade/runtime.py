@@ -1,4 +1,4 @@
-"""Elected Streamer owns all private network I/O and durable order execution."""
+"""Elected Trader owns all private network I/O and durable order execution."""
 
 import asyncio
 import json

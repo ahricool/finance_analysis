@@ -2,6 +2,8 @@
 
 LEADER_LOCK_KEY = "lock:market_stream:leader"
 STREAMER_HEARTBEAT_KEY = "rt:streamer:heartbeat"
+TRADER_LEADER_LOCK_KEY = "lock:trader:leader"
+TRADER_HEARTBEAT_KEY = "rt:trader:heartbeat"
 
 
 def quote_key(symbol: str) -> str:
@@ -14,6 +16,10 @@ def current_candle_key(symbol: str) -> str:
 
 def bars_index_key(symbol: str) -> str:
     return f"rt:bars:1m:{symbol}:index"
+
+
+def bars_revision_key(symbol: str) -> str:
+    return f"rt:bars:1m:{symbol}:revision"
 
 
 def bars_data_key(symbol: str) -> str:

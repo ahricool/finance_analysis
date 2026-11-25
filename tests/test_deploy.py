@@ -138,7 +138,7 @@ def test_replace_starts_beat_only_after_apps_are_verified(deployment):
     deployment.verify_beat = lambda: calls.append("heartbeat")
     deployment.replace()
     assert calls == [
-        "stop", "run", ("server",), ("worker", "qlib-worker", "streamer", "web"),
+        "stop", "run", ("server",), ("worker", "qlib-worker", "streamer", "trader", "web"),
         ("verify", deploy.APP_SERVICES[:-1]), ("beat",), "heartbeat", ("verify", deploy.APP_SERVICES),
     ]
     assert not deployment.pending_path.exists()
@@ -219,3 +219,21 @@ def test_kronos_external_service_is_checked_from_old_application_container(deplo
     deployment.compose.return_value = '{"protocol":1,"device":"cpu","model":"small"}'
     with pytest.raises(deploy.DeployError, match="MPS"):
         deployment.verify_kronos(runtime, service="streamer", target=True)
+
+
+def test_replace_drains_old_trading_processes_before_starting_new_trader(deployment):
+    deployment.containers = Mock(side_effect=[
+        {"trader": {"id": "old-trader", "state": {"Running": True}},
+         "streamer": {"id": "old-streamer", "state": {"Running": True}}},
+        {"beat": {"state": {"StartedAt": "now"}}},
+    ])
+    calls = []
+    deployment.stop = lambda ids: calls.append(("drain", ids))
+    deployment.compose = lambda *args, **kwargs: calls.append(args)
+    deployment.up = lambda services, **kwargs: calls.append(("up", services))
+    deployment.verify_apps = Mock()
+    deployment.verify_beat = Mock()
+    deployment.replace()
+    assert calls[0] == ("drain", ["old-trader", "old-streamer"])
+    assert calls[1] == ("stop", "server")
+    assert ("up", ("worker", "qlib-worker", "streamer", "trader", "web")) in calls

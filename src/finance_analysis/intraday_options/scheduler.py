@@ -118,7 +118,7 @@ def _build_round_peer_snapshot(bars_by_symbol, active_symbols, opening, now):
     return peer_closed, peer_signature
 
 
-async def run(repository, bars_by_symbol, stop_event):
+async def run(repository, bars_by_symbol, stop_event, *, bar_source=None):
     from finance_analysis.intraday_options.runtime import result_key
     from finance_analysis.market_stream.session import session_bounds
 
@@ -248,12 +248,14 @@ async def run(repository, bars_by_symbol, stop_event):
         round_peer_signature,
         symbol_daily_ctx,
         symbol_daily_ctx_day,
+        round_symbol_bars,
+        round_quotes,
     ):
         try:
-            quote = await repository.get_quote(symbol)
+            quote = await repository.get_quote(symbol) if round_quotes is None else round_quotes.get(symbol)
             now = utc_now()
-            # Copy this symbol's bars on the event loop with no intervening await; worker gets immutable ownership.
-            bars = deepcopy(list(bars_by_symbol.get(symbol, ())))
+            # Worker owns an immutable copy of this round's input.
+            bars = deepcopy(list(round_symbol_bars))
             spy_bars = bars if symbol == "SPY.US" else round_spy_bars
             benchmark = bars if symbol == "QQQ.US" else round_qqq_bars
             result, state = await asyncio.get_running_loop().run_in_executor(
@@ -308,15 +310,31 @@ async def run(repository, bars_by_symbol, stop_event):
                 except Exception:
                     logger.warning("批量读取日线 ATR/昨收上下文失败，稍后重试", exc_info=True)
                     daily_ctx_retry_after = mono + _DAILY_CONTEXT_RETRY_SECONDS
-            # Build shared read-only benchmark & peer snapshots once per round on the event loop (no intervening await).
+            symbols = tuple(dict.fromkeys((*active_symbols, *(retiring or ()))))
+            round_bars = bars_by_symbol
+            round_quotes = None
+            if bar_source is not None:
+                try:
+                    round_bars = await bar_source.refresh((*symbols, *BENCHMARK_SYMBOL_SET))
+                except Exception:
+                    # Missing history blocks new entries; a fresh quote may still
+                    # manage a previously persisted position.
+                    logger.exception("Trader 读取闭合分钟行情失败")
+                    round_bars = {}
+                try:
+                    round_quotes = await repository.get_quotes(symbols)
+                except Exception:
+                    logger.exception("Trader 读取实时报价失败")
+                    round_quotes = {}
+            # Build peer snapshots once; every symbol sees the same round input.
             bounds = session_bounds("US", today)
             opening = bounds[0] if bounds else None
-            round_qqq_bars = tuple(deepcopy(list(bars_by_symbol.get("QQQ.US", ()))))
-            round_spy_bars = tuple(deepcopy(list(bars_by_symbol.get("SPY.US", ()))))
+            round_qqq_bars = tuple(deepcopy(list(round_bars.get("QQQ.US", ()))))
+            round_spy_bars = tuple(deepcopy(list(round_bars.get("SPY.US", ()))))
             round_peer_closed, round_peer_signature = _build_round_peer_snapshot(
-                bars_by_symbol, active_symbols, opening, now_round
+                round_bars, active_symbols, opening, now_round
             )
-            for symbol in (*active_symbols, *(retiring or ())):
+            for symbol in symbols:
                 if symbol not in pending or pending[symbol].done():
                     pending[symbol] = asyncio.create_task(
                         tick(
@@ -328,6 +346,8 @@ async def run(repository, bars_by_symbol, stop_event):
                             round_peer_signature,
                             daily_ctx_map.get(symbol, {}),
                             daily_ctx_day,
+                            round_bars.get(symbol, ()),
+                            round_quotes,
                         )
                     )
             try:

@@ -309,20 +309,28 @@ LLM允许web_search，但只能建议已有position；BUY为加仓，数量不�
 
 `prediction_markets/` 只读已有证券名称/代码后访问官方 public-search，结果短Redis缓存。无Polymarket业务表、定时任务、管理写接口或LLM。详情/历史仍只读上游，见 `../../docs/prediction-markets.md`。
 
-日内期权面板虚拟交易：`intraday_options/scheduler.py` 在 Streamer 每 5 秒用有界线程池（默认 6 workers）运行，
+日内期权面板虚拟交易：`intraday_options/scheduler.py` 在独立 Trader 每 5 秒用有界线程池（默认 6 workers）运行，
 动态读取 `us_nasdaq100` 成分股 + `SPY/QQQ` 基准并按日批量加载严格因果 14 日 ATR/昨收上下文，每轮共享一次只读 peer 快照；
 `intraday_simulation_*` 为独立共享研究表，事务锁与唯一约束防重入，不关联 portfolio。开仓/平仓事件在事务提交后由独立有界通知线程池经 `NotificationService` 写入全局 `notification`
 并推送 Telegram/ntfy（fail-open、不阻塞行情与交易状态机）。首次确认／入场依据冻结，停机恢复补记估算退出，
 正常与估算分开统计。详见 `docs/intraday-options.md` 与 `docs/intraday-starts.md`（仓库根）。
 
+## Independent Trader
+
+`trader/` 是独立 asyncio 常驻服务，使用 `lock:trader:leader` 与 `rt:trader:heartbeat`，与 Streamer 生命周期分离。
+仅 Trader 启动日内期权、Demo 与 Live 账户协程；Streamer 仍维护行情观察池和通用指标。
+日内策略每5秒批量读取 Redis 报价和闭合分钟 revision，增量刷新本地缓存，每60秒完整核对；不共享 Python 对象。
+升级时先优雅停止旧 Trader/Streamer，旧版本 Streamer 持有 leader 且未标记 `trading_owner=trader` 时 Trader 等待。
+详见 `docs/trader.md`。
+
 ## Binance Demo Paper Trade
 
 `integrations/crypto/binance_demo.py` 固定 Demo 域名及签名，不复用公开行情 client，不重试写操作。
-`paper_trade/` 在 Streamer leader 下同步账户、普通和 Algo 订单、成交、流水，独立 DB 表保留意图和快照。
+`paper_trade/` 在独立 Trader leader 下同步账户、普通和 Algo 订单、成交、流水，独立 DB 表保留意图和快照。
 0099 持久化管理员 Demo 新增仓位开关，缺记录默认关闭，保持减仓与保护管理。
 单向持仓；策略使用已有 Redis 闭合分钟线，执行用 Demo 规则与报价，按实际成交核对所有权。
 `paper_trade/strategies/perpetual_drive.py` 独立移植 V8 开盘驱动为 UTC 重叠窗口，不引用日内期权代码；初始 Algo 止损与标记价棘轮分离，退出档位在入场意图持久化。
-`/api/v1/crypto/paper-trade` 全部管理员权限，GET 只读，写入操作由 Streamer 消费持久化意图。
+`/api/v1/crypto/paper-trade` 全部管理员权限，GET 只读，写入操作由 Trader 消费持久化意图。
 详见 `docs/binance-paper-trade.md`。
 
 ## Binance Live Trade

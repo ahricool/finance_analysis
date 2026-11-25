@@ -180,19 +180,12 @@ class MarketStreamService:
             return False
         logger.info("Leader Lock 获取成功")
 
-        from finance_analysis.intraday_options.runtime import Publisher
         from finance_analysis.minute_forecast.publisher import ForecastPublisher, forecast_model, forecast_url
 
         from finance_analysis.contracts.service import run_collector
-        from finance_analysis.paper_trade.runtime import run_paper_trade
-        from finance_analysis.live_trade.runtime import run_live_monitor
 
-        options_publisher = Publisher(self.repository)
         tasks = [
             asyncio.create_task(run_collector(self.repository.redis), name="contract-market"),
-            asyncio.create_task(run_paper_trade(self.repository.redis, self.leader_lock), name="paper-trade"),
-            asyncio.create_task(run_live_monitor(self.repository.redis), name="live-account-monitor"),
-            asyncio.create_task(options_publisher.run(self.bars_1m, self.stop_event), name="intraday-options"),
             asyncio.create_task(self._renew_leader_lock(), name="market-stream-lock"),
             asyncio.create_task(self._consume_events(), name="market-stream-events"),
             asyncio.create_task(
@@ -954,6 +947,7 @@ class MarketStreamService:
                 await self.repository.write_heartbeat(
                     {
                         "instance_id": self.instance_id,
+                        "trading_owner": "trader",
                         "status": status,
                         "cn_status": "READY" if self.cn_feed.healthy and self.cn_feed.minute_healthy else "DISCONNECTED",
                         "connection_generation": self.manager.connection_generation,
