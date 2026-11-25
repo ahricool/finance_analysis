@@ -73,7 +73,6 @@ class SignalCenterService:
                         system_prompt=SYSTEM_PROMPT,
                         call_type="signal_center",
                         web_search=False,
-                        api_first=True,
                     ),
                     validator=lambda text: parse_decision(text, final_snapshot),
                 )
@@ -136,7 +135,6 @@ class SignalCenterService:
                     system_prompt=SCREEN_SYSTEM_PROMPT,
                     call_type="signal_center_screen",
                     web_search=False,
-                    api_first=True,
                 ),
                 validator=lambda text: parse_screen(text, symbols),
             )

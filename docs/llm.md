@@ -1,6 +1,6 @@
 # LLM 调用层
 
-业务统一调用 `LLMClient.complete_text(LLMRequest(...))`。渠道默认为 **Codex → API（LiteLLM）**，
+业务统一调用 `LLMClient.complete_text(LLMRequest(...))`。渠道固定为 **Codex → API（LiteLLM）**，
 成功且通过业务 validator 即返回；渠道未配置时记录 skipped，继续下一渠道。
 没有单渠道路由开关、并行竞争或回头循环。不同请求可以并发执行。
 
@@ -96,4 +96,4 @@ uv run pytest tests/test_llm_client.py tests/test_llm_fallback.py tests/test_llm
 
 历史迁移0052保留：旧usage标为api/success且duration_ms=0，未知模型和engine可空；不回写历史耗时。
 
-Signal Center v2使用`web_search=True, prefer_search=True, api_first=True`，渠道顺序为API→Codex，与其他模块相反；旧版未完成任务也使用API优先。初筛/最终分别保存transport evidence，外部引用必须有检索执行证据。未确认搜索仍可依据正式快照判断，但不能宣称外部来源已被检索。见[信号中心](signal-center.md)。
+Signal Center v2使用`web_search=True, prefer_search=True`，初筛、最终轮及旧版未完成任务均按固定Codex→API顺序调用；旧版保留原有搜索设置。初筛/最终分别保存transport evidence，外部引用必须有检索执行证据。未确认搜索仍可依据正式快照判断，但不能宣称外部来源已被检索。见[信号中心](signal-center.md)。

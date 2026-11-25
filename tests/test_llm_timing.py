@@ -75,11 +75,11 @@ def test_failed_request_keeps_timing_and_report(client, monkeypatch, scope):
     assert "secret" not in json.dumps(result)
 
 
-@pytest.mark.parametrize("api_first", [False, True])
+@pytest.mark.parametrize("call_type", ["generic", "signal_center_screen", "signal_center"])
 @pytest.mark.parametrize("primary_fails", [False, True])
-def test_request_provider_order_and_fallback(client, monkeypatch, api_first, primary_fails):
+def test_request_provider_order_and_fallback(client, monkeypatch, call_type, primary_fails):
     client.config = replace(client.config, max_retries=0)
-    order = ["api", "codex"] if api_first else ["codex", "api"]
+    order = ["codex", "api"]
     calls = []
 
     def complete(provider):
@@ -93,21 +93,21 @@ def test_request_provider_order_and_fallback(client, monkeypatch, api_first, pri
 
     monkeypatch.setattr(api, "complete", complete("api"))
     monkeypatch.setattr(remote_cli, "complete", complete("codex"))
-    result = client.complete_text(LLMRequest("prompt", api_first=api_first))
+    result = client.complete_text(LLMRequest("prompt", call_type=call_type))
     assert calls == (order if primary_fails else order[:1])
     assert [a["provider"] for a in result.attempts] == calls
 
 
-def test_api_first_skips_unconfigured_api(client, monkeypatch):
-    client.config = replace(client.config, api_key="")
-    api_call = Mock()
-    monkeypatch.setattr(api, "complete", api_call)
-    monkeypatch.setattr(remote_cli, "complete", lambda *args: LLMResult("answer", "cli", engine="codex"))
-    result = client.complete_text(LLMRequest("prompt", api_first=True))
-    api_call.assert_not_called()
+def test_unconfigured_codex_falls_back_to_api(client, monkeypatch):
+    client.config = replace(client.config, cli_ssh_password="")
+    codex_call = Mock()
+    monkeypatch.setattr(remote_cli, "complete", codex_call)
+    monkeypatch.setattr(api, "complete", lambda *args: LLMResult("answer", "api"))
+    result = client.complete_text(LLMRequest("prompt"))
+    codex_call.assert_not_called()
     assert [(a["provider"], a["status"]) for a in result.attempts] == [
-        ("api", "not_configured"),
-        ("codex", "success"),
+        ("codex", "not_configured"),
+        ("api", "success"),
     ]
 
 

@@ -123,7 +123,6 @@ def test_removed_api_and_request_surface():
         "uid",
         "web_search",
         "prefer_search",
-        "api_first",
         "diagnostics",
     }
     assert not hasattr(DatabaseManager, "save_conversation_message")
