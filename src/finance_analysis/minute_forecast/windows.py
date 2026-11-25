@@ -9,7 +9,7 @@ from finance_analysis.integrations.market_data.realtime_state.models import Cand
 from finance_analysis.market_stream.config import is_regular_trade_session, market_spec, market_trading_date
 from finance_analysis.market_stream.session import session_bounds
 from finance_analysis.minute_forecast.models import (
-    CLOSE_REPLAY_HORIZON, LOOKBACK, MAX_SESSION_MINUTES, MIN_LOOKBACK, MINUTE_MS,
+    CLOSE_REPLAY_HORIZON, LIVE_HORIZON, LOOKBACK, MAX_SESSION_MINUTES, MIN_LOOKBACK, MINUTE_MS,
     ForecastWindow, ObservedBar,
 )
 from finance_analysis.stocks.markets import MarketType
@@ -53,7 +53,12 @@ def stock_window(symbol: str, market: MarketType, candles: Iterable[CandleState]
     bars = _stock_bars(candles, expected)
     if len(bars) != len(expected):
         return None  # A data gap must be repaired by the feed before using a full session window.
-    return make_window(symbol, market_spec(market).timezone.key, bars, expected[-1], list(session[split:]))
+    window = make_window(
+        symbol, market_spec(market).timezone.key, bars, expected[-1], list(session[split:split + LIVE_HORIZON]),
+    )
+    if window is not None:
+        window.session_close = session[-1] + MINUTE_MS
+    return window
 
 
 def stock_close_window(symbol: str, market: MarketType, candles: Iterable[CandleState],

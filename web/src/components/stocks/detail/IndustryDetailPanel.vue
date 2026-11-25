@@ -9,6 +9,7 @@ import { formatRank } from '@/utils/rank';
 import { formatFixed } from '@/utils/number';
 import { formatDateTimeInDisplayTimezone } from '@/utils/format';
 import type { StockDetailPanelProps } from './types';
+import MinuteForecastSwitch from './MinuteForecastSwitch.vue';
 
 const props = defineProps<StockDetailPanelProps>();
 const items = ref<StockIndustryContext[]>([]);
@@ -38,7 +39,11 @@ onBeforeUnmount(() => { ++generation; });
     class="space-y-4"
     data-testid="industry-detail-panel"
   >
-    <p class="text-sm text-muted-foreground">
+    <MinuteForecastSwitch :symbol="symbol" />
+    <p
+      v-if="market === 'CN'"
+      class="text-sm text-muted-foreground"
+    >
       最新正式行业背景 · 按卡片日期查看，不随其他研究页签的历史日期或预演切换。行业背景不代表个股交易建议。
     </p>
     <p

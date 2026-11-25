@@ -159,3 +159,7 @@ __all__.extend(["LiveTradeControl", "LiveTradeControlEvent", "LiveExchangeRecord
 from .paper_trade import PaperTradeControl
 
 __all__.append("PaperTradeControl")
+
+from .minute_forecast import MinuteForecastPreference
+
+__all__.append("MinuteForecastPreference")

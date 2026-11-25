@@ -218,7 +218,7 @@ class MarketStreamService:
                 ]
             )
             if url := forecast_url():
-                # The elected streamer owns cadence and the whole subscription union.
+                # The elected streamer predicts only opted-in securities in the subscription union.
                 # GPU/network waits run outside the subscription and Redis flush loops.
                 publisher = ForecastPublisher(self.repository.redis, url, forecast_model())
                 tasks.append(asyncio.create_task(

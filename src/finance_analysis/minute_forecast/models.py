@@ -9,6 +9,7 @@ MINUTE_MS = 60_000
 LOOKBACK = 240
 MIN_LOOKBACK = 15
 MAX_SESSION_MINUTES = 390
+LIVE_HORIZON = 60
 CLOSE_REPLAY_HORIZON = 10
 ERROR_HORIZON = 10
 BATCH_SIZE = 10
@@ -42,6 +43,8 @@ class ForecastWindow(BaseModel):
     timezone: str
     bars: list[ObservedBar]
     targets: list[int]
+    # Local scheduling/cache metadata; not part of the host inference request.
+    session_close: int | None = Field(default=None, exclude=True)
 
 
 class Prediction(BaseModel):
@@ -99,3 +102,7 @@ class MinuteForecastResponse(BaseModel):
     forecast: ForecastSnapshot | None = None
     comparison: ForecastSnapshot | None = None
     accuracy: ForecastAccuracy | None = None
+
+
+class MinuteForecastPreferencePayload(BaseModel):
+    enabled: bool

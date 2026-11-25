@@ -18,7 +18,7 @@ export function useMinuteForecast(symbol: () => string, active: () => boolean) {
         } catch {
           // Forecast retrieval is independent of the real-time chart and quote connection.
         } finally {
-          if (!request.signal.aborted && result.value?.enabled !== false) timer = setTimeout(() => { void load(); }, 8_000);
+          if (!request.signal.aborted) timer = setTimeout(() => { void load(); }, 8_000);
         }
       }
       void load();

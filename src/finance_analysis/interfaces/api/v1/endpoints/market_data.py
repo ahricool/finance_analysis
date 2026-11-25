@@ -19,6 +19,8 @@ from fastapi.responses import StreamingResponse
 
 from finance_analysis.core.time import utc_isoformat, utc_now
 from finance_analysis.database.repositories.daily_forecast import DailyForecastRepository
+from finance_analysis.database.repositories.minute_forecast import MinuteForecastPreferences
+from finance_analysis.database.models.stock import validate_instrument_code
 from finance_analysis.database.repositories.user import UserRepository
 from finance_analysis.database.repositories.watch_list import WatchListRepo
 from finance_analysis.integrations.market_data.forward_returns import forward_returns
@@ -34,7 +36,7 @@ from finance_analysis.interfaces.api.v1.schemas.market_data import (
     ForwardReturnsResponse,
     IntradayBarsResponse,
 )
-from finance_analysis.interfaces.api.deps import get_effective_uid, require_current_user
+from finance_analysis.interfaces.api.deps import get_effective_uid, require_admin, require_current_user
 from finance_analysis.portfolio.valuation import portfolio_summary
 from finance_analysis.market_stream.config import (
     is_regular_session_minute,
@@ -48,7 +50,7 @@ from finance_analysis.market_stream.patterns.config import PatternConfig
 from finance_analysis.market_stream.patterns.models import PatternSignal, PatternState
 from finance_analysis.minute_forecast.cache import close_replay_forecast, comparison_forecast, latest_forecast
 from finance_analysis.minute_forecast.evaluation import evaluation_day, read_accuracy
-from finance_analysis.minute_forecast.models import MinuteForecastResponse
+from finance_analysis.minute_forecast.models import MinuteForecastPreferencePayload, MinuteForecastResponse
 from finance_analysis.minute_forecast.publisher import forecast_model, forecast_url
 from finance_analysis.minute_forecast.windows import millis
 from finance_analysis.stocks.markets import MarketType
@@ -82,19 +84,43 @@ async def _require_intraday_access(request: Request, code: str, market: str) -> 
     return uid
 
 
+def _forecast_symbol(symbol: str) -> tuple[str, str]:
+    try:
+        code = canonical_symbol(symbol)
+        market = infer_market(code).value
+        code = validate_instrument_code(market, code)
+        if len(code) > 32:
+            raise ValueError("symbol too long")
+    except ValueError as exc:
+        raise HTTPException(422, "证券代码无效或市场不支持分钟预测") from exc
+    return code, market
+
+
+@router.get("/minute-forecast/{symbol}/preference", dependencies=[Depends(require_current_user)])
+async def get_minute_forecast_preference(symbol: str, response: Response) -> MinuteForecastPreferencePayload:
+    code, _ = _forecast_symbol(symbol)
+    response.headers["Cache-Control"] = "private, no-store"
+    enabled = await asyncio.to_thread(lambda: MinuteForecastPreferences().enabled(code))
+    return MinuteForecastPreferencePayload(enabled=enabled)
+
+
+@router.put("/minute-forecast/{symbol}/preference", dependencies=[Depends(require_admin)])
+async def set_minute_forecast_preference(
+    symbol: str, payload: MinuteForecastPreferencePayload, response: Response,
+) -> MinuteForecastPreferencePayload:
+    code, _ = _forecast_symbol(symbol)
+    response.headers["Cache-Control"] = "private, no-store"
+    enabled = await asyncio.to_thread(lambda: MinuteForecastPreferences().set_enabled(code, payload.enabled))
+    return MinuteForecastPreferencePayload(enabled=enabled)
+
+
 @router.get("/minute-forecast/{symbol}", dependencies=[Depends(require_current_user)])
 async def minute_forecast(symbol: str, request: Request, response: Response) -> MinuteForecastResponse:
     """Serve only an already-published forecast within the chart's data scope."""
     response.headers["Cache-Control"] = "private, no-store"
-    try:
-        code = canonical_symbol(symbol)
-        market = infer_market(code).value
-    except ValueError as exc:
-        raise HTTPException(422, "证券代码无效") from exc
-    if market not in {"CN", "US", "HK"}:
-        raise HTTPException(422, "证券市场不支持分钟预测")
+    code, market = _forecast_symbol(symbol)
     await _require_intraday_access(request, code, market)
-    if not forecast_url():
+    if not forecast_url() or not await asyncio.to_thread(lambda: MinuteForecastPreferences().enabled(code)):
         return MinuteForecastResponse(enabled=False)
     repository = RealtimeStateRepository.from_url(MarketStreamConfig.from_env().redis_url)
     try:

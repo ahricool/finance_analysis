@@ -34,6 +34,11 @@ def forecast_key(symbol: str) -> str:
     return f"rt:forecast:1m:v1:{symbol}"
 
 
+def live_forecast_key(symbol: str) -> str:
+    # Invalidate pre-upgrade full-session paths, but keep accuracy and replay keys.
+    return f"{forecast_key(symbol)}:live60"
+
+
 def close_replay_key(symbol: str) -> str:
     return f"{forecast_key(symbol)}:close"
 
@@ -48,7 +53,7 @@ def _decode(raw) -> ForecastSnapshot | None:
 
 
 async def latest_forecast(redis, symbol: str) -> ForecastSnapshot | None:
-    return _decode(await redis.get(forecast_key(symbol)))
+    return _decode(await redis.get(live_forecast_key(symbol)))
 
 
 async def close_replay_forecast(redis, symbol: str) -> ForecastSnapshot | None:
@@ -65,10 +70,10 @@ async def comparison_forecast(redis, symbol: str, now_ms: int) -> ForecastSnapsh
 
 async def publish_forecast(redis, forecast: ForecastSnapshot) -> None:
     key = forecast_key(forecast.symbol)
-    # Keep the established short-horizon accuracy series without queuing every full-session path until the close.
+    # Keep the established short-horizon accuracy series without queuing every rolling path until the close.
     comparison = forecast.model_copy(update={"bars": forecast.bars[:ERROR_HORIZON], "session_close": None})
     await redis.eval(
-        _PUBLISH, 3, key, f"{key}:recent", pending_error_key(forecast.symbol),
+        _PUBLISH, 3, live_forecast_key(forecast.symbol), f"{key}:recent", pending_error_key(forecast.symbol),
         forecast.anchor, forecast.model_dump_json(), TTL_SECONDS, forecast.bars[0].timestamp + MINUTE_MS,
         comparison.bars[-1].timestamp + MINUTE_MS, EVALUATION_TTL_SECONDS,
         forecast.session_close or 0, comparison.model_dump_json(),
