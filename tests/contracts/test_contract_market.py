@@ -68,27 +68,25 @@ async def test_binance_usdm_only_and_native_kline():
 
 
 @pytest.mark.asyncio
-async def test_minute_refresh_full_then_incremental_and_closed_daily_only(monkeypatch):
+async def test_minute_initial_full_warmup_then_no_rest_when_complete(monkeypatch):
     monkeypatch.setattr(service.time, "time", lambda: NOW / 1000)
-    redis = Mock(get=AsyncMock(return_value=None), set=AsyncMock())
-    client = Mock(klines=AsyncMock(return_value=[bar(NOW)]))
+    redis = Mock(get=AsyncMock(return_value=None), pipeline=Mock())
+    redis.pipeline.return_value.execute = AsyncMock()
+    rows = [bar(t) for t in range(service.window_start(NOW), NOW + service.MINUTE, service.MINUTE)]
+    client = Mock(klines=AsyncMock(return_value=rows))
     collector = service.ContractCollector(redis, client)
-    await collector.minute_tick("ETHUSDT")
+    await collector.load({"ETHUSDT"})
+    await collector.repair_minutes("ETHUSDT")
     client.klines.assert_awaited_once_with("ETHUSDT", "1m", service.window_start(NOW), limit=1500)
-    assert redis.set.await_args.kwargs["ex"] == 86400
-    redis.get.return_value = json.dumps([bar(NOW-service.MINUTE)])
-    await collector.minute_tick("ETHUSDT")
-    client.klines.assert_awaited_with("ETHUSDT", "1m", NOW-3*service.MINUTE, limit=99)
-    assert len(json.loads(redis.set.await_args.args[1])) == 2
-
-    today = NOW // service.DAY * service.DAY
-    monkeypatch.setattr(service.repository, "latest_daily", lambda _: today-service.DAY)
-    save = Mock()
-    monkeypatch.setattr(service.repository, "save_daily", save)
-    client.klines.return_value = [bar(today-service.DAY), bar(today)]
-    await collector.daily_tick("ETHUSDT")
-    save.assert_called_once_with("ETHUSDT", [bar(today-service.DAY)])
-    assert json.loads(redis.set.await_args.args[1]) == bar(today)
+    assert service.complete_minutes(collector.minutes["ETHUSDT"].values(), NOW)
+    await collector.repair_minutes("ETHUSDT")
+    assert client.klines.await_count == 1
+    await collector.flush()
+    pipe = redis.pipeline.return_value
+    assert pipe.set.call_args.kwargs["ex"] == 86400
+    assert len(json.loads(pipe.set.call_args.args[1])) == 1440
+    assert not collector.minutes["ETHUSDT"][NOW]["closed"]
+    assert collector.minutes["ETHUSDT"][NOW-service.MINUTE]["closed"]
 
 
 @pytest.mark.asyncio

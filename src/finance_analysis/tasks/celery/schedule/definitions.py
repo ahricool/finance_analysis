@@ -103,6 +103,14 @@ class ScheduledTaskDefinition:
 
 SCHEDULED_TASK_DEFINITIONS = (
     ScheduledTaskDefinition(
+        job_id="contract_daily_sync", name="合约日线同步", task_type="scheduled_contract_daily_sync",
+        description="Binance USD-M 闭合 UTC 日线；历史断档全量补齐，否则增量同步",
+        celery_task_name=celery_task_name("contract_daily_sync"),
+        schedules=(CronSchedule(minute="30", hour="0", timezone="UTC"),),
+        schedule_text="每日 00:30 UTC（北京时间/新加坡时间 08:30）",
+        timezone="UTC", queue=QUEUE_INGESTION, expires=EXPIRES_MARKET_DATA_SYNC,
+    ),
+    ScheduledTaskDefinition(
         job_id="quant_cleanup", name="量化临时输入清理", description="清理已完成或终止任务的临时输入，不删除训练证据",
         task_type="scheduled_quant_cleanup", celery_task_name="scheduled.quant_cleanup",
         schedules=(CronSchedule(minute="15", hour="*/6"),), schedule_text="每6小时",

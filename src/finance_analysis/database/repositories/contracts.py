@@ -18,6 +18,15 @@ def latest_daily(symbol):
         return session.scalar(select(func.max(FuturesDailyBar.timestamp)).where(FuturesDailyBar.symbol == symbol))
 
 
+def daily_timestamps(symbol, start, end):
+    with DatabaseManager.get_instance().session_scope() as session:
+        return set(session.scalars(select(FuturesDailyBar.timestamp).where(
+            FuturesDailyBar.symbol == symbol,
+            FuturesDailyBar.timestamp >= start,
+            FuturesDailyBar.timestamp <= end,
+        )))
+
+
 def save_daily(symbol, bars):
     if not bars:
         return

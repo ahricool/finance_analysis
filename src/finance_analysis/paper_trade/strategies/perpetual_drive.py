@@ -36,7 +36,7 @@ def closed_window(bars, start, end, now):
     indexed = {row["timestamp"]: row for row in bars}
     if now // MINUTE * MINUTE not in indexed:
         return None
-    if any(t not in indexed for t in range(start, end, MINUTE)):
+    if any(t not in indexed or indexed[t].get("closed") is False for t in range(start, end, MINUTE)):
         return None
     return [candle(indexed[t]) for t in range(start, end, MINUTE)]
 

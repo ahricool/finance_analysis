@@ -258,8 +258,9 @@ uv run ./scripts/ci_gate.sh
 
 ## U 本位合约
 
-contracts/service.py 在已有 Streamer leader 下运行独立采集协程；integrations/crypto/binance.py 仅访问
-Binance 公开 USD-M REST。数据库 futures_contract、futures_daily_bar 与股票表隔离。
+contracts/service.py 在已有 Streamer leader 下订阅公共 USD-M Market WS，Redis 合并 ticker/资金费率/1m/当日预览；
+初次/重连/断档 REST 补最近 1440 根连续分钟线，明确 WS 闭合标志。contracts/daily_sync.py 由 Celery contract_daily_sync
+每天 UTC 00:30 执行，缺历史全量补齐，仅写闭合日线，独立 advisory lock；Streamer 不写数据库日线。数据库 futures_contract、futures_daily_bar 与股票表隔离。
 /api/v1/crypto/contracts 及 WS/SSE 只读 DB/Redis，管理员可搜索、增删共享标的（新增校验交易所合约类型）。`futures_contract.underlying_symbol`
 记录锚定代码，迁移0101回填既有标的；新增由交易所目录推断，快照/搜索/添加/WS/SSE 同源输出。
 详见 docs/contracts.md。

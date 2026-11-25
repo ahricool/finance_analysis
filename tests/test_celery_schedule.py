@@ -22,6 +22,7 @@ from finance_analysis.tasks.celery.schedule.cron import (
 )  # pragma: allowlist secret
 
 EXPECTED_JOBS = {
+    "contract_daily_sync": ("scheduled_contract_daily_sync", "UTC"),
     "analysis_us_pre_close_review": ("scheduled_us_pre_close_review", "America/New_York"),
     "market_heatmap_cn": ("scheduled_market_heatmap_cn", "Asia/Shanghai"),
     "market_heatmap_us": ("scheduled_market_heatmap_us", "America/New_York"),
@@ -429,3 +430,14 @@ def test_before_publish_skips_internal_qlib_child_without_changing_protocol():
             body=([], {"protocol_version": 1, "market": "US"}, {}),
         )
     service.create_pending.assert_not_called()
+
+
+def test_contract_daily_sync_runs_utc_0030_every_day():
+    definition = get_scheduled_task_definition("contract_daily_sync")
+    assert definition.queue == "ingestion"
+    assert definition.allow_manual_run
+    for day in (25, 28, 29):  # weekdays and weekend
+        before = datetime(2026, 11, day, 0, 29, tzinfo=timezone.utc)
+        assert definition.next_run_time(now=before) == before + timedelta(minutes=1)
+    beat = build_beat_schedule()["contract_daily_sync"]
+    assert beat["options"]["queue"] == "ingestion"

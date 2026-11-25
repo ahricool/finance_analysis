@@ -51,8 +51,11 @@ class BinanceClient:
     async def server_time(self):
         return from_ms((await self._get("/fapi/v1/time"))["serverTime"])
 
+    async def exchange_info(self):
+        return await self._get("/fapi/v1/exchangeInfo")
+
     async def contracts(self):
-        data = await self._get("/fapi/v1/exchangeInfo")
+        data = await self.exchange_info()
         return [
             {
                 "symbol": item["symbol"], "category": item.get("underlyingType") or "其他",
@@ -87,16 +90,18 @@ class BinanceClient:
                 continue
         return quotes
 
-    async def klines(self, symbol, interval, start, limit=1000):
-        rows = await self._get("/fapi/v1/klines", {
-            "symbol": symbol, "interval": interval, "startTime": start, "limit": limit,
-        })
+    async def klines(self, symbol, interval, start, limit=1000, end=None):
+        params = {"symbol": symbol, "interval": interval, "startTime": start, "limit": limit}
+        if end is not None:
+            params["endTime"] = end
+        rows = await self._get("/fapi/v1/klines", params)
         period = {"1m": 60_000, "1d": 86_400_000}[interval]
         result = {}
         for row in rows:
             bar = parse_bar(row)
             timestamp = bar["timestamp"]
-            if timestamp % period or int(row[6]) != timestamp + period - 1 or timestamp < start:
+            if (timestamp % period or int(row[6]) != timestamp + period - 1 or timestamp < start
+                    or (end is not None and timestamp > end)):
                 raise ValueError("Invalid Binance candle boundary")
             result[timestamp] = bar
         return [result[key] for key in sorted(result)]

@@ -23,7 +23,8 @@ def closed_closes(bars, now, required):
     if now // MINUTE * MINUTE not in indexed:
         return None
     start = end - required * PERIOD
-    if any(stamp not in indexed for stamp in range(start, end, MINUTE)):
+    if any(stamp not in indexed or indexed[stamp].get("closed") is False
+           for stamp in range(start, end, MINUTE)):
         return None
     return end, [D(indexed[stamp - MINUTE]["close"]) for stamp in range(start + PERIOD, end + 1, PERIOD)]
 
