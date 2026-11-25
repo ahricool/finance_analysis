@@ -165,3 +165,44 @@ async def test_stream_requested_period_isolated(monkeypatch):
     result = await service.live_snapshot(redis, "ETHUSDT", "1d")
     assert result["minutes"] is None and result["daily_current"] == daily
     redis.get.assert_awaited_once_with(service.key("ETHUSDT", "daily-current"))
+
+
+def test_search_add_duplicate_remove_use_exchange_catalog_and_database(monkeypatch):
+    from sqlalchemy.orm import sessionmaker
+    from sqlalchemy.pool import StaticPool
+
+    from finance_analysis.database.models.contracts import FuturesContract, FuturesDailyBar
+    from finance_analysis.interfaces.api.deps import get_db
+
+    engine = create_engine("sqlite://", poolclass=StaticPool, connect_args={"check_same_thread": False})
+    FuturesContract.__table__.create(engine)
+    FuturesDailyBar.__table__.create(engine)
+    session_factory = sessionmaker(engine)
+    api = FastAPI()
+    api.include_router(crypto.router, prefix="/api/v1/crypto")
+
+    def session():
+        with session_factory() as db:
+            yield db
+
+    async def catalog():
+        return [{"symbol": "SOXLUSDT", "category": "EQUITY"}, {"symbol": "ETHUSDT", "category": "COIN"}]
+
+    monkeypatch.setattr(crypto, "exchange_contracts", catalog)
+    api.dependency_overrides[get_db] = session
+    api.dependency_overrides[require_admin] = lambda: object()
+    with TestClient(api) as client:
+        base = "/api/v1/crypto/contracts"
+        assert client.get(base + "/search?q=soxl").json() == [{"symbol": "SOXLUSDT", "category": "EQUITY"}]
+        assert client.post(base, json={"symbol": "BTCUSD_PERP"}).status_code == 422
+        payload = {"symbol": "soxlusdt", "category": "ETF"}
+        created = client.post(base, json=payload)
+        assert created.status_code == 201 and created.json() == {"symbol": "SOXLUSDT", "category": "ETF"}
+        assert client.post(base, json=payload).status_code == 409
+        with session_factory() as db:
+            assert db.get(FuturesContract, "SOXLUSDT").category == "ETF"
+        assert client.delete(base + "/SOXLUSDT").status_code == 204
+        assert client.delete(base + "/SOXLUSDT").status_code == 404
+        with session_factory() as db:
+            assert db.get(FuturesContract, "SOXLUSDT") is None
+    engine.dispose()
