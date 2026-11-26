@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { computed, onMounted, onBeforeUnmount, reactive, ref } from 'vue';
+import { computed, onMounted, onBeforeUnmount, ref } from 'vue';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
-import FieldInput from '@/components/forms/FieldInput.vue';
-import FieldSelect from '@/components/forms/FieldSelect.vue';
+import EquityChart from '@/components/paper-trade/EquityChart.vue';
+import StrategySelect from '@/components/paper-trade/StrategySelect.vue';
 import AppConfirmDialog from '@/components/app/AppConfirmDialog.vue';
 import AppApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
@@ -32,33 +32,6 @@ const kpis = computed(() => [
   ['可用余额', account.value.availableBalance], ['保证金占用', account.value.totalInitialMargin],
   ['未实现盈亏', account.value.totalUnrealizedProfit], ['已同步净收益', data.value?.realized_net],
 ]);
-const symbols = computed(() => (view.value?.demo_symbols ?? []).map(value => ({ value, label: value })));
-
-const manual = reactive({ symbol: '', side: '', order_type: '', quantity: '', price: '', trigger_price: '', reduce_only: false });
-let manualSubmission: { fingerprint: string; id: string } | null = null;
-const strategy = reactive({ symbol: '', name: '', strategy_type: 'ema_cross', fast: '9', slow: '21', direction: 'LONG',
-  drive_range_pct: '0.8', drive_move_pct: '1.2', drive_efficiency: '0.48', drive_relative_pct: '0.8',
-  notional: '', margin: '', max_position: '', leverage_limit: '', max_loss: '', stop_pct: '' });
-const strategySymbols = computed(() => symbols.value.filter(s => view.value?.shared_symbols?.includes(s.value) &&
-  (strategy.strategy_type !== 'perpetual_drive' || view.value?.demo_coin_symbols?.includes(s.value))));
-const sideOptions = [{ value: 'BUY', label: 'BUY · 买入' }, { value: 'SELL', label: 'SELL · 卖出' }];
-const typeOptions = ['MARKET', 'LIMIT', 'STOP_MARKET', 'TAKE_PROFIT_MARKET'].map(value => ({ value, label: value }));
-const commonStrategyFields = [
-  ['name', '策略名称'], ['notional', '计划名义额度 (USDT)'],
-  ['margin', '计划保证金 (USDT)'], ['max_position', '最大名义持仓 (USDT)'], ['leverage_limit', '杠杆上限'],
-  ['max_loss', '最大亏损 (USDT)'], ['stop_pct', '止损比例 (%)'],
-] as const;
-const strategyFields = computed(() => [
-  ...commonStrategyFields,
-  ...(strategy.strategy_type === 'ema_cross'
-    ? [['fast', '快 EMA'], ['slow', '慢 EMA']] as const
-    : [['drive_range_pct', '初始振幅 (%)'], ['drive_move_pct', '方向涨跌幅 (%)'],
-       ['drive_efficiency', '路径效率 (0–1)'], ['drive_relative_pct', '相对 BTC 强度 (%)']] as const),
-]);
-const manualValid = computed(() => !!manual.symbol && !!manual.side && !!manual.order_type && Number(manual.quantity) > 0 &&
-  (manual.order_type !== 'LIMIT' || Number(manual.price) > 0) &&
-  (!['STOP_MARKET', 'TAKE_PROFIT_MARKET'].includes(manual.order_type) || Number(manual.trigger_price) > 0));
-const strategyValid = computed(() => strategySymbols.value.some(s => s.value === strategy.symbol) && !!strategy.name && strategyFields.value.slice(1).every(([key]) => strategy[key] !== '' && (key === 'drive_relative_pct' ? Number(strategy[key]) >= 0 : Number(strategy[key]) > 0)));
 const pending = ref<{ title: string; description: string; run: () => Promise<unknown> } | null>(null);
 const dialogOpen = ref(false);
 let timer: ReturnType<typeof setInterval>;
@@ -101,19 +74,6 @@ async function execute() {
   dialogOpen.value = false;
   if (action) await mutate(action.run, '已提交请求，请等待 Demo 交易所核对；不代表已成交。');
 }
-function submitManual() {
-  const fields = { ...manual,
-    price: manual.order_type === 'LIMIT' ? manual.price : null,
-    trigger_price: ['STOP_MARKET', 'TAKE_PROFIT_MARKET'].includes(manual.order_type) ? manual.trigger_price : null };
-  const fingerprint = JSON.stringify(fields);
-  if (manualSubmission?.fingerprint !== fingerprint) manualSubmission = { fingerprint, id: crypto.randomUUID() };
-  const payload = { request_id: manualSubmission.id, confirm_demo: true, ...fields };
-  confirm('确认 Binance Demo 模拟委托', `${payload.symbol} · ${payload.side} · ${payload.order_type} · 数量 ${payload.quantity}${payload.price ? ' · 价格 ' + payload.price : ''}${payload.trigger_price ? ' · 触发价 ' + payload.trigger_price : ''}${payload.reduce_only ? ' · 仅减仓' : ''}。由币安模拟交易所处理。`, async () => {
-    await paperTradeApi.action('orders', payload);
-    manualSubmission = null;
-    Object.assign(manual, { symbol: '', side: '', order_type: '', quantity: '', price: '', trigger_price: '', reduce_only: false });
-  });
-}
 function closePosition(row: Row) {
   const payload = { request_id: crypto.randomUUID(), confirm_demo: true, symbol: row.symbol, position_side: row.positionSide, expected_quantity: row.positionAmt, expected_entry_price: row.entryPrice ?? null };
   confirm('确认 Demo 平仓', `对 ${row.symbol} 当前数量 ${row.positionAmt} 提交仅减仓市价单；FA 策略仓位将暂停自动开仓。`, () => paperTradeApi.action('close', payload));
@@ -130,22 +90,6 @@ async function changeTradeControl(enabled: boolean) {
     if (data.value) data.value = { ...data.value, trade_control: actual };
   }, enabled ? '已启用 Demo 新增仓位。' : '已禁止 Demo 新增仓位；账户同步、撤单、平仓及已有保护单管理继续。');
 }
-function saveStrategy() {
-  const payload = Object.fromEntries([
-    ['symbol', strategy.symbol], ['strategy_type', strategy.strategy_type], ['direction', strategy.direction],
-    ...strategyFields.value.map(([key]) => [key, strategy[key]]),
-  ]);
-  void mutate(() => paperTradeApi.saveStrategy(payload.symbol!, payload), '策略已保存（默认暂停）。');
-}
-function editStrategy(row: Row) {
-  Object.assign(strategy, { strategy_type: 'ema_cross', fast: '9', slow: '21', drive_range_pct: '0.8', drive_move_pct: '1.2', drive_efficiency: '0.48', drive_relative_pct: '0.8' });
-  for (const key of Object.keys(strategy) as (keyof typeof strategy)[]) if (row[key] != null) strategy[key] = String(row[key]);
-}
-function control(row: Row) {
-  const enabled = !row.enabled;
-  if (enabled) confirm('启用自动 Demo 策略', `${row.symbol} 将根据闭合 5 分钟 K 线，在所配置额度及风险限制内自动向 Binance Demo 提交订单，关闭页面后仍运行。`, () => paperTradeApi.control(String(row.symbol), true));
-  else void mutate(() => paperTradeApi.control(String(row.symbol), false), '已暂停新增仓位；现有保护单保留。');
-}
 const chartSymbol = ref('');
 const bars = ref<Candle[]>([]);
 let chartGeneration = 0;
@@ -158,19 +102,8 @@ async function showChart(symbol: string) {
     if (!stopped && current === chartGeneration) bars.value = result;
   } catch (err) { error.value = getParsedApiError(err); }
 }
-const curve = computed(() => {
-  const points = (data.value?.equity ?? []).filter(p => p.equity != null && Number.isFinite(Number(p.equity)));
-  if (points.length < 2) return null;
-  const values = points.map(p => Number(p.equity));
-  const min = Math.min(...values), max = Math.max(...values);
-  const start = Date.parse(points[0]!.time), end = Date.parse(points.at(-1)!.time);
-  return { min, max, start: points[0]!.time, end: points.at(-1)!.time,
-    line: points.map(p => `${10 + 580 * (Date.parse(p.time) - start) / (end - start || 1)},${110 - 100 * (Number(p.equity) - min) / (max - min || 1)}`).join(' ') };
-});
 function column(key: string, label: string, numeric = false, time = false): Column { return { key, label, numeric, time }; }
 const positions = [column('symbol','合约'), column('direction','方向'), column('positionSide','持仓模式'), column('positionAmt','数量（正多负空）',true), column('entryPrice','开仓均价',true), column('markPrice','标记价',true), column('leverage','杠杆',true), column('marginType','保证金模式'), column('positionInitialMargin','保证金',true), column('liquidationPrice','强平价',true),column('fundingRate','Demo 资金费率',true), column('unRealizedProfit','未实现盈亏',true), column('source','归属')];
-const strategies = [column('symbol','合约'),column('name','名称'),column('strategy_type','策略类型'),column('enabled','自动执行'),column('status','状态'),column('fast','快 EMA',true),column('slow','慢 EMA',true),column('drive_range_pct','初始振幅 (%)',true),column('drive_move_pct','方向涨跌幅 (%)',true),column('drive_efficiency','路径效率',true),column('drive_relative_pct','相对 BTC (%)',true),column('direction','方向'),column('notional','计划额度',true),column('margin','保证金',true),column('current_leverage','Demo 杠杆',true),column('current_margin_type','Demo 保证金模式'),column('leverage_limit','杠杆上限',true),column('max_position','最大持仓',true),column('max_loss','最大亏损',true),column('stop_pct','止损 (%)',true),column('latest_signal.payload.direction','最近信号'),column('latest_signal.status','执行状态'),column('latest_signal.reason','原因'), column('latest_trade.time','最近成交 (UTC)',false,true)];
-const stats = [column('name','策略'), column('symbol','合约'), column('performance.trades','交易次数',true),column('performance.win_rate_pct','胜率 (%)',true),column('performance.average_hold_minutes','平均持仓 (分钟)',true),column('performance.net','累计净收益',true),column('performance.max_drawdown','已结算最大回撤 (USDT)',true)];
 const orders = [column('symbol','合约'),column('orderId','订单 ID'),column('side','方向'),column('type','类型'),column('status','状态'),column('price','价格',true),column('origQty','委托数量',true),column('executedQty','成交数量',true),column('time','时间 (UTC)',false,true),column('source','来源')];
 const algos = [column('symbol','合约'),column('algoId','Algo ID'),column('side','方向'),column('orderType','类型'),column('algoStatus','状态'),column('triggerPrice','触发价',true),column('quantity','数量',true),column('actualOrderId','实际订单 ID'),column('createTime','时间 (UTC)',false,true),column('source','来源')];
 const trades = [column('symbol','合约'),column('id','成交 ID'),column('orderId','订单 ID'),column('side','方向'),column('price','价格',true),column('qty','数量',true),column('realizedPnl','已实现盈亏',true),column('commission','手续费',true),column('commissionAsset','手续费币种'),column('time','时间 (UTC)',false,true),column('source','归属'),column('intent_action','开平仓意图'),column('strategy_type','开仓策略类型'),column('net_excluding_funding','净收益（不含资金费）',true)];
@@ -221,6 +154,7 @@ onBeforeUnmount(() => { stopped = true; clearInterval(timer); });
     >
       {{ notice }}
     </p>
+    <StrategySelect environment="paper" />
     <section class="space-y-2 rounded-lg border p-4">
       <div class="flex flex-wrap justify-between gap-3">
         <div>
@@ -269,45 +203,11 @@ onBeforeUnmount(() => { stopped = true; clearInterval(timer); });
             {{ label }} (USDT)
           </div>
           <div class="mt-2 break-all text-lg font-semibold tabular-nums">
-            {{ value == null ? '—' : String(value) }}
+            {{ value == null || !Number.isFinite(Number(value)) ? '—' : Number(value).toFixed(2) }}
           </div>
         </div>
       </div>
-      <div
-        v-if="curve"
-        class="rounded-md border p-3"
-      >
-        <h3 class="text-sm font-medium">
-          账户权益曲线
-        </h3>
-        <div class="flex justify-between text-xs text-muted-foreground">
-          <span>{{ curve.min }}</span><span>{{ curve.max }} USDT</span>
-        </div>
-        <svg
-          viewBox="0 0 600 120"
-          role="img"
-          aria-label="账户权益变化曲线"
-          class="h-32 w-full text-brand"
-          preserveAspectRatio="none"
-        >
-          <polyline
-            :points="curve.line"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            vector-effect="non-scaling-stroke"
-          />
-        </svg>
-        <div class="flex justify-between text-xs text-muted-foreground">
-          <span>{{ curve.start.slice(0, 16) }}</span><span>{{ curve.end.slice(0, 16) }}</span>
-        </div>
-      </div>
-      <p
-        v-else
-        class="text-sm text-muted-foreground"
-      >
-        权益历史不足，暂不绘制曲线。
-      </p>
+      <EquityChart :points="data?.equity ?? []" />
     </section>
     <section class="space-y-3 rounded-lg border p-4">
       <h2 class="text-lg font-semibold">
@@ -365,140 +265,7 @@ onBeforeUnmount(() => { stopped = true; clearInterval(timer); });
         </p>
       </div>
     </section>
-    <section class="space-y-4 rounded-lg border p-4">
-      <h2 class="text-lg font-semibold">
-        策略与控制
-      </h2>
-      <p class="text-sm text-muted-foreground">
-        EMA 交叉与 24/7 永续驱动（源自日内期权 V8）独立运行。保存后默认暂停，可观察信号；启用后才自动开仓。
-      </p>
-      <PaperTable
-        :rows="data?.strategies ?? []"
-        :columns="strategies"
-        actions
-      >
-        <template #actions="{ row }">
-          <Button
-            size="sm"
-            variant="ghost"
-            :disabled="!!row.enabled"
-            @click="editStrategy(row)"
-          >
-            编辑
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            :disabled="busy || (!row.enabled && !connected)"
-            @click="control(row)"
-          >
-            {{ row.enabled ? '暂停' : '启用' }}
-          </Button>
-        </template>
-      </PaperTable>
-      <form
-        class="grid grid-cols-2 gap-3 rounded-lg border p-3 md:grid-cols-3 xl:grid-cols-4"
-        @submit.prevent="saveStrategy"
-      >
-        <FieldSelect
-          v-model="strategy.symbol"
-          label="策略合约"
-          :options="strategySymbols"
-        />
-        <FieldSelect
-          v-model="strategy.strategy_type"
-          label="策略类型"
-          :options="[{ value:'ema_cross', label:'EMA 交叉' },{value:'perpetual_drive',label:'24/7 永续驱动 (V8)'}]"
-        />
-        <FieldSelect
-          v-model="strategy.direction"
-          label="允许方向"
-          :options="[{ value:'LONG', label:'只做多' },{value:'BOTH',label:'双向'}]"
-        />
-        <FieldInput
-          v-for="[key,label] in strategyFields"
-          :key="key"
-          v-model="strategy[key]"
-          :label="label"
-        />
-        <p
-          v-if="strategy.strategy_type === 'perpetual_drive'"
-          class="col-span-full text-sm text-muted-foreground"
-        >
-          仅适用于 24/7 加密货币永续，依赖 BTCUSDT 行情及连续 UTC 日线。初始止损取 ATR × 1.2 与止损上限较小值；棘轮由后台按 Demo 标记价执行。
-        </p>
-        <div class="flex items-end">
-          <Button
-            type="submit"
-            :disabled="!strategyValid || busy"
-          >
-            保存策略
-          </Button>
-        </div>
-      </form>
-      <h3 class="font-medium">
-        策略绩效（可归属的已结算往返交易）
-      </h3>
-      <PaperTable
-        :rows="data?.strategies ?? []"
-        :columns="stats"
-      />
-    </section>
-    <section class="space-y-4 rounded-lg border p-4">
-      <h2 class="text-lg font-semibold">
-        手动模拟验证
-      </h2>
-      <p class="text-sm text-muted-foreground">
-        请自行选定合约、方向、委托类型与数量。订单只提交至 Binance Demo，不会自动预填交易指令。
-      </p>
-      <form
-        class="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4"
-        @submit.prevent="submitManual"
-      >
-        <FieldSelect
-          v-model="manual.symbol"
-          label="Demo 合约"
-          :options="symbols"
-        />
-        <FieldSelect
-          v-model="manual.side"
-          label="方向"
-          :options="sideOptions"
-        />
-        <FieldSelect
-          v-model="manual.order_type"
-          label="订单类型"
-          :options="typeOptions"
-        />
-        <FieldInput
-          v-model="manual.quantity"
-          label="数量"
-          data-testid="demo-quantity"
-        />
-        <FieldInput
-          v-if="manual.order_type === 'LIMIT'"
-          v-model="manual.price"
-          label="限价"
-        />
-        <FieldInput
-          v-if="['STOP_MARKET','TAKE_PROFIT_MARKET'].includes(manual.order_type)"
-          v-model="manual.trigger_price"
-          label="触发价"
-        />
-        <label class="flex items-center gap-2 text-sm"><input
-          v-model="manual.reduce_only"
-          type="checkbox"
-        >仅减仓</label>
-        <div class="flex items-end">
-          <Button
-            type="submit"
-            :disabled="!connected || (!globalEnabled && !manual.reduce_only) || !manualValid || busy"
-          >
-            核对模拟委托
-          </Button>
-        </div>
-      </form>
-    </section>
+
     <section class="space-y-4 rounded-lg border p-4">
       <h2 class="text-lg font-semibold">
         委托及订单

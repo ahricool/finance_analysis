@@ -1,4 +1,4 @@
-"""Live monitor only. No strategy evaluation, command queue or execution call."""
+"""Live account monitoring and read-only public-market strategy observation."""
 
 import asyncio
 import json
@@ -13,6 +13,8 @@ from redis.exceptions import RedisError
 from finance_analysis.database.repositories import contracts, live_trade as repo
 from finance_analysis.integrations.crypto.binance_live import LiveReader, LiveReadError, WS
 from finance_analysis.integrations.crypto.account_records import usdt_perpetual_symbols, reconciliation_orders
+
+from finance_analysis.crypto_strategy import observe
 
 from .config import LiveConfig
 
@@ -272,11 +274,14 @@ class LiveMonitor:
         return view
 
     async def run(self):
+        observer = None
         stream = None
         try:
             while True:
                 try:
                     await self.sync()
+                    if observer is None:
+                        observer = asyncio.create_task(observe.run(self.redis))
                     if stream is None:
                         stream = asyncio.create_task(self.stream())
                     await self.report("CONNECTED")
@@ -308,6 +313,9 @@ class LiveMonitor:
                 self.changed.clear()
                 await asyncio.sleep(2)
         finally:
+            if observer is not None:
+                observer.cancel()
+                await asyncio.gather(observer, return_exceptions=True)
             if stream is not None:
                 stream.cancel()
                 await asyncio.gather(stream, return_exceptions=True)

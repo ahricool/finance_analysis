@@ -527,3 +527,5 @@ GET只读，行级机会资格排除缺线、延迟和非交易时段；默认�
 独立 Trader leader 启动只读账户监控，不启动实盘策略。迁移 `0098_live_trade` 独立历史及不依赖环境变量的本地交易开关、审计。
 V1 注册集合为空且无真实写入 transport；内部网关任何交易意图均拒绝，API 无手动交易入口。
 页面 `/crypto/live-trade`，关闭或开启开关均持续同步，不改变 Paper Trade。见 `docs/binance-live-trade.md`。
+
+加密 Strategy：`crypto_strategy/` 提供代码预设，Paper/Live 独立选择；0102 迁移记录切换区间及账户权益。默认每 5 秒评估，Paper 走既有 Demo 执行，Live 为只读信号观察。管理员页面 `/crypto/strategy`，详见 `docs/binance-paper-trade.md`。

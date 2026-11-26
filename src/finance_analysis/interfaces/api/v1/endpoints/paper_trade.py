@@ -6,15 +6,13 @@ import json
 from fastapi import APIRouter, Depends, HTTPException
 from redis.exceptions import RedisError
 
-from finance_analysis.database.repositories import contracts, paper_trade as repo
+from finance_analysis.database.repositories import paper_trade as repo
 from finance_analysis.interfaces.api.deps import require_admin, private_no_store
 from finance_analysis.interfaces.api.v1.schemas.paper_trade import (
-    ManualOrder,
     OrderAction,
     ClosePosition,
     PaperSnapshot,
     PaperTradeControl,
-    StrategyConfig,
     StrategyControl,
 )
 from finance_analysis.integrations.market_data.realtime_state.repository import RealtimeStateRepository
@@ -136,49 +134,6 @@ async def update_global_control(payload: StrategyControl):
     if payload.enabled:
         await require_connection()
     return await asyncio.to_thread(repo.set_trade_control, payload.enabled)
-
-
-@router.put("/strategies/{symbol}")
-def save_strategy(symbol: str, payload: StrategyConfig):
-    if symbol != payload.symbol:
-        raise HTTPException(422, "标的不一致")
-    if symbol not in {s["symbol"] for s in contracts.contracts()}:
-        raise HTTPException(422, "策略标的必须属于共享合约行情池")
-    view, _ = repo.snapshots()
-    if payload.strategy_type == "perpetual_drive" and (
-        symbol not in (view or {}).get("demo_coin_symbols", [])
-        or "BTCUSDT" not in (view or {}).get("shared_symbols", [])
-    ):
-        raise HTTPException(422, "永续驱动要求 Demo 加密货币永续及 BTCUSDT 共享行情")
-    if any(p["symbol"] == symbol and D(p["positionAmt"]) for p in (view or {}).get("positions", [])):
-        raise HTTPException(409, "持仓期间不可修改策略参数；请先退出该仓位")
-    ignored = {"fast", "slow"} if payload.strategy_type == "perpetual_drive" else {
-        "drive_range_pct", "drive_move_pct", "drive_efficiency", "drive_relative_pct"
-    }
-    return mutation(repo.save_strategy, symbol, payload.model_dump(mode="json", exclude=ignored))
-
-
-@router.post("/strategies/{symbol}/control")
-async def control(symbol: str, payload: StrategyControl):
-    if payload.enabled:
-        view = await require_connection()
-        if symbol not in view.get("demo_symbols", []) or symbol not in view.get("shared_symbols", []):
-            raise HTTPException(409, "Demo 合约或共享行情标的不可用")
-        if view.get("configuration", {}).get("dualSidePosition") is not False:
-            raise HTTPException(409, "自动策略要求单向持仓模式")
-        strategy = next((s for s in await asyncio.to_thread(repo.strategies) if s["symbol"] == symbol), None)
-        if strategy and strategy.get("strategy_type") == "perpetual_drive" and (
-            symbol not in view.get("demo_coin_symbols", []) or "BTCUSDT" not in view.get("shared_symbols", [])
-        ):
-            raise HTTPException(409, "永续驱动要求 Demo 加密货币永续及 BTCUSDT 共享行情")
-    return await asyncio.to_thread(mutation, repo.control, symbol, payload.enabled)
-
-
-@router.post("/orders", status_code=202)
-async def order(payload: ManualOrder):
-    await require_connection()
-    values = payload.model_dump(mode="json", exclude={"request_id", "confirm_demo", "symbol"})
-    return await asyncio.to_thread(mutation, repo.queue, payload.request_id.hex, payload.symbol, "MANUAL", values)
 
 
 @router.post("/cancel", status_code=202)

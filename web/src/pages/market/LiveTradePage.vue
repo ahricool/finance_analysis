@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import StrategySelect from '@/components/paper-trade/StrategySelect.vue';
 import { computed, onMounted, onBeforeUnmount, ref } from 'vue';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
@@ -24,7 +25,7 @@ const statusLabels: Record<string, string> = {
 const connectionStatus = computed(() => failed.value ? '本站连接暂不可用' :
   snapshot.value ? statusLabels[snapshot.value.connection.status] ?? snapshot.value.connection.status : '加载中');
 const switchStatus = computed(() => control.value == null ? '交易开关状态未知' : control.value.enabled
-  ? '交易已启用 · 暂无策略'
+  ? '交易已启用 · 只读观察'
   : '自动交易已关闭 · ' + connectionStatus.value);
 const accountValues = computed(() => [
   ['账户权益', account.value.totalMarginBalance], ['钱包余额', account.value.totalWalletBalance],
@@ -101,7 +102,7 @@ onBeforeUnmount(() => { stopped = true; clearInterval(timer); });
     <header class="flex flex-wrap items-end justify-between gap-3">
       <div>
         <h1 class="text-3xl font-semibold tracking-tight">
-          实盘交易
+          Live Trade
         </h1>
         <p class="mt-1 text-sm text-muted-foreground">
           Live Trade · Binance USDⓈ-M
@@ -123,6 +124,14 @@ onBeforeUnmount(() => { stopped = true; clearInterval(timer); });
       :error="error"
       @dismiss="error = null"
     />
+    <StrategySelect environment="live" />
+    <p
+      v-if="snapshot?.connection.observation"
+      class="text-sm text-muted-foreground"
+    >
+      最近评估 · {{ snapshot.connection.observation.strategy }} · {{ new Date(snapshot.connection.observation.evaluated_at).toLocaleTimeString() }}
+      · {{ snapshot.connection.observation.direction ?? '暂无信号' }}
+    </p>
     <section class="space-y-4 rounded-lg border p-4">
       <div class="flex flex-wrap justify-between gap-3">
         <div>
@@ -146,7 +155,7 @@ onBeforeUnmount(() => { stopped = true; clearInterval(timer); });
         />
       </div>
       <p class="text-sm text-muted-foreground">
-        首版仅监控真实账户，没有已注册策略或交易执行接入。开关只控制 FA 未来的自动交易指令，不冻结 Binance 账户、不撤销现有挂单、不平仓，也不影响 App 手动交易。
+        所选策略使用公共行情进行只读观察。开关只控制 FA 未来的自动交易指令，不冻结 Binance 账户、不撤销现有挂单、不平仓，也不影响 App 手动交易。
       </p>
       <div class="flex flex-wrap gap-4 border-t pt-3 text-xs text-muted-foreground">
         <span data-testid="live-connection">账户：{{ connectionStatus }}{{ snapshot?.connection.reason ? ' · ' + snapshot.connection.reason : '' }}</span>

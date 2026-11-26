@@ -20,6 +20,7 @@ const initial: LiveSnapshot = {
 test('live account switch is persisted locally; no trading UI or Binance browser requests', async ({ page }) => {
   let state = structuredClone(initial);
   let fail = false;
+  let selected: string | null = null;
   const mutations: string[] = [];
   const requests: string[] = [];
   page.on('request', request => requests.push(request.url()));
@@ -29,6 +30,13 @@ test('live account switch is persisted locally; no trading UI or Binance browser
     if (path === '/api/v1/auth/status') return route.fulfill({ json: {
       loggedIn: true, user: { uid: 5, username: 'Admin', email: 'test@example.com', role: 'admin' },
     } });
+    if (path === '/api/v1/crypto/strategy') return route.fulfill({ json: {
+      items: [{ key: 'ema_cross', name: 'EMA Cross' }], selected: { live: selected, paper: null },
+    } });
+    if (path === '/api/v1/crypto/strategy/live') {
+      selected = route.request().postDataJSON().strategy;
+      return route.fulfill({ status: 204 });
+    }
     if (path === base) return route.fulfill({ json: state });
     if (path === base + '/control') {
       if (route.request().method() === 'PUT') {
@@ -43,13 +51,16 @@ test('live account switch is persisted locally; no trading UI or Binance browser
   await page.goto('/crypto/live-trade');
   await expect(page.getByTestId('live-trade-page')).toBeVisible();
   await expect(page.getByTestId('live-switch-status')).toContainText('自动交易已关闭');
+  await page.getByRole('combobox', { name: 'Strategy' }).click();
+  await page.getByRole('option', { name: 'EMA Cross' }).click();
+  await expect.poll(() => selected).toBe('ema_cross');
   const toggle = page.getByRole('switch', { name: '自动交易' });
   await expect(toggle).toHaveAttribute('aria-checked', 'false');
   await expect(page.getByText('1025.50', { exact: true })).toBeVisible();
   await expect(page.getByText('Binance · LIVE · 真实账户')).toBeVisible();
   await toggle.click();
   await expect(toggle).toHaveAttribute('aria-checked', 'true');
-  await expect(page.getByTestId('live-switch-status')).toContainText('交易已启用 · 暂无策略');
+  await expect(page.getByTestId('live-switch-status')).toContainText('交易已启用 · 只读观察');
   await page.reload();
   await expect(toggle).toHaveAttribute('aria-checked', 'true');
   await toggle.click();
@@ -83,5 +94,5 @@ test('ordinary user cannot access live account data', async ({ page }) => {
   await page.goto('/crypto/live-trade');
   await expect(page).toHaveURL(/\/crypto\/contracts$/);
   await expect(page.getByTestId('contracts-page')).toBeVisible();
-  await expect(page.getByRole('link', { name: '实盘交易', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('link', { name: 'Live Trade', exact: true })).toHaveCount(0);
 });

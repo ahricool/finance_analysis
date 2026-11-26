@@ -230,7 +230,7 @@ def test_underlying_migration_preserves_custom_universe_and_daily_history():
         connection.execute(text("INSERT INTO futures_daily_bar VALUES ('DOGEUSDT', 1, 0.5)"))
         connection.execute(text("CREATE TABLE alembic_version (version_num VARCHAR(32) PRIMARY KEY)"))
         connection.execute(text("INSERT INTO alembic_version VALUES ('0100_minute_forecast_optin')"))
-    command.upgrade(config, "head")
+    command.upgrade(config, "0101_contract_underlying")
     with engine.connect() as connection:
         assert dict(connection.execute(text("SELECT symbol, underlying_symbol FROM futures_contract")).all()) == {
             "DOGEUSDT": "DOGE.CRYPTO", "AAPLUSDT": "AAPL.US", "CUSTOMUSDT": "CUSTOM.OTHER",

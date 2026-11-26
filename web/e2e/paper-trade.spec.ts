@@ -8,7 +8,8 @@ const empty: PaperSnapshot = {
   equity: [], orders: [], algos: [], strategies: [], trades: [], income: [], intents: [], realized_net: null,
 };
 
-test('admin Demo page has independent status, explicit order confirmation and no exchange traffic', async ({ page }) => {
+test('admin Demo page has independent status, strategy selection and no exchange traffic', async ({ page }) => {
+  let selected: string | null = null;
   let snapshot: PaperSnapshot = { ...empty };
   const writes: { path: string; payload: unknown }[] = [];
   const errors: string[] = [];
@@ -20,6 +21,14 @@ test('admin Demo page has independent status, explicit order confirmation and no
     if (url.pathname === '/api/v1/auth/status') return route.fulfill({ json: {
       loggedIn: true, user: { uid: 1, username: 'Tester', email: 'test@example.com', role: 'admin' },
     } });
+    if (url.pathname === '/api/v1/crypto/strategy') return route.fulfill({ json: {
+      selected: { paper: selected, live: null }, interval_seconds: 5,
+      items: [{ key: 'ema_cross', name: 'EMA Cross', periods: [], paper: null, live: null, backtest: null }],
+    } });
+    if (url.pathname === '/api/v1/crypto/strategy/paper') {
+      selected = route.request().postDataJSON().strategy;
+      return route.fulfill({ status: 204 });
+    }
     if (url.pathname === '/api/v1/crypto/paper-trade') return route.fulfill({ json: snapshot });
     if (url.pathname === '/api/v1/crypto/paper-trade/control') {
       if (route.request().method() === 'PUT') snapshot = { ...snapshot, trade_control: {
@@ -37,10 +46,10 @@ test('admin Demo page has independent status, explicit order confirmation and no
   await page.goto('/crypto/paper-trade');
   await expect(page.getByTestId('paper-trade-page')).toBeVisible();
   await expect(page.getByTestId('demo-connection')).toContainText('未配置 Demo API');
-  await expect(page.getByRole('button', { name: '核对模拟委托' })).toBeDisabled();
-  await expect(page.getByTestId('demo-quantity')).toHaveValue('');
+  await expect(page.getByRole('button', { name: '核对模拟委托' })).toHaveCount(0);
   snapshot = { ...empty, connection: { status: 'CONNECTED', stream_connected: true },
-    view: { account: { totalMarginBalance: '5000.00', totalWalletBalance: '4999.00', availableBalance: '4800.00' },
+    equity: [{ time: '2026-11-25T00:00:00Z', equity: '4999' }, { time: '2026-11-25T01:00:00Z', equity: '5000' }],
+    view: { account: { totalMarginBalance: '5000.004', totalWalletBalance: '4999.00', availableBalance: '4800.00' },
       synced_at: new Date().toISOString(), complete: true, demo_symbols: ['BTCUSDT'], shared_symbols: ['BTCUSDT'],
       positions: [{ symbol: 'BTCUSDT', positionSide: 'BOTH', positionAmt: '0.001', source: 'EXTERNAL' }],
       open_orders: [{ symbol: 'BTCUSDT', orderId: '12345678901234567' }],
@@ -52,43 +61,34 @@ test('admin Demo page has independent status, explicit order confirmation and no
   };
   await page.getByRole('button', { name: '刷新' }).click();
   await expect(page.getByTestId('demo-connection')).toContainText('连接正常');
+  await expect(page.locator('canvas').first()).toBeVisible();
   await expect(page.getByText('5000.00', { exact: true })).toBeVisible();
-  await expect(page.getByText('EMA 验证', { exact: true }).first()).toBeVisible();
+  await expect(page.getByText('策略与控制', { exact: true })).toHaveCount(0);
   await expect(page.getByText('12345678901234567', { exact: true })).toBeVisible();
   const toggle = page.getByTestId('paper-trading-switch');
   await expect(toggle).toHaveAttribute('aria-checked', 'false');
   await toggle.click();
   await expect(toggle).toHaveAttribute('aria-checked', 'true');
-  await page.getByRole('button', { name: '启用', exact: true }).click();
-  await expect(page.getByRole('alertdialog')).toContainText('关闭页面后仍运行');
-  await page.getByRole('alertdialog').getByRole('button', { name: '取消' }).click();
+  await page.getByRole('combobox', { name: 'Strategy' }).click();
+  await page.getByRole('option', { name: 'EMA Cross' }).click();
+  await expect.poll(() => selected).toBe('ema_cross');
   expect(writes).toHaveLength(0);
   await page.getByRole('button', { name: '撤单', exact: true }).first().click();
   await expect(page.getByRole('alertdialog')).toContainText('12345678901234567');
   await page.getByRole('alertdialog').getByRole('button', { name: '确认提交' }).click();
   await expect.poll(() => writes.length).toBe(1);
   expect(writes[0]!.payload).toMatchObject({ exchange_id: '12345678901234567', confirm_demo: true, algo: false });
-  await page.getByRole('combobox', { name: 'Demo 合约' }).click();
-  await page.getByRole('option', { name: 'BTCUSDT' }).click();
-  await page.getByRole('combobox', { name: '方向', exact: true }).click();
-  await page.getByRole('option', { name: 'BUY · 买入' }).click();
-  await page.getByRole('combobox', { name: '订单类型' }).click();
-  await page.getByRole('option', { name: 'MARKET', exact: true }).click();
-  await page.getByTestId('demo-quantity').fill('0.001');
-  await page.getByRole('button', { name: '核对模拟委托' }).click();
-  await expect(page.getByRole('alertdialog')).toContainText('数量 0.001');
-  expect(writes).toHaveLength(1);
-  await page.getByRole('alertdialog').getByRole('button', { name: '确认提交' }).click();
-  await expect.poll(() => writes.length).toBe(2);
-  expect(writes[1]!.payload).toMatchObject({ symbol: 'BTCUSDT', side: 'BUY', order_type: 'MARKET', quantity: '0.001', confirm_demo: true });
   await page.getByRole('button', { name: '平仓', exact: true }).click();
   await expect(page.getByRole('alertdialog')).toContainText('仅减仓');
   await page.getByRole('alertdialog').getByRole('button', { name: '取消' }).click();
-  expect(writes).toHaveLength(2);
+  expect(writes).toHaveLength(1);
   for (const width of [390, 768, 1024, 1280, 1440, 1920]) {
     await page.setViewportSize({ width, height: 900 });
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   }
+  await page.goto('/crypto/strategy');
+  await page.locator('summary').filter({ hasText: 'EMA Cross' }).click();
+  await expect(page.getByText('Paper Trade 收益', { exact: true })).toBeVisible();
   expect(errors).toEqual([]);
   expect(requests.some(url => /binance\.(com|vision)/.test(url))).toBe(false);
 });
@@ -107,50 +107,4 @@ test('ordinary user cannot open Demo page', async ({ page }) => {
   await expect(page).toHaveURL(/\/crypto\/contracts$/);
   await expect(page.getByTestId('contracts-page')).toBeVisible();
   await expect(page.getByRole('link', { name: 'Paper Trade', exact: true })).toHaveCount(0);
-});
-
-test('24/7 drive has independent parameters and only sends a paused configuration', async ({ page }) => {
-  const writes: { path: string; payload: unknown }[] = [];
-  const snapshot: PaperSnapshot = {
-    ...empty, connection: { status: 'CONNECTED', stream_connected: true },
-    view: { account: {}, positions: [], complete: true, synced_at: new Date().toISOString(),
-      shared_symbols: ['BTCUSDT', 'ETHUSDT', 'QQQUSDT'],
-      demo_symbols: ['BTCUSDT', 'ETHUSDT', 'QQQUSDT'], demo_coin_symbols: ['BTCUSDT', 'ETHUSDT'] },
-  };
-  await page.route('**/api/v1/**', async route => {
-    const url = new URL(route.request().url());
-    if (url.pathname === '/api/v1/auth/status') return route.fulfill({ json: {
-      loggedIn: true, user: { uid: 1, username: 'Tester', email: 'test@example.com', role: 'admin' },
-    } });
-    if (url.pathname === '/api/v1/crypto/paper-trade') return route.fulfill({ json: snapshot });
-    if (url.pathname === '/api/v1/crypto/contracts') return route.fulfill({ json: { items: [] } });
-    if (route.request().method() === 'PUT' && url.pathname.includes('/paper-trade/strategies/')) {
-      writes.push({ path: url.pathname, payload: route.request().postDataJSON() });
-      return route.fulfill({ json: { enabled: false } });
-    }
-    return route.fulfill({ json: dashboardResponse(url) });
-  });
-  await page.goto('/crypto/paper-trade');
-  await expect(page.getByTestId('demo-connection')).toContainText('连接正常');
-  await page.getByRole('combobox', { name: '策略类型' }).click();
-  await page.getByRole('option', { name: '24/7 永续驱动 (V8)' }).click();
-  const form = page.locator('form').filter({ has: page.getByRole('button', { name: '保存策略' }) });
-  await expect(form.getByLabel('快 EMA', { exact: true })).toHaveCount(0);
-  await expect(form.getByLabel('初始振幅 (%)')).toHaveValue('0.8');
-  await expect(form.getByLabel('路径效率 (0–1)')).toHaveValue('0.48');
-  await page.getByRole('combobox', { name: '策略合约' }).click();
-  await expect(page.getByRole('option', { name: 'QQQUSDT' })).toHaveCount(0);
-  await page.getByRole('option', { name: 'ETHUSDT' }).click();
-  for (const [label, value] of [
-    ['策略名称', 'V8 ETH'], ['计划名义额度 (USDT)', '100'], ['计划保证金 (USDT)', '50'],
-    ['最大名义持仓 (USDT)', '100'], ['杠杆上限', '2'], ['最大亏损 (USDT)', '5'], ['止损比例 (%)', '2'],
-  ] as const) await form.getByLabel(label, { exact: true }).fill(value);
-  await page.getByRole('button', { name: '保存策略' }).click();
-  await expect.poll(() => writes.length).toBe(1);
-  expect(writes[0]).toMatchObject({
-    path: '/api/v1/crypto/paper-trade/strategies/ETHUSDT',
-    payload: { symbol: 'ETHUSDT', strategy_type: 'perpetual_drive', drive_efficiency: '0.48', drive_move_pct: '1.2' },
-  });
-  expect(writes[0]!.payload).not.toHaveProperty('fast');
-  await expect(page.getByTestId('paper-trading-switch')).toHaveAttribute('aria-checked', 'false');
 });

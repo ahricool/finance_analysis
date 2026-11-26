@@ -76,6 +76,7 @@ const router = createRouter({
             { path: '', redirect: redirectWithQuery('/crypto/contracts') },
             { path: 'contracts', name: 'crypto-contracts', component: ContractsPage, meta: { title: '合约行情' } },
             { path: 'paper-trade', name: 'crypto-paper-trade', component: () => import('@/pages/market/PaperTradePage.vue'), meta: { title: 'Paper Trade', admin: true } },
+            { path: 'strategy', name: 'crypto-strategy', component: () => import('@/pages/market/CryptoStrategyPage.vue'), meta: { title: 'Strategy', admin: true } },
             { path: 'live-trade', name: 'crypto-live-trade', component: () => import('@/pages/market/LiveTradePage.vue'), meta: { title: 'Live Trade', admin: true } },
           ],
         },
@@ -217,7 +218,7 @@ router.beforeEach(async (to) => {
     };
   }
 
-  if (to.meta.admin && auth.currentUser?.role !== 'admin') return { path: ['crypto-paper-trade', 'crypto-live-trade'].includes(String(to.name)) ? '/crypto/contracts' : '/research/quant', query: { market: to.query.market } };
+  if (to.meta.admin && auth.currentUser?.role !== 'admin') return { path: ['crypto-paper-trade', 'crypto-live-trade', 'crypto-strategy'].includes(String(to.name)) ? '/crypto/contracts' : '/research/quant', query: { market: to.query.market } };
 
   if (to.path === '/login' && auth.loggedIn) {
     return { path: '/dashboard', replace: true };
