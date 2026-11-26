@@ -1,5 +1,7 @@
 """Public Binance USD-M market data; no trading endpoints."""
 from datetime import datetime, timezone
+import asyncio
+import time
 import math
 import logging
 
@@ -32,8 +34,14 @@ def parse_bar(row):
     return {"timestamp": int(row[0]), **bar}
 
 
+class MarketCooldown(RuntimeError):
+    """The exchange requested an IP-wide pause."""
+
+
 class BinanceClient:
     def __init__(self, http=None):
+        self._request_lock = asyncio.Lock()
+        self._stats_after = self._public_after = self._blocked_until = 0.0
         self.http = http or httpx.AsyncClient(
             base_url=env_str("BINANCE_FUTURES_REST_BASE_URL", "https://fapi.binance.com"), timeout=10,
         )
@@ -41,11 +49,37 @@ class BinanceClient:
     async def close(self):
         await self.http.aclose()
 
+    async def market_get(self, path, params=None, *, private_stats=False):
+        headers = {}
+        if private_stats:
+            if path not in ("/futures/data/topLongShortAccountRatio", "/futures/data/topLongShortPositionRatio"):
+                raise PermissionError("Unexpected keyed market-data route")
+            base = self.http.base_url
+            key = env_str("BINANCE_FUTURES_MARKET_DATA_KEY")
+            if not key or (base.scheme, base.host, base.port) != ("https", "fapi.binance.com", None):
+                raise PermissionError("Dedicated USD-M market-data key unavailable")
+            headers["X-MBX-APIKEY"] = key
+        async with self._request_lock:
+            stats = path.startswith("/futures/data/")
+            after = self._stats_after if stats else self._public_after
+            await asyncio.sleep(max(0, after - time.monotonic()))
+            if time.monotonic() < self._blocked_until:
+                raise MarketCooldown("Binance IP cooldown")
+            if stats:
+                self._stats_after = time.monotonic() + 0.5
+            else:
+                # At most two public requests/s. The largest backfill page weighs 10.
+                self._public_after = time.monotonic() + 0.5
+        response = await self.http.get(path, params=params, headers=headers, follow_redirects=False)
+        if response.status_code in (418, 429):
+            seconds = int(response.headers.get("Retry-After", 300))
+            self._blocked_until = max(self._blocked_until, time.monotonic() + max(1, seconds))
+        response.raise_for_status()
+        return response.json()
+
     async def _get(self, path, params=None):
         async def request():
-            response = await self.http.get(path, params=params)
-            response.raise_for_status()
-            return response.json()
+            return await self.market_get(path, params)
         return await retry_async(request)
 
     async def server_time(self):

@@ -44,17 +44,47 @@ function currentOpportunity(row: ContractQuote) {
   return analysis && !delayed(row) && status.value.endsWith('已连接') && now.value.getTime() - analysis.as_of < 90_000
     ? analysis.opportunity : null;
 }
-const sort = useTableSort(() => rows.value, (row, key) => {
+const displayRows = computed(() => {
+  const stamp = now.value.getTime();
+  const boundary = Math.floor(stamp / 300000) * 300000;
+  return rows.value.map(row => ({
+    ...row,
+    mark: row.mark && Math.abs(stamp - row.mark.timestamp) < 60000 ? row.mark : null,
+    book: row.book && Math.abs(stamp - row.book.timestamp) < 60000 ? row.book : null,
+    metrics: row.metrics?.timestamp === boundary ? row.metrics : null,
+  }));
+});
+function funding(row: ContractQuote) {
+  if (row.mark) return row.mark.funding_rate;
+  if (row.quote?.funding_timestamp != null || delayed(row)) return null;
+  return row.quote?.funding_rate;
+}
+const sort = useTableSort(() => displayRows.value, (row, key) => {
   if (key === 'opportunity') return currentOpportunity(row)?.quality_score;
+  if (key === 'quote.funding_rate') return funding(row);
   if (key === 'direction') return currentOpportunity(row)?.direction ?? row.analysis?.direction;
   return sortField(row, key);
 });
 sort.sortKey = 'opportunity';
 sort.direction = 'desc';
 const existingSymbols = computed(() => rows.value.map(row => row.symbol));
+const metricColumns = [
+  { key: 'metrics.price_change', label: '1h 涨跌幅', unit: 'change', description: '同一 UTC 窗口内，末分钟收盘价相对首分钟开盘价的变化。' },
+  { key: 'metrics.oi_change', label: '1h OI 数量变化', unit: 'change', description: '期末与一小时前的未平仓合约数量变化率。' },
+  { key: 'metrics.buy_share', label: '1h 主动买入占比', unit: 'share', description: '整小时主动买入量占主动买卖成交量之和的比例，按成交量加权。' },
+  { key: 'metrics.accounts.ratio', label: '账户多空比', unit: 'multiple', description: '全市场净多账户数 / 净空账户数。大户持仓多空比按仓位规模计算。' },
+];
+function metricText(row: ContractQuote, column: typeof metricColumns[number]) {
+  const value = sortField(row, column.key);
+  if (typeof value !== 'number') return '—';
+  if (column.unit === 'multiple') return value.toFixed(2);
+  if (column.unit === 'share') return (value * 100).toFixed(2) + '%';
+  return percent(value * 100);
+}
 const columns = [
   { key: 'symbol', label: '合约' }, { key: 'category', label: '分类' },
   { key: 'quote.price', label: '最新价' }, { key: 'quote.change_pct', label: '24h 涨跌幅' },
+  ...metricColumns,
   { key: 'opportunity', label: '日内机会' }, { key: 'analysis.score', label: '趋势质量分' },
   { key: 'direction', label: '当前方向' }, { key: 'analysis.state', label: '当前状态' },
   ...[5, 15, 30, 60].map(n => ({ key: `analysis.windows.${n}.score`, label: `${n}分钟` })),
@@ -230,6 +260,7 @@ onBeforeUnmount(() => { stopped = true; ++generation; dailyRequest?.abort(); });
               v-for="column in columns"
               :key="column.key"
               :label="column.label"
+              :description="metricColumns.find(c => c.key === column.key)?.description"
               :align="column.key.startsWith('quote.') ? 'right' : 'left'"
               v-bind="sort.header(column.key)"
             />
@@ -293,6 +324,13 @@ onBeforeUnmount(() => { stopped = true; ++generation; dailyRequest?.abort(); });
               >
                 {{ percent(row.quote?.change_pct) }}
               </TableCell>
+              <TableCell
+                v-for="column in metricColumns"
+                :key="column.key"
+                class="whitespace-nowrap px-4 py-3 text-right tabular-nums"
+              >
+                {{ metricText(row, column) }}
+              </TableCell>
               <TableCell class="whitespace-nowrap px-4 py-3 text-right tabular-nums">
                 {{ currentOpportunity(row) ? fmt(currentOpportunity(row)?.quality_score, 0) + '分 · ' + opportunityKinds[currentOpportunity(row)!.kind] : '—' }}
               </TableCell>
@@ -311,7 +349,7 @@ onBeforeUnmount(() => { stopped = true; ++generation; dailyRequest?.abort(); });
                 {{ format(row.quote?.turnover, 0) }}
               </TableCell>
               <TableCell class="whitespace-nowrap px-4 py-3 text-right tabular-nums">
-                {{ percent(row.quote?.funding_rate == null ? null : row.quote.funding_rate * 100, 4) }}
+                {{ percent(funding(row) == null ? null : funding(row)! * 100, 4) }}
               </TableCell>
               <TableCell
                 v-if="admin"

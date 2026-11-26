@@ -95,7 +95,8 @@ async def test_snapshot_is_db_scoped_and_missing_quotes_are_null(monkeypatch):
     monkeypatch.setattr(service.repository, "contracts", lambda: [{"symbol": "ETHUSDT", "category": "COIN", "underlying_symbol": "ETH.CRYPTO"}])
     redis = Mock(mget=AsyncMock(return_value=[None]), get=AsyncMock())
     result = await service.live_snapshot(redis, "REMOVEDUSDT")
-    assert result["items"] == [{"symbol": "ETHUSDT", "category": "COIN", "underlying_symbol": "ETH.CRYPTO", "quote": None}]
+    assert result["items"] == [{"symbol": "ETHUSDT", "category": "COIN", "underlying_symbol": "ETH.CRYPTO", "quote": None,
+                                "analysis": None, "mark": None, "metrics": None, "book": None}]
     assert result["minutes"] is None
     redis.get.assert_not_called()
 
@@ -119,6 +120,7 @@ def test_old_tables_removed_and_default_seed_runs_once_on_fresh_and_existing_db(
             assert not {"crypto_strategy_state", "crypto_strategy_snapshot"}.intersection(
                 inspect(connection).get_table_names()
             )
+            assert "futures_metric_sample" in inspect(connection).get_table_names()
             symbols = set(connection.execute(text("SELECT symbol FROM futures_contract")).scalars())
             assert len(symbols) == 19 and "BTCUSDT" in symbols and "BTCUSD_PERP" not in symbols
             targets = dict(connection.execute(text("SELECT symbol, underlying_symbol FROM futures_contract")).all())
