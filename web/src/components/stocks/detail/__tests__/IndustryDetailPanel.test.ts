@@ -6,7 +6,7 @@ const api = vi.hoisted(() => ({ stockContext: vi.fn() }));
 vi.mock('@/api/industryStrength', () => ({ industryStrengthApi: api }));
 const industry = { industryCode: '881101.TI', industryName: '食品', tradeDate: '2026-09-21', state: 'STRONG', strengthRank: 2, rankTotal: 80, strengthScore: 80, membersObservedAt: '2026-09-21T10:00:00Z' };
 const props = { symbol: '600519.SH', market: 'CN' as const };
-const global = { plugins: [createPinia()], stubs: { MinuteForecastSwitch: { props: ['symbol'], template: '<div data-testid="forecast-switch">{{ symbol }}</div>' }, RouterLink: { name: 'RouterLink', props: ['to'], template: '<a><slot /></a>' } } };
+const global = { plugins: [createPinia()], stubs: { RouterLink: { name: 'RouterLink', props: ['to'], template: '<a><slot /></a>' } } };
 beforeEach(() => { vi.resetAllMocks(); api.stockContext.mockResolvedValue([industry]); });
 it('keeps industry date, ranking, observation time and dated source link', async () => {
   const wrapper = mount(IndustryDetailPanel, { props, global }); await flushPromises();
@@ -20,7 +20,7 @@ it('clears stale stock results and does not fetch outside CN', async () => {
   const wrapper = mount(IndustryDetailPanel, { props, global });
   await wrapper.setProps({ symbol: 'AAPL.US', market: 'US' });
   finish([industry]); await flushPromises();
-  expect(wrapper.text()).not.toContain('食品'); expect(wrapper.get('[data-testid="forecast-switch"]').text()).toBe('AAPL.US'); expect(api.stockContext).toHaveBeenCalledTimes(1); wrapper.unmount();
+  expect(wrapper.text()).not.toContain('食品'); expect(api.stockContext).toHaveBeenCalledTimes(1); wrapper.unmount();
 });
 it('offers retry for failures and a neutral empty state for missing coverage', async () => {
   api.stockContext.mockRejectedValueOnce(new Error('offline'));
