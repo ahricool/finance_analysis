@@ -1,5 +1,6 @@
 import { onBeforeUnmount, ref, watch, type Ref } from 'vue';
 import { contractStreamUrl, type MarketSnapshot } from '@/api/contracts';
+import { applySnapshotOperations, type SnapshotOperation } from '@/api/intradayOptionsDelta';
 import { redirectToLogin } from '@/api';
 
 export function useContractMarket(symbol: Ref<string>, interval: Ref<'1d' | '1m'>, receive: (snapshot: MarketSnapshot) => void) {
@@ -28,14 +29,20 @@ export function useContractMarket(symbol: Ref<string>, interval: Ref<'1d' | '1m'
     const current = ++generation;
     clear();
     status.value = fallback ? 'SSE 连接中' : 'WS 连接中';
+    let baseline: MarketSnapshot | undefined;
+    let revision = 0;
     function valid() {
       return current === generation;
     }
     function accept(raw: string, transport: string) {
       if (!valid()) return;
       try {
-        const snapshot = JSON.parse(raw) as MarketSnapshot;
+        const frame = JSON.parse(raw) as MarketSnapshot & { revision?: number; operations?: SnapshotOperation[] };
+        if (frame.operations && (!baseline || frame.revision !== revision + 1)) throw new Error('Missing baseline');
+        const snapshot = frame.operations ? applySnapshotOperations(baseline!, frame.operations) : frame;
         if (!Array.isArray(snapshot.items) || (snapshot.symbol ?? '') !== symbol.value) return;
+        baseline = snapshot;
+        revision = frame.revision ?? 0;
         status.value = transport + ' 已连接';
         failures = 0;
         if (!valid()) return;

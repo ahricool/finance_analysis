@@ -7,6 +7,7 @@ import time
 import websockets
 from redis.exceptions import RedisError
 
+from finance_analysis.contracts.analysis import summarize
 from finance_analysis.database.repositories import contracts as repository
 from finance_analysis.integrations.crypto.binance import BinanceClient, number, parse_bar
 
@@ -126,6 +127,8 @@ class ContractCollector:
                 }
                 for b in cached
             }
+            if cached:
+                self.dirty.add((symbol, "analysis"))
             if cached and any("closed" not in b for b in cached):
                 self.dirty.add((symbol, "minute"))
 
@@ -141,7 +144,11 @@ class ContractCollector:
             if (previous.get("closed") == row.get("closed")
                     and previous.get("event_time", 0) > row.get("event_time", 0)):
                 return
-        rows[stamp] = row
+        if previous and all(previous.get(k) == value for k, value in row.items()):
+            return
+        if row.get("closed"):
+            self.dirty.add((symbol, "analysis"))
+        rows[stamp] = {**row, "received_at_ms": now}
         self.dirty.add((symbol, "minute"))
 
     async def repair_minutes(self, symbol):
@@ -206,8 +213,11 @@ class ContractCollector:
         now = now_ms()
         pipe = self.redis.pipeline(transaction=True)
         writes = 0
+        analyses = {}
         for symbol, kind in dirty:
-            if kind == "minute":
+            if kind == "analysis":
+                analyses[symbol] = sorted(self.minutes[symbol].values(), key=lambda b: b["timestamp"])
+            elif kind == "minute":
                 rows = self.minutes[symbol]
                 merged = merge_minutes([], rows.values(), now)
                 self.minutes[symbol] = {row["timestamp"]: row for row in merged}
@@ -228,6 +238,11 @@ class ContractCollector:
                 if row["timestamp"] == now // DAY * DAY:
                     pipe.set(key(symbol, kind), json.dumps(row), ex=180)
                     writes += 1
+        # Freeze all mutable market inputs before yielding to live WS updates.
+        for symbol, bars in analyses.items():
+            summary = await asyncio.to_thread(summarize, symbol, bars, now)
+            pipe.set(key(symbol, "analysis"), json.dumps(summary), ex=120)
+            writes += 1
         if writes:
             await pipe.execute()
 
@@ -332,9 +347,16 @@ async def live_snapshot(redis, symbol=None, interval=None):
     keys = [key(row["symbol"], "quote") for row in contracts]
     try:
         quotes = await redis.mget(keys) if keys else []
+        summaries = await redis.mget([key(row["symbol"], "analysis") for row in contracts]) if keys else []
     except RedisError:
-        quotes = [None] * len(keys)
+        quotes = summaries = [None] * len(keys)
     rows = [{**row, "quote": json.loads(raw) if raw else None} for row, raw in zip(contracts, quotes, strict=True)]
+    day_start = now_ms() // DAY * DAY
+    for row, raw in zip(rows, summaries, strict=True):
+        if raw:
+            analysis = json.loads(raw)
+            if analysis and analysis["as_of"] > day_start:
+                row["analysis"] = analysis
     bars = None
     current_daily = None
     if symbol and symbol in {row["symbol"] for row in rows}:

@@ -33,3 +33,6 @@ GET 快照、搜索、添加响应及 WS/SSE 的合约项均包含 `underlying_s
 本站后端 WS 每 5 秒推送最新快照（上游 Binance WS 缓存每秒合并更新）；interval 参数选择 1d 或 1m，避免重复传送非当前周期的 K 线；连续两次失败后使用 SSE，断开自动重连。前端不连接 Binance。
 
 官方 WS 路由与迁移规范：[Binance USD-M WebSocket Market Streams](https://developers.binance.com/en/docs/products/derivatives-trading-usds-futures/websocket-market-streams/Connect)。
+
+合约列表按 UTC 00:00 划分交易日，仅使用已闭合分钟线，复用日内期权的 5/15/30/60 分钟趋势评分与已确认形态识别。报价、分钟线延迟或连接断开时，页面隐藏当前机会。Streamer 在闭合分钟变更及历史补齐时计算分析摘要。
+页面的 WS/SSE 订阅携带 `delta=true`。每次连接先接收完整基线，随后按连续 revision 合并字段变化；滚动分钟按 timestamp 匹配，仅传删除、新增和修订。无变化发送空操作，断线后重新建立基线。

@@ -21,8 +21,34 @@ class Quote(BaseModel):
     timestamp: int
 
 
+class ContractWindow(BaseModel):
+    score: float | None
+    direction: int | None
+    returnPct: float | None
+    dataStatus: str
+    availableBars: int
+    missingBars: int
+
+
+class ContractOpportunity(BaseModel):
+    kind: str
+    direction: str
+    quality_score: float
+
+
+class ContractAnalysis(BaseModel):
+    as_of: int
+    score: float | None
+    direction: str | None
+    state: str | None
+    reference: bool
+    opportunity: ContractOpportunity | None
+    windows: dict[str, ContractWindow]
+
+
 class ContractQuote(Contract):
     quote: Quote | None
+    analysis: ContractAnalysis | None = None
 
 
 class Candle(BaseModel):

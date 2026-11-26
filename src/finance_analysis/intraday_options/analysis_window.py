@@ -38,9 +38,10 @@ def minute_timeline(ordered, start, end):
     return bars, filled
 
 
-def analysis_window(ordered):
+def analysis_window(ordered, opening=None):
     end = ordered[-1].bar_time
-    opening, _ = session_bounds("US", market_trading_date(end, "US"))
+    if opening is None:
+        opening, _ = session_bounds("US", market_trading_date(end, "US"))
     start = max(opening, end - (HORIZON - 1) * MINUTE)
     bars, filled = minute_timeline(ordered, start, end)
     recent_start = end - (REQUIRED_MINUTES - 1) * MINUTE

@@ -37,7 +37,7 @@ describe('contract live connection', () => {
       setup() { return useContractMarket(symbol, interval, receive); },
       template: '<p>{{ status }}</p>',
     }));
-    expect(Socket.instances[0]?.url).toContain('/api/v1/crypto/contracts/ws?symbol=SOXLUSDT&interval=1d');
+    expect(Socket.instances[0]?.url).toContain('/api/v1/crypto/contracts/ws?symbol=SOXLUSDT&interval=1d&delta=true');
     Socket.instances[0]!.onerror!();
     await vi.advanceTimersByTimeAsync(1500);
     Socket.instances[1]!.onclose!({ code: 1006 });
@@ -46,15 +46,20 @@ describe('contract live connection', () => {
     const snap = { items: [], symbol: 'SOXLUSDT', minutes: null, daily_current: null };
     Events.instances[0]!.onmessage!({ data: JSON.stringify(snap) });
     expect(receive).toHaveBeenCalledWith(snap);
+    const baseline = { ...snap, revision: 1 };
+    Events.instances[0]!.onmessage!({ data: JSON.stringify(baseline) });
+    const operation = { op: 'set', path: ['daily_current'], value: { timestamp: 42 } };
+    Events.instances[0]!.onmessage!({ data: JSON.stringify({ revision: 2, operations: [operation] }) });
+    expect(receive.mock.lastCall?.[0].daily_current).toEqual({ timestamp: 42 });
     await nextTick();
     expect(wrapper.text()).toContain('SSE 已连接');
     const previous = Events.instances[0]!.onmessage!;
     symbol.value = 'ETHUSDT'; interval.value = '1m';
     await nextTick();
     expect(Events.instances[0]!.close).toHaveBeenCalled();
-    expect(Events.instances[1]!.url).toContain('/events?symbol=ETHUSDT&interval=1m');
+    expect(Events.instances[1]!.url).toContain('/events?symbol=ETHUSDT&interval=1m&delta=true');
     previous({ data: JSON.stringify(snap) });
-    expect(receive).toHaveBeenCalledTimes(1);
+    expect(receive).toHaveBeenCalledTimes(3);
     wrapper.unmount();
     expect(Events.instances[1]!.close).toHaveBeenCalled();
     expect(vi.getTimerCount()).toBe(0);

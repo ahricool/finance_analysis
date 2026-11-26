@@ -1,3 +1,4 @@
+import type { TrendDirection, TrendStage, WindowScore, OpportunityBranch } from './intradayOptions';
 import apiClient from './index';
 import { API_BASE_URL } from '@/utils/constants';
 
@@ -5,7 +6,11 @@ export interface Contract { symbol: string; category: string; underlying_symbol:
 export interface Quote {
   price: number; change_pct: number; turnover: number; funding_rate: number | null; timestamp: number;
 }
-export interface ContractQuote extends Contract { quote: Quote | null }
+export interface ContractQuote extends Contract { quote: Quote | null; analysis?: {
+  score: number | null; direction: TrendDirection | null; state: TrendStage | null; reference: boolean; as_of: number;
+  windows: Record<string, Pick<WindowScore, 'score' | 'direction' | 'returnPct' | 'dataStatus' | 'missingBars' | 'availableBars'>>;
+  opportunity: Pick<OpportunityBranch, 'direction' | 'kind'> & {quality_score: number} | null;
+} | null }
 export interface Candle {
   timestamp: number; open: number; high: number; low: number; close: number; volume: number; turnover: number;
 }
@@ -36,6 +41,7 @@ export function contractStreamUrl(transport: 'ws' | 'events', symbol: string, in
   const url = new URL(API_BASE_URL + path + '/' + transport, window.location.origin);
   if (symbol) url.searchParams.set('symbol', symbol);
   url.searchParams.set('interval', interval);
+  url.searchParams.set('delta', 'true');
   if (transport === 'ws') url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
   return url.toString();
 }
