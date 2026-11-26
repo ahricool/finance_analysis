@@ -24,16 +24,16 @@ onMounted(load);
 </script>
 
 <template>
-  <section class="space-y-3 rounded-lg border p-4">
+  <div class="space-y-2 border-t pt-4">
     <FieldSelect
-      label="Strategy"
+      label="交易策略"
       :model-value="catalog?.selected[environment] ?? ''"
       :disabled="busy || !catalog"
       :options="(catalog?.items ?? []).map(i => ({ value: i.key, label: i.name }))"
       @change="change"
     />
     <p class="text-xs text-muted-foreground">
-      切换时记录账户权益，结算上一策略区间。{{ environment === 'paper' ? 'Demo 总开关开启时，所选策略可自动开仓。' : '' }}
+      切换时按账户权益结算上一策略区间。
     </p>
     <AppApiErrorAlert
       v-if="error"
@@ -41,5 +41,5 @@ onMounted(load);
       action-label="刷新"
       @action="load"
     />
-  </section>
+  </div>
 </template>

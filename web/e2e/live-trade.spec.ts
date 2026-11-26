@@ -14,7 +14,7 @@ const initial: LiveSnapshot = {
     open_algos: [{ symbol: 'BTCUSDT', algoId: '102', algoStatus: 'NEW' }],
     complete: true, synced_at: new Date().toISOString(),
   },
-  equity: [], orders: [], algos: [], trades: [{ symbol: 'BTCUSDT', id: '123', side: 'BUY', source: 'EXTERNAL' }],
+  equity: [{ time: '2026-11-25T01:00:00Z', equity: '1025.50' }], orders: [], algos: [], trades: [{ symbol: 'BTCUSDT', id: '123', side: 'BUY', source: 'EXTERNAL' }],
   income: [], realized_net: '25.50', control_events: [], strategy_count: 0,
 };
 test('live account switch is persisted locally; no trading UI or Binance browser requests', async ({ page }) => {
@@ -51,11 +51,18 @@ test('live account switch is persisted locally; no trading UI or Binance browser
   await page.goto('/crypto/live-trade');
   await expect(page.getByTestId('live-trade-page')).toBeVisible();
   await expect(page.getByTestId('live-switch-status')).toContainText('自动交易已关闭');
-  await page.getByRole('combobox', { name: 'Strategy' }).click();
+  const controls = page.locator('section').filter({ has: page.getByTestId('live-trading-switch') });
+  const strategy = controls.getByRole('combobox', { name: '交易策略' });
+  const toggleBox = await controls.getByRole('switch').boundingBox();
+  const strategyBox = await strategy.boundingBox();
+  expect(strategyBox!.y).toBeGreaterThanOrEqual(toggleBox!.y + toggleBox!.height);
+  await strategy.click();
   await page.getByRole('option', { name: 'EMA Cross' }).click();
   await expect.poll(() => selected).toBe('ema_cross');
   const toggle = page.getByRole('switch', { name: '自动交易' });
   await expect(toggle).toHaveAttribute('aria-checked', 'false');
+  await expect(page.locator('figure canvas')).toBeVisible();
+  await expect(page.locator('figcaption')).toContainText('USDT / USD');
   await expect(page.getByText('1025.50', { exact: true })).toBeVisible();
   await expect(page.getByText('Binance · LIVE · 真实账户')).toBeVisible();
   await toggle.click();
