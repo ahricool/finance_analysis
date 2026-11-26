@@ -46,11 +46,17 @@ describe('contract live connection', () => {
     const snap = { items: [], symbol: 'SOXLUSDT', minutes: null, daily_current: null };
     Events.instances[0]!.onmessage!({ data: JSON.stringify(snap) });
     expect(receive).toHaveBeenCalledWith(snap);
-    const baseline = { ...snap, revision: 1 };
+    const baseline = { ...snap, items: [{ symbol: 'SOXLUSDT', metrics: null }], revision: 1 };
     Events.instances[0]!.onmessage!({ data: JSON.stringify(baseline) });
     const operation = { op: 'set', path: ['daily_current'], value: { timestamp: 42 } };
     Events.instances[0]!.onmessage!({ data: JSON.stringify({ revision: 2, operations: [operation] }) });
     expect(receive.mock.lastCall?.[0].daily_current).toEqual({ timestamp: 42 });
+    for (const [revision, value] of [[3, { buy_share: .65 }], [4, null]]) {
+      Events.instances[0]!.onmessage!({ data: JSON.stringify({ revision, operations: [
+        { op: 'set', path: ['items', 0, 'metrics'], value },
+      ] }) });
+      expect(receive.mock.lastCall?.[0].items[0].metrics).toEqual(value);
+    }
     await nextTick();
     expect(wrapper.text()).toContain('SSE 已连接');
     const previous = Events.instances[0]!.onmessage!;
@@ -59,7 +65,7 @@ describe('contract live connection', () => {
     expect(Events.instances[0]!.close).toHaveBeenCalled();
     expect(Events.instances[1]!.url).toContain('/events?symbol=ETHUSDT&interval=1m&delta=true');
     previous({ data: JSON.stringify(snap) });
-    expect(receive).toHaveBeenCalledTimes(3);
+    expect(receive).toHaveBeenCalledTimes(5);
     wrapper.unmount();
     expect(Events.instances[1]!.close).toHaveBeenCalled();
     expect(vi.getTimerCount()).toBe(0);

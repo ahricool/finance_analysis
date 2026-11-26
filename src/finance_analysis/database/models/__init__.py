@@ -60,7 +60,7 @@ from finance_analysis.database.models.user_avatar import UserAvatar  # noqa: F40
 from finance_analysis.database.models.user import User  # pragma: allowlist secret
 from finance_analysis.database.models.watch_list import WatchListItem, WatchListTag  # pragma: allowlist secret
 
-from .contracts import FuturesContract, FuturesDailyBar
+from .contracts import FuturesContract, FuturesDailyBar, FuturesMetricSample
 
 from .dragon_tiger_flow import DragonTigerFlowBatch
 from .daily_forecast import DailyForecastAccuracyState, DailyForecastSnapshot
@@ -88,6 +88,7 @@ __all__ = [
     "Notification",
     "FuturesContract",
     "FuturesDailyBar",
+    "FuturesMetricSample",
     "TimelineEntry",
     "ETFMomentumSnapshot",
     "ETFMarketRotationSnapshot",

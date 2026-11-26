@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 
 from finance_analysis.interfaces.api.v1.schemas.intraday_options_stream import SnapshotStream
-from finance_analysis.contracts.service import live_snapshot
+from finance_analysis.contracts.service import DAY, key, live_snapshot, now_ms, read_json
 from finance_analysis.contracts.underlying import underlying_symbol
 from finance_analysis.database.models.contracts import FuturesContract
 from finance_analysis.database.repositories import contracts as repository
@@ -20,6 +20,7 @@ from finance_analysis.integrations.crypto.binance import BinanceClient
 from finance_analysis.integrations.market_data.realtime_state.repository import RealtimeStateRepository
 from finance_analysis.interfaces.api.deps import get_db, require_admin
 from finance_analysis.interfaces.api.v1.schemas.contracts import Candle, Contract, ContractCreate, MarketSnapshot
+from finance_analysis.interfaces.api.v1.schemas.contracts import DepthSnapshot, HistoryPage
 from finance_analysis.market_stream.config import MarketStreamConfig
 from finance_analysis.users.auth import COOKIE_NAME, parse_session_uid
 
@@ -76,7 +77,7 @@ def delete(symbol: str, db: Session = Depends(get_db)):
     db.commit()
 
 
-@router.get("/contracts", response_model=MarketSnapshot)
+@router.get("/contracts", response_model=MarketSnapshot, response_model_exclude_unset=True)
 async def snapshot(symbol: str | None = Query(default=None, max_length=32)):
     store = realtime()
     try:
@@ -85,7 +86,7 @@ async def snapshot(symbol: str | None = Query(default=None, max_length=32)):
         await store.close()
 
 
-@router.get("/contracts/{symbol}/bars", response_model=list[Candle])
+@router.get("/contracts/{symbol}/bars", response_model=list[Candle], response_model_exclude_unset=True)
 async def bars(symbol: str, interval: Literal["1m", "1d"] = "1d"):
     if symbol not in {row["symbol"] for row in await asyncio.to_thread(repository.contracts)}:
         raise HTTPException(404, "合约不存在")
@@ -132,5 +133,28 @@ async def websocket(socket: WebSocket, symbol: str | None = Query(default=None, 
             await asyncio.sleep(5)
     except (WebSocketDisconnect, RuntimeError):
         pass
+    finally:
+        await store.close()
+
+
+@router.get("/contracts/{symbol}/metrics", response_model=HistoryPage)
+def metrics(symbol: str, start: int = Query(ge=0, le=253402300799999),
+            end: int = Query(ge=0, le=253402300799999), limit: int = Query(288, ge=1, le=500)):
+    if not 0 <= end - start <= 31 * DAY:
+        raise HTTPException(422, "查询范围须在 31 天内")
+    rows = repository.metric_history(symbol.upper(), start, end, limit + 1)
+    return {"items": rows[:limit], "next_start": rows[limit]["timestamp"] if len(rows) > limit else None}
+
+
+@router.get("/contracts/{symbol}/depth", response_model=DepthSnapshot | None)
+async def depth(symbol: str):
+    if symbol not in {row["symbol"] for row in await asyncio.to_thread(repository.contracts)}:
+        raise HTTPException(404, "合约不存在")
+    store = realtime()
+    try:
+        # A short interest lease coalesces all viewers; only the leader calls Binance.
+        await store.redis.set(key(symbol, "depth-demand"), "1", ex=15)
+        item = await read_json(store.redis, key(symbol, "depth"), None)
+        return item if item and abs(now_ms() - item["timestamp"]) < 15000 else None
     finally:
         await store.close()

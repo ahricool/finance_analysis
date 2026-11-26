@@ -3,7 +3,7 @@ from sqlalchemy import select, func
 from sqlalchemy.dialects.postgresql import insert
 
 from finance_analysis.database import DatabaseManager
-from finance_analysis.database.models.contracts import FuturesContract, FuturesDailyBar
+from finance_analysis.database.models.contracts import FuturesContract, FuturesDailyBar, FuturesMetricSample
 
 
 def contracts():
@@ -48,3 +48,34 @@ def daily(symbol, limit=2000):
                                .order_by(FuturesDailyBar.timestamp.desc()).limit(limit)).all()
         return [{key: getattr(row, key) for key in
                  ("timestamp", "open", "high", "low", "close", "volume", "turnover")} for row in reversed(rows)]
+
+
+def save_samples(symbol, source, samples):
+    if not samples:
+        return
+    with DatabaseManager.get_instance().session_scope() as session:
+        statement = insert(FuturesMetricSample).values([
+            {"symbol": symbol, "period": "5m", "timestamp": stamp, source: values}
+            for stamp, values in samples.items()
+        ])
+        session.execute(statement.on_conflict_do_update(
+            index_elements=["symbol", "period", "timestamp"], set_={source: statement.excluded[source]},
+        ))
+
+
+def metric_history(symbol, start, end, limit):
+    model = FuturesMetricSample
+    with DatabaseManager.get_instance().session_scope() as session:
+        rows = session.scalars(select(model).where(
+            model.symbol == symbol, model.period == "5m", model.timestamp.between(start, end),
+        ).order_by(model.timestamp).limit(limit))
+        return [{col.name: getattr(row, col.name) for col in model.__table__.columns} for row in rows]
+
+
+def sample_times(symbol, source, start, end):
+    model = FuturesMetricSample
+    with DatabaseManager.get_instance().session_scope() as session:
+        return set(session.scalars(select(model.timestamp).where(
+            model.symbol == symbol, model.period == "5m", model.timestamp.between(start, end),
+            getattr(model, source).is_not(None),
+        )))

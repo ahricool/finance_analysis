@@ -1,8 +1,12 @@
-import { mount } from '@vue/test-utils';
+import { flushPromises, mount } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import ContractMarketPanel from '../ContractMarketPanel.vue';
 import type { Candle, ContractQuote } from '@/api/contracts';
 
+vi.mock('@/api/contracts', () => ({ contractsApi: {
+  depth: vi.fn(async () => ({ timestamp: Date.now(), bids: 200, asks: 330, bids_levels: 2, asks_levels: 3 })),
+  history: vi.fn(async () => []),
+} }));
 const now = Date.parse('2026-11-25T10:20:30Z');
 const minute = Math.floor(now / 60_000) * 60_000;
 const row: ContractQuote = { symbol: 'BTCUSDT', category: 'COIN', underlying_symbol: 'BTC.CRYPTO', quote: null };
@@ -32,6 +36,16 @@ describe('contract inline indicators', () => {
     const panel = render([candle(minute - 21 * 60_000, 100), ...history.slice(1)]);
     expect(panel.findAll('dt').find(item => item.text() === 'MA20')?.element.nextElementSibling?.textContent).toBe('—');
     expect(panel.text()).toContain('— / —');
+    panel.unmount();
+  });
+  it('shows mark basis, book spread and actual depth levels without a ticker', async () => {
+    const panel = render();
+    await panel.setProps({ row: { ...row, mark: { timestamp: now, mark_price: 101, index_price: 100,
+      basis: .01, next_funding: now, funding_rate: .0001 }, book: { timestamp: now, bid: 99.99, ask: 100.01, spread_bps: 2 } } });
+    await flushPromises();
+    expect(panel.text()).toContain('101 / 100 · +1.00%');
+    expect(panel.text()).toContain('99.99 / 100.01 · 2 bps');
+    expect(panel.text()).toContain('买 200（2 档） / 卖 330（3 档）');
     panel.unmount();
   });
   it('exposes loading and empty states and changes periods on demand', async () => {

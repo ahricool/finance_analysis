@@ -4,14 +4,36 @@ import { API_BASE_URL } from '@/utils/constants';
 
 export interface Contract { symbol: string; category: string; underlying_symbol: string | null }
 export interface Quote {
-  price: number; change_pct: number; turnover: number; funding_rate: number | null; timestamp: number;
+  price: number; change_pct: number; turnover: number; funding_rate: number | null; funding_timestamp?: number | null; timestamp: number;
 }
-export interface ContractQuote extends Contract { quote: Quote | null; analysis?: {
+export interface RatioSample { source_time: number; long: number; short: number; ratio: number | null }
+export interface MetricSample {
+  timestamp: number;
+  accounts: RatioSample | null; top_accounts: RatioSample | null; top_positions: RatioSample | null;
+  oi: { quantity: number; usdt: number; source_time: number } | null;
+  taker: { buy: number; sell: number; ratio: number | null; source_time: number } | null;
+}
+export interface HistorySample extends MetricSample {
+  price: { open: number; close: number; source_time: number; source: string } | null;
+  symbol: string; period: string;
+}
+export interface HourSummary extends MetricSample {
+  price_change: number | null; oi_change: number | null; buy_share: number | null;
+  status: Record<string, string>;
+}
+export interface Depth { timestamp: number; bids: number | null; asks: number | null; bids_levels: number; asks_levels: number }
+export interface ContractQuote extends Contract {
+  metrics?: HourSummary | null;
+  mark?: { timestamp: number; mark_price: number | null; index_price: number | null; basis: number | null;
+    next_funding: number | null; funding_rate: number } | null;
+  book?: { bid: number; ask: number; spread_bps: number; timestamp: number } | null;
+  quote: Quote | null; analysis?: {
   score: number | null; direction: TrendDirection | null; state: TrendStage | null; reference: boolean; as_of: number;
   windows: Record<string, Pick<WindowScore, 'score' | 'direction' | 'returnPct' | 'dataStatus' | 'missingBars' | 'availableBars'>>;
   opportunity: Pick<OpportunityBranch, 'direction' | 'kind'> & {quality_score: number} | null;
 } | null }
 export interface Candle {
+  closed?: boolean; received_at_ms?: number; event_time?: number;
   timestamp: number; open: number; high: number; low: number; close: number; volume: number; turnover: number;
 }
 export interface MarketSnapshot {
@@ -31,6 +53,12 @@ export const contractsApi = {
   },
   async remove(symbol: string): Promise<void> {
     await apiClient.delete(path + '/' + encodeURIComponent(symbol));
+  },
+  async history(symbol: string, start: number, end: number, signal?: AbortSignal): Promise<HistorySample[]> {
+    return (await apiClient.get(path + '/' + encodeURIComponent(symbol) + '/metrics', { params: { start, end, limit: 300 }, signal })).data.items;
+  },
+  async depth(symbol: string, signal?: AbortSignal): Promise<Depth | null> {
+    return (await apiClient.get(path + '/' + encodeURIComponent(symbol) + '/depth', { signal })).data;
   },
   async bars(symbol: string, signal?: AbortSignal): Promise<Candle[]> {
     return (await apiClient.get(path + '/' + encodeURIComponent(symbol) + '/bars', { params: { interval: '1d' }, signal })).data;

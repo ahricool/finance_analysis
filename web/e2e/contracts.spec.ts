@@ -2,10 +2,16 @@ import { expect, test } from '@playwright/test';
 import { dashboardResponse } from '../tests/fixtures/dashboard';
 
 test('USD-M market lists contract prices, switches native candles and manages symbols without Binance browser traffic', async ({ page }) => {
+  const now = Date.now();
+  const timestamp = Math.floor(now / 300000) * 300000;
+  await page.clock.setFixedTime(new Date(now));
+  const metrics = { timestamp, price_change: .03, oi_change: .08, buy_share: .65,
+    accounts: { source_time: timestamp, long: .6, short: .4, ratio: 1.5 }, oi: null, taker: null,
+    top_accounts: null, top_positions: null, status: {} };
   const initial = [
     { symbol: 'BTCUSDT', category: '加密货币', underlying_symbol: 'BTC.CRYPTO', quote: { price: 100000, change_pct: 2.1, turnover: 20000000, funding_rate: 0.0001, timestamp: Date.now() } },
     { symbol: 'NVDAUSDT', category: '美股', underlying_symbol: 'NVDA.US', quote: { price: 123, change_pct: 1, turnover: 1000000, funding_rate: 0, timestamp: Date.now() } },
-    { symbol: 'SOXLUSDT', category: 'ETF', underlying_symbol: 'SOXL.US', quote: { price: 45.12, change_pct: -1, turnover: 1000000, funding_rate: -0.0002, timestamp: Date.now() } },
+    { symbol: 'SOXLUSDT', category: 'ETF', underlying_symbol: 'SOXL.US', metrics, quote: { price: 45.12, change_pct: -1, turnover: 1000000, funding_rate: -0.0002, timestamp: Date.now() } },
   ];
   const candle = (timestamp: number) => ({ timestamp, open: 40, high: 47, low: 39, close: 45, volume: 100, turnover: 4500 });
   const day = Math.floor(Date.now() / 86400000) * 86400000;
@@ -40,6 +46,8 @@ test('USD-M market lists contract prices, switches native candles and manages sy
     if (url.pathname === '/api/v1/stocks/NVDA.US/classification') return route.fulfill({ json: { memberships: { industries: [], indices: [] }, etf_proxies: [] } });
     if (url.pathname === '/api/v1/market-data/daily-bars/NVDA.US') return route.fulfill({ json: { symbol: 'NVDA.US', market: 'US', items: [] } });
     if (url.pathname === '/api/v1/crypto/contracts/search') return route.fulfill({ json: [{ symbol: 'ETHUSDT', category: 'COIN', underlying_symbol: 'ETH.CRYPTO' }] });
+    if (url.pathname.endsWith('/depth')) return route.fulfill({ json: { timestamp: now, bids: 200, asks: 330, bids_levels: 2, asks_levels: 3 } });
+    if (url.pathname.endsWith('/metrics')) return route.fulfill({ json: { items: [metrics], next_start: null } });
     if (url.pathname.endsWith('/bars')) return route.fulfill({ json: Array.from({ length: 30 }, (_, index) => candle(day - (30 - index) * 86400000)) });
     if (method === 'POST' && url.pathname === '/api/v1/crypto/contracts') {
       const saved = { ...route.request().postDataJSON(), underlying_symbol: 'ETH.CRYPTO' };
@@ -73,9 +81,14 @@ test('USD-M market lists contract prices, switches native candles and manages sy
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await expect(page.getByTestId('contract-market-panel')).toHaveCount(0);
   const soxl = page.getByTestId('contract-row').filter({ hasText: 'SOXLUSDT' });
-  await expect(soxl).toContainText('-0.0200%');
+  for (const value of ['-0.0200%', '+3.00%', '+8.00%', '65.00%', '1.50']) await expect(soxl).toContainText(value);
+  expect(requests.some(url => url.includes('/depth') || url.includes('/metrics?'))).toBe(false);
   await soxl.getByRole('cell').nth(2).click();
   await expect(soxl).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.getByTestId('contract-market-panel')).toContainText('买 200（2 档）');
+  await page.getByRole('combobox', { name: '5 分钟历史副图' }).click();
+  await page.getByRole('option', { name: '全市场账户多空比（倍）' }).click();
+  await expect(page.getByTestId('contract-market-panel')).toContainText(' 至 ');
   await expect(page.getByRole('img', { name: /SOXLUSDT 1m K线/ })).toBeVisible();
   await expect(page.getByTestId('contract-indicators')).toContainText('MA20');
   await page.getByRole('button', { name: '日 K', exact: true }).click();
@@ -140,6 +153,7 @@ test('shared contracts are expandable for regular users but only admins can mana
   });
   await page.route('**/api/v1/**', async route => {
     const url = new URL(route.request().url());
+    if (url.pathname.endsWith('/depth')) return route.fulfill({ body: 'null', contentType: 'application/json' });
     if (url.pathname === '/api/v1/crypto/contracts') return route.fulfill({ json: { items: rows, symbol: null, minutes: null, daily_current: null } });
     return route.fulfill({ json: dashboardResponse(url) });
   });

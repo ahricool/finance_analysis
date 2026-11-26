@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed } from 'vue';
-import type { Candle, ContractQuote } from '@/api/contracts';
+import { computed, ref, watch } from 'vue';
+import ContractMetricHistory from './ContractMetricHistory.vue';
+import { contractsApi, type Depth, type Candle, type ContractQuote } from '@/api/contracts';
 import type { ParsedApiError } from '@/api/error';
 import AppApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
 import TableExpansionPanel from '@/components/market-data/TableExpansionPanel.vue';
@@ -19,6 +20,30 @@ const props = defineProps<{
 }>();
 const emit = defineEmits<{ 'update:interval': [value: '1m' | '1d']; retry: [] }>();
 const now = useCurrentTime(5_000);
+const depth = ref<Depth | null>(null);
+watch(() => props.row.symbol, (symbol, _, cleanup) => {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout>;
+  depth.value = null;
+  async function refresh() {
+    try {
+      const snapshot = await contractsApi.depth(symbol, controller.signal);
+      if (!controller.signal.aborted) depth.value = snapshot;
+    } catch { if (!controller.signal.aborted) depth.value = null; }
+    if (!controller.signal.aborted) timer = setTimeout(refresh, 5000);
+  }
+  cleanup(() => { controller.abort(); clearTimeout(timer); });
+  void refresh();
+}, { immediate: true });
+const ratioKinds = [
+  { key: 'accounts', label: '全市场账户' }, { key: 'top_accounts', label: '大户账户' },
+  { key: 'top_positions', label: '大户仓位规模' },
+] as const;
+function share(value?: number | null) { return value == null ? '—' : (value * 100).toFixed(2) + '%'; }
+function ratio(value?: number | null) { return value == null ? '—' : value.toFixed(2) + ' 倍'; }
+const fundingRate = computed(() => props.row.mark?.funding_rate ??
+  (props.row.quote?.funding_timestamp == null && !quoteDelayed.value ? props.row.quote?.funding_rate : null));
+const freshDepth = computed(() => depth.value && Math.abs(now.value.getTime() - depth.value.timestamp) < 15000 ? depth.value : null);
 const periodMs = computed(() => props.interval === '1m' ? 60_000 : 86_400_000);
 const newest = computed(() => props.current ?? props.bars.at(-1));
 const closed = computed(() => props.bars.filter(bar => bar.timestamp + periodMs.value <= now.value.getTime()));
@@ -43,8 +68,8 @@ function amount(value: number | null | undefined) {
 function percent(value: number | null | undefined, digits = 2) {
   return value == null || !Number.isFinite(value) ? '—' : `${value > 0 ? '+' : ''}${value.toFixed(digits)}%`;
 }
-function time(value: number | undefined) {
-  return value == null ? '—' : new Date(value).toISOString().slice(0, 16).replace('T', ' ') + ' UTC';
+function time(value?: number | null) {
+  return value == null ? '—' : new Date(value).toISOString().slice(0, 19).replace('T', ' ') + ' UTC';
 }
 function ma(length: number) {
   const window = closed.value.slice(-length);
@@ -130,7 +155,7 @@ const maPeriods = computed(() => props.interval === '1m' ? [20] : [5, 10, 20]);
               资金费率
             </dt>
             <dd class="tabular-nums">
-              {{ percent(row.quote?.funding_rate == null ? null : row.quote.funding_rate * 100, 4) }}
+              {{ percent(fundingRate == null ? null : fundingRate * 100, 4) }}
             </dd>
           </div>
         </dl>
@@ -178,5 +203,64 @@ const maPeriods = computed(() => props.interval === '1m' ? [20] : [5, 10, 20]);
         </div>
       </aside>
     </div>
+    <div class="grid gap-4 border-t pt-3 text-sm sm:grid-cols-2 xl:grid-cols-3">
+      <section>
+        <h3 class="font-semibold">
+          多空结构
+        </h3>
+        <p class="text-xs text-muted-foreground">
+          5 分钟截面 · {{ time(row.metrics?.timestamp) }}
+        </p>
+        <dl
+          v-for="kind in ratioKinds"
+          :key="kind.key"
+          class="mt-2"
+        >
+          <dt>{{ kind.label }}多空比</dt>
+          <dd>{{ ratio(row.metrics?.[kind.key]?.ratio) }} · 多 {{ share(row.metrics?.[kind.key]?.long) }} / 空 {{ share(row.metrics?.[kind.key]?.short) }}</dd>
+          <dd
+            v-if="row.metrics?.status[kind.key] === 'unauthorized'"
+            class="text-xs text-muted-foreground"
+          >
+            缺少行情权限
+          </dd>
+        </dl>
+      </section>
+      <section>
+        <h3 class="font-semibold">
+          持仓量与主动成交
+        </h3>
+        <dl class="mt-2 space-y-1">
+          <dt>OI 数量 / 名义价值</dt>
+          <dd>{{ amount(row.metrics?.oi?.quantity) }} / {{ amount(row.metrics?.oi?.usdt) }} USDT</dd>
+          <dt>5m 主动买量 / 卖量（标的数量）</dt>
+          <dd>{{ amount(row.metrics?.taker?.buy) }} / {{ amount(row.metrics?.taker?.sell) }} · {{ ratio(row.metrics?.taker?.ratio) }}</dd>
+          <dt>标记价 / 指数价 · 偏离率</dt>
+          <dd>{{ price(row.mark?.mark_price) }} / {{ price(row.mark?.index_price) }} · {{ percent(row.mark?.basis == null ? null : row.mark.basis * 100) }}</dd>
+          <dt>标记行情 / 下次资金结算</dt><dd>{{ time(row.mark?.timestamp) }} / {{ time(row.mark?.next_funding) }}</dd>
+        </dl>
+      </section>
+      <section>
+        <h3 class="font-semibold">
+          盘口流动性
+        </h3>
+        <dl class="mt-2 space-y-1">
+          <dt>最优买 / 卖 · 价差</dt>
+          <dd>{{ price(row.book?.bid) }} / {{ price(row.book?.ask) }} · {{ amount(row.book?.spread_bps) }} bps</dd>
+          <dd class="text-xs text-muted-foreground">
+            {{ time(row.book?.timestamp) }}
+          </dd>
+          <dt>前 10 档名义额（USDT）</dt>
+          <dd>买 {{ amount(freshDepth?.bids) }}（{{ freshDepth?.bids_levels ?? '—' }} 档） / 卖 {{ amount(freshDepth?.asks) }}（{{ freshDepth?.asks_levels ?? '—' }} 档）</dd>
+          <dd class="text-xs text-muted-foreground">
+            {{ time(freshDepth?.timestamp) }}
+          </dd>
+        </dl>
+      </section>
+    </div>
+    <ContractMetricHistory
+      :symbol="row.symbol"
+      :boundary="row.metrics?.timestamp"
+    />
   </TableExpansionPanel>
 </template>

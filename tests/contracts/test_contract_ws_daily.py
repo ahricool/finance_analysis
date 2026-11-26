@@ -228,8 +228,8 @@ async def test_funding_events_do_not_keep_stale_ticker_alive(monkeypatch):
     monkeypatch.setattr(service, "now_ms", lambda: later)
     collector.accept_event({"e": "markPriceUpdate", "s": SYMBOL, "E": later, "r": "0.0001"}, {SYMBOL}, later)
     await collector.flush()
-    pipe.set.assert_not_called()
-    pipe.execute.assert_not_awaited()
+    assert [call.args[0] for call in pipe.set.call_args_list] == [service.key(SYMBOL, "mark")]
+    pipe.execute.assert_awaited_once()
 
 
 @pytest.mark.asyncio

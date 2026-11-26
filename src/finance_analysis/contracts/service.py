@@ -8,6 +8,7 @@ import websockets
 from redis.exceptions import RedisError
 
 from finance_analysis.contracts.analysis import summarize
+from finance_analysis.contracts.metrics import aligned
 from finance_analysis.database.repositories import contracts as repository
 from finance_analysis.integrations.crypto.binance import BinanceClient, number, parse_bar
 
@@ -116,6 +117,9 @@ class ContractCollector:
         self.dirty.clear()
         now = now_ms()
         for symbol in symbols:
+            mark = await read_json(self.redis, key(symbol, "mark"), None)
+            if mark:
+                self.funding[symbol] = mark
             rows = await read_json(self.redis, key(symbol, "minute"), [])
             cached = merge_minutes([], rows, now)
             # Legacy snapshots have no close flag. Their final historical bar
@@ -191,8 +195,15 @@ class ContractCollector:
             self.dirty.add((symbol, "quote"))
         elif kind == "markPriceUpdate":
             previous = self.funding.get(symbol)
-            if not previous or previous[0] < event_time:
-                self.funding[symbol] = (event_time, number(event["r"]))
+            if not previous or previous["timestamp"] < event_time:
+                mark = number(event["p"]) if event.get("p") else None
+                index = number(event["i"]) if event.get("i") else None
+                self.funding[symbol] = {
+                    "timestamp": event_time, "mark_price": mark, "index_price": index,
+                    "basis": mark / index - 1 if mark and index else None,
+                    "funding_rate": number(event["r"]), "next_funding": int(event["T"]) if event.get("T") else None,
+                }
+                self.dirty.add((symbol, "mark"))
                 if symbol in self.quotes:
                     self.dirty.add((symbol, "quote"))
         elif kind == "kline":
@@ -224,14 +235,21 @@ class ContractCollector:
                 if merged:
                     pipe.set(key(symbol, kind), json.dumps(merged), ex=MINUTE_TTL)
                     writes += 1
+            elif kind == "mark":
+                mark = self.funding[symbol]
+                ttl = QUOTE_TTL - max(0, (now - mark["timestamp"]) // 1000)
+                if ttl > 0:
+                    pipe.set(key(symbol, kind), json.dumps(mark), ex=ttl)
+                    writes += 1
             elif kind == "quote":
                 quote = self.quotes[symbol]
                 age = max(0, (now - quote["timestamp"]) // 1000)
                 if age >= QUOTE_TTL:
                     continue
                 funding = self.funding.get(symbol)
-                rate = funding[1] if funding and now - funding[0] < QUOTE_TTL * 1000 else None
-                pipe.set(key(symbol, kind), json.dumps({**quote, "funding_rate": rate}), ex=QUOTE_TTL - age)
+                rate = funding["funding_rate"] if funding and now - funding["timestamp"] < QUOTE_TTL * 1000 else None
+                pipe.set(key(symbol, kind), json.dumps({**quote, "funding_rate": rate,
+                                                       "funding_timestamp": funding["timestamp"] if funding else None}), ex=QUOTE_TTL - age)
                 writes += 1
             elif kind == "daily-current":
                 row = self.daily_current[symbol]
@@ -337,26 +355,45 @@ class ContractCollector:
 async def run_collector(redis):
     client = BinanceClient()
     try:
-        await ContractCollector(redis, client).run()
+        from finance_analysis.contracts.metric_sync import liquidity_loop, metric_loop
+
+        async with asyncio.TaskGroup() as tasks:
+            tasks.create_task(ContractCollector(redis, client).run())
+            tasks.create_task(metric_loop(redis, client))
+            tasks.create_task(liquidity_loop(redis, client))
     finally:
         await client.close()
 
 
 async def live_snapshot(redis, symbol=None, interval=None):
     contracts = await asyncio.to_thread(repository.contracts)
-    keys = [key(row["symbol"], "quote") for row in contracts]
+    kinds = ("quote", "analysis", "metrics", "mark", "book")
+    keys = [key(row["symbol"], kind) for row in contracts for kind in kinds]
     try:
-        quotes = await redis.mget(keys) if keys else []
-        summaries = await redis.mget([key(row["symbol"], "analysis") for row in contracts]) if keys else []
+        cached = iter(await redis.mget(keys) if keys else [])
     except RedisError:
-        quotes = summaries = [None] * len(keys)
-    rows = [{**row, "quote": json.loads(raw) if raw else None} for row, raw in zip(contracts, quotes, strict=True)]
-    day_start = now_ms() // DAY * DAY
-    for row, raw in zip(rows, summaries, strict=True):
-        if raw:
-            analysis = json.loads(raw)
-            if analysis and analysis["as_of"] > day_start:
-                row["analysis"] = analysis
+        cached = iter(())
+    now = now_ms()
+    rows = []
+    for contract in contracts:
+        row = dict(contract)
+        for kind in kinds:
+            raw = next(cached, None)
+            value = json.loads(raw) if raw else None
+            if value and kind in ("quote", "mark", "book") and abs(now - value["timestamp"]) >= QUOTE_TTL * 1000:
+                value = None
+            if value and kind == "metrics" and value["timestamp"] != aligned(now):
+                value = None
+            if value and kind == "analysis" and value["as_of"] <= now // DAY * DAY:
+                value = None
+            row[kind] = value
+        quote = row["quote"]
+        if quote and row["mark"]:
+            quote["funding_rate"] = row["mark"]["funding_rate"]
+            quote["funding_timestamp"] = row["mark"]["timestamp"]
+        elif quote and "funding_timestamp" in quote:
+            quote["funding_rate"] = quote["funding_timestamp"] = None
+        rows.append(row)
     bars = None
     current_daily = None
     if symbol and symbol in {row["symbol"] for row in rows}:
