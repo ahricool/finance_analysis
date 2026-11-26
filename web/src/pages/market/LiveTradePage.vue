@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import StrategySelect from '@/components/paper-trade/StrategySelect.vue';
+import EquityChart from '@/components/paper-trade/EquityChart.vue';
 import { computed, onMounted, onBeforeUnmount, ref } from 'vue';
 import { Button } from '@/components/ui/button';
-import { Switch } from '@/components/ui/switch';
+import TradeControlCard from '@/components/paper-trade/TradeControlCard.vue';
 import AppApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import { liveTradeApi, type LiveControl, type LiveSnapshot } from '@/api/liveTrade';
@@ -81,15 +81,6 @@ async function showChart(symbol: string) {
     if (!stopped && current === chartGeneration) bars.value = result;
   } catch (err) { if (!stopped) error.value = getParsedApiError(err); }
 }
-const curve = computed(() => {
-  const points = (snapshot.value?.equity ?? []).filter(p => p.equity != null && Number.isFinite(Number(p.equity)));
-  if (points.length < 2) return null;
-  const prices = points.map(p => Number(p.equity));
-  const low = Math.min(...prices), high = Math.max(...prices);
-  const start = Date.parse(points[0]!.time), end = Date.parse(points.at(-1)!.time);
-  return { low, high, start: points[0]!.time, end: points.at(-1)!.time,
-    line: points.map(p => `${10+580*(Date.parse(p.time)-start)/(end-start || 1)},${110-100*(Number(p.equity)-low)/(high-low || 1)}`).join(' ') };
-});
 onMounted(() => { void refresh(); timer = setInterval(refresh, 10_000); });
 onBeforeUnmount(() => { stopped = true; clearInterval(timer); });
 </script>
@@ -102,7 +93,7 @@ onBeforeUnmount(() => { stopped = true; clearInterval(timer); });
     <header class="flex flex-wrap items-end justify-between gap-3">
       <div>
         <h1 class="text-3xl font-semibold tracking-tight">
-          Live Trade
+          实盘交易
         </h1>
         <p class="mt-1 text-sm text-muted-foreground">
           Live Trade · Binance USDⓈ-M
@@ -124,7 +115,22 @@ onBeforeUnmount(() => { stopped = true; clearInterval(timer); });
       :error="error"
       @dismiss="error = null"
     />
-    <StrategySelect environment="live" />
+    <div class="grid items-stretch gap-4 lg:grid-cols-[minmax(16rem,0.8fr)_minmax(0,2fr)]">
+      <TradeControlCard
+        environment="live"
+        heading="自动交易"
+        :enabled="control?.enabled ?? false"
+        :disabled="loading || updating || control == null"
+        :status="switchStatus"
+        @change="changeControl"
+      >
+        <p>策略使用公共行情进行只读观察。开关仅控制 FA 后续自动指令，已有挂单、持仓和 App 手动交易保持独立。</p>
+      </TradeControlCard>
+      <EquityChart
+        :points="snapshot?.equity ?? []"
+        unit="USDT / USD"
+      />
+    </div>
     <p
       v-if="snapshot?.connection.observation"
       class="text-sm text-muted-foreground"
@@ -132,97 +138,37 @@ onBeforeUnmount(() => { stopped = true; clearInterval(timer); });
       最近评估 · {{ snapshot.connection.observation.strategy }} · {{ new Date(snapshot.connection.observation.evaluated_at).toLocaleTimeString() }}
       · {{ snapshot.connection.observation.direction ?? '暂无信号' }}
     </p>
-    <section class="space-y-4 rounded-lg border p-4">
-      <div class="flex flex-wrap justify-between gap-3">
-        <div>
-          <h2 class="text-lg font-semibold">
-            自动交易
-          </h2>
-          <p
-            class="mt-1 text-sm"
-            data-testid="live-switch-status"
-            role="status"
-          >
-            {{ switchStatus }}
-          </p>
-        </div>
-        <Switch
-          aria-label="自动交易"
-          data-testid="live-trading-switch"
-          :model-value="control?.enabled ?? false"
-          :disabled="loading || updating || control == null"
-          @update:model-value="changeControl"
-        />
-      </div>
-      <p class="text-sm text-muted-foreground">
-        所选策略使用公共行情进行只读观察。开关只控制 FA 未来的自动交易指令，不冻结 Binance 账户、不撤销现有挂单、不平仓，也不影响 App 手动交易。
-      </p>
+    <section class="space-y-3 rounded-xl border bg-card p-4 sm:p-5">
+      <h2 class="text-lg font-semibold">
+        账户概览
+        <span class="ml-1 text-xs font-normal text-muted-foreground">USDT / USD</span>
+      </h2>
       <div class="flex flex-wrap gap-4 border-t pt-3 text-xs text-muted-foreground">
         <span data-testid="live-connection">账户：{{ connectionStatus }}{{ snapshot?.connection.reason ? ' · ' + snapshot.connection.reason : '' }}</span>
         <span>私有流：{{ snapshot?.connection.stream_connected ? '已连接' : '未连接' }}</span>
         <span>最后同步 (UTC)：{{ view?.synced_at ?? '—' }}</span>
         <span>开关更新时间：{{ control?.updated_at ?? '—' }}</span>
       </div>
-    </section>
-    <section class="space-y-3 rounded-lg border p-4">
-      <h2 class="text-lg font-semibold">
-        账户概览
-      </h2>
       <p
         v-if="!view?.complete || connectionStatus !== '同步正常'"
         class="text-sm text-muted-foreground"
       >
         完整数据尚未同步，缺失字段显示为 —。旧记录不代表当前账户状态。
       </p>
-      <div class="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+      <div class="grid grid-cols-2 gap-px overflow-hidden rounded-lg border bg-border md:grid-cols-3 xl:grid-cols-6">
         <div
           v-for="[label, value] in accountValues"
           :key="String(label)"
-          class="min-w-0 rounded-lg border bg-card p-3"
+          class="min-w-0 bg-card px-3 py-4"
         >
           <div class="text-xs text-muted-foreground">
-            {{ label }} (USDT / USD)
+            {{ label }}
           </div>
           <div class="mt-2 break-all text-lg font-semibold tabular-nums">
             {{ value == null ? '—' : String(value) }}
           </div>
         </div>
       </div>
-      <div
-        v-if="curve"
-        class="rounded-md border p-3"
-      >
-        <h3 class="text-sm font-medium">
-          账户权益历史
-        </h3>
-        <div class="flex justify-between text-xs text-muted-foreground">
-          <span>{{ curve.low }}</span><span>{{ curve.high }}</span>
-        </div>
-        <svg
-          viewBox="0 0 600 120"
-          role="img"
-          aria-label="账户权益变化曲线"
-          class="h-32 w-full text-brand"
-          preserveAspectRatio="none"
-        >
-          <polyline
-            :points="curve.line"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            vector-effect="non-scaling-stroke"
-          />
-        </svg>
-        <div class="flex justify-between text-xs text-muted-foreground">
-          <span>{{ curve.start.slice(0,16) }}</span><span>{{ curve.end.slice(0,16) }}</span>
-        </div>
-      </div>
-      <p
-        v-else
-        class="text-sm text-muted-foreground"
-      >
-        权益历史不足，暂不绘制曲线。
-      </p>
       <h3 class="text-sm font-medium">
         资产余额
       </h3>
@@ -231,7 +177,7 @@ onBeforeUnmount(() => { stopped = true; clearInterval(timer); });
         :columns="[col('asset','资产'), col('balance','钱包余额',true), col('availableBalance','可用余额',true), col('crossUnPnl','未实现盈亏',true)]"
       />
     </section>
-    <section class="space-y-3 rounded-lg border p-4">
+    <section class="space-y-3 rounded-xl border bg-card p-4 sm:p-5">
       <h2 class="text-lg font-semibold">
         当前持仓
       </h2>
@@ -279,7 +225,7 @@ onBeforeUnmount(() => { stopped = true; clearInterval(timer); });
         </p>
       </div>
     </section>
-    <section class="space-y-4 rounded-lg border p-4">
+    <section class="space-y-4 rounded-xl border bg-card p-4 sm:p-5">
       <h2 class="text-lg font-semibold">
         当前委托
       </h2>
@@ -298,7 +244,7 @@ onBeforeUnmount(() => { stopped = true; clearInterval(timer); });
         :columns="algos"
       />
     </section>
-    <section class="space-y-4 rounded-lg border p-4">
+    <section class="space-y-4 rounded-xl border bg-card p-4 sm:p-5">
       <h2 class="text-lg font-semibold">
         历史订单与成交
       </h2>
@@ -337,7 +283,7 @@ onBeforeUnmount(() => { stopped = true; clearInterval(timer); });
         :columns="income"
       />
     </section>
-    <section class="space-y-3 rounded-lg border p-4">
+    <section class="space-y-3 rounded-xl border bg-card p-4 sm:p-5">
       <h2 class="text-lg font-semibold">
         交易开关变更记录
       </h2>

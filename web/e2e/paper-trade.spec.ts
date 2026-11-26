@@ -69,7 +69,12 @@ test('admin Demo page has independent status, strategy selection and no exchange
   await expect(toggle).toHaveAttribute('aria-checked', 'false');
   await toggle.click();
   await expect(toggle).toHaveAttribute('aria-checked', 'true');
-  await page.getByRole('combobox', { name: 'Strategy' }).click();
+  const controls = page.locator('section').filter({ has: page.getByTestId('paper-trading-switch') });
+  const strategy = controls.getByRole('combobox', { name: '交易策略' });
+  const toggleBox = await controls.getByRole('switch').boundingBox();
+  const strategyBox = await strategy.boundingBox();
+  expect(strategyBox!.y).toBeGreaterThanOrEqual(toggleBox!.y + toggleBox!.height);
+  await strategy.click();
   await page.getByRole('option', { name: 'EMA Cross' }).click();
   await expect.poll(() => selected).toBe('ema_cross');
   expect(writes).toHaveLength(0);

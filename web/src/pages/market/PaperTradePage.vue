@@ -1,9 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, onBeforeUnmount, ref } from 'vue';
 import { Button } from '@/components/ui/button';
-import { Switch } from '@/components/ui/switch';
+import TradeControlCard from '@/components/paper-trade/TradeControlCard.vue';
 import EquityChart from '@/components/paper-trade/EquityChart.vue';
-import StrategySelect from '@/components/paper-trade/StrategySelect.vue';
 import AppConfirmDialog from '@/components/app/AppConfirmDialog.vue';
 import AppApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
@@ -154,33 +153,27 @@ onBeforeUnmount(() => { stopped = true; clearInterval(timer); });
     >
       {{ notice }}
     </p>
-    <StrategySelect environment="paper" />
-    <section class="space-y-2 rounded-lg border p-4">
-      <div class="flex flex-wrap justify-between gap-3">
-        <div>
-          <h2 class="text-lg font-semibold">
-            Demo 交易总开关
-          </h2>
-          <p class="text-sm text-muted-foreground">
-            {{ globalEnabled ? '新增仓位已启用' : '新增仓位已关闭' }}
-          </p>
-        </div>
-        <Switch
-          data-testid="paper-trading-switch"
-          aria-label="Demo 交易总开关"
-          :model-value="globalEnabled"
-          :disabled="busy || loading || !data || loadFailed || (!globalEnabled && !connected)"
-          @update:model-value="changeTradeControl"
-        />
-      </div>
-      <p class="text-sm text-muted-foreground">
-        关闭时继续账户同步，禁止 FA 新增仓位；已有保护单、撤单、平仓及风险管理不受影响。仅作用于 Binance Demo，不影响实盘开关。
-      </p>
-    </section>
-    <section class="space-y-4 rounded-lg border p-4">
+    <div class="grid items-stretch gap-4 lg:grid-cols-[minmax(16rem,0.8fr)_minmax(0,2fr)]">
+      <TradeControlCard
+        environment="paper"
+        heading="Demo 交易总开关"
+        :enabled="globalEnabled"
+        :disabled="busy || loading || !data || loadFailed || (!globalEnabled && !connected)"
+        :status="!data || loadFailed ? '开关状态未知' : globalEnabled ? '新增仓位已启用' : '新增仓位已关闭'"
+        @change="changeTradeControl"
+      >
+        <p>关闭后仍同步模拟账户。已有保护单、撤单、平仓及风险管理继续运行。</p>
+      </TradeControlCard>
+      <EquityChart
+        :points="data?.equity ?? []"
+        unit="USDT"
+      />
+    </div>
+    <section class="space-y-4 rounded-xl border bg-card p-4 sm:p-5">
       <div class="flex flex-wrap justify-between gap-3">
         <h2 class="text-lg font-semibold">
           账户总览
+          <span class="ml-1 text-xs font-normal text-muted-foreground">USDT</span>
         </h2>
         <div
           class="text-sm text-muted-foreground"
@@ -193,23 +186,22 @@ onBeforeUnmount(() => { stopped = true; clearInterval(timer); });
       <p class="text-xs text-muted-foreground">
         最后同步 (UTC)：{{ view?.synced_at ?? '—' }} · {{ view?.complete ? '已完成订单及账户核对' : '尚未完成完整核对' }} · 生产行情：{{ marketStatus }}（独立于 Demo）
       </p>
-      <div class="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+      <div class="grid grid-cols-2 gap-px overflow-hidden rounded-lg border bg-border md:grid-cols-3 xl:grid-cols-6">
         <div
           v-for="[label, value] in kpis"
           :key="String(label)"
-          class="min-w-0 rounded-lg border bg-card p-3"
+          class="min-w-0 bg-card px-3 py-4"
         >
           <div class="text-xs text-muted-foreground">
-            {{ label }} (USDT)
+            {{ label }}
           </div>
           <div class="mt-2 break-all text-lg font-semibold tabular-nums">
             {{ value == null || !Number.isFinite(Number(value)) ? '—' : Number(value).toFixed(2) }}
           </div>
         </div>
       </div>
-      <EquityChart :points="data?.equity ?? []" />
     </section>
-    <section class="space-y-3 rounded-lg border p-4">
+    <section class="space-y-3 rounded-xl border bg-card p-4 sm:p-5">
       <h2 class="text-lg font-semibold">
         当前持仓
       </h2>
@@ -266,7 +258,7 @@ onBeforeUnmount(() => { stopped = true; clearInterval(timer); });
       </div>
     </section>
 
-    <section class="space-y-4 rounded-lg border p-4">
+    <section class="space-y-4 rounded-xl border bg-card p-4 sm:p-5">
       <h2 class="text-lg font-semibold">
         委托及订单
       </h2>
@@ -311,7 +303,7 @@ onBeforeUnmount(() => { stopped = true; clearInterval(timer); });
         </template>
       </PaperTable>
     </section>
-    <section class="space-y-4 rounded-lg border p-4">
+    <section class="space-y-4 rounded-xl border bg-card p-4 sm:p-5">
       <h2 class="text-lg font-semibold">
         成交历史与资金流水
       </h2>
@@ -327,7 +319,7 @@ onBeforeUnmount(() => { stopped = true; clearInterval(timer); });
         :columns="income"
       />
     </section>
-    <section class="space-y-3 rounded-lg border p-4">
+    <section class="space-y-3 rounded-xl border bg-card p-4 sm:p-5">
       <h2 class="text-lg font-semibold">
         信号与执行日志
       </h2>
