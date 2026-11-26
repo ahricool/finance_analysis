@@ -59,6 +59,22 @@ beforeEach(() => {
 afterEach(() => { page?.unmount(); vi.useRealTimers(); vi.clearAllMocks(); });
 
 describe('intraday options table', () => {
+  it('refreshes membership on universe changes without requiring manual sorting', async () => {
+    await start();
+    data.items.splice(0, 1, row('DDD.US', 95));
+    data.generatedAt = new Date().toISOString();
+    await vi.advanceTimersByTimeAsync(5000); await flushPromises();
+    expect(symbols()).toEqual(['DDD.US', 'BBB.US', 'CCC.US']);
+    expect(page.find('[data-testid="options-row-AAA.US"]').exists()).toBe(false);
+  });
+
+  it('distinguishes a stale snapshot from a disconnected transport', async () => {
+    await start();
+    await vi.advanceTimersByTimeAsync(21000); await flushPromises();
+    expect(page.text()).toContain('快照更新延迟，保留上次评分，仅供参考');
+    expect(page.text()).not.toContain('连接中断，保留上次评分');
+  });
+
   it('defaults to opportunity order and sorts all numeric headers with nulls always last', async () => {
     await start();
     expect(symbols()).toEqual(['BBB.US', 'AAA.US', 'CCC.US']);

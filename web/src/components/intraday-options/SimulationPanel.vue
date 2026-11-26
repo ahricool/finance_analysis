@@ -9,7 +9,7 @@ import FieldSelect from '@/components/forms/FieldSelect.vue';
 import SimulationTable from './SimulationTable.vue';
 
 type SimEvent = SimulationSnapshot['events'][number];
-const props = defineProps<{ snapshot: IntradayOptionsSnapshot; disconnected: boolean }>();
+const props = defineProps<{ snapshot: IntradayOptionsSnapshot; disconnected: boolean; snapshotExpired?: boolean }>();
 const now = useCurrentTime(1000);
 const selected = ref('all');
 const matches = (symbol: string) => selected.value === 'all' || selected.value === symbol;
@@ -19,7 +19,7 @@ const state = computed(() => quoteFor(selected.value));
 const staleState = (symbol: string) => {
   const at = quoteFor(symbol)?.calculatedAt;
   const age = at ? now.value.getTime() - Date.parse(at) : NaN;
-  return props.disconnected || !Number.isFinite(age) || age < 0 || age > 15000;
+  return props.disconnected || props.snapshotExpired || !Number.isFinite(age) || age < 0 || age > 15000;
 };
 const stale = computed(() => staleState(selected.value));
 const positions = computed(() => (props.snapshot.simulation?.states ?? []).flatMap(s => s.position && matches(s.symbol) ? [s.position] : []));
@@ -184,8 +184,8 @@ function historyValue(t: SimTrade, key: string) {
     <div class="flex flex-wrap items-center justify-between gap-2 border-b px-5 py-2.5 text-xs text-muted-foreground">
       <span class="flex items-center gap-2"><span
         class="size-1.5 rounded-full"
-        :class="disconnected ? 'bg-destructive' : 'bg-foreground/60'"
-      />{{ disconnected ? '连接中断，仅显示历史状态' : entryPaused ? '停止新进场 · 未平仓标的继续监测报价' : '后台持续监测 · 每 5 秒更新' }}</span>
+        :class="disconnected || snapshotExpired ? 'bg-destructive' : 'bg-foreground/60'"
+      />{{ disconnected ? '连接中断，仅显示历史状态' : snapshotExpired ? '快照更新延迟，仅显示历史状态' : phase === 'closed' ? '休市 · 已连接，保留最后状态' : entryPaused ? '停止新进场 · 未平仓标的继续监测报价' : '后台持续监测 · 每 5 秒更新' }}</span>
       <span>快照 {{ clock(snapshot.generatedAt) }} · 时间均为纽约</span>
     </div>
 

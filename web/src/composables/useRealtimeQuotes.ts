@@ -2,6 +2,7 @@ import {
   buildMarketWebSocketUrl, marketQuoteKey, MarketStreamAuthError, parseRealtimeQuoteMessage, readMarketEvents,
   type MarketStreamOptions, type RealtimeConnectionStatus, type RealtimeQuote, type RealtimeQuoteMessage,
 } from '@/api/realtimeMarket';
+import { applyIntradayOptionsDelta } from '@/api/intradayOptionsDelta';
 import type { HoldingsSummary } from '@/api/holdings';
 import { redirectToLogin } from '@/api';
 import type { MarketType } from '@/api/watchList';
@@ -24,6 +25,7 @@ export function useRealtimeQuotes(options: MaybeRefOrGetter<MarketStreamOptions>
   let reconnectTimer: number | null = null;
   let watchdog: number | null = null;
   let eventCursor: number | undefined;
+  let streamRevision: number | null = null;
   function connectionOptions(): MarketStreamOptions {
     const current = toValue(options);
     return current.scope === 'intraday-options' && eventCursor !== undefined ? { ...current, afterEventId: eventCursor } : current;
@@ -46,13 +48,25 @@ export function useRealtimeQuotes(options: MaybeRefOrGetter<MarketStreamOptions>
     watchdog = window.setTimeout(expire, timeout);
   }
 
-  function accept(message: RealtimeQuoteMessage) {
-    quotes.value = Object.fromEntries(message.quotes.map(q => [marketQuoteKey(q.code, q.marketType), q]));
-    portfolio.value = message.portfolio;
-    intradayOptions.value = message.intradayOptions ?? null;
-    for (const event of message.intradayOptions?.simulation?.events ?? []) eventCursor = Math.max(eventCursor ?? 0, event.id);
-    if (message.intradayOptions && eventCursor === undefined) eventCursor = 0;
+  function accept(message: RealtimeQuoteMessage): boolean {
+    if (message.intradayOptionsDelta !== undefined) {
+      const delta = message.intradayOptionsDelta;
+      if (!delta || !intradayOptions.value || streamRevision === null || delta.base_revision !== streamRevision
+        || delta.revision !== streamRevision + 1 || !Array.isArray(delta.operations)) return false;
+      try {
+        intradayOptions.value = applyIntradayOptionsDelta(intradayOptions.value, delta, message.generatedAt);
+      } catch { return false; }
+      streamRevision = delta.revision;
+    } else {
+      quotes.value = Object.fromEntries(message.quotes.map(q => [marketQuoteKey(q.code, q.marketType), q]));
+      portfolio.value = message.portfolio;
+      intradayOptions.value = message.intradayOptions ?? null;
+      streamRevision = message.intradayOptionsRevision ?? null;
+    }
+    for (const event of intradayOptions.value?.simulation?.events ?? []) eventCursor = Math.max(eventCursor ?? 0, event.id);
+    if (intradayOptions.value && eventCursor === undefined) eventCursor = 0;
     lastUpdatedAt.value = message.generatedAt;
+    return true;
   }
 
   function retry(callback: () => void, sse = false) {
@@ -64,20 +78,23 @@ export function useRealtimeQuotes(options: MaybeRefOrGetter<MarketStreamOptions>
   function connectSse() {
     if (stopped || controller) return;
     status.value = 'sse-reconnecting';
+    streamRevision = null;
     const current = new AbortController();
+    let receivedSnapshot = false;
     const ownedGeneration = generation;
     controller = current;
     armWatchdog(() => current.abort(), SSE_CONNECTION_TIMEOUT_MS);
     void readMarketEvents(connectionOptions(), current.signal, message => {
-      if (stopped || generation !== ownedGeneration || controller !== current) return;
-      accept(message);
+      if (stopped || generation !== ownedGeneration || controller !== current || current.signal.aborted) return;
+      if (!accept(message)) { current.abort(); throw new Error('Invalid intraday snapshot delta'); }
+      receivedSnapshot = true;
       status.value = 'sse';
       sseFailures = 0;
     }, () => {
       if (stopped || generation !== ownedGeneration || controller !== current) return;
-      status.value = 'sse';
+      if (toValue(options).scope !== 'intraday-options' || receivedSnapshot) status.value = 'sse';
       armWatchdog(() => current.abort(), SSE_IDLE_TIMEOUT_MS);
-    }).catch(error => {
+    }).then(() => { throw new Error('Market stream ended'); }).catch(error => {
       if (stopped || generation !== ownedGeneration || controller !== current) return;
       clearTimers();
       controller = null;
@@ -90,6 +107,7 @@ export function useRealtimeQuotes(options: MaybeRefOrGetter<MarketStreamOptions>
     if (stopped || socket || controller || reconnectTimer !== null || status.value === 'unauthorized') return;
     if (useSse) { connectSse(); return; }
     status.value = failures ? 'reconnecting' : 'connecting';
+    streamRevision = null;
     let current: WebSocket;
     try { current = new WebSocket(buildMarketWebSocketUrl(connectionOptions())); }
     catch { failed(); return; }
@@ -105,7 +123,7 @@ export function useRealtimeQuotes(options: MaybeRefOrGetter<MarketStreamOptions>
     }
     armWatchdog(failed);
     current.onopen = () => {
-      if (socket === current && !stopped) status.value = 'connected';
+      if (socket === current && !stopped && toValue(options).scope !== 'intraday-options') status.value = 'connected';
     };
     current.onmessage = event => {
       if (socket !== current || stopped) return;
@@ -113,8 +131,8 @@ export function useRealtimeQuotes(options: MaybeRefOrGetter<MarketStreamOptions>
       try { payload = JSON.parse(String(event.data)); } catch { return; }
       const message = parseRealtimeQuoteMessage(payload);
       if (!message) return;
+      if (!accept(message)) { failed(); return; }
       failures = 0;
-      accept(message);
       status.value = 'connected';
       armWatchdog(failed);
     };
@@ -167,7 +185,8 @@ export function useRealtimeQuotes(options: MaybeRefOrGetter<MarketStreamOptions>
 
   watch(() => JSON.stringify(toValue(options)), () => {
     release();
-    quotes.value = {}; portfolio.value = null; lastUpdatedAt.value = null;
+    quotes.value = {}; portfolio.value = null; intradayOptions.value = null; lastUpdatedAt.value = null;
+    eventCursor = undefined; streamRevision = null;
     sseFailures = 0;
     // Once downgraded, stay on SSE for this page's lifetime, including market switches.
     if (!stopped && status.value !== 'paused') connect();

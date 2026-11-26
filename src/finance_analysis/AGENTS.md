@@ -313,7 +313,9 @@ LLM允许web_search，但只能建议已有position；BUY为加仓，数量不�
 动态读取 `us_nasdaq100` 成分股 + `SPY/QQQ` 基准并按日批量加载严格因果 14 日 ATR/昨收上下文，每轮共享一次只读 peer 快照；
 `intraday_simulation_*` 为独立共享研究表，事务锁与唯一约束防重入，不关联 portfolio。开仓/平仓事件在事务提交后由独立有界通知线程池经 `NotificationService` 写入全局 `notification`
 并推送 Telegram/ntfy（fail-open、不阻塞行情与交易状态机）。首次确认／入场依据冻结，停机恢复补记估算退出，
-正常与估算分开统计。详见 `docs/intraday-options.md` 与 `docs/intraday-starts.md`（仓库根）。
+正常与估算分开统计。WS/SSE `scope=intraday-options&delta=true` 每连接维护基线和序号，首次/重连/换交易日或版本全量，
+其余仅传变化字段和新增事件，无变化发轻量快照心跳；兼容旧客户端及REST全量契约，不改变底层交易计算。
+详见 `docs/intraday-options.md` 与 `docs/intraday-starts.md`（仓库根）。
 
 ## Independent Trader
 
