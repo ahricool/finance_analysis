@@ -258,7 +258,7 @@ def recoveries(session_bars, visible_from, opening):
     return [*archive, *branches.values()]
 
 
-def detect(bars, settings=None):
+def detect(bars, settings=None, opening=None):
     """Replay bounded input in chronological order; no future pivot or rolling event level."""
     cfg = settings or policy()
     if not cfg.box_enabled and not cfg.continuation_enabled:
@@ -266,7 +266,8 @@ def detect(bars, settings=None):
     branches = {}
     archive = []
     diagnostics = {}
-    opening, _ = session_bounds("US", market_trading_date(bars[-1].bar_time, "US"))
+    if opening is None:
+        opening, _ = session_bounds("US", market_trading_date(bars[-1].bar_time, "US"))
     window_start = max(opening, bars[-1].bar_time - (HORIZON - 1) * MINUTE)
     for index, bar in enumerate(bars):
         history = bars[: index + 1]
@@ -394,20 +395,20 @@ def start_branches(ordered, opening, settings, snapshots=None):
     return result
 
 
-def calculate_opportunities(ordered, settings=None):
+def calculate_opportunities(ordered, settings=None, opening=None):
     cfg = settings or policy()
     end = ordered[-1].bar_time
-    bars, coverage, reasons = analysis_window(ordered)
-    branches, diagnostics = detect(bars, cfg) if bars else ([], [])
-    if bars and cfg.recovery_enabled:
+    if opening is None:
         opening, _ = session_bounds("US", market_trading_date(end, "US"))
+    bars, coverage, reasons = analysis_window(ordered, opening)
+    branches, diagnostics = detect(bars, cfg, opening) if bars else ([], [])
+    if bars and cfg.recovery_enabled:
         visible_from = max(opening, end - (HORIZON - 1) * MINUTE)
         session_bars = bars
         if visible_from > opening:
             session_bars, _ = minute_timeline(ordered, opening, end)
             visible_from += CONFIG.background * MINUTE
         branches.extend(recoveries(session_bars, visible_from, opening))
-    opening, _ = session_bounds("US", market_trading_date(end, "US"))
     snapshots = {}
     branches.extend(start_branches(ordered, opening, cfg, snapshots))
     for branch in branches:

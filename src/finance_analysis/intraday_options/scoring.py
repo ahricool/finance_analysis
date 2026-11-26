@@ -238,10 +238,26 @@ def calculate(symbol: str, bars: Sequence[CandleState], now: datetime, settings=
     ordered = closed_session_bars(symbol, bars, now)
     if not ordered:
         return None
-    by_time = {b.bar_time: b for b in ordered}
     latest = ordered[-1].bar_time
     day = market_trading_date(latest, "US")
     start, _ = session_bounds("US", day)
+    combined, windows = trend_summary(ordered, start)
+    return {
+        "version": VERSION,
+        "symbol": symbol,
+        "trading_date": day.isoformat(),
+        "as_of": (latest + MINUTE).isoformat(),
+        "observed_at": now.isoformat(),
+        "windows": windows,
+        "structure": calculate_structure(ordered),
+        "opportunities": calculate_opportunities(ordered, settings),
+        **combined,
+    }
+
+
+def trend_summary(ordered, start):
+    by_time = {b.bar_time: b for b in ordered}
+    latest = ordered[-1].bar_time
     windows = []
     for minutes in WINDOWS:
         elapsed = min(minutes, int((latest + MINUTE - start).total_seconds() // 60))
@@ -275,14 +291,4 @@ def calculate(symbol: str, bars: Sequence[CandleState], now: datetime, settings=
     combined = combine(windows, usable)
     if any(w["data_status"] != "ready" for w in windows):
         combined["explanation"] = "分钟数据不完整，按现有K线计算，仅供参考。" + combined["explanation"]
-    return {
-        "version": VERSION,
-        "symbol": symbol,
-        "trading_date": day.isoformat(),
-        "as_of": (latest + MINUTE).isoformat(),
-        "observed_at": now.isoformat(),
-        "windows": windows,
-        "structure": calculate_structure(ordered),
-        "opportunities": calculate_opportunities(ordered, settings),
-        **combined,
-    }
+    return combined, windows

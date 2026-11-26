@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import TrendWindowCell from '@/components/market-data/TrendWindowCell.vue';
+import TrendDirectionCell from '@/components/market-data/TrendDirectionCell.vue';
+import { opportunityKinds, stages, fmt } from '@/components/intraday-options/labels';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { ChevronDown, ChevronRight, Plus, Trash2 } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
@@ -36,11 +39,25 @@ const auth = useAuthStore();
 const detail = useStockDetail();
 const admin = computed(() => auth.currentUser?.role === 'admin');
 const now = useCurrentTime(5_000);
-const sort = useTableSort(() => rows.value, (row, key) => sortField(row, key));
+function currentOpportunity(row: ContractQuote) {
+  const analysis = row.analysis;
+  return analysis && !delayed(row) && status.value.endsWith('已连接') && now.value.getTime() - analysis.as_of < 90_000
+    ? analysis.opportunity : null;
+}
+const sort = useTableSort(() => rows.value, (row, key) => {
+  if (key === 'opportunity') return currentOpportunity(row)?.quality_score;
+  if (key === 'direction') return currentOpportunity(row)?.direction ?? row.analysis?.direction;
+  return sortField(row, key);
+});
+sort.sortKey = 'opportunity';
+sort.direction = 'desc';
 const existingSymbols = computed(() => rows.value.map(row => row.symbol));
 const columns = [
   { key: 'symbol', label: '合约' }, { key: 'category', label: '分类' },
   { key: 'quote.price', label: '最新价' }, { key: 'quote.change_pct', label: '24h 涨跌幅' },
+  { key: 'opportunity', label: '日内机会' }, { key: 'analysis.score', label: '趋势质量分' },
+  { key: 'direction', label: '当前方向' }, { key: 'analysis.state', label: '当前状态' },
+  ...[5, 15, 30, 60].map(n => ({ key: `analysis.windows.${n}.score`, label: `${n}分钟` })),
   { key: 'quote.turnover', label: '24h 成交额' }, { key: 'quote.funding_rate', label: '资金费率' },
 ];
 const chartBars = computed(() => interval.value === '1m' ? minutes.value :
@@ -115,7 +132,7 @@ async function add(item: Contract) {
   try {
     const saved = await contractsApi.add(item);
     if (!stopped) {
-      if (!rows.value.some(row => row.symbol === saved.symbol)) rows.value.push({ ...saved, quote: null });
+      if (!rows.value.some(row => row.symbol === saved.symbol)) rows.value = [...rows.value, { ...saved, quote: null }];
       received.value = true;
       reconnect();
     }
@@ -195,7 +212,7 @@ onBeforeUnmount(() => { stopped = true; ++generation; dailyRequest?.abort(); });
             合约列表 <span class="text-xs text-muted-foreground"> {{ rows.length }} 个</span>
           </h2>
           <p class="text-xs text-muted-foreground">
-            点击行展开行情，点击名称查看标的详情 · 成交额 USDT
+            点击行展开行情，点击名称查看标的详情 · 成交额 USDT · 日内分析从 UTC 00:00 起使用已收盘分钟线
           </p>
         </div>
         <Button
@@ -276,6 +293,20 @@ onBeforeUnmount(() => { stopped = true; ++generation; dailyRequest?.abort(); });
               >
                 {{ percent(row.quote?.change_pct) }}
               </TableCell>
+              <TableCell class="whitespace-nowrap px-4 py-3 text-right tabular-nums">
+                {{ currentOpportunity(row) ? fmt(currentOpportunity(row)?.quality_score, 0) + '分 · ' + opportunityKinds[currentOpportunity(row)!.kind] : '—' }}
+              </TableCell>
+              <TableCell class="font-semibold tabular-nums">
+                {{ fmt(row.analysis?.score, 0) }}
+                <small v-if="row.analysis && (row.analysis.reference || now.getTime() - row.analysis.as_of >= 90_000 || !status.endsWith('已连接'))">参考分</small>
+              </TableCell>
+              <TrendDirectionCell :direction="currentOpportunity(row)?.direction ?? row.analysis?.direction" />
+              <TableCell>{{ row.analysis?.state ? stages[row.analysis.state] : '—' }}</TableCell>
+              <TrendWindowCell
+                v-for="n in [5, 15, 30, 60]"
+                :key="n"
+                :window="row.analysis?.windows?.[n]"
+              />
               <TableCell class="whitespace-nowrap px-4 py-3 text-right tabular-nums">
                 {{ format(row.quote?.turnover, 0) }}
               </TableCell>

@@ -206,7 +206,8 @@ async def test_initial_backfill_available_even_when_ws_cannot_connect(monkeypatc
     with pytest.raises(ConnectionError):
         await collector.run_session({SYMBOL})
     assert service.complete_minutes(collector.minutes[SYMBOL].values(), NOW)
-    assert len(json.loads(pipe.set.call_args.args[1])) == 1440
+    minute_write = next(call for call in pipe.set.call_args_list if call.args[0].endswith(":minute"))
+    assert len(json.loads(minute_write.args[1])) == 1440
 
 
 @pytest.mark.asyncio
@@ -266,3 +267,27 @@ async def test_slow_initial_rest_does_not_delay_live_ws(monkeypatch):
     finally:
         task.cancel()
         await asyncio.gather(task, return_exceptions=True)
+
+
+def test_utc_weekend_analysis_ignores_previous_day_and_unclosed_minutes():
+    from finance_analysis.contracts.analysis import summarize
+
+    midnight = int(datetime(2026, 11, 28, tzinfo=timezone.utc).timestamp() * 1000)
+    rows = [{**bar(midnight + i * MINUTE), "closed": i < 2} for i in range(-5, 3)]
+    result = summarize(SYMBOL, rows, midnight + 3 * MINUTE)
+    assert result["as_of"] == midnight + 2 * MINUTE
+    assert result["windows"]["5"]["availableBars"] == 2
+    assert result["reference"]
+
+
+def test_rolling_minutes_delta_keeps_unchanged_bars_off_wire():
+    from finance_analysis.interfaces.api.v1.schemas.intraday_options_stream import SnapshotStream
+
+    stream = SnapshotStream()
+    bars = [bar(i * MINUTE) for i in range(1441)]
+    assert stream.encode({"minutes": bars[:-1]})["revision"] == 1
+    assert stream.encode({"minutes": bars[1:]})["operations"] == [
+        {"op": "remove", "path": ["minutes", 0]},
+        {"op": "insert", "path": ["minutes", 1439], "value": bars[-1]},
+    ]
+    assert stream.encode({"minutes": bars[1:]})["operations"] == []

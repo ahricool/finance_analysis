@@ -23,6 +23,7 @@ class SnapshotDelta(TypedDict):
 # event is prepended, a position exits or the observation pool changes.
 _IDENTITIES = {
     ('items',): 'symbol',
+    ('minutes',): 'timestamp',
     ('simulation', 'states'): 'symbol',
     ('simulation', 'trades'): 'id',
     ('simulation', 'events'): 'id',
@@ -118,3 +119,22 @@ class IntradayOptionsStream:
         # Empty operations are a successful, lightweight snapshot heartbeat.
         return {'type': 'quotes', 'quotes': [], 'generated_at': frame['generated_at'],
                 'intraday_options_delta': delta}
+
+
+class SnapshotStream:
+    """Encode a baseline and ordered field changes for one subscription."""
+
+    def __init__(self):
+        self.previous = None
+        self.revision = 0
+
+    def encode(self, current):
+        self.revision += 1
+        if self.previous is None:
+            frame = {**current, "revision": self.revision}
+        else:
+            operations = []
+            _diff(self.previous, current, [], operations)
+            frame = {"revision": self.revision, "operations": operations}
+        self.previous = current
+        return frame

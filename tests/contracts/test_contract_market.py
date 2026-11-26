@@ -83,8 +83,9 @@ async def test_minute_initial_full_warmup_then_no_rest_when_complete(monkeypatch
     assert client.klines.await_count == 1
     await collector.flush()
     pipe = redis.pipeline.return_value
-    assert pipe.set.call_args.kwargs["ex"] == 86400
-    assert len(json.loads(pipe.set.call_args.args[1])) == 1440
+    minute_write = next(call for call in pipe.set.call_args_list if call.args[0].endswith(":minute"))
+    assert minute_write.kwargs["ex"] == 86400
+    assert len(json.loads(minute_write.args[1])) == 1440
     assert not collector.minutes["ETHUSDT"][NOW]["closed"]
     assert collector.minutes["ETHUSDT"][NOW-service.MINUTE]["closed"]
 

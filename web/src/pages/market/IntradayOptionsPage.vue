@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import TrendWindowCell from '@/components/market-data/TrendWindowCell.vue';
+import TrendDirectionCell from '@/components/market-data/TrendDirectionCell.vue';
 import { computed, defineAsyncComponent, ref, shallowRef, watch } from 'vue';
 import { type IntradayOptionRow, type IntradayOptionsSnapshot, type TrendDirection } from '@/api/intradayOptions';
 import { type ParsedApiError } from '@/api/error';
@@ -70,8 +72,6 @@ function toggleSort(key: string) { refreshOrder(); table.toggle(key); }
 watch([filter, search], () => { refreshOrder(); expanded.value = null; });
 function windowOf(row: IntradayOptionRow, minutes: number) { return row.result?.windows.find(w => w.minutes === minutes); }
 function valid(row: IntradayOptionRow) { return usable(row); }
-function rowDirection(row: IntradayOptionRow) { return valid(row) && rowDirectionValue(row) ? directions[rowDirectionValue(row)!] : '—'; }
-function arrow(value: number | null | undefined) { return value === 1 ? '↑' : value === -1 ? '↓' : '→'; }
 function toggleRow(symbol: string) { expanded.value = expanded.value === symbol ? null : symbol; }
 const stream = useRealtimeQuotes({ scope: 'intraday-options', market: 'US' });
 watch(stream.intradayOptions, result => {
@@ -275,35 +275,14 @@ watch(stream.intradayOptions, result => {
                   参考分 · 截至 {{ clock(row.result.asOf) }}
                 </p>
               </TableCell>
-              <TableCell
-                class="whitespace-nowrap"
-                :class="valid(row) ? tone(rowDirectionValue(row) === 'bullish' ? 1 : rowDirectionValue(row) === 'bearish' ? -1 : 0) : ''"
-              >
-                {{ rowDirection(row) }}
-              </TableCell>
-              <TableCell
+              <TrendDirectionCell :direction="valid(row) ? rowDirectionValue(row) : null" />
+
+              <TrendWindowCell
                 v-for="n in [5, 15, 30, 60]"
                 :key="n"
-                class="whitespace-nowrap tabular-nums"
-              >
-                <template v-if="valid(row) && windowOf(row, n)?.score != null">
-                  <span :class="tone(windowOf(row, n)?.direction)">{{ arrow(windowOf(row, n)?.direction) }} {{ fmt(windowOf(row, n)?.score, 0) }}分</span>
-                  <p class="text-xs text-muted-foreground">
-                    {{ pct(windowOf(row, n)?.returnPct) }}
-                  </p>
-                  <p
-                    v-if="windowOf(row, n)?.dataStatus !== 'ready'"
-                    class="text-xs text-amber-600 dark:text-amber-400"
-                  >
-                    {{ windowOf(row, n)?.dataStatus === 'warming' ? '开盘不足' : '分钟缺失' }} · 缺{{ windowOf(row, n)?.missingBars ?? '部分' }}根 · 参考分
-                  </p>
-                </template>
-                <template v-else>
-                  —<p class="text-xs text-muted-foreground">
-                    {{ valid(row) && windowOf(row, n) ? `有效${windowOf(row, n)?.availableBars ?? 0}根 · 数据过少` : '等待有效数据' }}
-                  </p>
-                </template>
-              </TableCell>
+                :window="valid(row) ? windowOf(row, n) : undefined"
+              />
+
               <TableCell
                 class="whitespace-nowrap text-sm"
                 data-testid="intraday-structure"

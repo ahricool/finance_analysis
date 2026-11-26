@@ -10,6 +10,7 @@ from anyio import CancelScope
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 
+from finance_analysis.interfaces.api.v1.schemas.intraday_options_stream import SnapshotStream
 from finance_analysis.contracts.service import live_snapshot
 from finance_analysis.contracts.underlying import underlying_symbol
 from finance_analysis.database.models.contracts import FuturesContract
@@ -99,12 +100,14 @@ async def bars(symbol: str, interval: Literal["1m", "1d"] = "1d"):
 
 @router.get("/contracts/events")
 async def events(request: Request, symbol: str | None = Query(default=None, max_length=32),
-                 interval: Literal["1d", "1m"] = "1m"):
+                 interval: Literal["1d", "1m"] = "1m", delta: bool = False):
+    encode = SnapshotStream().encode if delta else dict
+
     async def stream():
         store = realtime()
         try:
             while not await request.is_disconnected():
-                yield "data: " + json.dumps(await live_snapshot(store.redis, symbol, interval)) + "\n\n"
+                yield "data: " + json.dumps(encode(await live_snapshot(store.redis, symbol, interval))) + "\n\n"
                 await asyncio.sleep(5)
         finally:
             with CancelScope(shield=True):
@@ -115,7 +118,8 @@ async def events(request: Request, symbol: str | None = Query(default=None, max_
 
 @router.websocket("/contracts/ws")
 async def websocket(socket: WebSocket, symbol: str | None = Query(default=None, max_length=32),
-                    interval: Literal["1d", "1m"] = "1m"):
+                    interval: Literal["1d", "1m"] = "1m", delta: bool = False):
+    encode = SnapshotStream().encode if delta else dict
     uid = parse_session_uid(socket.cookies.get(COOKIE_NAME) or "")
     await socket.accept()
     if not uid or not await asyncio.to_thread(lambda: UserRepository().get_by_uid(uid)):
@@ -124,7 +128,7 @@ async def websocket(socket: WebSocket, symbol: str | None = Query(default=None, 
     store = realtime()
     try:
         while True:
-            await socket.send_json(await live_snapshot(store.redis, symbol, interval))
+            await socket.send_json(encode(await live_snapshot(store.redis, symbol, interval)))
             await asyncio.sleep(5)
     except (WebSocketDisconnect, RuntimeError):
         pass
