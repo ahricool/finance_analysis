@@ -25,7 +25,13 @@ const filter = ref<'all' | TrendDirection>('all');
 const expanded = ref<string | null>(null);
 const sortSnapshot = shallowRef<IntradayOptionRow[]>([]);
 const now = useCurrentTime(1000);
-const disconnected = computed(() => !['connected', 'sse'].includes(stream.status.value) || !!error.value || (!!snapshot.value && now.value.getTime() - Date.parse(snapshot.value.generatedAt) > 20_000));
+const connectionLost = computed(() => !['connected', 'sse'].includes(stream.status.value) || !!error.value);
+const snapshotExpired = computed(() => {
+  if (!snapshot.value) return false;
+  const age = now.value.getTime() - Date.parse(snapshot.value.generatedAt);
+  return !Number.isFinite(age) || age > 20_000;
+});
+const disconnected = computed(() => connectionLost.value || snapshotExpired.value);
 const columns = [
   { key: 'symbol', label: '标的', description: '按代码排序；名称与代码均可搜索。' },
   { key: 'changePct', label: '最新价 / 涨跌幅', description: '按当日涨跌幅排序；涨跌幅相对昨收，不参与趋势评分。' },
@@ -70,7 +76,10 @@ function toggleRow(symbol: string) { expanded.value = expanded.value === symbol 
 const stream = useRealtimeQuotes({ scope: 'intraday-options', market: 'US' });
 watch(stream.intradayOptions, result => {
   if (!result) return;
-  const reset = !snapshot.value || snapshot.value.tradingDate !== result.tradingDate;
+  const previous = snapshot.value;
+  const reset = !previous || previous.tradingDate !== result.tradingDate || previous.version !== result.version
+    || previous.items.length !== result.items.length
+    || (previous.items !== result.items && previous.items.some((row, i) => row.symbol !== result.items[i]?.symbol));
   snapshot.value = result; error.value = null; loading.value = false;
   if (reset) { refreshOrder(); expanded.value = null; }
 });
@@ -89,7 +98,8 @@ watch(stream.intradayOptions, result => {
     <SimulationPanel
       v-if="snapshot"
       :snapshot="snapshot"
-      :disconnected="disconnected"
+      :disconnected="connectionLost"
+      :snapshot-expired="snapshotExpired"
     />
     <div class="flex flex-wrap items-center justify-between gap-3 text-sm">
       <div class="flex flex-wrap gap-3 text-muted-foreground">
@@ -99,7 +109,7 @@ watch(stream.intradayOptions, result => {
         <span
           v-if="disconnected"
           class="text-destructive"
-        >连接中断或响应过期，保留上次评分，仅供参考</span>
+        >{{ connectionLost ? '连接中断，保留上次评分，仅供参考' : '快照更新延迟，保留上次评分，仅供参考' }}</span>
       </div>
       <div class="flex flex-wrap items-center gap-3">
         <a

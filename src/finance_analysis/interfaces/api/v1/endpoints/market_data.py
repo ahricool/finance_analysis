@@ -29,6 +29,7 @@ from finance_analysis.integrations.market_data.providers.longbridge.market impor
 from finance_analysis.integrations.market_data.realtime_state.models import QuoteState, TrendState
 from finance_analysis.integrations.market_data.realtime_state.repository import RealtimeStateRepository
 from finance_analysis.integrations.market_data.service import MarketDataService
+from finance_analysis.interfaces.api.v1.schemas.intraday_options_stream import IntradayOptionsStream
 from finance_analysis.interfaces.api.v1.schemas.market_data import (
     DailyBarItem,
     DailyBarsResponse,
@@ -688,6 +689,7 @@ async def realtime_events(
     tag_id: Annotated[int | None, Query(ge=1)] = None,
     ungrouped: bool = False,
     after_event_id: Annotated[int | None, Query(ge=0)] = None,
+    delta: bool = False,
 ):
     if tag_id is not None and ungrouped:
         raise HTTPException(status_code=422, detail="不能同时筛选标签与未分组")
@@ -697,6 +699,7 @@ async def realtime_events(
 
     async def events():
         repository = RealtimeStateRepository.from_url(MarketStreamConfig.from_env().redis_url)
+        stream = IntradayOptionsStream() if scope == "intraday-options" and delta else None
         snapshot_task: asyncio.Task[dict[str, Any]] | None = None
         try:
             yield ": connected\n\n"
@@ -712,6 +715,8 @@ async def realtime_events(
                     yield ": heartbeat\n\n"
                 try:
                     snapshot = snapshot_task.result()
+                    if stream is not None:
+                        snapshot = stream.encode(snapshot)
                 except Exception:
                     logger.warning("SSE 行情推送失败 uid=%s", uid, exc_info=True)
                     snapshot = {"type": "error", "message": "实时行情暂时不可用"}
@@ -746,6 +751,7 @@ async def realtime_quotes(
     tag_id: Annotated[int | None, Query(ge=1)] = None,
     ungrouped: bool = False,
     after_event_id: Annotated[int | None, Query(ge=0)] = None,
+    delta: bool = False,
 ) -> None:
     """Push user-owned market/portfolio snapshots every five seconds."""
     session = websocket.cookies.get(COOKIE_NAME)
@@ -766,10 +772,12 @@ async def realtime_quotes(
 
     repository = RealtimeStateRepository.from_url(MarketStreamConfig.from_env().redis_url)
     await websocket.accept()
+    stream = IntradayOptionsStream() if scope == "intraday-options" and delta else None
     try:
         while True:
             try:
-                await websocket.send_json(await _live_snapshot(uid, repository, scope, market, tag_id, ungrouped, after_event_id))
+                snapshot = await _live_snapshot(uid, repository, scope, market, tag_id, ungrouped, after_event_id)
+                await websocket.send_json(stream.encode(snapshot) if stream is not None else snapshot)
             except WebSocketDisconnect:
                 raise
             except Exception as exc:

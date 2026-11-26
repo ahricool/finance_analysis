@@ -1,4 +1,5 @@
 import type { IntradayOptionsSnapshot } from './intradayOptions';
+import type { IntradayOptionsDelta } from './intradayOptionsDelta';
 import { API_BASE_URL } from '@/utils/constants';
 import type { MarketType } from './watchList';
 import type { HoldingsSummary } from './holdings';
@@ -110,6 +111,8 @@ export interface RealtimeQuote {
 export interface RealtimeQuoteMessage {
   type: 'quotes';
   intradayOptions?: IntradayOptionsSnapshot | null;
+  intradayOptionsRevision?: number;
+  intradayOptionsDelta?: IntradayOptionsDelta;
   generatedAt: string;
   quotes: RealtimeQuote[];
   portfolio: HoldingsSummary | null;
@@ -139,6 +142,7 @@ function marketUrl(path: string, options: MarketStreamOptions): URL {
   url.hash = '';
   if (options.afterEventId !== undefined) url.searchParams.set('after_event_id', String(options.afterEventId));
   if (options.scope) url.searchParams.set('scope', options.scope);
+  if (options.scope === 'intraday-options') url.searchParams.set('delta', 'true');
   if (options.market) url.searchParams.set('market', options.market);
   if (options.tagId !== undefined) url.searchParams.set('tag_id', String(options.tagId));
   if (options.ungrouped) url.searchParams.set('ungrouped', 'true');
@@ -201,7 +205,7 @@ export async function readMarketEvents(
 /** Validates a WS/SSE wire frame and converts it to the camelCase message shape. */
 export function parseRealtimeQuoteMessage(value: unknown): RealtimeQuoteMessage | null {
   if (!value || typeof value !== 'object') return null;
-  const message = value as { type?: unknown; generated_at?: unknown; quotes?: unknown; portfolio?: unknown; intraday_options?: unknown };
+  const message = value as { type?: unknown; generated_at?: unknown; quotes?: unknown; portfolio?: unknown; intraday_options?: unknown; intraday_options_revision?: number; intraday_options_delta?: IntradayOptionsDelta };
   if (message.type !== 'quotes' || !Array.isArray(message.quotes)) return null;
   return {
     type: 'quotes',
@@ -209,5 +213,7 @@ export function parseRealtimeQuoteMessage(value: unknown): RealtimeQuoteMessage 
     quotes: (message.quotes as RawRealtimeQuote[]).map(toRealtimeQuote),
     portfolio: portfolioFromWire(message.portfolio),
     ...(message.intraday_options ? { intradayOptions: toCamelCase<IntradayOptionsSnapshot>(message.intraday_options) } : {}),
+    ...(message.intraday_options_revision !== undefined ? { intradayOptionsRevision: message.intraday_options_revision } : {}),
+    ...(message.intraday_options_delta !== undefined ? { intradayOptionsDelta: message.intraday_options_delta } : {}),
   };
 }

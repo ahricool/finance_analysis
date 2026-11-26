@@ -83,6 +83,83 @@ describe('useRealtimeQuotes', () => {
     vi.unstubAllGlobals();
   });
 
+  function optionsFrame(revision = 1, date = '2026-11-25') {
+    return { type: 'quotes', quotes: [], generated_at: 'initial', intraday_options_revision: revision,
+      intraday_options: { generated_at: 'initial', trading_date: date, version: 'v1', market_status: 'closed',
+        items: [{ symbol: 'A.US', last_price: 10 }], simulation: { states: [], trades: [], events: [{ id: 42 }], statistics: [] } } };
+  }
+  function optionsDelta(base: number, revision: number, operations: unknown[] = []) {
+    return { type: 'quotes', quotes: [], generated_at: `tick-${revision}`,
+      intraday_options_delta: { base_revision: base, revision, operations } };
+  }
+
+  it('merges WS deltas, advances heartbeat freshness, and resets on a sequence gap', async () => {
+    let state!: ReturnType<typeof useRealtimeQuotes>;
+    const wrapper = mount(defineComponent({ setup() { state = useRealtimeQuotes({ scope: 'intraday-options', market: 'US' }); return {}; }, template: '<div />' }));
+    const socket = MockWebSocket.instances[0]!;
+    expect(socket.url).toContain('delta=true');
+    socket.message(optionsFrame());
+    socket.message(optionsDelta(1, 2, [
+      { op: 'set', path: ['items', 0, 'last_price'], value: 11 },
+      { op: 'insert', path: ['simulation', 'events', 0], value: { id: 43 } },
+    ]));
+    expect(state.intradayOptions.value?.items[0]?.lastPrice).toBe(11);
+    expect(state.intradayOptions.value?.simulation?.events.map(event => event.id)).toEqual([43, 42]);
+    const items = state.intradayOptions.value?.items;
+    socket.message(optionsDelta(2, 3));
+    expect(state.intradayOptions.value?.items).toBe(items);
+    expect(state.lastUpdatedAt.value).toBe('tick-3');
+    socket.message(optionsDelta(4, 5));
+    expect(state.status.value).toBe('reconnecting');
+    expect(state.lastUpdatedAt.value).toBe('tick-3');
+    await vi.advanceTimersByTimeAsync(1000);
+    const next = MockWebSocket.instances[1]!;
+    expect(next.url).toContain('after_event_id=43');
+    next.message(optionsFrame(1, '2026-11-27'));
+    expect(state.intradayOptions.value?.tradingDate).toBe('2026-11-27');
+    next.message(optionsDelta(1, 2));
+    expect(state.status.value).toBe('connected');
+    wrapper.unmount();
+  });
+
+  it('accepts legacy full snapshots during a rolling upgrade', () => {
+    let state!: ReturnType<typeof useRealtimeQuotes>;
+    const wrapper = mount(defineComponent({ setup() { state = useRealtimeQuotes({ scope: 'intraday-options', market: 'US' }); return {}; }, template: '<div />' }));
+    const socket = MockWebSocket.instances[0]!;
+    const { intraday_options_revision: _revision, ...legacy } = optionsFrame();
+    expect(_revision).toBe(1);
+    socket.message(legacy);
+    legacy.intraday_options.items[0]!.last_price = 15;
+    socket.message(legacy);
+    expect(state.intradayOptions.value?.items[0]?.lastPrice).toBe(15);
+    expect(state.status.value).toBe('connected');
+    wrapper.unmount();
+  });
+
+  it('merges SSE frames identically and reconnects with its durable cursor after an invalid delta', async () => {
+    const http = mockHttpEvents();
+    let state!: ReturnType<typeof useRealtimeQuotes>;
+    const wrapper = mount(defineComponent({ setup() { state = useRealtimeQuotes({ scope: 'intraday-options', market: 'US' }); return {}; }, template: '<div />' }));
+    MockWebSocket.instances[0]!.disconnect();
+    await vi.advanceTimersByTimeAsync(1000);
+    MockWebSocket.instances[1]!.disconnect();
+    await vi.advanceTimersByTimeAsync(0);
+    const send = (wire: unknown) => http.send(0, `data: ${JSON.stringify(wire)}\n\n`);
+    send(optionsFrame());
+    send(optionsDelta(1, 2, [{ op: 'insert', path: ['simulation', 'events', 0], value: { id: 43 } }]));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(state.intradayOptions.value?.simulation?.events.map(event => event.id)).toEqual([43, 42]);
+    expect(state.status.value).toBe('sse');
+    send(optionsDelta(2, 3, [{ op: 'remove', path: ['items', 99] }]));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(http.requests[0]!.signal.aborted).toBe(true);
+    expect(state.lastUpdatedAt.value).toBe('tick-2');
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(http.requests).toHaveLength(2);
+    expect(String(vi.mocked(fetch).mock.calls[1]![0])).toContain('after_event_id=43');
+    wrapper.unmount();
+  });
+
   it('indexes quote snapshots, reconnects, and releases the socket on unmount', async () => {
     let state: ReturnType<typeof useRealtimeQuotes>;
     const wrapper = mount(defineComponent({
