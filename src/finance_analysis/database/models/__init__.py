@@ -163,3 +163,7 @@ __all__.append("PaperTradeControl")
 from .minute_forecast import MinuteForecastPreference
 
 __all__.append("MinuteForecastPreference")
+
+from .crypto_strategy import CryptoStrategyPeriod
+
+__all__.append("CryptoStrategyPeriod")

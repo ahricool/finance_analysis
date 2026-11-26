@@ -5,7 +5,7 @@ export interface LiveControl { enabled: boolean; updated_at: string | null }
 export interface LiveSnapshot {
   environment: 'LIVE';
   control: LiveControl;
-  connection: { status: string; stream_connected: boolean; reason?: string | null };
+  connection: { status: string; stream_connected: boolean; reason?: string | null; observation?: { strategy: string; evaluated_at: number; direction: string | null } | null };
   view: { account: Row; balances: Row[]; positions: Row[]; open_orders: Row[]; open_algos: Row[];
     complete: boolean; synced_at: string } | null;
   equity: { time: string; equity: string | null }[];

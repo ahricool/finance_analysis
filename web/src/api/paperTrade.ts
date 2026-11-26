@@ -31,7 +31,5 @@ export const paperTradeApi = {
   async snapshot(): Promise<PaperSnapshot> { return (await apiClient.get(path)).data; },
   async tradeControl(): Promise<DemoTradeControl> { return (await apiClient.get(path + '/control')).data; },
   async setTradeControl(enabled: boolean): Promise<DemoTradeControl> { return (await apiClient.put(path + '/control', { enabled })).data; },
-  async saveStrategy(symbol: string, payload: Row) { return (await apiClient.put(path + '/strategies/' + encodeURIComponent(symbol), payload)).data; },
-  async control(symbol: string, enabled: boolean) { return (await apiClient.post(path + '/strategies/' + encodeURIComponent(symbol) + '/control', { enabled })).data; },
-  async action(type: 'orders' | 'close' | 'cancel', payload: Row) { return (await apiClient.post(path + '/' + type, payload)).data; },
+  async action(type: 'close' | 'cancel', payload: Row) { return (await apiClient.post(path + '/' + type, payload)).data; },
 };

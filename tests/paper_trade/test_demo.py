@@ -216,7 +216,7 @@ def test_admin_only_and_disabled_snapshot(monkeypatch, db_repo):
     app.dependency_overrides[require_admin] = non_admin
     with TestClient(app) as client:
         assert client.get("/api/v1/crypto/paper-trade").status_code == 403
-        assert client.post("/api/v1/crypto/paper-trade/orders", json={}).status_code == 403
+        assert client.post("/api/v1/crypto/paper-trade/orders", json={}).status_code == 404
     app.dependency_overrides[require_admin] = lambda: object()
     with TestClient(app) as client:
         result = client.get("/api/v1/crypto/paper-trade").json()
@@ -805,3 +805,47 @@ def test_strategy_type_performance_isolated_by_completed_cycle():
     assert performance(SYMBOL, trades, income, "ema_cross")["net"] == "-3.2"
     assert performance(SYMBOL, trades, income, "perpetual_drive")["net"] == "4.7"
     assert performance(SYMBOL, trades, income)["trades"] == 2
+
+
+def test_crypto_strategy_migration_and_switch_accounting(db_repo):
+    from alembic.migration import MigrationContext
+    from alembic.operations import Operations
+    from finance_analysis.crypto_strategy.service import overview, switch
+    from finance_analysis.database.models.live_trade import LiveAccountSnapshot, LiveTradeControl
+    from finance_analysis.database.models.crypto_strategy import CryptoStrategyPeriod
+
+    from importlib.util import spec_from_file_location, module_from_spec
+    from pathlib import Path
+
+    spec = spec_from_file_location("crypto_strategy_migration", Path(__file__).parents[2] / "alembic/versions/0102_crypto_strategy.py")
+    migration = module_from_spec(spec)
+    spec.loader.exec_module(migration)
+    with db_repo.begin() as connection:
+        with Operations.context(MigrationContext.configure(connection)):
+            migration.upgrade()
+    for table in (LiveAccountSnapshot, LiveTradeControl):
+        table.__table__.create(db_repo)
+    view = {"complete": True, "account": {"totalMarginBalance": "100.125"},
+            "configuration": {"dualSidePosition": False}, "shared_symbols": ["ETHUSDT", "BTCUSDT"],
+            "demo_symbols": ["ETHUSDT"], "demo_coin_symbols": ["ETHUSDT"]}
+    repo.save_snapshot(view)
+    with repo.session_scope() as s:
+        s.add(LiveAccountSnapshot(payload=view))
+    switch("paper", "ema_cross", 1)
+    switch("paper", "ema_cross", 2)
+    switch("live", "perpetual_drive", 2)
+    repo.save_snapshot({**view, "positions": [{"symbol": "ETHUSDT", "positionAmt": "0.1"}]})
+    with pytest.raises(ValueError, match="持仓"):
+        switch("paper", "perpetual_drive", 1)
+    repo.save_snapshot({**view, "account": {"totalMarginBalance": "99.99"}})
+    switch("paper", "perpetual_drive", 1)
+    result = overview()
+    assert result["selected"] == {"paper": "perpetual_drive", "live": "perpetual_drive"}
+    ema = next(item for item in result["items"] if item["key"] == "ema_cross")
+    assert ema["paper"] == D("-0.135")
+    assert ema["live"] is None and ema["backtest"] is None and len(ema["periods"]) == 1
+    assert repo.strategies()[0]["strategy_type"] == "perpetual_drive"
+    with db_repo.begin() as connection:
+        with Operations.context(MigrationContext.configure(connection)):
+            migration.downgrade()
+        assert not connection.dialect.has_table(connection, CryptoStrategyPeriod.__tablename__)

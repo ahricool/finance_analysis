@@ -3,7 +3,7 @@
 ## 只读运行边界
 
 这是 Binance 正式账户监控，不是 Demo，也不是手动交易终端。
-V1 无实盘策略、无自动交易调度、无订单执行 transport、无前端交易按钮、无创建订单/撤单/平仓/改单/杠杆修改的 HTTP API。
+已选择的策略每 5 秒评估公共行情，无订单执行 transport、无前端交易按钮、无创建订单/撤单/平仓/改单/杠杆修改的 HTTP API。
 开启 FA「自动交易」只保存本地状态；仍不会发送任何真实交易指令。
 私有用户数据流的 listenKey 创建与续期是数据订阅管理，不是交易写操作。
 
@@ -26,7 +26,7 @@ BINANCE_LIVE_API_SECRET=
 迁移 `0098_live_trade` 位于 Demo 0097 之后，新增四张独立表；另有 0099 单独保存按用户要求迁移的 Demo 总开关。Live 不修改原行情及 Paper Trade 交易逻辑。
 首次配置密钥或修改密钥需要重启应用与 Trader（正常发布即可）。
 
-管理员进入「加密货币 → 实盘交易 / Live Trade」，核对权益、余额和持仓与 Binance App 一致。
+管理员进入「加密货币 → Live Trade」，核对权益、余额和持仓与 Binance App 一致。
 未配密钥不启动私有 reader，页面仍可读取本地开关；认证/同步失败显示实际状态。
 首次读到账户 alias 时绑定该正式账户，使用其他账户的密钥时拒绝混合历史，保留旧数据并显示同步失败。
 
@@ -64,3 +64,5 @@ BINANCE_LIVE_API_SECRET=
 - [Binance Key 管理](https://www.binance.com/en/support/faq/detail/360002502072)
 
 V1 默认离线测试以 MockTransport 校验生产 host 的读取、禁止写入、开关关闭/开启与已有仓位，真实凭据及交易请求均不参与开发、CI 或自测。
+
+Strategy（0102）：管理员在 Live Trade 选择代码预设，每 5 秒读取共享公共行情进行信号观察。每次切换冻结账户权益并记录上一策略区间收益，归档见 `/crypto/strategy`。生产交易 transport 继续只读。

@@ -11,6 +11,7 @@ import uuid
 import websockets
 from redis.exceptions import RedisError
 
+from finance_analysis.crypto_strategy.catalog import INTERVAL_SECONDS
 from finance_analysis.contracts.service import key, read_json
 from finance_analysis.database.repositories import contracts, paper_trade as repo
 from finance_analysis.integrations.crypto.binance_demo import DemoClient, DemoError, WS
@@ -820,6 +821,21 @@ class PaperRuntime:
             strategy["updated_at"],
         )
 
+    async def evaluate_until_reconcile(self, trades, income):
+        # Keep private REST reconciliation near its previous 20s cadence. A
+        # stream update or new intent always returns to sync before submission.
+        for tick in range(4):
+            try:
+                await asyncio.wait_for(self.changed.wait(), timeout=INTERVAL_SECONDS)
+                return
+            except TimeoutError:
+                pass
+            if tick == 3 or any(i["status"] == "QUEUED" for i in await db(repo.intents, True)):
+                return
+            await self.evaluate(trades, income)
+            if any(i["status"] == "QUEUED" for i in await db(repo.intents, True)):
+                return
+
     async def run(self):
         stream = None
         warm = False
@@ -844,6 +860,7 @@ class PaperRuntime:
                     if queued and not self.changed.is_set():
                         await self.submit(queued[0], trades)
                         self.changed.set()
+                    await self.evaluate_until_reconcile(trades, income)
                 except DemoError as exc:
                     if self.basic_view:
                         await db(repo.save_snapshot, self.basic_view)
@@ -865,12 +882,12 @@ class PaperRuntime:
                         "DEGRADED" if self.basic_view else "UNAVAILABLE",
                         str(exc) if isinstance(exc, ValueError) and str(exc).isupper() else "RECONCILIATION_FAILED",
                     )
-                try:
-                    await asyncio.wait_for(self.changed.wait(), timeout=20)
-                except TimeoutError:
-                    pass
+                if not warm:
+                    await asyncio.sleep(INTERVAL_SECONDS)
+                elif self.changed.is_set():
+                    # Coalesce bursts of private account updates before another REST pass.
+                    await asyncio.sleep(2)
                 self.changed.clear()
-                await asyncio.sleep(2)
         finally:
             if stream:
                 stream.cancel()
