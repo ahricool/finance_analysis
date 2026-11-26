@@ -30,6 +30,9 @@ test('USD-M market lists contract prices, switches native candles and manages sy
     if (url.pathname === '/api/v1/auth/status') return route.fulfill({ json: {
       loggedIn: true, user: { uid: 1, username: 'Tester', email: 'test@example.com', role: 'admin' },
     } });
+    if (['NVDA.US', 'SOXL.US'].some(symbol => url.pathname === `/api/v1/market-data/minute-forecast/${symbol}/preference`)) {
+      return route.fulfill({ json: { enabled: false } });
+    }
     if (url.pathname === '/api/v1/stocks/NVDA.US/quote') return route.fulfill({ json: { stock_code: 'NVDA.US', current_price: 456 } });
     if (url.pathname === '/api/v1/stocks/SOXL.US/quote') return route.fulfill({ json: { stock_code: 'SOXL.US', current_price: 48 } });
     if (url.pathname === '/api/v1/stocks/SOXL.US/classification') return route.fulfill({ json: { memberships: { industries: [], indices: [] }, etf_proxies: [] } });
@@ -62,6 +65,7 @@ test('USD-M market lists contract prices, switches native candles and manages sy
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await page.getByRole('button', { name: 'NVDAUSDT 标的详情' }).click();
   await expect(page.getByRole('dialog')).toContainText('NVDA.US');
+  await expect(page.getByRole('switch', { name: '1min K 预测' })).toBeEnabled();
   await expect(page.getByRole('dialog')).toContainText('456');
   await expect(page.getByRole('dialog')).not.toContainText('123');
   await expect(page.getByRole('tab', { name: '趋势', exact: true })).toBeVisible();
@@ -122,7 +126,10 @@ test('USD-M market lists contract prices, switches native candles and manages sy
   expect(errors).toEqual([]);
   expect(requests.some(url => url.includes('/stocks/BTC') || url.includes('/daily-bars/BTC') || url.includes('BTC.CRYPTO'))).toBe(false);
   expect(requests.some(url => /binance\.(com|vision)/.test(url))).toBe(false);
-  expect(requests.some(url => url.includes('/minute-forecast/'))).toBe(false);
+  expect(requests.filter(url => url.includes('/minute-forecast/')).map(url => new URL(url).pathname)).toEqual([
+    '/api/v1/market-data/minute-forecast/NVDA.US/preference',
+    '/api/v1/market-data/minute-forecast/SOXL.US/preference',
+  ]);
 });
 
 test('shared contracts are expandable for regular users but only admins can manage the list', async ({ page }) => {
@@ -143,7 +150,7 @@ test('shared contracts are expandable for regular users but only admins can mana
   await expect(page.getByRole('button', { name: '移除 BTCUSDT' })).toHaveCount(0);
   await btc.getByRole('cell').nth(1).click();
   await expect(page.getByTestId('contract-market-panel')).toContainText('暂无 K 线');
-  await expect(page.getByTestId('contract-expanded-row').getByRole('cell')).toHaveAttribute('colspan', '6');
+  await expect(page.getByTestId('contract-expanded-row').getByRole('cell')).toHaveAttribute('colspan', String(await btc.getByRole('cell').count()));
   await btc.getByRole('button', { name: 'BTCUSDT 标的详情' }).click();
   await expect(page.getByTestId('underlying-empty')).toBeVisible();
 });

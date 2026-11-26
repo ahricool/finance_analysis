@@ -16,7 +16,7 @@ vi.mock('@/api/stocks', () => ({ stocksApi: { quote: vi.fn(), classification: vi
 beforeEach(() => { vi.mocked(stocksApi.quote).mockReset().mockResolvedValue({ code: 'AAPL.US', symbol: 'AAPL.US', marketType: 'US', available: false }); });
 const stock = { code: 'AAPL.US', name: 'Apple', marketType: 'US' as const };
 const slots = { template: '<div><slot /></div>' };
-const stubs = { Dialog: { props: ['open'], template: '<div v-if="open"><slot /></div>' }, DialogContent: slots, DialogHeader: slots, DialogTitle: slots, DialogDescription: slots, DailyKLineCard: true, OptionsPanel: { name: 'OptionsPanel', props: ['symbol', 'initialView', 'initialDate'], template: '<div />' } };
+const stubs = { MinuteForecastSwitch: true, Dialog: { props: ['open'], template: '<div v-if="open"><slot /></div>' }, DialogContent: slots, DialogHeader: slots, DialogTitle: slots, DialogDescription: slots, DailyKLineCard: true, OptionsPanel: { name: 'OptionsPanel', props: ['symbol', 'initialView', 'initialDate'], template: '<div />' } };
 function render(initialTab: StockDetailTab = 'overview') {
   return mount(StockDetailDialog, { props: { stock, kind: 'research', initialTab, context: { tradeDate: '2026-10-09', view: 'official' } }, global: { stubs } });
 }
@@ -32,6 +32,7 @@ describe('unified StockDetailDialog', () => {
     vi.mocked(stocksApi.classification).mockClear();
     await wrapper.setProps({ stock: { code: 'BTC.CRYPTO', name: null, marketType: 'CRYPTO' } });
     await flushPromises();
+    expect(wrapper.findComponent({ name: 'MinuteForecastSwitch' }).exists()).toBe(false);
     expect(wrapper.text()).toContain('BTC');
     expect(wrapper.text()).toContain('加密货币');
     expect(wrapper.get('[data-testid="underlying-empty"]').text()).toContain('暂无该标的的历史数据');
@@ -47,6 +48,10 @@ describe('unified StockDetailDialog', () => {
   });
   it('preserves legacy stock-driven opening and presents accessible responsive tabs', () => {
     const wrapper = render();
+    const forecastSwitch = wrapper.getComponent({ name: 'MinuteForecastSwitch' });
+    expect(forecastSwitch.props('symbol')).toBe(stock.code);
+    expect(forecastSwitch.element.compareDocumentPosition(wrapper.get('[role="tablist"]').element)
+      & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(wrapper.text()).toContain('Apple');
     expect(wrapper.findAll('[role="tab"]').map(item => item.text())).toEqual(['行情', '持仓', '期权', 'Polymarket', '趋势', 'ETF 轮动', '共振', '盘中确认', '量化', '行业']);
     expect(wrapper.get('[role="tabpanel"]').attributes('aria-labelledby')).toBe(wrapper.get('[role="tab"][data-state="active"]').attributes('id'));
@@ -104,9 +109,12 @@ describe('unified StockDetailDialog', () => {
     expect(wrapper.findAll('[role="tab"]').map(item => item.text())).toContain('期权');
     expect(wrapper.findAll('[role="tab"]').map(item => item.text())).toContain('龙虎榜');
     expect(wrapper.findAll('[role="tab"]').map(item => item.text())).toContain('行业');
+    const forecastSwitch = wrapper.getComponent({ name: 'MinuteForecastSwitch' });
     await tab(wrapper, '行业'); expect(wrapper.get('[data-testid="industry-panel"]').text()).toBe('600519.SH');
+    expect(wrapper.getComponent({ name: 'MinuteForecastSwitch' }).vm).toBe(forecastSwitch.vm);
     await tab(wrapper, '龙虎榜'); expect(wrapper.get('[data-testid="dragon-panel"]').text()).toBe('600519.SH');
     await wrapper.setProps({ stock: { code: '00700.HK', name: '腾讯控股', marketType: 'HK' } }); await flushPromises();
+    expect(forecastSwitch.props('symbol')).toBe('00700.HK');
     expect(wrapper.findAll('[role="tab"]').map(item => item.text())).toEqual(['行情', '持仓', '期权', 'Polymarket', '行业']);
     wrapper.unmount();
   });

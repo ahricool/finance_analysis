@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import IndicatorHelpLabel from '@/components/app/IndicatorHelpLabel.vue';
 import StockIdentity from './StockIdentity.vue';
+import MinuteForecastSwitch from './detail/MinuteForecastSwitch.vue';
 import StockIndustryTags from './StockIndustryTags.vue';
 import type { RealtimeQuote } from '@/api/realtimeMarket';
 import type { MarketType } from '@/api/watchList';
@@ -226,6 +227,11 @@ function movementClass(value: number | null | undefined): string {
           :code="stock.code"
         />
       </DialogHeader>
+      <MinuteForecastSwitch
+        v-if="stock && stockMarket && isOpen"
+        :symbol="stock.code"
+        class="mx-4 mb-3 shrink-0 sm:mx-6"
+      />
       <Tabs
         v-model="activeTab"
         class="flex min-h-0 min-w-0 flex-1 flex-col gap-0"

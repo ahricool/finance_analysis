@@ -9,7 +9,6 @@ import { formatRank } from '@/utils/rank';
 import { formatFixed } from '@/utils/number';
 import { formatDateTimeInDisplayTimezone } from '@/utils/format';
 import type { StockDetailPanelProps } from './types';
-import MinuteForecastSwitch from './MinuteForecastSwitch.vue';
 
 const props = defineProps<StockDetailPanelProps>();
 const items = ref<StockIndustryContext[]>([]);
@@ -39,7 +38,6 @@ onBeforeUnmount(() => { ++generation; });
     class="space-y-4"
     data-testid="industry-detail-panel"
   >
-    <MinuteForecastSwitch :symbol="symbol" />
     <p
       v-if="market === 'CN'"
       class="text-sm text-muted-foreground"
