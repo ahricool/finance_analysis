@@ -23,12 +23,15 @@ const options = computed(() => ({
     <h3 class="text-sm font-medium">
       账户权益曲线 · USDT
     </h3>
-    <VChart
+    <div
       v-if="data.some(point => point[1] != null)"
       class="h-48 w-full"
-      :option="options"
-      autoresize
-    />
+    >
+      <VChart
+        :option="options"
+        autoresize
+      />
+    </div>
     <p
       v-else
       class="text-sm text-muted-foreground"
