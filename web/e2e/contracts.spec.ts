@@ -150,7 +150,7 @@ test('shared contracts are expandable for regular users but only admins can mana
   await expect(page.getByRole('button', { name: '移除 BTCUSDT' })).toHaveCount(0);
   await btc.getByRole('cell').nth(1).click();
   await expect(page.getByTestId('contract-market-panel')).toContainText('暂无 K 线');
-  await expect(page.getByTestId('contract-expanded-row').getByRole('cell')).toHaveAttribute('colspan', '6');
+  await expect(page.getByTestId('contract-expanded-row').getByRole('cell')).toHaveAttribute('colspan', String(await btc.getByRole('cell').count()));
   await btc.getByRole('button', { name: 'BTCUSDT 标的详情' }).click();
   await expect(page.getByTestId('underlying-empty')).toBeVisible();
 });
