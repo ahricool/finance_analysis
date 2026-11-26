@@ -1,6 +1,6 @@
 """Market-local session boundaries shared by ingestion and cache-only display."""
 
-from datetime import timedelta
+from datetime import time, timedelta
 from functools import lru_cache
 
 from finance_analysis.market_stream.config import market_spec, market_trading_date
@@ -28,6 +28,26 @@ def in_session(market, now):
     return any(start <= local < end for start, end in market_spec(market).regular_sessions)
 
 
+def us_minute_session(stamp, label=None):
+    """Prefer the provider session; infer historical labels with the exchange calendar."""
+    normalized = (label or "").lower()
+    if "pre" in normalized:
+        return "pre"
+    if "post" in normalized:
+        return "post"
+    if "night" in normalized:
+        return "overnight"
+    bounds = session_bounds("US", market_trading_date(stamp, "US"))
+    local = stamp.astimezone(market_spec("US").timezone).time()
+    if bounds and bounds[0] <= stamp < bounds[1]:
+        return "regular"
+    if local < time(4) or local >= time(20):
+        return "overnight"
+    if local < time(9, 30):
+        return "pre"
+    return "post"
+
+
 def cache_ttl(market, day, now):
     """Retain the latest session through weekends/holidays, until the next session ends."""
     cal = get_calendar(market.lower())
@@ -48,3 +68,8 @@ def display_day(market, now):
     if bounds is not None and now >= bounds[0]:
         return local_day
     return previous_session_date(market, local_day)
+
+
+def quote_display_date_matches(market, now, day):
+    """US premarket/overnight quotes may already belong to the current civil date."""
+    return day == display_day(market, now) or (market == "US" and day == market_trading_date(now, market))

@@ -1349,7 +1349,7 @@ def test_cache_rejects_ineligible_minutes(changes):
 
 
 @pytest.mark.asyncio
-async def test_complete_session_skips_remote(monkeypatch):
+async def test_complete_regular_session_still_refreshes_extended_history(monkeypatch):
     app = service()
     now = BASE + timedelta(minutes=105)
     monkeypatch.setattr('finance_analysis.market_stream.service.utc_now', lambda: now)
@@ -1358,11 +1358,11 @@ async def test_complete_session_skips_remote(monkeypatch):
 
     class History:
         async def fetch(self, *args):
-            raise AssertionError('complete session must use cache')
+            return [bar(-1)]
 
     app.history_loader = History()
     result = await app._load_warmup('AAPL.US', 'US', 1, 1)
-    assert not result.historical
+    assert result.historical == [bar(-1)]
     assert len(result.cached) == 105
 
 

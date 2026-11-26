@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from finance_analysis.config.env_parsing import env_str
@@ -16,6 +16,10 @@ class MarketSpec:
     timezone: ZoneInfo
     regular_sessions: tuple[tuple[time, time], ...]
     cache_gap_tolerance: timedelta = timedelta(minutes=2)
+
+
+US_MINUTE_LIMIT = 24 * 60
+US_MINUTE_WINDOW = timedelta(hours=24)
 
 
 MARKET_SPECS: dict[MarketType, MarketSpec] = {
@@ -32,6 +36,11 @@ MARKET_SPECS: dict[MarketType, MarketSpec] = {
         regular_sessions=((time(9, 30), time(16)),),
     ),
 }
+
+
+def us_minute_cutoff(now: datetime) -> datetime:
+    """First of the last 1440 completed minute slots; the forming minute is separate."""
+    return now.astimezone(timezone.utc).replace(second=0, microsecond=0) - US_MINUTE_WINDOW
 
 
 def market_spec(market_type: MarketType) -> MarketSpec:
@@ -113,7 +122,7 @@ class MarketStreamConfig:
     unconfirmed_candle_merge_interval_ms: int = 1_000
     pattern_preview_interval_seconds: float = 5.0
     warmup_concurrency: int = 3
-    bar_limit: int = 420
+    bar_limit: int = US_MINUTE_LIMIT
     minimum_history_bars: int = 15
     subscription_state_ttl_seconds: int = 60
     removed_symbol_cache_ttl_seconds: int = 2 * 3600

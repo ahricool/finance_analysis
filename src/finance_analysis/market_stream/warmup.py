@@ -13,7 +13,9 @@ from finance_analysis.integrations.market_data import MarketDataService
 from finance_analysis.integrations.market_data.config import provider_order
 from finance_analysis.integrations.market_data.registry import MINUTE_BARS
 from finance_analysis.integrations.market_data.realtime_state.models import CandleState, unique_minute_bars
-from finance_analysis.market_stream.config import is_regular_session_minute, latest_completed_bar_time, market_trading_date
+from finance_analysis.market_stream.config import (
+    is_regular_session_minute, latest_completed_bar_time, market_trading_date, us_minute_cutoff,
+)
 from finance_analysis.stocks.markets import MarketType
 
 logger = logging.getLogger(__name__)
@@ -53,12 +55,17 @@ class LongbridgeHistoryLoader:
 
     async def fetch(self, symbol: str, market_type: MarketType, count: int) -> list[CandleState]:
         requested_at = datetime.now(timezone.utc)
-        from finance_analysis.market_stream.session import display_day, session_bounds
+        from finance_analysis.market_stream.session import display_day, session_bounds, us_minute_session
 
         day = display_day(market_type, requested_at)
         start, close = session_bounds(market_type, day)
         end = min(requested_at, close)
         required_minutes = warmup_bar_starts(requested_at, market_type)
+        extended = market_type == "US"
+        if extended:
+            start = us_minute_cutoff(requested_at)
+            end = requested_at
+            required_minutes = [stamp for stamp in required_minutes if start <= stamp < end]
         result = await asyncio.to_thread(
             self.market_data.get_minute_bars,
             [symbol],
@@ -68,16 +75,19 @@ class LongbridgeHistoryLoader:
             providers=tuple(name for name in provider_order(market_type, MINUTE_BARS) if name != "streaming"),
             required_bar_starts=required_minutes,
             recover_partial_minutes=True,
+            include_extended=extended,
         )
         received_at = datetime.now(timezone.utc)
         values = result.data.get(symbol)
         if not values:
+            if extended and not required_minutes and symbol not in result.failed_symbols:
+                return []  # No required regular minutes and no trades is a legitimate quiet window.
             raise RuntimeError(result.failed_symbols.get(symbol) or f"No minute history returned for {symbol}")
         expected_completed = latest_completed_bar_time(requested_at, market_type)
         bars: list[CandleState] = []
         for value in values:
             bar_time = value.bar_start or value.bar_time
-            if bar_time is None or bar_time > requested_at:
+            if bar_time is None or bar_time > requested_at or (extended and bar_time < start):
                 continue
             bar = CandleState(
                 symbol=symbol,
@@ -88,8 +98,8 @@ class LongbridgeHistoryLoader:
                 close=Decimal(str(value.close)),
                 volume=value.volume,
                 turnover=Decimal(str(value.amount)) if value.amount is not None else None,
-                trade_session=None,
-                confirmed=_history_bar_is_confirmed(
+                trade_session=(us_minute_session(bar_time, value.trade_session) if extended else value.trade_session),
+                confirmed=(bar_time + timedelta(minutes=1) <= requested_at) if extended else _history_bar_is_confirmed(
                     bar_time, received_at=requested_at, market_type=market_type, expected_completed=expected_completed,
                 ),
                 received_at=received_at,

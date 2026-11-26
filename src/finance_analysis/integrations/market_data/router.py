@@ -172,8 +172,10 @@ class MarketDataRouter:
                         recovered = partial_minutes.setdefault(symbol, {})
                         for bar in raw_bars:
                             if (
-                                bar.bar_start not in required_minutes or bar.bar_end is None
+                                (not request.include_extended and bar.bar_start not in required_minutes)
+                                or bar.bar_start is None or bar.bar_end is None
                                 or bar.bar_end > request.end_time
+                                or bar.bar_start < request.start_time
                             ):
                                 continue
                             try:
@@ -184,6 +186,12 @@ class MarketDataRouter:
                     next_pending.append(symbol)
                     continue
                 if bars:
+                    if capability == MINUTE_BARS and request.include_extended and symbol in partial_minutes:
+                        # Keep extra-session minutes from the primary when a fallback repairs regular history.
+                        combined = {bar.bar_start: bar for bar in bars}
+                        combined.update({stamp: bar for stamp, bar in partial_minutes[symbol].items()
+                                         if stamp not in required_minutes or stamp not in combined})
+                        bars = [combined[stamp] for stamp in sorted(combined)]
                     result.data[symbol] = bars
                     result.providers_used[symbol] = registration.name
                     if capability == DAILY_BARS and request.required_dates and not failure:

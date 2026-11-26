@@ -5,14 +5,14 @@ from datetime import timedelta
 from finance_analysis.core.time import utc_now
 from finance_analysis.integrations.market_data.models import BatchQuoteResult, Market, MarketQuote
 from finance_analysis.integrations.market_data.realtime_state.repository import RealtimeStateRepository
-from finance_analysis.market_stream.session import display_day
+from finance_analysis.market_stream.session import quote_display_date_matches
 
 
 def display_quote(quote, market, now):
     if (
         quote is None
         or quote.timestamp_kind == "received"
-        or quote.trading_date != display_day(market, now)
+        or not quote_display_date_matches(market, now, quote.trading_date)
         or quote.last_price is None
         or quote.last_price <= 0
         or not quote.event_time

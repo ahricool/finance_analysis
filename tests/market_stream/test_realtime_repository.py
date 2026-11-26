@@ -214,7 +214,7 @@ async def test_bars_sorted_replaced_trimmed_and_queried() -> None:
     assert len(redis.zsets[keys.bars_index_key("AAPL.US")]) == 3
     ranged = await repo.get_bars_by_time("AAPL.US", candle(2).bar_time, candle(3).bar_time)
     assert [bar.bar_time.minute for bar in ranged] == [2, 3]
-    assert await redis.ttl(keys.bars_data_key("AAPL.US")) == 3 * 86400
+    assert await redis.ttl(keys.bars_data_key("AAPL.US")) == 86400
 
 
 @pytest.mark.asyncio

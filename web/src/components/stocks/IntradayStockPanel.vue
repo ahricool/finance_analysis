@@ -6,6 +6,8 @@ import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import ApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
 import MarketKLineChart from '@/components/market-data/MarketKLineChart.vue';
 import TableExpansionPanel from '@/components/market-data/TableExpansionPanel.vue';
+import TradingSessionLegend from '@/components/market-data/TradingSessionLegend.vue';
+import { tradingSessionOverlays } from '@/components/market-data/tradingSessionOverlay';
 import { intradayPatternOverlays } from './intradayPatternOverlay';
 import { Button } from '@/components/ui/button';
 import TrendStatus from './TrendStatus.vue';
@@ -56,7 +58,8 @@ async function load() {
     for (const row of value.items) merged.set(row.timestamp, row);
     rows.value = [...merged.values()].sort((a, b) => a.timestamp - b.timestamp);
     snapshot.value = value;
-    if (value.reset) clearSelection();
+    if (value.reset || (selected.value && !value.events.some(event => event.observedAt === selected.value?.observedAt &&
+      event.patternType === selected.value?.patternType && event.stage === selected.value?.stage))) clearSelection();
     error.value = null;
   } catch (reason) {
     if (!stopped && generation === owned && !controller.signal.aborted) error.value = getParsedApiError(reason);
@@ -81,6 +84,7 @@ const overlays = computed<OverlayCreate[]>(() => {
     selectedEvents.value = events;
     selected.value = events[0] ?? null;
   });
+  if (props.market === 'US') result.unshift(...tradingSessionOverlays(rows.value));
   if (referencePrice.value != null) result.push({
     name: 'intradayBaseline', id: 'intraday-baseline', groupId: 'intraday-baseline', lock: true,
     points: [{ timestamp: rows.value[0]?.timestamp ?? 0, value: referencePrice.value }],
@@ -98,7 +102,7 @@ const overlays = computed<OverlayCreate[]>(() => {
 <template>
   <TableExpansionPanel data-testid="intraday-panel">
     <div class="flex flex-wrap items-center justify-between gap-2 text-sm">
-      <strong>最近交易日 1 分钟 K 线 · {{ snapshot?.tradingDate ?? '加载中' }}</strong>
+      <strong>{{ market === 'US' ? '最近24小时 · 1分钟K线' : '最近交易日 1 分钟 K 线 · ' + (snapshot?.tradingDate ?? '加载中') }}</strong>
       <span class="text-xs text-muted-foreground">{{ market === 'CN' ? `${minuteSource} · 原生分钟线 · 上海时间` : 'Longbridge · 原生分钟线 · 纽约时间' }}</span>
     </div>
     <ApiErrorAlert
@@ -116,12 +120,17 @@ const overlays = computed<OverlayCreate[]>(() => {
       class="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_240px]"
     >
       <div class="min-w-0">
+        <TradingSessionLegend
+          v-if="market === 'US' && rows.length"
+          class="mb-2"
+        />
         <MarketKLineChart
           v-if="rows.length"
-          :key="snapshot?.tradingDate"
+          :key="market === 'US' ? symbol : snapshot?.tradingDate"
           :symbol="symbol"
           period="1m"
           live-snapshot
+          :full-minute-window="market === 'US'"
           :bars="bars"
           :current="current"
           :overlays="overlays"
@@ -132,7 +141,7 @@ const overlays = computed<OverlayCreate[]>(() => {
           v-else
           class="py-12 text-center text-sm text-muted-foreground"
         >
-          暂无最近交易日分钟线，等待采集；缺失区间不会补造。
+          {{ market === 'US' ? '暂无最近24小时分钟线' : '暂无最近交易日分钟线' }}，等待采集；缺失区间不会补造。
         </p>
         <p
           v-if="market === 'CN'"

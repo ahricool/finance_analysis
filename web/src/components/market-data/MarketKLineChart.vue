@@ -11,6 +11,8 @@ import type { DailyForecast } from '@/api/marketData';
 import { DAILY_FORECAST_OVERLAY_ID, MINUTE_FORECAST_OVERLAY_ID, forecastOverlay } from './kronosForecastOverlay';
 import KronosForecastPanel from './KronosForecastPanel.vue';
 import type { ChartAnnotation } from './chartAnnotation';
+import { sessionStyles } from './tradingSessionOverlay';
+import type { TradeSession } from '@/api/intradayMarket';
 
 const props = defineProps<{
   symbol: string;
@@ -27,6 +29,7 @@ const props = defineProps<{
   overlays?: ChartAnnotation[];
   timezone?: string;
   referencePrice?: number;
+  fullMinuteWindow?: boolean;
 }>();
 const element = ref<HTMLElement>();
 const { resolvedTheme } = useTheme();
@@ -161,6 +164,8 @@ const candleTooltipLegends: CandleTooltipLegendsCustomCallback = ({ prev, curren
   }
   return [
     { title: '时间', value: '{time}' },
+    ...(props.fullMinuteWindow && current?.tradeSession && sessionStyles[current.tradeSession as TradeSession]
+      ? [{ title: '时段', value: sessionStyles[current.tradeSession as TradeSession].label }] : []),
     { title: '开盘', value: '{open}' },
     { title: '最高', value: '{high}' },
     { title: '最低', value: '{low}' },
@@ -302,6 +307,16 @@ function fitMinuteForecast() {
 }
 function handOffViewport() {
   if (!restoringViewport) followSession = false;
+}
+function fitHistoryWindow() {
+  if (!chart) return;
+  const width = chart.getSize('candle_pane', 'main')?.width;
+  const count = chart.getDataList().length;
+  if (!width || !count) return;
+  followSession = false;
+  chart.setBarSpace(Math.min(10, width / (count + 2)));
+  chart.setOffsetRightDistance(0);
+  chart.scrollToRealTime();
 }
 function fitSessionOnRequest() {
   followSession = true;
@@ -465,10 +480,19 @@ onBeforeUnmount(() => { observer?.disconnect(); destroy(); });
       </div>
     </div>
     <div
-      v-if="minuteSlots && showForecast && future.length"
+      v-if="fullMinuteWindow || (minuteSlots && showForecast && future.length)"
       class="mb-2 flex justify-end"
     >
       <Button
+        v-if="fullMinuteWindow"
+        size="sm"
+        variant="ghost"
+        @click="fitHistoryWindow"
+      >
+        查看完整24小时
+      </Button>
+      <Button
+        v-if="minuteSlots && showForecast && future.length"
         size="sm"
         variant="ghost"
         @click="fitSessionOnRequest"

@@ -2,11 +2,14 @@ import apiClient from './index';
 import { toRealtimeQuote, type RawRealtimeQuote, type RealtimeQuote, type RealtimePatternSignal } from './realtimeMarket';
 import { toCamelCase } from './utils';
 
+export type TradeSession = 'pre' | 'regular' | 'post' | 'overnight';
+
 export interface IntradayBar {
   timestamp: number; open: number; high: number; low: number; close: number;
   volume: number; turnover: number | null; confirmed: boolean;
   sampled: boolean; sampleCount: number; partial: boolean;
   source?: string;
+  tradeSession?: TradeSession;
 }
 export interface PatternEvent extends RealtimePatternSignal { observedAt: string }
 export interface IntradaySnapshot {

@@ -5,9 +5,9 @@ from __future__ import annotations
 import json
 import uuid
 from dataclasses import asdict
-from datetime import date, datetime, time, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
-from typing import Any, Iterable, Mapping, Sequence
+from typing import Any, Callable, Iterable, Mapping, Sequence
 
 from redis.exceptions import WatchError
 
@@ -15,6 +15,7 @@ from finance_analysis.core.time import utc_isoformat
 from finance_analysis.integrations.market_data.realtime_state import keys
 from finance_analysis.integrations.market_data.realtime_state.models import CandleState, QuoteState, TrendState, unique_minute_bars
 from finance_analysis.market_stream.patterns.models import PatternState
+from finance_analysis.market_stream.config import US_MINUTE_LIMIT, US_MINUTE_WINDOW, us_minute_cutoff
 
 
 def _encode(value: Any) -> str:
@@ -69,22 +70,24 @@ class RealtimeStateRepository:
         self,
         redis: Any,
         *,
-        bar_limit: int = 420,
+        bar_limit: int = US_MINUTE_LIMIT,
         quote_ttl_seconds: int = 2 * 86400,
         bars_ttl_seconds: int = 3 * 86400,
         trend_ttl_seconds: int | None = None,
         pattern_ttl_seconds: int | None = None,
         removed_ttl_seconds: int = 2 * 3600,
         retain_session: bool = False,
+        clock: Callable[[], datetime] | None = None,
     ) -> None:
         self.redis = redis
-        self.bar_limit = max(1, min(int(bar_limit), 1000))
+        self.bar_limit = max(1, min(int(bar_limit), US_MINUTE_LIMIT))
         self.quote_ttl_seconds = quote_ttl_seconds
         self.bars_ttl_seconds = bars_ttl_seconds
         self.trend_ttl_seconds = trend_ttl_seconds or bars_ttl_seconds
         self.pattern_ttl_seconds = pattern_ttl_seconds or bars_ttl_seconds
         self.removed_ttl_seconds = removed_ttl_seconds
         self.retain_session = retain_session
+        self.clock = clock
 
     def _ttl(self, symbol, day, default):
         if not self.retain_session or day is None:
@@ -94,6 +97,13 @@ class RealtimeStateRepository:
 
         market = "US" if symbol.endswith(".US") else "HK" if symbol.endswith(".HK") else "CN"
         return cache_ttl(market, day, utc_now())
+
+    def _bar_ttl(self, symbol, stamp, received_at):
+        if symbol.endswith(".US"):
+            observed = max(received_at, self.clock()) if self.clock else received_at
+            seconds = (stamp.astimezone(timezone.utc) + US_MINUTE_WINDOW + timedelta(minutes=1) - observed).total_seconds()
+            return max(1, min(int(US_MINUTE_WINDOW.total_seconds()), int(seconds)))
+        return self._ttl(symbol, stamp.date(), self.bars_ttl_seconds)
 
     async def record_pattern_event(self, pattern, observed_at):
         """Append immutable stage evidence at its detection time, never backdate confirmation."""
@@ -270,7 +280,7 @@ class RealtimeStateRepository:
         pipe.hset(keys.current_candle_key(candle.symbol), mapping=_mapping(candle))
         pipe.expire(
             keys.current_candle_key(candle.symbol),
-            self._ttl(candle.symbol, candle.bar_time.date(), self.bars_ttl_seconds),
+            self._bar_ttl(candle.symbol, candle.bar_time, candle.received_at),
         )
         await pipe.execute()
 
@@ -279,12 +289,14 @@ class RealtimeStateRepository:
         return CandleState.from_mapping(raw) if raw else None
 
     async def get_intraday_snapshot(self, symbol):
-        """Read CN history and current candle from the same published source generation."""
+        """Read history and current candle atomically from the same cache generation."""
         pipe = self.redis.pipeline(transaction=True)
+        pipe.zrange(keys.bars_index_key(symbol), 0, -1)
         pipe.hgetall(keys.bars_data_key(symbol))
         pipe.hgetall(keys.current_candle_key(symbol))
-        history, current = await pipe.execute()
-        candles = (CandleState.from_mapping(json.loads(raw)) for raw in history.values())
+        fields, history, current = await pipe.execute()
+        lookup = set(fields) | {field.partition(":")[0] for field in fields if ":" in field}
+        candles = (CandleState.from_mapping(json.loads(history[field])) for field in lookup if field in history)
         bars = unique_minute_bars(candles)[-self.bar_limit:]
         return bars, CandleState.from_mapping(current) if current else None
 
@@ -326,6 +338,8 @@ class RealtimeStateRepository:
                         # A UUID avoids collisions after Redis cache expiration.
                         if obsolete or updates:
                             pipe.set(keys.bars_revision_key(symbol), uuid.uuid4().hex, ex=ttl)
+                        else:
+                            pipe.expire(keys.bars_revision_key(symbol), ttl)
                     await pipe.execute()
                     return
                 except WatchError:
@@ -350,12 +364,46 @@ class RealtimeStateRepository:
         tz = market_timezone(market)
         day = datetime.fromtimestamp(int(minutes[-1]), tz).date()
         start = datetime.combine(day, time.min, tz).timestamp()
+        if market == "US":
+            newest = datetime.fromtimestamp(int(minutes[-1]), timezone.utc)
+            observed = max(newest, *(bar.received_at for bar in incoming))
+            if self.clock:
+                observed = max(observed, self.clock())
+            start = us_minute_cutoff(observed).timestamp()
+            ttl = self._bar_ttl(symbol, newest, observed)
+        else:
+            ttl = self._ttl(symbol, day, self.bars_ttl_seconds)
         keep = {field for field in minutes[-self.bar_limit:] if int(field) >= start}
         return (
             set(indexed) - keep,
             {field: bar for field, bar in updates.items() if field in keep},
-            self._ttl(symbol, day, self.bars_ttl_seconds),
+            ttl,
         )
+
+    async def prune_us_minutes(self, symbols: Iterable[str], now: datetime) -> None:
+        """Expire individual old minutes even during a halt, holiday or quiet session."""
+        cutoff = us_minute_cutoff(now).timestamp()
+        for symbol in sorted(set(symbols)):
+            if not symbol.endswith(".US"):
+                continue
+            index, data = keys.bars_index_key(symbol), keys.bars_data_key(symbol)
+            async with self.redis.pipeline(transaction=True) as pipe:
+                while True:
+                    try:
+                        await pipe.watch(index, data)
+                        obsolete = await pipe.zrangebyscore(index, 0, cutoff - 1)
+                        if not obsolete:
+                            break
+                        ttl = await pipe.ttl(index)
+                        pipe.multi()
+                        pipe.zrem(index, *obsolete)
+                        pipe.hdel(data, *obsolete)
+                        # Invalidate Trader's versioned cache without extending the bar window.
+                        pipe.set(keys.bars_revision_key(symbol), uuid.uuid4().hex, ex=max(1, min(ttl, int(US_MINUTE_WINDOW.total_seconds()))))
+                        await pipe.execute()
+                        break
+                    except WatchError:
+                        continue
 
     async def get_bar_revisions(self, symbols: Iterable[str]) -> dict[str, str | None]:
         unique = list(dict.fromkeys(symbols))
@@ -476,7 +524,7 @@ class RealtimeStateRepository:
         for symbol, candle in current_candles.items():
             pipe.hset(keys.current_candle_key(symbol), mapping=_mapping(candle))
             pipe.expire(
-                keys.current_candle_key(symbol), self._ttl(symbol, candle.bar_time.date(), self.bars_ttl_seconds)
+                keys.current_candle_key(symbol), self._bar_ttl(symbol, candle.bar_time, candle.received_at)
             )
         for symbol, trend in (trends or {}).items():
             if trend.symbol != symbol:

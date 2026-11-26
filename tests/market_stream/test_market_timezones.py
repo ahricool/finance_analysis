@@ -57,7 +57,7 @@ def test_runtime_numeric_settings_are_not_read_from_environment(monkeypatch) -> 
     config = MarketStreamConfig.from_env()
     assert config.redis_url == "redis://configured/0"
     assert config.watchlist_poll_seconds == 5
-    assert config.bar_limit == 420
+    assert config.bar_limit == 1440
 
 
 def test_subscription_ttl_must_exceed_two_heartbeats() -> None:

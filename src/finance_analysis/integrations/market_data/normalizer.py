@@ -151,6 +151,7 @@ def bars_from_frame(
                 else:
                     bar_start = bar_time
                     bar_end = bar_time + delta
+        raw_session = _value(row, "trade_session") if bar_time is not None else None
         bars.append(
             MarketBar(
                 symbol=canonical,
@@ -170,6 +171,7 @@ def bars_from_frame(
                 amount_estimated=amount_estimated,
                 bar_start=bar_start,
                 bar_end=bar_end,
+                trade_session=str(raw_session) if raw_session is not None and not pd.isna(raw_session) else None,
             )
         )
     identity = (lambda bar: bar.trade_date) if interval == "1d" else (lambda bar: bar.bar_time)

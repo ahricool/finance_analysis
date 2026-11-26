@@ -27,12 +27,13 @@ from finance_analysis.market_stream.config import (
     latest_completed_bar_time,
     market_spec,
     market_trading_date,
+    us_minute_cutoff,
 )
 from finance_analysis.market_stream.leader_lock import LeaderLock
 from finance_analysis.market_stream.patterns.detector import calculate_pattern_state
 from finance_analysis.market_stream.patterns.features import quote_updates_preview_bar
 from finance_analysis.market_stream.patterns.models import PatternState
-from finance_analysis.market_stream.session import previous_session_date, session_bounds
+from finance_analysis.market_stream.session import previous_session_date, session_bounds, us_minute_session
 from finance_analysis.market_stream.subscription_manager import (
     SubscriptionManager,
     WarmupFinalizer,
@@ -55,7 +56,10 @@ FULL_QUOTE_SNAPSHOT_FIELDS = ("last_price", "pre_close", "open", "high", "low")
 
 
 def _has_complete_quote_snapshot(payload: dict[str, Any]) -> bool:
-    for name in FULL_QUOTE_SNAPSHOT_FIELDS:
+    fields = FULL_QUOTE_SNAPSHOT_FIELDS
+    if not is_regular_trade_session(payload.get("trade_session")):
+        fields = tuple(name for name in fields if name != "open")
+    for name in fields:
         value = payload.get(name)
         if value is None:
             return False
@@ -93,6 +97,7 @@ class MarketStreamService:
             bar_limit=self.config.bar_limit,
             removed_ttl_seconds=self.config.removed_symbol_cache_ttl_seconds,
             retain_session=True,
+            clock=utc_now,
         )
         self.watchlist_monitor = watchlist_monitor or WatchListMonitor()
         self.history_loader = history_loader or LongbridgeHistoryLoader()
@@ -194,6 +199,7 @@ class MarketStreamService:
             ),
             asyncio.create_task(self._flush_redis(), name="market-stream-redis"),
             asyncio.create_task(self._heartbeat(), name="market-stream-heartbeat"),
+            asyncio.create_task(self._prune_us_minute_history(), name="market-stream-us-minute-retention"),
             asyncio.create_task(self._refresh_quote_snapshots(), name="market-stream-quote-snapshots"),
         ]
         try:
@@ -348,6 +354,10 @@ class MarketStreamService:
                 await self._schedule_pattern_preview(event.symbol, state.market_type, quote=quote)
         elif event.event_type == "candle_1m":
             candle = event_to_candle(event)
+            if state.market_type == "US":
+                inferred = us_minute_session(candle.bar_time, candle.trade_session)
+                if not candle.trade_session or (inferred != "regular" and is_regular_trade_session(candle.trade_session)):
+                    candle.trade_session = inferred
             if candle.is_valid():
                 await self._handle_candle(candle, event.connection_generation)
         logger.debug("行情事件: type=%s symbol=%s", event.event_type, event.symbol)
@@ -387,9 +397,12 @@ class MarketStreamService:
                 self._queue_pending_bars(candle.symbol, [candle])
                 self.redis_degraded = True
                 logger.warning("Redis K 线写入失败: symbol=%s error=%s", candle.symbol, exc)
-            if is_regular_session_minute(candle.bar_time, state.market_type) and is_regular_trade_session(
-                candle.trade_session
-            ):
+            if is_regular_session_minute(candle.bar_time, state.market_type) and is_regular_trade_session(candle.trade_session):
+                if state.market_type == "US":
+                    self._remember_regular_session_closes(candle.symbol, state.market_type, [candle])
+                if market_trading_date(candle.bar_time, state.market_type) != state.trading_date:
+                    # Repairs of a previous regular session are display/history only.
+                    return
                 await self._update_trend_state(
                     candle.symbol,
                     state.market_type,
@@ -418,7 +431,7 @@ class MarketStreamService:
     ) -> tuple[bool, int]:
         previous_current = self.current_candles.get(candle.symbol)
         candle_date = market_trading_date(candle.bar_time, state.market_type)
-        if state.trading_date is not None and candle_date < state.trading_date:
+        if state.trading_date is not None and candle_date < state.trading_date and state.market_type != "US":
             return False, len(self.bars_1m.get(candle.symbol, ()))
         if state.trading_date is not None and candle_date > state.trading_date:
             self._remember_regular_session_closes(
@@ -426,15 +439,17 @@ class MarketStreamService:
                 state.market_type,
                 self.bars_1m.get(candle.symbol, ()),
             )
-            self.bars_1m.pop(candle.symbol, None)
-            self.current_candles.pop(candle.symbol, None)
+            if state.market_type != "US":
+                self.bars_1m.pop(candle.symbol, None)
+                self.current_candles.pop(candle.symbol, None)
             self.pattern_states.pop(candle.symbol, None)
             self.pending_patterns.pop(candle.symbol, None)
             self.pattern_preview_calculated_at.pop(candle.symbol, None)
             self._cancel_pattern_preview_task(candle.symbol)
-        state.trading_date = candle_date
+        state.trading_date = max(state.trading_date or candle_date, candle_date)
 
-        bars = self.bars_1m.setdefault(candle.symbol, deque(maxlen=self.config.bar_limit))
+        memory_limit = self.config.bar_limit + (state.market_type == "US")
+        bars = self.bars_1m.setdefault(candle.symbol, deque(maxlen=memory_limit))
         existing = {bar.identity: bar for bar in bars}
         previous = existing.get(candle.identity)
         if previous is not None and (
@@ -472,7 +487,12 @@ class MarketStreamService:
             return False, len(bars)
         existing[candle.identity] = candle
         ordered = sorted(existing.values(), key=lambda item: item.bar_time)
-        updated = deque(ordered[-self.config.bar_limit :], maxlen=self.config.bar_limit)
+        if state.market_type == "US":
+            cutoff = us_minute_cutoff(max(ordered[-1].bar_time, candle.received_at))
+            ordered = [bar for bar in ordered if bar.bar_time >= cutoff]
+            if not ordered or candle.bar_time < cutoff:
+                return False, len(bars)
+        updated = deque(ordered[-memory_limit:], maxlen=memory_limit)
         self.bars_1m[candle.symbol] = updated
         current = updated[-1]
         self.current_candles[candle.symbol] = current
@@ -668,7 +688,8 @@ class MarketStreamService:
                 logger.warning("Redis warmup 恢复失败: symbol=%s error=%s", symbol, exc)
             historical: list[CandleState] = []
             history_error = None
-            if not self._cache_has_current_session(cached, market_type):
+            # A complete regular session does not prove extended-hours coverage.
+            if market_type == "US" or not self._cache_has_current_session(cached, market_type):
                 try:
                     historical = await self.history_loader.fetch(symbol, market_type, self.config.bar_limit)
                 except Exception as exc:
@@ -729,14 +750,22 @@ class MarketStreamService:
             buffered = list(self.warming_buffers.pop(key, {}).values())
             buffered_count = len(buffered)
             base_bars = [] if result is None else result.cached + result.historical
-            bars = merge_warmup_bars(base_bars, buffered, limit=self.config.bar_limit)
+            memory_limit = self.config.bar_limit + (state.market_type == "US")
+            bars = merge_warmup_bars(base_bars, buffered, limit=memory_limit)
             self._remember_regular_session_closes(state.symbol, state.market_type, bars)
             if bars:
                 trading_date = max(market_trading_date(bar.bar_time, state.market_type) for bar in bars)
-                bars = [bar for bar in bars if market_trading_date(bar.bar_time, state.market_type) == trading_date]
+                if state.market_type == "US":
+                    observed = max(bars[-1].bar_time, max(bar.received_at for bar in bars))
+                    if self.repository.clock:
+                        observed = max(observed, self.repository.clock())
+                    cutoff = us_minute_cutoff(observed)
+                    bars = [bar for bar in bars if bar.bar_time >= cutoff]
+                else:
+                    bars = [bar for bar in bars if market_trading_date(bar.bar_time, state.market_type) == trading_date]
             else:
                 trading_date = market_trading_date(utc_now(), state.market_type)
-            self.bars_1m[state.symbol] = deque(bars, maxlen=self.config.bar_limit)
+            self.bars_1m[state.symbol] = deque(bars, maxlen=memory_limit)
             if bars:
                 self.current_candles[state.symbol] = bars[-1]
                 self.pending_candles[state.symbol] = bars[-1]
@@ -756,11 +785,13 @@ class MarketStreamService:
             self._queue_pending_bars(state.symbol, confirmed_bars)
             self.redis_degraded = True
             logger.warning("Redis warmup 写入失败: symbol=%s error=%s", state.symbol, exc)
-        if bars:
+        regular_bars = [bar for bar in bars if is_regular_session_minute(bar.bar_time, state.market_type)
+                        and is_regular_trade_session(bar.trade_session)]
+        if regular_bars:
             await self._update_trend_state(
                 state.symbol,
                 state.market_type,
-                as_of=bars[-1].bar_time + timedelta(minutes=1),
+                as_of=regular_bars[-1].bar_time + timedelta(minutes=1),
             )
         await self._update_pattern_state(state.symbol, state.market_type)
         if bars and not bars[-1].confirmed:
@@ -931,6 +962,28 @@ class MarketStreamService:
                     if key.symbol == symbol and key.connection_generation <= connection_generation
                 ]:
                     self.warming_buffers.pop(key, None)
+
+    async def _prune_us_minute_history(self) -> None:
+        while not self.stop_event.is_set():
+            await asyncio.sleep(60)
+            try:
+                now = utc_now()
+                await self.repository.prune_us_minutes(self.manager.desired_targets, now)
+                cutoff = us_minute_cutoff(now)
+                for symbol in list(self.bars_1m):
+                    if not symbol.endswith(".US"):
+                        continue
+                    async with self._symbol_lock(symbol):
+                        bars = self.bars_1m.get(symbol)
+                        if bars is not None:
+                            while bars and bars[0].bar_time < cutoff:
+                                bars.popleft()
+                        current = self.current_candles.get(symbol)
+                        if current is not None and current.bar_time < cutoff:
+                            self.current_candles.pop(symbol, None)
+                            self.pending_candles.pop(symbol, None)
+            except Exception as exc:
+                logger.warning("美股24小时分钟线清理失败: %s", exc)
 
     async def _heartbeat(self) -> None:
         renewable_statuses = {
