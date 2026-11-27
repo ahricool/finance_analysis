@@ -78,7 +78,7 @@ it('opens the shared intraday tab and preserves the observation date', async () 
   const dialog = wrapper.getComponent(StockDetailDialog);
   expect(dialog.props('open')).toBe(true);
   expect(dialog.props('initialTab')).toBe('overview');
-  await wrapper.get('tbody tr').trigger('click');
+  await wrapper.get('tbody tr').get('[data-testid="row-research"]').trigger('click');
   expect(dialog.props('initialTab')).toBe('intraday');
   expect(dialog.props('context')).toEqual({ tradeDate: '2026-09-21' });
   expect(dialog.props('stock')).toMatchObject({ code: 'ABC.US' });

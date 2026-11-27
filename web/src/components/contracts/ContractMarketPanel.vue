@@ -6,9 +6,10 @@ import type { ParsedApiError } from '@/api/error';
 import AppApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
 import TableExpansionPanel from '@/components/market-data/TableExpansionPanel.vue';
 import MarketKLineChart from '@/components/market-data/MarketKLineChart.vue';
-import { Button } from '@/components/ui/button';
 import { useCurrentTime } from '@/composables/useCurrentTime';
 import { signedTextClass } from '@/utils/marketTone';
+
+import { queueTableRequest } from '@/utils/tableRequests';
 
 const props = defineProps<{
   row: ContractQuote;
@@ -18,7 +19,7 @@ const props = defineProps<{
   loading: boolean;
   error: ParsedApiError | null;
 }>();
-const emit = defineEmits<{ 'update:interval': [value: '1m' | '1d']; retry: [] }>();
+const emit = defineEmits<{ retry: [] }>();
 const now = useCurrentTime(5_000);
 const depth = ref<Depth | null>(null);
 watch(() => props.row.symbol, (symbol, _, cleanup) => {
@@ -27,7 +28,7 @@ watch(() => props.row.symbol, (symbol, _, cleanup) => {
   depth.value = null;
   async function refresh() {
     try {
-      const snapshot = await contractsApi.depth(symbol, controller.signal);
+      const snapshot = await queueTableRequest(controller.signal, () => contractsApi.depth(symbol, controller.signal));
       if (!controller.signal.aborted) depth.value = snapshot;
     } catch { if (!controller.signal.aborted) depth.value = null; }
     if (!controller.signal.aborted) timer = setTimeout(refresh, 5000);
@@ -89,23 +90,11 @@ const maPeriods = computed(() => props.interval === '1m' ? [20] : [5, 10, 20]);
           <span v-if="minuteDelayed"> · 分钟行情延迟</span>
         </p>
       </div>
-      <div class="flex gap-2">
-        <Button
-          v-for="period in (['1m', '1d'] as const)"
-          :key="period"
-          size="sm"
-          :variant="interval === period ? 'default' : 'outline'"
-          :aria-pressed="interval === period"
-          @click="emit('update:interval', period)"
-        >
-          {{ period === '1m' ? '1 分钟 K' : '日 K' }}
-        </Button>
-      </div>
     </div>
     <AppApiErrorAlert
       v-if="error"
       :error="error"
-      action-label="重试日线"
+      action-label="重试"
       @action="emit('retry')"
     />
     <div class="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_240px]">
@@ -126,7 +115,7 @@ const maPeriods = computed(() => props.interval === '1m' ? [20] : [5, 10, 20]);
           v-else
           class="flex min-h-60 items-center justify-center text-sm text-muted-foreground"
         >
-          {{ loading ? '行情加载中…' : '暂无 K 线，等待后台采集' }}
+          {{ loading ? '行情加载中…' : '无数据 · 暂无 K 线' }}
         </div>
       </div>
       <aside

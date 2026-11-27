@@ -127,7 +127,7 @@ layout（Shell / PageHeader / ModuleLayout）+ ui/app 组件
 市场热力图按行业纵向浏览紧密矩形块，宽屏可两列行业；显示快照内全部股票，小块可隐藏文字但保留方块；密集行业向下扩展。块内名称/代码与涨跌幅按尺寸显示，完整信息放悬浮提示。
 详情使用 `App.vue` 的唯一 `StockDetailHost`；页面只调用 `useStockDetail().open()`，不要重复挂 Host。
 
-`components/stocks/StockDetailDialog.vue` 是股票/ETF 唯一详情弹窗壳，顶部页签在行情、持仓、期权、趋势、ETF 轮动、共振、盘中确认、量化、龙虎榜与 A 股行业之间切换。各研究页仍保留列表与筛选；证券名称/代码入口统一打开首位「行情」；点击行或卡片其余区域保留原研究页签。以 `initialTab` 和 `StockDetailContext` 传来源日期、official/preview、账户/持仓及龙虎榜筛选。量化旧详情 URL 只作同一弹窗的兼容入口。
+`components/stocks/StockDetailDialog.vue` 是股票/ETF 唯一详情弹窗壳，顶部页签在行情、持仓、期权、趋势、ETF 轮动、共振、盘中确认、量化、龙虎榜与 A 股行业之间切换。各研究页仍保留列表与筛选；证券名称/代码入口统一打开首位「行情」；标的表格点击行展开 K 线，研究快捷入口与卡片可打开相应研究页签。以 `initialTab` 和 `StockDetailContext` 传来源日期、official/preview、账户/持仓及龙虎榜筛选。量化旧详情 URL 只作同一弹窗的兼容入口。
 
 `StockIdentity` 统一组合显示代码与加粗名称；`StockLink` 的名称与代码均可打开同一详情，阻止冒泡触发行/卡片动作。无页面专用弹窗时通过 `useStockDetail` 复用 App 根组件唯一的 `StockDetailHost`，已有弹窗通过 `onSelect` 保留行情与账户上下文。名称缺失时共享精确主数据查询，不使用模糊匹配补名；查不到明确显示「名称暂缺」。表单选择、当前详情标题及短暂图表悬浮读数保持各自语义。
 
@@ -203,6 +203,12 @@ Cookie 会话，`apiClient` 设了 `withCredentials: true`。
 主题不是 store：`useTheme()` 模块级 ref，`ThemeProvider` 在挂载时 `initThemeRuntime()`。默认主题偏好是 `system`（跟随系统）；`resolvedTheme` 才是最终渲染的 `light`/`dark`。已有 `light`/`dark` 存储值会继续生效。系统主题变化时由 `matchMedia('(prefers-color-scheme: dark)')` 同步 `systemPrefersDark`。
 
 ## 页面与组合式函数
+
+### 标的表格与 K 线
+
+股票、ETF、永续和期权合约的表格复用 `InstrumentTable` / `InstrumentRow`。名称显示代码与名称，点击打开详情；点击普通单元格或聚焦行后按 Enter / 空格切换该行图表。多个持仓或交易记录可指向同一标的，使用稳定的记录 ID 分别控制展开。
+
+每张表独立全部展开、收起；表格 K 线周期全站联动，默认 1min。只读取标的自己的原生日线或分钟线，其他周期以及只有报价快照的期权合约显示「无数据」。可见与邻近行才挂载图表、请求数据；离开后取消并停止轮询。趋势排名虚拟滚动需包含展开图表高度。ETF / 趋势的未来收益按可见标的分批读取，显式按收益排序或导出时补齐所需范围。
 
 ### 表格排序
 

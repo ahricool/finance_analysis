@@ -50,7 +50,7 @@ describe('confluence controls and detail', () => {
     expect(dialog.props('open')).toBe(true);
     expect(dialog.props('stock')).toMatchObject({ code: '600001.SH', marketType: 'CN' });
     expect(dialog.props('initialTab')).toBe('overview');
-  await wrapper.get('tbody tr').trigger('click');
+  await wrapper.get('tbody tr').get('[data-testid="row-research"]').trigger('click');
   expect(dialog.props('initialTab')).toBe('confluence');
     expect(dialog.props('context')).toEqual({ tradeDate: '2026-09-22', view: 'official' });
     dialog.vm.$emit('update:open', false);
@@ -109,7 +109,7 @@ describe('confluence controls and detail', () => {
     expect(wrapper.findAll('[data-testid="below-threshold"]')).toHaveLength(10);
     expect(wrapper.find('tbody tr').text()).toContain('低于60分');
     expect(wrapper.find('tbody tr').text()).toContain('59.99');
-    await wrapper.get('tbody tr').trigger('click');
+    await wrapper.get('tbody tr').get('[data-testid="row-research"]').trigger('click');
     expect(wrapper.getComponent(StockDetailDialog).props('stock')?.code).toBe('600021.SH');
     wrapper.getComponent(StockDetailDialog).vm.$emit('update:open', false);
     await buttons()[1]!.trigger('click'); await buttons()[1]!.trigger('click');

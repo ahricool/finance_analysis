@@ -255,3 +255,25 @@ def test_underlying_migration_preserves_custom_universe_and_daily_history():
 ])
 def test_underlying_identity_uses_exchange_base_and_type(symbol, category, base, expected):
     assert underlying_symbol(symbol, category, base) == expected
+
+
+@pytest.mark.asyncio
+async def test_inline_contract_bars_read_one_symbol_and_keep_closed_daily_history(monkeypatch):
+    symbol = "ETHUSDT"
+    today = NOW // service.DAY * service.DAY
+    monkeypatch.setattr(service, "now_ms", lambda: NOW)
+    monkeypatch.setattr(crypto.repository, "contracts", lambda: [{"symbol": symbol}])
+    monkeypatch.setattr(crypto.repository, "daily", lambda _: [bar(today - service.DAY)])
+    redis = Mock(get=AsyncMock(return_value=json.dumps(bar(today))))
+    store = Mock(redis=redis, close=AsyncMock())
+    monkeypatch.setattr(crypto, "realtime", lambda: store)
+    assert await crypto.bars(symbol) == [bar(today - service.DAY)]
+    redis.get.assert_not_awaited()
+    assert await crypto.bars(symbol, "1d", include_current=True) == [bar(today - service.DAY), bar(today)]
+    redis.get.assert_awaited_once_with(service.key(symbol, "daily-current"))
+    redis.get.return_value = json.dumps(bar(today - service.DAY))
+    assert await crypto.bars(symbol, "1d", include_current=True) == [bar(today - service.DAY)]
+    redis.get.return_value = json.dumps([bar(NOW)])
+    assert await crypto.bars(symbol, "1m") == [bar(NOW)]
+    redis.get.assert_awaited_with(service.key(symbol, "minute"))
+    redis.mget.assert_not_called()

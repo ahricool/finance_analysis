@@ -115,7 +115,7 @@ for (const width of [1280, 1440, 1920]) {
       await expect(page.getByTestId('box-row').first()).toContainText('待突破');
       await expect(page.getByTestId('box-row').first()).toContainText('30d');
       await expect(page.getByTestId('box-row').first().locator('[data-column="forwardReturn20D"]')).toHaveText('8.0%');
-      await page.getByTestId('box-row').first().click();
+      await page.getByTestId('box-row').first().getByTestId('row-research').click();
       await expect(page.getByTestId('trend-box-structure')).toContainText('Box Structure');
       await page.keyboard.press('Escape');
       const row = page.getByTestId('trend-row').first();
@@ -135,7 +135,7 @@ for (const width of [1280, 1440, 1920]) {
       await expect(page.getByRole('columnheader', { name: 'Prior Compression' })).toBeVisible();
       await expect(page.getByRole('columnheader', { name: 'Breakout Score' })).toHaveCount(0);
       await expect(page.getByText('趋势观察')).toHaveCount(0);
-      await page.getByTestId('trend-row').first().click();
+      await page.getByTestId('trend-row').first().getByTestId('row-research').click();
       const dialog = page.getByRole('dialog');
       await expect(dialog).toBeVisible();
       await expect(dialog.getByRole('heading', { name: '平安银行' })).toBeVisible();
@@ -177,7 +177,7 @@ for (const width of [1280, 1440, 1920]) {
       await expect(page.getByTestId('trend-row').first()).toBeVisible();
       expect(await page.locator('body').evaluate(el => ({ overflow: el.style.overflow, paddingRight: el.style.paddingRight }))).toEqual(before);
       await expect(page.getByRole('columnheader', { name: 'Path Score' })).toBeVisible();
-      await page.getByTestId('trend-row').first().click();
+      await page.getByTestId('trend-row').first().getByTestId('row-research').click();
       await expect(dialog).toBeVisible();
       await dialog.getByRole('button', { name: 'Close', exact: true }).click();
       await expect(dialog).not.toBeVisible();
@@ -196,6 +196,7 @@ test('full universe has no pagination and remains sortable', async ({ page }) =>
     if (path.endsWith('/transitions')) body = { days: 3, items: [], warnings: [] };
     if (path.endsWith('/dates')) body = { items: [snapshot.tradeDate] };
     if (path.endsWith('/preview/status') || path.endsWith('/preview')) { await route.fulfill({ status: 404, json: {} }); return; }
+    if (path.endsWith('/market-data/forward-returns')) body = { items: [] };
     if (isRankingPath(path)) {
       const states = ['IDLE', 'WATCHING', 'CANDIDATE', 'TRENDING', 'WEAKENING', 'BROKEN'];
       body = { ...summary, items: Array.from({ length: 3800 }, (_, rank) => ({
@@ -246,7 +247,7 @@ test('full universe has no pagination and remains sortable', async ({ page }) =>
   await expect(page.getByTestId('trend-row').first()).toContainText('趋势健康');
 });
 
-test('ranking row opens detail from keyboard and restores focus', async ({ page }) => {
+test('ranking row toggles its chart with the keyboard and retains focus', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.route('**/api/v1/**', async route => {
     const pathname = new URL(route.request().url()).pathname;
@@ -275,14 +276,12 @@ test('ranking row opens detail from keyboard and restores focus', async ({ page 
   await row.focus();
   await expect(row).toBeFocused();
   await page.keyboard.press('Enter');
-  const dialog = page.getByRole('dialog');
-  await expect(dialog).toBeVisible();
-  await page.keyboard.press('Escape');
-  await expect(dialog).not.toBeVisible();
+  await expect(row).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.getByTestId('instrument-chart-row')).toHaveCount(1);
+  await expect(page.getByRole('dialog')).toHaveCount(0);
   await expect(row).toBeFocused();
   await page.keyboard.press('Space');
-  await expect(dialog).toBeVisible();
-  await page.keyboard.press('Escape');
-  await expect(dialog).not.toBeVisible();
+  await expect(row).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.getByTestId('instrument-chart-row')).toHaveCount(0);
   await expect(row).toBeFocused();
 });

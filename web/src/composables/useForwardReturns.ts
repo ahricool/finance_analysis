@@ -1,4 +1,4 @@
-import { ref, shallowRef, watch, type Ref } from 'vue';
+import { computed, ref, shallowRef, watch, type Ref } from 'vue';
 import { marketDataApi, type ForwardReturnItem } from '@/api/marketData';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 
@@ -10,30 +10,60 @@ export const forwardReturnColumns = [3, 5, 10, 20].map(days => ({
 
 export function useForwardReturns(
   items: Ref<{ code: string }[]>, market: Ref<string>, tradeDate: () => string, mode: Ref<string>,
+  wholeTable: () => boolean,
 ) {
-  const values = shallowRef<Record<string, ForwardReturnItem>>({});
+  const values = shallowRef<Record<string, ForwardReturnItem | null>>({});
   const error = ref<ParsedApiError | null>(null);
   const loading = ref(false);
   const revision = ref(0);
-  watch([items, market, tradeDate, mode, revision], async (_, __, onCleanup) => {
-    const request = new AbortController();
-    onCleanup(() => request.abort());
+  const visible = ref(new Map<string, number>());
+  function visibility(code: string, near: boolean) {
+    const count = (visible.value.get(code) ?? 0) + (near ? 1 : -1);
+    if (count > 0) visible.value.set(code, count);
+    else visible.value.delete(code);
+  }
+
+  let context: AbortController;
+  watch([items, market, tradeDate, mode], (_, __, cleanup) => {
+    context = new AbortController();
+    cleanup(() => context.abort());
     values.value = {};
     error.value = null;
-    loading.value = false;
-    if (mode.value !== 'official' || !tradeDate() || !items.value.length) return;
-    loading.value = true;
+    revision.value++;
+  }, { immediate: true, flush: 'sync' });
+
+  async function fetchMissing(codes: string[], signal: AbortSignal) {
+    if (mode.value !== 'official' || !tradeDate()) return;
+    const missing = codes.filter(code => !(code in values.value));
+    for (let i = 0; i < missing.length; i += 50) {
+      signal.throwIfAborted();
+      const batch = missing.slice(i, i + 50);
+      const response = await marketDataApi.forwardReturns(batch, market.value, tradeDate(), signal);
+      signal.throwIfAborted();
+      const result = new Map(response.items.map(row => [row.code, row]));
+      values.value = { ...values.value, ...Object.fromEntries(batch.map(code => [code, result.get(code) ?? null])) };
+    }
+  }
+  const wanted = computed(() => wholeTable() ? items.value.map(row => row.code) : [...visible.value.keys()]);
+  watch([wanted, revision], async ([codes], _, cleanup) => {
+    const request = new AbortController();
+    const signal = AbortSignal.any([context.signal, request.signal]);
+    cleanup(() => request.abort());
+    error.value = null;
+    loading.value = mode.value === 'official' && !!tradeDate() && codes.some(code => !(code in values.value));
     try {
-      const response = await marketDataApi.forwardReturns(items.value.map(row => row.code), market.value, tradeDate(), request.signal);
-      if (!request.signal.aborted) values.value = Object.fromEntries(response.items.map(row => [row.code, row]));
+      await fetchMissing(codes, signal);
     } catch (e) {
-      if (!request.signal.aborted) error.value = getParsedApiError(e);
+      if (!signal.aborted) error.value = getParsedApiError(e);
     } finally {
-      if (!request.signal.aborted) loading.value = false;
+      if (!signal.aborted) loading.value = false;
     }
   }, { immediate: true });
   function value(code: string, key: string): number | null {
     return values.value[code]?.[key as keyof Omit<ForwardReturnItem, 'code'>] ?? null;
   }
-  return { value, error, loading, retry: () => { revision.value++; } };
+  return {
+    value, error, loading, visibility, retry: () => { revision.value++; },
+    forExport: (rows: readonly { code: string }[]) => fetchMissing(rows.map(row => row.code), context.signal),
+  };
 }

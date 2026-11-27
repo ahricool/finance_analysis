@@ -43,7 +43,7 @@ it('defaults to all positions and important events, deduplicates replay and supp
   expect(wrapper.findAll('[data-testid="simulation-position"]')).toHaveLength(2);
   const section = wrapper.get('[aria-label="最近模拟进退场消息"]');
   expect(section.findAll('[data-testid="simulation-event"]').map(e => e.text())).toEqual([
-    expect.stringMatching(/NVDA.US\s*做空/), expect.stringContaining('保护已启动'), expect.stringMatching(/SPY.US\s*做多/),
+    expect.stringMatching(/NVDA\.US - 名称暂缺\s*做空/), expect.stringContaining('保护已启动'), expect.stringMatching(/SPY\.US - 名称暂缺\s*做多/),
   ]);
   expect(section.find('details').exists()).toBe(false);
   expect(section.text()).not.toContain('行情延迟');

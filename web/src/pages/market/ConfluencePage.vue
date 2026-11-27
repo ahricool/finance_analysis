@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import InstrumentTable from '@/components/market-data/instrument-table/InstrumentTable.vue';
+import InstrumentRow from '@/components/market-data/instrument-table/InstrumentRow.vue';
 import SortableTableHeader from '@/components/stocks/SortableTableHeader.vue';
 import { useTableSort, sortField } from '@/composables/useTableSort';
 import { useMarket } from '@/composables/useMarket';
@@ -17,7 +19,7 @@ import { RefreshCcw } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { Table, TableHeader, TableBody, TableRow, TableCell } from '@/components/ui/table';
+import { TableHeader, TableBody, TableRow, TableCell } from '@/components/ui/table';
 import { primary, secondary, labels, weights, signal, strength, agreement, tone } from '@/components/confluence/evidence';
 import { formatDateTime } from '@/utils/format';
 
@@ -281,7 +283,7 @@ const detailInitialTab = ref<'overview' | 'confluence'>('confluence');
             <h2 class="text-base font-semibold">
               研究排行与精选
             </h2><p class="mt-1 text-xs text-muted-foreground">
-              点击股票查看行情，点击行查看完整共振证据。
+              点击股票查看行情，点击行展开 K 线。
             </p>
           </div><div class="flex flex-wrap items-center gap-2">
             <label class="grid gap-1 text-xs text-muted-foreground"><span>最低共振分</span>            <Input
@@ -317,7 +319,7 @@ const detailInitialTab = ref<'overview' | 'confluence'>('confluence');
           <p>精选优先，其余按综合分排列 · 精选门槛 {{ minimumScore }} 分 · 观察项不属于正式信号</p>
         </div>
         <div class="overflow-x-auto rounded-xl border bg-card">
-          <Table class="min-w-[1080px]">
+          <InstrumentTable class="min-w-[1080px]">
             <TableHeader>
               <TableRow class="bg-muted/35 hover:bg-muted/35">
                 <SortableTableHeader
@@ -348,14 +350,12 @@ const detailInitialTab = ref<'overview' | 'confluence'>('confluence');
               </TableRow>
             </TableHeader>
             <TableBody>
-              <TableRow
+              <InstrumentRow
                 v-for="row in pageItems"
                 :key="row.code"
+                :symbol="row.code"
+                :market="market"
                 class="cursor-pointer"
-                tabindex="0"
-                @click="detailInitialTab = 'confluence'; show(row)"
-                @keydown.enter.self="detailInitialTab = 'confluence'; show(row)"
-                @keydown.space.self.prevent="detailInitialTab = 'confluence'; show(row)"
               >
                 <TableCell class="py-5">
                   <div class="flex items-start gap-3">
@@ -364,7 +364,9 @@ const detailInitialTab = ref<'overview' | 'confluence'>('confluence');
                         :code="row.code"
                         :name="row.name"
                         :market="market"
+                        research-label="共振证据"
                         @select="detailInitialTab = 'overview'; show(row)"
+                        @research="detailInitialTab = 'confluence'; show(row)"
                       /><p class="mt-2 text-xs text-muted-foreground">
                         主要证据正向 {{ agreement(row) }}
                       </p>
@@ -439,7 +441,7 @@ const detailInitialTab = ref<'overview' | 'confluence'>('confluence');
                     {{ row.availableSignalCount }} 个维度
                   </p>
                 </TableCell>
-              </TableRow>
+              </InstrumentRow>
               <TableRow v-if="!result.items.length">
                 <TableCell
                   :colspan="8"
@@ -453,7 +455,7 @@ const detailInitialTab = ref<'overview' | 'confluence'>('confluence');
                 </TableCell>
               </TableRow>
             </TableBody>
-          </Table>
+          </InstrumentTable>
         </div>
         <nav
           v-if="rankedItems.length"

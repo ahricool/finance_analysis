@@ -1,9 +1,12 @@
 <script setup lang="ts" generic="T extends object">
+import InstrumentTable from '@/components/market-data/instrument-table/InstrumentTable.vue';
+import InstrumentRow from '@/components/market-data/instrument-table/InstrumentRow.vue';
 import { useTableSort } from '@/composables/useTableSort';
 import SortableTableHeader from '@/components/stocks/SortableTableHeader.vue';
-import { Table, TableBody, TableCell, TableHeader, TableRow } from '@/components/ui/table';
+import { TableBody, TableCell, TableHeader, TableRow } from '@/components/ui/table';
 const props = defineProps<{
   rows: T[];
+  symbol?: (row: T) => string;
   columns: Array<{ key: string; label: string; numeric?: boolean }>;
   value: (row: T, key: string) => unknown;
   rowKey: (row: T) => string | number;
@@ -21,7 +24,10 @@ if (props.defaultTimeKey) {
 </script>
 
 <template>
-  <Table :aria-label="label">
+  <InstrumentTable
+    :charts="!!symbol"
+    :aria-label="label"
+  >
     <caption class="sr-only">
       {{ label }}
     </caption>
@@ -37,9 +43,12 @@ if (props.defaultTimeKey) {
       </TableRow>
     </TableHeader>
     <TableBody>
-      <TableRow
+      <InstrumentRow
         v-for="row in table.sorted"
         :key="rowKey(row)"
+        :symbol="symbol?.(row)"
+        :row-id="rowKey(row)"
+        market="US"
         :data-testid="rowTestid"
         class="hover:bg-muted/30"
       >
@@ -55,7 +64,7 @@ if (props.defaultTimeKey) {
             :column="column.key"
           />
         </TableCell>
-      </TableRow>
+      </InstrumentRow>
       <TableRow v-if="!rows.length">
         <TableCell
           :colspan="columns.length"
@@ -65,5 +74,5 @@ if (props.defaultTimeKey) {
         </TableCell>
       </TableRow>
     </TableBody>
-  </Table>
+  </InstrumentTable>
 </template>

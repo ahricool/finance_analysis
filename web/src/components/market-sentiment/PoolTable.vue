@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import InstrumentTable from '@/components/market-data/instrument-table/InstrumentTable.vue';
+import InstrumentRow from '@/components/market-data/instrument-table/InstrumentRow.vue';
 import StockLink from '@/components/stocks/StockLink.vue';
 import IndicatorHelpLabel from '@/components/app/IndicatorHelpLabel.vue';
 import type { Pool } from '@/api/marketSentiment';
@@ -17,7 +19,7 @@ defineProps<{ pool: Pool | null }>();
     v-else
     class="overflow-x-auto rounded-lg border"
   >
-    <table class="w-full min-w-max text-left text-xs">
+    <InstrumentTable class="w-full min-w-max text-left text-xs">
       <thead class="bg-muted">
         <tr>
           <th>
@@ -84,9 +86,11 @@ defineProps<{ pool: Pool | null }>();
         </tr>
       </thead>
       <tbody>
-        <tr
+        <InstrumentRow
           v-for="r in pool.items"
           :key="r.thscode"
+          :symbol="r.thscode"
+          market="CN"
           class="border-t align-top"
         >
           <td class="whitespace-nowrap">
@@ -113,7 +117,7 @@ defineProps<{ pool: Pool | null }>();
           <td v-if="pool.kind !== 'limit_up'">
             {{ pool.kind === 'limit_down' ? `首次 / 最后跌停 ${r.firstLimitTime ?? '—'} / ${r.lastLimitTime ?? '—'}` : `开板次数 ${r.openTimes ?? '—'}` }}
           </td>
-        </tr><tr v-if="!pool.items.length">
+        </InstrumentRow><tr v-if="!pool.items.length">
           <td
             colspan="10"
             class="py-8 text-center text-muted-foreground"
@@ -122,7 +126,7 @@ defineProps<{ pool: Pool | null }>();
           </td>
         </tr>
       </tbody>
-    </table>
+    </InstrumentTable>
   </div>
 </template>
 <style scoped>

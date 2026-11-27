@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import StockLink from '@/components/stocks/StockLink.vue';
 import { computed, ref } from 'vue';
 import { Activity, ArrowDownLeft, ArrowUpRight, Clock3, ShieldCheck } from 'lucide-vue-next';
 import type { IntradayOptionsSnapshot, SimTrade, SimulationPlan, SimulationSnapshot } from '@/api/intradayOptions';
@@ -12,6 +13,7 @@ type SimEvent = SimulationSnapshot['events'][number];
 const props = defineProps<{ snapshot: IntradayOptionsSnapshot; disconnected: boolean; snapshotExpired?: boolean }>();
 const now = useCurrentTime(1000);
 const selected = ref('all');
+const names = computed(() => new Map(props.snapshot.items.map(row => [row.symbol, row.name])));
 const matches = (symbol: string) => selected.value === 'all' || selected.value === symbol;
 const quoteFor = (symbol: string) => props.snapshot.items.find(r => r.symbol === symbol)?.simulation
   ?? props.snapshot.simulation?.states.find(s => s.symbol === symbol);
@@ -198,6 +200,7 @@ function historyValue(t: SimTrade, key: string) {
       </div>
       <SimulationTable
         :rows="positions"
+        :symbol="row => row.symbol"
         :columns="positionColumns"
         default-time-key="entryAt"
         :value="positionValue"
@@ -209,7 +212,11 @@ function historyValue(t: SimTrade, key: string) {
         <template #cell="{ row: p, column }">
           <template v-if="column === 'symbol'">
             <p class="font-semibold">
-              {{ p.symbol }}
+              <StockLink
+                :code="p.symbol"
+                :name="names.get(p.symbol)"
+                market="US"
+              />
             </p>
             <p
               class="mt-1 text-xs"
@@ -273,6 +280,7 @@ function historyValue(t: SimTrade, key: string) {
       <div class="max-h-96 overflow-y-auto">
         <SimulationTable
           :rows="importantEvents"
+          :symbol="row => row.symbol"
           :columns="eventColumns"
           default-time-key="at"
           :value="eventValue"
@@ -286,7 +294,11 @@ function historyValue(t: SimTrade, key: string) {
               <span class="tabular-nums">{{ clock(e.at) }}</span>
             </template>
             <template v-else-if="column === 'symbol'">
-              <span class="font-medium">{{ e.symbol }}</span><span
+              <span class="font-medium"><StockLink
+                :code="e.symbol"
+                :name="names.get(e.symbol)"
+                market="US"
+              /></span><span
                 class="ml-2 text-xs"
                 :class="tone(eventSide(e))"
               >{{ sideLabel(eventSide(e)) }}</span>
@@ -432,6 +444,7 @@ function historyValue(t: SimTrade, key: string) {
       </summary>
       <SimulationTable
         :rows="trades"
+        :symbol="row => row.symbol"
         :columns="historyColumns"
         default-time-key="exitAt"
         :value="historyValue"
@@ -442,7 +455,11 @@ function historyValue(t: SimTrade, key: string) {
         <template #cell="{ row: t, column }">
           <template v-if="column === 'symbol'">
             <p class="font-medium">
-              {{ t.symbol }}
+              <StockLink
+                :code="t.symbol"
+                :name="names.get(t.symbol)"
+                market="US"
+              />
             </p><p
               class="mt-1 text-xs"
               :class="tone(t.side)"
@@ -531,6 +548,7 @@ function historyValue(t: SimTrade, key: string) {
       <div class="max-h-72 overflow-y-auto">
         <SimulationTable
           :rows="otherEvents"
+          :symbol="row => row.symbol"
           :columns="eventColumns.filter(c => c.key !== 'price')"
           default-time-key="at"
           :value="eventValue"
@@ -543,7 +561,11 @@ function historyValue(t: SimTrade, key: string) {
               {{ clock(e.at) }}
             </template>
             <template v-else-if="column === 'symbol'">
-              {{ e.symbol }}
+              <StockLink
+                :code="e.symbol"
+                :name="names.get(e.symbol)"
+                market="US"
+              />
             </template>
             <template v-else-if="column === 'kind'">
               {{ eventLabel(e.kind) }}

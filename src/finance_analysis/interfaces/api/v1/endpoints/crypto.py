@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 
 from finance_analysis.interfaces.api.v1.schemas.intraday_options_stream import SnapshotStream
-from finance_analysis.contracts.service import DAY, key, live_snapshot, now_ms, read_json
+from finance_analysis.contracts.service import DAY, cached_candles, key, live_snapshot, now_ms, read_json
 from finance_analysis.contracts.underlying import underlying_symbol
 from finance_analysis.database.models.contracts import FuturesContract
 from finance_analysis.database.repositories import contracts as repository
@@ -87,14 +87,20 @@ async def snapshot(symbol: str | None = Query(default=None, max_length=32)):
 
 
 @router.get("/contracts/{symbol}/bars", response_model=list[Candle], response_model_exclude_unset=True)
-async def bars(symbol: str, interval: Literal["1m", "1d"] = "1d"):
+async def bars(symbol: str, interval: Literal["1m", "1d"] = "1d", include_current: bool = False):
     if symbol not in {row["symbol"] for row in await asyncio.to_thread(repository.contracts)}:
         raise HTTPException(404, "合约不存在")
-    if interval == "1d":
-        return await asyncio.to_thread(repository.daily, symbol)
+    history = await asyncio.to_thread(repository.daily, symbol) if interval == "1d" else []
+    if interval == "1d" and not include_current:
+        return history
     store = realtime()
     try:
-        return (await live_snapshot(store.redis, symbol))["minutes"] or []
+        minutes, current = await cached_candles(store.redis, symbol, interval)
+        if interval == "1m":
+            return minutes or []
+        if current and (not history or current["timestamp"] > history[-1]["timestamp"]):
+            history.append(current)
+        return history
     finally:
         await store.close()
 

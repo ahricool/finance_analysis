@@ -25,12 +25,12 @@ describe('application table sorting policy', () => {
   it('makes every local data column sortable, exempting only backend pages, actions and column groups', () => {
     const violations: string[] = [];
     const seenExceptions = new Set<string>();
-    for (const file of files(root).filter(path => !path.includes('/components/ui/'))) {
+    for (const file of files(root).filter(path => !path.includes('/components/ui/') && !path.endsWith('/instrument-table/InstrumentTable.vue'))) {
       const source = readFileSync(file, 'utf8');
       const template = parse(source).descriptor.template?.content;
       if (!template) continue;
       const nodes = elements(parseTemplate(template));
-      const tables = nodes.filter(node => node.tag === 'Table' || node.tag === 'table');
+      const tables = nodes.filter(node => ['Table', 'table', 'InstrumentTable'].includes(node.tag));
       tables.forEach((table, index) => {
         const key = `${relative(root, file)}:${index}`;
         if (backendPaged[key]) { seenExceptions.add(key); return; }

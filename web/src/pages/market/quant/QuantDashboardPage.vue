@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import InstrumentTable from '@/components/market-data/instrument-table/InstrumentTable.vue';
+import InstrumentRow from '@/components/market-data/instrument-table/InstrumentRow.vue';
 import { formatRank } from '@/utils/rank';
 import SortableTableHeader from '@/components/stocks/SortableTableHeader.vue';
 import { useQuantTableSort } from '@/composables/useQuantTableSort';
@@ -16,7 +18,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Table, TableBody, TableCell, TableHeader, TableRow } from '@/components/ui/table';
+import { TableBody, TableCell, TableHeader, TableRow } from '@/components/ui/table';
 import { useQuantMarket } from '@/composables/useQuantMarket';
 import type { MarketRegime, QuantCapabilities, SignalRanking } from '@/types/quant';
 import { formatPercent, formatPredictedReturn, formatRealizedReturn, formatScore, regimeLabels } from '@/utils/quant';
@@ -226,7 +228,7 @@ const detailInitialTab = ref<'overview' | 'quant'>('quant');
             v-if="ranking?.items.length"
             class="overflow-x-auto"
           >
-            <Table class="w-full min-w-[800px] text-sm">
+            <InstrumentTable class="w-full min-w-[800px] text-sm">
               <TableHeader>
                 <TableRow>
                   <SortableTableHeader
@@ -309,14 +311,12 @@ const detailInitialTab = ref<'overview' | 'quant'>('quant');
                 </TableRow>
               </TableHeader>
               <TableBody>
-                <TableRow
+                <InstrumentRow
                   v-for="item in rankedItems"
                   :key="item.id"
+                  :symbol="item.code"
+                  :market="market"
                   class="cursor-pointer border-t border-border"
-                  tabindex="0"
-                  @click="detailInitialTab = 'quant'; show(item)"
-                  @keydown.enter.self="detailInitialTab = 'quant'; show(item)"
-                  @keydown.space.self.prevent="detailInitialTab = 'quant'; show(item)"
                 >
                   <TableCell class="p-2">
                     {{ formatRank(item.universeRank, item.rankTotal) }}
@@ -326,7 +326,9 @@ const detailInitialTab = ref<'overview' | 'quant'>('quant');
                       :code="item.code"
                       :name="item.name"
                       :market="market"
+                      research-label="量化详情"
                       @select="detailInitialTab = 'overview'; show(item)"
+                      @research="detailInitialTab = 'quant'; show(item)"
                     />
                   </TableCell>
                   <TableCell class="text-right tabular-nums">
@@ -351,9 +353,9 @@ const detailInitialTab = ref<'overview' | 'quant'>('quant');
                     {{ formatRealizedReturn(item.returnSince) }}
                   </TableCell>
                   <TableCell>{{ item.signal }}</TableCell>
-                </TableRow>
+                </InstrumentRow>
               </TableBody>
-            </Table>
+            </InstrumentTable>
           </div>
           <Empty
             v-else

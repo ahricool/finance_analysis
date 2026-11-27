@@ -1,4 +1,5 @@
 import { computed, reactive, ref, shallowRef, watch, type Ref } from 'vue';
+import { createExpansion, virtualChartHeight } from '@/components/market-data/instrument-table/state';
 import { useVirtualRows } from '@/composables/useVirtualRows';
 import type { TrendRankingSnapshot } from '@/types/trendFollowing';
 import { defaultBoxSort, mrPriority, type RankingColumn, type SortKey } from './rankingColumns';
@@ -43,14 +44,15 @@ export function createRankingTable(
     const comparison = typeof a !== 'string' && typeof b !== 'string' ? Number(a) - Number(b) : String(a).localeCompare(String(b));
     return comparison * direction || left.code.localeCompare(right.code);
   }));
-  const { scrollTop, virtual, range, rows: renderedRows, rowHeight } = useVirtualRows(sortedItems);
+  const expansion = createExpansion();
+  const { scrollTop, virtual, range, rows: renderedRows, rowHeight } = useVirtualRows(sortedItems, {}, item => expansion.expanded(item.code) ? virtualChartHeight : 0);
   watch(sortedItems, () => { scrollTop.value = 0; if (viewport.value) viewport.value.scrollTop = 0; });
   function toggleSort(key: SortKey) {
     sortDirection.value = sortKey.value === key ? sortDirection.value === 'asc' ? 'desc' : 'asc'
       : key.startsWith('entry') && key.endsWith('Status') || ['rank', 'name', 'setup', 'state', 'trendCandidate', 'priorCompression', 'compressionBreakout', 'trendResume'].includes(key) ? 'asc' : 'desc';
     sortKey.value = key;
   }
-  return reactive({ kind, title, description, columns, exporting: false, search, filter, sortKey, sortDirection, viewport, scrollTop,
+  return reactive({ expansion, kind, title, description, columns, exporting: false, search, filter, sortKey, sortDirection, viewport, scrollTop,
     searchAll, sortedItems, virtual, range, renderedRows, rowHeight, toggleSort,
     groups: [...new Set(columns.map(c => c.group))].map(label => ({ label, count: columns.filter(c => c.group === label).length })),
   });

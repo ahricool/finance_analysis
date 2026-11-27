@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import InstrumentTable from '@/components/market-data/instrument-table/InstrumentTable.vue';
+import InstrumentRow from '@/components/market-data/instrument-table/InstrumentRow.vue';
 import FieldSelect from '@/components/forms/FieldSelect.vue';
 import { useMarket } from '@/composables/useMarket';
 import { formatRank } from '@/utils/rank';
@@ -29,7 +31,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Table, TableBody, TableCell, TableHeader, TableRow } from '@/components/ui/table';
+import { TableBody, TableCell, TableHeader, TableRow } from '@/components/ui/table';
 import type {
   ETFAction,
   ETFChange,
@@ -104,8 +106,8 @@ const rankHistoryRefreshKey = ref(0);
 const previewAvailable = computed(() => previewStatus.value != null);
 const showingPreview = computed(() => dataMode.value === 'preview' && !previewLoading.value && isPreviewCompleted(previewPayload.value?.status));
 const showingStrategyBody = computed(() => dataMode.value === 'official' || showingPreview.value);
-const { value: forwardReturn, error: forwardError, loading: forwardLoading, retry: retryForward } =
-  useForwardReturns(items, market, () => summary.value.tradeDate, dataMode);
+const { value: forwardReturn, error: forwardError, loading: forwardLoading, retry: retryForward, visibility: forwardVisibility, forExport: loadExportReturns } =
+  useForwardReturns(items, market, () => summary.value.tradeDate, dataMode, () => sortKey.value.startsWith('forwardReturn'));
 const sortedItems = computed(() => [...items.value].sort((a, b) => {
   const left = sortKey.value.startsWith('forwardReturn') ? forwardReturn(a.code, sortKey.value) : a[sortKey.value as keyof ETFMomentumSnapshot];
   const right = sortKey.value.startsWith('forwardReturn') ? forwardReturn(b.code, sortKey.value) : b[sortKey.value as keyof ETFMomentumSnapshot];
@@ -123,6 +125,7 @@ async function exportRanking() {
   if (exporting.value || loading.value || refreshing.value || previewLoading.value || forwardLoading.value || !sortedItems.value.length) return;
   exporting.value = true;
   try {
+    await loadExportReturns(sortedItems.value);
     const columns: ExcelColumn[] = rankingColumns.flatMap(column => column.key === 'name'
       ? [{ label: metricLabel(column.label).zh }, { label: '代码' }]
       : [{ label: metricLabel(column.label).zh, format: column.key.startsWith('forwardReturn') || ['ret5D', 'ret20D'].includes(column.key)
@@ -836,7 +839,7 @@ onMounted(async () => {
         <CardContent class="px-0">
           <p
             v-if="forwardLoading"
-            class="p-2 text-xs text-muted-foreground"
+            class="sr-only"
             role="status"
           >
             未来收益率加载中…
@@ -847,98 +850,95 @@ onMounted(async () => {
             action-label="重试收益率"
             @action="retryForward"
           />
-          <div
-            class="max-h-[680px] w-full overflow-auto [&_[data-slot=table-container]]:overflow-visible"
+          <InstrumentTable
+            container-class="max-h-[680px] overflow-auto"
             data-testid="etf-ranking-scroll"
             tabindex="0"
             aria-label="ETF 排名，滚动查看全部指标"
           >
-            <Table class="w-full">
-              <TableHeader class="sticky top-0 z-30 bg-background">
-                <TableRow>
-                  <SortableTableHeader
-                    v-for="column in rankingColumns"
-                    :key="column.key"
-                    :label="column.label"
-                    :description="column.description"
-                    :class="column.key === 'name' ? 'sticky left-0 z-20 min-w-48 bg-background' : ''"
-                    :active="sortKey === column.key"
-                    :direction="sortDirection"
-                    @sort="toggleSort(column.key)"
-                  />
-                </TableRow>
-              </TableHeader><TableBody>
-                <TableRow
-                  v-for="item in sortedItems"
-                  :key="item.code"
-                  class="cursor-pointer focus-visible:bg-muted/80 focus-visible:outline-none"
-                  data-testid="etf-ranking-row"
-                  tabindex="0"
-                  aria-haspopup="dialog"
-                  :aria-label="`打开 ${item.name} ${item.code} ETF 详情`"
-                  @click="openDetail(item)"
-                  @keydown.enter.prevent="openDetail(item)"
-                  @keydown.space.prevent="openDetail(item)"
+            <TableHeader class="sticky top-0 z-30 bg-background">
+              <TableRow>
+                <SortableTableHeader
+                  v-for="column in rankingColumns"
+                  :key="column.key"
+                  :label="column.label"
+                  :description="column.description"
+                  :class="column.key === 'name' ? 'sticky left-0 z-20 min-w-48 bg-background' : ''"
+                  :active="sortKey === column.key"
+                  :direction="sortDirection"
+                  @sort="toggleSort(column.key)"
+                />
+              </TableRow>
+            </TableHeader><TableBody>
+              <InstrumentRow
+                v-for="item in sortedItems"
+                :key="item.code"
+                :symbol="item.code"
+                :market="market"
+                class="cursor-pointer focus-visible:bg-muted/80 focus-visible:outline-none"
+                data-testid="etf-ranking-row"
+                @visibility="forwardVisibility"
+              >
+                <TableCell>{{ formatRank(item.rank, summary.rankableSize) }}</TableCell>
+                <TableCell
+                  class="sticky left-0 z-10 min-w-48 max-w-60 bg-background"
+                  data-column="name"
                 >
-                  <TableCell>{{ formatRank(item.rank, summary.rankableSize) }}</TableCell>
-                  <TableCell
-                    class="sticky left-0 z-10 min-w-48 max-w-60 bg-background"
-                    data-column="name"
-                  >
-                    <StockLink
-                      :code="item.code"
-                      :name="item.name"
-                      :market="market"
-                      @select="openDetail(item, 'overview')"
+                  <StockLink
+                    :code="item.code"
+                    :name="item.name"
+                    :market="market"
+                    research-label="轮动详情"
+                    @select="openDetail(item, 'overview')"
+                    @research="openDetail(item)"
+                  />
+                </TableCell>
+                <TableCell>
+                  <Badge :variant="stateVariant(item.state)">
+                    {{ stateIcon(item.state) }}
+                    <BilingualEnum
+                      :value="item.state"
+                      size="badge"
                     />
-                  </TableCell>
-                  <TableCell>
-                    <Badge :variant="stateVariant(item.state)">
-                      {{ stateIcon(item.state) }}
-                      <BilingualEnum
-                        :value="item.state"
-                        size="badge"
-                      />
-                    </Badge>
-                  </TableCell>
-                  <TableCell>{{ durationText(item.trendDurationDays) }}</TableCell>
-                  <TableCell class="font-bold text-primary">
-                    {{ score(item.compositeScore) }}
-                  </TableCell>
-                  <TableCell>{{ score(item.momentumStrengthScore) }}</TableCell>
-                  <TableCell>{{ score(item.trendQualityScore) }}</TableCell>
-                  <TableCell>{{ score(item.relativeStrengthScore) }}</TableCell>
-                  <TableCell>
-                    <Badge :variant="actionVariant(item.action)">
-                      <BilingualEnum
-                        :value="item.action"
-                        size="badge"
-                      />
-                    </Badge>
-                  </TableCell>
-                  <TableCell
-                    v-for="key in (['ret5D','ret20D'] as const)"
-                    :key="key"
-                  >
-                    {{ pct(item[key]) }}
-                  </TableCell>
-                  <TableCell
-                    v-for="key in (['rankChange1D', 'rankChange3D', 'rankChange5D'] as const)"
-                    :key="key"
-                  >
-                    {{ rankChange(item[key]) }}
-                  </TableCell>
-                  <TableCell
-                    v-for="column in forwardReturnColumns"
-                    :key="column.key"
-                    :data-column="column.key"
-                  >
-                    {{ pct(forwardReturn(item.code, column.key)) }}
-                  </TableCell>
-                </TableRow>
-              </TableBody>
-            </Table>
-          </div>
+                  </Badge>
+                </TableCell>
+                <TableCell>{{ durationText(item.trendDurationDays) }}</TableCell>
+                <TableCell class="font-bold text-primary">
+                  {{ score(item.compositeScore) }}
+                </TableCell>
+                <TableCell>{{ score(item.momentumStrengthScore) }}</TableCell>
+                <TableCell>{{ score(item.trendQualityScore) }}</TableCell>
+                <TableCell>{{ score(item.relativeStrengthScore) }}</TableCell>
+                <TableCell>
+                  <Badge :variant="actionVariant(item.action)">
+                    <BilingualEnum
+                      :value="item.action"
+                      size="badge"
+                    />
+                  </Badge>
+                </TableCell>
+                <TableCell
+                  v-for="key in (['ret5D','ret20D'] as const)"
+                  :key="key"
+                >
+                  {{ pct(item[key]) }}
+                </TableCell>
+                <TableCell
+                  v-for="key in (['rankChange1D', 'rankChange3D', 'rankChange5D'] as const)"
+                  :key="key"
+                >
+                  {{ rankChange(item[key]) }}
+                </TableCell>
+                <TableCell
+                  v-for="column in forwardReturnColumns"
+                  :key="column.key"
+                  :data-column="column.key"
+                >
+                  {{ pct(forwardReturn(item.code, column.key)) }}
+                </TableCell>
+              </InstrumentRow>
+            </TableBody>
+          </InstrumentTable>
         </CardContent>
       </Card>
     </div>

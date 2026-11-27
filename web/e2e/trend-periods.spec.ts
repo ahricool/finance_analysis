@@ -65,7 +65,7 @@ for (const width of [390, 768, 1024, 1280, 1440, 1920]) {
     }
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
     await page.screenshot({ path: testInfo.outputPath(`trend-period-${width}.png`), fullPage: false });
-    await page.getByTestId('trend-row').locator('td').last().click();
+    await page.getByTestId('trend-row').getByTestId('row-research').click();
     await expect(page.getByTestId('trend-detail')).toContainText('MA20 / MA40');
     expect(requested.some(r => r.path.endsWith('/trend-following/000001.SZ') && r.period === '40')).toBe(true);
     expect(requested.filter(r => r.path.endsWith('/trend-following/ranking/table')).map(r => r.period)).toEqual(['10', '20', '40']);

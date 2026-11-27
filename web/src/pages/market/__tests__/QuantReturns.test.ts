@@ -36,7 +36,7 @@ it('opens quant evidence in place with its returned snapshot date and resets on 
   const dialog = wrapper.getComponent(StockDetailDialog);
   expect(dialog.props('open')).toBe(true);
   expect(dialog.props('initialTab')).toBe('overview');
-  await wrapper.get('tbody tr').trigger('click');
+  await wrapper.get('tbody tr').get('[data-testid="row-research"]').trigger('click');
   expect(dialog.props('initialTab')).toBe('quant');
   expect(dialog.props('context')).toEqual({ tradeDate: '2026-09-21', view: 'official' });
   expect(router.currentRoute.value.fullPath).toBe('/research/quant/signals?market=US');

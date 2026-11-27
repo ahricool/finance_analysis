@@ -274,7 +274,7 @@ describe('ETFRotationPage', () => {
     expect(document.body.textContent).toContain('科创50ETF');
     expect(wrapper.findAll('thead th')).toHaveLength(18);
     expect(wrapper.text()).toContain('持续天数');
-    await wrapper.get('tbody tr').trigger('click');
+    await wrapper.get('tbody tr').get('[data-testid="row-research"]').trigger('click');
     await flushPromises();
     await vi.waitFor(() => expect(document.body.textContent).toContain('+1.10%'));
     expect(document.body.textContent).toContain('+2.34%');
@@ -402,17 +402,15 @@ describe('ETFRotationPage', () => {
     expect(wrapper.text()).toContain('$95.00');
   });
 
-  it.each(['Enter', ' '])('opens ranking detail with %s without activating the focused close button', async (key) => {
+  it.each(['Enter', ' '])('expands the ranking chart with %s', async (key) => {
     const wrapper = mount(ETFRotationPage, { attachTo: document.body });
     await flushPromises();
     const row = wrapper.get('[data-testid="etf-ranking-row"]');
     expect(row.attributes('tabindex')).toBe('0');
-    const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true });
-    row.element.dispatchEvent(event);
-    await flushPromises();
-    expect(event.defaultPrevented).toBe(true);
-    expect(document.body.querySelector('[data-testid="etf-detail-modal"]')).not.toBeNull();
-    expect(apiMocks.detail).toHaveBeenCalledWith('588000.SH', 'CN', 60, '2026-08-25');
+    await row.trigger('keydown', { key });
+    expect(row.attributes('aria-expanded')).toBe('true');
+    expect(wrapper.find('[data-testid="instrument-chart-row"]').exists()).toBe(true);
+    expect(document.body.querySelector('[role="dialog"]')).toBeNull();
     wrapper.unmount();
   });
 

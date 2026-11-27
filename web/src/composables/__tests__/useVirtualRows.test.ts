@@ -27,4 +27,12 @@ describe('virtual table rows', () => {
     expect(virtual.rows.value[0]).toBe(42);
     expect(virtual.range.value.bottomSpace).toBe((100 - 70) * 64);
   });
+  it('retains expanded heights when a row moves outside the rendered window', () => {
+    const items = ref(Array.from({ length: 500 }, (_, index) => index));
+    const rows = useVirtualRows(items, {}, index => index % 2 === 0 ? 520 : 0);
+    rows.scrollTop.value = 80 + 100 * 64 + 50 * 520;
+    expect(rows.rows.value[0]).toBe(92);
+    expect(rows.range.value.topSpace).toBe(92 * 64 + 46 * 520);
+    expect(rows.range.value.bottomSpace).toBe(380 * 64 + 190 * 520);
+  });
 });

@@ -24,7 +24,7 @@ async function openOptions(page: Page, sample: Replay, requests: string[]) {
     return route.fulfill({ json: {} });
   });
   await page.goto(`/research/intraday-confirmation?market=${sample.market}`);
-  await page.locator('tbody tr').first().click();
+  await page.locator('tbody tr').first().getByTestId('row-research').click();
   await page.getByRole('dialog').getByRole('tab', { name: '期权', exact: true }).click();
   await expect(page.getByTestId('option-strategy-panel')).toBeVisible();
   await expect(page.locator('[data-score]').first()).toBeVisible();

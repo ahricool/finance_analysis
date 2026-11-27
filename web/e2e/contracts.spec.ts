@@ -48,6 +48,7 @@ test('USD-M market lists contract prices, switches native candles and manages sy
     if (url.pathname === '/api/v1/crypto/contracts/search') return route.fulfill({ json: [{ symbol: 'ETHUSDT', category: 'COIN', underlying_symbol: 'ETH.CRYPTO' }] });
     if (url.pathname.endsWith('/depth')) return route.fulfill({ json: { timestamp: now, bids: 200, asks: 330, bids_levels: 2, asks_levels: 3 } });
     if (url.pathname.endsWith('/metrics')) return route.fulfill({ json: { items: [metrics], next_start: null } });
+    if (url.pathname.endsWith('/bars') && url.searchParams.get('interval') === '1m') return route.fulfill({ json: minutes });
     if (url.pathname.endsWith('/bars')) return route.fulfill({ json: Array.from({ length: 30 }, (_, index) => candle(day - (30 - index) * 86400000)) });
     if (method === 'POST' && url.pathname === '/api/v1/crypto/contracts') {
       const saved = { ...route.request().postDataJSON(), underlying_symbol: 'ETH.CRYPTO' };
@@ -91,7 +92,7 @@ test('USD-M market lists contract prices, switches native candles and manages sy
   await expect(page.getByTestId('contract-market-panel')).toContainText(' 至 ');
   await expect(page.getByRole('img', { name: /SOXLUSDT 1m K线/ })).toBeVisible();
   await expect(page.getByTestId('contract-indicators')).toContainText('MA20');
-  await page.getByRole('button', { name: '日 K', exact: true }).click();
+  await page.getByRole('button', { name: '日', exact: true }).click();
   await expect(page.getByRole('img', { name: /SOXLUSDT 1d K线/ })).toBeVisible();
   await expect(page.getByTestId('contract-indicators')).toContainText('MA5');
   await page.getByRole('button', { name: 'SOXLUSDT 标的详情' }).click();
@@ -102,16 +103,16 @@ test('USD-M market lists contract prices, switches native candles and manages sy
   const btc = page.getByTestId('contract-row').filter({ hasText: 'BTCUSDT' });
   await btc.focus();
   await btc.press('Enter');
-  await expect(page.getByRole('img', { name: /BTCUSDT 1m K线/ })).toBeVisible();
-  await expect(page.getByTestId('contract-market-panel')).toHaveCount(1);
-  await expect(soxl).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.getByRole('img', { name: /BTCUSDT 1d K线/ })).toBeVisible();
+  await expect(soxl).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.getByTestId('instrument-chart-row')).toHaveCount(2);
   for (const width of [390, 768, 1024, 1440]) {
     await page.setViewportSize({ width, height: 900 });
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-    await expect(page.getByTestId('contract-market-panel')).toBeVisible();
+    await expect(page.getByRole('img', { name: /BTCUSDT 1d K线/ })).toBeVisible();
   }
-  await btc.getByRole('cell').nth(1).click();
-  await expect(page.getByTestId('contract-market-panel')).toHaveCount(0);
+  await page.getByRole('button', { name: '全部收起' }).click();
+  await expect(page.getByTestId('instrument-chart-row')).toHaveCount(0);
   await page.getByRole('button', { name: '添加合约', exact: true }).click();
   await expect(page.getByRole('dialog')).toContainText('添加合约');
   await page.getByRole('textbox', { name: '搜索合约' }).fill('ETH');
@@ -153,6 +154,7 @@ test('shared contracts are expandable for regular users but only admins can mana
   });
   await page.route('**/api/v1/**', async route => {
     const url = new URL(route.request().url());
+    if (url.pathname.endsWith('/bars')) return route.fulfill({ json: [] });
     if (url.pathname.endsWith('/depth')) return route.fulfill({ body: 'null', contentType: 'application/json' });
     if (url.pathname === '/api/v1/crypto/contracts') return route.fulfill({ json: { items: rows, symbol: null, minutes: null, daily_current: null } });
     return route.fulfill({ json: dashboardResponse(url) });
@@ -164,7 +166,7 @@ test('shared contracts are expandable for regular users but only admins can mana
   await expect(page.getByRole('button', { name: '移除 BTCUSDT' })).toHaveCount(0);
   await btc.getByRole('cell').nth(1).click();
   await expect(page.getByTestId('contract-market-panel')).toContainText('暂无 K 线');
-  await expect(page.getByTestId('contract-expanded-row').getByRole('cell')).toHaveAttribute('colspan', String(await btc.getByRole('cell').count()));
+  await expect(page.getByTestId('instrument-chart-row').getByRole('cell')).toHaveAttribute('colspan', String(await btc.getByRole('cell').count()));
   await btc.getByRole('button', { name: 'BTCUSDT 标的详情' }).click();
   await expect(page.getByTestId('underlying-empty')).toBeVisible();
 });

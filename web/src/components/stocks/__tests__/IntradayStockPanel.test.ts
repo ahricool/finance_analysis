@@ -40,6 +40,16 @@ describe('inline intraday ownership and incremental updates', () => {
     expect(chart().props('current').timestamp).toBe(at + 60_000);
     panel.unmount();
   });
+  it('renders cached Hong Kong minutes using local market time', async () => {
+    mocks.fetch.mockResolvedValue({ ...snapshot('700.HK'), market: 'HK', fullSnapshot: true });
+    const panel = mount(IntradayStockPanel, { props: { symbol: '700.HK', market: 'HK' },
+      global: { stubs: { MarketKLineChart: true } } });
+    await flushPromises();
+    expect(panel.getComponent({ name: 'MarketKLineChart' }).props('timezone')).toBe('Asia/Hong_Kong');
+    expect(panel.text()).toContain('香港时间');
+    panel.unmount();
+  });
+
   it('judges live updates every second and detects a stopped feed just after the 30-second tolerance', async () => {
     vi.setSystemTime(at);
     const initial = snapshot();
@@ -133,6 +143,7 @@ describe('inline intraday ownership and incremental updates', () => {
     mocks.fetch.mockReturnValueOnce(new Promise<IntradaySnapshot>(resolve => { resolveOld = resolve; }));
     mocks.fetch.mockResolvedValue(snapshot('MSFT.US', at, 120));
     const panel = mountPanel();
+    await flushPromises();
     const oldSignal = mocks.fetch.mock.calls[0]?.[2] as AbortSignal;
     await panel.setProps({ symbol: 'MSFT.US' });
     await flushPromises();

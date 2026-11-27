@@ -16,7 +16,9 @@ import IntradayDirectionStatus from './IntradayDirectionStatus.vue';
 import { useCurrentTime } from '@/composables/useCurrentTime';
 import { useTheme } from '@/composables/useTheme';
 
-const props = defineProps<{ symbol: string; market: 'CN' | 'US' }>();
+import { queueTableRequest } from '@/utils/tableRequests';
+
+const props = defineProps<{ symbol: string; market: 'CN' | 'HK' | 'US' }>();
 const snapshot = shallowRef<IntradaySnapshot | null>(null);
 const rows = shallowRef<IntradayBar[]>([]);
 const error = shallowRef<ParsedApiError | null>(null);
@@ -26,12 +28,15 @@ const selectedEvents = shallowRef<PatternEvent[]>([]);
 const { resolvedTheme } = useTheme();
 function clearSelection() { selected.value = null; selectedEvents.value = []; }
 const now = useCurrentTime(1_000);
-const timezone = computed(() => props.market === 'CN' ? 'Asia/Shanghai' : 'America/New_York');
+const timezones = { CN: 'Asia/Shanghai', HK: 'Asia/Hong_Kong', US: 'America/New_York' };
+const timezone = computed(() => timezones[props.market]);
 const toChartBar = (bar: IntradayBar) => ({ ...bar, turnover: bar.turnover ?? undefined });
 const bars = computed(() => rows.value.filter(bar => bar.confirmed).map(toChartBar));
 const current = computed(() => { const bar = rows.value.find(bar => !bar.confirmed); return bar ? toChartBar(bar) : null; });
 const quote = computed(() => snapshot.value?.quote);
 const minuteSource = computed(() => rows.value.at(-1)?.source === 'tencent_intraday' ? '腾讯' : '新浪');
+const sourceLabel = computed(() => props.market === 'CN' ? `${minuteSource.value} · 原生分钟线 · 上海时间`
+  : `Longbridge · 原生分钟线 · ${props.market === 'HK' ? '香港时间' : '纽约时间'}`);
 const referencePrice = computed(() => {
   const price = props.market === 'CN' ? quote.value?.preClose : null;
   return price != null && Number.isFinite(price) && price > 0 ? price : undefined;
@@ -40,6 +45,7 @@ let request: AbortController | null = null;
 let timer: ReturnType<typeof setTimeout> | undefined;
 let generation = 0;
 let stopped = false;
+let missing = false;
 
 function fmt(value: number | null | undefined) { return value == null ? '—' : value.toLocaleString('zh-CN', { maximumFractionDigits: 3 }); }
 function time(value: string | number | null | undefined) {
@@ -52,7 +58,7 @@ async function load() {
   request = controller;
   try {
     const since = rows.value.at(-1)?.timestamp;
-    const value = await fetchIntradayMarket(props.symbol, since == null ? undefined : new Date(since).toISOString(), controller.signal, snapshot.value?.historyVersion);
+    const value = await queueTableRequest(controller.signal, () => fetchIntradayMarket(props.symbol, since == null ? undefined : new Date(since).toISOString(), controller.signal, snapshot.value?.historyVersion));
     if (stopped || generation !== owned) return;
     const merged = new Map((value.reset || value.fullSnapshot ? [] : rows.value).map(row => [row.timestamp, row]));
     for (const row of value.items) merged.set(row.timestamp, row);
@@ -62,17 +68,21 @@ async function load() {
       event.patternType === selected.value?.patternType && event.stage === selected.value?.stage))) clearSelection();
     error.value = null;
   } catch (reason) {
-    if (!stopped && generation === owned && !controller.signal.aborted) error.value = getParsedApiError(reason);
+    if (!stopped && generation === owned && !controller.signal.aborted) {
+      const parsed = getParsedApiError(reason);
+      if (parsed.status === 404) { missing = true; rows.value = []; snapshot.value = null; error.value = null; return; }
+      error.value = parsed;
+    }
   } finally {
     if (generation === owned) {
       request = null;
       loading.value = false;
-      if (!stopped) timer = setTimeout(() => { void load(); }, 5_000);
+      if (!stopped && !missing) timer = setTimeout(() => { void load(); }, 5_000);
     }
   }
 }
 watch(() => [props.symbol, props.market], () => {
-  generation++;
+  generation++; missing = false;
   request?.abort(); request = null; clearTimeout(timer);
   snapshot.value = null; rows.value = []; clearSelection(); error.value = null; loading.value = true;
   void load();
@@ -102,8 +112,8 @@ const overlays = computed<OverlayCreate[]>(() => {
 <template>
   <TableExpansionPanel data-testid="intraday-panel">
     <div class="flex flex-wrap items-center justify-between gap-2 text-sm">
-      <strong>{{ market === 'US' ? '最近24小时 · 1分钟K线' : '最近交易日 1 分钟 K 线 · ' + (snapshot?.tradingDate ?? '加载中') }}</strong>
-      <span class="text-xs text-muted-foreground">{{ market === 'CN' ? `${minuteSource} · 原生分钟线 · 上海时间` : 'Longbridge · 原生分钟线 · 纽约时间' }}</span>
+      <strong>{{ market === 'US' ? '最近24小时 · 1分钟K线' : '最近交易日 1 分钟 K 线 · ' + (snapshot?.tradingDate ?? (loading ? '加载中' : '—')) }}</strong>
+      <span class="text-xs text-muted-foreground">{{ sourceLabel }}</span>
     </div>
     <ApiErrorAlert
       v-if="error"
@@ -141,7 +151,7 @@ const overlays = computed<OverlayCreate[]>(() => {
           v-else
           class="py-12 text-center text-sm text-muted-foreground"
         >
-          {{ market === 'US' ? '暂无最近24小时分钟线' : '暂无最近交易日分钟线' }}，等待采集；缺失区间不会补造。
+          无数据 · {{ market === 'US' ? '暂无最近24小时分钟线' : '暂无最近交易日分钟线' }}，等待采集；缺失区间不会补造。
         </p>
         <p
           v-if="market === 'CN'"

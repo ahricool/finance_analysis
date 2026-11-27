@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import InstrumentTable from '@/components/market-data/instrument-table/InstrumentTable.vue';
+import InstrumentRow from '@/components/market-data/instrument-table/InstrumentRow.vue';
 import { useMarket } from '@/composables/useMarket';
 import { computed, watch } from 'vue';
 import { RefreshCw, Layers3 } from 'lucide-vue-next';
@@ -14,7 +16,7 @@ import { horizonText, returnClass } from '@/components/signal-center/evaluation'
 import { Button } from '@/components/ui/button';
 import AppDatePicker from '@/components/app/AppDatePicker.vue';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
-import { Table, TableHeader, TableHead, TableBody, TableRow, TableCell } from '@/components/ui/table';
+import { TableHeader, TableHead, TableBody, TableRow, TableCell } from '@/components/ui/table';
 import BilingualEnum from '@/components/app/BilingualEnum.vue';
 import IndicatorHelpLabel from '@/components/app/IndicatorHelpLabel.vue';
 
@@ -146,7 +148,7 @@ onBeforeUnmount(() => { ++generation; ++detailGeneration; });
       <p class="text-xs text-muted-foreground">
         收益以信号发布后首个交易日开盘为基准，第1日为买入日收盘。未到期与行情缺失分别标注，详情含前10日波动与回撤。
       </p>
-      <Table>
+      <InstrumentTable>
         <TableHeader>
           <TableRow>
             <TableHead>
@@ -204,9 +206,12 @@ onBeforeUnmount(() => { ++generation; ++detailGeneration; });
             v-for="row in history"
             :key="`${row.market}-${row.signalDate}`"
           >
-            <TableRow
+            <InstrumentRow
               v-for="(pick, pickIndex) in (signalPicks(row).length ? signalPicks(row) : [null])"
               :key="pick?.symbol || 'empty'"
+              :symbol="pick?.symbol"
+              :row-id="row.signalDate + row.market + pick?.symbol"
+              :market="row.market"
             >
               <TableCell class="whitespace-nowrap">
                 {{ row.signalDate }}
@@ -246,10 +251,10 @@ onBeforeUnmount(() => { ++generation; ++detailGeneration; });
                   查看分析
                 </Button>
               </TableCell>
-            </TableRow>
+            </InstrumentRow>
           </template>
         </TableBody>
-      </Table>
+      </InstrumentTable>
       <p
         v-if="!loading && !history.length"
         class="text-sm text-muted-foreground"

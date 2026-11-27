@@ -60,8 +60,8 @@ export const contractsApi = {
   async depth(symbol: string, signal?: AbortSignal): Promise<Depth | null> {
     return (await apiClient.get(path + '/' + encodeURIComponent(symbol) + '/depth', { signal })).data;
   },
-  async bars(symbol: string, signal?: AbortSignal): Promise<Candle[]> {
-    return (await apiClient.get(path + '/' + encodeURIComponent(symbol) + '/bars', { params: { interval: '1d' }, signal })).data;
+  async bars(symbol: string, signal?: AbortSignal, interval: '1m' | '1d' = '1d', includeCurrent = false): Promise<Candle[]> {
+    return (await apiClient.get(path + '/' + encodeURIComponent(symbol) + '/bars', { params: { interval, include_current: includeCurrent || undefined }, signal })).data;
   },
 };
 

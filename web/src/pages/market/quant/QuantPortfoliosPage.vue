@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import InstrumentTable from '@/components/market-data/instrument-table/InstrumentTable.vue';
+import InstrumentRow from '@/components/market-data/instrument-table/InstrumentRow.vue';
 import { formatRank } from '@/utils/rank';
 import SortableTableHeader from '@/components/stocks/SortableTableHeader.vue';
 import { useQuantTableSort } from '@/composables/useQuantTableSort';
@@ -12,7 +14,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Table, TableBody, TableCell, TableHeader, TableRow } from '@/components/ui/table';
+import { TableBody, TableCell, TableHeader, TableRow } from '@/components/ui/table';
 import { useQuantMarket } from '@/composables/useQuantMarket';
 import type { Portfolio } from '@/types/quant';
 import { formatPercent, formatPredictedReturn, formatScore } from '@/utils/quant';
@@ -121,7 +123,7 @@ const { sortKey, direction, toggle, sorted: positions } = useQuantTableSort(
           </CardDescription>
         </CardHeader>
         <CardContent class="block">
-          <Table class="w-full min-w-[900px] text-sm">
+          <InstrumentTable class="w-full min-w-[900px] text-sm">
             <TableHeader>
               <TableRow>
                 <SortableTableHeader
@@ -172,9 +174,11 @@ const { sortKey, direction, toggle, sorted: positions } = useQuantTableSort(
               </TableRow>
             </TableHeader>
             <TableBody>
-              <TableRow
+              <InstrumentRow
                 v-for="row in positions"
                 :key="row.id"
+                :symbol="row.code"
+                :market="market"
                 class="border-t border-border"
               >
                 <TableCell class="p-3">
@@ -196,9 +200,9 @@ const { sortKey, direction, toggle, sorted: positions } = useQuantTableSort(
                 <TableCell class="text-right tabular-nums">
                   {{ formatPredictedReturn(row.predictedReturn) }}
                 </TableCell>
-              </TableRow>
+              </InstrumentRow>
             </TableBody>
-          </Table>
+          </InstrumentTable>
         </CardContent>
       </Card>
     </template>

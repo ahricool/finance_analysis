@@ -53,8 +53,8 @@ describe('contract inline indicators', () => {
     expect(panel.text()).toContain('暂无 K 线');
     await panel.setProps({ loading: true });
     expect(panel.text()).toContain('行情加载中');
-    await panel.findAll('button').find(item => item.text() === '日 K')!.trigger('click');
-    expect(panel.emitted('update:interval')).toEqual([['1d']]);
+    await panel.setProps({ interval: '1d' });
+    expect(panel.text()).toContain('日线行情');
     panel.unmount();
   });
 });

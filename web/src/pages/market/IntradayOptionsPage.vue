@@ -1,4 +1,8 @@
 <script setup lang="ts">
+import StockDailyChart from '@/components/market-data/instrument-table/StockDailyChart.vue';
+import StockLink from '@/components/stocks/StockLink.vue';
+import InstrumentTable from '@/components/market-data/instrument-table/InstrumentTable.vue';
+import InstrumentRow from '@/components/market-data/instrument-table/InstrumentRow.vue';
 import TrendWindowCell from '@/components/market-data/TrendWindowCell.vue';
 import TrendDirectionCell from '@/components/market-data/TrendDirectionCell.vue';
 import { computed, defineAsyncComponent, ref, shallowRef, watch } from 'vue';
@@ -9,7 +13,7 @@ import AppApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
 import FieldInput from '@/components/forms/FieldInput.vue';
 import SortableTableHeader from '@/components/stocks/SortableTableHeader.vue';
 import { Button } from '@/components/ui/button';
-import { Table, TableBody, TableCell, TableHeader, TableRow } from '@/components/ui/table';
+import { TableBody, TableCell, TableHeader, TableRow } from '@/components/ui/table';
 import { useTableSort } from '@/composables/useTableSort';
 import { useCurrentTime } from '@/composables/useCurrentTime';
 import { clock, entryScore, entryLabel, entryBranch, entryReason, rowDirectionValue, opportunityKinds, dataLabels, directionOrder, directions, fmt, pct, stageOrder, stages, structureName, structurePhases, tone, usable } from '@/components/intraday-options/labels';
@@ -24,7 +28,6 @@ const error = shallowRef<ParsedApiError | null>(null);
 const loading = ref(true);
 const search = ref('');
 const filter = ref<'all' | TrendDirection>('all');
-const expanded = ref<string | null>(null);
 const sortSnapshot = shallowRef<IntradayOptionRow[]>([]);
 const now = useCurrentTime(1000);
 const connectionLost = computed(() => !['connected', 'sse'].includes(stream.status.value) || !!error.value);
@@ -69,10 +72,9 @@ const liveBySymbol = computed(() => new Map(snapshot.value?.items.map(row => [ro
 const rows = computed(() => table.sorted.map(row => liveBySymbol.value.get(row.symbol) ?? row));
 function refreshOrder() { sortSnapshot.value = [...(snapshot.value?.items ?? [])]; }
 function toggleSort(key: string) { refreshOrder(); table.toggle(key); }
-watch([filter, search], () => { refreshOrder(); expanded.value = null; });
+watch([filter, search], () => { refreshOrder(); });
 function windowOf(row: IntradayOptionRow, minutes: number) { return row.result?.windows.find(w => w.minutes === minutes); }
 function valid(row: IntradayOptionRow) { return usable(row); }
-function toggleRow(symbol: string) { expanded.value = expanded.value === symbol ? null : symbol; }
 const stream = useRealtimeQuotes({ scope: 'intraday-options', market: 'US' });
 watch(stream.intradayOptions, result => {
   if (!result) return;
@@ -81,7 +83,7 @@ watch(stream.intradayOptions, result => {
     || previous.items.length !== result.items.length
     || (previous.items !== result.items && previous.items.some((row, i) => row.symbol !== result.items[i]?.symbol));
   snapshot.value = result; error.value = null; loading.value = false;
-  if (reset) { refreshOrder(); expanded.value = null; }
+  if (reset) { refreshOrder(); }
 });
 </script>
 
@@ -160,7 +162,7 @@ watch(stream.intradayOptions, result => {
       数值持续更新，排序及筛选名单保持不动；点击表头、切换筛选或“更新排序”时重新排列。开盘不足完整窗口或分钟缺失时按可用K线计算参考分，并标注缺失；少于2根有效K线时等待数据。日内机会需完整形态背景与相邻闭合K确认，默认仅按有效机会分排序，其余保持观察池顺序。
     </p>
     <div class="overflow-hidden rounded-lg border">
-      <Table data-testid="options-market-table">
+      <InstrumentTable data-testid="options-market-table">
         <TableHeader>
           <TableRow>
             <SortableTableHeader
@@ -187,24 +189,18 @@ watch(stream.intradayOptions, result => {
             v-for="row in rows"
             :key="row.symbol"
           >
-            <TableRow
+            <InstrumentRow
+              :symbol="row.symbol"
+              market="US"
               class="cursor-pointer"
               :data-testid="`options-row-${row.symbol}`"
-              :data-state="expanded === row.symbol ? 'selected' : undefined"
-              @click="toggleRow(row.symbol)"
             >
               <TableCell class="max-w-48 py-2">
-                <button
-                  class="text-left font-medium hover:underline"
-                  :aria-expanded="expanded === row.symbol"
-                  :aria-label="`展开${row.symbol}分钟图`"
-                  @click.stop="toggleRow(row.symbol)"
-                >
-                  {{ row.symbol.replace('.US', '') }}
-                </button>
-                <p class="max-w-44 truncate text-xs text-muted-foreground">
-                  {{ row.name ?? '主数据未识别' }}
-                </p>
+                <StockLink
+                  :code="row.symbol"
+                  :name="row.name"
+                  market="US"
+                />
                 <p
                   v-if="row.dataStatus !== 'ready'"
                   class="text-xs text-amber-600 dark:text-amber-400"
@@ -312,23 +308,23 @@ watch(stream.intradayOptions, result => {
               <TableCell class="whitespace-nowrap text-sm">
                 {{ valid(row) && row.result?.state ? stages[row.result.state] : '—' }}
               </TableCell>
-            </TableRow>
-            <TableRow v-if="expanded === row.symbol">
-              <TableCell
-                :colspan="columns.length"
-                class="p-3"
-              >
+              <template #chart="{ period }">
                 <TrendPanel
+                  v-if="period === '1m'"
                   :symbol="row.symbol"
                   :simulation="snapshot?.simulation"
                   :result="row.result"
                   :stale="disconnected || snapshot?.marketStatus !== 'open' || row.dataStatus === 'delayed' || !valid(row)"
                 />
-              </TableCell>
-            </TableRow>
+                <StockDailyChart
+                  v-else
+                  :symbol="row.symbol"
+                />
+              </template>
+            </InstrumentRow>
           </template>
         </TableBody>
-      </Table>
+      </InstrumentTable>
     </div>
     <p class="text-xs text-muted-foreground">
       {{ rows.length }} / {{ snapshot?.items.length ?? 0 }} 个标的 · 仅正常交易时段评分 · 不选择期权合约，不自动下单 · 趋势评分保留最新缓存；模拟交易与事件独立保存

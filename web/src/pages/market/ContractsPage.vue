@@ -1,42 +1,35 @@
 <script setup lang="ts">
+import InstrumentTable from '@/components/market-data/instrument-table/InstrumentTable.vue';
+import InstrumentRow from '@/components/market-data/instrument-table/InstrumentRow.vue';
 import TrendWindowCell from '@/components/market-data/TrendWindowCell.vue';
 import TrendDirectionCell from '@/components/market-data/TrendDirectionCell.vue';
 import { opportunityKinds, stages, fmt } from '@/components/intraday-options/labels';
-import { computed, onBeforeUnmount, ref, watch } from 'vue';
-import { ChevronDown, ChevronRight, Plus, Trash2 } from 'lucide-vue-next';
+import { computed, onBeforeUnmount, ref } from 'vue';
+import { Plus, Trash2 } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
-import { Table, TableHeader, TableBody, TableRow, TableCell, TableHead } from '@/components/ui/table';
-import { contractsApi, type Candle, type Contract, type ContractQuote, type MarketSnapshot } from '@/api/contracts';
+import { TableHeader, TableBody, TableRow, TableCell, TableHead } from '@/components/ui/table';
+import { contractsApi, type Contract, type ContractQuote, type MarketSnapshot } from '@/api/contracts';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import AppApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
 import AppConfirmDialog from '@/components/app/AppConfirmDialog.vue';
 import SortableTableHeader from '@/components/stocks/SortableTableHeader.vue';
-import ContractMarketPanel from '@/components/contracts/ContractMarketPanel.vue';
+import ContractRowChart from '@/components/contracts/ContractRowChart.vue';
+import ContractLink from '@/components/contracts/ContractLink.vue';
 import ContractAddDialog from '@/components/contracts/ContractAddDialog.vue';
 import { signedTextClass } from '@/utils/marketTone';
 import { useTableSort, sortField } from '@/composables/useTableSort';
 import { useContractMarket } from '@/composables/useContractMarket';
 import { useAuthStore } from '@/stores/authStore';
-import { useStockDetail } from '@/composables/useStockDetail';
 import { useCurrentTime } from '@/composables/useCurrentTime';
 
 const rows = ref<ContractQuote[]>([]);
-const symbol = ref('');
-const interval = ref<'1d' | '1m'>('1m');
-const minutes = ref<Candle[]>([]);
-const daily = ref<Candle[]>([]);
-const current = ref<Candle | null>(null);
-const loadingDaily = ref(false);
 const received = ref(false);
 const error = ref<ParsedApiError | null>(null);
 const addOpen = ref(false);
 const addError = ref<ParsedApiError | null>(null);
-const chartError = ref<ParsedApiError | null>(null);
-const chartReceived = ref(false);
 const busy = ref(false);
 const removing = ref('');
 const auth = useAuthStore();
-const detail = useStockDetail();
 const admin = computed(() => auth.currentUser?.role === 'admin');
 const now = useCurrentTime(5_000);
 function currentOpportunity(row: ContractQuote) {
@@ -90,70 +83,18 @@ const columns = [
   ...[5, 15, 30, 60].map(n => ({ key: `analysis.windows.${n}.score`, label: `${n}分钟` })),
   { key: 'quote.turnover', label: '24h 成交额' }, { key: 'quote.funding_rate', label: '资金费率' },
 ];
-const chartBars = computed(() => interval.value === '1m' ? minutes.value :
-  daily.value.filter(bar => bar.timestamp !== current.value?.timestamp));
-const chartCurrent = computed(() => interval.value === '1d' ? current.value : null);
-let generation = 0;
-let dailyRequest: AbortController | undefined;
-let lastDailyRead = 0;
 let stopped = false;
-async function loadDaily() {
-  if (!symbol.value || interval.value !== '1d' || loadingDaily.value) return;
-  const version = ++generation;
-  const selected = symbol.value;
-  const request = new AbortController();
-  dailyRequest = request;
-  loadingDaily.value = true;
-  chartError.value = null;
-  lastDailyRead = Date.now();
-  try {
-    const bars = await contractsApi.bars(selected, request.signal);
-    if (!stopped && version === generation) daily.value = bars;
-  } catch (err) {
-    if (!stopped && version === generation) chartError.value = getParsedApiError(err);
-  } finally {
-    if (version === generation) { dailyRequest = undefined; loadingDaily.value = false; }
-  }
-}
-watch([symbol, interval], () => {
-  ++generation;
-  dailyRequest?.abort(); dailyRequest = undefined;
-  daily.value = [];
-  minutes.value = [];
-  current.value = null;
-  loadingDaily.value = false;
-  chartReceived.value = false;
-  chartError.value = null;
-  if (symbol.value && interval.value === '1d') void loadDaily();
-});
 function receive(snapshot: MarketSnapshot) {
   if (!received.value) error.value = null;
   received.value = true;
   rows.value = snapshot.items;
-  if (!symbol.value) return;
-  if (!rows.value.some(row => row.symbol === symbol.value)) {
-    symbol.value = '';
-    return;
-  }
-  if (snapshot.symbol !== symbol.value) return;
-  chartReceived.value = true;
-  if (interval.value === '1m') minutes.value = snapshot.minutes ?? [];
-  else current.value = snapshot.daily_current;
-  if (interval.value === '1d' && Date.now() - lastDailyRead >= 60_000 && !loadingDaily.value) void loadDaily();
 }
-const { status, reconnect } = useContractMarket(symbol, interval, receive);
+const { status, reconnect } = useContractMarket(ref(''), ref('1m'), receive);
 void contractsApi.snapshot().then(snapshot => {
   if (!stopped && !received.value) receive(snapshot);
 }).catch(err => {
   if (!stopped && !received.value) error.value = getParsedApiError(err);
 });
-function toggleRow(target: string) {
-  if (symbol.value === target) symbol.value = '';
-  else {
-    interval.value = '1m';
-    symbol.value = target;
-  }
-}
 function openAdd() { addError.value = null; addOpen.value = true; }
 async function add(item: Contract) {
   if (busy.value) return;
@@ -180,8 +121,7 @@ async function remove() {
     if (!stopped) {
       rows.value = rows.value.filter(row => row.symbol !== target);
       received.value = true;
-      if (symbol.value === target) symbol.value = '';
-      else reconnect();
+      reconnect();
     }
   } catch (err) { if (!stopped) error.value = getParsedApiError(err); }
   finally { busy.value = false; }
@@ -195,19 +135,10 @@ function percent(value: number | null | undefined, digits = 2) {
 function categoryLabel(category: string) {
   return ({ COIN: '加密货币', EQUITY: '股票/ETF', KR_EQUITY: '韩股', COMMODITY: '商品' } as Record<string, string>)[category] ?? category;
 }
-function openDetail(row: ContractQuote) {
-  const target = row.underlying_symbol;
-  const marketType = target?.endsWith('.US') ? 'US' : target?.endsWith('.HK') ? 'HK'
-    : /\.(SH|SZ|BJ)$/.test(target ?? '') ? 'CN' : target?.endsWith('.CRYPTO') ? 'CRYPTO' : 'OTHER';
-  detail.open({ code: target ?? row.symbol, name: null, marketType });
-}
-function underlyingLabel(row: ContractQuote) {
-  return row.underlying_symbol?.replace(/\.(CRYPTO|OTHER)$/, '') ?? '锚定标的暂缺';
-}
 function delayed(row: ContractQuote) {
   return !row.quote || Math.abs(now.value.getTime() - row.quote.timestamp) > 60_000;
 }
-onBeforeUnmount(() => { stopped = true; ++generation; dailyRequest?.abort(); });
+onBeforeUnmount(() => { stopped = true; });
 </script>
 
 <template>
@@ -253,7 +184,7 @@ onBeforeUnmount(() => { stopped = true; ++generation; dailyRequest?.abort(); });
           <Plus class="size-4" /> 添加合约
         </Button>
       </div>
-      <Table>
+      <InstrumentTable>
         <TableHeader>
           <TableRow>
             <SortableTableHeader
@@ -277,36 +208,16 @@ onBeforeUnmount(() => { stopped = true; ++generation; dailyRequest?.abort(); });
             v-for="row in sort.sorted"
             :key="row.symbol"
           >
-            <TableRow
+            <InstrumentRow
+              :symbol="row.symbol"
               data-testid="contract-row"
               class="cursor-pointer"
-              :class="row.symbol === symbol ? 'bg-muted/60' : ''"
-              tabindex="0"
-              :aria-label="`展开 ${row.symbol} 合约行情`"
-              :aria-expanded="row.symbol === symbol"
-              @click="toggleRow(row.symbol)"
-              @keydown.enter.self="toggleRow(row.symbol)"
-              @keydown.space.self.prevent="toggleRow(row.symbol)"
             >
               <TableCell class="whitespace-nowrap px-4 py-3">
-                <span class="inline-flex items-center gap-1.5">
-                  <component
-                    :is="row.symbol === symbol ? ChevronDown : ChevronRight"
-                    class="size-4 text-muted-foreground"
-                    aria-hidden="true"
-                  />
-                  <button
-                    class="rounded-sm font-semibold text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    type="button"
-                    :aria-label="row.symbol + ' 标的详情'"
-                    @click.stop="openDetail(row)"
-                    @keydown.enter.stop
-                    @keydown.space.stop
-                  >
-                    {{ row.symbol }}
-                    <span class="ml-1 text-xs font-normal text-muted-foreground">{{ underlyingLabel(row) }}</span>
-                  </button>
-                </span>
+                <ContractLink
+                  :symbol="row.symbol"
+                  :contract="row"
+                />
                 <span
                   v-if="delayed(row)"
                   class="ml-2 text-xs text-muted-foreground"
@@ -367,29 +278,16 @@ onBeforeUnmount(() => { stopped = true; ++generation; dailyRequest?.abort(); });
                   <Trash2 class="size-4" /> 删除
                 </Button>
               </TableCell>
-            </TableRow>
-            <TableRow
-              v-if="symbol === row.symbol"
-              data-testid="contract-expanded-row"
-            >
-              <TableCell
-                :colspan="columns.length + (admin ? 1 : 0)"
-                class="max-w-0 p-3"
-              >
-                <ContractMarketPanel
-                  v-model:interval="interval"
+              <template #chart="{ period }">
+                <ContractRowChart
                   :row="row"
-                  :bars="chartBars"
-                  :current="chartCurrent"
-                  :loading="loadingDaily || !chartReceived"
-                  :error="chartError"
-                  @retry="loadDaily"
+                  :period="period"
                 />
-              </TableCell>
-            </TableRow>
+              </template>
+            </InstrumentRow>
           </template>
         </TableBody>
-      </Table>
+      </InstrumentTable>
       <p
         v-if="!rows.length"
         class="p-8 text-center text-sm text-muted-foreground"

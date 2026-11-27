@@ -153,7 +153,7 @@ async def intraday_bars(
     try:
         code = canonical_symbol(symbol)
         market = infer_market(code).value
-        if market not in {"CN", "US"} or (since is not None and since.tzinfo is None):
+        if market not in {"CN", "HK", "US"} or (since is not None and since.tzinfo is None):
             raise ValueError("invalid market or timestamp")
     except ValueError as exc:
         raise HTTPException(422, "证券或时间格式无效") from exc
@@ -169,7 +169,7 @@ async def intraday_bars(
         )
         from finance_analysis.market_stream.session import us_minute_session
 
-        reset = since is None or (market == "CN" and market_trading_date(since, market) != day)
+        reset = since is None or (market != "US" and market_trading_date(since, market) != day)
         cutoff = us_minute_cutoff(now)
         by_time = {bar.bar_time: bar for bar in bars}
         if current is not None and (current.bar_time not in by_time or not by_time[current.bar_time].confirmed):
@@ -179,7 +179,7 @@ async def intraday_bars(
             for bar in sorted(by_time.values(), key=lambda b: b.bar_time)
             if bar.is_valid()
             and ((market == "US" and bar.bar_time >= cutoff) or (
-                market == "CN" and market_trading_date(bar.bar_time, market) == day
+                market != "US" and market_trading_date(bar.bar_time, market) == day
                 and is_regular_session_minute(bar.bar_time, market)
             ))
             and bar.bar_time <= now
@@ -204,7 +204,7 @@ async def intraday_bars(
             }
             for bar in visible
         ]
-        full_snapshot = market == "CN"
+        full_snapshot = market != "US"
         next_version = None
         if market == "US" and items:
             # The cursor candle is always resent and may still be open. Version the preceding candles.

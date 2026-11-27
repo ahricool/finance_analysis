@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import InstrumentTable from '@/components/market-data/instrument-table/InstrumentTable.vue';
+import InstrumentRow from '@/components/market-data/instrument-table/InstrumentRow.vue';
 import FieldSelect from '@/components/forms/FieldSelect.vue';
 import SortableTableHeader from '@/components/stocks/SortableTableHeader.vue';
 import { useTableSort, sortField } from '@/composables/useTableSort';
@@ -14,7 +16,7 @@ import PageHeader from '@/components/layout/PageHeader.vue';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import StockDetailDialog from '@/components/stocks/StockDetailDialog.vue';
-import { Table, TableHeader, TableBody, TableRow, TableCell } from '@/components/ui/table';
+import { TableHeader, TableBody, TableRow, TableCell } from '@/components/ui/table';
 import AppPagination from '@/components/app/AppPagination.vue';
 import { intradayLabel } from '@/i18n/labels';
 import { Activity, ArrowUpRight, Clock3, RefreshCw, Search, ShieldAlert } from 'lucide-vue-next';
@@ -250,7 +252,7 @@ const detailInitialTab = ref<'overview' | 'intraday'>('intraday');
           <span>更新 {{ stamp(result.generatedAt) }}<span v-if="datesLoading"> · 读取历史日期…</span></span>
         </div>
         <div class="max-w-full overflow-x-auto">
-          <Table class="min-w-[1180px] text-sm">
+          <InstrumentTable class="min-w-[1180px] text-sm">
             <TableHeader class="bg-muted/30">
               <TableRow>
                 <SortableTableHeader
@@ -308,21 +310,21 @@ const detailInitialTab = ref<'overview' | 'intraday'>('intraday');
               </TableRow>
             </TableHeader>
             <TableBody>
-              <TableRow
+              <InstrumentRow
                 v-for="row in visibleRows"
                 :key="row.code"
+                :symbol="row.code"
+                :market="market"
                 class="cursor-pointer hover:bg-muted/40"
-                tabindex="0"
-                @click="detailInitialTab = 'intraday'; show(row)"
-                @keydown.enter.self="detailInitialTab = 'intraday'; show(row)"
-                @keydown.space.self.prevent="detailInitialTab = 'intraday'; show(row)"
               >
                 <TableCell class="space-y-2 py-4 pl-4">
                   <StockLink
                     :code="row.code"
                     :name="row.name"
                     :market="market"
+                    research-label="确认证据"
                     @select="detailInitialTab = 'overview'; show(row)"
+                    @research="detailInitialTab = 'intraday'; show(row)"
                   />
                   <div class="flex flex-wrap gap-1">
                     <Badge
@@ -392,7 +394,7 @@ const detailInitialTab = ref<'overview' | 'intraday'>('intraday');
                 >
                   {{ forwardReturn(value) }}
                 </TableCell>
-              </TableRow>
+              </InstrumentRow>
               <TableRow v-if="!visibleRows.length">
                 <TableCell
                   :colspan="12"
@@ -402,11 +404,11 @@ const detailInitialTab = ref<'overview' | 'intraday'>('intraday');
                 </TableCell>
               </TableRow>
             </TableBody>
-          </Table>
+          </InstrumentTable>
         </div>
         <div class="flex flex-wrap items-center justify-between gap-3 border-t px-4 py-3">
           <p class="text-xs text-muted-foreground">
-            点击证券查看行情，点击行查看证据与评估轨迹
+            点击证券查看行情，点击行展开 K 线
           </p><AppPagination
             :current-page="page"
             :total-pages="pageCount"

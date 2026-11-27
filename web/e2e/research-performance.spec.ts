@@ -38,7 +38,7 @@ test('trend preview skips official rows and opens one security without downloadi
   await expect(page.getByTestId('trend-row')).toContainText('贵州茅台');
   expect(requests.filter(path => path.endsWith('/auth/status'))).toHaveLength(1);
   expect(requests).not.toContain('/api/v1/trend-following/ranking/table');
-  await page.getByTestId('trend-row').click();
+  await page.getByTestId('trend-row').getByTestId('row-research').click();
   await expect(page.getByTestId('trend-detail')).toContainText('贵州茅台');
   expect(requests.filter(path => path.endsWith('/preview/ranking'))).toHaveLength(1);
   expect(requests.filter(path => path.includes('/preview/stocks/'))).toHaveLength(1);

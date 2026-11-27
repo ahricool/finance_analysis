@@ -1,9 +1,13 @@
 <script setup lang="ts">
+import InstrumentTable from '@/components/market-data/instrument-table/InstrumentTable.vue';
+import InstrumentRow from '@/components/market-data/instrument-table/InstrumentRow.vue';
 import SortableTableHeader from '@/components/stocks/SortableTableHeader.vue';
 import { useTableSort, sortField } from '@/composables/useTableSort';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import StockIdentity from '@/components/stocks/StockIdentity.vue';
 import { RouterLink } from 'vue-router';
-import { optionsIntelligenceApi, type OptionsDetail, type OptionsView } from '@/api/optionsIntelligence';
+import { optionsIntelligenceApi, type OptionContract, type OptionsDetail, type OptionsView } from '@/api/optionsIntelligence';
 import { tasksApi } from '@/api/tasks';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import AppApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
@@ -26,12 +30,15 @@ import { eventLabels, formatOptionNumber as num, formatOptionPct as pct, reasonL
 const props = defineProps<{ symbol: string; market?: string; initialView?: OptionsView; initialDate?: string }>();
 const market = computed(() => props.market ?? (props.symbol.endsWith('.US') ? 'US' : props.symbol.endsWith('.HK') ? 'HK' : 'CN'));
 const supportsChain = computed(() => market.value === 'US');
+const contractDetail = ref<OptionContract | null>(null);
+const contractName = (c: OptionContract) => `${props.symbol} ${c.expiration} ${c.optionType === 'put' ? '看跌' : '看涨'} ${num(c.strike)}`;
 const activeSection = ref('strategies');
 watch([() => props.symbol, market], () => { activeSection.value = 'strategies'; });
 const mode = ref<OptionsView>(props.initialView ?? 'official'), requestedDate = ref(props.initialDate ?? '');
 const visibleDate = computed(() => data.value?.tradeDate ?? requestedDate.value);
 const dates = computed(() => data.value?.availableDates ?? []);
 const data = ref<OptionsDetail | null>(null);
+watch([() => props.symbol, data], () => { contractDetail.value = null; });
 const error = ref<ParsedApiError | null>(null);
 const loading = ref(false), working = ref(false), taskId = ref('');
 const expiry = ref(''), kind = ref('all'), source = ref('yfinance');
@@ -554,7 +561,7 @@ const historyTable = useTableSort(() => [...(data.value?.dailyHistory ?? [])].re
             </div>
 
             <div class="min-w-0 max-w-full overflow-x-auto rounded-xl border bg-card">
-              <Table>
+              <InstrumentTable>
                 <TableHeader>
                   <TableRow class="bg-muted/30">
                     <SortableTableHeader
@@ -600,20 +607,24 @@ const historyTable = useTableSort(() => [...(data.value?.dailyHistory ?? [])].re
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  <TableRow
+                  <InstrumentRow
                     v-for="c in chainTable.sorted"
                     :key="`${c.symbol}:${c.dataSource}`"
+                    :symbol="c.symbol"
+                    :row-id="c.symbol + c.dataSource"
+                    no-candles
                   >
                     <TableCell>
-                      <p class="font-medium">
-                        <span :class="c.optionType === 'put' ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400'">
-                          {{ c.optionType }}
-                        </span>
-                        <span class="ml-1 font-mono">{{ num(c.strike) }}</span>
-                      </p>
-                      <p class="max-w-36 break-all font-mono text-xs text-muted-foreground">
-                        {{ c.symbol }}
-                      </p>
+                      <button
+                        type="button"
+                        class="max-w-52 whitespace-normal text-left hover:underline"
+                        @click.stop="contractDetail = c"
+                      >
+                        <StockIdentity
+                          :code="c.symbol"
+                          :name="contractName(c)"
+                        />
+                      </button>
                     </TableCell>
                     <TableCell class="font-mono tabular-nums">
                       {{ num(c.bid) }} / {{ num(c.ask) }}
@@ -662,9 +673,9 @@ const historyTable = useTableSort(() => [...(data.value?.dailyHistory ?? [])].re
                         {{ c.notes.map(reasonLabel).join(' · ') }}
                       </p>
                     </TableCell>
-                  </TableRow>
+                  </InstrumentRow>
                 </TableBody>
-              </Table>
+              </InstrumentTable>
               <p
                 v-if="!chain.length"
                 class="p-6 text-center text-sm text-muted-foreground"
@@ -906,4 +917,20 @@ const historyTable = useTableSort(() => [...(data.value?.dailyHistory ?? [])].re
       </TabsContent>
     </Tabs>
   </div>
+  <Dialog
+    :open="!!contractDetail"
+    @update:open="value => { if (!value) contractDetail = null; }"
+  >
+    <DialogContent v-if="contractDetail">
+      <DialogHeader>
+        <DialogTitle>{{ contractDetail.symbol }} - {{ contractName(contractDetail) }}</DialogTitle>
+        <DialogDescription>{{ contractDetail.dataSource }} · {{ contractDetail.observedAt }}</DialogDescription>
+      </DialogHeader>
+      <dl class="grid grid-cols-2 gap-2 text-sm">
+        <dt>买价 / 卖价</dt><dd>{{ num(contractDetail.bid) }} / {{ num(contractDetail.ask) }}</dd>
+        <dt>成交量 / 未平仓量</dt><dd>{{ num(contractDetail.volume, 0) }} / {{ num(contractDetail.openInterest, 0) }}</dd>
+        <dt>隐含波动率 / Delta</dt><dd>{{ pct(contractDetail.iv) }} / {{ num(contractDetail.delta) }}</dd>
+      </dl>
+    </DialogContent>
+  </Dialog>
 </template>

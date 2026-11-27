@@ -22,7 +22,9 @@ for (const width of [1280, 1440, 1920]) {
         CanvasRenderingContext2D.prototype.fillText = function (text, x, y, maxWidth) {
           if (text.startsWith('查看日 ')) {
             const transform = this.getTransform();
-            this.canvas.dataset.researchMarkerX = String((transform.a * x + transform.e) / this.canvas.width);
+            // KLineCharts draws centered labels using a left-aligned fillText call.
+            const center = x + (maxWidth ?? this.measureText(text).width) / 2;
+            this.canvas.dataset.researchMarkerX = String((transform.a * center + transform.e) / this.canvas.width);
           }
           original.call(this, text, x, y, maxWidth);
         };
@@ -91,7 +93,7 @@ for (const width of [1280, 1440, 1920]) {
       await expect(row.locator('[data-column="forwardReturn3D"]')).toHaveText('+3.00%');
       await expect(row.locator('[data-column="forwardReturn5D"]')).toHaveText('-2.00%');
       await expect(row.locator('[data-column="forwardReturn10D"]')).toHaveText('—');
-      await row.click();
+      await row.getByTestId('row-research').click();
       const dialog = page.getByTestId('etf-detail-modal');
       await expect(dialog).toBeVisible();
       await page.getByRole('dialog').getByRole('tab', { name: '行情', exact: true }).click();
