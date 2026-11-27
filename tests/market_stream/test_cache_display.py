@@ -139,3 +139,30 @@ async def test_intraday_does_not_expose_other_users_collected_symbols(monkeypatc
     with pytest.raises(HTTPException) as error:
         await market_data.intraday_bars("KO.US", SimpleNamespace())
     assert error.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_hk_intraday_displays_only_cached_regular_minutes_from_latest_session(monkeypatch):
+    from tests.market_stream.test_realtime_repository import candle
+
+    repo = RealtimeStateRepository(FakeRedis())
+    symbol = "700.HK"
+    now = NOW.replace(hour=7)
+    bars = [
+        replace(candle(0), symbol=symbol, bar_time=stamp, received_at=stamp)
+        for stamp in (now.replace(hour=2), now.replace(hour=4, minute=15), now.replace(hour=6))
+    ]
+    await repo.upsert_bars(symbol, bars)
+
+    async def require_access(request, code, market):
+        assert (code, market) == (symbol, "HK")
+        return 7
+
+    monkeypatch.setattr(market_data, "_require_intraday_access", require_access)
+    monkeypatch.setattr(market_data, "utc_now", lambda: now)
+    monkeypatch.setattr(market_data.RealtimeStateRepository, "from_url", lambda url: repo)
+    result = await market_data.intraday_bars("00700.HK", SimpleNamespace(), since=now - timedelta(days=1))
+    assert result["market"] == "HK" and result["full_snapshot"] and result["reset"]
+    assert [bar["timestamp"] for bar in result["items"]] == [
+        int(bars[i].bar_time.timestamp() * 1000) for i in (0, 2)
+    ]

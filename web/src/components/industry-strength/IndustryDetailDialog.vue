@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import InstrumentTable from '@/components/market-data/instrument-table/InstrumentTable.vue';
+import InstrumentRow from '@/components/market-data/instrument-table/InstrumentRow.vue';
 import { useTableSort, sortField } from '@/composables/useTableSort';
 import { formatRank } from '@/utils/rank';
 import StockLink from '@/components/stocks/StockLink.vue';
@@ -428,7 +430,7 @@ const historyTable = useTableSort(() => [...historyItems.value].reverse(), sortF
               · 点击表头排序，缺失值始终排最后
             </p>
             <div class="overflow-x-auto rounded-lg border">
-              <Table container-class="overflow-visible">
+              <InstrumentTable container-class="overflow-visible">
                 <TableHeader class="sticky top-0 bg-background">
                   <TableRow>
                     <SortableTableHeader
@@ -444,9 +446,11 @@ const historyTable = useTableSort(() => [...historyItems.value].reverse(), sortF
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  <TableRow
+                  <InstrumentRow
                     v-for="item in sortedItems"
                     :key="item.code"
+                    :symbol="item.code"
+                    market="CN"
                   >
                     <TableCell>
                       <StockLink
@@ -472,9 +476,9 @@ const historyTable = useTableSort(() => [...historyItems.value].reverse(), sortF
                     <TableCell class="tabular-nums">
                       {{ formatAmountYi(item.amount) }}
                     </TableCell>
-                  </TableRow>
+                  </InstrumentRow>
                 </TableBody>
-              </Table>
+              </InstrumentTable>
             </div>
           </template>
         </section>

@@ -10,6 +10,7 @@ export function dashboardResponse(url: URL): object {
   });
   const change = etfChange(code, name, 'BUY', 'WATCH');
   const path = url.pathname;
+  if (/^\/api\/v1\/market-data\/minute-forecast\/[^/]+\/preference$/.test(path)) return { enabled: false };
   if (url.pathname === '/api/v1/market-structure') return {
     market: url.searchParams.get('market') || 'CN', trade_date: '2026-09-08', expected_trade_date: '2026-09-08',
     breadth: { breadth_divergence_5d: 0.028, benchmark_return_5d: 0.035, median_member_return_5d: 0.007,

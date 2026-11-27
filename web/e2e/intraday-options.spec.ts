@@ -91,7 +91,7 @@ for (const width of [390, 768, 1024, 1280, 1440, 1920]) {
     await page.goto('/market/intraday-options');
     await expect(page.getByTestId('simulation-position')).toHaveCount(2);
     await expect(page.getByTestId('simulation-event')).toHaveCount(2);
-    await expect(page.getByTestId('simulation-event').first()).toContainText(/NVDA.US\s*做空/);
+    await expect(page.getByTestId('simulation-event').first()).toContainText(/NVDA\.US.*做空/);
     await expect(page.getByTestId('simulation-event').first()).toBeVisible();
     const rows = page.locator('[data-testid^="options-row-"]');
     await expect(rows).toHaveCount(28);
@@ -103,7 +103,7 @@ for (const width of [390, 768, 1024, 1280, 1440, 1920]) {
     await expect(opportunityCell).toContainText('已进场/持有中');
     await expect(opportunityCell.getByTestId('opportunity-reason')).toContainText('已模拟持有');
     expect(chartRequests).toBe(0);
-    await rows.first().locator('td').first().click();
+    await rows.first().getByTestId('opportunity-score').click();
     const panel = page.getByTestId('options-trend-panel');
     await expect(panel).toBeVisible();
     await expect(panel.getByRole('img', { name: /1m K线/ })).toBeVisible();
@@ -256,7 +256,7 @@ for (const width of [390, 1440]) {
     await expect(tree.locator('[data-map-id]')).toHaveCount(1);
     await root.click();
     await expect(tech).toHaveAttribute('aria-expanded', 'false');
-    await page.getByRole('button', { name: '全部展开', exact: true }).click();
+    await page.locator('#intraday-industry-map').getByRole('button', { name: '全部展开', exact: true }).click();
     await expect(stocks).toHaveCount(5);
 
     updateQuote();

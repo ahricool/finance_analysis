@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import InstrumentTable from '@/components/market-data/instrument-table/InstrumentTable.vue';
+import InstrumentRow from '@/components/market-data/instrument-table/InstrumentRow.vue';
 import { formatRank } from '@/utils/rank';
 import SortableTableHeader from '@/components/stocks/SortableTableHeader.vue';
 import { useQuantTableSort } from '@/composables/useQuantTableSort';
@@ -17,7 +19,7 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Table, TableBody, TableCell, TableHeader, TableRow } from '@/components/ui/table';
+import { TableBody, TableCell, TableHeader, TableRow } from '@/components/ui/table';
 import { useQuantMarket } from '@/composables/useQuantMarket';
 import type { SignalRanking } from '@/types/quant';
 import { formatPredictedReturn, formatRealizedReturn, formatScore } from '@/utils/quant';
@@ -124,7 +126,7 @@ const detailInitialTab = ref<'overview' | 'quant'>('quant');
       >
         <CardHeader><CardTitle>排名明细</CardTitle><CardDescription>{{ ranking?.tradeDate || '—' }} · 共 {{ items.length }} 个标的。</CardDescription></CardHeader>
         <CardContent class="block">
-          <Table>
+          <InstrumentTable>
             <TableHeader>
               <TableRow>
                 <SortableTableHeader
@@ -214,14 +216,12 @@ const detailInitialTab = ref<'overview' | 'quant'>('quant');
                 />
               </TableRow>
             </TableHeader><TableBody>
-              <TableRow
+              <InstrumentRow
                 v-for="item in items"
                 :key="item.id"
+                :symbol="item.code"
+                :market="market"
                 class="cursor-pointer"
-                tabindex="0"
-                @click="detailInitialTab = 'quant'; show(item)"
-                @keydown.enter.self="detailInitialTab = 'quant'; show(item)"
-                @keydown.space.self.prevent="detailInitialTab = 'quant'; show(item)"
               >
                 <TableCell>{{ formatRank(item.universeRank, item.rankTotal) }}</TableCell>
                 <TableCell>
@@ -229,7 +229,9 @@ const detailInitialTab = ref<'overview' | 'quant'>('quant');
                     :code="item.code"
                     :name="item.name"
                     :market="market"
+                    research-label="量化详情"
                     @select="detailInitialTab = 'overview'; show(item)"
+                    @research="detailInitialTab = 'quant'; show(item)"
                   />
                 </TableCell><TableCell class="text-right tabular-nums">
                   {{ formatScore(item.finalScore) }}
@@ -259,9 +261,9 @@ const detailInitialTab = ref<'overview' | 'quant'>('quant');
                     {{ item.signal }}
                   </Badge>
                 </TableCell>
-              </TableRow>
+              </InstrumentRow>
             </TableBody>
-          </Table>
+          </InstrumentTable>
         </CardContent>
       </Card>
       <Empty v-else-if="!error">

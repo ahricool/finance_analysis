@@ -365,6 +365,24 @@ async def run_collector(redis):
         await client.close()
 
 
+async def cached_candles(redis, symbol, interval):
+    """Read just the requested symbol's UTC candle window from the stream cache."""
+    bars = None
+    current_daily = None
+    try:
+        if interval != "1d":
+            bars = merge_minutes([], await read_json(redis, key(symbol, "minute"), []), now_ms())
+        if interval != "1m":
+            current_daily = await read_json(redis, key(symbol, "daily-current"), None)
+            if current_daily and current_daily["timestamp"] != now_ms() // DAY * DAY:
+                current_daily = None
+    except RedisError:
+        # Keep the editable universe and persisted daily chart available.
+        bars = [] if interval != "1d" else None
+        current_daily = None
+    return bars, current_daily
+
+
 async def live_snapshot(redis, symbol=None, interval=None):
     contracts = await asyncio.to_thread(repository.contracts)
     kinds = ("quote", "analysis", "metrics", "mark", "book")
@@ -397,15 +415,5 @@ async def live_snapshot(redis, symbol=None, interval=None):
     bars = None
     current_daily = None
     if symbol and symbol in {row["symbol"] for row in rows}:
-        try:
-            if interval != "1d":
-                bars = merge_minutes([], await read_json(redis, key(symbol, "minute"), []), int(time.time() * 1000))
-            if interval != "1m":
-                current_daily = await read_json(redis, key(symbol, "daily-current"), None)
-                if current_daily and current_daily["timestamp"] != int(time.time() * 1000) // DAY * DAY:
-                    current_daily = None
-        except RedisError:
-            # Keep the editable universe and persisted daily chart available.
-            bars = [] if interval != "1d" else None
-            current_daily = None
+        bars, current_daily = await cached_candles(redis, symbol, interval)
     return {"items": rows, "symbol": symbol, "minutes": bars, "daily_current": current_daily}

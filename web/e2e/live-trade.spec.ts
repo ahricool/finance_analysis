@@ -37,6 +37,7 @@ test('live account switch is persisted locally; no trading UI or Binance browser
       selected = route.request().postDataJSON().strategy;
       return route.fulfill({ status: 204 });
     }
+    if (path === '/api/v1/crypto/contracts') return route.fulfill({ json: { items: [], symbol: null } });
     if (path === base) return route.fulfill({ json: state });
     if (path === base + '/control') {
       if (route.request().method() === 'PUT') {

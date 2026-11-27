@@ -142,7 +142,7 @@ test(`research top fifty pagination and observation detail ${width}px`, async ({
   await expect(pagination).toContainText('第 3 / 5 页');
   await expect(page.getByTestId('below-threshold')).toHaveCount(10);
   await page.screenshot({ path: testInfo.outputPath('research-observations-page3.png'), fullPage: true });
-  await page.locator('tbody tr').first().locator('td').nth(2).click();
+  await page.locator('tbody tr').first().getByTestId('row-research').click();
   await expect(page.getByTestId('confluence-selection-status')).toContainText('研究观察项');
   await expect(page.getByTestId('confluence-selection-status')).toContainText('低于60分');
   await expect(page.getByTestId('confluence-selection-status')).not.toContainText('当日精选信号');

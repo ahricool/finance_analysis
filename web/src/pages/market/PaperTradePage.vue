@@ -8,8 +8,7 @@ import AppApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import { paperTradeApi, type PaperSnapshot, type Row } from '@/api/paperTrade';
 import PaperTable, { type Column } from '@/components/paper-trade/PaperTable.vue';
-import MarketKLineChart from '@/components/market-data/MarketKLineChart.vue';
-import { contractsApi, type Candle } from '@/api/contracts';
+import { contractsApi, type ContractQuote } from '@/api/contracts';
 
 const data = ref<PaperSnapshot | null>(null);
 const busy = ref(false);
@@ -40,6 +39,7 @@ async function refreshMarket() {
   try {
     const market = await contractsApi.snapshot();
     if (stopped) return;
+    contracts.value = new Map(market.items.map(row => [row.symbol, row]));
     marketStatus.value = market.items.some(row => row.quote && Math.abs(Date.now() - row.quote.timestamp) < 60_000)
       ? '有实时行情' : '行情缺失或延迟';
   } catch { if (!stopped) marketStatus.value = '行情暂不可用'; }
@@ -89,18 +89,8 @@ async function changeTradeControl(enabled: boolean) {
     if (data.value) data.value = { ...data.value, trade_control: actual };
   }, enabled ? '已启用 Demo 新增仓位。' : '已禁止 Demo 新增仓位；账户同步、撤单、平仓及已有保护单管理继续。');
 }
-const chartSymbol = ref('');
-const bars = ref<Candle[]>([]);
-let chartGeneration = 0;
-async function showChart(symbol: string) {
-  chartSymbol.value = symbol;
-  bars.value = [];
-  const current = ++chartGeneration;
-  try {
-    const result = await contractsApi.bars(symbol);
-    if (!stopped && current === chartGeneration) bars.value = result;
-  } catch (err) { error.value = getParsedApiError(err); }
-}
+const contracts = ref(new Map<string, ContractQuote>());
+
 function column(key: string, label: string, numeric = false, time = false): Column { return { key, label, numeric, time }; }
 const positions = [column('symbol','合约'), column('direction','方向'), column('positionSide','持仓模式'), column('positionAmt','数量（正多负空）',true), column('entryPrice','开仓均价',true), column('markPrice','标记价',true), column('leverage','杠杆',true), column('marginType','保证金模式'), column('positionInitialMargin','保证金',true), column('liquidationPrice','强平价',true),column('fundingRate','Demo 资金费率',true), column('unRealizedProfit','未实现盈亏',true), column('source','归属')];
 const orders = [column('symbol','合约'),column('orderId','订单 ID'),column('side','方向'),column('type','类型'),column('status','状态'),column('price','价格',true),column('origQty','委托数量',true),column('executedQty','成交数量',true),column('time','时间 (UTC)',false,true),column('source','来源')];
@@ -206,18 +196,12 @@ onBeforeUnmount(() => { stopped = true; clearInterval(timer); });
         当前持仓
       </h2>
       <PaperTable
+        :contracts="contracts"
         :rows="view?.positions ?? []"
         :columns="positions"
         actions
       >
         <template #actions="{ row }">
-          <Button
-            size="sm"
-            variant="ghost"
-            @click="showChart(String(row.symbol))"
-          >
-            K 线
-          </Button>
           <Button
             size="sm"
             variant="outline"
@@ -228,34 +212,6 @@ onBeforeUnmount(() => { stopped = true; clearInterval(timer); });
           </Button>
         </template>
       </PaperTable>
-      <div
-        v-if="chartSymbol"
-        class="rounded-md border p-3"
-      >
-        <div class="flex justify-between">
-          <h3>{{ chartSymbol }} · 生产市场日 K（研究输入）</h3><Button
-            size="sm"
-            variant="ghost"
-            @click="chartSymbol = ''"
-          >
-            关闭
-          </Button>
-        </div>
-        <MarketKLineChart
-          v-if="bars.length"
-          :symbol="chartSymbol"
-          period="1d"
-          :bars="bars"
-          timezone="UTC"
-          disable-forecast
-        />
-        <p
-          v-else
-          class="py-8 text-center text-muted-foreground"
-        >
-          暂无共享行情
-        </p>
-      </div>
     </section>
 
     <section class="space-y-4 rounded-xl border bg-card p-4 sm:p-5">
@@ -266,6 +222,7 @@ onBeforeUnmount(() => { stopped = true; clearInterval(timer); });
         普通订单
       </h3>
       <PaperTable
+        :contracts="contracts"
         :rows="data?.orders ?? []"
         :columns="orders"
         actions
@@ -286,6 +243,7 @@ onBeforeUnmount(() => { stopped = true; clearInterval(timer); });
         条件订单 (Algo)
       </h3>
       <PaperTable
+        :contracts="contracts"
         :rows="data?.algos ?? []"
         :columns="algos"
         actions
@@ -308,6 +266,7 @@ onBeforeUnmount(() => { stopped = true; clearInterval(timer); });
         成交历史与资金流水
       </h2>
       <PaperTable
+        :contracts="contracts"
         :rows="data?.trades ?? []"
         :columns="trades"
       />
@@ -315,6 +274,7 @@ onBeforeUnmount(() => { stopped = true; clearInterval(timer); });
         资金流水（含资金费、手续费与已实现盈亏）
       </h3>
       <PaperTable
+        :contracts="contracts"
         :rows="data?.income ?? []"
         :columns="income"
       />
@@ -324,6 +284,7 @@ onBeforeUnmount(() => { stopped = true; clearInterval(timer); });
         信号与执行日志
       </h2>
       <PaperTable
+        :contracts="contracts"
         :rows="data?.intents ?? []"
         :columns="intents"
       />

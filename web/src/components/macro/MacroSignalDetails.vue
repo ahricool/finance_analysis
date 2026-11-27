@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import InstrumentTable from '@/components/market-data/instrument-table/InstrumentTable.vue';
+import InstrumentRow from '@/components/market-data/instrument-table/InstrumentRow.vue';
 import { metricHint } from '@/utils/metricHints';
 import SortableTableHeader from '@/components/stocks/SortableTableHeader.vue';
 import { useTableSort, sortField } from '@/composables/useTableSort';
@@ -6,7 +8,7 @@ import StockLink from '@/components/stocks/StockLink.vue';
 import type { MacroDashboard } from '@/api/macro';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetTrigger, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet';
-import { Table, TableHeader, TableBody, TableRow, TableCell } from '@/components/ui/table';
+import { TableHeader, TableBody, TableRow, TableCell } from '@/components/ui/table';
 import { seriesLabel, trendLabel } from './display';
 const props = defineProps<{ dashboard: MacroDashboard }>();
 
@@ -31,7 +33,7 @@ const table = useTableSort(() => props.dashboard.signals, (row, key) => {
     <SheetContent class="overflow-y-auto sm:max-w-xl">
       <SheetHeader><SheetTitle>Risk Score 构成</SheetTitle><SheetDescription>后端返回的信号与贡献；N/A 不计入可用权重。</SheetDescription></SheetHeader>
       <div class="px-4 pb-6">
-        <Table>
+        <InstrumentTable>
           <TableHeader>
             <TableRow>
               <SortableTableHeader
@@ -55,9 +57,10 @@ const table = useTableSort(() => props.dashboard.signals, (row, key) => {
             </TableRow>
           </TableHeader>
           <TableBody>
-            <TableRow
+            <InstrumentRow
               v-for="signal in table.sorted"
               :key="signal.key"
+              :symbol="signal.key.endsWith('.US') ? signal.key : null"
             >
               <TableCell>
                 <StockLink
@@ -75,9 +78,9 @@ const table = useTableSort(() => props.dashboard.signals, (row, key) => {
                   数据不足 / 过期（stale）
                 </p>
               </TableCell>
-            </TableRow>
+            </InstrumentRow>
           </TableBody>
-        </Table>
+        </InstrumentTable>
       </div>
     </SheetContent>
   </Sheet>

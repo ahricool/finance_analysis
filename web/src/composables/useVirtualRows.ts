@@ -29,13 +29,34 @@ export function virtualWindow(total: number, scrollTop: number, {
  * Keeps table semantics (spacer <tr>s around real rows) instead of a wrapper list,
  * so sticky headers, aria-rowindex and column widths keep working.
  */
-export function useVirtualRows<T>(items: MaybeRefOrGetter<readonly T[]>, options: VirtualRowsOptions = {}) {
+export function useVirtualRows<T>(items: MaybeRefOrGetter<readonly T[]>, options: VirtualRowsOptions = {}, extraHeight?: (item: T) => number) {
   const rowHeight = options.rowHeight ?? 64;
   const threshold = options.threshold ?? 300;
   const scrollTop = ref(0);
   const virtual = computed(() => toValue(items).length > threshold);
+  const offsets = computed(() => {
+    if (!virtual.value || !extraHeight) return null;
+    const ends = [0];
+    for (const item of toValue(items)) ends.push(ends[ends.length - 1]! + rowHeight + extraHeight(item));
+    return ends;
+  });
   const range = computed<VirtualWindow>(() => {
     const total = toValue(items).length;
+    const ends = offsets.value;
+    if (ends) {
+      const top = Math.max(0, scrollTop.value - (options.headerOffset ?? 80));
+      let low = 0;
+      let high = total;
+      while (low < high) {
+        const mid = Math.floor((low + high) / 2);
+        if (ends[mid + 1]! <= top) low = mid + 1;
+        else high = mid;
+      }
+      const size = options.windowSize ?? 28;
+      const start = Math.max(0, Math.min(total - size, low - (options.overscan ?? 8)));
+      const end = Math.min(total, start + size);
+      return { start, end, topSpace: ends[start]!, bottomSpace: ends[total]! - ends[end]! };
+    }
     return virtual.value ? virtualWindow(total, scrollTop.value, options) : { start: 0, end: total, topSpace: 0, bottomSpace: 0 };
   });
   const rows = computed(() => toValue(items).slice(range.value.start, range.value.end));

@@ -40,6 +40,9 @@ for (const width of [390, 768, 1024, 1280, 1440, 1920]) {
       await page.keyboard.press('Escape');
       await expect(dialog).toHaveCount(0);
       await row.locator('td').nth(1).click();
+      await expect(row).toHaveAttribute('aria-expanded', 'true');
+      await expect(dialog).toHaveCount(0);
+      await row.getByTestId('row-research').click();
       await expect(dialog.getByRole('tab', { name: '共振', exact: true })).toHaveAttribute('data-state', 'active');
       await expect(dialog).toContainText('Why Confluence');
       await expect(dialog.getByTestId('daily-kline-card')).toHaveCount(0);
@@ -57,6 +60,7 @@ for (const width of [390, 768, 1024, 1280, 1440, 1920]) {
 test('dashboard stock identity opens the shared detail and leaves card navigation for its row', async ({ page }) => {
   await page.route('**/api/v1/**', route => {
     const url = new URL(route.request().url());
+    if (url.pathname.endsWith('/preference')) return route.fulfill({ json: { enabled: false } });
     if (url.pathname.endsWith('/classification')) return route.fulfill({ json: { code: '600001.SH', memberships: { indices: [], industries: [] } } });
     if (url.pathname.endsWith('/quote')) return route.fulfill({ status: 404, json: {} });
     if (url.pathname.includes('/daily-bars/')) return route.fulfill({ json: { symbol: '600001.SH', market: 'CN', items: [] } });

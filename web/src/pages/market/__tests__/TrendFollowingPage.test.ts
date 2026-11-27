@@ -265,7 +265,7 @@ describe('TrendFollowingPage', { timeout: 30_000 }, () => {
     expect(wrapper.text()).toContain('MA40');
     expect(wrapper.text()).not.toContain('15D');
     expect(select('40日').attributes('aria-pressed')).toBe('true');
-    await wrapper.get('[data-testid="trend-row"]').trigger('click');
+    await wrapper.get('[data-testid="trend-row"]').get('[data-testid="row-research"]').trigger('click');
     await flushPromises();
     await vi.waitFor(() => expect(apiMocks.detail).toHaveBeenLastCalledWith('FORTY.US', 'CN', 60, '2026-08-28', 40));
     wrapper.unmount();
@@ -300,7 +300,7 @@ describe('TrendFollowingPage', { timeout: 30_000 }, () => {
     await wrapper.get('[data-testid="box-ranking-search"]').setValue('TEST1');
     expect(codes('trend')).toEqual(['TEST0.US']);
     for (const kind of ['trend', 'box', 'mr']) {
-      await wrapper.get(`[data-testid="${kind}-row"]`).trigger('click');
+      await wrapper.get(`[data-testid="${kind}-row"]`).get('[data-testid="row-research"]').trigger('click');
       await flushPromises();
       expect(document.body.querySelectorAll('[data-testid="trend-detail"]')).toHaveLength(1);
       document.body.querySelector<HTMLElement>('[data-slot="dialog-close"]')?.click();
@@ -415,7 +415,7 @@ describe('TrendFollowingPage', { timeout: 30_000 }, () => {
     const qualityHeader = wrapper.findAll('th').find(header => header.text().includes('箱体质量'))!;
     await qualityHeader.get('button').trigger('click');
     expect(codes()).toEqual(['BOX0.US', 'BOX2.US', 'BOX1.US']);
-    await wrapper.get('[data-testid="box-row"]').trigger('click');
+    await wrapper.get('[data-testid="box-row"]').get('[data-testid="row-research"]').trigger('click');
     await flushPromises();
     expect(document.body.querySelector('[data-testid="trend-box-structure"]')?.textContent).toContain('Box Structure');
     expect(apiMocks.detail).toHaveBeenCalled();
@@ -441,7 +441,7 @@ describe('TrendFollowingPage', { timeout: 30_000 }, () => {
     expect(wrapper.get('[data-testid="box-row"]').text()).toContain('刚突破');
     expect(wrapper.get('[data-testid="box-row"]').text()).toContain('+0.45 ATR');
     expect(wrapper.get('[data-testid="box-row"]').text()).toContain('盘中估算 —');
-    await wrapper.get('[data-testid="box-row"]').trigger('click');
+    await wrapper.get('[data-testid="box-row"]').get('[data-testid="row-research"]').trigger('click');
     await flushPromises();
     await vi.waitFor(() => expect(document.body.querySelector('[data-testid="trend-box-structure"]')?.textContent).toContain('88.0'));
     expect(apiMocks.detail).not.toHaveBeenCalled();
@@ -451,7 +451,7 @@ describe('TrendFollowingPage', { timeout: 30_000 }, () => {
   it('keeps old snapshots usable and shows missing Box detail as dashes', async () => {
     const wrapper = mount(TrendFollowingPage);
     await flushPromises();
-    await wrapper.get('[data-testid="trend-row"]').trigger('click');
+    await wrapper.get('[data-testid="trend-row"]').get('[data-testid="row-research"]').trigger('click');
     await flushPromises();
     const section = document.body.querySelector('[data-testid="trend-box-structure"]')!;
     expect(section.textContent).toContain('—');
@@ -465,7 +465,7 @@ describe('TrendFollowingPage', { timeout: 30_000 }, () => {
     apiMocks.detail.mockResolvedValueOnce({ metadata: latest, latest, history: [], market: 'CN' });
     const wrapper = mount(TrendFollowingPage);
     await flushPromises();
-    await wrapper.get('[data-testid="trend-row"]').trigger('click');
+    await wrapper.get('[data-testid="trend-row"]').get('[data-testid="row-research"]').trigger('click');
     await flushPromises();
     const card = document.body.querySelector('[data-testid="trend-risk-sizing"]')!;
     for (const text of ['建议仓位', '20.0%', '建议止损', '-5.0%', '止损价格', '23.75', '账户风险预算', '1.0%', 'ATR 主导', '当前无有效 Entry']) {
@@ -480,7 +480,7 @@ describe('TrendFollowingPage', { timeout: 30_000 }, () => {
     apiMocks.detail.mockResolvedValueOnce({ metadata: latest, latest, history: [], market: 'CN' });
     const wrapper = mount(TrendFollowingPage);
     await flushPromises();
-    await wrapper.get('[data-testid="trend-row"]').trigger('click');
+    await wrapper.get('[data-testid="trend-row"]').get('[data-testid="row-research"]').trigger('click');
     await flushPromises();
     expect(document.body.querySelector('[data-testid="trend-risk-sizing"]')!.textContent).toContain('此快照暂无风险建议');
     wrapper.unmount();
@@ -590,31 +590,17 @@ describe('TrendFollowingPage', { timeout: 30_000 }, () => {
     wrapper.unmount();
   });
 
-  it('opens ranking detail from keyboard and restores focus to the same row', async () => {
+  it('toggles the ranking chart with Enter and Space and retains row focus', async () => {
     const wrapper = mount(TrendFollowingPage, { attachTo: document.body });
     await flushPromises();
-    const row = document.body.querySelector('[data-testid="trend-row"]') as HTMLElement;
-    expect(row.tabIndex).toBe(0);
-    row.focus();
-    expect(document.activeElement).toBe(row);
-    const enter = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
-    row.dispatchEvent(enter);
-    expect(enter.defaultPrevented).toBe(true);
-    await flushPromises();
-    expect(document.body.querySelector('[data-testid="trend-detail"]')).not.toBeNull();
-    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-    await flushPromises();
-    expect(document.body.querySelector('[data-testid="trend-detail"]')).toBeNull();
-    expect(document.activeElement).toBe(row);
-    const space = new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true });
-    row.dispatchEvent(space);
-    expect(space.defaultPrevented).toBe(true);
-    await flushPromises();
-    expect(document.body.querySelector('[data-testid="trend-detail"]')).not.toBeNull();
-    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-    await flushPromises();
-    expect(document.body.querySelector('[data-testid="trend-detail"]')).toBeNull();
-    expect(document.activeElement).toBe(row);
+    const row = wrapper.get('[data-testid="trend-row"]');
+    (row.element as HTMLElement).focus();
+    await row.trigger('keydown', { key: 'Enter' });
+    expect(row.attributes('aria-expanded')).toBe('true');
+    expect(wrapper.find('[data-testid="instrument-chart-row"]').exists()).toBe(true);
+    await row.trigger('keydown', { key: ' ' });
+    expect(row.attributes('aria-expanded')).toBe('false');
+    expect(document.activeElement).toBe(row.element);
     wrapper.unmount();
   });
 
@@ -660,7 +646,7 @@ describe('TrendFollowingPage', { timeout: 30_000 }, () => {
     const wrapper = mount(TrendFollowingPage, { attachTo: document.body });
     await flushPromises();
     expect(wrapper.get('[data-testid="trend-row"]').text()).toContain('V3');
-    await wrapper.get('[data-testid="trend-row"]').trigger('click');
+    await wrapper.get('[data-testid="trend-row"]').get('[data-testid="row-research"]').trigger('click');
     await flushPromises();
     const detail = document.querySelector('[data-testid="trend-path-detail"]')!;
     expect(detail.textContent).toContain('Alpha V3');
@@ -752,7 +738,7 @@ describe('TrendFollowingPage', { timeout: 30_000 }, () => {
     ]);
     expect(apiMocks.previewRanking).not.toHaveBeenCalled();
     expect(apiMocks.candidates).not.toHaveBeenCalled();
-    await wrapper.get('[data-testid="trend-row"]').trigger('click');
+    await wrapper.get('[data-testid="trend-row"]').get('[data-testid="row-research"]').trigger('click');
     await flushPromises();
     expect(apiMocks.detail).toHaveBeenLastCalledWith('000001.SZ', 'CN', 60, '2026-08-27', 10);
     await wrapper.get('[data-testid="trend-refresh"]').trigger('click');
@@ -920,7 +906,7 @@ describe('TrendFollowingPage', { timeout: 30_000 }, () => {
   it('opens a centered dialog with ranking chart, risk metrics and history', async () => {
     mount(TrendFollowingPage, { attachTo: document.body });
     await flushPromises();
-    (document.body.querySelector('[data-testid="trend-row"]') as HTMLElement).click();
+    (document.body.querySelector('[data-testid="trend-row"] [data-testid="row-research"]') as HTMLElement).click();
     await flushPromises();
     expect(apiMocks.detail).toHaveBeenCalledWith('000001.SZ', 'CN', 60, '2026-08-28', 10);
     expect(marketDataApi.dailyBars).not.toHaveBeenCalled();
@@ -1041,7 +1027,7 @@ describe('TrendFollowingPage', { timeout: 30_000 }, () => {
     });
     const wrapper = mount(TrendFollowingPage, { attachTo: document.body });
     await flushPromises();
-    (document.body.querySelector('[data-testid="trend-row"]') as HTMLElement).click();
+    (document.body.querySelector('[data-testid="trend-row"] [data-testid="row-research"]') as HTMLElement).click();
     await flushPromises();
 
     expect(apiMocks.detail).not.toHaveBeenCalled();
@@ -1157,7 +1143,7 @@ describe('TrendFollowingPage', { timeout: 30_000 }, () => {
 });
 
 
-it.each(['strong', '.font-mono'])('opens market data from ranking identity %s while the row still opens trend research', async target => {
+it.each(['strong', '.font-mono'])('opens market data from ranking identity %s and trend research from its shortcut', async target => {
   vi.clearAllMocks();
   document.body.innerHTML = '';
   const wrapper = mount(TrendFollowingPage, { attachTo: document.body });
@@ -1171,7 +1157,7 @@ it.each(['strong', '.font-mono'])('opens market data from ranking identity %s wh
   const dialog = document.body.querySelector('[role="dialog"]')!;
   (dialog.querySelector('[data-slot="dialog-close"]') as HTMLElement).click();
   await flushPromises();
-  await wrapper.get('[data-testid="trend-row"]').trigger('click');
+  await wrapper.get('[data-testid="trend-row"]').get('[data-testid="row-research"]').trigger('click');
   await flushPromises();
   expect(document.body.querySelector('[role="tab"][data-state="active"]')?.textContent).toBe('趋势');
   wrapper.unmount();

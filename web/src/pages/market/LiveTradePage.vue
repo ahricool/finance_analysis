@@ -7,8 +7,7 @@ import AppApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import { liveTradeApi, type LiveControl, type LiveSnapshot } from '@/api/liveTrade';
 import PaperTable, { type Column } from '@/components/paper-trade/PaperTable.vue';
-import MarketKLineChart from '@/components/market-data/MarketKLineChart.vue';
-import { contractsApi, type Candle } from '@/api/contracts';
+import { contractsApi, type ContractQuote } from '@/api/contracts';
 
 const snapshot = ref<LiveSnapshot | null>(null);
 const control = ref<LiveControl | null>(null);
@@ -69,19 +68,11 @@ const algos = [col('symbol','合约'),col('algoId','Algo ID'),col('side','方向
 const trades = [col('symbol','合约'),col('id','成交 ID'),col('orderId','订单 ID'),col('side','方向'),col('positionSide','持仓模式'),col('price','价格',true),col('qty','数量',true),col('commission','手续费',true),col('commissionAsset','费用币种'),col('realizedPnl','已实现盈亏',true),col('time','时间 (UTC)',false,true),col('source','来源')];
 const income = [col('symbol','合约'),col('incomeType','流水类型'),col('income','金额',true),col('asset','币种'),col('time','时间 (UTC)',false,true)];
 const audit = [col('actor_id','管理员 ID',true),col('previous','变更前'),col('enabled','变更后'),col('changed_at','时间 (UTC)',false,true)];
-const chartSymbol = ref('');
-const bars = ref<Candle[]>([]);
-let chartGeneration = 0;
-async function showChart(symbol: string) {
-  chartSymbol.value = symbol;
-  bars.value = [];
-  const current = ++chartGeneration;
-  try {
-    const result = await contractsApi.bars(symbol);
-    if (!stopped && current === chartGeneration) bars.value = result;
-  } catch (err) { if (!stopped) error.value = getParsedApiError(err); }
-}
-onMounted(() => { void refresh(); timer = setInterval(refresh, 10_000); });
+const contracts = ref(new Map<string, ContractQuote>());
+
+onMounted(() => {
+  void contractsApi.snapshot().then(value => { if (!stopped) contracts.value = new Map(value.items.map(row => [row.symbol, row])); }).catch(() => {});
+ void refresh(); timer = setInterval(refresh, 10_000); });
 onBeforeUnmount(() => { stopped = true; clearInterval(timer); });
 </script>
 
@@ -173,6 +164,7 @@ onBeforeUnmount(() => { stopped = true; clearInterval(timer); });
         资产余额
       </h3>
       <PaperTable
+        :contracts="contracts"
         :rows="view?.balances ?? []"
         :columns="[col('asset','资产'), col('balance','钱包余额',true), col('availableBalance','可用余额',true), col('crossUnPnl','未实现盈亏',true)]"
       />
@@ -182,48 +174,10 @@ onBeforeUnmount(() => { stopped = true; clearInterval(timer); });
         当前持仓
       </h2>
       <PaperTable
+        :contracts="contracts"
         :rows="view?.positions ?? []"
         :columns="positions"
-        actions
-      >
-        <template #actions="{ row }">
-          <Button
-            variant="ghost"
-            size="sm"
-            @click="showChart(String(row.symbol))"
-          >
-            查看 K 线
-          </Button>
-        </template>
-      </PaperTable>
-      <div
-        v-if="chartSymbol"
-        class="rounded-md border p-3"
-      >
-        <div class="flex justify-between">
-          <h3>{{ chartSymbol }} · 合约日 K</h3><Button
-            variant="ghost"
-            size="sm"
-            @click="chartSymbol = ''"
-          >
-            关闭图表
-          </Button>
-        </div>
-        <MarketKLineChart
-          v-if="bars.length"
-          :symbol="chartSymbol"
-          period="1d"
-          :bars="bars"
-          timezone="UTC"
-          disable-forecast
-        />
-        <p
-          v-else
-          class="py-8 text-center text-muted-foreground"
-        >
-          暂无共享行情
-        </p>
-      </div>
+      />
     </section>
     <section class="space-y-4 rounded-xl border bg-card p-4 sm:p-5">
       <h2 class="text-lg font-semibold">
@@ -233,6 +187,7 @@ onBeforeUnmount(() => { stopped = true; clearInterval(timer); });
         普通挂单
       </h3>
       <PaperTable
+        :contracts="contracts"
         :rows="view?.open_orders ?? []"
         :columns="orders"
       />
@@ -240,6 +195,7 @@ onBeforeUnmount(() => { stopped = true; clearInterval(timer); });
         条件挂单 (Algo)
       </h3>
       <PaperTable
+        :contracts="contracts"
         :rows="view?.open_algos ?? []"
         :columns="algos"
       />
@@ -255,6 +211,7 @@ onBeforeUnmount(() => { stopped = true; clearInterval(timer); });
         普通订单
       </h3>
       <PaperTable
+        :contracts="contracts"
         :rows="snapshot?.orders ?? []"
         :columns="orders"
       />
@@ -262,6 +219,7 @@ onBeforeUnmount(() => { stopped = true; clearInterval(timer); });
         条件订单
       </h3>
       <PaperTable
+        :contracts="contracts"
         :rows="snapshot?.algos ?? []"
         :columns="algos"
       />
@@ -269,6 +227,7 @@ onBeforeUnmount(() => { stopped = true; clearInterval(timer); });
         成交明细
       </h3>
       <PaperTable
+        :contracts="contracts"
         :rows="snapshot?.trades ?? []"
         :columns="trades"
       />
@@ -279,6 +238,7 @@ onBeforeUnmount(() => { stopped = true; clearInterval(timer); });
         交易净收益仅汇总已同步 USDT 已实现盈亏、手续费及资金费，不计资金划转。
       </p>
       <PaperTable
+        :contracts="contracts"
         :rows="snapshot?.income ?? []"
         :columns="income"
       />
@@ -288,6 +248,7 @@ onBeforeUnmount(() => { stopped = true; clearInterval(timer); });
         交易开关变更记录
       </h2>
       <PaperTable
+        :contracts="contracts"
         :rows="snapshot?.control_events ?? []"
         :columns="audit"
       />

@@ -1,12 +1,27 @@
 <script setup lang="ts">
+import ContractLink from '@/components/contracts/ContractLink.vue';
+import ContractRowChart from '@/components/contracts/ContractRowChart.vue';
+import InstrumentTable from '@/components/market-data/instrument-table/InstrumentTable.vue';
+import InstrumentRow from '@/components/market-data/instrument-table/InstrumentRow.vue';
 import { computed, ref, watch } from 'vue';
 import type { Row } from '@/api/paperTrade';
 import { useTableSort, sortField, sortNumber } from '@/composables/useTableSort';
 import SortableTableHeader from '@/components/stocks/SortableTableHeader.vue';
 import AppPagination from '@/components/app/AppPagination.vue';
 
+import type { ContractQuote } from '@/api/contracts';
+
 export interface Column { key: string; label: string; numeric?: boolean; time?: boolean }
-const props = defineProps<{ rows: Row[]; columns: Column[]; actions?: boolean }>();
+const props = defineProps<{ rows: Row[]; columns: Column[]; actions?: boolean; contracts?: Map<string, ContractQuote> }>();
+const contractTable = computed(() => props.columns.some(col => col.key === 'symbol'));
+function contractSymbol(row: Row) { return contractTable.value && typeof row.symbol === 'string' ? row.symbol : ''; }
+function recordKey(row: Row) {
+  return JSON.stringify([row.symbol, row.id, row.algoId, row.orderId, row.positionSide, row.time, row.tranId, row.incomeType, row.asset]);
+}
+function contract(row: Row): ContractQuote {
+  const symbol = contractSymbol(row);
+  return props.contracts?.get(symbol) ?? { symbol, underlying_symbol: null, category: '', quote: null };
+}
 const sort = useTableSort(() => props.rows, (row, key) => {
   const value = sortField(row, key);
   const column = props.columns.find(c => c.key === key);
@@ -44,7 +59,10 @@ function display(row: Row, column: Column) {
 <template>
   <div class="min-w-0 space-y-3">
     <div class="overflow-x-auto rounded-md border">
-      <table class="w-full text-sm">
+      <InstrumentTable
+        :charts="contractTable"
+        class="w-full text-sm"
+      >
         <thead class="bg-muted/50">
           <tr>
             <SortableTableHeader
@@ -63,9 +81,11 @@ function display(row: Row, column: Column) {
           </tr>
         </thead>
         <tbody>
-          <tr
+          <InstrumentRow
             v-for="(row, index) in visible"
-            :key="index"
+            :key="contractSymbol(row) ? recordKey(row) : index"
+            :symbol="contractSymbol(row)"
+            :row-id="recordKey(row)"
             class="border-t"
           >
             <td
@@ -74,7 +94,14 @@ function display(row: Row, column: Column) {
               class="whitespace-nowrap px-4 py-2 tabular-nums"
               :class="column.numeric && 'text-right'"
             >
-              {{ display(row, column) }}
+              <ContractLink
+                v-if="column.key === 'symbol' && contractSymbol(row)"
+                :symbol="contractSymbol(row)"
+                :contract="contract(row)"
+              />
+              <template v-else>
+                {{ display(row, column) }}
+              </template>
             </td>
             <td
               v-if="actions"
@@ -85,7 +112,13 @@ function display(row: Row, column: Column) {
                 :row="row"
               />
             </td>
-          </tr>
+            <template #chart="{ period }">
+              <ContractRowChart
+                :row="contract(row)"
+                :period="period"
+              />
+            </template>
+          </InstrumentRow>
           <tr v-if="!rows.length">
             <td
               :colspan="columns.length + Number(!!actions)"
@@ -95,7 +128,7 @@ function display(row: Row, column: Column) {
             </td>
           </tr>
         </tbody>
-      </table>
+      </InstrumentTable>
     </div>
     <AppPagination
       :current-page="page"

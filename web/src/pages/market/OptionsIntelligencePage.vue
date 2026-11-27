@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import InstrumentTable from '@/components/market-data/instrument-table/InstrumentTable.vue';
+import InstrumentRow from '@/components/market-data/instrument-table/InstrumentRow.vue';
 import StockLink from '@/components/stocks/StockLink.vue';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { RouterLink } from 'vue-router';
@@ -16,7 +18,7 @@ import FieldSelect from '@/components/forms/FieldSelect.vue';
 import LoadingButton from '@/components/app/LoadingButton.vue';
 import AppApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
 import StockDetailDialog, { type StockDetailRecord } from '@/components/stocks/StockDetailDialog.vue';
-import { Table, TableBody, TableCell, TableHeader, TableRow } from '@/components/ui/table';
+import { TableBody, TableCell, TableHeader, TableRow } from '@/components/ui/table';
 import { formatDateTimeInDisplayTimezone } from '@/utils/format';
 import { formatSecurityLabel } from '@/utils/security';
 import { eventLabels, formatOptionNumber as num, formatOptionPct as pct } from '@/components/options-intelligence/labels';
@@ -276,7 +278,7 @@ const detailInitialTab = ref<'overview' | 'options'>('options');
     </div>
 
     <div class="overflow-x-auto rounded-xl border bg-card">
-      <Table>
+      <InstrumentTable>
         <TableHeader>
           <TableRow class="bg-muted/30">
             <SortableTableHeader
@@ -291,21 +293,21 @@ const detailInitialTab = ref<'overview' | 'options'>('options');
           </TableRow>
         </TableHeader>
         <TableBody>
-          <TableRow
+          <InstrumentRow
             v-for="r in filtered"
             :key="r.symbol"
+            :symbol="r.symbol"
+            market="US"
             class="cursor-pointer transition-colors hover:bg-muted/40"
-            tabindex="0"
-            @click="detailInitialTab = 'options'; open(r)"
-            @keydown.enter.self="detailInitialTab = 'options'; open(r)"
-            @keydown.space.self.prevent="detailInitialTab = 'options'; open(r)"
           >
             <TableCell>
               <StockLink
                 :code="r.symbol"
                 :name="r.name"
                 market="US"
+                research-label="期权详情"
                 @select="detailInitialTab = 'overview'; open(r)"
+                @research="detailInitialTab = 'options'; open(r)"
               />
             </TableCell>
             <TableCell class="font-mono tabular-nums">
@@ -368,9 +370,9 @@ const detailInitialTab = ref<'overview' | 'options'>('options');
             <TableCell class="font-mono text-xs text-muted-foreground">
               {{ formatDateTimeInDisplayTimezone(r.observedAt) }}
             </TableCell>
-          </TableRow>
+          </InstrumentRow>
         </TableBody>
-      </Table>
+      </InstrumentTable>
       <p
         v-if="!filtered.length"
         class="p-6 text-center text-sm text-muted-foreground"
@@ -387,7 +389,7 @@ const detailInitialTab = ref<'overview' | 'options'>('options');
         <OptionHelp
           label="链覆盖与样本限制"
           compact
-        /> · 点击行打开期权详情，点击代码打开行情
+        /> · 点击行展开 K 线，点击名称查看详情
       </p>
     </div>
 

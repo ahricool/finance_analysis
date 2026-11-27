@@ -1,11 +1,13 @@
 <script setup lang="ts">
+import InstrumentTable from '@/components/market-data/instrument-table/InstrumentTable.vue';
+import InstrumentRow from '@/components/market-data/instrument-table/InstrumentRow.vue';
 import SortableTableHeader from '@/components/stocks/SortableTableHeader.vue';
 import { useTableSort, sortField } from '@/composables/useTableSort';
 import StockIdentity from '@/components/stocks/StockIdentity.vue';
 import type { MacroInstrument, MacroRatio } from '@/api/macro';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Table, TableHeader, TableBody, TableRow, TableCell } from '@/components/ui/table';
+import { TableHeader, TableBody, TableRow, TableCell } from '@/components/ui/table';
 import { formatDateOnly } from '@/utils/format';
 import { numberLabel, returnClass, returnLabel, seriesLabel, trendLabel, regimeLabel } from './display';
 const emit = defineEmits<{ select: [asset: MacroInstrument] }>();
@@ -29,7 +31,7 @@ const table = useTableSort(() => props.rows, (row, key) => {
   >
     <CardHeader><CardTitle>{{ ratios ? '宏观 Ratio' : '宏观资产' }}</CardTitle></CardHeader>
     <CardContent>
-      <Table>
+      <InstrumentTable :charts="!ratios">
         <TableHeader>
           <TableRow>
             <SortableTableHeader
@@ -71,11 +73,12 @@ const table = useTableSort(() => props.rows, (row, key) => {
           </TableRow>
         </TableHeader>
         <TableBody>
-          <TableRow
+          <InstrumentRow
             v-for="row in table.sorted"
             :key="'code' in row ? row.code : row.key"
+            :symbol="'code' in row ? row.code : null"
+            market="US"
             :class="{ 'cursor-pointer': 'code' in row }"
-            @click="'code' in row && emit('select', row)"
           >
             <TableCell>
               <button
@@ -128,7 +131,7 @@ const table = useTableSort(() => props.rows, (row, key) => {
             </TableCell><TableCell class="tabular-nums">
               {{ formatDateOnly(row.tradeDate) }}
             </TableCell>
-          </TableRow>
+          </InstrumentRow>
           <TableRow v-if="!rows.length">
             <TableCell
               :colspan="8"
@@ -138,7 +141,7 @@ const table = useTableSort(() => props.rows, (row, key) => {
             </TableCell>
           </TableRow>
         </TableBody>
-      </Table>
+      </InstrumentTable>
     </CardContent>
   </Card>
 </template>

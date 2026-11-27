@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import InstrumentTable from '@/components/market-data/instrument-table/InstrumentTable.vue';
+import InstrumentRow from '@/components/market-data/instrument-table/InstrumentRow.vue';
 import { useTableSort, sortField } from '@/composables/useTableSort';
 import StockLink from '@/components/stocks/StockLink.vue';
 import IndicatorHelpLabel from '@/components/app/IndicatorHelpLabel.vue';
@@ -84,7 +86,8 @@ function openStock(row: { symbol: string; name: string | null }, tab: 'overview'
 }
 
 const allTable = useTableSort(() => allStockRows.value, (row, key) => key === 'concepts' ? row.concepts.join('、') : sortField(row, key));
-const hotTable = useTableSort(() => data.value?.hotMoneyDetails ?? [], sortField);
+const hotRows = computed(() => (data.value?.hotMoneyDetails ?? []).map((row, id) => ({ ...row, id })));
+const hotTable = useTableSort(() => hotRows.value, sortField);
 
 </script>
 
@@ -320,7 +323,7 @@ const hotTable = useTableSort(() => data.value?.hotMoneyDetails ?? [], sortField
             机构、游资为独立口径，未知金额显示 —。点击股票查看每日证据。
           </p>
           <div class="max-h-[28rem] overflow-auto rounded-md border">
-            <table
+            <InstrumentTable
               class="w-full min-w-max text-sm"
               data-testid="flow-all-stocks"
             >
@@ -357,21 +360,21 @@ const hotTable = useTableSort(() => data.value?.hotMoneyDetails ?? [], sortField
                 </tr>
               </thead>
               <tbody>
-                <tr
+                <InstrumentRow
                   v-for="row in allTable.sorted"
                   :key="row.symbol"
+                  :symbol="row.symbol"
+                  market="CN"
                   class="border-t cursor-pointer"
-                  tabindex="0"
-                  @click="openStock(row, 'dragon-tiger')"
-                  @keydown.enter.self="openStock(row, 'dragon-tiger')"
-                  @keydown.space.self.prevent="openStock(row, 'dragon-tiger')"
                 >
                   <td class="p-3 whitespace-nowrap">
                     <StockLink
                       :code="row.symbol"
                       :name="row.name"
                       market="CN"
+                      research-label="龙虎榜详情"
                       @select="openStock(row, 'overview')"
+                      @research="openStock(row, 'dragon-tiger')"
                     />
                   </td>
                   <td
@@ -387,9 +390,9 @@ const hotTable = useTableSort(() => data.value?.hotMoneyDetails ?? [], sortField
                   </td><td class="max-w-72 p-3 text-xs">
                     {{ row.concepts.join('、') || '未分类' }}
                   </td>
-                </tr>
+                </InstrumentRow>
               </tbody>
-            </table>
+            </InstrumentTable>
             <p
               v-if="!allStockRows.length"
               class="p-8 text-center text-muted-foreground"
@@ -413,7 +416,7 @@ const hotTable = useTableSort(() => data.value?.hotMoneyDetails ?? [], sortField
           有限已命名席位样本，与股票级游资净额口径独立，不能相加或反推全部游资。
         </p>
         <div class="max-h-96 overflow-auto">
-          <table class="w-full min-w-max text-sm">
+          <InstrumentTable class="w-full min-w-max text-sm">
             <thead class="sticky top-0 bg-muted">
               <tr>
                 <SortableTableHeader
@@ -441,14 +444,13 @@ const hotTable = useTableSort(() => data.value?.hotMoneyDetails ?? [], sortField
               </tr>
             </thead>
             <tbody>
-              <tr
-                v-for="(row, i) in hotTable.sorted"
-                :key="`${row.tradeDate}-${row.symbol}-${row.hotMoneyName}-${i}`"
+              <InstrumentRow
+                v-for="row in hotTable.sorted"
+                :key="row.id"
+                :symbol="row.symbol"
+                :row-id="row.id"
+                market="CN"
                 class="border-t cursor-pointer"
-                tabindex="0"
-                @click="openStock(row, 'dragon-tiger')"
-                @keydown.enter.self="openStock(row, 'dragon-tiger')"
-                @keydown.space.self.prevent="openStock(row, 'dragon-tiger')"
               >
                 <td class="p-2">
                   {{ row.tradeDate }}
@@ -457,7 +459,9 @@ const hotTable = useTableSort(() => data.value?.hotMoneyDetails ?? [], sortField
                     :code="row.symbol"
                     :name="row.name"
                     market="CN"
+                    research-label="龙虎榜详情"
                     @select="openStock(row, 'overview')"
+                    @research="openStock(row, 'dragon-tiger')"
                   />
                 </td><td class="p-2">
                   {{ row.hotMoneyName }}
@@ -467,9 +471,9 @@ const hotTable = useTableSort(() => data.value?.hotMoneyDetails ?? [], sortField
                 >
                   {{ money(row.hotMoneyItemNetValue) }}
                 </td>
-              </tr>
+              </InstrumentRow>
             </tbody>
-          </table>
+          </InstrumentTable>
         </div>
       </details>
       <div
@@ -575,7 +579,7 @@ const hotTable = useTableSort(() => data.value?.hotMoneyDetails ?? [], sortField
               @stock="stock = $event"
             />
             <div class="max-h-96 overflow-auto rounded-md border">
-              <table
+              <InstrumentTable
                 class="w-full min-w-max text-sm"
                 data-testid="flow-stocks"
               >
@@ -605,21 +609,21 @@ const hotTable = useTableSort(() => data.value?.hotMoneyDetails ?? [], sortField
                   </tr>
                 </thead>
                 <tbody>
-                  <tr
+                  <InstrumentRow
                     v-for="row in sortedStocks"
                     :key="row.symbol"
+                    :symbol="row.symbol"
+                    market="CN"
                     class="border-t cursor-pointer"
-                    tabindex="0"
-                    @click="openStock(row, 'dragon-tiger')"
-                    @keydown.enter.self="openStock(row, 'dragon-tiger')"
-                    @keydown.space.self.prevent="openStock(row, 'dragon-tiger')"
                   >
                     <td class="p-3">
                       <StockLink
                         :code="row.symbol"
                         :name="row.name"
                         market="CN"
+                        research-label="龙虎榜详情"
                         @select="openStock(row, 'overview')"
+                        @research="openStock(row, 'dragon-tiger')"
                       />
                     </td><td
                       class="p-3 text-right tabular-nums"
@@ -629,9 +633,9 @@ const hotTable = useTableSort(() => data.value?.hotMoneyDetails ?? [], sortField
                     </td><td class="p-3 text-right">
                       {{ row.rows.length }}日
                     </td>
-                  </tr>
+                  </InstrumentRow>
                 </tbody>
-              </table>
+              </InstrumentTable>
             </div>
           </CardContent>
         </Card>

@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import InstrumentTable from '@/components/market-data/instrument-table/InstrumentTable.vue';
+import InstrumentRow from '@/components/market-data/instrument-table/InstrumentRow.vue';
 import { computed, defineAsyncComponent, onBeforeUnmount, ref, watch } from 'vue';
 import { ChevronDown, ChevronRight, Download, ScanLine } from 'lucide-vue-next';
 import apiClient from '@/api';
@@ -14,7 +16,7 @@ import StockLink from '@/components/stocks/StockLink.vue';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Table, TableHeader, TableBody, TableRow, TableCell, TableHead } from '@/components/ui/table';
+import { TableHeader, TableBody, TableRow, TableCell, TableHead } from '@/components/ui/table';
 import { Skeleton } from '@/components/ui/skeleton';
 import { exportExcel } from '@/utils/excelExport';
 import { formatFixed, formatPercent } from '@/utils/number';
@@ -183,7 +185,7 @@ async function download() {
         v-else
         class="overflow-x-auto rounded-lg border"
       >
-        <Table>
+        <InstrumentTable>
           <TableHeader>
             <TableRow>
               <TableHead class="w-8">
@@ -204,10 +206,10 @@ async function download() {
               v-for="item in visible"
               :key="item.code"
             >
-              <TableRow
+              <InstrumentRow
+                :symbol="item.code"
                 class="cursor-pointer"
                 :class="expanded === item.code ? 'bg-muted/40' : ''"
-                @click="toggle(item)"
               >
                 <TableCell>
                   <Button
@@ -258,7 +260,7 @@ async function download() {
                     :class="key === 'qualityScore' ? 'font-medium' : 'text-sm'"
                   >{{ cell(item, key) }}</span>
                 </TableCell>
-              </TableRow>
+              </InstrumentRow>
               <TableRow v-if="expanded === item.code">
                 <TableCell
                   :colspan="10"
@@ -355,7 +357,7 @@ async function download() {
               </TableRow>
             </template>
           </TableBody>
-        </Table>
+        </InstrumentTable>
       </div>
       <div class="flex flex-wrap items-center justify-between gap-3 text-xs text-muted-foreground">
         <span>{{ filtered.length }} 只证券 · 同票合并 · 每页 10 只</span><AppPagination

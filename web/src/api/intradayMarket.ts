@@ -13,7 +13,7 @@ export interface IntradayBar {
 }
 export interface PatternEvent extends RealtimePatternSignal { observedAt: string }
 export interface IntradaySnapshot {
-  symbol: string; market: 'CN' | 'US'; tradingDate: string; generatedAt: string;
+  symbol: string; market: 'CN' | 'HK' | 'US'; tradingDate: string; generatedAt: string;
   reset: boolean; fullSnapshot?: boolean; historyVersion?: string | null; items: IntradayBar[]; quote: RealtimeQuote; events: PatternEvent[];
 }
 export async function fetchIntradayMarket(symbol: string, since: string | undefined, signal: AbortSignal, historyVersion?: string | null): Promise<IntradaySnapshot> {

@@ -1,7 +1,7 @@
 # U 本位永续合约行情
 
 页面 /crypto/contracts：共享的 Binance USDT 结算永续合约（PERPETUAL / TRADIFI_PERPETUAL）观察列表，已登录用户可查看，管理员可查询交易所目录、增删标的。
-不支持现货、币本位、交割合约、交易下单、信号或预测。默认仅显示合约列表；点击普通单元格展开最近 24 小时原生 1 分钟 K 线与指标，可切换日 K，点击同一行收起。点击合约代码或锚定标的打开统一证券详情，不改变展开状态。管理员在列表标题旁通过「添加合约」搜索并连续添加，行内「删除」经确认后移除标的及日线。展开区展示报价、资金费率、均线及最新 K 线 OHLC；均线按对应周期已结束且连续的 K 线计算，数据不足留空，不提供股票趋势/形态或预测。
+不支持现货、币本位、交割合约、交易下单、信号或预测。合约列表支持逐行展开、全部展开与全部收起。表头周期与其他标的表格联动，默认展示近 24 小时原生分钟线，日 K 展示已收盘历史与当日预览，其他周期显示「无数据」。点击合约代码或锚定标的打开统一证券详情，不改变展开状态。管理员在列表标题旁通过「添加合约」搜索并连续添加，行内「删除」经确认后移除标的及日线。展开区展示报价、资金费率、均线及最新 K 线 OHLC；均线按对应周期已结束且连续的 K 线计算，数据不足留空，不提供股票趋势/形态或预测。
 
 ## 持久化与采集
 
@@ -24,7 +24,7 @@
 | GET | /contracts/search?q= | 交易所正在交易的 USDT 本位永续搜索 |
 | POST | /contracts | 管理员添加标的 |
 | DELETE | /contracts/{symbol} | 管理员移除标的 |
-| GET | /contracts/{symbol}/bars?interval=1d 或 1m | 只读 DB 日线或 Redis 分钟线 |
+| GET | /contracts/{symbol}/bars?interval=1d 或 1m | 只读单标的 DB 日线或 Redis 分钟线。日线传 `include_current=true` 时附带有效的 UTC 当日预览 |
 | WS | /contracts/ws?symbol= | 共享行情与选中合约 K 线快照 |
 | GET SSE | /contracts/events?symbol= | 同结构回退数据流 |
 
@@ -35,7 +35,7 @@ GET 快照、搜索、添加响应及 WS/SSE 的合约项均包含 `underlying_s
 官方 WS 路由与迁移规范：[Binance USD-M WebSocket Market Streams](https://developers.binance.com/en/docs/products/derivatives-trading-usds-futures/websocket-market-streams/Connect)。
 
 合约列表按 UTC 00:00 划分交易日，仅使用已闭合分钟线，复用日内期权的 5/15/30/60 分钟趋势评分与已确认形态识别。报价、分钟线延迟或连接断开时，页面隐藏当前机会。Streamer 在闭合分钟变更及历史补齐时计算分析摘要。
-页面的 WS/SSE 订阅携带 `delta=true`。每次连接先接收完整基线，随后按连续 revision 合并字段变化；滚动分钟按 timestamp 匹配，仅传删除、新增和修订。无变化发送空操作，断线后重新建立基线。
+页面的列表订阅携带 `delta=true`。展开行只在视口附近按标的拉取 K 线，分钟图每 5 秒更新，日图每分钟更新；移出后停止轮询。每次连接先接收完整基线，随后按连续 revision 合并字段变化；滚动分钟按 timestamp 匹配，仅传删除、新增和修订。无变化发送空操作，断线后重新建立基线。
 
 ## 五分钟结构与流动性
 

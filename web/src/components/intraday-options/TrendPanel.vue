@@ -18,6 +18,8 @@ import FieldSelect from '@/components/forms/FieldSelect.vue';
 import SimulationTable from './SimulationTable.vue';
 import { sortField, sortTime } from '@/composables/useTableSort';
 
+import { queueTableRequest } from '@/utils/tableRequests';
+
 const props = defineProps<{ symbol: string; result: TrendResult | null; stale: boolean; simulation?: SimulationSnapshot | null }>();
 const selected = ref(30);
 const showTrades = ref(true);
@@ -64,7 +66,7 @@ async function load() {
   const request = new AbortController(); controller = request;
   try {
     const since = rows.value.at(-1)?.timestamp;
-    const result = await fetchIntradayMarket(props.symbol, since == null ? undefined : new Date(since).toISOString(), request.signal, historyVersion);
+    const result = await queueTableRequest(request.signal, () => fetchIntradayMarket(props.symbol, since == null ? undefined : new Date(since).toISOString(), request.signal, historyVersion));
     if (stopped || owner !== generation) return;
     const merged = new Map((result.reset || result.fullSnapshot ? [] : rows.value).map(b => [b.timestamp, b]));
     result.items.forEach(b => merged.set(b.timestamp, b));

@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import InstrumentTable from '@/components/market-data/instrument-table/InstrumentTable.vue';
+import InstrumentRow from '@/components/market-data/instrument-table/InstrumentRow.vue';
 import { useMarket } from '@/composables/useMarket';
 import StockIdentity from '@/components/stocks/StockIdentity.vue';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
@@ -16,7 +18,6 @@ import AppConfirmDialog from '@/components/app/AppConfirmDialog.vue';
 import FieldInput from '@/components/forms/FieldInput.vue';
 import WatchListTagPicker from '@/components/watch-list/WatchListTagPicker.vue';
 import WatchListTagManager from '@/components/watch-list/WatchListTagManager.vue';
-import IntradayStockPanel from '@/components/stocks/IntradayStockPanel.vue';
 import PatternStatus from '@/components/stocks/PatternStatus.vue';
 import RealtimeStatus from '@/components/stocks/RealtimeStatus.vue';
 import SortableTableHeader from '@/components/stocks/SortableTableHeader.vue';
@@ -30,7 +31,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useCurrentTime } from '@/composables/useCurrentTime';
 import { useRealtimeQuotes } from '@/composables/useRealtimeQuotes';
@@ -78,19 +79,16 @@ const deletingId = ref<number | null>(null);
 const deletingCode = ref('');
 const togglingFavoriteId = ref<number | null>(null);
 const detailItem = ref<WatchListItem | null>(null);
-const expandedCode = ref<string | null>(null);
 const { market: selectedMarket } = useMarket();
 const selectedTag = ref<TagFilter>('ALL');
 const tags = ref<WatchListTag[]>([]);
 const formTags = ref<WatchListTagDraft[]>([]);
 const showTagManager = ref(false);
 watch(selectedMarket, () => {
-  expandedCode.value = null;
   detailItem.value = null;
   showDeleteConfirm.value = false;
   closeDialog();
 });
-watch(selectedTag, () => { expandedCode.value = null; });
 const filters = computed(() => ({
   market: selectedMarket.value,
   tagId: typeof selectedTag.value === 'number' ? selectedTag.value : undefined,
@@ -510,8 +508,11 @@ onMounted(() => {
     </Empty>
     <template v-else>
       <Card class="block">
-        <CardHeader><CardTitle>自选股列表</CardTitle><CardDescription>点击股票名称查看详情，点击行展开分钟行情；次要操作收纳在行菜单中。</CardDescription></CardHeader><CardContent>
-          <Table class="w-full min-w-[1500px] table-auto text-left text-sm">
+        <CardHeader><CardTitle>自选股列表</CardTitle><CardDescription>点击股票名称查看详情，点击行展开 K 线；次要操作收纳在行菜单中。</CardDescription></CardHeader><CardContent>
+          <InstrumentTable
+            :key="selectedMarket + String(selectedTag)"
+            class="w-full min-w-[1500px] table-auto text-left text-sm"
+          >
             <colgroup>
               <col class="w-[110px]" />
               <col class="w-[260px]" />
@@ -611,14 +612,10 @@ onMounted(() => {
                   v-for="item in visibleItems"
                   :key="item.id"
                 >
-                  <TableRow
+                  <InstrumentRow
+                    :symbol="item.code"
+                    :market="selectedMarket"
                     class="cursor-pointer border-b border-border/50 transition-colors last:border-0 hover:bg-muted/70 focus-visible:bg-muted/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-                    tabindex="0"
-                    :aria-label="`展开 ${formatSecurityLabel(item.code, item.name)} 分钟行情`"
-                    :aria-expanded="expandedCode === item.code"
-                    @click="expandedCode = expandedCode === item.code ? null : item.code"
-                    @keydown.enter.self="expandedCode = expandedCode === item.code ? null : item.code"
-                    @keydown.space.self.prevent="expandedCode = expandedCode === item.code ? null : item.code"
                   >
                     <TableCell class="px-4 py-3">
                       <button
@@ -746,22 +743,11 @@ onMounted(() => {
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </TableCell>
-                  </TableRow>
-                  <TableRow v-if="expandedCode === item.code">
-                    <TableCell
-                      :colspan="10"
-                      class="max-w-0 p-3"
-                    >
-                      <IntradayStockPanel
-                        :symbol="item.code"
-                        :market="selectedMarket"
-                      />
-                    </TableCell>
-                  </TableRow>
+                  </InstrumentRow>
                 </template>
               </template>
             </TableBody>
-          </Table>
+          </InstrumentTable>
         </CardContent>
       </Card>
     </template>

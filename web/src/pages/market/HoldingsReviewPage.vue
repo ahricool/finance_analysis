@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import InstrumentTable from '@/components/market-data/instrument-table/InstrumentTable.vue';
+import InstrumentRow from '@/components/market-data/instrument-table/InstrumentRow.vue';
 import { computed, onBeforeUnmount, ref, shallowRef, watch } from 'vue';
 import { ArrowDownRight, ArrowUpRight, CalendarClock, Check, ChevronLeft, ChevronRight, CircleAlert, Clock3, FileDown, Layers3, LoaderCircle, RefreshCw, ShieldCheck, Sparkles } from 'lucide-vue-next';
 import { holdingsReviewApi as api, type FrozenHolding, type HoldingAdvice, type ReviewAction, type ReviewResponse } from '@/api/holdingsReview';
@@ -11,7 +13,7 @@ import StockLink from '@/components/stocks/StockLink.vue';
 import SortableTableHeader from '@/components/stocks/SortableTableHeader.vue';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Table, TableBody, TableCell, TableHeader, TableRow } from '@/components/ui/table';
+import { TableBody, TableCell, TableHeader, TableRow } from '@/components/ui/table';
 
 const { market } = useMarket();
 const response = shallowRef<ReviewResponse | null>(null);
@@ -428,7 +430,7 @@ onBeforeUnmount(() => { ++generation; ++runGeneration; clearPoll(); });
             v-else
             class="overflow-x-auto"
           >
-            <Table>
+            <InstrumentTable>
               <TableHeader>
                 <TableRow>
                   <SortableTableHeader
@@ -446,7 +448,12 @@ onBeforeUnmount(() => { ++generation; ++runGeneration; clearPoll(); });
                   v-for="row in rows"
                   :key="row.positionId"
                 >
-                  <TableRow data-testid="review-position-row">
+                  <InstrumentRow
+                    :symbol="row.symbol"
+                    :row-id="row.positionId"
+                    :market="market"
+                    data-testid="review-position-row"
+                  >
                     <TableCell class="min-w-40 pl-6">
                       <StockLink
                         :code="row.symbol"
@@ -478,7 +485,7 @@ onBeforeUnmount(() => { ++generation; ++runGeneration; clearPoll(); });
                     </TableCell><TableCell class="pr-6 text-right tabular-nums">
                       {{ row.weightPct == null ? '—' : `${fmt(row.weightPct)}%` }}
                     </TableCell>
-                  </TableRow><TableRow class="hover:bg-transparent">
+                  </InstrumentRow><TableRow class="hover:bg-transparent">
                     <TableCell
                       :colspan="6"
                       class="px-6 pb-5 pt-0"
@@ -510,7 +517,7 @@ onBeforeUnmount(() => { ++generation; ++runGeneration; clearPoll(); });
                   </TableRow>
                 </template>
               </TableBody>
-            </Table>
+            </InstrumentTable>
           </div>
         </section>
         <section class="rounded-2xl border bg-card p-6">

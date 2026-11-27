@@ -6,13 +6,16 @@ import { useSecurityName } from '@/composables/useSecurityName';
 import { useStockDetail } from '@/composables/useStockDetail';
 import { formatSecurityLabel } from '@/utils/security';
 import StockIdentity from './StockIdentity.vue';
+defineOptions({ inheritAttrs: false });
 const props = defineProps<{
   code: string;
   name?: string | null;
   market?: string | null;
   context?: StockDetailContext;
+  researchLabel?: string;
   onSelect?: () => void;
 }>();
+const emit = defineEmits<{ research: [] }>();
 const detail = useStockDetail();
 const resolvedName = useSecurityName(() => props.code, () => props.name);
 const market = computed<MarketType>(() => {
@@ -27,6 +30,7 @@ function open() {
 
 <template>
   <button
+    v-bind="$attrs"
     type="button"
     class="max-w-full rounded-sm text-left hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     :aria-label="formatSecurityLabel(code, resolvedName)"
@@ -38,5 +42,14 @@ function open() {
       :code="code"
       :name="resolvedName"
     />
+  </button>
+  <button
+    v-if="researchLabel"
+    type="button"
+    class="block text-xs text-muted-foreground hover:underline"
+    data-testid="row-research"
+    @click.stop="emit('research')"
+  >
+    {{ researchLabel }}
   </button>
 </template>

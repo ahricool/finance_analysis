@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import InstrumentTable from '@/components/market-data/instrument-table/InstrumentTable.vue';
+import InstrumentRow from '@/components/market-data/instrument-table/InstrumentRow.vue';
 import { trendSortValue, patternSortValue } from '@/utils/realtimeTableSort';
 import { calculateIntradayDirection, intradayDirectionSortValue } from '@/utils/intradayDirection';
 import { useMarket } from '@/composables/useMarket';
@@ -15,7 +17,6 @@ import {
 import StockDetailDialog from '@/components/stocks/StockDetailDialog.vue';
 import SortableTableHeader from '@/components/stocks/SortableTableHeader.vue';
 import RealtimeStatus from '@/components/stocks/RealtimeStatus.vue';
-import IntradayStockPanel from '@/components/stocks/IntradayStockPanel.vue';
 import TrendStatus from '@/components/stocks/TrendStatus.vue';
 import PatternStatus from '@/components/stocks/PatternStatus.vue';
 import IntradayDirectionStatus from '@/components/stocks/IntradayDirectionStatus.vue';
@@ -34,14 +35,13 @@ import { Label } from '@/components/ui/label';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { MoreHorizontal } from 'lucide-vue-next';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { createOperationId } from '@/utils/operationId';
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 
 const { market } = useMarket();
 const { portfolio: livePortfolio, status: realtimeStatus, getQuote } = useRealtimeQuotes(() => ({ scope: 'holdings', market: market.value }));
 const currentTime = useCurrentTime(1_000);
-const expandedId = ref<number | null>(null);
 const loading = ref(false);
 const error = ref<ParsedApiError | null>(null);
 const accounts = ref<PortfolioAccount[]>([]);
@@ -164,7 +164,6 @@ async function load() {
 }
 
 watch(market, () => {
-  expandedId.value = null;
   closeDetail();
   closeForm();
   accounts.value = [];
@@ -374,7 +373,7 @@ function closeDetail() {
             <EmptyDescription>记录买入以添加持仓，现金可独立修改。</EmptyDescription>
           </EmptyHeader>
         </Empty>
-        <Table v-else>
+        <InstrumentTable v-else>
           <TableHeader>
             <TableRow>
               <SortableTableHeader
@@ -397,15 +396,12 @@ function closeDetail() {
               v-for="row in sortedPositions"
               :key="row.id"
             >
-              <TableRow
+              <InstrumentRow
+                :symbol="row.symbol"
+                :row-id="row.id"
+                :market="market"
                 data-testid="position-row"
                 class="cursor-pointer"
-                tabindex="0"
-                :aria-label="`展开 ${row.name || row.symbol} 分钟行情`"
-                :aria-expanded="expandedId === row.id"
-                @click="expandedId = expandedId === row.id ? null : row.id"
-                @keydown.enter.self="expandedId = expandedId === row.id ? null : row.id"
-                @keydown.space.self.prevent="expandedId = expandedId === row.id ? null : row.id"
               >
                 <TableCell class="sticky left-0 z-10 bg-background">
                   <StockLink
@@ -497,21 +493,10 @@ function closeDetail() {
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </TableCell>
-              </TableRow>
-              <TableRow v-if="expandedId === row.id">
-                <TableCell
-                  :colspan="columns.length + 1"
-                  class="max-w-0 p-3"
-                >
-                  <IntradayStockPanel
-                    :symbol="row.symbol"
-                    :market="market"
-                  />
-                </TableCell>
-              </TableRow>
+              </InstrumentRow>
             </template>
           </TableBody>
-        </Table>
+        </InstrumentTable>
       </CardContent>
     </Card>
 

@@ -44,7 +44,7 @@ function row(symbol: string, score: number | null, direction: 'bullish' | 'beari
   return value;
 }
 async function start() {
-  page = mount(IntradayOptionsPage, { global: { stubs: { TrendPanel: true, MetricHint: true } } });
+  page = mount(IntradayOptionsPage, { global: { stubs: { LazyChartPanel: { template: '<div><slot /></div>' }, TrendPanel: true, MetricHint: true } } });
   await flushPromises();
 }
 function symbols() { return page.findAll('[data-testid^="options-row-"]').map(r => r.attributes('data-testid')!.replace('options-row-', '')); }
