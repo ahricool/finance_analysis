@@ -214,6 +214,10 @@ class CnQuoteFeed:
                 ):
                     continue
                 cached = self.owner.bars_1m.get(symbol, ())
+                prior = {b.identity: b for b in cached}
+                # A repeated full-day snapshot does not change when an unchanged bar was first known.
+                candles = [old if (old := prior.get(b.identity)) and old.indicator_input() == b.indicator_input()
+                           else b for b in candles]
                 unchanged = (len(cached) == len(candles) and all(
                     a.indicator_input() == b.indicator_input() for a, b in zip(cached, candles)
                 ))

@@ -42,6 +42,9 @@ from finance_analysis.market_stream.symbol_state import (
     SymbolRuntimeState,
     SymbolStatus,
 )
+from finance_analysis.intraday_options.scoring import rolling_bars
+from finance_analysis.intraday_options.opportunities import calculate_opportunities, table_summary
+from finance_analysis.intraday_options.opportunity_alert import alert_candidates, queue_opportunities, dispatch_loop
 from finance_analysis.market_stream.trend import calculate_ma_trend
 from finance_analysis.market_stream.warmup import LongbridgeHistoryLoader, merge_warmup_bars, warmup_bar_starts
 from finance_analysis.market_stream.watchlist_monitor import WatchListMonitor
@@ -188,6 +191,7 @@ class MarketStreamService:
         from finance_analysis.contracts.service import run_collector
 
         tasks = [
+            asyncio.create_task(dispatch_loop(self.repository.redis), name="rolling-opportunity-notifications"),
             asyncio.create_task(run_collector(self.repository.redis), name="contract-market"),
             asyncio.create_task(self._renew_leader_lock(), name="market-stream-lock"),
             asyncio.create_task(self._consume_events(), name="market-stream-events"),
@@ -511,14 +515,32 @@ class MarketStreamService:
         as_of: datetime,
     ) -> None:
         try:
+            bars = list(self.bars_1m.get(symbol, ()))
             trend = calculate_ma_trend(
-                list(self.bars_1m.get(symbol, ())),
+                bars,
                 market_type=market_type,
                 as_of=as_of,
             )
         except Exception as exc:
             logger.warning("1 分钟趋势计算失败: symbol=%s error=%s", symbol, exc, exc_info=True)
             return
+        now = utc_now()
+        ordered = rolling_bars(symbol, bars, now)
+        if ordered:
+            try:
+                opportunities = await asyncio.to_thread(calculate_opportunities, ordered)
+                if trend.bar_time == ordered[-1].bar_time:
+                    trend.opportunity = table_summary(opportunities)
+                quote = self.quotes.get(symbol)
+                now = utc_now()
+                quote_at = None
+                if (quote and quote.last_price and quote.last_price > 0 and quote.timestamp_kind != "received"
+                        and quote.received_at and timedelta(0) <= now - quote.received_at <= timedelta(seconds=30)):
+                    quote_at = quote.event_time
+                await queue_opportunities(self.repository.redis, symbol, alert_candidates(opportunities),
+                                          datetime.fromisoformat(opportunities["as_of"]), quote_at, now)
+            except Exception:
+                logger.exception("短线机会计算或入队失败: %s", symbol)
         try:
             await self.repository.write_trend_state(trend)
             self.pending_trends.pop(symbol, None)

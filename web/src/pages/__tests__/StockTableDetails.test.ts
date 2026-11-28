@@ -1,3 +1,4 @@
+import { ref } from 'vue';
 import { useMarketStore } from '@/stores/marketStore';
 import { flushPromises, mount } from '@vue/test-utils';
 import { createPinia } from 'pinia';
@@ -81,6 +82,19 @@ describe('watch-list table details', () => {
   afterEach(() => {
     document.body.innerHTML = '';
     vi.clearAllMocks();
+  });
+
+  it('shows the shared opportunity only while its quote is fresh', async () => {
+    const fresh = { ...quote, eventTime: '2026-07-03T15:00:00Z', receivedAt: '2026-07-03T15:00:00Z',
+      trend1m: { ...quote.trend1m, barTime: '2026-07-03T14:59:00Z' },
+      opportunity: { kind: 'pivot_breakout', direction: 'bullish', qualityScore: 88, expiresAt: '2026-07-03T15:05:00Z' } };
+    const live = ref(fresh);
+    mocks.getQuote.mockImplementation(() => live.value);
+    const page = await mountPage();
+    expect(page.get('tbody').text()).toContain('88分 · 盘中关键位突破 · 偏多');
+    live.value = { ...fresh, eventTime: '2026-07-03T14:59:00Z' };
+    await flushPromises();
+    expect(page.get('tbody').text()).not.toContain('88分');
   });
 
   it('opens complete details from the stock name', async () => {

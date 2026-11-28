@@ -72,6 +72,8 @@ TTL 仅用于清理，不代表行情有效期。保留上游时间和接收时�
 
 ## 页面读取与展开图
 
+自选股和持仓表的「短线机会」与合约、日内期权共享滚动分钟计算和 0.5 ATR 突破展示门槛。结果随闭合分钟行情写入 Redis，通知合并到[每分钟全市场排名](intraday-options.md#滚动机会推送)。
+
 自选股／投资组合实时表格、展开分钟图及其 WS / SSE、持仓汇总只读 Redis 报价，缓存缺失不触发外部报价请求。
 个股详情的日 K 查询独立于 Streamer 采集池：后端读取多日历史，再通过 MarketDataService 请求该股当天报价，
 以 OHLCV 生成临时日 K，按交易日期去重拼接返回；CN 使用 Fuyao→Longbridge，US 使用 yfinance→Longbridge。

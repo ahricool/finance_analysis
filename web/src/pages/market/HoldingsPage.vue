@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import InstrumentTable from '@/components/market-data/instrument-table/InstrumentTable.vue';
 import InstrumentRow from '@/components/market-data/instrument-table/InstrumentRow.vue';
-import { trendSortValue, patternSortValue } from '@/utils/realtimeTableSort';
+import { currentStockOpportunity, stockOpportunityText, trendSortValue, patternSortValue } from '@/utils/realtimeTableSort';
 import { calculateIntradayDirection, intradayDirectionSortValue } from '@/utils/intradayDirection';
 import { useMarket } from '@/composables/useMarket';
 import StockLink from '@/components/stocks/StockLink.vue';
@@ -52,7 +52,7 @@ const totalAsset = ref('0');
 const exposure = ref<string | null>(null);
 const missingQuotes = ref(0);
 const updatedAt = ref<string | null>(null);
-type SortKey = 'trend' | 'pattern' | 'intradayDirection' | 'symbol' | 'currentPrice' | 'changePct' | 'quantity' | 'averageCost' | 'weight' | 'dayPnl' | 'unrealizedPnlPct';
+type SortKey = 'opportunity' | 'trend' | 'pattern' | 'intradayDirection' | 'symbol' | 'currentPrice' | 'changePct' | 'quantity' | 'averageCost' | 'weight' | 'dayPnl' | 'unrealizedPnlPct';
 const sortKey = ref<SortKey>('weight');
 const sortDirection = ref<'asc' | 'desc'>('desc');
 const columns: Array<{ key: SortKey; label: string }> = [
@@ -60,7 +60,7 @@ const columns: Array<{ key: SortKey; label: string }> = [
   { key: 'changePct', label: '当日涨跌' },
   { key: 'quantity', label: '数量' }, { key: 'averageCost', label: '成本' },
   { key: 'weight', label: '仓位' }, { key: 'dayPnl', label: '当日盈亏' }, { key: 'unrealizedPnlPct', label: '盈亏' },
-  { key: 'trend', label: '趋势持续' }, { key: 'pattern', label: '最近形态' }, { key: 'intradayDirection', label: '日内方向状态' },
+  { key: 'trend', label: '趋势持续' }, { key: 'pattern', label: '最近形态' }, { key: 'opportunity', label: '短线机会' }, { key: 'intradayDirection', label: '日内方向状态' },
 ];
 const formOpen = ref(false);
 const formKind = ref<'buy' | 'sell' | 'cash'>('buy');
@@ -94,6 +94,7 @@ function numeric(value?: string | null): number | null {
 function positionSortValue(row: PortfolioPosition, key: SortKey) {
   if (key === 'symbol') return row.name || row.symbol;
   const quote = getQuote(row.symbol, market.value);
+  if (key === 'opportunity') return currentStockOpportunity(quote, currentTime.value, realtimeStatus.value)?.qualityScore ?? null;
   if (key === 'trend') return trendSortValue(quote?.trend1m);
   if (key === 'pattern') return patternSortValue(quote?.pattern1m);
   if (key === 'intradayDirection') return intradayDirectionSortValue(calculateIntradayDirection(quote, market.value, currentTime.value));
@@ -464,6 +465,9 @@ function closeDetail() {
                 </TableCell>
                 <TableCell><TrendStatus :trend="getQuote(row.symbol, market)?.trend1m" /></TableCell>
                 <TableCell><PatternStatus :pattern="getQuote(row.symbol, market)?.pattern1m" /></TableCell>
+                <TableCell class="whitespace-nowrap">
+                  {{ stockOpportunityText(getQuote(row.symbol, market), currentTime, realtimeStatus) }}
+                </TableCell>
                 <TableCell>
                   <IntradayDirectionStatus
                     :quote="getQuote(row.symbol, market)"
