@@ -172,10 +172,11 @@ async def test_full_live_path_and_short_accuracy_queue_are_published_together():
     await publish_forecast(redis, forecast)
     args = redis.eval.await_args.args
     assert ForecastSnapshot.model_validate_json(args[6]) == forecast
-    assert args[-2] == forecast.session_close
-    comparison = ForecastSnapshot.model_validate_json(args[-1])
+    assert args[-1] == 1
+    assert args[-3] == forecast.session_close
+    comparison = ForecastSnapshot.model_validate_json(args[-2])
     assert comparison.bars == forecast.bars[:10] and comparison.session_close is None
-    assert args[-4] == comparison.bars[-1].timestamp + 60_000
+    assert args[-5] == comparison.bars[-1].timestamp + 60_000
 
 
 @pytest.mark.asyncio

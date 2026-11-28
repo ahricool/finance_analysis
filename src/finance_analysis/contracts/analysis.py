@@ -4,6 +4,7 @@ from decimal import Decimal
 
 from finance_analysis.integrations.market_data.realtime_state.models import CandleState
 from finance_analysis.intraday_options.opportunities import calculate_opportunities
+from finance_analysis.intraday_options.structure import calculate_structure
 from finance_analysis.intraday_options.scoring import trend_summary
 
 
@@ -24,11 +25,13 @@ def summarize(symbol, rows, now_ms):
     if not bars:
         return None
     trend, windows = trend_summary(bars, opening)
+    structure = calculate_structure(bars, opening=opening)
     primary = calculate_opportunities(bars, opening=opening)["primary"]
     if any(w["data_status"] == "gap" for w in windows):
         primary = None
     return {
         "as_of": int(bars[-1].bar_time.timestamp() * 1000) + 60_000,
+        "structure": {key: structure[key] for key in ("kind", "phase", "reference")},
         "score": trend["score"], "direction": trend.get("direction"), "state": trend.get("state"),
         "windows": {str(w["minutes"]): {
             "score": w["score"], "direction": w.get("direction"), "returnPct": w.get("return_pct"),

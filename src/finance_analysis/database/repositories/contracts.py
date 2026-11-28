@@ -13,6 +13,15 @@ def contracts():
                 for row in rows]
 
 
+def forecast_symbols():
+    from finance_analysis.database.models.minute_forecast import MinuteForecastPreference
+
+    with DatabaseManager.get_instance().get_session() as session:
+        return list(session.scalars(select(FuturesContract.symbol).join(
+            MinuteForecastPreference, MinuteForecastPreference.symbol == FuturesContract.symbol,
+        )))
+
+
 def latest_daily(symbol):
     with DatabaseManager.get_instance().session_scope() as session:
         return session.scalar(select(func.max(FuturesDailyBar.timestamp)).where(FuturesDailyBar.symbol == symbol))

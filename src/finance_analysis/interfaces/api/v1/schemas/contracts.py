@@ -37,7 +37,18 @@ class ContractOpportunity(BaseModel):
     quality_score: float
 
 
+class ContractFavoriteUpdate(BaseModel):
+    enabled: bool
+
+
+class ContractStructure(BaseModel):
+    kind: str
+    phase: str
+    reference: bool
+
+
 class ContractAnalysis(BaseModel):
+    structure: ContractStructure | None = None
     as_of: int
     score: float | None
     direction: str | None

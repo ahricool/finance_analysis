@@ -38,8 +38,13 @@ export interface ForecastAccuracy {
   daily: Array<{ step: number; count: number; mae: number; baselineMae: number }>;
 }
 
-export async function fetchMinuteForecast(symbol: string, signal: AbortSignal): Promise<MinuteForecastResponse> {
-  const { data } = await apiClient.get(`/api/v1/market-data/minute-forecast/${encodeURIComponent(symbol)}`, { signal });
+function forecastPath(symbol: string, contract: boolean) {
+  const code = encodeURIComponent(symbol);
+  return contract ? `/api/v1/crypto/contracts/${code}/forecast` : `/api/v1/market-data/minute-forecast/${code}`;
+}
+
+export async function fetchMinuteForecast(symbol: string, signal: AbortSignal, contract = false): Promise<MinuteForecastResponse> {
+  const { data } = await apiClient.get(forecastPath(symbol, contract), { signal });
   return toCamelCase<MinuteForecastResponse>(data);
 }
 
@@ -47,16 +52,16 @@ export interface MinuteForecastPreference {
   enabled: boolean;
 }
 
-function preferencePath(symbol: string) {
-  return `/api/v1/market-data/minute-forecast/${encodeURIComponent(symbol)}/preference`;
+function preferencePath(symbol: string, contract: boolean) {
+  return forecastPath(symbol, contract) + '/preference';
 }
 
-export async function fetchMinuteForecastPreference(symbol: string, signal?: AbortSignal): Promise<MinuteForecastPreference> {
-  const { data } = await apiClient.get(preferencePath(symbol), { signal });
+export async function fetchMinuteForecastPreference(symbol: string, signal?: AbortSignal, contract = false): Promise<MinuteForecastPreference> {
+  const { data } = await apiClient.get(preferencePath(symbol, contract), { signal });
   return toCamelCase<MinuteForecastPreference>(data);
 }
 
-export async function saveMinuteForecastPreference(symbol: string, enabled: boolean): Promise<MinuteForecastPreference> {
-  const { data } = await apiClient.put(preferencePath(symbol), { enabled });
+export async function saveMinuteForecastPreference(symbol: string, enabled: boolean, contract = false): Promise<MinuteForecastPreference> {
+  const { data } = await apiClient.put(preferencePath(symbol, contract), { enabled });
   return toCamelCase<MinuteForecastPreference>(data);
 }

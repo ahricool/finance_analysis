@@ -5,7 +5,7 @@ import TrendWindowCell from '@/components/market-data/TrendWindowCell.vue';
 import TrendDirectionCell from '@/components/market-data/TrendDirectionCell.vue';
 import { opportunityKinds, stages, fmt } from '@/components/intraday-options/labels';
 import { computed, onBeforeUnmount, ref } from 'vue';
-import { MoreHorizontal, Plus, Trash2 } from 'lucide-vue-next';
+import { Heart, MoreHorizontal, Plus, Trash2 } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { TableHeader, TableBody, TableRow, TableCell, TableHead } from '@/components/ui/table';
@@ -15,6 +15,7 @@ import AppApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
 import AppConfirmDialog from '@/components/app/AppConfirmDialog.vue';
 import SortableTableHeader from '@/components/stocks/SortableTableHeader.vue';
 import ContractRowChart from '@/components/contracts/ContractRowChart.vue';
+import ContractDetailDialog from '@/components/contracts/ContractDetailDialog.vue';
 import ContractLink from '@/components/contracts/ContractLink.vue';
 import ContractAddDialog from '@/components/contracts/ContractAddDialog.vue';
 import { signedTextClass } from '@/utils/marketTone';
@@ -23,7 +24,20 @@ import { useContractMarket } from '@/composables/useContractMarket';
 import { useAuthStore } from '@/stores/authStore';
 import { useCurrentTime } from '@/composables/useCurrentTime';
 
+const selectedSymbol = ref('');
+const selectedContract = computed(() => displayRows.value.find(row => row.symbol === selectedSymbol.value));
 const rows = ref<ContractQuote[]>([]);
+const favorites = ref<string[]>([]);
+const savingFavorite = ref(true);
+void contractsApi.favorites().then(value => { if (Array.isArray(value)) favorites.value = value; })
+  .catch(err => { error.value = getParsedApiError(err); }).finally(() => { savingFavorite.value = false; });
+async function toggleFavorite(symbol: string) {
+  if (savingFavorite.value) return;
+  savingFavorite.value = true;
+  try { favorites.value = await contractsApi.favorite(symbol, !favorites.value.includes(symbol)); }
+  catch (err) { error.value = getParsedApiError(err); }
+  finally { savingFavorite.value = false; }
+}
 const received = ref(false);
 const error = ref<ParsedApiError | null>(null);
 const addOpen = ref(false);
@@ -49,6 +63,7 @@ const displayRows = computed(() => {
   }));
 });
 const sort = useTableSort(() => displayRows.value, (row, key) => {
+  if (key === 'favorite') return Number(favorites.value.includes(row.symbol));
   if (key === 'opportunity') return currentOpportunity(row)?.quality_score;
   if (key === 'direction') return currentOpportunity(row)?.direction ?? row.analysis?.direction;
   return sortField(row, key);
@@ -70,7 +85,7 @@ function metricText(row: ContractQuote, column: typeof metricColumns[number]) {
   return percent(value * 100);
 }
 const columns = [
-  { key: 'symbol', label: '合约' },
+  { key: 'symbol', label: '合约' }, { key: 'favorite', label: '关注' },
   { key: 'quote.price', label: '最新价' }, { key: 'quote.change_pct', label: '24h 涨跌幅' },
   ...metricColumns,
   { key: 'opportunity', label: '日内机会' }, { key: 'analysis.score', label: '趋势质量分' },
@@ -205,6 +220,7 @@ onBeforeUnmount(() => { stopped = true; });
           >
             <InstrumentRow
               :symbol="row.symbol"
+              all-periods
               data-testid="contract-row"
               class="cursor-pointer"
             >
@@ -212,12 +228,25 @@ onBeforeUnmount(() => { stopped = true; });
                 <ContractLink
                   :symbol="row.symbol"
                   :contract="row"
+                  @open-contract="selectedSymbol = row.symbol"
                 />
                 <span class="ml-1 text-xs text-muted-foreground">· {{ categoryLabel(row.category) }}</span>
                 <span
                   v-if="delayed(row)"
                   class="ml-2 text-xs text-muted-foreground"
                 >{{ row.quote ? '延迟' : '暂无行情' }}</span>
+              </TableCell>
+              <TableCell>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  :disabled="savingFavorite"
+                  :aria-pressed="favorites.includes(row.symbol)"
+                  :aria-label="`关注 ${row.symbol}`"
+                  @click.stop="toggleFavorite(row.symbol)"
+                >
+                  <Heart :class="favorites.includes(row.symbol) ? 'fill-current text-brand' : 'text-muted-foreground'" />
+                </Button>
               </TableCell>
               <TableCell class="whitespace-nowrap px-4 py-3 text-right tabular-nums">
                 {{ formatPrice(row.quote?.price) }}
@@ -293,6 +322,12 @@ onBeforeUnmount(() => { stopped = true; });
       </p>
     </section>
 
+    <ContractDetailDialog
+      v-if="selectedContract"
+      :key="selectedContract.symbol"
+      :row="selectedContract"
+      @close="selectedSymbol = ''"
+    />
     <ContractAddDialog
       v-if="admin"
       v-model:open="addOpen"

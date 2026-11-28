@@ -187,6 +187,7 @@ class MarketStreamService:
 
         from finance_analysis.minute_forecast.publisher import ForecastPublisher, forecast_model, forecast_url
 
+        from finance_analysis.contracts.forecast import run_contract_forecasts
         from finance_analysis.contracts.service import run_collector
 
         tasks = [
@@ -219,6 +220,9 @@ class MarketStreamService:
             if url := forecast_url():
                 # The elected streamer predicts only opted-in securities in the subscription union.
                 # GPU/network waits run outside the subscription and Redis flush loops.
+                tasks.append(asyncio.create_task(
+                    run_contract_forecasts(self.repository.redis, url), name="contract-forecast",
+                ))
                 publisher = ForecastPublisher(self.repository.redis, url, forecast_model())
                 tasks.append(asyncio.create_task(
                     publisher.run(self.bars_1m, self._forecast_targets), name="market-stream-forecast",

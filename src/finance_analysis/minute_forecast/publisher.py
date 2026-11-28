@@ -89,7 +89,7 @@ class ForecastPublisher:
             await settle_forecasts(self.redis, bars, targets, now)
             self.stock_evaluated_at = anchor
 
-    async def infer(self, predictor, windows: list[ForecastWindow]) -> bool:
+    async def infer(self, predictor, windows: list[ForecastWindow], *, track_accuracy: bool = True) -> bool:
         remaining = (windows[0].targets[0] + MINUTE_MS - millis(utc_now())) / 1000
         if remaining <= 0:
             return False
@@ -126,6 +126,6 @@ class ForecastPublisher:
                 anchor=last.timestamp, anchor_close=last.close, generated_at=generated_at,
                 lookback=len(window.bars), bars=prediction.bars,
                 session_close=window.session_close,
-            ))
+            ), track_accuracy=track_accuracy)
             self.published[window.symbol] = window.targets[0]
         return True

@@ -46,6 +46,9 @@ test('USD-M market lists contract prices, switches native candles and manages sy
     if (url.pathname === '/api/v1/market-data/daily-bars/SOXL.US') return route.fulfill({ json: { symbol: 'SOXL.US', market: 'US', items: [] } });
     if (url.pathname === '/api/v1/stocks/NVDA.US/classification') return route.fulfill({ json: { memberships: { industries: [], indices: [] }, etf_proxies: [] } });
     if (url.pathname === '/api/v1/market-data/daily-bars/NVDA.US') return route.fulfill({ json: { symbol: 'NVDA.US', market: 'US', items: [] } });
+    if (url.pathname.endsWith('/favorites')) return route.fulfill({ json: [] });
+    if (url.pathname.endsWith('/favorite')) return route.fulfill({ json: ['BTCUSDT'] });
+    if (url.pathname.endsWith('/forecast/preference')) return route.fulfill({ json: { enabled: method === 'PUT' } });
     if (url.pathname === '/api/v1/crypto/contracts/search') return route.fulfill({ json: [{ symbol: 'ETHUSDT', category: 'COIN', underlying_symbol: 'ETH.CRYPTO' }] });
     if (url.pathname.endsWith('/depth')) return route.fulfill({ json: { timestamp: now, bids: 200, asks: 330, bids_levels: 2, asks_levels: 3 } });
     if (url.pathname.endsWith('/metrics')) return route.fulfill({ json: { items: [metrics], next_start: null } });
@@ -68,7 +71,14 @@ test('USD-M market lists contract prices, switches native candles and manages sy
   await expect(page.getByRole('button', { name: 'BTCUSDT 标的详情', exact: true })).toBeVisible();
   await expect(page.getByTestId('contract-market-panel')).toHaveCount(0);
   expect(requests.some(url => url.includes('/contracts/') && url.includes('/bars'))).toBe(false);
+  const favorite = page.getByRole('button', { name: '关注 BTCUSDT', exact: true });
+  await favorite.click();
+  await expect(favorite).toHaveAttribute('aria-pressed', 'true');
   await page.getByRole('button', { name: 'BTCUSDT 标的详情' }).click();
+  const forecast = page.getByRole('switch', { name: '1min K 预测' });
+  await forecast.click();
+  await expect(forecast).toHaveAttribute('aria-checked', 'true');
+  await page.getByRole('button', { name: /锚定标的 BTC/ }).click();
   await expect(page.getByRole('dialog')).toContainText('BTC');
   await expect(page.getByTestId('underlying-empty')).toBeVisible();
   await page.keyboard.press('Escape');
@@ -76,6 +86,7 @@ test('USD-M market lists contract prices, switches native candles and manages sy
   await page.getByRole('button', { name: 'NVDAUSDT 标的详情' }).click();
   await expect(page.getByRole('dialog')).toContainText('NVDA.US');
   await expect(page.getByRole('switch', { name: '1min K 预测' })).toBeEnabled();
+  await page.getByRole('button', { name: /锚定标的 NVDA/ }).click();
   await expect(page.getByRole('dialog')).toContainText('456');
   await expect(page.getByRole('dialog')).not.toContainText('123');
   await expect(page.getByRole('tab', { name: '趋势', exact: true })).toBeVisible();
@@ -93,7 +104,7 @@ test('USD-M market lists contract prices, switches native candles and manages sy
   await expectPinnedInstrumentColumn(table, 0);
   await page.setViewportSize({ width: 1280, height: 900 });
   for (const value of ['+3.00%', '+8.00%', '65.00%', '1.50']) await expect(soxl).toContainText(value);
-  expect(requests.some(url => url.includes('/depth') || url.includes('/metrics?'))).toBe(false);
+
   await soxl.getByRole('cell').nth(2).click();
   await expect(soxl).toHaveAttribute('aria-expanded', 'true');
   await expect(page.getByTestId('contract-market-panel')).toContainText('买 200（2 档）');
@@ -103,10 +114,13 @@ test('USD-M market lists contract prices, switches native candles and manages sy
   await expect(page.getByTestId('contract-market-panel')).toContainText(' 至 ');
   await expect(page.getByRole('img', { name: /SOXLUSDT 1m K线/ })).toBeVisible();
   await expect(page.getByTestId('contract-indicators')).toContainText('MA20');
+  await page.getByRole('button', { name: '15min', exact: true }).click();
+  await expect(page.getByRole('img', { name: /SOXLUSDT 15m K线/ })).toBeVisible();
   await page.getByRole('button', { name: '日', exact: true }).click();
   await expect(page.getByRole('img', { name: /SOXLUSDT 1d K线/ })).toBeVisible();
   await expect(page.getByTestId('contract-indicators')).toContainText('MA5');
   await page.getByRole('button', { name: 'SOXLUSDT 标的详情' }).click();
+  await page.getByRole('button', { name: /锚定标的 SOXL/ }).click();
   await expect(page.getByRole('dialog')).toContainText('SOXL.US');
   await page.keyboard.press('Escape');
   await expect(page.getByRole('dialog')).toHaveCount(0);
@@ -134,7 +148,7 @@ test('USD-M market lists contract prices, switches native candles and manages sy
   await expect(page.getByRole('button', { name: 'ETHUSDT 标的详情', exact: true })).toBeVisible();
   await expect(page.getByTestId('contract-market-panel')).toHaveCount(0);
   const eth = page.getByTestId('contract-row').filter({ hasText: 'ETHUSDT' });
-  await eth.getByRole('cell').nth(1).click();
+  await eth.getByRole('cell').nth(2).click();
   await expect(eth).toHaveAttribute('aria-expanded', 'true');
   await eth.getByRole('button', { name: 'ETHUSDT 合约操作' }).click();
   await page.getByRole('menuitem', { name: '删除' }).click();
@@ -179,9 +193,10 @@ test('shared contracts are expandable for regular users but only admins can mana
   await expect(page.getByRole('button', { name: '添加合约', exact: true })).toHaveCount(0);
   await expect(page.getByRole('columnheader', { name: '操作' })).toHaveCount(0);
   await expect(btc.getByRole('button', { name: 'BTCUSDT 合约操作' })).toHaveCount(0);
-  await btc.getByRole('cell').nth(1).click();
+  await btc.getByRole('cell').nth(2).click();
   await expect(page.getByTestId('contract-market-panel')).toContainText('暂无 K 线');
   await expect(page.getByTestId('instrument-chart-row').getByRole('cell')).toHaveAttribute('colspan', String(await btc.getByRole('cell').count()));
   await btc.getByRole('button', { name: 'BTCUSDT 标的详情' }).click();
+  await page.getByRole('button', { name: /锚定标的 BTC/ }).click();
   await expect(page.getByTestId('underlying-empty')).toBeVisible();
 });

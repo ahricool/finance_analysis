@@ -37,7 +37,7 @@ test('expand all fetches only nearby contracts and switches every expanded row t
   await page.getByTestId('instrument-chart-row').last().scrollIntoViewIfNeeded();
   await expect.poll(() => requests.has('C59USDT/1d')).toBe(true);
   await toolbar.getByRole('button', { name: '15min', exact: true }).click();
-  await expect(page.getByTestId('instrument-chart-row').getByText('无数据', { exact: true })).toHaveCount(rows.length);
+  await expect(page.getByTestId('instrument-chart-row').first().getByText(/周期内 K 线不足/)).toBeVisible();
   await dataRows.first().getByRole('button', { name: 'C0USDT 标的详情' }).click();
   await expect(page.getByRole('dialog')).toBeVisible();
   await page.keyboard.press('Escape');

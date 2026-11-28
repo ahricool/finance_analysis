@@ -6,7 +6,7 @@ import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import { fetchMinuteForecastPreference, saveMinuteForecastPreference } from '@/api/minuteForecast';
 import { useAuthStore } from '@/stores/authStore';
 
-const props = defineProps<{ symbol: string }>();
+const props = defineProps<{ symbol: string; contract?: boolean }>();
 const auth = useAuthStore();
 const canEdit = computed(() => auth.currentUser?.role === 'admin');
 const enabled = ref<boolean | null>(null);
@@ -23,7 +23,7 @@ async function load() {
   busy.value = true;
   error.value = null;
   try {
-    const result = await fetchMinuteForecastPreference(props.symbol, controller.signal);
+    const result = await fetchMinuteForecastPreference(props.symbol, controller.signal, props.contract);
     if (request === generation) enabled.value = result.enabled;
   } catch (cause) {
     if (request === generation) error.value = getParsedApiError(cause);
@@ -38,7 +38,7 @@ async function update(value: boolean) {
   busy.value = true;
   error.value = null;
   try {
-    const result = await saveMinuteForecastPreference(props.symbol, value);
+    const result = await saveMinuteForecastPreference(props.symbol, value, props.contract);
     if (request === generation) enabled.value = result.enabled;
   } catch (cause) {
     if (request === generation) error.value = getParsedApiError(cause);
@@ -58,7 +58,12 @@ onBeforeUnmount(() => { ++generation; controller?.abort(); });
           1min K 预测
         </h3>
         <p class="text-xs text-muted-foreground">
-          全站共享 · 开启后使用已有的 1 分钟 K 线预测未来最多 60 根，截止当日收盘；数据不足时跳过。
+          <template v-if="contract">
+            Kronos · 连续 UTC 分钟 · 最多 60 根
+          </template>
+          <template v-else>
+            全站共享 · 开启后使用已有的 1 分钟 K 线预测未来最多 60 根，截止当日收盘；数据不足时跳过。
+          </template>
         </p>
       </div>
       <Switch

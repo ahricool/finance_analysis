@@ -1,5 +1,9 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
+import { structureLabels, structurePhases } from '@/components/intraday-options/labels';
+import { detectDailyPatterns, type DailyPatternEvent } from '@/utils/dailyPatterns';
+import { dailyPatternOverlays } from '@/components/market-data/dailyPatternOverlay';
+import { useTheme } from '@/composables/useTheme';
 import ContractMetricHistory from './ContractMetricHistory.vue';
 import { contractsApi, type Depth, type Candle, type ContractQuote } from '@/api/contracts';
 import type { ParsedApiError } from '@/api/error';
@@ -52,6 +56,15 @@ const preview = computed(() => {
 });
 const chartBars = computed(() => closed.value.map(bar => ({ ...bar })));
 const chartCurrent = computed(() => preview.value ? { ...preview.value } : null);
+const { resolvedTheme } = useTheme();
+const selectedPattern = ref<DailyPatternEvent | null>(null);
+watch(() => [props.row.symbol, props.interval], () => { selectedPattern.value = null; });
+const dailyBars = computed(() => props.interval === '1d' ? closed.value.map(bar => ({
+  ...bar, amount: bar.turnover, tradeDate: new Date(bar.timestamp).toISOString().slice(0, 10),
+})) : []);
+const patterns = computed(() => detectDailyPatterns(dailyBars.value, { marketDate: now.value.toISOString().slice(0, 10) }));
+const overlays = computed(() => dailyPatternOverlays(patterns.value, dailyBars.value, resolvedTheme.value === 'dark',
+  event => { selectedPattern.value = event; }));
 const precision = computed(() => {
   const price = props.row.quote?.price ?? newest.value?.close ?? 1;
   return price >= 100 ? 2 : price > 0 ? Math.max(2, Math.min(10, 3 - Math.floor(Math.log10(price)))) : 2;
@@ -107,7 +120,8 @@ const maPeriods = computed(() => props.interval === '1m' ? [20] : [5, 10, 20]);
           :price-precision="precision"
           timezone="UTC"
           live-snapshot
-          disable-forecast
+          contract-forecast
+          :overlays="overlays"
         />
         <div
           v-else
@@ -115,6 +129,21 @@ const maPeriods = computed(() => props.interval === '1m' ? [20] : [5, 10, 20]);
         >
           {{ loading ? '行情加载中…' : '无数据 · 暂无 K 线' }}
         </div>
+        <p
+          v-if="interval === '1m' && row.analysis?.structure"
+          class="mt-2 flex items-center gap-2 text-sm"
+        >
+          <strong>{{ structureLabels[row.analysis.structure.kind] }}</strong>
+          <span class="text-muted-foreground">{{ structurePhases[row.analysis.structure.phase] }}</span>
+          <small v-if="row.analysis.structure.reference || now.getTime() - row.analysis.as_of >= 90000">参考</small>
+        </p>
+        <p
+          v-if="interval === '1d' && (selectedPattern || patterns.length)"
+          class="mt-2 text-sm"
+        >
+          <strong>{{ (selectedPattern ?? patterns.at(-1))?.name }}</strong>
+          <span class="ml-2 text-muted-foreground">{{ (selectedPattern ?? patterns.at(-1))?.date }}</span>
+        </p>
       </div>
       <aside
         class="space-y-3 text-sm"

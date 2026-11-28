@@ -302,7 +302,7 @@ Cookie 会话，`apiClient` 设了 `withCredentials: true`。
 WS 连续两次失败回落 SSE，列表在合约名称后显示分类，并展示价格、24h 涨跌幅和日内指标；复用 MarketKLineChart 展示日 K 和 1min K，
 列表默认收起，点击普通单元格可展开行情、均线和盘口指标，也可切换到日 K。
 展开容器 `TableExpansionPanel` 与持仓/自选/日内期权复用。管理员使用列表「添加合约」弹窗和操作菜单中的「删除」；
-合约代码/锚定标的点击打开统一 StockDetailDialog，不触发行展开；
+合约名称打开专属详情，可切换周期、管理共享 Kronos 分钟预测或跳转锚定证券。关注按账户保存。
 `underlying_symbol` 由后端提供，加密货币与其他暂不支持的市场显示空态，不调用股票接口。
 
 ## 消息中心

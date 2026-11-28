@@ -1,7 +1,7 @@
 import { onMounted, shallowRef, watch } from 'vue';
 import { fetchMinuteForecast, type MinuteForecastResponse } from '@/api/minuteForecast';
 
-export function useMinuteForecast(symbol: () => string, active: () => boolean) {
+export function useMinuteForecast(symbol: () => string, active: () => boolean, contract = false) {
   const result = shallowRef<MinuteForecastResponse | null>(null);
   onMounted(() => {
     watch(() => (active() ? symbol() : ''), (selected, _previous, onCleanup) => {
@@ -13,7 +13,7 @@ export function useMinuteForecast(symbol: () => string, active: () => boolean) {
 
       async function load() {
         try {
-          const value = await fetchMinuteForecast(selected, request.signal);
+          const value = await fetchMinuteForecast(selected, request.signal, contract);
           if (!request.signal.aborted) result.value = value;
         } catch {
           // Forecast retrieval is independent of the real-time chart and quote connection.

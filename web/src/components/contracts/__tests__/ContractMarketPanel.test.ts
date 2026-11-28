@@ -27,7 +27,7 @@ describe('contract inline indicators', () => {
     const chart = panel.findComponent({ name: 'MarketKLineChart' });
     expect(chart.props('bars')).toHaveLength(20);
     expect(chart.props('current')).toMatchObject({ close: 200 });
-    expect(chart.props('disableForecast')).toBe(true);
+    expect(chart.props('contractForecast')).toBe(true);
     expect(panel.findAll('dt').find(item => item.text() === 'MA20')?.element.nextElementSibling?.textContent).toBe('100');
     expect(panel.text()).toContain('最新 K 线（预览）');
     panel.unmount();

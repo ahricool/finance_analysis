@@ -18,11 +18,17 @@ from finance_analysis.database.repositories import contracts as repository
 from finance_analysis.database.repositories.user import UserRepository
 from finance_analysis.integrations.crypto.binance import BinanceClient
 from finance_analysis.integrations.market_data.realtime_state.repository import RealtimeStateRepository
-from finance_analysis.interfaces.api.deps import get_db, require_admin
+from finance_analysis.interfaces.api.deps import get_db, require_admin, require_current_user
 from finance_analysis.interfaces.api.v1.schemas.contracts import Candle, Contract, ContractCreate, MarketSnapshot
-from finance_analysis.interfaces.api.v1.schemas.contracts import DepthSnapshot, HistoryPage
+from finance_analysis.interfaces.api.v1.schemas.contracts import ContractFavoriteUpdate, DepthSnapshot, HistoryPage
 from finance_analysis.market_stream.config import MarketStreamConfig
 from finance_analysis.users.auth import COOKIE_NAME, parse_session_uid
+
+from finance_analysis.database.models.user import User
+from finance_analysis.database.models.minute_forecast import MinuteForecastPreference
+from finance_analysis.minute_forecast.models import MinuteForecastPreferencePayload, MinuteForecastResponse
+from finance_analysis.minute_forecast.cache import latest_forecast
+from finance_analysis.minute_forecast.publisher import forecast_url
 
 router = APIRouter()
 
@@ -70,9 +76,12 @@ async def add(payload: ContractCreate, db: Session = Depends(get_db)):
 
 @router.delete("/contracts/{symbol}", status_code=204, dependencies=[Depends(require_admin)])
 def delete(symbol: str, db: Session = Depends(get_db)):
-    contract = db.get(FuturesContract, symbol)
+    contract = db.get(FuturesContract, symbol, with_for_update=True)
     if contract is None:
         raise HTTPException(404, "合约不存在")
+    pref = db.get(MinuteForecastPreference, symbol)
+    if pref is not None:
+        db.delete(pref)
     db.delete(contract)
     db.commit()
 
@@ -162,5 +171,61 @@ async def depth(symbol: str):
         await store.redis.set(key(symbol, "depth-demand"), "1", ex=15)
         item = await read_json(store.redis, key(symbol, "depth"), None)
         return item if item and abs(now_ms() - item["timestamp"]) < 15000 else None
+    finally:
+        await store.close()
+
+
+@router.get("/contracts/favorites")
+def favorites(user: User = Depends(require_current_user)) -> list[str]:
+    return (user.extra or {}).get("contract_favorites", [])
+
+
+@router.put("/contracts/{symbol}/favorite")
+def favorite(symbol: str, payload: ContractFavoriteUpdate, user: User = Depends(require_current_user),
+             db: Session = Depends(get_db)) -> list[str]:
+    require_contract(db, symbol)
+    account = db.get(User, user.id, with_for_update=True)
+    symbols = set((account.extra or {}).get("contract_favorites", []))
+    if payload.enabled:
+        symbols.add(symbol)
+    else:
+        symbols.discard(symbol)
+    result = sorted(symbols)
+    account.extra = {**(account.extra or {}), "contract_favorites": result}
+    db.commit()
+    return result
+
+
+def require_contract(db, symbol):
+    if db.get(FuturesContract, symbol) is None:
+        raise HTTPException(404, "合约不存在")
+
+
+@router.get("/contracts/{symbol}/forecast/preference")
+def forecast_preference(symbol: str, db: Session = Depends(get_db)):
+    require_contract(db, symbol)
+    return MinuteForecastPreferencePayload(enabled=db.get(MinuteForecastPreference, symbol) is not None)
+
+
+@router.put("/contracts/{symbol}/forecast/preference", dependencies=[Depends(require_admin)])
+def set_forecast_preference(symbol: str, payload: MinuteForecastPreferencePayload, db: Session = Depends(get_db)):
+    if db.get(FuturesContract, symbol, with_for_update=True) is None:
+        raise HTTPException(404, "合约不存在")
+    pref = db.get(MinuteForecastPreference, symbol)
+    if payload.enabled and pref is None:
+        db.add(MinuteForecastPreference(symbol=symbol))
+    elif not payload.enabled and pref is not None:
+        db.delete(pref)
+    db.commit()
+    return payload
+
+
+@router.get("/contracts/{symbol}/forecast", response_model=MinuteForecastResponse)
+async def contract_forecast(symbol: str, preference: MinuteForecastPreferencePayload = Depends(forecast_preference)):
+    if not forecast_url() or not preference.enabled:
+        return MinuteForecastResponse(enabled=False)
+    store = realtime()
+    try:
+        return MinuteForecastResponse(enabled=True, forecast=await latest_forecast(store.redis, symbol))
     finally:
         await store.close()
