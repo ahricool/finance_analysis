@@ -5,7 +5,7 @@ import logging
 import time
 
 from finance_analysis.contracts.metrics import DAY, ENDPOINTS, HOUR, MINUTE, STEP, aligned, normalize
-from finance_analysis.contracts.metrics import price_buckets, summarize_hour
+from finance_analysis.contracts.metrics import LIST_METRIC_MAX_AGE, list_metrics, price_buckets, summarize_hour
 from finance_analysis.contracts.service import key, now_ms, read_json
 from finance_analysis.database.repositories import contracts as repo
 from finance_analysis.integrations.crypto.binance import MarketCooldown, number
@@ -65,10 +65,12 @@ async def latest(redis, client, symbols, end):
                     statuses[source] = "unauthorized"
                 except Exception as exc:
                     statuses[source] = error_status(exc)
-            rows = await asyncio.to_thread(repo.metric_history, symbol, end - HOUR, end, 13)
+            span = HOUR + LIST_METRIC_MAX_AGE
+            rows = await asyncio.to_thread(repo.metric_history, symbol, end - span, end, span // STEP + 1)
             result = summarize_hour(rows, end)
             result["status"] = statuses
-            await redis.set(key(symbol, "metrics"), json.dumps(result), ex=600)
+            result["list_metrics"] = list_metrics(rows, result)
+            await redis.set(key(symbol, "metrics"), json.dumps(result), ex=LIST_METRIC_MAX_AGE // 1000 + 1)
 
             return symbol if any(s in {"missing", "partial", "rate_limited", "unavailable"} for s in statuses.values()) else None
 

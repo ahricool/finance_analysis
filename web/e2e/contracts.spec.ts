@@ -3,7 +3,7 @@ import { expectPinnedInstrumentColumn } from './instrumentColumn';
 import { dashboardResponse } from '../tests/fixtures/dashboard';
 
 test('USD-M market lists contract prices, switches native candles and manages symbols without Binance browser traffic', async ({ page }) => {
-  const now = Date.now();
+  const now = Math.floor(Date.now() / 300000) * 300000 + 60000;
   const timestamp = Math.floor(now / 300000) * 300000;
   await page.clock.setFixedTime(new Date(now));
   const metrics = { timestamp, price_change: .03, oi_change: .08, buy_share: .65,
@@ -13,13 +13,16 @@ test('USD-M market lists contract prices, switches native candles and manages sy
     pattern_1m: { status: 'active', signal: { pattern_name: '突破', direction: 'bullish_breakout',
       stage: 'confirmed', quality_score: 84, reasons: [], occurred_at: new Date(now).toISOString() } } };
   const initial = [
-    { symbol: 'BTCUSDT', category: '加密货币', underlying_symbol: 'BTC.CRYPTO', quote: { price: 100000, change_pct: 2.1, turnover: 20000000, funding_rate: 0.0001, timestamp: Date.now() } },
-    { symbol: 'NVDAUSDT', category: '美股', underlying_symbol: 'NVDA.US', quote: { price: 123, change_pct: 1, turnover: 1000000, funding_rate: 0, timestamp: Date.now() } },
-    { symbol: 'SOXLUSDT', category: 'ETF', underlying_symbol: 'SOXL.US', metrics, analysis, quote: { price: 45.12, change_pct: -1, turnover: 1000000, funding_rate: -0.0002, timestamp: Date.now() } },
+    { symbol: 'BTCUSDT', category: '加密货币', underlying_symbol: 'BTC.CRYPTO', quote: { price: 100000, change_pct: 2.1, turnover: 100, funding_rate: 0.0001, timestamp: now } },
+    { symbol: 'NVDAUSDT', category: '美股', underlying_symbol: 'NVDA.US', quote: { price: 123, change_pct: 1, turnover: 2000000, funding_rate: 0, timestamp: now } },
+    { symbol: 'SOXLUSDT', category: 'ETF', underlying_symbol: 'SOXL.US', metrics, analysis, list_metrics: {
+      price_change: { timestamp: timestamp - 300000, value: .03 }, oi_change: { timestamp, value: .08 },
+      buy_share: { timestamp: timestamp - 600000, value: .65 }, account_ratio: { timestamp, value: 1.5 },
+    }, quote: { price: 45.12, change_pct: -1, turnover: 1000000, funding_rate: -0.0002, timestamp: now } },
   ];
   const candle = (timestamp: number) => ({ timestamp, open: 40, high: 47, low: 39, close: 45, volume: 100, turnover: 4500 });
-  const day = Math.floor(Date.now() / 86400000) * 86400000;
-  const minute = Math.floor(Date.now() / 60000) * 60000;
+  const day = Math.floor(now / 86400000) * 86400000;
+  const minute = Math.floor(now / 60000) * 60000;
   const minutes = Array.from({ length: 60 }, (_, index) => candle(minute - (59 - index) * 60000));
   let rows = [...initial];
   const requests: string[] = [];
@@ -75,7 +78,12 @@ test('USD-M market lists contract prices, switches native candles and manages sy
   await expect(page.getByTestId('contract-market-panel')).toHaveCount(0);
   expect(requests.some(url => url.includes('/contracts/') && url.includes('/bars'))).toBe(false);
   const favorite = page.getByRole('button', { name: '关注 BTCUSDT', exact: true });
+  const contractRows = page.getByTestId('contract-row');
+  await expect(contractRows.nth(0)).toContainText('NVDAUSDT');
+  await expect(contractRows.nth(1)).toContainText('SOXLUSDT');
+  await expect(contractRows.nth(2)).toContainText('BTCUSDT');
   await favorite.click();
+  await expect(contractRows.nth(0)).toContainText('BTCUSDT');
   await expect(favorite).toHaveAttribute('aria-pressed', 'true');
   await page.getByRole('button', { name: 'BTCUSDT 标的详情' }).click();
   const forecast = page.getByRole('switch', { name: '1min K 预测' });
@@ -108,18 +116,27 @@ test('USD-M market lists contract prices, switches native candles and manages sy
     await expect(headers.nth(index)).toContainText(label);
     await expect(cells.nth(index)).toContainText(value);
   }
+  await expect(cells.nth(16)).toContainText('数据延迟');
+  await expect(cells.nth(6)).not.toContainText('数据延迟');
+  await expect(cells.nth(15)).not.toContainText('数据延迟');
   await expect(headers.nth(18)).toContainText('操作');
-  for (const index of [4, 5]) {
+  for (const index of [4, 5, 6, 15, 16, 17]) {
     await headers.nth(index).getByRole('button').first().click();
-    await expect(page.getByTestId('contract-row').first()).toContainText('SOXLUSDT');
+    await expect(contractRows.nth(0)).toContainText('BTCUSDT');
+    await expect(contractRows.nth(1)).toContainText('SOXLUSDT');
   }
   await expect(soxl.getByRole('button', { name: /删除|移除/ })).toHaveCount(0);
-  await expect(soxl.getByRole('cell').first()).toContainText(/永续\s*· ETF/);
+  await expect(headers.nth(0)).toContainText('关注');
+  await expect(headers.nth(1)).toContainText('合约');
+  await expect(cells.nth(0).getByRole('button', { name: '关注 SOXLUSDT' })).toBeVisible();
+  await expect(cells.nth(1)).toContainText(/永续\s*· ETF/);
   await expect(table.getByRole('columnheader', { name: '操作' })).toHaveCSS('position', 'static');
   await expect(soxl.getByRole('cell').last()).toHaveCSS('position', 'static');
   await page.setViewportSize({ width: 390, height: 900 });
   await expectPinnedInstrumentColumn(table, 0);
+  await expectPinnedInstrumentColumn(table, 1, 1);
   await page.setViewportSize({ width: 1280, height: 900 });
+  await expectPinnedInstrumentColumn(table, 1, 1);
   for (const value of ['+3.00%', '+8.00%', '65.00%', '1.50']) await expect(soxl).toContainText(value);
 
   await soxl.getByRole('cell').nth(2).click();
@@ -182,6 +199,13 @@ test('USD-M market lists contract prices, switches native candles and manages sy
     await page.setViewportSize({ width, height: 900 });
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   }
+  // No new snapshot: age the original readings on the browser clock.
+  await page.clock.setFixedTime(new Date(timestamp + 10 * 60_000));
+  await expect(cells.nth(6)).toContainText('数据延迟', { timeout: 8000 });
+  await expect(cells.nth(16)).toHaveText(/65\.00%\s*数据延迟/);
+  await page.clock.setFixedTime(new Date(timestamp + 10 * 60_000 + 1));
+  await expect(cells.nth(16)).toHaveText('—', { timeout: 8000 });
+  await expect(cells.nth(6)).toContainText('数据延迟');
   expect(errors).toEqual([]);
   expect(requests.some(url => url.includes('/stocks/BTC') || url.includes('/daily-bars/BTC') || url.includes('BTC.CRYPTO'))).toBe(false);
   expect(requests.some(url => /binance\.(com|vision)/.test(url))).toBe(false);

@@ -5,6 +5,7 @@ import TrendWindowCell from '@/components/market-data/TrendWindowCell.vue';
 import TrendDirectionCell from '@/components/market-data/TrendDirectionCell.vue';
 import { opportunityKinds, stages, fmt } from '@/components/intraday-options/labels';
 import { computed, onBeforeUnmount, ref } from 'vue';
+import { useElementSize } from '@vueuse/core';
 import { Heart, MoreHorizontal, Plus, Trash2 } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
@@ -29,6 +30,8 @@ import { useContractMarket } from '@/composables/useContractMarket';
 import { useAuthStore } from '@/stores/authStore';
 import { useCurrentTime } from '@/composables/useCurrentTime';
 
+const favoriteHeader = ref<InstanceType<typeof SortableTableHeader> | null>(null);
+const { width: favoriteWidth } = useElementSize(() => favoriteHeader.value?.$el, undefined, { box: 'border-box' });
 const selectedSymbol = ref('');
 const selectedContract = computed(() => displayRows.value.find(row => row.symbol === selectedSymbol.value));
 const rows = ref<ContractQuote[]>([]);
@@ -57,11 +60,16 @@ function currentOpportunity(row: ContractQuote) {
   return analysis && !delayed(row) && status.value.endsWith('已连接') && now.value.getTime() - analysis.as_of < 90_000
     ? analysis.opportunity : null;
 }
+const metricPeriod = 5 * 60_000;
+const metricGrace = 60_000;
+const maxMetricDelay = 15 * 60_000;
 const displayRows = computed(() => {
   const stamp = now.value.getTime();
-  const boundary = Math.floor(stamp / 300000) * 300000;
+  const boundary = Math.floor(stamp / metricPeriod) * metricPeriod;
   return rows.value.map(row => ({
     ...row,
+    list_metrics: Object.fromEntries(Object.entries(row.list_metrics ?? {}).filter(([, reading]) =>
+      reading.timestamp <= stamp && stamp - reading.timestamp <= metricPeriod + maxMetricDelay)),
     trend: toCamelCase<RealtimeTrend | null>(row.analysis?.trend_1m ?? null),
     pattern: toCamelCase<RealtimePatternState | null>(row.analysis?.pattern_1m ?? null),
     mark: row.mark && Math.abs(stamp - row.mark.timestamp) < 60000 ? row.mark : null,
@@ -72,21 +80,28 @@ const displayRows = computed(() => {
 const sort = useTableSort(() => displayRows.value, (row, key) => {
   if (key === 'trend') return trendSortValue(row.trend);
   if (key === 'pattern') return patternSortValue(row.pattern);
-  if (key === 'favorite') return Number(favorites.value.includes(row.symbol));
   if (key === 'opportunity') return currentOpportunity(row)?.quality_score;
   if (key === 'direction') return currentOpportunity(row)?.direction ?? row.analysis?.direction;
   return sortField(row, key);
 });
-sort.sortKey = 'opportunity';
+sort.sortKey = 'quote.turnover';
 sort.direction = 'desc';
+const orderedRows = computed(() => {
+  const pinned = new Set(favorites.value);
+  return [...sort.sorted.filter(row => pinned.has(row.symbol)), ...sort.sorted.filter(row => !pinned.has(row.symbol))];
+});
 const existingSymbols = computed(() => rows.value.map(row => row.symbol));
-const priceChangeColumn = { key: 'metrics.price_change', label: '1h 涨跌幅', unit: 'change', description: '同一 UTC 窗口内，末分钟收盘价相对首分钟开盘价的变化。' };
+const priceChangeColumn = { key: 'list_metrics.price_change.value', label: '1h 涨跌幅', unit: 'change', description: '同一 UTC 窗口内，末分钟收盘价相对首分钟开盘价的变化。' };
 const flowColumns = [
-  { key: 'metrics.oi_change', label: '1h OI 数量变化', unit: 'change', description: '期末与一小时前的未平仓合约数量变化率。' },
-  { key: 'metrics.buy_share', label: '1h 主动买入占比', unit: 'share', description: '整小时主动买入量占主动买卖成交量之和的比例，按成交量加权。' },
-  { key: 'metrics.accounts.ratio', label: '账户多空比', unit: 'multiple', description: '全市场净多账户数 / 净空账户数。大户持仓多空比按仓位规模计算。' },
+  { key: 'list_metrics.oi_change.value', label: '1h OI 数量变化', unit: 'change', description: '期末与一小时前的未平仓合约数量变化率。' },
+  { key: 'list_metrics.buy_share.value', label: '1h 主动买入占比', unit: 'share', description: '整小时主动买入量占主动买卖成交量之和的比例，按成交量加权。' },
+  { key: 'list_metrics.account_ratio.value', label: '账户多空比', unit: 'multiple', description: '全市场净多账户数 / 净空账户数。大户持仓多空比按仓位规模计算。' },
 ];
 const metricColumns = [priceChangeColumn, ...flowColumns];
+function metricDelayed(row: ContractQuote, key: string) {
+  const reading = row.list_metrics?.[key.split('.')[1]!];
+  return reading && now.value.getTime() - reading.timestamp > metricPeriod + metricGrace;
+}
 function metricText(row: ContractQuote, column: typeof metricColumns[number]) {
   const value = sortField(row, column.key);
   if (typeof value !== 'number') return '—';
@@ -95,7 +110,7 @@ function metricText(row: ContractQuote, column: typeof metricColumns[number]) {
   return percent(value * 100);
 }
 const columns = [
-  { key: 'symbol', label: '合约' }, { key: 'favorite', label: '关注' },
+  { key: 'symbol', label: '合约' },
   { key: 'quote.price', label: '最新价' }, { key: 'quote.change_pct', label: '24h 涨跌幅' },
   { key: 'trend', label: '趋势持续' }, { key: 'pattern', label: '最近形态' }, priceChangeColumn,
   { key: 'opportunity', label: '日内机会' }, { key: 'analysis.score', label: '趋势质量分' },
@@ -204,9 +219,16 @@ onBeforeUnmount(() => { stopped = true; });
           <Plus class="size-4" /> 添加合约
         </Button>
       </div>
-      <InstrumentTable>
+      <InstrumentTable :style="{ '--favorite-width': favoriteWidth + 'px' }">
         <TableHeader>
           <TableRow>
+            <SortableTableHeader
+              ref="favoriteHeader"
+              label="关注"
+              class="instrument-column px-2"
+              description="已关注合约置顶。点击切换各组内的 24 小时成交额排序。"
+              v-bind="sort.header('quote.turnover')"
+            />
             <SortableTableHeader
               v-for="column in columns"
               :key="column.key"
@@ -215,6 +237,7 @@ onBeforeUnmount(() => { stopped = true; });
               :align="column.key.startsWith('quote.') ? 'right' : 'left'"
               v-bind="sort.header(column.key)"
               :class="{ 'instrument-column': column.key === 'symbol' }"
+              :style="column.key === 'symbol' ? { left: 'var(--favorite-width)' } : undefined"
             />
             <TableHead
               v-if="admin"
@@ -226,7 +249,7 @@ onBeforeUnmount(() => { stopped = true; });
         </TableHeader>
         <TableBody>
           <template
-            v-for="row in sort.sorted"
+            v-for="row in orderedRows"
             :key="row.symbol"
           >
             <InstrumentRow
@@ -235,19 +258,7 @@ onBeforeUnmount(() => { stopped = true; });
               data-testid="contract-row"
               class="cursor-pointer"
             >
-              <TableCell class="instrument-column px-4 py-3">
-                <ContractLink
-                  :symbol="row.symbol"
-                  :contract="row"
-                  @open-contract="selectedSymbol = row.symbol"
-                />
-                <span class="ml-1 text-xs text-muted-foreground">· {{ categoryLabel(row.category) }}</span>
-                <span
-                  v-if="delayed(row)"
-                  class="ml-2 text-xs text-muted-foreground"
-                >{{ row.quote ? '延迟' : '暂无行情' }}</span>
-              </TableCell>
-              <TableCell>
+              <TableCell class="instrument-column px-2">
                 <Button
                   variant="ghost"
                   size="icon-sm"
@@ -258,6 +269,21 @@ onBeforeUnmount(() => { stopped = true; });
                 >
                   <Heart :class="favorites.includes(row.symbol) ? 'fill-current text-brand' : 'text-muted-foreground'" />
                 </Button>
+              </TableCell>
+              <TableCell
+                class="instrument-column px-4 py-3"
+                style="left: var(--favorite-width)"
+              >
+                <ContractLink
+                  :symbol="row.symbol"
+                  :contract="row"
+                  @open-contract="selectedSymbol = row.symbol"
+                />
+                <span class="ml-1 text-xs text-muted-foreground">· {{ categoryLabel(row.category) }}</span>
+                <span
+                  v-if="delayed(row)"
+                  class="ml-2 text-xs text-muted-foreground"
+                >{{ row.quote ? '延迟' : '暂无行情' }}</span>
               </TableCell>
               <TableCell class="whitespace-nowrap px-4 py-3 text-right tabular-nums">
                 {{ formatPrice(row.quote?.price) }}
@@ -277,6 +303,10 @@ onBeforeUnmount(() => { stopped = true; });
               </TableCell>
               <TableCell class="whitespace-nowrap px-4 py-3 text-right tabular-nums">
                 {{ metricText(row, priceChangeColumn) }}
+                <small
+                  v-if="metricDelayed(row, priceChangeColumn.key)"
+                  class="text-muted-foreground"
+                >数据延迟</small>
               </TableCell>
               <TableCell class="whitespace-nowrap px-4 py-3 text-right tabular-nums">
                 {{ currentOpportunity(row) ? fmt(currentOpportunity(row)?.quality_score, 0) + '分 · ' + opportunityKinds[currentOpportunity(row)!.kind] : '—' }}
@@ -298,6 +328,10 @@ onBeforeUnmount(() => { stopped = true; });
                 class="whitespace-nowrap px-4 py-3 text-right tabular-nums"
               >
                 {{ metricText(row, column) }}
+                <small
+                  v-if="metricDelayed(row, column.key)"
+                  class="text-muted-foreground"
+                >数据延迟</small>
               </TableCell>
               <TableCell
                 v-if="admin"

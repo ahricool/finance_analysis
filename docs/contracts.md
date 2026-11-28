@@ -71,7 +71,7 @@ GET 快照、搜索、添加响应及 WS/SSE 的合约项均包含 `underlying_s
 GET /api/v1/crypto/contracts/BTCUSDT/metrics?start=1795672800000&end=1795676400000&limit=12
 ```
 
-若 `next_start` 非空，下一页将 start 设为该值并沿用 end。空页返回 `items: []` 与 `next_start: null`。每行包含 symbol、period、timestamp、price、oi、taker 及三组多空结构，缺失组为 null。列表 GET 和 WS/SSE 仅携带该边界的最新摘要，历史副图在展开后选择指标时读取最近 24 小时。
+若 `next_start` 非空，下一页将 start 设为该值并沿用 end。空页返回 `items: []` 与 `next_start: null`。每行包含 symbol、period、timestamp、price、oi、taker 及三组多空结构，缺失组为 null。列表 GET 和 WS/SSE 的 metrics 为当前边界摘要，list_metrics 单独提供四列各自最近一次可计算的值与统计截止时间。应更新时间为该列统计截止时间加 5 分钟。应更新后 1 分钟内照常显示，超过 1 分钟保留数值并标注「数据延迟」，超过 15 分钟或无可用样本显示横杠，历史副图在展开后选择指标时读取最近 24 小时。
 
 ### 验证记录（2026-11-26）
 
@@ -92,7 +92,7 @@ GET /api/v1/crypto/contracts/BTCUSDT/metrics?start=1795672800000&end=17956764000
 
 ## 关注与分钟预测
 
-关注按登录账户保存，支持点击关注列表头排序。合约详情中的 Kronos 开关由管理员维护，全站共享。
+关注按登录账户保存，已关注的合约置顶，两组内默认按 24 小时成交额降序排列。点击关注列表头可切换成交额排序方向，点击其他表头按相应字段在组内排序。列表的第一列「关注」和第二列「合约」在横向滚动时固定于左侧。合约详情中的 Kronos 开关由管理员维护，全站共享。
 配置 `KRONOS_URL` 后，Streamer leader 从已启用合约的 Redis 缓存读取最近 15–240 根连续、已确认分钟线，
 以 UTC 自然分钟推理未来 60 步。缺口截断输入，最新闭合分钟缺失时跳过。非连续交易合约的预测时间轴按自然分钟延伸。
 合约预测独立于锚定股票，股票交易时段与收盘试算仅适用于股票。
