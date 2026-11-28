@@ -23,7 +23,7 @@ export interface HourSummary extends MetricSample {
 }
 export interface Depth { timestamp: number; bids: number | null; asks: number | null; bids_levels: number; asks_levels: number }
 export interface ContractQuote extends Contract {
-  list_metrics?: Record<string, { value: number; timestamp: number }> | null;
+  list_metrics?: Record<string, { value: number; timestamp: number; available_minutes?: number | null }> | null;
   metrics?: HourSummary | null;
   mark?: { timestamp: number; mark_price: number | null; index_price: number | null; basis: number | null;
     next_funding: number | null; funding_rate: number } | null;
@@ -33,7 +33,7 @@ export interface ContractQuote extends Contract {
   structure?: Pick<IntradayStructure, 'kind' | 'phase' | 'reference'> | null;
   score: number | null; direction: TrendDirection | null; state: TrendStage | null; reference: boolean; as_of: number;
   windows: Record<string, Pick<WindowScore, 'score' | 'direction' | 'returnPct' | 'dataStatus' | 'missingBars' | 'availableBars'>>;
-  opportunity: Pick<OpportunityBranch, 'direction' | 'kind'> & {quality_score: number} | null;
+  opportunity: Pick<OpportunityBranch, 'direction' | 'kind'> & {quality_score: number; confirmed_at?: string | null; expires_at?: string | null} | null;
 } | null }
 export type Candle = {
   closed?: boolean; received_at_ms?: number; event_time?: number;

@@ -1,4 +1,6 @@
 """Contract market API wire contracts."""
+from datetime import datetime
+
 from pydantic import BaseModel, Field
 
 
@@ -32,6 +34,8 @@ class ContractWindow(BaseModel):
 
 
 class ContractOpportunity(BaseModel):
+    confirmed_at: datetime | None = None
+    expires_at: datetime | None = None
     kind: str
     direction: str
     quality_score: float
@@ -90,6 +94,7 @@ class MetricValues(BaseModel):
 
 
 class HourSummary(MetricValues):
+    price_minutes: int | None = None
     price_change: float | None
     oi_change: float | None
     buy_share: float | None
@@ -139,6 +144,7 @@ class DepthSnapshot(BaseModel):
 
 
 class MetricReading(BaseModel):
+    available_minutes: int | None = None
     value: float
     timestamp: int
 

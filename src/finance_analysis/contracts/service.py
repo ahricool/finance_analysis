@@ -1,5 +1,6 @@
 """Single elected streamer publishes real-time USD-M contract data to Redis."""
 import asyncio
+from datetime import UTC, datetime
 import json
 import logging
 import time
@@ -7,6 +8,7 @@ import time
 import websockets
 from redis.exceptions import RedisError
 
+from finance_analysis.intraday_options.opportunity_alert import alert_opportunity
 from finance_analysis.contracts.analysis import summarize
 from finance_analysis.contracts.metrics import LIST_METRIC_MAX_AGE, aligned, summary_readings
 from finance_analysis.database.repositories import contracts as repository
@@ -107,6 +109,7 @@ class ContractCollector:
         self.funding = {}
         self.daily_current = {}
         self.dirty = set()
+        self.alert_tasks = set()
 
     async def symbols(self):
         return {row["symbol"] for row in await asyncio.to_thread(repository.contracts)}
@@ -257,12 +260,23 @@ class ContractCollector:
                     pipe.set(key(symbol, kind), json.dumps(row), ex=180)
                     writes += 1
         # Freeze all mutable market inputs before yielding to live WS updates.
+        alerts = []
         for symbol, bars in analyses.items():
             summary = await asyncio.to_thread(summarize, symbol, bars, now)
             pipe.set(key(symbol, "analysis"), json.dumps(summary), ex=120)
             writes += 1
+            quote = self.quotes.get(symbol)
+            if summary and summary.get("opportunity") and quote:
+                alerts.append((symbol, summary, quote["timestamp"]))
         if writes:
             await pipe.execute()
+        for symbol, summary, quote_at in alerts:
+            task = asyncio.create_task(alert_opportunity(
+                self.redis, symbol, summary["opportunity"], datetime.fromtimestamp(summary["as_of"] / 1000, UTC),
+                datetime.fromtimestamp(quote_at / 1000, UTC), datetime.now(UTC),
+            ))
+            self.alert_tasks.add(task)
+            task.add_done_callback(self.alert_tasks.discard)
 
     async def receive(self, socket, symbols):
         while True:
@@ -326,6 +340,7 @@ class ContractCollector:
             # If the handshake failed, allow initial REST warmup to finish.
             # Otherwise stop the old session before another can write.
             await asyncio.gather(*tasks, warmup, return_exceptions=True)
+            await asyncio.gather(*tuple(self.alert_tasks), return_exceptions=True)
             await self.flush()
 
     async def run(self):
@@ -409,8 +424,6 @@ async def live_snapshot(redis, symbol=None, interval=None):
                                            if 0 <= now - reading["timestamp"] <= LIST_METRIC_MAX_AGE}
                 if value["timestamp"] != aligned(now):
                     value = None
-            if value and kind == "analysis" and value["as_of"] <= now // DAY * DAY:
-                value = None
             row[kind] = value
         quote = row["quote"]
         if quote and row["mark"]:

@@ -10,7 +10,7 @@ from contextlib import suppress
 from dataclasses import asdict, dataclass
 from datetime import date, datetime, timedelta
 from decimal import Decimal
-from typing import Annotated, Any, Literal, cast
+from typing import Annotated, Any, Literal
 
 from anyio import CancelScope
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, WebSocket, WebSocketDisconnect
@@ -43,9 +43,6 @@ from finance_analysis.market_stream.config import (
     MarketStreamConfig,
     US_MINUTE_LIMIT,
     is_regular_session_minute,
-    is_regular_trade_session,
-    latest_completed_bar_time,
-    market_spec,
     market_trading_date,
     us_minute_cutoff,
 )
@@ -166,7 +163,7 @@ async def intraday_bars(
         (bars, current), snapshot, events = await asyncio.gather(
             repository.get_intraday_snapshot(code),
             _build_snapshot(uid, repository, stocks=[TrackedStock(code, market, code)]),
-            repository.get_pattern_events(code, day),
+            repository.get_pattern_events(code, day, now=now),
         )
         from finance_analysis.market_stream.session import us_minute_session
 
@@ -370,33 +367,6 @@ def _display_trading_date(market_type: str, now: datetime) -> date:
     return display_day(market_type, now)
 
 
-def _preview_bar_is_current(
-    preview_bar_time: datetime,
-    *,
-    now: datetime,
-    market_type: MarketType,
-    display_date: date | None,
-) -> bool:
-    """Return whether a preview bar is the market's still-forming regular-session minute."""
-    if display_date is None or market_trading_date(now, market_type) != display_date:
-        return False
-    if not is_regular_session_minute(now, market_type):
-        return False
-    if market_trading_date(preview_bar_time, market_type) != display_date:
-        return False
-    if not is_regular_session_minute(preview_bar_time, market_type):
-        return False
-
-    spec = market_spec(market_type)
-    current_minute = now.astimezone(spec.timezone).replace(second=0, microsecond=0)
-    preview_minute = preview_bar_time.astimezone(spec.timezone).replace(second=0, microsecond=0)
-    if preview_minute != current_minute:
-        return False
-
-    latest_completed = latest_completed_bar_time(now, market_type)
-    return latest_completed is None or preview_bar_time > latest_completed
-
-
 def _session_window(market, now):
     from finance_analysis.market_stream.session import session_bounds
 
@@ -432,15 +402,17 @@ def _quote_payload(
             and quote.event_time <= now + timedelta(seconds=5)
             and quote.received_at <= now + timedelta(seconds=5)
         )
-        trend_is_current = trend is not None and trend.trading_date == display_date
-        if trend_is_current and trend is not None and trend.bar_time is not None:
-            trend_is_current = (
-                market_trading_date(trend.bar_time, cast(MarketType, stock.market_type)) == display_date
-                and is_regular_session_minute(trend.bar_time, cast(MarketType, stock.market_type))
-                and is_regular_trade_session(trend.trade_session)
-            )
-        if trend_is_current and trend is not None and trend.state != "insufficient":
-            trend_is_current = trend.confirmed and trend.bar_time is not None
+
+        def current_indicator_time(at, day):
+            if at is None or at > now or market_trading_date(at, stock.market_type) != day:
+                return False
+            if stock.market_type == "US":
+                return at >= us_minute_cutoff(now) or market_trading_date(at, "US") == display_date
+            return market_trading_date(at, stock.market_type) == display_date
+
+        trend_is_current = trend is not None and current_indicator_time(trend.bar_time, trend.trading_date)
+        if trend_is_current and trend.state != "insufficient":
+            trend_is_current = trend.confirmed
     except Exception as exc:
         logger.warning("行情交易日校验失败: symbol=%s error=%s", stock.symbol, exc)
         display_date = None
@@ -450,34 +422,13 @@ def _quote_payload(
         trend = TrendState(symbol=stock.symbol, trading_date=display_date)
     preview_is_current = False
     try:
-        pattern_is_current = pattern is not None and pattern.trading_date == display_date
-        if pattern_is_current and pattern is not None and pattern.bar_time is not None:
-            pattern_is_current = market_trading_date(
-                pattern.bar_time, cast(MarketType, stock.market_type)
-            ) == display_date and is_regular_session_minute(pattern.bar_time, cast(MarketType, stock.market_type))
-        if pattern_is_current and pattern is not None and pattern.signal is not None:
+        pattern_is_current = pattern is not None and current_indicator_time(pattern.bar_time, pattern.trading_date)
+        if pattern_is_current and pattern.signal is not None:
             effective_at = pattern.signal.confirmed_at or pattern.signal.occurred_at
-            pattern_is_current = (
-                pattern.signal.trading_date == display_date
-                and is_regular_session_minute(effective_at, cast(MarketType, stock.market_type))
-                and is_regular_trade_session(pattern.signal.trade_session)
-                and pattern.signal.bars_ago <= PATTERN_CONFIG.maximum_age_bars
-            )
-        preview_is_current = pattern is not None and pattern.preview_bar_time is not None
-        if preview_is_current and pattern is not None and pattern.preview_bar_time is not None:
-            preview_is_current = _preview_bar_is_current(
-                pattern.preview_bar_time,
-                now=now,
-                market_type=cast(MarketType, stock.market_type),
-                display_date=display_date,
-            )
-        if preview_is_current and pattern is not None and pattern.preview_signal is not None:
-            preview_is_current = (
-                pattern.preview_signal.trading_date == display_date
-                and is_regular_trade_session(pattern.preview_signal.trade_session)
-                and not pattern.preview_signal.confirmed
-                and pattern.preview_signal.stage != "confirmed"
-            )
+            pattern_is_current = effective_at <= pattern.bar_time and pattern.signal.bars_ago <= PATTERN_CONFIG.maximum_age_bars
+        preview_is_current = pattern is not None and pattern.preview_bar_time == now.replace(second=0, microsecond=0)
+        if preview_is_current and pattern.preview_signal is not None:
+            preview_is_current = not pattern.preview_signal.confirmed and pattern.preview_signal.stage != "confirmed"
     except Exception as exc:
         logger.warning("形态交易日校验失败: symbol=%s error=%s", stock.symbol, exc)
         pattern_is_current = False

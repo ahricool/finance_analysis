@@ -14,7 +14,7 @@ describe('reference line semantics', () => {
   });
   it('does not fabricate volume or bridge a missing minute', () => {
     expect(referenceSeries(bars.map(b => ({ ...b, volume: 0, turnover: null })), 'vwap').points).toEqual([]);
-    expect(referenceSeries([bars[0]!, { ...bars[1]!, timestamp: 120_000 }], 'mean').points).toEqual([]);
+    expect(referenceSeries([bars[0]!, { ...bars[1]!, timestamp: 120_000 }], 'mean').points.at(-1)?.value).toBe(bars[1]!.close);
   });
 });
 

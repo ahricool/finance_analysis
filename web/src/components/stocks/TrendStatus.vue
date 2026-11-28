@@ -73,6 +73,9 @@ const tooltip = computed(() => {
             :class="dotClass"
           />
           <span>{{ label }}</span>
+          <small v-if="trend && trend.effectivePeriod > 0 && trend.effectivePeriod < trend.targetPeriod">
+            {{ trend.effectivePeriod }}/{{ trend.targetPeriod }} 根 · 参考
+          </small>
         </span>
       </TooltipTrigger>
       <TooltipContent class="whitespace-pre-line">

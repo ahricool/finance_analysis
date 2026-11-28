@@ -34,7 +34,7 @@ GET 快照、搜索、添加响应及 WS/SSE 的合约项均包含 `underlying_s
 
 官方 WS 路由与迁移规范：[Binance USD-M WebSocket Market Streams](https://developers.binance.com/en/docs/products/derivatives-trading-usds-futures/websocket-market-streams/Connect)。
 
-合约列表按 UTC 00:00 划分交易日，仅使用已闭合分钟线，复用日内期权的 5/15/30/60 分钟趋势评分与已确认形态识别。报价、分钟线延迟或连接断开时，页面隐藏当前机会。Streamer 在闭合分钟变更及历史补齐时计算分析摘要。
+合约短线机会和当前状态取跨 UTC 零点的滚动闭合分钟线，复用日内期权的 5/15/30/60 分钟趋势评分与已确认形态识别。报价、分钟线延迟或连接断开时，页面隐藏当前机会。Streamer 在闭合分钟变更及历史补齐时计算分析摘要。六个全天形态与美股分析共用，行情新鲜且主形态确认时按标的与形态身份发送一次全局提醒。
 列表的「趋势持续」统计分钟收盘价连续位于滚动均线上方或下方的根数。「最近形态」沿用自选股的分钟形态规则、质量分与排序。两列取 UTC 当日最后一段连续的已闭合分钟线，跨日或缺口后重新积累样本。
 
 页面的列表订阅携带 `delta=true`。展开行只在视口附近按标的拉取 K 线，分钟图每 5 秒更新，日图每分钟更新；移出后停止轮询。每次连接先接收完整基线，随后按连续 revision 合并字段变化；滚动分钟按 timestamp 匹配，仅传删除、新增和修订。无变化发送空操作，断线后重新建立基线。
@@ -50,7 +50,7 @@ GET 快照、搜索、添加响应及 WS/SSE 的合约项均包含 `underlying_s
 | `metrics.top_positions` | topLongShortPositionRatio，同一群体的净多 / 净空仓位规模（倍），longAccount / shortAccount 存为持仓占比 | T 期末采样 |
 | `metrics.oi`、`oi_change` | openInterestHist 的 quantity 为合约标的数量，usdt 为名义价值；1h 变化率为 quantity(T) / quantity(T−60m) − 1 | 两个精确端点 |
 | `metrics.taker`、`buy_share` | takerlongshortRatio，buy / sell 为同单位主动成交量，ratio 为原接口买卖倍数；1h 占比为十二桶买量之和 / 十二桶买卖总量 | 原生 timestamp 是桶起点，归一边界加 5m |
-| `metrics.price_change`、历史 `price` | 已闭合成交价 1m K 组成的 5m 开收边界，保留来源。1h 使用末收 / 首开 − 1 | 完整 60 根，缺一分钟即为空 |
+| `metrics.price_change`、历史 `price` | 已闭合成交价 1m K 组成的 5m 开收边界，保留来源。1h 使用末收 / 首开 − 1 | 完整窗口60分钟；缺桶时按最新连续5分钟桶计算，表格注明实际覆盖分钟 |
 | `mark` | 市场流 markPriceUpdate 的 p / i / r / T / E，分别为标记价、指数价、资金费率、下次结算、事件时间。basis 为 p / i − 1 | 与 ticker 分开缓存，各 60 秒 |
 | `book` | 每 5 秒批量读取 bookTicker 的 bidPrice / askPrice，spread_bps 为价差除以买卖中点再乘 10000 | time 为撮合时间，60 秒有效 |
 | `/depth` | 展开期间向 FA 续租，同一标的的所有用户共用 Streamer 的 limit=10 深度快照。bids / asks 各自累加价格 × 数量（USDT），分别附实际档数 | T 为交易所快照时间，15 秒有效 |

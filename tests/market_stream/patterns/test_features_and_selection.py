@@ -69,19 +69,19 @@ def signal(
     )
 
 
-def test_sanitize_uses_only_latest_date_confirmed_regular_bars_and_deduplicates() -> None:
+def test_sanitize_includes_extended_minutes_and_deduplicates() -> None:
     current = baseline(count=3)
     duplicate = replace(current[1], close=Decimal("100.2"), received_at=current[1].received_at + timedelta(seconds=5))
     previous = replace(current[0], bar_time=current[0].bar_time - timedelta(days=1))
     unconfirmed = replace(current[-1], bar_time=current[-1].bar_time + timedelta(minutes=1), confirmed=False)
     premarket = replace(current[0], bar_time=current[0].bar_time.replace(hour=12))
-    postmarket = replace(current[0], bar_time=current[0].bar_time + timedelta(hours=8), trade_session="Post")
+    postmarket = replace(current[0], bar_time=current[-1].bar_time + timedelta(minutes=1), trade_session="Post")
 
     result = sanitize_bars(
         [postmarket, current[2], previous, current[1], unconfirmed, premarket, duplicate, current[0]], "US"
     )
 
-    assert [bar.bar_time for bar in result] == [current[0].bar_time, current[1].bar_time, current[2].bar_time]
+    assert [bar.bar_time for bar in result] == [current[0].bar_time, current[1].bar_time, current[2].bar_time, postmarket.bar_time]
     assert result[1].close == Decimal("100.2")
     assert all(bar.confirmed for bar in result)
 
@@ -98,7 +98,7 @@ def test_unconfirmed_pattern_bar_cannot_change_final_state() -> None:
     assert after_unconfirmed.signal is not None and after_unconfirmed.signal.stage == "warning"
 
 
-def test_preview_keeps_only_latest_unconfirmed_current_day_regular_bar() -> None:
+def test_preview_keeps_only_latest_unconfirmed_postmarket_bar_after_gap() -> None:
     confirmed = baseline(count=3)
     first_unconfirmed = replace(candle(3, (100, 101, 99, 100.5)), confirmed=False)
     latest_unconfirmed = replace(candle(4, (100.5, 102, 100, 101.5)), confirmed=False)
@@ -110,8 +110,7 @@ def test_preview_keeps_only_latest_unconfirmed_current_day_regular_bar() -> None
         "US",
     )
 
-    assert result[:-1] == confirmed
-    assert result[-1] == latest_unconfirmed
+    assert result == [postmarket]
     assert sum(not bar.confirmed for bar in result) == 1
 
 
@@ -136,7 +135,7 @@ def test_preview_quote_updates_temporary_ohlc_without_mutating_source() -> None:
     assert unfinished.low == Decimal("99")
 
 
-@pytest.mark.parametrize("change", ["minute", "date", "stale", "symbol", "session"])
+@pytest.mark.parametrize("change", ["minute", "date", "stale", "symbol"])
 def test_preview_rejects_quote_from_other_minute_date_or_older_data(change: str) -> None:
     unfinished = replace(candle(15, (100, 101, 99, 100)), confirmed=False)
     event_time = unfinished.bar_time + timedelta(seconds=20)
@@ -149,10 +148,9 @@ def test_preview_rejects_quote_from_other_minute_date_or_older_data(change: str)
     elif change == "stale":
         received_at = unfinished.received_at
     symbol = "QQQ.US" if change == "symbol" else unfinished.symbol
-    trade_session = "Post" if change == "session" else "Intraday"
     quote = QuoteState(symbol=symbol)
     quote.merge(
-        {"last_price": "102", "trade_session": trade_session},
+        {"last_price": "102", "trade_session": "Intraday"},
         event_time=event_time,
         received_at=received_at,
         trading_date=trading_date,
@@ -321,3 +319,9 @@ def test_calculate_state_distinguishes_insufficient_none_and_active() -> None:
     assert insufficient.status == "insufficient"
     assert none.status == "none"
     assert active.status == "active"
+
+
+def test_rolling_vwap_drops_old_price_even_when_session_is_unchanged():
+    bars = [candle(i, (price, price, price, price), volume=100)
+            for i, price in enumerate([50] + [100] * 20)]
+    assert session_vwap(bars, atr=Decimal(1), config=PatternConfig())[-1] == 100

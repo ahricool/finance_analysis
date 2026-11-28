@@ -18,7 +18,7 @@ _CN_TZ = ZoneInfo("Asia/Shanghai")
 
 KIND_LABELS: dict[str, str] = {
     "opening_breakout": "开盘区间突破",
-    "midday_wave_breakout": "盘中主浪突破",
+    "midday_wave_breakout": "滚动区间主浪突破",
     "pivot_breakout": "盘中关键位突破",
     "box_breakout": "箱体突破",
     "box_retest": "突破位回测",

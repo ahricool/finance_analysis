@@ -213,6 +213,17 @@ class CnQuoteFeed:
                     state.trading_date is not None and day < state.trading_date
                 ):
                     continue
+                cached = self.owner.bars_1m.get(symbol, ())
+                unchanged = (len(cached) == len(candles) and all(
+                    a.indicator_input() == b.indicator_input() for a, b in zip(cached, candles)
+                ))
+                if (unchanged and not state.error and not self.owner.redis_degraded
+                        and symbol not in self.owner.pending_patterns and symbol not in self.owner.pending_trends):
+                    if not active and expected is not None and required <= {
+                        bar.bar_time for bar in candles if bar.confirmed and bar.is_valid()
+                    }:
+                        self._settled[symbol] = expected
+                    continue
                 self.owner._cancel_pattern_preview_task(symbol)
                 self.owner.pattern_preview_calculated_at.pop(symbol, None)
                 # Replace the entire day's source window; never splice competing feeds or sampled bars.

@@ -56,7 +56,8 @@ def test_midnight_exact_window_and_field_local_gaps():
         row["taker"] = {"buy": 0, "sell": 0}
     assert summary()["buy_share"] is None
     rows[4].pop("price")
-    assert summary()["price_change"] is None
+    assert summary()["price_change"] == pytest.approx(.03)
+    assert metrics.summary_readings(summary())["price_change"]["available_minutes"] == 40
     bars = [{"timestamp": t, "open": 1, "close": 2, "closed": t != T - metrics.MINUTE}
             for t in range(T - metrics.STEP, T, metrics.MINUTE)]
     assert not metrics.price_buckets(bars, T, T, "ws")

@@ -6,21 +6,28 @@ import type { IntradayStructure, WindowScore } from '@/api/intradayOptions';
 
 let registered = false;
 export function referenceSeries(bars: IntradayBar[], mode: 'vwap' | 'mean') {
-  let numerator = 0, denominator = 0;
-  const exact = mode === 'vwap' && bars.every(bar => bar.turnover != null);
   const points: Array<{ timestamp: number; value: number }> = [];
-  // Never bridge missing minutes or claim a partial-day average is a full-session VWAP.
-  const gap = bars.some((bar, i) => bar.partial || (i > 0 && bar.timestamp - bars[i - 1]!.timestamp !== 60_000));
-  if (gap) return { points, label: '分钟缺失，均价参考暂停' };
+  const window: IntradayBar[] = [];
+  let approximate = false;
   for (const bar of bars) {
-    if (mode === 'mean') { numerator += bar.close; denominator++; }
-    else {
-      numerator += exact ? bar.turnover! : (bar.high + bar.low + bar.close) / 3 * bar.volume;
-      denominator += bar.volume;
+    if (bar.partial || (window.length && bar.timestamp - window.at(-1)!.timestamp !== 60_000)) window.length = 0;
+    if (bar.partial) continue;
+    window.push(bar);
+    if (window.length > 20) window.shift();
+    let total = 0, weight = 0;
+    for (const minute of window) {
+      if (mode === 'mean') { total += minute.close; weight++; }
+      else {
+        approximate ||= minute.turnover == null && minute.volume > 0;
+        total += minute.turnover ?? (minute.high + minute.low + minute.close) / 3 * minute.volume;
+        weight += minute.volume;
+      }
     }
-    if (denominator > 0) points.push({ timestamp: bar.timestamp, value: numerator / denominator });
+    if (weight > 0) points.push({ timestamp: bar.timestamp, value: total / weight });
   }
-  return { points, label: mode === 'mean' ? '已采集分钟收盘价等权均价' : exact ? '已采集区间VWAP = 累计成交额 / 累计成交量' : '已采集区间近似VWAP = Σ(HLC3 × 分钟成交量) / Σ成交量' };
+  const name = mode === 'mean' ? '等权均价' : approximate ? '近似VWAP' : 'VWAP';
+  const coverage = window.length < 20 ? `，当前仅 ${window.length}/20 根` : '';
+  return { points, label: `滚动20分钟${name}${coverage}` };
 }
 export function trendOverlays(bars: IntradayBar[], window: WindowScore | undefined, mode: 'vwap' | 'mean' | 'off', dark: boolean): ChartAnnotation[] {
   if (!registered) {

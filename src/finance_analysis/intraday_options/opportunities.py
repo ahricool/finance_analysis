@@ -11,8 +11,6 @@ from finance_analysis.intraday_options.analysis_window import HORIZON, REQUIRED_
 from finance_analysis.intraday_options.rules import CONTINUATION, ENTRY_VERSION, RULES, START_KINDS, entry_interval, policy
 from finance_analysis.intraday_options.starts import breakout_seeds
 from finance_analysis.intraday_options.continuation import setup, confirmation, pullback_anchor
-from finance_analysis.market_stream.config import market_trading_date
-from finance_analysis.market_stream.session import session_bounds
 
 MINUTE = timedelta(minutes=1)
 
@@ -267,7 +265,7 @@ def detect(bars, settings=None, opening=None):
     archive = []
     diagnostics = {}
     if opening is None:
-        opening, _ = session_bounds("US", market_trading_date(bars[-1].bar_time, "US"))
+        opening = bars[0].bar_time
     window_start = max(opening, bars[-1].bar_time - (HORIZON - 1) * MINUTE)
     for index, bar in enumerate(bars):
         history = bars[: index + 1]
@@ -362,9 +360,9 @@ def detect(bars, settings=None, opening=None):
     return [*archive, *branches.values()], list(dict.fromkeys(diagnostics))
 
 
-def start_branches(ordered, opening, settings, snapshots=None):
+def start_branches(ordered, settings, snapshots=None):
     result = []
-    for level, bar in breakout_seeds(ordered, opening, settings, snapshots):
+    for level, bar in breakout_seeds(ordered, settings, snapshots):
         kind, side = level["kind"], level["side"]
         branch = new_branch(kind, side, level["trigger"], level["atr"], bar, level["structure_start"], settings.structure_quality)
         identity = level["identity"]
@@ -373,9 +371,6 @@ def start_branches(ordered, opening, settings, snapshots=None):
                       structure_end=level["frozen"].isoformat(), formation_available_at=level["available"].isoformat(),
                       execution_floor=level["last_receipt"].isoformat(),
                       atr_samples=level["atr_samples"], atr_source="observed_adjacent_true_ranges")
-        if level.get("opening_drive"):
-            branch["opening_drive"] = True
-            branch["expires_at"] = level["until"].isoformat()
         branch["triggered_at"] = branch["started_at"]
         if level["width"] is not None:
             edge = level["trigger"] - side * level["width"]
@@ -399,7 +394,7 @@ def calculate_opportunities(ordered, settings=None, opening=None):
     cfg = settings or policy()
     end = ordered[-1].bar_time
     if opening is None:
-        opening, _ = session_bounds("US", market_trading_date(end, "US"))
+        opening = ordered[0].bar_time
     bars, coverage, reasons = analysis_window(ordered, opening)
     branches, diagnostics = detect(bars, cfg, opening) if bars else ([], [])
     if bars and cfg.recovery_enabled:
@@ -410,13 +405,13 @@ def calculate_opportunities(ordered, settings=None, opening=None):
             visible_from += CONFIG.background * MINUTE
         branches.extend(recoveries(session_bars, visible_from, opening))
     snapshots = {}
-    branches.extend(start_branches(ordered, opening, cfg, snapshots))
+    branches.extend(start_branches(ordered, cfg, snapshots))
     for branch in branches:
         branch["entry_low"], branch["entry_high"] = entry_interval(branch)
         branch["max_risk_atr"] = RULES[branch["kind"]].max_risk_atr
     reference = coverage["reference"]
     valid = [b for b in branches if b["status"] == "confirmed" and not b.get("superseded_by")
-             and not b.get("breakout_rejection") and (not reference or b["kind"] == "opening_breakout")]
+             and not b.get("breakout_rejection") and not reference]
     primary = min(valid, key=lambda b: (-b["quality_score"], b["kind"], b["structure_id"])) if valid else None
     priority = {"confirmed": 0, "forming": 1, "extended": 2, "invalidated": 3, "expired": 4}
     branches.sort(key=lambda b: (bool(b.get("superseded_by")), priority[b["status"]],

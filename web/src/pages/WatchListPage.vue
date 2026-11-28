@@ -511,11 +511,12 @@ onMounted(() => {
         <CardHeader><CardTitle>自选股列表</CardTitle><CardDescription>点击股票名称查看详情，点击行展开 K 线；次要操作收纳在行菜单中。</CardDescription></CardHeader><CardContent>
           <InstrumentTable
             :key="selectedMarket + String(selectedTag)"
+            freeze-favorite
             class="w-full min-w-[1500px] table-auto text-left text-sm"
           >
             <colgroup>
-              <col class="w-[110px]" />
-              <col class="w-36 sm:w-[260px]" />
+              <col class="w-16 sm:w-[110px]" />
+              <col class="w-24 sm:w-[260px]" />
               <col class="w-[110px]" />
               <col class="w-[120px]" />
               <col class="w-[150px]" />
@@ -530,6 +531,7 @@ onMounted(() => {
                 <SortableTableHeader
                   scope="watch"
                   label="关注"
+                  class="instrument-column px-1 sm:px-4"
                   :active="sortKey === 'isFavorite'"
                   :direction="sortDirection"
                   @sort="toggleSort('isFavorite')"
@@ -539,7 +541,7 @@ onMounted(() => {
                   label="股票"
                   :active="sortKey === 'code'"
                   :direction="sortDirection"
-                  class="instrument-column"
+                  class="instrument-column px-1 sm:px-4"
                   @sort="toggleSort('code')"
                 />
                 <SortableTableHeader
@@ -618,7 +620,7 @@ onMounted(() => {
                     :market="selectedMarket"
                     class="cursor-pointer border-b border-border/50 transition-colors last:border-0 hover:bg-muted/70 focus-visible:bg-muted/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
                   >
-                    <TableCell class="px-4 py-3">
+                    <TableCell class="instrument-column px-1 py-3 sm:px-4">
                       <button
                         type="button"
                         class="rounded-lg p-1.5 transition-colors disabled:opacity-50"
@@ -638,7 +640,7 @@ onMounted(() => {
                         />
                       </button>
                     </TableCell>
-                    <TableCell class="instrument-column max-w-[220px] px-4 py-3">
+                    <TableCell class="instrument-column max-w-24 px-1 py-3 sm:max-w-[220px] sm:px-4">
                       <TooltipProvider :delay-duration="200">
                         <Tooltip>
                           <TooltipTrigger as-child>

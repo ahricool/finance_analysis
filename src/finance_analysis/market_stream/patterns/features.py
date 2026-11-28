@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import deque
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
@@ -10,12 +11,11 @@ from statistics import median
 
 from finance_analysis.integrations.market_data.realtime_state.models import CandleState, QuoteState
 from finance_analysis.market_stream.config import (
-    is_regular_session_minute,
-    is_regular_trade_session,
     market_spec,
     market_trading_date,
 )
 from finance_analysis.market_stream.patterns.config import PatternConfig
+from finance_analysis.market_stream.quality import indicator_tail
 from finance_analysis.stocks.markets import MarketType
 
 ZERO = Decimal("0")
@@ -161,7 +161,7 @@ def normalized_distance(price: Decimal, reference: Decimal, atr: Decimal, epsilo
 
 
 def sanitize_bars(bars: Sequence[CandleState], market_type: MarketType) -> list[CandleState]:
-    """Return deduplicated confirmed regular-session bars for the latest trading date in the input."""
+    """Return the latest contiguous rolling window of deduplicated confirmed bars."""
     candidates: dict[datetime, CandleState] = {}
     for bar in bars:
         if (
@@ -169,8 +169,6 @@ def sanitize_bars(bars: Sequence[CandleState], market_type: MarketType) -> list[
             or not bar.is_valid()
             or bar.bar_time.tzinfo is None
             or bar.bar_time.utcoffset() is None
-            or not is_regular_session_minute(bar.bar_time, market_type)
-            or not is_regular_trade_session(bar.trade_session)
         ):
             continue
         previous = candidates.get(bar.identity)
@@ -179,16 +177,11 @@ def sanitize_bars(bars: Sequence[CandleState], market_type: MarketType) -> list[
     ordered = sorted(candidates.values(), key=lambda bar: bar.bar_time)
     if not ordered:
         return []
-    target_date = market_trading_date(ordered[-1].bar_time, market_type)
-    from finance_analysis.market_stream.quality import indicator_tail
-
-    return indicator_tail(
-        [bar for bar in ordered if market_trading_date(bar.bar_time, market_type) == target_date], market_type
-    )
+    return indicator_tail(ordered, market_type)
 
 
 def quote_updates_preview_bar(bar: CandleState, quote: QuoteState, market_type: MarketType) -> bool:
-    """Return whether a newer regular-session quote can update an unfinished minute bar."""
+    """Return whether a newer same-minute quote can update an unfinished minute bar."""
     if (
         bar.confirmed
         or quote.symbol != bar.symbol
@@ -204,8 +197,6 @@ def quote_updates_preview_bar(bar: CandleState, quote: QuoteState, market_type: 
         or quote.event_time >= bar.bar_time + timedelta(minutes=1)
         or quote.trading_date != market_trading_date(bar.bar_time, market_type)
         or market_trading_date(quote.event_time, market_type) != quote.trading_date
-        or not is_regular_session_minute(quote.event_time, market_type)
-        or not is_regular_trade_session(quote.trade_session)
     ):
         return False
     return quote.event_time.replace(second=0, microsecond=0) == bar.bar_time.replace(second=0, microsecond=0)
@@ -217,15 +208,13 @@ def prepare_preview_bars(
     *,
     quote: QuoteState | None = None,
 ) -> list[CandleState]:
-    """Prepare current-day confirmed history plus at most one latest unfinished regular-session bar."""
+    """Prepare rolling history plus at most one latest unfinished minute."""
     candidates: dict[datetime, CandleState] = {}
     for bar in bars:
         if (
             not bar.is_valid()
             or bar.bar_time.tzinfo is None
             or bar.bar_time.utcoffset() is None
-            or not is_regular_session_minute(bar.bar_time, market_type)
-            or not is_regular_trade_session(bar.trade_session)
         ):
             continue
         previous = candidates.get(bar.identity)
@@ -234,12 +223,8 @@ def prepare_preview_bars(
     ordered = sorted(candidates.values(), key=lambda bar: bar.bar_time)
     if not ordered:
         return []
-    target_date = market_trading_date(ordered[-1].bar_time, market_type)
-    current_day = [bar for bar in ordered if market_trading_date(bar.bar_time, market_type) == target_date]
-    if not current_day:
-        return []
-    latest = current_day[-1]
-    prepared = [bar for bar in current_day if bar.confirmed]
+    latest = ordered[-1]
+    prepared = [bar for bar in ordered if bar.confirmed]
     if not latest.confirmed:
         preview_bar = latest
         if quote is not None and quote_updates_preview_bar(preview_bar, quote, market_type):
@@ -253,7 +238,7 @@ def prepare_preview_bars(
                 received_at=quote.received_at,
             )
         prepared.append(preview_bar)
-    return prepared
+    return indicator_tail(prepared, market_type)
 
 
 def session_minute_index(value: datetime, market_type: MarketType) -> int:
@@ -284,8 +269,8 @@ def session_minute_index(value: datetime, market_type: MarketType) -> int:
 
 
 def session_minutes_between(earlier: CandleState, later: CandleState, market_type: MarketType) -> int:
-    if market_trading_date(earlier.bar_time, market_type) != market_trading_date(later.bar_time, market_type):
-        return 0
+    if market_type == "US" or market_trading_date(earlier.bar_time, market_type) != market_trading_date(later.bar_time, market_type):
+        return max(0, int((later.bar_time - earlier.bar_time).total_seconds() // 60))
     return max(
         0, session_minute_index(later.bar_time, market_type) - session_minute_index(earlier.bar_time, market_type)
     )
@@ -297,25 +282,24 @@ def session_vwap(
     atr: Decimal,
     config: PatternConfig,
 ) -> list[Decimal | None]:
-    """Calculate cumulative session VWAP, validating turnover and falling back to typical price."""
-    cumulative_value = ZERO
-    cumulative_volume = Decimal("0")
-    result: list[Decimal | None] = []
+    """Volume-weighted price over the last baseline_window observed bars at each point."""
+    window = deque()
+    total_value = total_volume = ZERO
+    result = []
     tolerance = max(atr * config.vwap_price_tolerance_atr, config.atr_epsilon)
     for bar in bars:
-        if bar.volume <= 0:
-            result.append(cumulative_value / cumulative_volume if cumulative_volume > ZERO else None)
-            continue
-        volume = Decimal(bar.volume)
-        typical = (bar.high + bar.low + bar.close) / Decimal("3")
-        value = typical * volume
-        if bar.turnover is not None and bar.turnover > ZERO:
-            implied_price = bar.turnover / volume
-            if bar.low - tolerance <= implied_price <= bar.high + tolerance:
-                value = bar.turnover
-        cumulative_value += value
-        cumulative_volume += volume
-        result.append(cumulative_value / cumulative_volume)
+        volume = Decimal(max(0, bar.volume))
+        value = (bar.high + bar.low + bar.close) / 3 * volume
+        if volume and bar.turnover and bar.low - tolerance <= bar.turnover / volume <= bar.high + tolerance:
+            value = bar.turnover
+        window.append((value, volume))
+        total_value += value
+        total_volume += volume
+        if len(window) > config.baseline_window:
+            expired_value, expired_volume = window.popleft()
+            total_value -= expired_value
+            total_volume -= expired_volume
+        result.append(total_value / total_volume if total_volume else None)
     return result
 
 
@@ -356,7 +340,7 @@ def prepare_context(
 def context_from_ordered(
     ordered: Sequence[CandleState], market_type: MarketType | None, config: PatternConfig,
 ) -> PatternContext | None:
-    if len(ordered) < config.minimum_history_bars:
+    if not ordered:
         return None
     atr = robust_atr(ordered, config.baseline_window)
     if atr <= config.atr_epsilon:

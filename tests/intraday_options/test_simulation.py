@@ -164,6 +164,8 @@ def test_relative_strength_requires_same_complete_interval_and_qqq_not_applicabl
     bars = candles([0.001] * 30)
     benchmark = candles([0.0005] * 30, symbol="QQQ.US")
     now = START + timedelta(minutes=30, seconds=5)
+    partial = relative_strength("SPY.US", bars[-3:], benchmark, now)
+    assert all(r["available_minutes"] == 3 and r["value"] > 0 and "参考" in r["reason"] for r in partial)
     values = relative_strength("SPY.US", bars, benchmark, now)
     assert all(r["value"] > 0 for r in values)
     assert all(r["value"] is None for r in relative_strength("QQQ.US", bars, benchmark, now))

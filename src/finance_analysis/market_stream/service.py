@@ -22,10 +22,7 @@ from finance_analysis.integrations.market_data.realtime_state.models import Cand
 from finance_analysis.integrations.market_data.realtime_state.repository import RealtimeStateRepository
 from finance_analysis.market_stream.config import (
     MarketStreamConfig,
-    is_regular_session_minute,
     is_regular_trade_session,
-    latest_completed_bar_time,
-    market_spec,
     market_trading_date,
     us_minute_cutoff,
 )
@@ -401,20 +398,14 @@ class MarketStreamService:
                 self._queue_pending_bars(candle.symbol, [candle])
                 self.redis_degraded = True
                 logger.warning("Redis K 线写入失败: symbol=%s error=%s", candle.symbol, exc)
-            if is_regular_session_minute(candle.bar_time, state.market_type) and is_regular_trade_session(candle.trade_session):
-                if state.market_type == "US":
-                    self._remember_regular_session_closes(candle.symbol, state.market_type, [candle])
-                if market_trading_date(candle.bar_time, state.market_type) != state.trading_date:
-                    # Repairs of a previous regular session are display/history only.
-                    return
-                await self._update_trend_state(
-                    candle.symbol,
-                    state.market_type,
-                    as_of=max(candle.received_at, candle.bar_time + timedelta(minutes=1)),
-                )
-                self.pattern_preview_calculated_at.pop(candle.symbol, None)
-                self._cancel_pattern_preview_task(candle.symbol)
-                await self._update_pattern_state(candle.symbol, state.market_type)
+            if state.market_type == "US":
+                self._remember_regular_session_closes(candle.symbol, state.market_type, [candle])
+            await self._update_trend_state(
+                candle.symbol, state.market_type, as_of=max(candle.received_at, candle.bar_time + timedelta(minutes=1)),
+            )
+            self.pattern_preview_calculated_at.pop(candle.symbol, None)
+            self._cancel_pattern_preview_task(candle.symbol)
+            await self._update_pattern_state(candle.symbol, state.market_type)
         else:
             await self._schedule_pattern_preview(candle.symbol, state.market_type)
         if (
@@ -456,33 +447,7 @@ class MarketStreamService:
         bars = self.bars_1m.setdefault(candle.symbol, deque(maxlen=memory_limit))
         existing = {bar.identity: bar for bar in bars}
         previous = existing.get(candle.identity)
-        if previous is not None and (
-            previous.trade_session,
-            previous.source,
-            previous.sampled,
-            previous.open,
-            previous.high,
-            previous.low,
-            previous.close,
-            previous.volume,
-            previous.turnover,
-            previous.confirmed,
-            previous.sample_count,
-            previous.partial,
-        ) == (
-            candle.trade_session,
-            candle.source,
-            candle.sampled,
-            candle.open,
-            candle.high,
-            candle.low,
-            candle.close,
-            candle.volume,
-            candle.turnover,
-            candle.confirmed,
-            candle.sample_count,
-            candle.partial,
-        ):
+        if previous is not None and previous.indicator_input() == candle.indicator_input():
             return False, len(bars)
         if previous is not None and (candle.confirmed, candle.received_at) < (
             previous.confirmed,
@@ -789,13 +754,9 @@ class MarketStreamService:
             self._queue_pending_bars(state.symbol, confirmed_bars)
             self.redis_degraded = True
             logger.warning("Redis warmup 写入失败: symbol=%s error=%s", state.symbol, exc)
-        regular_bars = [bar for bar in bars if is_regular_session_minute(bar.bar_time, state.market_type)
-                        and is_regular_trade_session(bar.trade_session)]
-        if regular_bars:
+        if confirmed_bars:
             await self._update_trend_state(
-                state.symbol,
-                state.market_type,
-                as_of=regular_bars[-1].bar_time + timedelta(minutes=1),
+                state.symbol, state.market_type, as_of=confirmed_bars[-1].bar_time + timedelta(minutes=1),
             )
         await self._update_pattern_state(state.symbol, state.market_type)
         if bars and not bars[-1].confirmed:

@@ -269,16 +269,16 @@ async def test_slow_initial_rest_does_not_delay_live_ws(monkeypatch):
         await asyncio.gather(task, return_exceptions=True)
 
 
-def test_utc_weekend_analysis_ignores_previous_day_and_unclosed_minutes():
+def test_utc_weekend_analysis_spans_midnight_and_excludes_unclosed_minutes():
     from finance_analysis.contracts.analysis import summarize
 
     midnight = int(datetime(2026, 11, 28, tzinfo=timezone.utc).timestamp() * 1000)
     rows = [{**bar(midnight + i * MINUTE), "closed": i < 2} for i in range(-5, 3)]
     result = summarize(SYMBOL, rows, midnight + 3 * MINUTE)
     assert result["as_of"] == midnight + 2 * MINUTE
-    assert result["windows"]["5"]["availableBars"] == 2
+    assert result["windows"]["5"]["availableBars"] == 5
     assert result["reference"]
-    assert result["trend_1m"]["effective_period"] == 2
+    assert result["trend_1m"]["effective_period"] == 7
     assert result["pattern_1m"]["status"] == "insufficient"
 
 

@@ -1,5 +1,8 @@
 # 日内标的模拟 V8（QQQ 纳指 100 观察池 · 2 小时开盘纯净驱动多空双向与两档 ATR 棘轮）
 
+本页记录历史模拟策略。当前短线机会由全天滚动形态生成，见[全天短线机会与当前状态](intraday-options.md)。
+
+
 观察池切换为 **QQQ（`us_nasdaq100`）成分股动态同步池**：运行时经 PostgreSQL `UniverseResolver().resolve_universe("us_nasdaq100")` 缓存读取（5 分钟 TTL，自动去除双股重复 `GOOG.US`、保留 `GOOGL.US`，并前置基准 `SPY.US`、`QQQ.US` 共约 102 只），数据库不可用时平滑降级到代码内置 102 只快照。交易、形态、缓存版本分别为 `underlying_sim_v8`、`intraday_entry_v8`、`intraday_options_v18`。重启或成分调整时，旧 V4/V5/V6/V7 未平仓模拟持仓继续按原仓位冻结的目标位、退出模式（含 `v7_fixed_wave` 与旧移动止损）及截止时间接收退出报价直至平仓，历史交易保留原版本及冻结证据。
 
 ## V8 核心定位与改进（相对 V7）

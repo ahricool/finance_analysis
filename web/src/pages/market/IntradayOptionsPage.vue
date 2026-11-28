@@ -40,8 +40,8 @@ const disconnected = computed(() => connectionLost.value || snapshotExpired.valu
 const columns = [
   { key: 'symbol', label: '标的', description: '按代码排序；名称与代码均可搜索。' },
   { key: 'changePct', label: '最新价 / 涨跌幅', description: '按当日涨跌幅排序；涨跌幅相对昨收，不参与趋势评分。' },
-  { key: 'opportunity', label: '日内机会', description: '按有效确认分支质量排序；形成中、延伸、失效、缺线或延迟均不列入有效机会。' },
-  { key: 'score', label: '趋势质量分', description: '0–100规则分，不是盈利概率；开盘不足完整窗口或缺线时也按可用K线计算并标注参考分。' },
+  { key: 'opportunity', label: '短线机会', description: '按有效确认分支质量排序；形成中、延伸、失效、缺线或延迟均不列入有效机会。' },
+  { key: 'score', label: '趋势质量分', description: '0–100规则分，不是盈利概率；窗口不足完整窗口或缺线时也按可用K线计算并标注参考分。' },
   { key: 'direction', label: '当前方向', description: '有有效机会时与榜单分支方向一致；无有效机会时显示趋势参考方向。' },
   ...[5, 15, 30, 60].map(n => ({ key: `w${n}`, label: `${n}分钟`, description: '按窗口质量分排序；箭头表示方向，第二行是该窗口涨跌幅。' })),
   { key: 'structure', label: '短线结构', description: '最近15分钟完整后判断；15–30分钟结构、5分钟变化，最多60分钟背景。内部空缺按前收盘补平K并标注；进场确认仍需真实K。' },
@@ -106,7 +106,7 @@ watch(stream.intradayOptions, result => {
     <div class="flex flex-wrap items-center justify-between gap-3 text-sm">
       <div class="flex flex-wrap gap-3 text-muted-foreground">
         <span>交易日期 {{ snapshot?.tradingDate ?? '—' }}</span>
-        <span>{{ snapshot ? { open: '交易中', preopen: '未开盘 · 展示上一交易日', closed: '已收盘 · 保留最后结果' }[snapshot.marketStatus] : '连接中' }}</span>
+        <span>{{ snapshot ? { open: '交易中', preopen: '常规盘前', closed: '常规盘外' }[snapshot.marketStatus] : '连接中' }}</span>
         <span>更新 {{ clock(snapshot?.generatedAt) }}（纽约）</span>
         <span
           v-if="disconnected"
@@ -159,7 +159,7 @@ watch(stream.intradayOptions, result => {
       />
     </div>
     <p class="text-xs text-muted-foreground">
-      数值持续更新，排序及筛选名单保持不动；点击表头、切换筛选或“更新排序”时重新排列。开盘不足完整窗口或分钟缺失时按可用K线计算参考分，并标注缺失；少于2根有效K线时等待数据。日内机会需完整形态背景与相邻闭合K确认，默认仅按有效机会分排序，其余保持观察池顺序。
+      数值持续更新，排序及筛选名单保持不动；点击表头、切换筛选或“更新排序”时重新排列。滚动窗口不足或分钟缺失时按可用K线计算参考分，并标注缺失；少于2根有效K线时等待数据。全天机会按已闭合分钟线识别，覆盖盘前、盘后和夜盘，默认仅按有效机会分排序，其余保持观察池顺序。
     </p>
     <div class="overflow-hidden rounded-lg border">
       <InstrumentTable data-testid="options-market-table">
@@ -315,7 +315,7 @@ watch(stream.intradayOptions, result => {
                   :symbol="row.symbol"
                   :simulation="snapshot?.simulation"
                   :result="row.result"
-                  :stale="disconnected || snapshot?.marketStatus !== 'open' || row.dataStatus === 'delayed' || !valid(row)"
+                  :stale="disconnected || row.dataStatus === 'delayed' || !valid(row)"
                 />
                 <StockDailyChart
                   v-else

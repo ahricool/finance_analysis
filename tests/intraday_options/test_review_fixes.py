@@ -73,7 +73,7 @@ def multi_branch_result(side=1):
 
 
 @pytest.mark.parametrize('side', [1, -1])
-def test_executed_valid_branch_drives_api_ranking_not_highest_shape(side, monkeypatch):
+def test_highest_confirmed_shape_drives_api_ranking_independently_of_simulation(side, monkeypatch):
     monkeypatch.setenv('INTRADAY_TREND_CONTINUATION', 'true')
     monkeypatch.setenv('INTRADAY_MIN_RISK_RETURN', '0')
     monkeypatch.setenv('INTRADAY_MAX_RISK_RETURN', '0')
@@ -93,12 +93,8 @@ def test_executed_valid_branch_drives_api_ranking_not_highest_shape(side, monkey
         row = (await read_snapshot(repo, {}, now))['items'][0]
         assert row['opportunity_eligible']
         ranked = row['ranked_opportunity']
-        assert ranked['structure_id'] == b['structure_id']
-        assert ranked['quality_score'] == 75 and ranked['direction'] == b['direction']
-        assert '已模拟持有' in ranked['execution_reason']
-        assert row['result']['opportunities']['primary']['structure_id'] == 'A'
+        assert ranked['structure_id'] == 'A' and ranked['quality_score'] == 99
         parsed = IntradayOptionsResponse.model_validate(await read_snapshot(repo, {}, now))
-        assert parsed.items[0].ranked_opportunity.structure_id == b['structure_id']
         if side == -1:
             # Shared with the actual Vue table regression, not a second hand-written contract.
             expected = json.loads((Path(__file__).parent / 'fixtures/ranked_opportunity.json').read_text())
@@ -127,7 +123,7 @@ def test_executed_valid_branch_drives_api_ranking_not_highest_shape(side, monkey
                 altered['cutoff'] = now.isoformat()
             await repo.redis.set('rt:intraday-simulation:SPY.US', json.dumps(altered))
             row = (await read_snapshot(repo, {}, check_at))['items'][0]
-            assert not row['opportunity_eligible'] and row['ranked_opportunity'] is None, change
+            assert row['opportunity_eligible'] == (change != 'stale'), change
 
     try:
         asyncio.run(run())

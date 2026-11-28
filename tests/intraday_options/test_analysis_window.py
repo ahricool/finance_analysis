@@ -103,7 +103,7 @@ def test_no_leading_trailing_future_or_cross_session_fills_and_stale_quotes_stil
 def test_synthetic_close_cannot_confirm_breakout():
     bars = prices(oscillation() + [101.3, 101.4, 101.5])
     result = score(bars[:41] + bars[42:])
-    assert not result["opportunities"]["reference"]
+    assert result["opportunities"]["reference"]
     assert result["opportunities"]["filled_bars"] == 1
     assert not result["opportunities"]["primary"]
 

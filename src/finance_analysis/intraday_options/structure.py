@@ -498,12 +498,12 @@ def raw_structure(bars, end):
 def calculate_structure(ordered, opening=None):
     end = ordered[-1].bar_time
     if opening is None:
-        opening, _ = session_bounds("US", market_trading_date(end, "US"))
+        opening = ordered[0].bar_time
     bars, coverage, reasons = analysis_window(ordered, opening=opening)
     expected = min(60, int((end - opening) / MINUTE) + 1)
     result = raw_structure(bars, end)
     if end - opening < (REQUIRED_MINUTES - 1) * MINUTE:
-        result.update(kind="unclear", phase="warming", reasons=["结构观察等待当日15分钟背景"])
+        result.update(kind="unclear", phase="warming", reasons=["结构观察等待最近15分钟背景"])
     elif result["kind"] not in {"unclear", "breakout_up", "breakout_down", "failed_up", "failed_down"}:
         previous = raw_structure([b for b in bars if b.bar_time < end], end - MINUTE)
         first_judgment = end - opening == (REQUIRED_MINUTES - 1) * MINUTE and not coverage["reference"]
@@ -511,8 +511,8 @@ def calculate_structure(ordered, opening=None):
         if not adjacent_observed or (not first_judgment and result["kind"] != previous["kind"]):
             candidate = LABELS[result["kind"]]
             result.update(kind="unclear", phase="forming", reasons=[f"{candidate}尚需连续两次闭合分钟确认"])
-    result.update(as_of=(end + MINUTE).isoformat(), available_bars=len(bars), **coverage)
+    result.update(as_of=(end + MINUTE).isoformat(), available_bars=sum(observed(b) for b in bars), **coverage)
     result["reasons"].extend(reasons)
     if expected < 60:
-        result["reasons"].append("60分钟背景尚未齐全，使用当日已有背景")
+        result["reasons"].append("60分钟背景尚未齐全，使用已有分钟线")
     return result

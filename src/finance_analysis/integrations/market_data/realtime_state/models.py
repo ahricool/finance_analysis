@@ -142,6 +142,11 @@ class CandleState:
     def identity(self) -> datetime:
         return self.bar_time
 
+    def indicator_input(self) -> tuple:
+        """Content identity for minute updates, independent of transport receipt time."""
+        return (self.bar_time, self.open, self.high, self.low, self.close, self.volume, self.turnover,
+                self.confirmed, self.partial, self.sampled, self.sample_count, self.source, self.trade_session)
+
     def is_valid(self) -> bool:
         return (
             self.open > 0

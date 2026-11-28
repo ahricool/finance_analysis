@@ -63,7 +63,7 @@ def test_gap_cannot_confirm_breakout_and_is_marked():
     missing = full[:41] + full[42:]
     result = structure(missing)
     assert result['kind'] == 'breakout_up' and result['phase'] == 'forming'
-    assert not result['reference'] and result['filled_bars'] == 1
+    assert result['reference'] and result['filled_bars'] == 1
 
 
 def test_pivot_confirmation_needs_two_real_right_hand_minutes():
@@ -114,7 +114,7 @@ def test_gap_at_latest_confirmation_prevents_ordinary_confirmation():
     bars = candles([.0004] * 60)
     result = structure(bars[:-2] + bars[-1:])
     assert result['phase'] == 'forming'
-    assert not result['reference'] and result['filled_bars'] == 1
+    assert result['reference'] and result['filled_bars'] == 1
 
 
 def test_tiny_motion_is_not_a_directional_trend():
@@ -202,9 +202,9 @@ def test_sparse_main_window_cannot_confirm_a_trend_from_three_prices():
     result = structure([bars[30], bars[58], bars[59]])
     assert result['kind'] == 'unclear'
     assert result['phase'] == 'waiting'
-    assert not result['reference']
+    assert result['reference']
     assert result['filled_bars'] == 27
-    assert result['missing_bars'] == 30  # Leading history remains unknown, never backfilled.
+    assert result['missing_bars'] == 27
 
 
 @pytest.mark.parametrize('side', [1, -1])
@@ -226,7 +226,7 @@ def test_sparse_recent_window_uses_marked_flat_bars_for_structure():
     result = structure(bars[:55] + bars[58:])
     assert result['kind'] == 'uptrend'
     assert result['phase'] == 'continuing'
-    assert not result['reference']
+    assert result['reference']
     assert result['filled_bars'] == 3
     assert any('补为平K' in reason for reason in result['reasons'])
 
@@ -246,4 +246,4 @@ def test_one_missing_recent_minute_allows_marked_flat_continuation():
     result = structure(bars[:56] + bars[57:])
     assert result['kind'] == 'uptrend'
     assert result['phase'] == 'continuing'
-    assert not result['reference'] and result['filled_bars'] == 1
+    assert result['reference'] and result['filled_bars'] == 1

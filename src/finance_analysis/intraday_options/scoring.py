@@ -1,4 +1,4 @@
-"""Deterministic, symmetric log-price metrics using closed regular-session bars only."""
+"""Deterministic, symmetric log-price metrics using closed minute bars."""
 
 from __future__ import annotations
 
@@ -176,6 +176,8 @@ def combine(windows: list[dict], bars: Sequence[CandleState]) -> dict:
     atr = float(log_ranges(recent).mean())
     extension = abs(float(logs[-1]) - ema) / atr if atr > 1e-12 else 0.0
     sign = 1 if direction == "bullish" else -1
+    recent_move_aligned = (len(recent) >= 6 and recent[-1].bar_time - recent[-6].bar_time == 5 * MINUTE
+                           and (logs[-1] - logs[-6]) * sign > 0)
     if direction == "conflict":
         state, score = "conflict", min(score, 55.0)
         explanation = "短周期与长周期方向冲突，可能发生转折，等待方向重新一致。"
@@ -185,7 +187,7 @@ def combine(windows: list[dict], bars: Sequence[CandleState]) -> dict:
     elif len(available) == len(COMPOSITE_WINDOWS) and short != main:
         state, score = "pullback", min(score, 65.0)
         explanation = "30/60分钟主趋势仍在，最近15分钟转弱或反向，处于回撤观察。"
-    elif extension >= CONFIG.extension_atr and float(logs[-1] - logs[max(0, len(logs) - 6)]) * sign > 0:
+    elif extension >= CONFIG.extension_atr and recent_move_aligned:
         state = "extended"
         explanation = "方向仍有延续，但偏离短期趋势参考线较远，标记短线延伸；高分不代表适合追入。"
     else:
@@ -233,14 +235,33 @@ def closed_session_bars(symbol: str, bars: Sequence[CandleState], now: datetime)
     return [by_time[t] for t in sorted(by_time) if market_trading_date(t, "US") == day]
 
 
+# 60 minutes of shape context plus prehistory for stable trigger identities.
+ROLLING_MINUTES = 120
+
+
+def rolling_bars(symbol, bars, now):
+    by_time = {}
+    for bar in bars:
+        if (bar.symbol != symbol or not bar.confirmed or bar.received_at > now
+                or bar.bar_time + MINUTE > now):
+            continue
+        prior = by_time.get(bar.bar_time)
+        if prior is None or bar.received_at >= prior.received_at:
+            by_time[bar.bar_time] = bar
+    if not by_time:
+        return []
+    start = max(by_time) - (ROLLING_MINUTES - 1) * MINUTE
+    return [by_time[t] for t in sorted(by_time) if t >= start]
+
+
 def calculate(symbol: str, bars: Sequence[CandleState], now: datetime, settings=None) -> dict | None:
-    """Only latest observed session is evaluated; never backfill historical decisions on warmup."""
-    ordered = closed_session_bars(symbol, bars, now)
+    """Evaluate closed minutes across session and calendar boundaries."""
+    ordered = rolling_bars(symbol, bars, now)
     if not ordered:
         return None
     latest = ordered[-1].bar_time
     day = market_trading_date(latest, "US")
-    start, _ = session_bounds("US", day)
+    start = ordered[0].bar_time
     combined, windows = trend_summary(ordered, start)
     return {
         "version": VERSION,
@@ -249,8 +270,8 @@ def calculate(symbol: str, bars: Sequence[CandleState], now: datetime, settings=
         "as_of": (latest + MINUTE).isoformat(),
         "observed_at": now.isoformat(),
         "windows": windows,
-        "structure": calculate_structure(ordered),
-        "opportunities": calculate_opportunities(ordered, settings),
+        "structure": calculate_structure(ordered, opening=start),
+        "opportunities": calculate_opportunities(ordered, settings, opening=start),
         **combined,
     }
 
@@ -272,9 +293,9 @@ def trend_summary(ordered, start):
         quality = {"available_bars": len(usable), "missing_bars": missing}
         reasons = []
         if elapsed < minutes:
-            reasons.append(f"开盘仅{elapsed}分钟，距完整{minutes}分钟窗口还差{minutes - elapsed}根")
+            reasons.append(f"滚动历史仅{elapsed}分钟，距完整{minutes}分钟窗口还差{minutes - elapsed}根")
         if gaps:
-            reasons.append(f"已开盘区间缺少{gaps}根有效分钟线")
+            reasons.append(f"窗口内缺少{gaps}根有效分钟线")
         if len(usable) < 2:
             windows.append({
                 "minutes": minutes, "data_status": status, "score": None, **quality,

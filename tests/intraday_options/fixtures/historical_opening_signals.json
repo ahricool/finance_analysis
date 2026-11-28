@@ -1,0 +1,378 @@
+{
+  "v6:1": {
+    "as_of": "2026-11-12T14:36:00+00:00",
+    "reference": true,
+    "start_levels": {
+      "opening_breakout:1:2026-11-12T14:30:00+00:00:2026-11-12T14:35:00+00:00": {
+        "trigger": 101.62,
+        "width": 1.6400000000000006,
+        "atr": 0.44,
+        "expires_at": "2026-11-12T16:02:00+00:00"
+      },
+      "opening_breakout:-1:2026-11-12T14:30:00+00:00:2026-11-12T14:35:00+00:00": {
+        "trigger": 99.98,
+        "width": 1.6400000000000006,
+        "atr": 0.44,
+        "expires_at": "2026-11-12T16:02:00+00:00"
+      }
+    },
+    "branch": {
+      "kind": "opening_breakout",
+      "direction": "bullish",
+      "status": "confirmed",
+      "structure_id": "opening_breakout:1:2026-11-12T14:30:00+00:00:2026-11-12T14:35:00+00:00",
+      "trigger": 101.62,
+      "invalidation": 101.114,
+      "atr": 0.44,
+      "formation_start": "2026-11-12T14:30:00+00:00",
+      "started_at": "2026-11-12T14:36:00+00:00",
+      "confirmed_at": "2026-11-12T14:36:00+00:00",
+      "expires_at": "2026-11-12T14:38:00+00:00",
+      "rule_version": "intraday_entry_v8",
+      "confirmation_method": "strong_break",
+      "atr_source": "observed_adjacent_true_ranges",
+      "quality_score": 68.51,
+      "distance_atr": 1.4318181818181714,
+      "risk_atr": 2.581818181818172,
+      "components": {
+        "structure": 75.0,
+        "distance": 64.7819894412845,
+        "recovery": 100.0,
+        "risk": 13.939393939394273
+      },
+      "reasons": [
+        "强突破真实闭合K确认"
+      ],
+      "process_id": "opening_breakout:1:2026-11-12T14:30:00+00:00:2026-11-12T14:35:00+00:00",
+      "structure_start": "2026-11-12T14:30:00+00:00",
+      "structure_end": "2026-11-12T14:35:00+00:00",
+      "formation_available_at": "2026-11-12T14:35:00+00:00",
+      "execution_floor": "2026-11-12T14:35:00+00:00",
+      "atr_samples": 4,
+      "triggered_at": "2026-11-12T14:36:00+00:00",
+      "structure_low": 99.98,
+      "structure_high": 101.62,
+      "measurement_target": 103.26,
+      "confirmation_run_available_at": "2026-11-12T14:36:00+00:00",
+      "execution_evidence_at": "2026-11-12T14:36:00+00:00",
+      "confirmation_available_at": "2026-11-12T14:36:00+00:00",
+      "entry_low": 101.62,
+      "entry_high": 106.02000000000001,
+      "max_risk_atr": null
+    }
+  },
+  "v7:1": {
+    "as_of": "2026-11-12T14:38:00+00:00",
+    "reference": true,
+    "start_levels": {
+      "opening_range:1:2026-11-12T14:30:00+00:00": {
+        "trigger": 101.41,
+        "width": 1.4200000000000017,
+        "atr": 0.37,
+        "expires_at": "2026-11-12T15:02:00+00:00"
+      },
+      "opening_range:-1:2026-11-12T14:30:00+00:00": {
+        "trigger": 99.99,
+        "width": 1.4200000000000017,
+        "atr": 0.37,
+        "expires_at": "2026-11-12T15:02:00+00:00"
+      }
+    },
+    "branch": {
+      "kind": "opening_breakout",
+      "direction": "bullish",
+      "status": "confirmed",
+      "structure_id": "opening_breakout:1:2026-11-12T14:30:00+00:00:2026-11-12T14:38:00+00:00",
+      "trigger": 101.41,
+      "invalidation": 100.9845,
+      "atr": 0.37,
+      "formation_start": "2026-11-12T14:30:00+00:00",
+      "started_at": "2026-11-12T14:38:00+00:00",
+      "confirmed_at": "2026-11-12T14:38:00+00:00",
+      "expires_at": "2026-11-12T14:40:00+00:00",
+      "rule_version": "intraday_entry_v8",
+      "confirmation_method": "level_close",
+      "atr_source": "observed_adjacent_true_ranges",
+      "quality_score": 44.62,
+      "distance_atr": 3.21621621621621,
+      "risk_atr": 4.366216216216209,
+      "components": {
+        "structure": 75.0,
+        "distance": 2.49991047034311,
+        "recovery": 100.0,
+        "risk": 0.0
+      },
+      "reasons": [
+        "真实闭合K突破冻结价位"
+      ],
+      "process_id": "opening_breakout:1:2026-11-12T14:30:00+00:00",
+      "structure_start": "2026-11-12T14:30:00+00:00",
+      "structure_end": "2026-11-12T14:35:00+00:00",
+      "formation_available_at": "2026-11-12T14:38:00+00:00",
+      "execution_floor": "2026-11-12T14:38:00+00:00",
+      "atr_samples": 4,
+      "opening_drive": true,
+      "triggered_at": "2026-11-12T14:38:00+00:00",
+      "structure_low": 99.99,
+      "structure_high": 101.41,
+      "measurement_target": 102.83,
+      "confirmation_run_available_at": "2026-11-12T14:38:00+00:00",
+      "execution_evidence_at": "2026-11-12T14:38:00+00:00",
+      "confirmation_available_at": "2026-11-12T14:38:00+00:00",
+      "entry_low": 101.41,
+      "entry_high": 105.11,
+      "max_risk_atr": null
+    }
+  },
+  "v8:1": {
+    "as_of": "2026-11-12T14:42:00+00:00",
+    "reference": true,
+    "start_levels": {
+      "opening_range:1:2026-11-12T14:30:00+00:00": {
+        "trigger": 101.01,
+        "width": 1.0200000000000102,
+        "atr": 0.27,
+        "expires_at": "2026-11-12T16:32:00+00:00"
+      },
+      "opening_range:-1:2026-11-12T14:30:00+00:00": {
+        "trigger": 99.99,
+        "width": 1.0200000000000102,
+        "atr": 0.27,
+        "expires_at": "2026-11-12T16:32:00+00:00"
+      }
+    },
+    "branch": {
+      "kind": "opening_breakout",
+      "direction": "bullish",
+      "status": "confirmed",
+      "structure_id": "opening_breakout:1:2026-11-12T14:30:00+00:00:2026-11-12T14:42:00+00:00",
+      "trigger": 101.01,
+      "invalidation": 100.6995,
+      "atr": 0.27,
+      "formation_start": "2026-11-12T14:30:00+00:00",
+      "started_at": "2026-11-12T14:42:00+00:00",
+      "confirmed_at": "2026-11-12T14:42:00+00:00",
+      "expires_at": "2026-11-12T14:44:00+00:00",
+      "rule_version": "intraday_entry_v8",
+      "confirmation_method": "level_close",
+      "atr_source": "observed_adjacent_true_ranges",
+      "quality_score": 43.77,
+      "distance_atr": 4.407407407407399,
+      "risk_atr": 5.557407407407416,
+      "components": {
+        "structure": 75.0,
+        "distance": 0.04837625727722718,
+        "recovery": 100.0,
+        "risk": 0.0
+      },
+      "reasons": [
+        "真实闭合K突破冻结价位"
+      ],
+      "process_id": "opening_breakout:1:2026-11-12T14:30:00+00:00",
+      "structure_start": "2026-11-12T14:30:00+00:00",
+      "structure_end": "2026-11-12T14:35:00+00:00",
+      "formation_available_at": "2026-11-12T14:42:00+00:00",
+      "execution_floor": "2026-11-12T14:42:00+00:00",
+      "atr_samples": 4,
+      "opening_drive": true,
+      "triggered_at": "2026-11-12T14:42:00+00:00",
+      "structure_low": 99.99,
+      "structure_high": 101.01,
+      "measurement_target": 102.03000000000002,
+      "confirmation_run_available_at": "2026-11-12T14:42:00+00:00",
+      "execution_evidence_at": "2026-11-12T14:42:00+00:00",
+      "confirmation_available_at": "2026-11-12T14:42:00+00:00",
+      "entry_low": 101.01,
+      "entry_high": 103.71000000000001,
+      "max_risk_atr": null
+    }
+  },
+  "v6:-1": {
+    "as_of": "2026-11-12T14:36:00+00:00",
+    "reference": true,
+    "start_levels": {
+      "opening_breakout:1:2026-11-12T14:30:00+00:00:2026-11-12T14:35:00+00:00": {
+        "trigger": 100.02,
+        "width": 1.6400000000000006,
+        "atr": 0.44,
+        "expires_at": "2026-11-12T16:02:00+00:00"
+      },
+      "opening_breakout:-1:2026-11-12T14:30:00+00:00:2026-11-12T14:35:00+00:00": {
+        "trigger": 98.38,
+        "width": 1.6400000000000006,
+        "atr": 0.44,
+        "expires_at": "2026-11-12T16:02:00+00:00"
+      }
+    },
+    "branch": {
+      "kind": "opening_breakout",
+      "direction": "bearish",
+      "status": "confirmed",
+      "structure_id": "opening_breakout:-1:2026-11-12T14:30:00+00:00:2026-11-12T14:35:00+00:00",
+      "trigger": 98.38,
+      "invalidation": 98.886,
+      "atr": 0.44,
+      "formation_start": "2026-11-12T14:30:00+00:00",
+      "started_at": "2026-11-12T14:36:00+00:00",
+      "confirmed_at": "2026-11-12T14:36:00+00:00",
+      "expires_at": "2026-11-12T14:38:00+00:00",
+      "rule_version": "intraday_entry_v8",
+      "confirmation_method": "strong_break",
+      "atr_source": "observed_adjacent_true_ranges",
+      "quality_score": 68.51,
+      "distance_atr": 1.4318181818181714,
+      "risk_atr": 2.581818181818172,
+      "components": {
+        "structure": 75.0,
+        "distance": 64.7819894412845,
+        "recovery": 100.0,
+        "risk": 13.939393939394273
+      },
+      "reasons": [
+        "强突破真实闭合K确认"
+      ],
+      "process_id": "opening_breakout:-1:2026-11-12T14:30:00+00:00:2026-11-12T14:35:00+00:00",
+      "structure_start": "2026-11-12T14:30:00+00:00",
+      "structure_end": "2026-11-12T14:35:00+00:00",
+      "formation_available_at": "2026-11-12T14:35:00+00:00",
+      "execution_floor": "2026-11-12T14:35:00+00:00",
+      "atr_samples": 4,
+      "triggered_at": "2026-11-12T14:36:00+00:00",
+      "structure_low": 98.38,
+      "structure_high": 100.02,
+      "measurement_target": 96.74,
+      "confirmation_run_available_at": "2026-11-12T14:36:00+00:00",
+      "execution_evidence_at": "2026-11-12T14:36:00+00:00",
+      "confirmation_available_at": "2026-11-12T14:36:00+00:00",
+      "entry_low": 93.97999999999999,
+      "entry_high": 98.38,
+      "max_risk_atr": null
+    }
+  },
+  "v7:-1": {
+    "as_of": "2026-11-12T14:38:00+00:00",
+    "reference": true,
+    "start_levels": {
+      "opening_range:1:2026-11-12T14:30:00+00:00": {
+        "trigger": 100.01,
+        "width": 1.4200000000000017,
+        "atr": 0.37,
+        "expires_at": "2026-11-12T15:02:00+00:00"
+      },
+      "opening_range:-1:2026-11-12T14:30:00+00:00": {
+        "trigger": 98.59,
+        "width": 1.4200000000000017,
+        "atr": 0.37,
+        "expires_at": "2026-11-12T15:02:00+00:00"
+      }
+    },
+    "branch": {
+      "kind": "opening_breakout",
+      "direction": "bearish",
+      "status": "confirmed",
+      "structure_id": "opening_breakout:-1:2026-11-12T14:30:00+00:00:2026-11-12T14:38:00+00:00",
+      "trigger": 98.59,
+      "invalidation": 99.0155,
+      "atr": 0.37,
+      "formation_start": "2026-11-12T14:30:00+00:00",
+      "started_at": "2026-11-12T14:38:00+00:00",
+      "confirmed_at": "2026-11-12T14:38:00+00:00",
+      "expires_at": "2026-11-12T14:40:00+00:00",
+      "rule_version": "intraday_entry_v8",
+      "confirmation_method": "level_close",
+      "atr_source": "observed_adjacent_true_ranges",
+      "quality_score": 44.62,
+      "distance_atr": 3.21621621621621,
+      "risk_atr": 4.366216216216209,
+      "components": {
+        "structure": 75.0,
+        "distance": 2.49991047034311,
+        "recovery": 100.0,
+        "risk": 0.0
+      },
+      "reasons": [
+        "真实闭合K突破冻结价位"
+      ],
+      "process_id": "opening_breakout:-1:2026-11-12T14:30:00+00:00",
+      "structure_start": "2026-11-12T14:30:00+00:00",
+      "structure_end": "2026-11-12T14:35:00+00:00",
+      "formation_available_at": "2026-11-12T14:38:00+00:00",
+      "execution_floor": "2026-11-12T14:38:00+00:00",
+      "atr_samples": 4,
+      "opening_drive": true,
+      "triggered_at": "2026-11-12T14:38:00+00:00",
+      "structure_low": 98.59,
+      "structure_high": 100.01,
+      "measurement_target": 97.17,
+      "confirmation_run_available_at": "2026-11-12T14:38:00+00:00",
+      "execution_evidence_at": "2026-11-12T14:38:00+00:00",
+      "confirmation_available_at": "2026-11-12T14:38:00+00:00",
+      "entry_low": 94.89,
+      "entry_high": 98.59,
+      "max_risk_atr": null
+    }
+  },
+  "v8:-1": {
+    "as_of": "2026-11-12T14:42:00+00:00",
+    "reference": true,
+    "start_levels": {
+      "opening_range:1:2026-11-12T14:30:00+00:00": {
+        "trigger": 100.01,
+        "width": 1.0200000000000102,
+        "atr": 0.27,
+        "expires_at": "2026-11-12T16:32:00+00:00"
+      },
+      "opening_range:-1:2026-11-12T14:30:00+00:00": {
+        "trigger": 98.99,
+        "width": 1.0200000000000102,
+        "atr": 0.27,
+        "expires_at": "2026-11-12T16:32:00+00:00"
+      }
+    },
+    "branch": {
+      "kind": "opening_breakout",
+      "direction": "bearish",
+      "status": "confirmed",
+      "structure_id": "opening_breakout:-1:2026-11-12T14:30:00+00:00:2026-11-12T14:42:00+00:00",
+      "trigger": 98.99,
+      "invalidation": 99.3005,
+      "atr": 0.27,
+      "formation_start": "2026-11-12T14:30:00+00:00",
+      "started_at": "2026-11-12T14:42:00+00:00",
+      "confirmed_at": "2026-11-12T14:42:00+00:00",
+      "expires_at": "2026-11-12T14:44:00+00:00",
+      "rule_version": "intraday_entry_v8",
+      "confirmation_method": "level_close",
+      "atr_source": "observed_adjacent_true_ranges",
+      "quality_score": 43.77,
+      "distance_atr": 4.407407407407399,
+      "risk_atr": 5.557407407407416,
+      "components": {
+        "structure": 75.0,
+        "distance": 0.04837625727722718,
+        "recovery": 100.0,
+        "risk": 0.0
+      },
+      "reasons": [
+        "真实闭合K突破冻结价位"
+      ],
+      "process_id": "opening_breakout:-1:2026-11-12T14:30:00+00:00",
+      "structure_start": "2026-11-12T14:30:00+00:00",
+      "structure_end": "2026-11-12T14:35:00+00:00",
+      "formation_available_at": "2026-11-12T14:42:00+00:00",
+      "execution_floor": "2026-11-12T14:42:00+00:00",
+      "atr_samples": 4,
+      "opening_drive": true,
+      "triggered_at": "2026-11-12T14:42:00+00:00",
+      "structure_low": 98.99,
+      "structure_high": 100.01,
+      "measurement_target": 97.96999999999998,
+      "confirmation_run_available_at": "2026-11-12T14:42:00+00:00",
+      "execution_evidence_at": "2026-11-12T14:42:00+00:00",
+      "confirmation_available_at": "2026-11-12T14:42:00+00:00",
+      "entry_low": 96.28999999999999,
+      "entry_high": 98.99,
+      "max_risk_atr": null
+    }
+  }
+}

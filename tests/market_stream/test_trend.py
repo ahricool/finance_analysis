@@ -52,7 +52,7 @@ def test_insufficient_valid_bars(count: int) -> None:
     assert trend.state == "insufficient"
     assert trend.effective_period == count
     assert trend.streak == 0
-    assert trend.ma_value is None
+    assert trend.ma_value == (Decimal(count + 1) / 2 if count else None)
     assert not trend.confirmed
 
 
@@ -91,7 +91,7 @@ def test_streak_direction_changes(closes, state: str, streak: int) -> None:
     assert trend.streak == streak
 
 
-def test_unconfirmed_invalid_extended_previous_day_and_future_bars_are_ignored() -> None:
+def test_includes_adjacent_premarket_but_ignores_invalid_unclosed_and_distant_bars() -> None:
     bars = [candle(US_OPEN + timedelta(minutes=index), index + 1) for index in range(5)]
     unconfirmed = candle(US_OPEN + timedelta(minutes=5), 100, confirmed=False)
     invalid = candle(US_OPEN + timedelta(minutes=6), 100)
@@ -105,7 +105,8 @@ def test_unconfirmed_invalid_extended_previous_day_and_future_bars_are_ignored()
         as_of=US_OPEN + timedelta(minutes=8),
     )
     assert trend.close == Decimal("5")
-    assert trend.effective_period == 5
+    assert trend.effective_period == 6
+    assert trend.ma_value == Decimal(115) / 6
 
 
 def test_duplicate_and_out_of_order_bars_do_not_increase_streak() -> None:
@@ -169,3 +170,12 @@ def test_cross_trading_date_resets_and_distance_uses_decimal() -> None:
     assert trend.effective_period == 5
     assert trend.streak == 1
     assert trend.distance_pct == (Decimal("5") / Decimal("3") - 1) * 100
+
+
+def test_overnight_minutes_continue_through_new_york_midnight():
+    start = datetime(2026, 7, 16, 3, 57, tzinfo=timezone.utc)
+    bars = [candle(start + timedelta(minutes=i), i + 1, session="Overnight") for i in range(6)]
+    trend = calculate_ma_trend(bars, market_type="US", as_of=start + timedelta(minutes=6))
+    assert trend.effective_period == 6
+    assert trend.ma_value == Decimal("3.5")
+    assert trend.streak == 2

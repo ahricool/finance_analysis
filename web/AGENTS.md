@@ -426,3 +426,5 @@ V2历史仍标“宏观环境”并说明统一风险偏好语义，不用V2.1�
 唯一可改变状态的开关为本地自动交易 Switch，PUT 后重新 GET 核对真实状态，不乐观开启。
 V1 没有交易策略、手动订单表单或撤单/平仓等交易控件。Paper Trade 独立保留。
 见 `../docs/binance-live-trade.md`。
+
+标的表格的表头和数据行均固定标的列。有关注列时同时固定关注与标的两列，使用 InstrumentTable 的 freeze-favorite 和 instrument-column，横向滚动时两列保持可见。

@@ -105,13 +105,13 @@ def test_bad_minutes_are_not_filled(field, value):
     assert all(w["data_status"] == "gap" for w in result["windows"])
 
 
-def test_afterhours_and_early_close_are_excluded():
+def test_afterhours_extend_scoring_beyond_early_close():
     # Thanksgiving Friday closes at 13:00 NY / 18:00 UTC.
     start = datetime(2026, 11, 27, 14, 30, tzinfo=timezone.utc)
     bars = candles([0.0004] * 240, start=start)
     result = score(bars)
-    assert result["as_of"] == "2026-11-27T18:00:00+00:00"
-    assert result["windows"][-1]["start_at"] == "2026-11-27T17:00:00+00:00"
+    assert result["as_of"] == "2026-11-27T18:30:00+00:00"
+    assert result["windows"][-1]["start_at"] == "2026-11-27T17:30:00+00:00"
 
 
 def test_alignment_direction_and_state_are_separate():
@@ -174,7 +174,7 @@ def test_opening_with_gaps_keeps_reference_scores_and_no_fabricated_bars():
     long = result["windows"][-1]
     assert long["data_status"] == "gap"
     assert long["available_bars"] == 8 and long["missing_bars"] == 52
-    assert any("开盘仅10分钟" in reason for reason in long["reasons"])
+    assert any("滚动历史仅10分钟" in reason for reason in long["reasons"])
     assert any("缺少2根" in reason for reason in long["reasons"])
     assert result["score"] is not None and "仅供参考" in result["explanation"]
     # A single valid candle and all-invalid observations cannot fabricate a score.

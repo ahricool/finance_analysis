@@ -10,7 +10,7 @@ defineProps<{ opportunities?: IntradayOpportunities | null; stale: boolean; plan
     data-testid="opportunity-detail"
   >
     <p class="text-sm font-medium">
-      日内机会 · 确认状态与形态质量分开
+      短线机会 · 形态与确认状态
     </p>
     <p
       v-if="stale"
@@ -34,7 +34,7 @@ defineProps<{ opportunities?: IntradayOpportunities | null; stale: boolean; plan
         <p class="font-medium">
           {{ opportunityKinds[branch.kind] }} · {{ directions[branch.direction] }}
         </p>
-        <p>{{ opportunityStates[branch.status] }}{{ (opportunities?.reference && branch.kind !== 'opening_breakout') || stale ? '（参考）' : '' }} · 分支质量 {{ fmt(branch.qualityScore) }}</p>
+        <p>{{ opportunityStates[branch.status] }}{{ (opportunities?.reference) || stale ? '（参考）' : '' }} · 分支质量 {{ fmt(branch.qualityScore) }}</p>
         <p>{{ confirmationLabel(branch.confirmationMethod) }} · 形态确认不等于当前可进场</p>
         <p
           v-if="!stale"

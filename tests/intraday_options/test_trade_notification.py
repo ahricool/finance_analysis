@@ -336,7 +336,12 @@ def test_scheduler_does_not_notify_when_process_raises_and_survives_notify_failu
         monkeypatch.setattr(scheduler, "notify_trade_events", lambda batch: notified.extend(batch))
         monkeypatch.setattr(scheduler, "utc_now", lambda: now)
 
-        await asyncio.wait_for(scheduler.run(repo, {}, stop_event), timeout=3)
+        from tests.intraday_options.test_scoring import candles
+        from finance_analysis.intraday_options.runtime import result_key
+        quotes = candles([.001] * 10, symbol="NVDA.US", start=now.replace(minute=30, second=0))
+        await asyncio.wait_for(scheduler.run(repo, {"NVDA.US": quotes}, stop_event), timeout=3)
+        assert await repo.redis.get(result_key("NVDA.US"))
+        assert await repo.redis.get("rt:intraday-simulation:NVDA.US") is None
         assert notified == []
 
         # Second check: notification failure must not prevent Redis state write or clean shutdown.
@@ -423,7 +428,7 @@ def test_process_with_events_commits_skips_stale_and_propagates_rollback(monkeyp
 
 def test_real_v7_transition_events_render_and_notify_cleanly():
     from finance_analysis.intraday_options.rules import StartPolicy
-    from finance_analysis.intraday_options.scoring import calculate
+    from tests.intraday_options.historical import historical_signal
     from finance_analysis.intraday_options.simulation import transition
     from finance_analysis.intraday_options.structure import execution_context
     from tests.intraday_options.test_simulation import quote
@@ -434,7 +439,7 @@ def test_real_v7_transition_events_render_and_notify_cleanly():
     spy_ok = _make_bars([500.0 + x for x in (0.0, 0.15, 0.30, 0.45, 0.60, 0.75, 0.90, 1.05)], symbol="SPY.US")
     peers = _make_peer_pool(nvda8, side=1, nvda_rank=1, breadth_ratio=0.75, count=12)
     t_entry = nvda8[-1].bar_time + timedelta(minutes=1, seconds=5)
-    base8 = calculate("NVDA.US", nvda8, t_entry, settings=V7_POLICY)
+    base8 = historical_signal("v7", 1)
     res = {**base8, **execution_context(nvda8, spy_ok, peer_bars=peers, settings=V7_POLICY)}
     entry_price = 102.65
     state, entry_events = transition({}, "NVDA.US", res, quote(t_entry, entry_price), t_entry, settings=V7_POLICY)

@@ -78,12 +78,12 @@ def plan_order(branch):
 
 @dataclass(frozen=True)
 class StartPolicy:
-    opening_enabled: bool = True
-    pivot_enabled: bool = False
-    midday_wave_enabled: bool = False
-    box_enabled: bool = False
-    continuation_enabled: bool = False
-    recovery_enabled: bool = False
+    opening_enabled: bool = False
+    pivot_enabled: bool = True
+    midday_wave_enabled: bool = True
+    box_enabled: bool = True
+    continuation_enabled: bool = True
+    recovery_enabled: bool = True
     opening_minutes: int = 5
     opening_min_range_pct: float = .0080
     opening_min_elapsed_minutes: int = 12
@@ -191,8 +191,6 @@ def policy():
     rr = env_float("INTRADAY_MIN_REWARD_RISK", defaults.minimum_rr, minimum=0)
     min_risk = env_float("INTRADAY_MIN_RISK_RETURN", defaults.minimum_risk_return, minimum=0)
     max_risk = env_float("INTRADAY_MAX_RISK_RETURN", defaults.maximum_risk_return, minimum=0)
-    min_or_range = env_float("INTRADAY_OPENING_MIN_RANGE_PCT", defaults.opening_min_range_pct, minimum=0)
-    min_or_eff = env_float("INTRADAY_OPENING_MIN_EFFICIENCY", defaults.opening_min_efficiency, minimum=0)
     max_bar0_wick = env_float("INTRADAY_OPENING_BAR_MAX_WICK_PCT", defaults.opening_bar_max_wick_pct, minimum=0)
     min_rs = env_float("INTRADAY_MIN_RELATIVE_STRENGTH", defaults.min_relative_strength, minimum=0)
     min_open = env_float("INTRADAY_MIN_OPEN_MOVE", defaults.min_open_move, minimum=0)
@@ -213,15 +211,11 @@ def policy():
     t1_lock_atr = env_float("INTRADAY_RATCHET_TIER1_LOCK_ATR", defaults.ratchet_tier1_lock_atr, minimum=0)
     t2_trig_atr = env_float("INTRADAY_RATCHET_TIER2_TRIGGER_ATR", defaults.ratchet_tier2_trigger_atr, minimum=0)
     t2_lock_atr = env_float("INTRADAY_RATCHET_TIER2_LOCK_ATR", defaults.ratchet_tier2_lock_atr, minimum=0)
-    opening_min_elapsed = env_int(
-        "INTRADAY_OPENING_MIN_ELAPSED_MINUTES", defaults.opening_min_elapsed_minutes, minimum=5, maximum=60
-    )
-    opening_end = env_int("INTRADAY_OPENING_END_MINUTES", defaults.opening_end_minutes, minimum=5, maximum=240)
     entry_window = env_int("INTRADAY_ENTRY_WINDOW_MINUTES", defaults.entry_window_minutes, minimum=5, maximum=300)
     if not all(
         math.isfinite(v)
         for v in (
-            floor, rr, min_risk, max_risk, min_or_range, min_or_eff, max_bar0_wick,
+            floor, rr, min_risk, max_risk, max_bar0_wick,
             min_rs, min_open, min_spy_open, min_breadth, stop_pct, tp_pct, lock_trig, lock_lvl,
             atr_floor, atr_cap, atr_fallback, sl_atr_mult, tp_atr_mult,
             t1_trig_atr, t1_lock_atr, t2_trig_atr, t2_lock_atr,
@@ -230,12 +224,8 @@ def policy():
         raise ValueError("Intraday thresholds must be finite")
     if max_risk > 0 and max_risk < min_risk:
         raise ValueError("INTRADAY_MAX_RISK_RETURN must be >= INTRADAY_MIN_RISK_RETURN")
-    if min_or_eff > 1.0:
-        raise ValueError("INTRADAY_OPENING_MIN_EFFICIENCY must be <= 1.0")
     if min_breadth > 1.0:
         raise ValueError("INTRADAY_MIN_POOL_BREADTH must be <= 1.0")
-    if opening_end < opening_min_elapsed:
-        raise ValueError("INTRADAY_OPENING_END_MINUTES must be >= INTRADAY_OPENING_MIN_ELAPSED_MINUTES")
     if lock_trig > 0 and lock_lvl >= lock_trig:
         raise ValueError("INTRADAY_PROFIT_LOCK_LEVEL_PCT must be < INTRADAY_PROFIT_LOCK_TRIGGER_PCT")
     if tp_pct > 0 and lock_trig >= tp_pct:
@@ -261,20 +251,12 @@ def policy():
         if tp_atr_mult > 0 and max(t1_trig_atr, t2_trig_atr) >= tp_atr_mult:
             raise ValueError("INTRADAY_RATCHET trigger ATR multipliers must be < INTRADAY_TAKE_PROFIT_ATR_MULT")
     return StartPolicy(
-        opening_enabled=env_bool("INTRADAY_OPENING_BREAKOUT", defaults.opening_enabled),
-        pivot_enabled=env_bool("INTRADAY_PIVOT_BREAKOUT", defaults.pivot_enabled),
-        midday_wave_enabled=env_bool("INTRADAY_MIDDAY_WAVE_BREAKOUT", defaults.midday_wave_enabled),
-        box_enabled=env_bool("INTRADAY_BOX_BREAKOUT", defaults.box_enabled),
-        continuation_enabled=env_bool("INTRADAY_TREND_CONTINUATION", defaults.continuation_enabled),
-        recovery_enabled=env_bool("INTRADAY_TREND_RECOVERY", defaults.recovery_enabled),
-        opening_minutes=env_int("INTRADAY_OPENING_MINUTES", defaults.opening_minutes, minimum=5, maximum=15),
-        opening_min_range_pct=min_or_range,
-        opening_min_elapsed_minutes=opening_min_elapsed,
-        opening_end_minutes=opening_end,
-        opening_min_efficiency=min_or_eff,
-        opening_require_directional_bar=env_bool(
-            "INTRADAY_OPENING_REQUIRE_DIRECTIONAL_BAR", defaults.opening_require_directional_bar
-        ),
+        opening_enabled=False,
+        pivot_enabled=env_bool("ROLLING_PIVOT_BREAKOUT", defaults.pivot_enabled),
+        midday_wave_enabled=env_bool("ROLLING_MIDDAY_WAVE_BREAKOUT", defaults.midday_wave_enabled),
+        box_enabled=env_bool("ROLLING_BOX_BREAKOUT", defaults.box_enabled),
+        continuation_enabled=env_bool("ROLLING_TREND_CONTINUATION", defaults.continuation_enabled),
+        recovery_enabled=env_bool("ROLLING_TREND_RECOVERY", defaults.recovery_enabled),
         opening_bar_max_wick_pct=max_bar0_wick,
         exclude_benchmark_from_opening=env_bool(
             "INTRADAY_EXCLUDE_BENCHMARK_OPENING", defaults.exclude_benchmark_from_opening

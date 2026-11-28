@@ -1,5 +1,6 @@
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 from decimal import Decimal
 from types import SimpleNamespace
 
@@ -166,3 +167,21 @@ async def test_hk_intraday_displays_only_cached_regular_minutes_from_latest_sess
     assert [bar["timestamp"] for bar in result["items"]] == [
         int(bars[i].bar_time.timestamp() * 1000) for i in (0, 2)
     ]
+
+
+@pytest.mark.asyncio
+async def test_us_pattern_history_crosses_midnight_and_expires_by_observation_time():
+    from tests.market_stream.test_realtime_repository import pattern
+
+    repository = RealtimeStateRepository(FakeRedis())
+    midnight = NOW.replace(hour=4, minute=0)
+    for offset in (-1, 1):
+        stamp = midnight + timedelta(minutes=offset)
+        day = stamp.astimezone(ZoneInfo("America/New_York")).date()
+        value = pattern()
+        signal = replace(value.signal, occurred_at=stamp, confirmed_at=stamp, trading_date=day)
+        await repository.record_pattern_event(replace(value, signal=signal, trading_date=day), stamp)
+    events = await repository.get_pattern_events(value.symbol, day, now=midnight + timedelta(minutes=2))
+    assert len(events) == 2
+    events = await repository.get_pattern_events(value.symbol, day, now=midnight + timedelta(days=1))
+    assert len(events) == 1 and events[0]["observed_at"].endswith("04:01:00.000Z")

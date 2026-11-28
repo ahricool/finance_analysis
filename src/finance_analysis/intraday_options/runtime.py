@@ -7,11 +7,9 @@ import json
 import logging
 from datetime import datetime, timedelta
 
-from finance_analysis.core.time import utc_now
 from finance_analysis.intraday_options.config import CONFIG, SYMBOLS, VERSION
-from finance_analysis.intraday_options.analysis_window import REQUIRED_MINUTES
 from finance_analysis.intraday_options.simulation import plan as execution_plan, quote_value
-from finance_analysis.intraday_options.scoring import calculate, closed_session_bars
+from finance_analysis.intraday_options.scoring import calculate, rolling_bars
 from finance_analysis.intraday_options.rules import SIMULATION_VERSION, plan_order
 from finance_analysis.market_stream.config import market_trading_date
 from finance_analysis.market_stream.session import cache_ttl, display_day, in_session, session_bounds
@@ -36,7 +34,7 @@ class Publisher:
         if symbol not in allowed:
             return
         # Avoid computing again for quote/unconfirmed-candle updates.
-        closed = closed_session_bars(symbol, bars, now)
+        closed = rolling_bars(symbol, bars, now)
         if not closed:
             return
         latest = closed[-1].bar_time
@@ -47,7 +45,7 @@ class Publisher:
         # objects, and closed candles can be mutated/revised without advancing time.
         # Earlier session bars can affect the identity of a later recovery.
         inputs = tuple(
-            (bar.bar_time, bar.received_at, bar.open, bar.high, bar.low, bar.close, bar.volume >= 0, bar.partial, bar.sampled)
+            (bar.indicator_input(), bar.received_at)
             for bar in closed
         )
         if latest == previous and inputs == self._published_inputs.get(symbol):
@@ -78,24 +76,17 @@ def session_context(now):
 
 
 def data_status(result, now, day, market_status):
-    if result is None or result.get("trading_date") != day.isoformat() or result.get("version") != VERSION:
+    if result is None or result.get("version") != VERSION:
         return "waiting"
     as_of = datetime.fromisoformat(result["as_of"])
     if as_of > now + timedelta(seconds=1):
         return "invalid_time"
-    bounds = session_bounds("US", day)
-    # After close, compare against the closing boundary, not the advancing wall clock.
-    reference = min(now, bounds[1]) if bounds else now
     expected = (now - timedelta(seconds=CONFIG.close_grace_seconds)).replace(second=0, microsecond=0)
-    if bounds:
-        expected = min(expected, bounds[1])
-    if as_of < expected or (reference - as_of).total_seconds() > CONFIG.stale_seconds:
+    if as_of < expected or now - as_of > timedelta(seconds=CONFIG.stale_seconds):
         return "delayed"
-    # Opportunity readiness is the 15-minute analysis window. Longer raw-price
-    # quality windows keep their own gap/warmup labels and never veto execution.
     opportunity = result.get("opportunities") or {}
     if opportunity.get("reference", True):
-        return "warming" if bounds and as_of - bounds[0] < timedelta(minutes=REQUIRED_MINUTES) else "gap"
+        return "gap" if any(w["data_status"] == "gap" for w in result["windows"]) else "warming"
     return "ready"
 
 
@@ -139,7 +130,8 @@ async def read_snapshot(repository, names, now, symbols=None):
             repository.redis.get(f"rt:intraday-simulation:{symbol}"),
         )
         result = json.loads(raw) if raw else None
-        if result and (result.get("trading_date") != day.isoformat() or result.get("version") != VERSION):
+        if result and (result.get("version") != VERSION
+                       or now - datetime.fromisoformat(result["as_of"]) > timedelta(days=1)):
             result = None
         status = data_status(result, now, day, market_status)
         issues = []
@@ -149,7 +141,8 @@ async def read_snapshot(repository, names, now, symbols=None):
             issues.append("行情采集异常")
         price = change = quote_time = None
         quote_status = "missing"
-        if quote and quote.trading_date == day and quote.last_price is not None and quote.last_price > 0:
+        if (quote and quote.last_price is not None and quote.last_price > 0
+                and (not quote.event_time or now - quote.event_time <= timedelta(days=1))):
             price = float(quote.last_price)
             if quote.pre_close is not None and quote.pre_close > 0:
                 change = (float(quote.last_price / quote.pre_close) - 1) * 100
@@ -158,18 +151,15 @@ async def read_snapshot(repository, names, now, symbols=None):
                 quote_status = "invalid_time"
             elif max(quote.event_time, quote.received_at) > now + timedelta(seconds=30):
                 quote_status = "invalid_time"
-            elif market_status == "open" and min(quote.event_time, quote.received_at) < now - timedelta(seconds=30):
+            elif min(quote.event_time, quote.received_at) < now - timedelta(seconds=30):
                 quote_status = "delayed"
             else:
                 quote_status = "ready"
         simulation = json.loads(sim_raw) if sim_raw else None
         display = None
-        if (result and result.get("opportunities")
-                and status in {"ready", "warming"} and market_status == "open" and quote_status == "ready"
-                and simulation and not simulation.get("stopped", True) and simulation.get("cutoff")
-                and now < datetime.fromisoformat(simulation["cutoff"])
-                and 0 <= (now - datetime.fromisoformat(simulation["calculated_at"])).total_seconds() <= 15):
-            display = ranked_opportunity(result, simulation, now, quote)
+        primary = ((result or {}).get("opportunities") or {}).get("primary")
+        if primary and status == "ready" and quote_status == "ready" and now < datetime.fromisoformat(primary["expires_at"]):
+            display = {**primary, "opportunity_reason": "滚动形态已确认", "execution_reason": ""}
         return {
             "simulation": simulation,
             "ranked_opportunity": display,
