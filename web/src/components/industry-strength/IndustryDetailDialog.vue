@@ -431,7 +431,7 @@ const historyTable = useTableSort(() => [...historyItems.value].reverse(), sortF
             </p>
             <div class="overflow-x-auto rounded-lg border">
               <InstrumentTable container-class="overflow-visible">
-                <TableHeader class="sticky top-0 bg-background">
+                <TableHeader class="sticky top-0 z-10 bg-background">
                   <TableRow>
                     <SortableTableHeader
                       v-for="column in columns"
@@ -441,6 +441,7 @@ const historyTable = useTableSort(() => [...historyItems.value].reverse(), sortF
                       :description="'description' in column ? column.description : undefined"
                       :active="sortKey === column.key"
                       :direction="sortDirection"
+                      :class="{ 'instrument-column': column.key === 'name' }"
                       @sort="toggleSort(column.key)"
                     />
                   </TableRow>
@@ -452,7 +453,7 @@ const historyTable = useTableSort(() => [...historyItems.value].reverse(), sortF
                     :symbol="item.code"
                     market="CN"
                   >
-                    <TableCell>
+                    <TableCell class="instrument-column">
                       <StockLink
                         :code="item.code"
                         :name="item.name"

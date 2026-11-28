@@ -40,6 +40,7 @@ const table = useTableSort(() => props.dashboard.signals, (row, key) => {
                 label="信号"
                 scope="macroSignal"
                 v-bind="table.header('key')"
+                class="instrument-column"
               /><SortableTableHeader
                 label="趋势"
                 scope="macroSignal"
@@ -62,7 +63,7 @@ const table = useTableSort(() => props.dashboard.signals, (row, key) => {
               :key="signal.key"
               :symbol="signal.key.endsWith('.US') ? signal.key : null"
             >
-              <TableCell>
+              <TableCell class="instrument-column">
                 <StockLink
                   v-if="signal.key.endsWith('.US')"
                   :code="signal.key"

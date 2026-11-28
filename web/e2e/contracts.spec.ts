@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { expectPinnedInstrumentColumn } from './instrumentColumn';
 import { dashboardResponse } from '../tests/fixtures/dashboard';
 
 test('USD-M market lists contract prices, switches native candles and manages symbols without Binance browser traffic', async ({ page }) => {
@@ -82,11 +83,21 @@ test('USD-M market lists contract prices, switches native candles and manages sy
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await expect(page.getByTestId('contract-market-panel')).toHaveCount(0);
   const soxl = page.getByTestId('contract-row').filter({ hasText: 'SOXLUSDT' });
-  for (const value of ['-0.0200%', '+3.00%', '+8.00%', '65.00%', '1.50']) await expect(soxl).toContainText(value);
+  const table = page.getByRole('table');
+  await expect(table.getByRole('columnheader', { name: /成交额|资金费率|分类/ })).toHaveCount(0);
+  await expect(soxl.getByRole('button', { name: /删除|移除/ })).toHaveCount(0);
+  await expect(soxl.getByRole('cell').first()).toContainText(/永续\s*· ETF/);
+  await expect(table.getByRole('columnheader', { name: '操作' })).toHaveCSS('position', 'static');
+  await expect(soxl.getByRole('cell').last()).toHaveCSS('position', 'static');
+  await page.setViewportSize({ width: 390, height: 900 });
+  await expectPinnedInstrumentColumn(table, 0);
+  await page.setViewportSize({ width: 1280, height: 900 });
+  for (const value of ['+3.00%', '+8.00%', '65.00%', '1.50']) await expect(soxl).toContainText(value);
   expect(requests.some(url => url.includes('/depth') || url.includes('/metrics?'))).toBe(false);
   await soxl.getByRole('cell').nth(2).click();
   await expect(soxl).toHaveAttribute('aria-expanded', 'true');
   await expect(page.getByTestId('contract-market-panel')).toContainText('买 200（2 档）');
+  await expect(page.getByTestId('contract-market-panel')).not.toContainText(/成交额|资金费率/);
   await page.getByRole('combobox', { name: '5 分钟历史副图' }).click();
   await page.getByRole('option', { name: '全市场账户多空比（倍）' }).click();
   await expect(page.getByTestId('contract-market-panel')).toContainText(' 至 ');
@@ -125,11 +136,14 @@ test('USD-M market lists contract prices, switches native candles and manages sy
   const eth = page.getByTestId('contract-row').filter({ hasText: 'ETHUSDT' });
   await eth.getByRole('cell').nth(1).click();
   await expect(eth).toHaveAttribute('aria-expanded', 'true');
-  await page.getByRole('button', { name: '移除 ETHUSDT' }).click();
+  await eth.getByRole('button', { name: 'ETHUSDT 合约操作' }).click();
+  await page.getByRole('menuitem', { name: '删除' }).click();
   await expect(eth).toHaveAttribute('aria-expanded', 'true');
   await page.getByRole('alertdialog').getByRole('button', { name: '取消' }).click();
   await expect(eth).toHaveAttribute('aria-expanded', 'true');
-  await page.getByRole('button', { name: '移除 ETHUSDT' }).click();
+  await eth.getByRole('button', { name: 'ETHUSDT 合约操作' }).press('Enter');
+  await page.getByRole('menuitem', { name: '删除' }).press('Enter');
+  await expect(page.getByRole('alertdialog')).toContainText('ETHUSDT');
   await page.getByRole('alertdialog').getByRole('button', { name: '确定' }).click();
   await expect(page.getByRole('button', { name: 'ETHUSDT 标的详情', exact: true })).toHaveCount(0);
   await expect(page.getByTestId('contract-market-panel')).toHaveCount(0);
@@ -163,7 +177,8 @@ test('shared contracts are expandable for regular users but only admins can mana
   const btc = page.getByTestId('contract-row').filter({ hasText: 'BTCUSDT' });
   await expect(btc).toBeVisible();
   await expect(page.getByRole('button', { name: '添加合约', exact: true })).toHaveCount(0);
-  await expect(page.getByRole('button', { name: '移除 BTCUSDT' })).toHaveCount(0);
+  await expect(page.getByRole('columnheader', { name: '操作' })).toHaveCount(0);
+  await expect(btc.getByRole('button', { name: 'BTCUSDT 合约操作' })).toHaveCount(0);
   await btc.getByRole('cell').nth(1).click();
   await expect(page.getByTestId('contract-market-panel')).toContainText('暂无 K 线');
   await expect(page.getByTestId('instrument-chart-row').getByRole('cell')).toHaveAttribute('colspan', String(await btc.getByRole('cell').count()));

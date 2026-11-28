@@ -515,7 +515,7 @@ onMounted(() => {
           >
             <colgroup>
               <col class="w-[110px]" />
-              <col class="w-[260px]" />
+              <col class="w-36 sm:w-[260px]" />
               <col class="w-[110px]" />
               <col class="w-[120px]" />
               <col class="w-[150px]" />
@@ -539,6 +539,7 @@ onMounted(() => {
                   label="股票"
                   :active="sortKey === 'code'"
                   :direction="sortDirection"
+                  class="instrument-column"
                   @sort="toggleSort('code')"
                 />
                 <SortableTableHeader
@@ -637,7 +638,7 @@ onMounted(() => {
                         />
                       </button>
                     </TableCell>
-                    <TableCell class="max-w-[220px] px-4 py-3">
+                    <TableCell class="instrument-column max-w-[220px] px-4 py-3">
                       <TooltipProvider :delay-duration="200">
                         <Tooltip>
                           <TooltipTrigger as-child>

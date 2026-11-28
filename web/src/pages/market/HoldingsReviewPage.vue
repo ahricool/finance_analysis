@@ -440,6 +440,7 @@ onBeforeUnmount(() => { ++generation; ++runGeneration; clearPoll(); });
                     :active="sortKey === column.key"
                     :direction="direction"
                     :align="['name', 'action'].includes(column.key) ? 'left' : 'right'"
+                    :class="{ 'instrument-column': column.key === 'name' }"
                     @sort="sort(column.key)"
                   />
                 </TableRow>
@@ -454,7 +455,7 @@ onBeforeUnmount(() => { ++generation; ++runGeneration; clearPoll(); });
                     :market="market"
                     data-testid="review-position-row"
                   >
-                    <TableCell class="min-w-40 pl-6">
+                    <TableCell class="instrument-column min-w-40 pl-6">
                       <StockLink
                         :code="row.symbol"
                         :name="row.name"

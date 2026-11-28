@@ -243,6 +243,7 @@ const detailInitialTab = ref<'overview' | 'quant'>('quant');
                     scope="quant"
                     :active="sortKey === 'name'"
                     :direction="direction"
+                    class="instrument-column"
                     @sort="toggle('name')"
                   />
                   <SortableTableHeader
@@ -321,7 +322,7 @@ const detailInitialTab = ref<'overview' | 'quant'>('quant');
                   <TableCell class="p-2">
                     {{ formatRank(item.universeRank, item.rankTotal) }}
                   </TableCell>
-                  <TableCell>
+                  <TableCell class="instrument-column">
                     <StockLink
                       :code="item.code"
                       :name="item.name"

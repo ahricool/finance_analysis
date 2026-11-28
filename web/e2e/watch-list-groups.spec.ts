@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { expectPinnedInstrumentColumn } from './instrumentColumn';
 
 for (const width of [390, 768, 1024, 1280, 1440, 1920]) {
   test(`watch-list groups, empty states and dialogs at ${width}px`, async ({ page }, testInfo) => {
@@ -36,6 +37,7 @@ for (const width of [390, 768, 1024, 1280, 1440, 1920]) {
     await expect(page.getByTestId('tag-filters').getByRole('button').first()).toHaveText('全部');
     await expect(page.getByTestId('global-market-switch')).toHaveAttribute('aria-checked', 'false');
     await expect(page.getByTestId('stock-tags')).toContainText('分组标签5');
+    if (width === 390) await expectPinnedInstrumentColumn(page.getByRole('table'), 1);
     await page.getByRole('button', { name: '自选股操作', exact: true }).click();
     await page.getByRole('menuitem', { name: '编辑', exact: true }).click();
     const edit = page.getByRole('dialog');

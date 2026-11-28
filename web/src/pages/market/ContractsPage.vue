@@ -5,8 +5,9 @@ import TrendWindowCell from '@/components/market-data/TrendWindowCell.vue';
 import TrendDirectionCell from '@/components/market-data/TrendDirectionCell.vue';
 import { opportunityKinds, stages, fmt } from '@/components/intraday-options/labels';
 import { computed, onBeforeUnmount, ref } from 'vue';
-import { Plus, Trash2 } from 'lucide-vue-next';
+import { MoreHorizontal, Plus, Trash2 } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { TableHeader, TableBody, TableRow, TableCell, TableHead } from '@/components/ui/table';
 import { contractsApi, type Contract, type ContractQuote, type MarketSnapshot } from '@/api/contracts';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
@@ -47,14 +48,8 @@ const displayRows = computed(() => {
     metrics: row.metrics?.timestamp === boundary ? row.metrics : null,
   }));
 });
-function funding(row: ContractQuote) {
-  if (row.mark) return row.mark.funding_rate;
-  if (row.quote?.funding_timestamp != null || delayed(row)) return null;
-  return row.quote?.funding_rate;
-}
 const sort = useTableSort(() => displayRows.value, (row, key) => {
   if (key === 'opportunity') return currentOpportunity(row)?.quality_score;
-  if (key === 'quote.funding_rate') return funding(row);
   if (key === 'direction') return currentOpportunity(row)?.direction ?? row.analysis?.direction;
   return sortField(row, key);
 });
@@ -75,13 +70,12 @@ function metricText(row: ContractQuote, column: typeof metricColumns[number]) {
   return percent(value * 100);
 }
 const columns = [
-  { key: 'symbol', label: '合约' }, { key: 'category', label: '分类' },
+  { key: 'symbol', label: '合约' },
   { key: 'quote.price', label: '最新价' }, { key: 'quote.change_pct', label: '24h 涨跌幅' },
   ...metricColumns,
   { key: 'opportunity', label: '日内机会' }, { key: 'analysis.score', label: '趋势质量分' },
   { key: 'direction', label: '当前方向' }, { key: 'analysis.state', label: '当前状态' },
   ...[5, 15, 30, 60].map(n => ({ key: `analysis.windows.${n}.score`, label: `${n}分钟` })),
-  { key: 'quote.turnover', label: '24h 成交额' }, { key: 'quote.funding_rate', label: '资金费率' },
 ];
 let stopped = false;
 function receive(snapshot: MarketSnapshot) {
@@ -126,11 +120,11 @@ async function remove() {
   } catch (err) { if (!stopped) error.value = getParsedApiError(err); }
   finally { busy.value = false; }
 }
-function format(value: number | null | undefined, digits = 2) {
-  return value == null ? '—' : value.toLocaleString('en-US', { maximumFractionDigits: digits });
+function formatPrice(value: number | null | undefined) {
+  return value == null ? '—' : value.toLocaleString('en-US', { maximumFractionDigits: 10 });
 }
-function percent(value: number | null | undefined, digits = 2) {
-  return value == null ? '—' : (value > 0 ? '+' : '') + value.toFixed(digits) + '%';
+function percent(value: number | null | undefined) {
+  return value == null ? '—' : (value > 0 ? '+' : '') + value.toFixed(2) + '%';
 }
 function categoryLabel(category: string) {
   return ({ COIN: '加密货币', EQUITY: '股票/ETF', KR_EQUITY: '韩股', COMMODITY: '商品' } as Record<string, string>)[category] ?? category;
@@ -173,7 +167,7 @@ onBeforeUnmount(() => { stopped = true; });
             合约列表 <span class="text-xs text-muted-foreground"> {{ rows.length }} 个</span>
           </h2>
           <p class="text-xs text-muted-foreground">
-            点击行展开行情，点击名称查看标的详情 · 成交额 USDT · 日内分析从 UTC 00:00 起使用已收盘分钟线
+            点击行展开行情，点击名称查看标的详情 · 日内分析从 UTC 00:00 起使用已收盘分钟线
           </p>
         </div>
         <Button
@@ -194,10 +188,11 @@ onBeforeUnmount(() => { stopped = true; });
               :description="metricColumns.find(c => c.key === column.key)?.description"
               :align="column.key.startsWith('quote.') ? 'right' : 'left'"
               v-bind="sort.header(column.key)"
+              :class="{ 'instrument-column': column.key === 'symbol' }"
             />
             <TableHead
               v-if="admin"
-              class="sticky right-0 z-10 bg-muted px-4 text-right"
+              class="px-4 text-right"
             >
               操作
             </TableHead>
@@ -213,21 +208,19 @@ onBeforeUnmount(() => { stopped = true; });
               data-testid="contract-row"
               class="cursor-pointer"
             >
-              <TableCell class="whitespace-nowrap px-4 py-3">
+              <TableCell class="instrument-column px-4 py-3">
                 <ContractLink
                   :symbol="row.symbol"
                   :contract="row"
                 />
+                <span class="ml-1 text-xs text-muted-foreground">· {{ categoryLabel(row.category) }}</span>
                 <span
                   v-if="delayed(row)"
                   class="ml-2 text-xs text-muted-foreground"
                 >{{ row.quote ? '延迟' : '暂无行情' }}</span>
               </TableCell>
-              <TableCell class="whitespace-nowrap px-4 py-3 text-muted-foreground">
-                {{ categoryLabel(row.category) }}
-              </TableCell>
               <TableCell class="whitespace-nowrap px-4 py-3 text-right tabular-nums">
-                {{ format(row.quote?.price, 10) }}
+                {{ formatPrice(row.quote?.price) }}
               </TableCell>
               <TableCell
                 class="whitespace-nowrap px-4 py-3 text-right tabular-nums"
@@ -256,27 +249,31 @@ onBeforeUnmount(() => { stopped = true; });
                 :key="n"
                 :window="row.analysis?.windows?.[n]"
               />
-              <TableCell class="whitespace-nowrap px-4 py-3 text-right tabular-nums">
-                {{ format(row.quote?.turnover, 0) }}
-              </TableCell>
-              <TableCell class="whitespace-nowrap px-4 py-3 text-right tabular-nums">
-                {{ percent(funding(row) == null ? null : funding(row)! * 100, 4) }}
-              </TableCell>
               <TableCell
                 v-if="admin"
-                class="sticky right-0 z-10 bg-background px-4 py-2 text-right"
+                class="px-4 py-2 text-right"
                 @click.stop
               >
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  class="text-destructive"
-                  :aria-label="'移除 ' + row.symbol"
-                  :disabled="busy"
-                  @click="removing = row.symbol"
-                >
-                  <Trash2 class="size-4" /> 删除
-                </Button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger as-child>
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      :aria-label="row.symbol + ' 合约操作'"
+                      :disabled="busy"
+                    >
+                      <MoreHorizontal />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem
+                      variant="destructive"
+                      @select="removing = row.symbol"
+                    >
+                      <Trash2 />删除
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </TableCell>
               <template #chart="{ period }">
                 <ContractRowChart

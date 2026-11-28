@@ -42,8 +42,6 @@ const ratioKinds = [
 ] as const;
 function share(value?: number | null) { return value == null ? '—' : (value * 100).toFixed(2) + '%'; }
 function ratio(value?: number | null) { return value == null ? '—' : value.toFixed(2) + ' 倍'; }
-const fundingRate = computed(() => props.row.mark?.funding_rate ??
-  (props.row.quote?.funding_timestamp == null && !quoteDelayed.value ? props.row.quote?.funding_rate : null));
 const freshDepth = computed(() => depth.value && Math.abs(now.value.getTime() - depth.value.timestamp) < 15000 ? depth.value : null);
 const periodMs = computed(() => props.interval === '1m' ? 60_000 : 86_400_000);
 const newest = computed(() => props.current ?? props.bars.at(-1));
@@ -66,8 +64,8 @@ function price(value: number | null | undefined) {
 function amount(value: number | null | undefined) {
   return value == null || !Number.isFinite(value) ? '—' : value.toLocaleString('en-US', { maximumFractionDigits: 2 });
 }
-function percent(value: number | null | undefined, digits = 2) {
-  return value == null || !Number.isFinite(value) ? '—' : `${value > 0 ? '+' : ''}${value.toFixed(digits)}%`;
+function percent(value: number | null | undefined) {
+  return value == null || !Number.isFinite(value) ? '—' : `${value > 0 ? '+' : ''}${value.toFixed(2)}%`;
 }
 function time(value?: number | null) {
   return value == null ? '—' : new Date(value).toISOString().slice(0, 19).replace('T', ' ') + ' UTC';
@@ -122,31 +120,13 @@ const maPeriods = computed(() => props.interval === '1m' ? [20] : [5, 10, 20]);
         class="space-y-3 text-sm"
         data-testid="contract-indicators"
       >
-        <dl class="grid grid-cols-2 gap-3 xl:grid-cols-1">
-          <div>
-            <dt class="text-xs text-muted-foreground">
-              最新价 / 24h 涨跌幅<span v-if="quoteDelayed"> · 延迟</span>
-            </dt>
-            <dd class="tabular-nums">
-              {{ price(row.quote?.price) }} / <span :class="signedTextClass(row.quote?.change_pct)">{{ percent(row.quote?.change_pct) }}</span>
-            </dd>
-          </div>
-          <div>
-            <dt class="text-xs text-muted-foreground">
-              24h 成交额 (USDT)
-            </dt>
-            <dd class="tabular-nums">
-              {{ amount(row.quote?.turnover) }}
-            </dd>
-          </div>
-          <div>
-            <dt class="text-xs text-muted-foreground">
-              资金费率
-            </dt>
-            <dd class="tabular-nums">
-              {{ percent(fundingRate == null ? null : fundingRate * 100, 4) }}
-            </dd>
-          </div>
+        <dl>
+          <dt class="text-xs text-muted-foreground">
+            最新价 / 24h 涨跌幅<span v-if="quoteDelayed"> · 延迟</span>
+          </dt>
+          <dd class="tabular-nums">
+            {{ price(row.quote?.price) }} / <span :class="signedTextClass(row.quote?.change_pct)">{{ percent(row.quote?.change_pct) }}</span>
+          </dd>
         </dl>
         <div class="border-t pt-3">
           <p class="text-xs text-muted-foreground">

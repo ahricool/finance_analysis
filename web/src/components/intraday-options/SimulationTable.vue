@@ -39,6 +39,7 @@ if (props.defaultTimeKey) {
           :label="column.label"
           :align="column.numeric ? 'right' : 'left'"
           v-bind="table.header(column.key)"
+          :class="{ 'instrument-column': column.key === 'symbol' }"
         />
       </TableRow>
     </TableHeader>
@@ -56,7 +57,7 @@ if (props.defaultTimeKey) {
           v-for="column in columns"
           :key="column.key"
           class="px-4 py-3 align-top"
-          :class="column.numeric ? 'text-right tabular-nums' : ''"
+          :class="{ 'instrument-column': column.key === 'symbol', 'text-right tabular-nums': column.numeric }"
         >
           <slot
             name="cell"

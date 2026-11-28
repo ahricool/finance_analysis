@@ -322,15 +322,16 @@ const hotTable = useTableSort(() => hotRows.value, sortField);
             {{ data.complete ? '所选窗口股票原始金额，未按概念拆分。' : '以下金额仅为已采集日合计，不代表完整窗口；缺失不填零。' }}
             机构、游资为独立口径，未知金额显示 —。点击股票查看每日证据。
           </p>
-          <div class="max-h-[28rem] overflow-auto rounded-md border">
+          <div class="overflow-hidden rounded-md border">
             <InstrumentTable
+              container-class="max-h-[28rem] overflow-auto"
               class="w-full min-w-max text-sm"
               data-testid="flow-all-stocks"
             >
-              <thead class="sticky top-0 bg-muted">
+              <thead class="sticky top-0 z-10 bg-muted">
                 <tr>
                   <SortableTableHeader
-                    class="p-3 text-left"
+                    class="instrument-column p-3 text-left"
                     label="股票"
                     scope="flow"
                     v-bind="allTable.header('name')"
@@ -367,7 +368,7 @@ const hotTable = useTableSort(() => hotRows.value, sortField);
                   market="CN"
                   class="border-t cursor-pointer"
                 >
-                  <td class="p-3 whitespace-nowrap">
+                  <td class="instrument-column p-3">
                     <StockLink
                       :code="row.symbol"
                       :name="row.name"
@@ -415,9 +416,12 @@ const hotTable = useTableSort(() => hotRows.value, sortField);
         <p class="my-3 text-xs text-muted-foreground">
           有限已命名席位样本，与股票级游资净额口径独立，不能相加或反推全部游资。
         </p>
-        <div class="max-h-96 overflow-auto">
-          <InstrumentTable class="w-full min-w-max text-sm">
-            <thead class="sticky top-0 bg-muted">
+        <div class="overflow-hidden">
+          <InstrumentTable
+            class="w-full min-w-max text-sm"
+            container-class="max-h-96 overflow-auto"
+          >
+            <thead class="sticky top-0 z-10 bg-muted">
               <tr>
                 <SortableTableHeader
                   class="p-2 text-left"
@@ -425,7 +429,7 @@ const hotTable = useTableSort(() => hotRows.value, sortField);
                   scope="flow"
                   v-bind="hotTable.header('tradeDate')"
                 /><SortableTableHeader
-                  class="p-2 text-left"
+                  class="instrument-column p-2 text-left"
                   label="股票"
                   scope="flow"
                   v-bind="hotTable.header('name')"
@@ -454,7 +458,7 @@ const hotTable = useTableSort(() => hotRows.value, sortField);
               >
                 <td class="p-2">
                   {{ row.tradeDate }}
-                </td><td class="p-2">
+                </td><td class="instrument-column p-2">
                   <StockLink
                     :code="row.symbol"
                     :name="row.name"
@@ -578,18 +582,20 @@ const hotTable = useTableSort(() => hotRows.value, sortField);
               mode="paths"
               @stock="stock = $event"
             />
-            <div class="max-h-96 overflow-auto rounded-md border">
+            <div class="overflow-hidden rounded-md border">
               <InstrumentTable
                 class="w-full min-w-max text-sm"
+                container-class="max-h-96 overflow-auto"
                 data-testid="flow-stocks"
               >
-                <thead class="sticky top-0 bg-muted">
+                <thead class="sticky top-0 z-10 bg-muted">
                   <tr>
                     <SortableTableHeader
                       scope="flow"
                       label="股票"
                       :active="stockSort === 'name'"
                       :direction="stockDescending ? 'desc' : 'asc'"
+                      class="instrument-column"
                       @sort="sortStocks('name')"
                     /><SortableTableHeader
                       scope="flow"
@@ -616,7 +622,7 @@ const hotTable = useTableSort(() => hotRows.value, sortField);
                     market="CN"
                     class="border-t cursor-pointer"
                   >
-                    <td class="p-3">
+                    <td class="instrument-column p-3">
                       <StockLink
                         :code="row.symbol"
                         :name="row.name"

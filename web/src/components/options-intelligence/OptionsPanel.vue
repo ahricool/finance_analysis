@@ -568,6 +568,7 @@ const historyTable = useTableSort(() => [...(data.value?.dailyHistory ?? [])].re
                       label="类型/Strike"
                       v-bind="chainTable.header('strike')"
                       :description="(optionHelp['类型/Strike'] ?? '类型/Strike') + '；按行权价排序'"
+                      class="instrument-column"
                     />
                     <SortableTableHeader
                       label="Bid / Ask"
@@ -614,7 +615,7 @@ const historyTable = useTableSort(() => [...(data.value?.dailyHistory ?? [])].re
                     :row-id="c.symbol + c.dataSource"
                     no-candles
                   >
-                    <TableCell>
+                    <TableCell class="instrument-column">
                       <button
                         type="button"
                         class="max-w-52 whitespace-normal text-left hover:underline"

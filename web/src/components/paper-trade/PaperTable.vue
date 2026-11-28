@@ -71,6 +71,7 @@ function display(row: Row, column: Column) {
               :label="column.label"
               v-bind="sort.header(column.key)"
               :align="column.numeric ? 'right' : 'left'"
+              :class="{ 'instrument-column': column.key === 'symbol' }"
             />
             <th
               v-if="actions"
@@ -92,7 +93,7 @@ function display(row: Row, column: Column) {
               v-for="column in columns"
               :key="column.key"
               class="whitespace-nowrap px-4 py-2 tabular-nums"
-              :class="column.numeric && 'text-right'"
+              :class="{ 'instrument-column': column.key === 'symbol', 'text-right': column.numeric }"
             >
               <ContractLink
                 v-if="column.key === 'symbol' && contractSymbol(row)"

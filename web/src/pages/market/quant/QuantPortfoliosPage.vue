@@ -131,6 +131,7 @@ const { sortKey, direction, toggle, sorted: positions } = useQuantTableSort(
                   scope="quant"
                   :active="sortKey === 'name'"
                   :direction="direction"
+                  class="instrument-column"
                   @sort="toggle('name')"
                 />
                 <SortableTableHeader
@@ -181,7 +182,7 @@ const { sortKey, direction, toggle, sorted: positions } = useQuantTableSort(
                 :market="market"
                 class="border-t border-border"
               >
-                <TableCell class="p-3">
+                <TableCell class="instrument-column p-3">
                   <StockLink
                     :code="row.code"
                     :name="row.name"

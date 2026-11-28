@@ -37,6 +37,7 @@ const table = useTableSort(() => props.rows, (row, key) => {
             <SortableTableHeader
               :label="ratios ? '指标' : '资产'"
               v-bind="table.header('name')"
+              :class="{ 'instrument-column': !ratios }"
             /><SortableTableHeader
               v-if="!ratios"
               label="类别"
@@ -80,7 +81,7 @@ const table = useTableSort(() => props.rows, (row, key) => {
             market="US"
             :class="{ 'cursor-pointer': 'code' in row }"
           >
-            <TableCell>
+            <TableCell :class="{ 'instrument-column': !ratios }">
               <button
                 v-if="'code' in row"
                 type="button"
