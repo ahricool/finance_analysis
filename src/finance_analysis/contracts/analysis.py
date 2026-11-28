@@ -3,6 +3,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 from finance_analysis.integrations.market_data.realtime_state.models import CandleState
+from finance_analysis.intraday_options.opportunity_alert import alert_candidates
 from finance_analysis.intraday_options.opportunities import calculate_opportunities
 from finance_analysis.intraday_options.structure import calculate_structure
 from finance_analysis.intraday_options.scoring import ROLLING_MINUTES, trend_summary
@@ -12,7 +13,7 @@ from finance_analysis.market_stream.patterns.detector import formal_pattern_stat
 from finance_analysis.market_stream.trend import rolling_ma_trend
 
 
-def summarize(symbol, rows, now_ms):
+def summarize(symbol, rows, now_ms, *, include_alerts=False):
     now = datetime.fromtimestamp(now_ms / 1000, UTC)
     opening = now.replace(second=0, microsecond=0) - timedelta(minutes=ROLLING_MINUTES)
     bars = []
@@ -31,7 +32,8 @@ def summarize(symbol, rows, now_ms):
     opening = bars[0].bar_time
     trend, windows = trend_summary(bars, opening)
     structure = calculate_structure(bars, opening=opening)
-    primary = calculate_opportunities(bars, opening=opening)["primary"]
+    opportunities = calculate_opportunities(bars, opening=opening)
+    primary = opportunities["primary"]
     start = len(bars)
     while start > 0 and bars[start - 1].is_valid():
         if start < len(bars) and bars[start].bar_time - bars[start - 1].bar_time != timedelta(minutes=1):
@@ -39,6 +41,7 @@ def summarize(symbol, rows, now_ms):
         start -= 1
     tail = bars[start:]
     return {
+        **({"alerts": alert_candidates(opportunities)} if include_alerts else {}),
         "trend_1m": trend_payload(rolling_ma_trend(tail, symbol, bars[-1].bar_time.date())),
         "pattern_1m": pattern_payload(formal_pattern_state(tail, None, bars[-1].bar_time.date(), PatternConfig())) if tail else None,
         "as_of": int(bars[-1].bar_time.timestamp() * 1000) + 60_000,

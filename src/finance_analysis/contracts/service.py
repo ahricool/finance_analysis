@@ -262,17 +262,18 @@ class ContractCollector:
         # Freeze all mutable market inputs before yielding to live WS updates.
         alerts = []
         for symbol, bars in analyses.items():
-            summary = await asyncio.to_thread(summarize, symbol, bars, now)
+            summary = await asyncio.to_thread(summarize, symbol, bars, now, include_alerts=True)
+            candidates = summary.pop("alerts") if summary else []
             pipe.set(key(symbol, "analysis"), json.dumps(summary), ex=120)
             writes += 1
             quote = self.quotes.get(symbol)
-            if summary and summary.get("opportunity") and quote:
-                alerts.append((symbol, summary, quote["timestamp"]))
+            if quote:
+                alerts.extend((symbol, b, summary["as_of"], quote["timestamp"]) for b in candidates)
         if writes:
             await pipe.execute()
-        for symbol, summary, quote_at in alerts:
+        for symbol, candidate, as_of, quote_at in alerts:
             task = asyncio.create_task(alert_opportunity(
-                self.redis, symbol, summary["opportunity"], datetime.fromtimestamp(summary["as_of"] / 1000, UTC),
+                self.redis, symbol, candidate, datetime.fromtimestamp(as_of / 1000, UTC),
                 datetime.fromtimestamp(quote_at / 1000, UTC), datetime.now(UTC),
             ))
             self.alert_tasks.add(task)

@@ -20,7 +20,7 @@ from finance_analysis.database.repositories.intraday_simulation import (
     process_with_events,
 )
 from finance_analysis.intraday_options.config import BENCHMARK_SYMBOL_SET, SYMBOLS as _DEFAULT_SYMBOLS
-from finance_analysis.intraday_options.opportunity_alert import alert_opportunity
+from finance_analysis.intraday_options.opportunity_alert import alert_candidates, alert_opportunity
 from finance_analysis.intraday_options.notification import is_trade_event, notify_trade_events
 from finance_analysis.intraday_options.scoring import calculate, closed_session_bars, rolling_bars
 from finance_analysis.intraday_options.simulation import CONFIG
@@ -296,8 +296,9 @@ async def run(repository, bars_by_symbol, stop_event, *, bar_source=None):
             if result and quote and quote.timestamp_kind != "received" and quote.last_price and quote.last_price > 0:
                 at = utc_now()
                 if quote.received_at and 0 <= (at - quote.received_at).total_seconds() <= 30:
-                    await alert_opportunity(repository.redis, symbol, (result.get("opportunities") or {}).get("primary"),
-                                            datetime.fromisoformat(result["as_of"]), quote.event_time, at)
+                    for candidate in alert_candidates(result.get("opportunities")):
+                        await alert_opportunity(repository.redis, symbol, candidate, datetime.fromisoformat(result["as_of"]),
+                                                quote.event_time, at)
         except Exception:
             logger.exception("日内模拟计算失败: %s", symbol)
 

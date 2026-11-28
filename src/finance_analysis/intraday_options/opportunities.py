@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 from finance_analysis.intraday_options.structure import atr, box, metrics
 from finance_analysis.intraday_options.analysis_window import HORIZON, REQUIRED_MINUTES, analysis_window, minute_timeline, observed
 from finance_analysis.intraday_options.rules import CONTINUATION, ENTRY_VERSION, RULES, START_KINDS, entry_interval, policy
+from finance_analysis.intraday_options.breakout_alerts import annotate_breakouts
 from finance_analysis.intraday_options.starts import breakout_seeds
 from finance_analysis.intraday_options.continuation import setup, confirmation, pullback_anchor
 
@@ -171,6 +172,8 @@ def advance(branch, history, settings=None):
         branch["confirmed_at"] = when
         branch["confirmation_method"] = method
     if branch["confirmed_at"] and distance > rule.extended_atr:
+        if observed(bar):
+            branch.setdefault("extended_at", when)
         branch.update(status="extended", reasons=[f"形态已确认但距离固定触发位超过{rule.extended_atr:g} ATR"])
     elif branch["confirmed_at"] and restored:
         branch.update(status="confirmed", reasons=["真实闭合K突破冻结价位" if method == "level_close" else "强突破真实闭合K确认" if method == "strong_break"
@@ -406,6 +409,7 @@ def calculate_opportunities(ordered, settings=None, opening=None):
         branches.extend(recoveries(session_bars, visible_from, opening))
     snapshots = {}
     branches.extend(start_branches(ordered, cfg, snapshots))
+    annotate_breakouts(branches, ordered)
     for branch in branches:
         branch["entry_low"], branch["entry_high"] = entry_interval(branch)
         branch["max_risk_atr"] = RULES[branch["kind"]].max_risk_atr
