@@ -15,7 +15,7 @@ from finance_analysis.core.time import utc_isoformat
 from finance_analysis.integrations.market_data.realtime_state import keys
 from finance_analysis.integrations.market_data.realtime_state.models import CandleState, QuoteState, TrendState, unique_minute_bars
 from finance_analysis.market_stream.patterns.models import PatternState
-from finance_analysis.market_stream.config import US_MINUTE_LIMIT, US_MINUTE_WINDOW, us_minute_cutoff
+from finance_analysis.market_stream.config import US_MINUTE_LIMIT, US_MINUTE_WINDOW, market_trading_date, us_minute_cutoff
 
 
 def _encode(value: Any) -> str:
@@ -111,22 +111,30 @@ class RealtimeStateRepository:
         if signal is None:
             return
         key = keys.pattern_events_key(pattern.symbol)
-        field = f"{signal.trading_date}:{signal.pattern_type}:{signal.occurred_at.isoformat()}:{signal.stage}"
+        event_day = market_trading_date(signal.occurred_at, "US") if pattern.symbol.endswith(".US") else signal.trading_date
+        field = f"{event_day}:{signal.pattern_type}:{signal.occurred_at.isoformat()}:{signal.stage}"
         payload = {**signal.to_dict(), "observed_at": utc_isoformat(observed_at)}
         previous = await self.redis.hgetall(key)
-        obsolete = [name for name in previous if not name.startswith(f"{signal.trading_date}:")]
+        if pattern.symbol.endswith(".US"):
+            cutoff = utc_isoformat(us_minute_cutoff(observed_at))
+            obsolete = [name for name, item in previous.items() if json.loads(item)["observed_at"] < cutoff]
+        else:
+            obsolete = [name for name in previous if not name.startswith(f"{signal.trading_date}:")]
         if obsolete:
             await self.redis.hdel(key, *obsolete)
         await self.redis.hsetnx(key, field, json.dumps(payload, ensure_ascii=False))
         ttl = self._ttl(pattern.symbol, signal.trading_date, self.pattern_ttl_seconds)
         await self.redis.expire(key, ttl)
 
-    async def get_pattern_events(self, symbol, day):
+    async def get_pattern_events(self, symbol, day, *, now=None):
         raw = await self.redis.hgetall(keys.pattern_events_key(symbol))
         events = [json.loads(value) for value in raw.values()]
-        return sorted(
-            (event for event in events if event.get("trading_date") == str(day)), key=lambda event: event["observed_at"]
-        )
+        if symbol.endswith(".US") and now is not None:
+            cutoff, end = utc_isoformat(us_minute_cutoff(now)), utc_isoformat(now)
+            events = [event for event in events if cutoff <= event["observed_at"] <= end]
+        else:
+            events = [event for event in events if event.get("trading_date") == str(day)]
+        return sorted(events, key=lambda event: event["observed_at"])
 
     async def clear_intraday(self, symbol):
         """Discard incompatible CN bars and indicators when changing acquisition semantics."""

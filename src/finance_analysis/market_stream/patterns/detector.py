@@ -71,7 +71,12 @@ def signals_from_context(context: PatternContext | None) -> list[PatternSignal]:
                 _overlaps_failed_breakout(signal, failed_signal, selected_config) for failed_signal in confirmed_failed
             )
         ]
-    return [*failed, *ordinary]
+    candidates = [*failed, *ordinary]
+    if len(context.bars) < selected_config.minimum_history_bars:
+        note = f"分钟线不足，仅{len(context.bars)}/{selected_config.minimum_history_bars}根，形态供参考"
+        return [replace(s, stage="forming", confirmed=False, confirmed_at=None, reasons=(*s.reasons, note))
+                for s in candidates]
+    return candidates
 
 
 def select_primary_pattern(
@@ -112,8 +117,9 @@ def formal_pattern_state(
     latest = ordered[-1]
     context = context_from_ordered(ordered, market_type, config)
     primary = select_primary_pattern(signals_from_context(context), latest_bar_time=latest.bar_time, config=config)
+    insufficient = context is None or len(ordered) < config.minimum_history_bars
     return PatternState(
-        symbol=latest.symbol, status="insufficient" if context is None else "active" if primary else "none",
+        symbol=latest.symbol, status="active" if primary else "insufficient" if insufficient else "none",
         signal=primary, trading_date=trading_date, bar_time=latest.bar_time,
     )
 
@@ -170,7 +176,7 @@ def calculate_pattern_state(
         )
     return replace(
         formal,
-        preview_status="active" if preview_signal else "none",
+        preview_status="active" if preview_signal else "insufficient" if len(preview_bars) < selected_config.minimum_history_bars else "none",
         preview_signal=preview_signal,
         preview_bar_time=unfinished.bar_time,
         preview_price=unfinished.close,

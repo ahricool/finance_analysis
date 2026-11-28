@@ -426,7 +426,7 @@ function historyValue(t: SimTrade, key: string) {
             {{ r.value == null ? '—' : `${r.value.toFixed(2)} 个百分点` }}
           </p>
           <p class="mt-1 text-xs text-muted-foreground">
-            {{ r.value == null ? r.reason : `${clock(r.start)}–${clock(r.end)}` }}
+            {{ r.value == null ? r.reason : `${clock(r.start)}–${clock(r.end)} · ${r.reason}` }}
           </p>
         </div>
       </div>

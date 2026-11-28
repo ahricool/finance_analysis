@@ -41,7 +41,7 @@ it('keeps held opportunity scores and distinguishes current non-execution from h
     simulation: { symbol: 'NVDA.US', calculatedAt: branch.confirmedAt!, cutoff: '2026-11-17T19:00:00Z',
       currentPrice: 99.8, quoteTime: branch.confirmedAt, stopped: false, position: trade, plans: [plan] } };
   expect(entryScore(row)).toBe(80);
-  expect(entryLabel(row)).toBe('已进场/持有中');
+  expect(entryLabel(row)).toBe('已确认');
   // A is the highest-quality confirmed shape; B (the ranked branch) actually entered.
   row.result!.opportunities = { ...opportunities,
     primary: { ...branch, structureId: 'A', direction: 'bullish', qualityScore: 99 } };
@@ -49,13 +49,13 @@ it('keeps held opportunity scores and distinguishes current non-execution from h
   expect(entryScore(row)).toBe(80);
   expect(entryBranch(row)?.structureId).toBe(branch.structureId);
   expect(rowDirectionValue(row)).toBe('bearish');
-  expect(entryLabel(row)).toBe('已进场/持有中');
-  expect(entryReason(row)).toContain('已模拟持有');
+  expect(entryLabel(row)).toBe('已确认');
+  expect(entryReason(row)).toBe(branch.reasons[0] ?? '');
   row.result!.opportunities = opportunities;
   row.opportunityEligible = false;
   row.rankedOpportunity = null;
   expect(entryScore(row)).toBeNull();
-  expect(entryLabel(row)).toBe('形态确认 · 当前不可执行');
+  expect(entryLabel(row)).toBe('历史/参考确认');
   expect(entryLabel(row, true)).toBe('历史/参考确认');
 });
 
@@ -67,7 +67,7 @@ it('carries continuation kind and confirmation method through simulated chart tr
   expect(ops[0]!.reason).toContain('强突破单根确认');
 });
 
-it('keeps an executable opening break visible during the longer windows’ warmup', () => {
+it('hides legacy opening reference scores during the longer windows’ warmup', () => {
   const opening = { ...branch, kind: 'opening_breakout' as const, confirmationMethod: 'level_close' as const };
   const row: IntradayOptionRow = { symbol: 'QQQ.US', name: null, lastPrice: 100, changePct: null,
     quoteTime: opening.confirmedAt, issues: [], opportunityEligible: true, dataStatus: 'warming', quoteStatus: 'ready',
@@ -77,8 +77,8 @@ it('keeps an executable opening break visible during the longer windows’ warmu
       observedAt: opening.confirmedAt!, windows: [], score: null, direction: null, state: null, baseScore: null,
       alignment: null, extensionAtr: null, explanation: '' },
   };
-  expect(entryScore(row)).toBe(opening.qualityScore);
-  expect(entryLabel(row)).toBe('已确认');
+  expect(entryScore(row)).toBeNull();
+  expect(entryLabel(row)).toBe('历史/参考确认');
 });
 
 it('renders midday_wave_breakout label across opportunity panel and chart trade details', () => {
@@ -86,13 +86,13 @@ it('renders midday_wave_breakout label across opportunity panel and chart trade 
   const wrapper = mount(OpportunityPanel, {
     props: { opportunities: { ...opportunities, primary: midday, branches: [midday] }, plans: [], stale: false },
   });
-  expect(wrapper.text()).toContain('盘中主浪突破');
+  expect(wrapper.text()).toContain('滚动区间主浪突破');
   expect(wrapper.text()).toContain('两根闭合K确认');
   const ops = simulationOperations(
     { states: [], events: [], statistics: [], trades: [{ ...trade, kind: 'midday_wave_breakout', confirmationMethod: 'two_closes' }] },
     'NVDA.US',
     '2026-11-17',
   );
-  expect(ops[0]!.reason).toContain('盘中主浪突破');
+  expect(ops[0]!.reason).toContain('滚动区间主浪突破');
   wrapper.unmount();
 });

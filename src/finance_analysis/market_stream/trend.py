@@ -3,17 +3,13 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 
 from finance_analysis.core.time import utc_now
 from finance_analysis.integrations.market_data.realtime_state.models import CandleState, TrendDirection, TrendState
-from finance_analysis.market_stream.config import (
-    is_regular_session_minute,
-    is_regular_trade_session,
-    latest_completed_bar_time,
-    market_trading_date,
-)
+from finance_analysis.market_stream.config import market_trading_date
+from finance_analysis.market_stream.patterns.features import sanitize_bars
 from finance_analysis.stocks.markets import MarketType
 
 
@@ -32,34 +28,9 @@ def calculate_ma_trend(
     if current.tzinfo is None or current.utcoffset() is None:
         raise ValueError("as_of must be timezone-aware")
 
-    target_date = market_trading_date(current, market_type)
-    latest_completed = latest_completed_bar_time(current, market_type)
-    symbol = next((bar.symbol for bar in bars), "")
-    candidates: dict[datetime, CandleState] = {}
-    if latest_completed is not None:
-        for bar in bars:
-            if (
-                not bar.confirmed
-                or not bar.is_valid()
-                or bar.bar_time.tzinfo is None
-                or bar.bar_time.utcoffset() is None
-                or bar.bar_time > latest_completed
-                or market_trading_date(bar.bar_time, market_type) != target_date
-                or not is_regular_session_minute(bar.bar_time, market_type)
-                or not is_regular_trade_session(bar.trade_session)
-            ):
-                continue
-            previous = candidates.get(bar.identity)
-            if previous is None or (bar.confirmed, bar.received_at) >= (
-                previous.confirmed,
-                previous.received_at,
-            ):
-                candidates[bar.identity] = bar
-
-    ordered = sorted(candidates.values(), key=lambda bar: bar.bar_time)
-    from finance_analysis.market_stream.quality import indicator_tail
-
-    ordered = indicator_tail(ordered, market_type)
+    ordered = sanitize_bars([bar for bar in bars if bar.bar_time.utcoffset() is not None and bar.bar_time + timedelta(minutes=1) <= current], market_type)
+    target_date = market_trading_date(ordered[-1].bar_time if ordered else current, market_type)
+    symbol = ordered[-1].symbol if ordered else next((bar.symbol for bar in bars), "")
     return rolling_ma_trend(ordered, symbol, target_date, target_period, minimum_period)
 
 
@@ -79,7 +50,11 @@ def rolling_ma_trend(
         trading_date=target_date if latest else None,
         trade_session=latest.trade_session if latest else None,
     )
+    if not count:
+        return base
     if count < minimum_period:
+        base.ma_value = sum((bar.close for bar in ordered), Decimal("0")) / count
+        base.distance_pct = (latest.close / base.ma_value - 1) * 100
         return base
 
     directions: list[TrendDirection] = []

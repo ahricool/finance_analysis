@@ -222,7 +222,7 @@ it('displays separated entry cutoff, exit cutoff, and trailing target label in V
   } as unknown as IntradayOptionsSnapshot;
   const wrapper = mount(SimulationPanel, { props: { snapshot, disconnected: false }, global: { stubs: { FieldSelect: true } } });
   expect(wrapper.text()).toContain('停止进场 12:00:00 · 清仓 15:50:00');
-  expect(wrapper.text()).toContain('盘中主浪突破');
+  expect(wrapper.text()).toContain('滚动区间主浪突破');
   expect(wrapper.text()).toContain('移动止损跟踪');
   await wrapper.findComponent({ name: 'FieldSelect' }).vm.$emit('update:modelValue', 'NVDA.US');
   expect(wrapper.text()).toContain('初始风险 1.48%');

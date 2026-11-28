@@ -32,8 +32,6 @@ const loading = ref(true);
 const chartDate = ref('');
 const { resolvedTheme } = useTheme();
 const closed = computed(() => rows.value.filter(b => b.confirmed));
-const regularClosed = computed(() => closed.value.filter(b => (!b.tradeSession || b.tradeSession === 'regular') &&
-  (!b.tradeSession || new Date(b.timestamp).toLocaleDateString('sv-SE', { timeZone: 'America/New_York' }) === chartDate.value)));
 const bars = computed(() => closed.value.map(b => ({ ...b, turnover: b.turnover ?? undefined })));
 const current = computed(() => {
   const b = rows.value.find(row => !row.confirmed);
@@ -52,10 +50,10 @@ const tradeColumns = [
   { key: 'processedAt', label: '实际处理时间' }, { key: 'reason', label: '原因' },
 ];
 const timestampLabel = (at: string | undefined) => at ? new Date(at).toLocaleString('zh-CN', { timeZone: 'America/New_York', hour12: false }) : '未知';
-const overlays = computed(() => [...tradingSessionOverlays(rows.value), ...trendOverlays(regularClosed.value, window.value, mode.value, resolvedTheme.value === 'dark'),
+const overlays = computed(() => [...tradingSessionOverlays(rows.value), ...trendOverlays(closed.value, window.value, mode.value, resolvedTheme.value === 'dark'),
   ...structureOverlays(props.result?.structure),
   ...(showTrades.value ? simulationTradeOverlays(tradeMarkers.value, resolvedTheme.value === 'dark', selectTrade) : [])]);
-const referenceLabel = computed(() => mode.value === 'off' ? '参考线已隐藏' : referenceSeries(regularClosed.value, mode.value).label);
+const referenceLabel = computed(() => mode.value === 'off' ? '参考线已隐藏' : referenceSeries(closed.value, mode.value).label);
 let historyVersion: string | null | undefined;
 let controller: AbortController | null = null;
 let timer: ReturnType<typeof setTimeout> | undefined;
@@ -91,7 +89,7 @@ onBeforeUnmount(() => { stopped = true; generation++; controller?.abort(); clear
   <TableExpansionPanel data-testid="options-trend-panel">
     <div class="flex flex-wrap items-center justify-between gap-2">
       <strong class="text-sm">{{ symbol }} · {{ chartDate || '当日' }} · 最近24小时1分钟K线</strong>
-      <span class="text-xs text-muted-foreground">纽约时间 · 仅常规盘中闭合K参与评分</span>
+      <span class="text-xs text-muted-foreground">纽约时间 · 全天闭合分钟线参与评分</span>
     </div>
     <AppApiErrorAlert
       v-if="error"
@@ -261,7 +259,7 @@ onBeforeUnmount(() => { stopped = true; generation++; controller?.abort(); clear
           v-if="w.dataStatus !== 'ready'"
           class="text-muted-foreground"
         >
-          {{ w.dataStatus === 'warming' ? '开盘不足 · ' : '分钟缺失 · ' }}缺{{ w.missingBars ?? '部分' }}根 · 可用{{ w.availableBars ?? '—' }}根 · {{ w.score == null ? '数据过少，无法计算' : '参考分' }}
+          {{ w.dataStatus === 'warming' ? '窗口不足 · ' : '分钟缺失 · ' }}缺{{ w.missingBars ?? '部分' }}根 · 可用{{ w.availableBars ?? '—' }}根 · {{ w.score == null ? '数据过少，无法计算' : '参考分' }}
         </p>
         <template v-if="w.score != null">
           <p>稳定度 {{ fmt(w.stability) }} · 路径效率 {{ fmt(w.efficiency) }}</p>

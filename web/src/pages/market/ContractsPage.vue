@@ -5,7 +5,6 @@ import TrendWindowCell from '@/components/market-data/TrendWindowCell.vue';
 import TrendDirectionCell from '@/components/market-data/TrendDirectionCell.vue';
 import { opportunityKinds, stages, fmt } from '@/components/intraday-options/labels';
 import { computed, onBeforeUnmount, ref } from 'vue';
-import { useElementSize } from '@vueuse/core';
 import { Heart, MoreHorizontal, Plus, Trash2 } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
@@ -30,8 +29,6 @@ import { useContractMarket } from '@/composables/useContractMarket';
 import { useAuthStore } from '@/stores/authStore';
 import { useCurrentTime } from '@/composables/useCurrentTime';
 
-const favoriteHeader = ref<InstanceType<typeof SortableTableHeader> | null>(null);
-const { width: favoriteWidth } = useElementSize(() => favoriteHeader.value?.$el, undefined, { box: 'border-box' });
 const selectedSymbol = ref('');
 const selectedContract = computed(() => displayRows.value.find(row => row.symbol === selectedSymbol.value));
 const rows = ref<ContractQuote[]>([]);
@@ -55,9 +52,15 @@ const removing = ref('');
 const auth = useAuthStore();
 const admin = computed(() => auth.currentUser?.role === 'admin');
 const now = useCurrentTime(5_000);
+function opportunityStatus(row: ContractQuote) {
+  if (!row.analysis) return '等待分钟线';
+  if (!status.value.endsWith('已连接') || delayed(row) || now.value.getTime() - row.analysis.as_of >= 90_000) return '行情延迟';
+  return row.analysis.windows[15]?.dataStatus !== 'ready' ? '数据不足' : '暂无确认';
+}
 function currentOpportunity(row: ContractQuote) {
   const analysis = row.analysis;
   return analysis && !delayed(row) && status.value.endsWith('已连接') && now.value.getTime() - analysis.as_of < 90_000
+    && (!analysis.opportunity?.expires_at || now.value.getTime() < Date.parse(analysis.opportunity.expires_at))
     ? analysis.opportunity : null;
 }
 const metricPeriod = 5 * 60_000;
@@ -107,13 +110,14 @@ function metricText(row: ContractQuote, column: typeof metricColumns[number]) {
   if (typeof value !== 'number') return '—';
   if (column.unit === 'multiple') return value.toFixed(2);
   if (column.unit === 'share') return (value * 100).toFixed(2) + '%';
-  return percent(value * 100);
+  const coverage = row.list_metrics?.[column.key.split('.')[1]!]?.available_minutes;
+  return percent(value * 100) + (coverage ? ` · ${coverage}/60 分钟参考` : '');
 }
 const columns = [
   { key: 'symbol', label: '合约' },
   { key: 'quote.price', label: '最新价' }, { key: 'quote.change_pct', label: '24h 涨跌幅' },
   { key: 'trend', label: '趋势持续' }, { key: 'pattern', label: '最近形态' }, priceChangeColumn,
-  { key: 'opportunity', label: '日内机会' }, { key: 'analysis.score', label: '趋势质量分' },
+  { key: 'opportunity', label: '短线机会' }, { key: 'analysis.score', label: '趋势质量分' },
   { key: 'direction', label: '当前方向' }, { key: 'analysis.state', label: '当前状态' },
   ...[5, 15, 30, 60].map(n => ({ key: `analysis.windows.${n}.score`, label: `${n}分钟` })),
   ...flowColumns,
@@ -219,11 +223,10 @@ onBeforeUnmount(() => { stopped = true; });
           <Plus class="size-4" /> 添加合约
         </Button>
       </div>
-      <InstrumentTable :style="{ '--favorite-width': favoriteWidth + 'px' }">
+      <InstrumentTable freeze-favorite>
         <TableHeader>
           <TableRow>
             <SortableTableHeader
-              ref="favoriteHeader"
               label="关注"
               class="instrument-column px-2"
               description="已关注合约置顶。点击切换各组内的 24 小时成交额排序。"
@@ -237,7 +240,6 @@ onBeforeUnmount(() => { stopped = true; });
               :align="column.key.startsWith('quote.') ? 'right' : 'left'"
               v-bind="sort.header(column.key)"
               :class="{ 'instrument-column': column.key === 'symbol' }"
-              :style="column.key === 'symbol' ? { left: 'var(--favorite-width)' } : undefined"
             />
             <TableHead
               v-if="admin"
@@ -272,7 +274,6 @@ onBeforeUnmount(() => { stopped = true; });
               </TableCell>
               <TableCell
                 class="instrument-column px-4 py-3"
-                style="left: var(--favorite-width)"
               >
                 <ContractLink
                   :symbol="row.symbol"
@@ -309,7 +310,7 @@ onBeforeUnmount(() => { stopped = true; });
                 >数据延迟</small>
               </TableCell>
               <TableCell class="whitespace-nowrap px-4 py-3 text-right tabular-nums">
-                {{ currentOpportunity(row) ? fmt(currentOpportunity(row)?.quality_score, 0) + '分 · ' + opportunityKinds[currentOpportunity(row)!.kind] : '—' }}
+                {{ currentOpportunity(row) ? fmt(currentOpportunity(row)?.quality_score, 0) + '分 · ' + opportunityKinds[currentOpportunity(row)!.kind] : opportunityStatus(row) }}
               </TableCell>
               <TableCell class="font-semibold tabular-nums">
                 {{ fmt(row.analysis?.score, 0) }}

@@ -3,10 +3,9 @@ import type { MarketType } from '@/api/watchList';
 
 export const INTRADAY_ENTRY_MAX_AGE_MINUTES = 10;
 export const INTRADAY_TIME_TOLERANCE_MS = 30_000;
-export const US_MARKET_TIMEZONE = 'America/New_York';
 
 export type IntradayDirectionStatus =
-  | '休市等待'
+  | '数据不足'
   | '行情延迟'
   | '行情超前'
   | '时间异常'
@@ -19,9 +18,7 @@ export type IntradayDirectionStatus =
   | '空头延续'
   | '信号过期'
   | '已经失效'
-  | '震荡等待'
-  | '当日已收盘'
-  | '上个交易日信号';
+  | '震荡等待';
 
 export interface IntradayDirectionResult {
   status: IntradayDirectionStatus;
@@ -44,7 +41,7 @@ const BEARISH_DIRECTIONS = new Set([
 ]);
 
 const STATUS_SORT_WEIGHT: Record<IntradayDirectionStatus, number> = {
-  休市等待: 7,
+  数据不足: 7,
   行情延迟: 6,
   行情超前: 6,
   时间异常: 6,
@@ -58,8 +55,6 @@ const STATUS_SORT_WEIGHT: Record<IntradayDirectionStatus, number> = {
   震荡等待: 4,
   信号过期: 5,
   已经失效: 6,
-  当日已收盘: 7,
-  上个交易日信号: 8,
 };
 
 function result(
@@ -88,26 +83,6 @@ function signalEventTime(signal: RealtimePatternSignal): Date | null {
   return Number.isNaN(event.getTime()) ? null : event;
 }
 
-function marketParts(date: Date, marketType: MarketType): Record<string, string> {
-  return Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
-    timeZone: marketType === 'CN' ? 'Asia/Shanghai' : US_MARKET_TIMEZONE,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    hourCycle: 'h23',
-  }).formatToParts(date).map((part) => [part.type, part.value]));
-}
-
-function dateKey(parts: Record<string, string>): string {
-  return `${parts.year}-${parts.month}-${parts.day}`;
-}
-
-function isValidTradingDate(value: string | null | undefined): value is string {
-  return Boolean(value && /^\d{4}-\d{2}-\d{2}$/.test(value));
-}
-
 export function intradayDirectionSortValue(status: IntradayDirectionResult | null): number {
   return status ? STATUS_SORT_WEIGHT[status.status] : 9;
 }
@@ -122,17 +97,10 @@ export function calculateIntradayDirection(
 
   const trend = quote.trend1m;
   const pattern = quote.pattern1m;
-  if (!trend || !pattern || trend.state === 'insufficient' || trend.effectivePeriod < trend.minimumPeriod) return null;
-
-  const nowParts = marketParts(now, marketType);
-  const minutesAfterMidnight = Number(nowParts.hour) * 60 + Number(nowParts.minute);
-  const closeMinutes = marketType === 'CN' ? 15 * 60 : 16 * 60;
-  const closed = quote.sessionClose ? now.getTime() >= Date.parse(quote.sessionClose) : minutesAfterMidnight >= closeMinutes;
-  if (closed) return result('当日已收盘', 'neutral', 'closed', '最近交易日已收盘，仅展示历史结构。', null);
-  if (quote.marketOpen === false || minutesAfterMidnight < 9 * 60 + 30
-    || (marketType === 'CN' && minutesAfterMidnight >= 11 * 60 + 30 && minutesAfterMidnight < 13 * 60)) {
-    return result('休市等待', 'neutral', 'neutral', '当前不在常规交易时段。', null);
+  if (!trend || !pattern || trend.state === 'insufficient' || trend.effectivePeriod < trend.minimumPeriod) {
+    return result('数据不足', 'neutral', 'neutral', '有效分钟线不足，趋势与形态仍在预热。', null);
   }
+
   const observed = Date.parse(quote.eventTime || '');
   const received = Date.parse(quote.receivedAt || '');
   const nowMs = now.getTime();
@@ -155,13 +123,14 @@ export function calculateIntradayDirection(
       return result('趋势更新延迟', 'neutral', 'neutral', '分钟趋势超过180秒未更新，暂停实时方向判断。', null);
     }
   }
+  if (pattern.status === 'insufficient') return result('数据不足', 'neutral', 'neutral', '有效形态背景不足。', null);
   if (pattern.status !== 'active' || !pattern.signal) {
     return result('震荡等待', 'neutral', 'neutral', '当前没有有效的一分钟形态，等待结构和方向进一步明确。', null);
   }
 
   const signal = pattern.signal;
   const event = signalEventTime(signal);
-  if (!event || !isValidTradingDate(signal.tradingDate) || Number.isNaN(now.getTime())) return null;
+  if (!event) return null;
 
   if (event.getTime() - nowMs > INTRADAY_TIME_TOLERANCE_MS) {
     return result('时间异常', 'neutral', 'neutral', '形态时间领先当前判断时间超过30秒，暂停实时方向判断。', null);
@@ -169,13 +138,6 @@ export function calculateIntradayDirection(
   const elapsedMinutes = Math.max(0, (now.getTime() - event.getTime()) / 60_000);
   const ageMinutes = Math.floor(elapsedMinutes);
   const direction = signalDirection(signal);
-  const currentTradingDate = dateKey(nowParts);
-
-  if (signal.tradingDate < currentTradingDate) {
-    return result('上个交易日信号', direction, 'expired', '该形态不属于当前市场交易日期，仅作为历史结构参考。', ageMinutes);
-  }
-  if (signal.tradingDate > currentTradingDate) return null;
-
   if (finite(signal.invalidationPrice)) {
     const bullishInvalid = direction === 'call' && quote.lastPrice < signal.invalidationPrice;
     const bearishInvalid = direction === 'put' && quote.lastPrice > signal.invalidationPrice;

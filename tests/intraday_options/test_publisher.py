@@ -109,7 +109,7 @@ def test_receipts_and_session_history_refresh_while_unmodified_and_preview_input
         await publisher.publish(SYMBOL, restored + [preview] + afterhours, now)
         restored[-1] = replace(restored[-1], close=restored[-1].open)  # 09:30, outside the latest 60m
         await publisher.publish(SYMBOL, restored, now)
-        assert await cached(repo) == calculate(SYMBOL, restored, now)
+        assert await cached(repo) == calculate(SYMBOL, restored + afterhours, now)
         assert writes.await_count == computations.call_count == 3
 
     asyncio.run(run())

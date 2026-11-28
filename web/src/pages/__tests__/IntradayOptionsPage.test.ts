@@ -78,7 +78,7 @@ describe('intraday options table', () => {
   it('defaults to opportunity order and sorts all numeric headers with nulls always last', async () => {
     await start();
     expect(symbols()).toEqual(['BBB.US', 'AAA.US', 'CCC.US']);
-    for (const label of ['最新价 / 涨跌幅', '5分钟', '15分钟', '30分钟', '60分钟', '趋势质量分', '日内机会']) {
+    for (const label of ['最新价 / 涨跌幅', '5分钟', '15分钟', '30分钟', '60分钟', '趋势质量分', '短线机会']) {
       await header(label); expect(symbols()).toEqual(['AAA.US', 'BBB.US', 'CCC.US']);
       await header(label); expect(symbols()).toEqual(['BBB.US', 'AAA.US', 'CCC.US']);
     }
@@ -94,9 +94,9 @@ describe('intraday options table', () => {
     expect(symbols()[0]).toBe('BBB.US');
     const cell = page.get('[data-testid="options-row-BBB.US"] [data-testid="opportunity-score"]');
     expect(cell.text()).toContain('90');
-    expect(cell.text()).toContain('已进场/持有中');
-    await header('日内机会');
-    await header('日内机会');
+    expect(cell.text()).toContain('已确认');
+    await header('短线机会');
+    await header('短线机会');
     expect(symbols()[0]).toBe('BBB.US');
     data.items[1]!.opportunityEligible = false;
     data.items[1]!.dataStatus = 'delayed';
@@ -118,20 +118,16 @@ describe('intraday options table', () => {
     target.result!.opportunities!.primary = { ...target.result!.opportunities!.primary!, ...contract.primary };
     target.simulation = { position: contract.position } as IntradayOptionRow['simulation'];
     await start();
-    expect(symbols()).toEqual(['BBB.US', 'AAA.US', 'CCC.US']); // B=75, never A=99.
+    expect(symbols()).toEqual(['AAA.US', 'BBB.US', 'CCC.US']);
     const displayed = page.get('[data-testid="options-row-AAA.US"]');
     const cell = displayed.get('[data-testid="opportunity-score"]');
-    expect(cell.text()).toMatch(/75\s*分/);
-    expect(cell.text()).not.toContain('99');
-    expect(cell.text()).toContain('趋势延续 · 偏空');
-    expect(cell.text()).toContain('已进场/持有中');
-    expect(cell.get('[data-testid="opportunity-reason"]').text()).toContain('已模拟持有');
-    expect(displayed.findAll('td')[4]!.text()).toBe('偏空');
-    await page.findAll('button').find(b => b.text() === '偏空')!.trigger('click');
-    expect(symbols()).toEqual(['BBB.US', 'AAA.US']);
+    expect(cell.text()).toMatch(/99\s*分/);
+    expect(cell.text()).toContain('顺势回撤恢复 · 偏多');
+    expect(cell.text()).toContain('已确认');
+    expect(displayed.findAll('td')[4]!.text()).toBe('偏多');
     target.opportunityEligible = false; target.rankedOpportunity = null;
     await vi.advanceTimersByTimeAsync(5000); await flushPromises();
-    expect(cell.text()).not.toMatch(/75\s*分/);
+    expect(cell.text()).not.toMatch(/99\s*分/);
   });
 
   it('merges price and change, sorts by change rather than price and keeps the requested column order', async () => {
@@ -141,7 +137,7 @@ describe('intraday options table', () => {
     data.items[1]!.changePct = 3;
     await start();
     expect(page.get('[data-testid="options-market-table"]').findAll('thead th button').map(b => b.text())).toEqual([
-      '标的', '最新价 / 涨跌幅', '日内机会', '趋势质量分', '当前方向', '5分钟', '15分钟', '30分钟', '60分钟', '短线结构', '当前状态',
+      '标的', '最新价 / 涨跌幅', '短线机会', '趋势质量分', '当前方向', '5分钟', '15分钟', '30分钟', '60分钟', '短线结构', '当前状态',
     ]);
     const cells = page.get('[data-testid="options-row-AAA.US"]').findAll('td');
     expect(cells).toHaveLength(11);
@@ -159,7 +155,7 @@ describe('intraday options table', () => {
     }
     await start();
     const displayed = page.get('[data-testid="options-row-AAA.US"]');
-    expect(displayed.text()).toContain('开盘不足');
+    expect(displayed.text()).toContain('窗口不足');
     expect(displayed.text()).toContain('缺58根 · 参考分');
     expect(displayed.text()).toContain('偏多');
     expect(displayed.get('[data-testid="trend-quality-score"]').text()).toContain('70');

@@ -120,7 +120,7 @@ SYMBOLS = (
     *BENCHMARK_SYMBOLS,
     *tuple(f"{code}.US" for code in _FALLBACK_CONSTITUENT_CODES),
 )
-VERSION = "intraday_options_v18"
+VERSION = "intraday_options_v19"
 WINDOWS = (5, 15, 30, 60)
 COMPOSITE_WINDOWS = (15, 30, 60)
 WINDOW_WEIGHTS = (0.30, 0.45, 0.25)

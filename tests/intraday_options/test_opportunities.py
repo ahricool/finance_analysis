@@ -165,8 +165,9 @@ def test_shared_morning_gaps_are_filled_after_real_minutes_resume():
     missing = set(range(29, 35)) | set(range(37, 43)) | {48, 49} | set(range(77, 82))
     available = [b for i, b in enumerate(bars) if i not in missing]
     resumed = calculate_opportunities([b for b in available if b.bar_time <= bars[82].bar_time])
-    assert not resumed["reference"]
+    assert resumed["reference"] and resumed["primary"] is None
     assert resumed["filled_bars"] == 19
-    assert resumed["recent_available_bars"] == 15
+    assert resumed["recent_available_bars"] == 10
+    assert resumed["recent_missing_bars"] == 5
     assert not calculate_opportunities(available)["reference"]
     assert calculate_opportunities(available)["missing_bars"] == 0

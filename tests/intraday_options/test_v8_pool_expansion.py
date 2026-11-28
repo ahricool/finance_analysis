@@ -18,7 +18,6 @@ from sqlalchemy.pool import StaticPool
 
 from finance_analysis.database.models.stock import Instrument, StockDaily
 from finance_analysis.database.repositories import intraday_simulation as store
-from finance_analysis.interfaces.api.v1.schemas.intraday_options import TrendResult
 from finance_analysis.intraday_options.config import (
     BENCHMARK_SYMBOLS,
     EXCLUDED_DUAL_CLASS_SYMBOLS,
@@ -37,12 +36,12 @@ from finance_analysis.intraday_options.rules import (
 )
 from finance_analysis.intraday_options.runtime import ranked_opportunity
 from finance_analysis.intraday_options.scheduler import _build_round_peer_snapshot
-from finance_analysis.intraday_options.scoring import calculate
-from finance_analysis.intraday_options.simulation import CONFIG, plan, transition
+from finance_analysis.intraday_options.simulation import CONFIG, transition
 from finance_analysis.intraday_options.structure import execution_context, sanitize_opening_bar
 from finance_analysis.market_stream.config import MarketStreamConfig
 from finance_analysis.market_stream.service import MarketStreamService
 from finance_analysis.integrations.market_data.realtime_state.repository import RealtimeStateRepository
+from tests.intraday_options.historical import historical_signal
 from tests.intraday_options.test_scoring import START
 from tests.intraday_options.test_simulation import quote
 from tests.intraday_options.test_v7_optimization import _make_bars, _make_peer_pool
@@ -249,7 +248,7 @@ def test_v8_policy_defaults_and_validation(monkeypatch):
     policy.cache_clear()
     try:
         cfg = policy()
-        assert CACHE_VERSION == "intraday_options_v18"
+        assert CACHE_VERSION == "intraday_options_v19"
         assert ENTRY_VERSION == "intraday_entry_v8"
         assert SIMULATION_VERSION == "underlying_sim_v8"
         assert cfg.opening_min_elapsed_minutes == 12
@@ -317,122 +316,6 @@ def test_v8_policy_rejects_invalid_env_combinations(monkeypatch, overrides, matc
 
 
 @pytest.mark.parametrize("side", [1, -1])
-def test_v8_two_hour_window_bidirectional_benchmark_exclusion_and_no_counter_gap(side):
-    expected_dir = "bullish" if side == 1 else "bearish"
-
-    # 1. Minute 11 (09:41 NY): too early (V8 starts at 09:42 NY = minute 12).
-    nvda11 = _make_bars(_drive_vals(11, 0.022, side=side), symbol="NVDA.US")
-    t11 = nvda11[-1].bar_time + timedelta(minutes=1, seconds=2)
-    r11 = calculate("NVDA.US", nvda11, t11)
-    assert not any(b["kind"] == "opening_breakout" for b in r11["opportunities"]["branches"])
-
-    # 2. Minute 12 (09:42 NY): both long and short confirm directly without any direction-mode toggle.
-    nvda12 = _make_bars(_drive_vals(12, 0.022, side=side), symbol="NVDA.US")
-    t12 = nvda12[-1].bar_time + timedelta(minutes=1, seconds=2)
-    base12 = calculate("NVDA.US", nvda12, t12)
-    TrendResult.model_validate(base12)
-    b12 = next(x for x in base12["opportunities"]["branches"] if x["kind"] == "opening_breakout")
-    assert b12["status"] == "confirmed" and b12["direction"] == expected_dir
-
-    # 3. Minute 90 (11:00 NY, inside [09:42, 11:30)): still triggers! Minute 120 (11:30 NY): stopped!
-    nvda90 = _make_bars(_drive_vals(90, 0.026, side=side), symbol="NVDA.US")
-    t90 = nvda90[-1].bar_time + timedelta(minutes=1, seconds=2)
-    r90 = calculate("NVDA.US", nvda90, t90)
-    assert any(
-        b["kind"] == "opening_breakout" and b["direction"] == expected_dir for b in r90["opportunities"]["branches"]
-    )
-
-    nvda120 = _make_bars(_drive_vals(120, 0.028, side=side), symbol="NVDA.US")
-    t120 = nvda120[-1].bar_time + timedelta(minutes=1, seconds=2)
-    r120 = calculate("NVDA.US", nvda120, t120)
-    assert not any(b["kind"] == "opening_breakout" for b in r120["opportunities"]["branches"])
-
-    # 4. Benchmark ETFs (SPY/QQQ) are excluded from opening_breakout simulated entries on both sides.
-    spy12 = _make_bars([500.0 + side * 0.15 * i for i in range(12)], symbol="SPY.US")
-    peers12 = _make_peer_pool(nvda12, side=side, nvda_rank=1, breadth_ratio=0.75, count=12)
-    ok_pre_close = Decimal("100.3") if side == 1 else Decimal("99.7")
-    res_nvda = {
-        **base12,
-        **execution_context(
-            nvda12,
-            spy12,
-            peer_bars=peers12,
-            daily_context={"daily_atr_pct": 0.035, "prev_close": float(ok_pre_close)},
-            pre_close=ok_pre_close,
-        ),
-    }
-    price12 = float(nvda12[-1].close) + side * 0.05
-    p_ok = plan(b12, res_nvda, price12, t12, t12)
-    assert p_ok["executable"] is True
-
-    for bench in ("SPY.US", "QQQ.US"):
-        res_bench = {**deepcopy(res_nvda), "symbol": bench}
-        p_bench = plan(b12, res_bench, price12, t12, t12)
-        assert not p_bench["executable"] and "基准指数ETF" in p_bench["execution_reason"]
-
-    # 5. Symmetric no-counter-gap gate: counter-gap > 0.50% rejected; <= 0.50% passes; missing prev_close fails closed!
-    # Also verify quote.pre_close takes precedence over DB StockDaily.close (split-safe unadjusted basis).
-    bad_pre_close = Decimal("100.65") if side == 1 else Decimal("99.35")
-    db_favorable = 99.0 if side == 1 else 101.0
-    res_bad_gap = {
-        **base12,
-        **execution_context(
-            nvda12,
-            spy12,
-            peer_bars=peers12,
-            daily_context={"daily_atr_pct": 0.035, "prev_close": db_favorable},
-            pre_close=bad_pre_close,
-        ),
-    }
-    assert res_bad_gap["daily_context"]["prev_close_source"] == "quote_pre_close"
-    assert res_bad_gap["daily_context"]["gap_return"] == pytest.approx(100.0 / float(bad_pre_close) - 1.0)
-    p_bad_gap = plan(b12, res_bad_gap, price12, t12, t12)
-    assert not p_bad_gap["executable"] and "隔夜反向跳空过大" in p_bad_gap["execution_reason"]
-
-    res_no_pre = {
-        **base12,
-        **execution_context(nvda12, spy12, peer_bars=peers12, daily_context={}, pre_close=None),
-    }
-    p_no_pre = plan(b12, res_no_pre, price12, t12, t12)
-    assert not p_no_pre["executable"] and "缺少昨收基准数据" in p_no_pre["execution_reason"]
-
-
-def test_v8_opening_entry_uses_full_pool_when_peer_history_is_missing():
-    nvda = _make_bars(_drive_vals(12, 0.022), symbol="NVDA.US")
-    spy = _make_bars([500.0 + 0.05 * i for i in range(12)], symbol="SPY.US")
-    now = nvda[-1].bar_time + timedelta(minutes=1, seconds=2)
-    result = calculate("NVDA.US", nvda, now)
-    branch = next(b for b in result["opportunities"]["branches"] if b["kind"] == "opening_breakout")
-    price = float(nvda[-1].close) + 0.05
-    peers = _make_peer_pool(nvda, count=100, breadth_ratio=0.75)
-    observed_names = list(peers)
-    strong_spy = _make_bars([500.0 + 0.15 * i for i in range(12)], symbol="SPY.US")
-
-    def evaluate(count, benchmark, settings=None):
-        available = {symbol: peers[symbol] for symbol in observed_names[:count]}
-        roster = ("SPY.US", "QQQ.US", *peers)
-        peer_snapshot, _ = _build_round_peer_snapshot(available, roster, START, now)
-        context = execution_context(nvda, benchmark, peer_snapshot, pre_close=100)
-        return context["pool_rank_context"], plan(branch, {**result, **context}, price, now, now, settings=settings)
-
-    # All 10 observed names are rising, but 90 unobserved peers can outrank NVDA.
-    rank, candidate = evaluate(10, strong_spy)
-    assert rank["pool_size"] == 100 and rank["observed_pool_size"] == 10
-    assert rank["long_rank"] == 1 and rank["long_rank_upper"] == 91
-    assert rank["breadth_up"] == pytest.approx(0.10)
-    assert not candidate["executable"] and "无法确认全池排名" in candidate["execution_reason"]
-
-    # Exactly 10th in the worst case and 75 verified advances meet both guarantees.
-    rank, candidate = evaluate(91, spy)
-    assert rank["long_rank_upper"] == 10 and rank["breadth_up"] == pytest.approx(0.75)
-    assert candidate["executable"]
-
-    # With ranking disabled, peer breadth alone still uses all 100 members.
-    _, candidate = evaluate(10, spy, StartPolicy(pool_leader_top_k=0))
-    assert not candidate["executable"] and "大盘共振不足" in candidate["execution_reason"]
-
-
-@pytest.mark.parametrize("side", [1, -1])
 def test_v8_atr_clamping_ratchet_tiers_uncapped_eod_and_ranked_opportunity(side):
     cfg = StartPolicy()
     low = resolve_atr_exit_levels(0.005, cfg)
@@ -453,7 +336,7 @@ def test_v8_atr_clamping_ratchet_tiers_uncapped_eod_and_ranked_opportunity(side)
     peers12 = _make_peer_pool(nvda12, side=side, nvda_rank=1, breadth_ratio=0.75, count=12)
     t12 = nvda12[-1].bar_time + timedelta(minutes=1, seconds=2)
     r12 = {
-        **calculate("NVDA.US", nvda12, t12),
+        **historical_signal("v8", side),
         **execution_context(
             nvda12,
             spy12,
@@ -617,17 +500,6 @@ def test_bar0_outlier_wick_sanitization_protects_or5_and_vwap_without_mutation()
     normal_bar0 = replace(clean_bars[0], low=Decimal("98.50"), high=Decimal("101.50"))
     untouched, changed_norm = sanitize_opening_bar(normal_bar0, START, 0.03)
     assert changed_norm is False and untouched is normal_bar0
-
-    # 2. OR5 width/ATR and session VWAP remain protected despite the -22.5% bar-0 print.
-    t12 = spiked_bars[-1].bar_time + timedelta(minutes=1, seconds=2)
-    res_clean = calculate("NVDA.US", clean_bars, t12)
-    res_spiked = calculate("NVDA.US", spiked_bars, t12)
-    b_clean = next(b for b in res_clean["opportunities"]["branches"] if b["kind"] == "opening_breakout")
-    b_spiked = next(b for b in res_spiked["opportunities"]["branches"] if b["kind"] == "opening_breakout")
-    # Without sanitization, OR5 width would be >23 instead of ~1.0!
-    assert (b_spiked["structure_high"] - b_spiked["structure_low"]) < 1.5
-    assert b_spiked["trigger"] == pytest.approx(b_clean["trigger"])
-    assert spiked_bars[0].low == original_low
 
     ctx_clean = execution_context(clean_bars)
     ctx_spiked = execution_context(spiked_bars)

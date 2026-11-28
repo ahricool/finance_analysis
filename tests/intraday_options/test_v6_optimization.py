@@ -14,6 +14,7 @@ from finance_analysis.intraday_options.scoring import calculate
 from finance_analysis.intraday_options.simulation import CONFIG, plan, transition
 from finance_analysis.intraday_options.structure import execution_context, pool_rank_context
 from finance_analysis.market_stream.session import session_bounds
+from tests.intraday_options.historical import historical_signal
 from tests.intraday_options.test_scoring import START, candles
 from tests.intraday_options.test_simulation import NOW, quote, result
 
@@ -78,7 +79,7 @@ V6_POLICY = StartPolicy(
 def test_v6_policy_compatibility_flags_remain_configurable(monkeypatch):
     for key, val in (
         ("INTRADAY_OPENING_BREAKOUT", "true"),
-        ("INTRADAY_MIDDAY_WAVE_BREAKOUT", "true"),
+        ("ROLLING_MIDDAY_WAVE_BREAKOUT", "true"),
         ("INTRADAY_OPENING_MIN_ELAPSED_MINUTES", "5"),
         ("INTRADAY_OPENING_MIN_EFFICIENCY", "0.0"),
         ("INTRADAY_OPENING_REQUIRE_DIRECTIONAL_BAR", "false"),
@@ -101,12 +102,12 @@ def test_v6_policy_compatibility_flags_remain_configurable(monkeypatch):
     policy.cache_clear()
     try:
         cfg = policy()
-        assert cfg.opening_enabled is True
+        assert cfg.opening_enabled is False
         assert cfg.midday_wave_enabled is True
-        assert cfg.box_enabled is False
-        assert cfg.continuation_enabled is False
-        assert cfg.pivot_enabled is False
-        assert cfg.recovery_enabled is False
+        assert cfg.box_enabled is True
+        assert cfg.continuation_enabled is True
+        assert cfg.pivot_enabled is True
+        assert cfg.recovery_enabled is True
         assert cfg.use_pivot_target is False
         assert cfg.atr_scaled_exits is False
         assert cfg.min_gap_directional is None
@@ -134,38 +135,6 @@ def test_v6_policy_compatibility_flags_remain_configurable(monkeypatch):
         assert SIMULATION_VERSION == "underlying_sim_v8"
     finally:
         policy.cache_clear()
-
-
-@pytest.mark.parametrize("side", [1, -1])
-def test_v6_opening_range_width_080pct_and_strong_bar_045atr(side):
-    # Moderate opening range (~0.50% < 0.80%) is ignored.
-    narrow = _make_bars([100 + side * i * 0.12 for i in range(7)], wick=Decimal("0.001"))
-    r_narrow = calculate("NVDA.US", narrow, narrow[-1].bar_time + timedelta(minutes=1, seconds=2), settings=V6_POLICY)
-    assert not any(b["kind"] == "opening_breakout" for b in r_narrow["opportunities"]["branches"])
-
-    # Wide opening range (~0.88% >= 0.80%) with weak breakout bar waits for 2nd close in legacy V6 mode.
-    base = [100 + side * i * 0.22 for i in range(5)]  # range ~0.88%
-    bars = _make_bars(base + [base[-1] + side * 0.08, base[-1] + side * 0.15], wick=Decimal("0.001"))
-    bars[5] = replace(
-        bars[5],
-        high=bars[5].high + Decimal("0.30"),
-        low=bars[5].low - Decimal("0.30"),
-    )
-    first_at = bars[5].bar_time + timedelta(minutes=1, seconds=2)
-    r1 = calculate("NVDA.US", bars[:6], first_at, settings=V6_POLICY)
-    b1 = next(b for b in r1["opportunities"]["branches"] if b["kind"] == "opening_breakout")
-    assert b1["status"] == "forming" and b1["confirmed_at"] is None
-
-    second_at = bars[6].bar_time + timedelta(minutes=1, seconds=2)
-    r2 = calculate("NVDA.US", bars, second_at, settings=V6_POLICY)
-    b2 = next(b for b in r2["opportunities"]["branches"] if b["kind"] == "opening_breakout")
-    assert b2["status"] == "confirmed" and b2["confirmation_method"] == "two_closes"
-
-    # Strong breakout bar (>= 0.45 ATR + body >= 60%) confirms immediately on first close in legacy V6 mode.
-    strong = _make_bars(base + [base[-1] + side * 0.22], wick=Decimal("0.001"))
-    r_strong = calculate("NVDA.US", strong, strong[-1].bar_time + timedelta(minutes=1, seconds=2), settings=V6_POLICY)
-    b_strong = next(b for b in r_strong["opportunities"]["branches"] if b["kind"] == "opening_breakout")
-    assert b_strong["status"] == "confirmed" and b_strong["confirmation_method"] == "strong_break"
 
 
 @pytest.mark.parametrize("side", [1, -1])
@@ -230,7 +199,7 @@ def test_v6_leader_rank_open_move_risk_window_and_spy_rs_gates(side):
     )
 
     now = nvda_bars[-1].bar_time + timedelta(minutes=1, seconds=5)
-    base = calculate("NVDA.US", nvda_bars, now, settings=V6_POLICY)
+    base = historical_signal("v6", side)
     b = next(x for x in base["opportunities"]["branches"] if x["kind"] == "opening_breakout")
     assert b["status"] == "confirmed"
     # Live price inside [trigger, trigger + 2 ATR] with natural risk ~1.05% (in [0.9%, 2.6%]).
@@ -320,13 +289,13 @@ def test_v6_policy_rejects_inverted_risk_bounds(monkeypatch):
         policy.cache_clear()
 
 
-def test_v6_midday_wave_stops_before_1200_ny_entry_cutoff():
-    # Bar at elapsed_minutes == 150 (12:00 NY, closes at 12:01 NY) is after 12:00 entry cutoff -> ignored.
+def test_wave_breakout_after_former_noon_cutoff():
+    # A valid rolling breakout survives the old time limit.
     coil = [100.0 + (1.0 if i % 6 in (1, 2, 3) else -1.0) for i in range(150)]
     bars = _make_bars(coil + [101.65], symbol="NVDA.US", wick=Decimal("0.02"))
     assert (bars[-1].bar_time - START) == timedelta(minutes=150)
     res = calculate("NVDA.US", bars, bars[-1].bar_time + timedelta(minutes=1, seconds=2))
-    assert not any(b["kind"] == "midday_wave_breakout" for b in res["opportunities"]["branches"])
+    assert any(b["kind"] == "midday_wave_breakout" for b in res["opportunities"]["branches"])
 
 
 def test_scheduler_peer_snapshot_keeps_opening_and_recent_tail_only():

@@ -1,4 +1,4 @@
-"""Session VWAP reclaim/breakdown with retest confirmation."""
+"""Rolling VWAP reclaim/breakdown with retest confirmation."""
 
 from __future__ import annotations
 

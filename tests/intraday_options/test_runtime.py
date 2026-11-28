@@ -52,7 +52,7 @@ def test_publisher_and_read_only_snapshot_latest_cache_only():
         assert delayed["items"][0]["result"]["as_of"] == row.result.as_of.isoformat()
         assert delayed["items"][0]["quote_status"] == "delayed"
         # New session must not expose yesterday's score or quote as current.
-        tomorrow = await read_snapshot(repo, {}, START + timedelta(days=1, minutes=1))
+        tomorrow = await read_snapshot(repo, {}, now + timedelta(days=1, minutes=1))
         assert tomorrow["items"][0]["result"] is None
         assert tomorrow["items"][0]["last_price"] is None
 
@@ -63,7 +63,7 @@ def test_session_boundaries_and_closed_results():
     bars = candles([0.0002] * 390)
     close = START + timedelta(minutes=390)
     result = calculate("SPY.US", bars, close)
-    assert data_status(result, close + timedelta(hours=4), START.date(), "closed") == "ready"
+    assert data_status(result, close + timedelta(hours=4), START.date(), "closed") == "delayed"
     assert data_status(result, close - timedelta(minutes=1), START.date(), "open") == "invalid_time"
     preopen = START - timedelta(minutes=1)
     day, status = session_context(preopen)
@@ -84,7 +84,7 @@ def test_fixed_pool_is_added_without_modifying_personal_watchlists(monkeypatch):
     assert values["SPCX.US"].symbol == "SPCX.US"
 
 
-def test_latest_minute_grace_and_afterhours_do_not_refresh_score():
+def test_afterhours_refreshes_score_and_older_updates_are_ignored():
     async def run():
         repo = RealtimeStateRepository(FakeRedis())
         publisher = Publisher(repo)
@@ -93,9 +93,10 @@ def test_latest_minute_grace_and_afterhours_do_not_refresh_score():
         await publisher.publish("SPY.US", bars, close)
         first = await repo.redis.get(result_key("SPY.US"))
         await publisher.publish("SPY.US", bars + candles([0.01] * 20, start=close), close + timedelta(minutes=20))
-        assert await repo.redis.get(result_key("SPY.US")) == first
+        latest = await repo.redis.get(result_key("SPY.US"))
+        assert latest != first
         await publisher.publish("SPY.US", bars[:60], close)
-        assert await repo.redis.get(result_key("SPY.US")) == first
+        assert await repo.redis.get(result_key("SPY.US")) == latest
         current = calculate("SPY.US", bars[:60], START + timedelta(minutes=60))
         assert data_status(current, START + timedelta(minutes=61, seconds=14), START.date(), "open") == "ready"
         assert data_status(current, START + timedelta(minutes=61, seconds=16), START.date(), "open") == "delayed"
@@ -177,13 +178,13 @@ def test_entry_visibility_uses_primary_branch_validity_not_position_permission(o
         original_cutoff = state["cutoff"]
         state["cutoff"] = (now + timedelta(seconds=2)).isoformat()
         await repo.redis.set("rt:intraday-simulation:SPY.US", json.dumps(state))
-        assert not (await read_snapshot(repo, {}, now + timedelta(seconds=2)))["items"][0]["opportunity_eligible"]
+        assert (await read_snapshot(repo, {}, now + timedelta(seconds=2)))["items"][0]["opportunity_eligible"]
         state["cutoff"] = original_cutoff
         for p in state["plans"]:
             p["opportunity_valid"] = False
         state["plans"].append({**state["plans"][0], "structure_id": "different", "opportunity_valid": True})
         await repo.redis.set("rt:intraday-simulation:SPY.US", json.dumps(state))
-        assert not (await read_snapshot(repo, {}, now))["items"][0]["opportunity_eligible"]
+        assert (await read_snapshot(repo, {}, now))["items"][0]["opportunity_eligible"]
         assert not (await read_snapshot(repo, {}, now + timedelta(seconds=31)))["items"][0]["opportunity_eligible"]
 
     try:

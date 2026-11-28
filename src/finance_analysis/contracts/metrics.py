@@ -62,13 +62,20 @@ def summarize_hour(rows, end):
     baseline = indexed.get(end - HOUR, {}).get("oi") or {}
     window = [indexed.get(t, {}) for t in range(end - HOUR + STEP, end + STEP, STEP)]
     price_change = share = None
-    if all(row.get("price") for row in window):
-        price_change = change(window[0]["price"]["open"], window[-1]["price"]["close"])
+    price_tail = []
+    for row in window:
+        if row.get("price"):
+            price_tail.append(row["price"])
+        else:
+            price_tail.clear()
+    if price_tail:
+        price_change = change(price_tail[0]["open"], price_tail[-1]["close"])
     if all(row.get("taker") for row in window):
         buy = sum(row["taker"]["buy"] for row in window)
         total = buy + sum(row["taker"]["sell"] for row in window)
         share = buy / total if total else None
     return {
+        **({"price_minutes": 5 * len(price_tail)} if 0 < len(price_tail) < 12 else {}),
         "timestamp": end, "price_change": price_change, "buy_share": share,
         "oi_change": change(baseline.get("quantity"), (current.get("oi") or {}).get("quantity")),
         **{source: current.get(source) for source in ENDPOINTS},
@@ -78,7 +85,8 @@ def summarize_hour(rows, end):
 def summary_readings(summary):
     values = {field: summary[field] for field in ("price_change", "oi_change", "buy_share")}
     values["account_ratio"] = (summary["accounts"] or {}).get("ratio")
-    return {field: {"value": value, "timestamp": summary["timestamp"]}
+    return {field: {"value": value, "timestamp": summary["timestamp"],
+                    **({"available_minutes": summary["price_minutes"]} if field == "price_change" and summary.get("price_minutes") else {})}
             for field, value in values.items() if value is not None}
 
 

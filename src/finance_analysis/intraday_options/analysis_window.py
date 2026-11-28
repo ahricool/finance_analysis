@@ -3,8 +3,6 @@
 from dataclasses import replace
 from datetime import timedelta
 
-from finance_analysis.market_stream.config import market_trading_date
-from finance_analysis.market_stream.session import session_bounds
 
 MINUTE = timedelta(minutes=1)
 HORIZON = 60
@@ -41,17 +39,17 @@ def minute_timeline(ordered, start, end):
 def analysis_window(ordered, opening=None):
     end = ordered[-1].bar_time
     if opening is None:
-        opening, _ = session_bounds("US", market_trading_date(end, "US"))
+        opening = ordered[0].bar_time
     start = max(opening, end - (HORIZON - 1) * MINUTE)
     bars, filled = minute_timeline(ordered, start, end)
     recent_start = end - (REQUIRED_MINUTES - 1) * MINUTE
-    recent = [b for b in bars if b.bar_time >= recent_start]
+    recent = [b for b in bars if b.bar_time >= recent_start and observed(b)]
     warming = end + MINUTE - opening < REQUIRED_MINUTES * MINUTE
     coverage = {
         "required_minutes": REQUIRED_MINUTES,
         "recent_available_bars": len(recent),
         "recent_missing_bars": REQUIRED_MINUTES - len(recent),
-        "missing_bars": int((end - start) / MINUTE) + 1 - len(bars),
+        "missing_bars": int((end - start) / MINUTE) + 1 - len(bars) + len(filled),
         "filled_bars": len(filled),
         "filled_minutes": filled,
         "reference": warming or len(recent) < REQUIRED_MINUTES,

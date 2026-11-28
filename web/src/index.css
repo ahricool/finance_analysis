@@ -202,6 +202,10 @@
     @apply sticky left-0 z-1 bg-card;
   }
 
+  .freeze-favorite > :is(thead, tbody) > tr > .instrument-column:nth-child(2) {
+    left: var(--favorite-width);
+  }
+
   th.instrument-column {
     @apply z-2 bg-muted;
   }

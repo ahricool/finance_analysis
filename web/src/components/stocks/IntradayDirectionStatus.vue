@@ -50,8 +50,6 @@ const appearance = computed(() => {
     case '行情超前':
     case '时间异常':
     case '趋势更新延迟':
-    case '当日已收盘':
-    case '上个交易日信号':
       return { className: 'border-border bg-muted/35 text-muted-foreground', icon: Clock3 };
     default:
       return { className: 'border-border bg-background text-muted-foreground', icon: Minus };

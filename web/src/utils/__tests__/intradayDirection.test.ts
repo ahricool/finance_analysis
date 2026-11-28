@@ -61,14 +61,14 @@ function quote(options: QuoteOptions = {}): RealtimeQuote {
 }
 
 describe('calculateIntradayDirection', () => {
-  it('shares the direction calculation with A shares and respects the lunch break', () => {
+  it('shares the direction calculation with A shares and detects stale quotes during lunch', () => {
     const at = new Date('2026-07-22T02:00:00Z');
     const value = quote();
     value.marketType = 'CN';
     value.eventTime = value.receivedAt = at.toISOString();
     value.pattern1m!.signal!.confirmedAt = '2026-07-22T01:55:00Z';
     expect(calculateIntradayDirection(value, 'CN', at)?.status).toBe('多头确认');
-    expect(calculateIntradayDirection(value, 'CN', new Date('2026-07-22T04:00:00Z'))?.status).toBe('休市等待');
+    expect(calculateIntradayDirection(value, 'CN', new Date('2026-07-22T04:00:00Z'))?.status).toBe('行情延迟');
   });
 
   it.each(['eventTime', 'receivedAt'] as const)('accepts ±30 seconds inclusively and distinguishes stale/future %s', field => {
@@ -88,11 +88,11 @@ describe('calculateIntradayDirection', () => {
     expect(calculateIntradayDirection(quote(), 'US', new Date('invalid'))).toBeNull();
   });
 
-  it('uses calendar-provided early close and prioritizes close even without a pattern', () => {
+  it('continues evaluating fresh data after an early close', () => {
     const value = quote();
     value.sessionClose = '2026-07-22T15:00:00Z';
     value.pattern1m = { timeframe: '1m', status: 'none' };
-    expect(calculateIntradayDirection(value, 'US', NOW)?.status).toBe('当日已收盘');
+    expect(calculateIntradayDirection(value, 'US', NOW)?.status).toBe('震荡等待');
   });
 
   it('does not confirm a stale minute trend using a fresh quote', () => {
@@ -163,14 +163,14 @@ describe('calculateIntradayDirection', () => {
     expect(calculateIntradayDirection(quote(options), 'US', NOW)?.status, caseName).toBe('震荡等待');
   });
 
-  it('marks a prior New York trading date as historical', () => {
+  it('uses event times across trading date boundaries', () => {
     expect(calculateIntradayDirection(quote({ tradingDate: '2026-07-21' }), 'US', NOW)?.status)
-      .toBe('上个交易日信号');
+      .toBe('多头确认');
   });
 
-  it('marks a current-date signal closed at 16:00 New York time', () => {
+  it('reports stale quotes at 16:00 New York time', () => {
     const marketClose = new Date('2026-07-22T20:00:00Z');
-    expect(calculateIntradayDirection(quote(), 'US', marketClose)?.status).toBe('当日已收盘');
+    expect(calculateIntradayDirection(quote(), 'US', marketClose)?.status).toBe('行情延迟');
   });
 
   it('returns null for non-US and unavailable quotes', () => {
@@ -179,14 +179,14 @@ describe('calculateIntradayDirection', () => {
   });
 
   it('returns null rather than throwing when trend or pattern data is missing', () => {
-    expect(calculateIntradayDirection({ ...quote(), trend1m: undefined }, 'US', NOW)).toBeNull();
-    expect(calculateIntradayDirection({ ...quote(), pattern1m: undefined }, 'US', NOW)).toBeNull();
+    expect(calculateIntradayDirection({ ...quote(), trend1m: undefined }, 'US', NOW)?.status).toBe('数据不足');
+    expect(calculateIntradayDirection({ ...quote(), pattern1m: undefined }, 'US', NOW)?.status).toBe('数据不足');
   });
 
   it('returns null for insufficient trend history or invalid required event time', () => {
     const insufficient = quote();
     insufficient.trend1m = { ...insufficient.trend1m!, effectivePeriod: 4, minimumPeriod: 5 };
-    expect(calculateIntradayDirection(insufficient, 'US', NOW)).toBeNull();
+    expect(calculateIntradayDirection(insufficient, 'US', NOW)?.status).toBe('数据不足');
 
     const invalidTime = quote();
     invalidTime.pattern1m!.signal!.confirmedAt = 'invalid';

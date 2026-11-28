@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from concurrent.futures import ThreadPoolExecutor, wait as wait_futures
 from copy import deepcopy
-from datetime import timedelta
+from datetime import datetime, timedelta
 import json
 import logging
 import threading
@@ -20,8 +20,9 @@ from finance_analysis.database.repositories.intraday_simulation import (
     process_with_events,
 )
 from finance_analysis.intraday_options.config import BENCHMARK_SYMBOL_SET, SYMBOLS as _DEFAULT_SYMBOLS
+from finance_analysis.intraday_options.opportunity_alert import alert_opportunity
 from finance_analysis.intraday_options.notification import is_trade_event, notify_trade_events
-from finance_analysis.intraday_options.scoring import calculate, closed_session_bars
+from finance_analysis.intraday_options.scoring import calculate, closed_session_bars, rolling_bars
 from finance_analysis.intraday_options.simulation import CONFIG
 from finance_analysis.intraday_options.structure import execution_context
 from finance_analysis.market_stream.config import market_trading_date
@@ -50,19 +51,24 @@ def relative_strength(symbol, bars, benchmark, now):
     result = []
     left = {
         b.bar_time: b
-        for b in closed_session_bars(symbol, bars, now)
+        for b in rolling_bars(symbol, bars, now)
         if b.is_valid() and not b.partial and not b.sampled
     }
     right = {
         b.bar_time: b
-        for b in closed_session_bars("QQQ.US", benchmark, now)
+        for b in rolling_bars("QQQ.US", benchmark, now)
         if b.is_valid() and not b.partial and not b.sampled
     }
     end = now.replace(second=0, microsecond=0) - timedelta(minutes=1)
     for minutes in (5, 15, 30):
         times = [end - timedelta(minutes=i) for i in range(minutes)]
-        valid = symbol != "QQQ.US" and all(t in left and t in right for t in times)
-        start = times[-1]
+        available = 0
+        for stamp in times:
+            if stamp not in left or stamp not in right:
+                break
+            available += 1
+        valid = symbol != "QQQ.US" and available > 0
+        start = times[available - 1] if available else times[-1]
         value = (
             (
                 (float(left[end].close) / float(left[start].open) - float(right[end].close) / float(right[start].open))
@@ -73,12 +79,12 @@ def relative_strength(symbol, bars, benchmark, now):
         )
         result.append(
             dict(
-                minutes=minutes,
+                minutes=minutes, available_minutes=available,
                 value=value,
                 start=start.isoformat(),
                 end=(end + timedelta(minutes=1)).isoformat(),
                 reason=(
-                    "同时间区间收益差，百分点"
+                    ("同时间区间收益差，百分点" if available == minutes else f"仅覆盖{available}/{minutes}分钟，参考值")
                     if valid
                     else "不适用" if symbol == "QQQ.US" else "标的或QQQ分钟数据缺失/未对齐"
                 ),
@@ -178,14 +184,15 @@ async def run(repository, bars_by_symbol, stop_event, *, bar_source=None):
             submit_notifications(events, symbol)
             return None, state
         closed = closed_session_bars(symbol, bars, now)
+        rolling = rolling_bars(symbol, bars, now)
         spy_closed = closed_session_bars("SPY.US", spy_bars, now)
         # All relevant OHLCV/validity revisions invalidate shape cache.
         signature = tuple(
-            (b.bar_time, b.received_at, b.open, b.high, b.low, b.close, b.volume, b.partial, b.sampled)
-            for b in closed
+            (b.indicator_input(), b.received_at)
+            for b in rolling
         )
         spy_signature = tuple(
-            (b.bar_time, b.received_at, b.open, b.high, b.low, b.close, b.volume, b.partial, b.sampled)
+            (b.indicator_input(), b.received_at)
             for b in spy_closed
         )
         day = market_trading_date(closed[-1].bar_time, "US") if closed else market_trading_date(now, "US")
@@ -195,7 +202,9 @@ async def run(repository, bars_by_symbol, stop_event, *, bar_source=None):
             if quote is not None and quote.trading_date == day and quote.pre_close is not None and quote.pre_close > 0
             else None
         )
+        execution_signature = tuple((b.indicator_input(), b.received_at) for b in closed)
         daily_signature = (
+            execution_signature,
             str(live_pre_close) if live_pre_close is not None else None,
             effective_daily_ctx.get("prev_close") if effective_daily_ctx else None,
             effective_daily_ctx.get("daily_atr_pct") if effective_daily_ctx else None,
@@ -205,7 +214,7 @@ async def run(repository, bars_by_symbol, stop_event, *, bar_source=None):
         base_result = (
             prior[1]
             if prior and prior[0] == signature
-            else calculate(symbol, closed, now) if closed else None
+            else calculate(symbol, rolling, now) if rolling else None
         )
         if base_result is not None:
             if (
@@ -234,7 +243,11 @@ async def run(repository, bars_by_symbol, stop_event, *, bar_source=None):
         else:
             result = None
         cache[symbol] = (signature, base_result, spy_signature, round_peer_signature, daily_signature, result)
-        state, events = _run_process(symbol, result, quote, now)
+        try:
+            state, events = _run_process(symbol, result, quote, now)
+        except Exception:
+            logger.exception("日内模拟写入失败，保留上次模拟状态: %s", symbol)
+            return result, None
         submit_notifications(events, symbol)
         state["relative_strength"] = relative_strength(symbol, bars, benchmark, now)
         return result, state
@@ -255,7 +268,7 @@ async def run(repository, bars_by_symbol, stop_event, *, bar_source=None):
             quote = await repository.get_quote(symbol) if round_quotes is None else round_quotes.get(symbol)
             now = utc_now()
             # Worker owns an immutable copy of this round's input.
-            bars = deepcopy(list(round_symbol_bars))
+            bars = round_symbol_bars if bar_source is not None else deepcopy(list(round_symbol_bars))
             spy_bars = bars if symbol == "SPY.US" else round_spy_bars
             benchmark = bars if symbol == "QQQ.US" else round_qqq_bars
             result, state = await asyncio.get_running_loop().run_in_executor(
@@ -274,11 +287,17 @@ async def run(repository, bars_by_symbol, stop_event, *, bar_source=None):
                 now,
             )
             ttl = cache_ttl("US", market_trading_date(now, "US"), now)
-            if symbol not in active_set and not state.get("position") and retiring is not None:
+            if state is not None and symbol not in active_set and not state.get("position") and retiring is not None:
                 retiring.discard(symbol)
             if result:
                 await repository.redis.set(result_key(symbol), json.dumps(result, allow_nan=False), ex=ttl)
-            await repository.redis.set(f"rt:intraday-simulation:{symbol}", json.dumps(state, allow_nan=False), ex=ttl)
+            if state is not None:
+                await repository.redis.set(f"rt:intraday-simulation:{symbol}", json.dumps(state, allow_nan=False), ex=ttl)
+            if result and quote and quote.timestamp_kind != "received" and quote.last_price and quote.last_price > 0:
+                at = utc_now()
+                if quote.received_at and 0 <= (at - quote.received_at).total_seconds() <= 30:
+                    await alert_opportunity(repository.redis, symbol, (result.get("opportunities") or {}).get("primary"),
+                                            datetime.fromisoformat(result["as_of"]), quote.event_time, at)
         except Exception:
             logger.exception("日内模拟计算失败: %s", symbol)
 

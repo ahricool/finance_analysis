@@ -427,7 +427,7 @@ API/页面支持 preview/official 与正式日期选择；正式读取关联日�
 页面 `/research/options-intelligence` 与现有美股股票详情「期权」Tab。迁移 `0070_options_intelligence`；
 规则、数据能力、OPRA 检查与配置见 `docs/options-intelligence.md`，离线测试 `tests/options_intelligence/`。
 
-Streamer 页面行情只读 Redis；CN/US 共用日内方向状态，US 1min 使用 Longbridge TradeSessions.All/历史回补并跨日滚动保留24小时最多1440根，前端区分盘前/盘中/盘后/夜盘；趋势形态和日内策略仍限定常规交易时段。CN/HK 分钟线与形态事件保留最近交易日，CN原生1min为新浪→腾讯（免费，单一fallback），报价仍为扶摇，非US分钟及其他状态跨周末/长假 TTL 由交易日历确定。自选与持仓表点行展开分钟图、点名称打开详情。ETF扶摇批量参数已实测不支持，保留单证券接口。见 `docs/market-streamer.md`。
+Streamer 页面行情只读 Redis；CN/US 共用日内方向状态，US 1min 使用 Longbridge TradeSessions.All/历史回补并跨日滚动保留24小时最多1440根，前端区分盘前/盘中/盘后/夜盘；实时趋势、形态与机会分析按有效分钟线滚动计算，覆盖扩展时段。CN/HK 分钟线与形态事件保留最近交易日，CN原生1min为新浪→腾讯（免费，单一fallback），报价仍为扶摇，非US分钟及其他状态跨周末/长假 TTL 由交易日历确定。自选与持仓表点行展开分钟图、点名称打开详情。ETF扶摇批量参数已实测不支持，保留单证券接口。见 `docs/market-streamer.md`。
 个股详情日 K 独立于 Streamer 采集池：后端按需请求该股当天报价生成临时日 K，与多日历史按交易日期去重拼接返回，不写数据库或 Redis。自选股／投资组合实时表格和展开分钟图继续只读 Streamer 缓存。
 
 ## Market Heatmap
@@ -483,7 +483,7 @@ GET本人历史不重算，默认今日或上一交易日；手动触发仅当�
 
 ## Intraday Options
 
-`intraday_options/` 为 QQQ（PostgreSQL `us_nasdaq100` 动态同步，去重 `GOOG.US`）+ `SPY/QQQ` 基准（内置 102 只快照降级）计算 15/30/60 分钟趋势机会分。Trader 从 Streamer 写入的 Redis 原生分钟线后台计算，仅读闭合正常时段连续窗口，趋势分只缓存 Redis 最新结果（`intraday_options_v18`）；独立虚拟交易（`underlying_sim_v8`）与信号事件由 0093 专用表持久化，不复用真实持仓。
+`intraday_options/` 为 QQQ（PostgreSQL `us_nasdaq100` 动态同步，去重 `GOOG.US`）+ `SPY/QQQ` 基准（内置 102 只快照降级）计算 15/30/60 分钟趋势机会分。Trader 从 Streamer 写入的 Redis 原生分钟线后台计算，读取全时段滚动闭合分钟线，趋势分只缓存 Redis 最新结果（`intraday_options_v19`）；独立虚拟交易（`underlying_sim_v8`）与信号事件由 0093 专用表持久化，不复用真实持仓。
 页面 `/market/intraday-options`（市场→日内期权交易），GET `/api/v1/intraday-options` 只读缓存及模拟表，实时复用 WS/SSE `scope=intraday-options&delta=true`，首次/重连/换交易日或版本全量、后续增量及轻量心跳，旧客户端保留全量契约。观察池加入 Streamer 订阅并集、逐标的隔离集合及登录用户分钟图只读白名单，不改变个人自选/持仓。
 所有数据列表头支持排序，实时更新保留阅读位置；无合约/下单/概率承诺。公式与数据边界见 `docs/intraday-options.md` 与 `docs/intraday-starts.md`。
 
@@ -500,7 +500,7 @@ GET本人历史不重算，默认今日或上一交易日；手动触发仅当�
 
 `intraday_options/` v8保留1min计算的15/30/60趋势质量分，独立新增箱体突破、突破位回测、顺势回撤恢复三分支。
 闭合分钟因果重建、触发前冻结价位/ATR、相邻两根确认、延伸/失效/到期分开；只保留Redis最新结果。
-GET只读，行级机会资格排除缺线、延迟和非交易时段；默认有效机会质量排序，前端轮询不跳行。
+GET只读，全天六个滚动形态按确认质量排序，排除缺线、延迟和过期机会；默认有效机会质量排序，前端轮询不跳行。
 不读取Trend排名、不选期权合约、不下单、不存历史；详见`docs/intraday-options.md`。
 
 三个趋势下游共用 `trend_following/opportunity_inputs.py` 正式买点投影：Confluence v2_3在Trend30内部取背景/有效买点较强路线；Signal Center加入前40候选及两轮LLM价位证据；Intraday v2_2新增昨日买点前40冻结来源、保留原分钟确认条件。跨周期structure_id去重，不读取Preview，不回填旧历史，见 `docs/trend-opportunities.md`。

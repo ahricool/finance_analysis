@@ -53,56 +53,6 @@ def ramp(count, side=1, step=.22):
                     low=min(b.open, b.close) - Decimal(".001")) for b in bars]
 
 
-@pytest.mark.parametrize("side", [1, -1])
-@pytest.mark.parametrize("minutes", [5, 15])
-def test_opening_first_close_executes_without_consolidation_and_can_stop_immediately(side, minutes):
-    bars = ramp(minutes + 1, side)
-    config = StartPolicy(
-        opening_minutes=minutes,
-        opening_min_elapsed_minutes=minutes,
-        opening_min_efficiency=0.0,
-        opening_require_directional_bar=False,
-        exclude_benchmark_from_opening=False,
-        entry_window_minutes=150,
-        atr_scaled_exits=False,
-        stop_loss_pct=0.0,
-        take_profit_pct=0.0,
-        profit_lock_trigger_pct=0.0,
-        profit_lock_level_pct=0.0,
-        minimum_risk_return=0.0,
-        maximum_risk_return=0.0,
-        min_gap_directional=None,
-        min_open_move=0.0,
-        min_spy_open_move=0.0,
-        min_pool_breadth=0.0,
-        pool_leader_top_k=0,
-    )
-    assert not calculate_opportunities(bars[:-1], config)["branches"]
-    o = calculate_opportunities(bars, config)
-    b = next(b for b in o["branches"] if b["kind"] == "opening_breakout")
-    now = START + timedelta(minutes=minutes + 1, seconds=2)
-    assert b["confirmed_at"] == (now - timedelta(seconds=2)).isoformat()
-    assert b["confirmation_method"] == "strong_break"
-    assert b["atr_samples"] == minutes - 1 and b["structure_end"] == bars[-1].bar_time.isoformat()
-    assert o["reference"] == (minutes == 5)
-    r = dict(trading_date=now.date().isoformat(), as_of=o["as_of"], opportunities=o)
-    price = b["trigger"] + side * .5 * b["atr"]
-    far = b["trigger"] + side * 11.0 * b["atr"]
-    state, events = transition({}, "SPY.US", r, quote(now, far), now, settings=config)
-    assert not state.get("position") and not any(e["kind"] == "entry" for e in events)
-    state, events = transition(state, "SPY.US", r, quote(now, price), now, settings=config)
-    assert state["position"]["entry_price"] == price and ranked_opportunity(r, state, now)
-    assert state["position"]["entry_evidence"]["target_source"] == "移动止损跟踪"
-    t = now + timedelta(seconds=5)
-    state, events = transition(state, "SPY.US", r, quote(t, b["invalidation"] - side * .01), t, settings=config)
-    assert [e["kind"] for e in events] == ["exit"]
-    # Persisted state cannot consume the same opening leg a second time.
-    t += timedelta(seconds=5)
-    state, events = transition(json.loads(json.dumps(state)), "SPY.US", r, quote(t, price), t, settings=config)
-    assert not state.get("position") and not any(e["kind"] == "entry" for e in events)
-    assert not any(b["kind"] == "opening_breakout" for b in calculate_opportunities(ramp(30, side), config)["branches"])
-
-
 @pytest.mark.parametrize("damage", ["gap", "synthetic", "unclosed", "late"])
 def test_opening_requires_original_observations(damage):
     bars = ramp(6)
@@ -204,26 +154,6 @@ def test_quote_improvement_rechecks_interval_expiry_freshness_and_structure_dedu
     for kind, allowed in (("pivot_breakout", False), ("trend_continuation", True)):
         other = dict(b, kind=kind, measurement_target=None)
         assert plan(other, r, 100.3, t, settings=LEGACY_POLICY)["executable"] == allowed
-
-
-def test_observed_opening_boundaries_survive_revision_before_break_and_restart():
-    # 12 bars (09:30..09:41 -> closes 09:42 NY) with +3.85% clean move (eff=1.0) triggers V8 opening drive.
-    bars = [replace(b, symbol="NVDA.US") for b in ramp(12, step=.35)]
-    now = START + timedelta(minutes=5, seconds=2)
-    r = calculate("NVDA.US", bars[:5], now)
-    state, _ = transition({}, "NVDA.US", r, quote(now, 101.4), now)
-    frozen = deepcopy(state["start_levels"])
-    assert len(frozen) == 2
-    revised = replace(bars[4], high=bars[4].high+Decimal(".005"), received_at=now+timedelta(seconds=10))
-    now = START + timedelta(minutes=12, seconds=2)
-    r = calculate("NVDA.US", [*bars[:5], revised, *bars[5:]], now)
-    b = r["opportunities"]["primary"]
-    assert b is not None
-    price = b["trigger"]+.5*b["atr"]
-    state, events = transition(json.loads(json.dumps(state)), "NVDA.US", r, quote(now, price), now)
-    assert state["start_levels"] == frozen and not state.get("position")
-    assert "冻结结构" in state["plans"][0]["execution_reason"] and not ranked_opportunity(r, state, now)
-    assert not any(e["kind"] == "entry" for e in events)
 
 
 def test_rank_rechecks_new_quote_before_next_tick_and_keeps_blocked_reason_on_alternate_entry():

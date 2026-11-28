@@ -1,13 +1,13 @@
 {
   "opportunity_eligible": true,
   "ranked_opportunity": {
-    "structure_id": "trend_continuation:-1:2026-11-12T14:50:00+00:00",
-    "kind": "trend_continuation",
+    "structure_id": "A",
+    "kind": "trend_recovery",
     "status": "confirmed",
-    "direction": "bearish",
-    "quality_score": 75,
-    "opportunity_reason": "可以模拟进场",
-    "execution_reason": "已模拟持有，禁止重复进场或反手"
+    "direction": "bullish",
+    "quality_score": 99,
+    "opportunity_reason": "滚动形态已确认",
+    "execution_reason": ""
   },
   "primary": {
     "structure_id": "A",

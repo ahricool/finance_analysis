@@ -7,7 +7,7 @@ export const stages: Record<TrendStage, string> = {
   continuing: '趋势持续', pullback: '回撤观察', extended: '短线延伸', conflict: '方向分歧', waiting: '等待方向',
 };
 export const dataLabels: Record<IntradayOptionRow['dataStatus'], string> = {
-  ready: '', waiting: '等待采集', warming: '开盘不足 · 数据不全', gap: '分钟缺失', delayed: '分钟行情延迟', invalid_time: '时间异常',
+  ready: '', waiting: '等待采集', warming: '窗口不足 · 数据不全', gap: '分钟缺失', delayed: '分钟行情延迟', invalid_time: '时间异常',
 };
 export const directionOrder = { bullish: 4, bearish: 3, conflict: 2, neutral: 1 };
 export const stageOrder = { continuing: 5, pullback: 4, extended: 3, conflict: 2, waiting: 1 };
@@ -35,7 +35,7 @@ export function structureName(value: IntradayStructure | null | undefined) {
 
 export const opportunityKinds: Record<OpportunityBranch['kind'], string> = {
   box_breakout: '箱体突破', box_retest: '突破位回测', trend_recovery: '顺势回撤恢复', trend_continuation: '趋势延续',
-  opening_breakout: '开盘区间突破', pivot_breakout: '盘中关键位突破', midday_wave_breakout: '盘中主浪突破',
+  opening_breakout: '开盘区间突破', pivot_breakout: '盘中关键位突破', midday_wave_breakout: '滚动区间主浪突破',
 };
 export const confirmationLabel = (method: OpportunityBranch['confirmationMethod']) =>
   method === 'level_close' ? '关键位单根收盘确认' : method === 'strong_break' ? '强突破单根确认' : method === 'two_closes' ? '两根闭合K确认' : '尚未确认';
@@ -45,7 +45,7 @@ export const opportunityStates: Record<OpportunityBranch['status'], string> = {
 export function entryScore(row: IntradayOptionRow) {
   const opportunity = row.result?.opportunities;
   return row.opportunityEligible && ['ready', 'warming'].includes(row.dataStatus)
-    && (!opportunity?.reference || row.rankedOpportunity?.kind === 'opening_breakout') && row.rankedOpportunity?.status === 'confirmed'
+    && !opportunity?.reference && row.rankedOpportunity?.status === 'confirmed'
     ? row.rankedOpportunity.qualityScore : null;
 }
 export function entryLabel(row: IntradayOptionRow, stale = false) {
@@ -54,16 +54,8 @@ export function entryLabel(row: IntradayOptionRow, stale = false) {
   if (stale || ['delayed', 'invalid_time', 'waiting'].includes(row.dataStatus)) {
     return opportunities.primary ? '历史/参考确认' : '历史/参考观察';
   }
-  if (entryScore(row) == null && opportunities.primary) {
-    const plan = row.simulation?.plans?.find(p => p.structureId === opportunities.primary?.structureId);
-    return plan && !row.simulation?.stopped && row.quoteStatus === 'ready' && (!opportunities.reference || plan.kind === 'opening_breakout')
-      ? '形态确认 · 当前不可执行' : '历史/参考确认';
-  }
-  if (opportunities.reference && entryScore(row) == null) return '数据不足 · 观察';
-  if (entryScore(row) != null && row.simulation?.position) {
-    return row.simulation.position.opportunityId === row.rankedOpportunity?.structureId
-      ? '已进场/持有中' : '已确认 · 模拟持有中';
-  }
+  if (entryScore(row) == null && opportunities.primary) return '历史/参考确认';
+  if (opportunities.reference) return '数据不足 · 观察';
   const branch = entryBranch(row);
   return branch ? opportunityStates[branch.status] : '等待机会';
 }
@@ -74,9 +66,7 @@ export function entryBranch(row: IntradayOptionRow) {
 }
 
 export function entryReason(row: IntradayOptionRow) {
-  const branch = entryBranch(row);
-  return entryScore(row) != null ? row.rankedOpportunity!.executionReason
-    : row.simulation?.plans?.find(p => p.structureId === branch?.structureId)?.executionReason ?? '';
+  return entryBranch(row)?.reasons?.[0] ?? '';
 }
 
 export function rowDirectionValue(row: IntradayOptionRow) {
