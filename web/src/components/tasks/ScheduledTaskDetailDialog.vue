@@ -98,7 +98,7 @@ function busy(job: ScheduledTask): boolean {
               {{ job.schedule }}
             </TaskDetailField>
             <TaskDetailField
-              label="时区"
+              label="调度规则时区"
               mono
             >
               {{ job.timezone }}

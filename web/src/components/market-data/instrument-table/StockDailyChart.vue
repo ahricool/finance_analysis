@@ -44,7 +44,6 @@ watch([() => props.symbol, revision], async ([symbol], _, cleanup) => {
       :symbol="symbol"
       period="1d"
       :bars="bars"
-      timezone="UTC"
     />
     <p
       v-else

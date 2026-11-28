@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { displayTimezoneLabel, getDisplayTimezone, formatFullDateTimeWithTimezone as time } from '@/utils/format';
 import { computed, ref, watch } from 'vue';
 import { structureLabels, structurePhases } from '@/components/intraday-options/labels';
 import { detectDailyPatterns, type DailyPatternEvent } from '@/utils/dailyPatterns';
@@ -80,9 +81,7 @@ function amount(value: number | null | undefined) {
 function percent(value: number | null | undefined) {
   return value == null || !Number.isFinite(value) ? '—' : `${value > 0 ? '+' : ''}${value.toFixed(2)}%`;
 }
-function time(value?: number | null) {
-  return value == null ? '—' : new Date(value).toISOString().slice(0, 19).replace('T', ' ') + ' UTC';
-}
+
 function ma(length: number) {
   const window = closed.value.slice(-length);
   if (window.length !== length || window.some((bar, i) => i > 0 && bar.timestamp - window[i - 1]!.timestamp !== periodMs.value)) return null;
@@ -97,7 +96,7 @@ const maPeriods = computed(() => props.interval === '1m' ? [20] : [5, 10, 20]);
       <div>
         <strong class="text-sm">{{ row.symbol }} · {{ interval === '1m' ? '最近 24 小时分钟行情' : '日线行情' }}</strong>
         <p class="text-xs text-muted-foreground">
-          {{ interval === '1m' ? 'Binance 原生分钟线 · UTC' : 'UTC 日线 · 已收盘历史与当日预览' }}
+          {{ interval === '1m' ? 'Binance 原生分钟线' : '交易所日线 · 已收盘历史与当日预览' }} · {{ displayTimezoneLabel() }}
           <span v-if="minuteDelayed"> · 分钟行情延迟</span>
         </p>
       </div>
@@ -118,7 +117,7 @@ const maPeriods = computed(() => props.interval === '1m' ? [20] : [5, 10, 20]);
           :bars="chartBars"
           :current="chartCurrent"
           :price-precision="precision"
-          timezone="UTC"
+          :timezone="interval === '1m' ? getDisplayTimezone() : undefined"
           live-snapshot
           contract-forecast
           :overlays="overlays"

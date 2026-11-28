@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatFullDateTimeWithTimezone } from '@/utils/format';
 import ContractLink from '@/components/contracts/ContractLink.vue';
 import ContractRowChart from '@/components/contracts/ContractRowChart.vue';
 import InstrumentTable from '@/components/market-data/instrument-table/InstrumentTable.vue';
@@ -47,8 +48,7 @@ function display(row: Row, column: Column) {
   const value = sortField(row, column.key);
   if (value == null || value === '') return '—';
   if (column.time) {
-    const date = new Date(typeof value === 'number' ? value : String(value));
-    return Number.isNaN(date.getTime()) ? '—' : date.toISOString().replace('T', ' ').slice(0, 19);
+    return formatFullDateTimeWithTimezone(typeof value === 'number' ? value : String(value));
   }
   if (typeof value === 'boolean') return value ? '已启用' : '已暂停';
   if (typeof value === 'string' && labels[value]) return labels[value] + ' · ' + value;

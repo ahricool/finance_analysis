@@ -10,9 +10,9 @@
 """
 
 import logging
-from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, List
 
+from finance_analysis.core.time import utc_isoformat, utc_now
 from finance_analysis.database.repositories.stock import StockRepository
 
 logger = logging.getLogger(__name__)
@@ -75,7 +75,7 @@ class StockService:
                 "prev_close": getattr(quote, "pre_close", None),
                 "volume": getattr(quote, "volume", None),
                 "amount": getattr(quote, "amount", None),
-                "update_time": quote.quote_time.isoformat() if quote.quote_time else None,
+                "update_time": utc_isoformat(quote.quote_time),
             }
 
         except ImportError:
@@ -169,5 +169,5 @@ class StockService:
             "prev_close": None,
             "volume": None,
             "amount": None,
-            "update_time": datetime.now().isoformat(),
+            "update_time": utc_isoformat(utc_now()),
         }

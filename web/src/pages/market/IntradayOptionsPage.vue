@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { displayTimezoneLabel } from '@/utils/format';
 import StockDailyChart from '@/components/market-data/instrument-table/StockDailyChart.vue';
 import StockLink from '@/components/stocks/StockLink.vue';
 import InstrumentTable from '@/components/market-data/instrument-table/InstrumentTable.vue';
@@ -107,7 +108,7 @@ watch(stream.intradayOptions, result => {
       <div class="flex flex-wrap gap-3 text-muted-foreground">
         <span>交易日期 {{ snapshot?.tradingDate ?? '—' }}</span>
         <span>{{ snapshot ? { open: '交易中', preopen: '常规盘前', closed: '常规盘外' }[snapshot.marketStatus] : '连接中' }}</span>
-        <span>更新 {{ clock(snapshot?.generatedAt) }}（纽约）</span>
+        <span>更新 {{ clock(snapshot?.generatedAt) }}（{{ displayTimezoneLabel() }}）</span>
         <span
           v-if="disconnected"
           class="text-destructive"

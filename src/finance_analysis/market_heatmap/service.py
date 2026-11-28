@@ -2,7 +2,7 @@
 
 import math
 
-from finance_analysis.core.time import utc_now
+from finance_analysis.core.time import utc_isoformat, utc_now
 from finance_analysis.database.repositories.industry_strength import IndustryStrengthRepository
 from finance_analysis.database.repositories.stock import InstrumentRepository
 from finance_analysis.integrations.market_data.service import MarketDataService
@@ -76,7 +76,7 @@ class HeatmapService:
                     "change_pct": change,
                     "group_code": group[0],
                     "group_name": group[1],
-                    "quote_time": quote.quote_time.isoformat() if quote.quote_time else None,
+                    "quote_time": utc_isoformat(quote.quote_time),
                 }
             )
         if not rows:

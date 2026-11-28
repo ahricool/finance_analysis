@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { getDisplayTimezone, displayTimezoneLabel } from '@/utils/format';
 import InstrumentTable from '@/components/market-data/instrument-table/InstrumentTable.vue';
 import InstrumentRow from '@/components/market-data/instrument-table/InstrumentRow.vue';
 import { currentStockOpportunity, stockOpportunityText, trendSortValue, patternSortValue } from '@/utils/realtimeTableSort';
@@ -119,7 +120,7 @@ function signed(value?: string | null, suffix = '') {
 }
 function quoteTime(value?: string | null, compact = false) {
   if (!value) return '时间未知';
-  const options: Intl.DateTimeFormatOptions = { timeZone: market.value === 'CN' ? 'Asia/Shanghai' : 'America/New_York', hour12: false };
+  const options: Intl.DateTimeFormatOptions = { timeZone: getDisplayTimezone(), hour12: false };
   if (compact) Object.assign(options, { hour: '2-digit', minute: '2-digit', second: '2-digit' });
   return new Date(value).toLocaleString('zh-CN', options);
 }
@@ -349,7 +350,7 @@ function closeDetail() {
     <div class="flex flex-wrap items-center gap-2">
       <RealtimeStatus :status="realtimeStatus" />
       <span class="self-center text-xs text-muted-foreground">
-        {{ market === 'CN' ? '人民币 CNY · 上海时间' : '美元 USD · 纽约时间' }}
+        {{ market === 'CN' ? '人民币 CNY' : '美元 USD' }} · {{ displayTimezoneLabel() }}
         <template v-if="updatedAt"> · 更新于 {{ quoteTime(updatedAt) }}</template>
       </span>
     </div>

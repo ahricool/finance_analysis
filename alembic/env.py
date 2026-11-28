@@ -87,6 +87,8 @@ def run_migrations_online() -> None:
         connectable = create_engine(get_database_url(), poolclass=pool.NullPool)
 
     with connectable.begin() as connection:
+        if connection.dialect.name == "postgresql":
+            connection.exec_driver_sql("SET LOCAL TIME ZONE 'UTC'")
         if _bootstrap_empty_database(connection):
             return
         context.configure(

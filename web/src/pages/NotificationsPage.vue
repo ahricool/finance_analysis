@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onBeforeUnmount, ref } from 'vue';
+import { computed, onMounted, onBeforeUnmount, ref, watch } from 'vue';
 import { notificationsApi, type NotificationDetail, type NotificationPreview, type NotificationQuery } from '@/api/notifications';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import PageHeader from '@/components/layout/PageHeader.vue';
@@ -13,7 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogDescription, DialogHeader, DialogScrollContent, DialogTitle } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
-import { formatDateTimeInDisplayTimezone } from '@/utils/format';
+import { displayTimezoneLabel, formatDateTimeInDisplayTimezone, getDisplayTimezone, localDateTimeToUtcIso } from '@/utils/format';
 import { renderMarkdownToHtml } from '@/utils/renderMarkdown';
 
 const keyword = ref('');
@@ -61,8 +61,8 @@ function search() {
     keyword: keyword.value.trim() || undefined,
     route_type: routeType.value === 'all' ? undefined : routeType.value,
     severity: severity.value === 'all' ? undefined : severity.value,
-    start_time: startTime.value ? new Date(startTime.value).toISOString() : undefined,
-    end_time: endTime.value ? new Date(endTime.value).toISOString() : undefined,
+    start_time: startTime.value ? localDateTimeToUtcIso(startTime.value) : undefined,
+    end_time: endTime.value ? localDateTimeToUtcIso(endTime.value) : undefined,
   };
   void load();
 }
@@ -86,6 +86,16 @@ async function showDetail(id: number) {
     if (request === detailRequest) detailLoading.value = false;
   }
 }
+watch(getDisplayTimezone, (zone, previousZone) => {
+  // Preserve the applied UTC query and any unsubmitted edits across a menu change.
+  const formatter = new Intl.DateTimeFormat('sv-SE', {
+    timeZone: zone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
+    hourCycle: 'h23',
+  });
+  for (const input of [startTime, endTime]) {
+    if (input.value) input.value = formatter.format(new Date(localDateTimeToUtcIso(input.value, previousZone))).replace(' ', 'T');
+  }
+});
 onMounted(() => void load());
 onBeforeUnmount(() => { listRequest++; detailRequest++; });
 // Notification history uses backend pagination without a global sorting contract.
@@ -153,11 +163,11 @@ onBeforeUnmount(() => { listRequest++; detailRequest++; });
         </div>
         <AppDateTimePicker
           v-model="startTime"
-          label="开始时间（本机时区）"
+          :label="`开始时间（${displayTimezoneLabel()}）`"
         />
         <AppDateTimePicker
           v-model="endTime"
-          label="结束时间（本机时区）"
+          :label="`结束时间（${displayTimezoneLabel()}）`"
         />
       </div>
       <p

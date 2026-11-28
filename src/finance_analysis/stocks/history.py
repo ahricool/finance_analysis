@@ -48,9 +48,8 @@ def load_history_df(
     code = str(stock_code or "").strip().upper()
     market = market_from_canonical_code(code)
     calendar_market = market.lower()
-    end = target_date or date.today()
     market_tz = ZoneInfo(MARKET_TIMEZONE[calendar_market])
-    as_of = datetime.combine(end, time(23, 59), tzinfo=market_tz)
+    as_of = datetime.combine(target_date, time(23, 59), tzinfo=market_tz) if target_date else datetime.now(market_tz)
     required_days = get_completed_trading_days(calendar_market, max(1, int(days)), as_of)
     required_start, required_end = required_days[0], required_days[-1]
     repository = StockRepository(get_db())

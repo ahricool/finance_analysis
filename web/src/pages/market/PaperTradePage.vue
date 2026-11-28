@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatFullDateTimeWithTimezone } from '@/utils/format';
 import { computed, onMounted, onBeforeUnmount, ref } from 'vue';
 import { Button } from '@/components/ui/button';
 import TradeControlCard from '@/components/paper-trade/TradeControlCard.vue';
@@ -93,11 +94,11 @@ const contracts = ref(new Map<string, ContractQuote>());
 
 function column(key: string, label: string, numeric = false, time = false): Column { return { key, label, numeric, time }; }
 const positions = [column('symbol','合约'), column('direction','方向'), column('positionSide','持仓模式'), column('positionAmt','数量（正多负空）',true), column('entryPrice','开仓均价',true), column('markPrice','标记价',true), column('leverage','杠杆',true), column('marginType','保证金模式'), column('positionInitialMargin','保证金',true), column('liquidationPrice','强平价',true),column('fundingRate','Demo 资金费率',true), column('unRealizedProfit','未实现盈亏',true), column('source','归属')];
-const orders = [column('symbol','合约'),column('orderId','订单 ID'),column('side','方向'),column('type','类型'),column('status','状态'),column('price','价格',true),column('origQty','委托数量',true),column('executedQty','成交数量',true),column('time','时间 (UTC)',false,true),column('source','来源')];
-const algos = [column('symbol','合约'),column('algoId','Algo ID'),column('side','方向'),column('orderType','类型'),column('algoStatus','状态'),column('triggerPrice','触发价',true),column('quantity','数量',true),column('actualOrderId','实际订单 ID'),column('createTime','时间 (UTC)',false,true),column('source','来源')];
-const trades = [column('symbol','合约'),column('id','成交 ID'),column('orderId','订单 ID'),column('side','方向'),column('price','价格',true),column('qty','数量',true),column('realizedPnl','已实现盈亏',true),column('commission','手续费',true),column('commissionAsset','手续费币种'),column('time','时间 (UTC)',false,true),column('source','归属'),column('intent_action','开平仓意图'),column('strategy_type','开仓策略类型'),column('net_excluding_funding','净收益（不含资金费）',true)];
-const income = [column('symbol','合约'),column('incomeType','流水类型'),column('income','金额',true),column('asset','币种'),column('time','时间 (UTC)',false,true)];
-const intents = [column('symbol','合约'),column('strategy','策略'),column('action','意图'),column('payload.strategy_type','策略类型'),column('payload.direction','信号方向'),column('bar_time','闭合时间 (UTC)',false,true),column('payload.fast_ema','快 EMA',true),column('payload.slow_ema','慢 EMA',true),column('payload.anchor','驱动窗口 (UTC)',false,true),column('payload.range_pct','振幅 (%)',true),column('payload.move_pct','方向涨跌幅 (%)',true),column('payload.efficiency','路径效率',true),column('payload.ratchet_stage','棘轮档位',true),column('payload.exit_reason','退出原因'),column('status','执行状态'),column('reason','原因'),column('created_at','创建时间 (UTC)',false,true)];
+const orders = [column('symbol','合约'),column('orderId','订单 ID'),column('side','方向'),column('type','类型'),column('status','状态'),column('price','价格',true),column('origQty','委托数量',true),column('executedQty','成交数量',true),column('time','时间',false,true),column('source','来源')];
+const algos = [column('symbol','合约'),column('algoId','Algo ID'),column('side','方向'),column('orderType','类型'),column('algoStatus','状态'),column('triggerPrice','触发价',true),column('quantity','数量',true),column('actualOrderId','实际订单 ID'),column('createTime','时间',false,true),column('source','来源')];
+const trades = [column('symbol','合约'),column('id','成交 ID'),column('orderId','订单 ID'),column('side','方向'),column('price','价格',true),column('qty','数量',true),column('realizedPnl','已实现盈亏',true),column('commission','手续费',true),column('commissionAsset','手续费币种'),column('time','时间',false,true),column('source','归属'),column('intent_action','开平仓意图'),column('strategy_type','开仓策略类型'),column('net_excluding_funding','净收益（不含资金费）',true)];
+const income = [column('symbol','合约'),column('incomeType','流水类型'),column('income','金额',true),column('asset','币种'),column('time','时间',false,true)];
+const intents = [column('symbol','合约'),column('strategy','策略'),column('action','意图'),column('payload.strategy_type','策略类型'),column('payload.direction','信号方向'),column('bar_time','闭合时间',false,true),column('payload.fast_ema','快 EMA',true),column('payload.slow_ema','慢 EMA',true),column('payload.anchor','驱动窗口',false,true),column('payload.range_pct','振幅 (%)',true),column('payload.move_pct','方向涨跌幅 (%)',true),column('payload.efficiency','路径效率',true),column('payload.ratchet_stage','棘轮档位',true),column('payload.exit_reason','退出原因'),column('status','执行状态'),column('reason','原因'),column('created_at','创建时间',false,true)];
 const openOrder = (row: Row) => ['NEW', 'PARTIALLY_FILLED'].includes(String(row.status)) &&
   view.value?.open_orders?.some(order => String(order.orderId) === String(row.orderId) && order.symbol === row.symbol);
 const openAlgo = (row: Row) => row.algoStatus === 'NEW' &&
@@ -174,7 +175,7 @@ onBeforeUnmount(() => { stopped = true; clearInterval(timer); });
         </div>
       </div>
       <p class="text-xs text-muted-foreground">
-        最后同步 (UTC)：{{ view?.synced_at ?? '—' }} · {{ view?.complete ? '已完成订单及账户核对' : '尚未完成完整核对' }} · 生产行情：{{ marketStatus }}（独立于 Demo）
+        最后同步：{{ formatFullDateTimeWithTimezone(view?.synced_at) }} · {{ view?.complete ? '已完成订单及账户核对' : '尚未完成完整核对' }} · 生产行情：{{ marketStatus }}（独立于 Demo）
       </p>
       <div class="grid grid-cols-2 gap-px overflow-hidden rounded-lg border bg-border md:grid-cols-3 xl:grid-cols-6">
         <div

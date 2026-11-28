@@ -147,6 +147,11 @@ test('USD-M market lists contract prices, switches native candles and manages sy
   await page.getByRole('option', { name: '全市场账户多空比（倍）' }).click();
   await expect(page.getByTestId('contract-market-panel')).toContainText(' 至 ');
   await expect(page.getByRole('img', { name: /SOXLUSDT 1m K线/ })).toBeVisible();
+  await expect(page.getByTestId('contract-indicators')).toContainText('Asia/Shanghai');
+  await page.getByRole('button', { name: '打开用户菜单' }).click();
+  await page.getByRole('menuitemradio', { name: /美东时间/ }).click();
+  await expect(page.getByRole('img', { name: /SOXLUSDT 1m K线.*America\/New_York/ })).toBeVisible();
+  await expect(page.getByTestId('contract-indicators')).toContainText('America/New_York');
   await expect(page.getByTestId('contract-indicators')).toContainText('MA20');
   await page.getByRole('button', { name: '15min', exact: true }).click();
   await expect(page.getByRole('img', { name: /SOXLUSDT 15m K线/ })).toBeVisible();

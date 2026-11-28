@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatDateTime } from '@/utils/format';
 import FieldSelect from '@/components/forms/FieldSelect.vue';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { holdingsApi, type PortfolioAccount, type PortfolioPosition } from '@/api/holdings';
@@ -169,7 +170,7 @@ onBeforeUnmount(() => { stopped = true; request++; detailRequest++; });
           v-for="item in operations"
           :key="item.executedAt + item.side"
         >
-          {{ item.executedAt }} {{ item.side }} {{ item.quantity }} @{{ item.price }}
+          {{ formatDateTime(item.executedAt) }} {{ item.side }} {{ item.quantity }} @{{ item.price }}
         </p>
       </div>
     </template>

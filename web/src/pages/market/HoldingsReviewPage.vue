@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { getDisplayTimezone, displayTimezoneLabel } from '@/utils/format';
 import InstrumentTable from '@/components/market-data/instrument-table/InstrumentTable.vue';
 import InstrumentRow from '@/components/market-data/instrument-table/InstrumentRow.vue';
 import { computed, onBeforeUnmount, ref, shallowRef, watch } from 'vue';
@@ -114,7 +115,7 @@ function signed(value?: number | null) { return value == null ? '—' : `${value
 function tone(value?: number | null) { return value == null || value === 0 ? '' : value > 0 ? 'text-market-up' : 'text-market-down'; }
 function time(value?: string | null) {
   if (!value || !Number.isFinite(Date.parse(value))) return '—';
-  return new Intl.DateTimeFormat('zh-CN', { timeZone: market.value === 'CN' ? 'Asia/Shanghai' : 'America/New_York',
+  return new Intl.DateTimeFormat('zh-CN', { timeZone: getDisplayTimezone(),
     month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(value));
 }
 function download() {
@@ -224,7 +225,7 @@ onBeforeUnmount(() => { ++generation; ++runGeneration; clearPoll(); });
             variant="outline"
           >
             历史快照
-          </Badge><span>{{ review?.asOf ? `采集于 ${time(review.asOf)}` : `计划于 ${time(response.scheduledAt)}` }} {{ market === 'CN' ? '北京时间' : '纽约时间' }}</span>
+          </Badge><span>{{ review?.asOf ? `采集于 ${time(review.asOf)}` : `计划于 ${time(response.scheduledAt)}` }} {{ displayTimezoneLabel() }}</span>
         </div>
         <div class="flex items-center gap-2">
           <Button

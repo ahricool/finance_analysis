@@ -7,7 +7,7 @@ from finance_analysis.database.models.trend_following import TrendFollowingSnaps
 from finance_analysis.database.models.quant import ModelSignal
 from finance_analysis.database.models.stock import Instrument
 from finance_analysis.quant.markets import DEFAULT_QUANT_UNIVERSES
-from finance_analysis.core.time import coerce_aware_utc
+from finance_analysis.core.time import coerce_aware_utc, utc_isoformat
 from finance_analysis.database.repositories.quant import QuantRepository
 
 
@@ -424,7 +424,7 @@ class ConfluenceRepository:
                 states=result.states.model_dump(),
                 signal_coverage=result.signal_coverage,
                 signals=[r.model_dump() for r in result.signals],
-                cutoff=cutoff.isoformat(),
+                cutoff=utc_isoformat(cutoff),
             )
         ]
 

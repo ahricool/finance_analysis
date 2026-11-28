@@ -24,6 +24,9 @@ from finance_analysis.integrations.market_data.realtime_types import (  # pragma
     safe_float,
 )
 
+from finance_analysis.market_review.trading_calendar import get_a_share_market_now
+
+
 # Board labels surfaced to the rest of the task.
 BOARD_MAIN = "main_board"
 BOARD_CHINEXT = "chinext"
@@ -123,7 +126,7 @@ def classify_a_share_board(
     if structural in (BOARD_ETF, BOARD_CONVERTIBLE_BOND, BOARD_UNKNOWN):
         return structural
 
-    today = today or date.today()
+    today = today or get_a_share_market_now().date()
     if _is_new_listing_unbounded(structural, listing_date, today):
         return BOARD_NEW_LISTING
     if is_risk_warning(name):

@@ -18,12 +18,13 @@ import threading
 import uuid
 from contextlib import contextmanager
 from contextvars import ContextVar
-from datetime import datetime
+from time import gmtime
 from logging import FileHandler
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Mapping, Optional, Tuple
 
+from finance_analysis.core.time import utc_now
 from finance_analysis.core.secret_redact import SecretRedactFilter  # pragma: allowlist secret
 from finance_analysis.core.paths import (  # pragma: allowlist secret
     PROJECT_ROOT,
@@ -34,7 +35,7 @@ from finance_analysis.core.paths import (  # pragma: allowlist secret
 )
 
 LOG_FORMAT = "%(asctime)s | %(levelname)-8s | %(pathname)s:%(lineno)d | %(message)s"
-LOG_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
+LOG_DATE_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 SERVICE_LOG_DIRS = {
     "server": "app",
     "app": "app",
@@ -62,6 +63,8 @@ _SAFE_LOG_NAME_RE = re.compile(r"[^A-Za-z0-9_.-]+")
 
 class RelativePathFormatter(logging.Formatter):
     """自定义 Formatter，输出相对路径而非绝对路径"""
+
+    converter = staticmethod(gmtime)
 
     def __init__(self, fmt=None, datefmt=None, relative_to=None):
         super().__init__(fmt, datefmt)
@@ -249,7 +252,7 @@ def setup_logging(
     log_path.mkdir(parents=True, exist_ok=True)
 
     # 日志文件路径（按日期分文件）
-    today_str = datetime.now().strftime("%Y%m%d")
+    today_str = utc_now().strftime("%Y%m%d")
     log_file = log_path / f"{log_prefix}_{today_str}.log"
     debug_log_file = log_path / f"{log_prefix}_debug_{today_str}.log"
 

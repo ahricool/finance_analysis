@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatDateTime } from '@/utils/format';
 import { opportunityOverlays } from './opportunityOverlay';
 import type { OpportunityBranch } from '@/components/trend-following/opportunities';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
@@ -363,7 +364,7 @@ onBeforeUnmount(() => controller?.abort());
           v-for="(item, index) in selected.operations"
           :key="index"
         >
-          {{ item.executedAt }} {{ item.side === 'BUY' ? '买入' : item.side === 'SELL' ? '卖出' : item.side }}{{ item.quantity ? item.quantity : '' }}{{ item.price ? ` @${item.price}` : '' }}
+          {{ formatDateTime(item.executedAt) }} {{ item.side === 'BUY' ? '买入' : item.side === 'SELL' ? '卖出' : item.side }}{{ item.quantity ? item.quantity : '' }}{{ item.price ? ` @${item.price}` : '' }}
         </p>
       </div>
     </section>

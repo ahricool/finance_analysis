@@ -45,7 +45,7 @@ import type {
   TaskRunDetail,
   TaskStatus,
 } from '@/types/tasks';
-import { formatDateTimeInDisplayTimezone, toUtcIsoString } from '@/utils/format';
+import { formatDateTimeInDisplayTimezone, getDisplayTimezone, localDateTimeToUtcIso } from '@/utils/format';
 import { Loader2, RefreshCcw, Search, SlidersHorizontal } from 'lucide-vue-next';
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -167,11 +167,12 @@ const confirmDescription = computed(() => {
 });
 
 function dateStartIso(value: string): string {
-  return toUtcIsoString(`${value}T00:00:00`);
+  return localDateTimeToUtcIso(`${value}T00:00:00`);
 }
 
 function dateEndIso(value: string): string {
-  return toUtcIsoString(`${value}T23:59:59`);
+  // The API uses an inclusive PostgreSQL timestamp bound (microsecond precision).
+  return localDateTimeToUtcIso(`${value}T23:59:59`).replace('.000Z', '.999999Z');
 }
 
 function lastRunTime(job: ScheduledTask): string {
@@ -369,6 +370,10 @@ function routeToDefaultIfNeeded() {
     void router.replace('/tasks/runs');
   }
 }
+
+watch(getDisplayTimezone, () => {
+  if (route.path.endsWith('/runs') && (filters.startedFrom || filters.startedTo)) void loadRuns(1);
+});
 
 watch(
   () => [route.path, isAdmin.value] as const,

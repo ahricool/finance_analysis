@@ -207,7 +207,7 @@ async def test_bar_count_and_current_candle_merge_are_validated() -> None:
 
     assert insufficient is None
     assert confirmed_only is not None
-    assert confirmed_only[-1]["timestamp"].endswith("09:59:00-04:00")
+    assert confirmed_only[-1]["timestamp"].endswith("13:59:00+00:00")
     assert bars is not None
     timestamps = [bar["timestamp"] for bar in bars]
     assert len(timestamps) == len(set(timestamps))
@@ -249,7 +249,7 @@ async def test_stale_current_candle_is_not_merged() -> None:
 
     assert bars is not None
     assert len(bars) == 15
-    assert all(not bar["timestamp"].endswith("09:30:00-04:00") for bar in bars)
+    assert all(not bar["timestamp"].endswith("13:30:00+00:00") for bar in bars)
 
 
 @pytest.mark.asyncio

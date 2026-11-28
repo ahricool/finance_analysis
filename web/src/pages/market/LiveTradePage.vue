@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatFullDateTimeWithTimezone } from '@/utils/format';
 import EquityChart from '@/components/paper-trade/EquityChart.vue';
 import { computed, onMounted, onBeforeUnmount, ref } from 'vue';
 import { Button } from '@/components/ui/button';
@@ -63,11 +64,11 @@ async function changeControl(value: boolean) {
 }
 function col(key: string, label: string, numeric = false, time = false): Column { return { key, label, numeric, time }; }
 const positions = [col('symbol','合约'),col('direction','方向'),col('positionSide','持仓模式'),col('positionAmt','数量',true),col('entryPrice','开仓均价',true),col('markPrice','标记价',true),col('leverage','杠杆',true),col('marginType','保证金模式'),col('positionInitialMargin','保证金',true),col('liquidationPrice','强平价',true),col('unRealizedProfit','未实现盈亏',true),col('fundingRate','资金费率',true),col('source','来源')];
-const orders = [col('symbol','合约'),col('orderId','订单 ID'),col('side','方向'),col('type','类型'),col('status','状态'),col('price','价格',true),col('origQty','委托数量',true),col('executedQty','成交数量',true),col('time','创建时间 (UTC)',false,true),col('source','来源')];
-const algos = [col('symbol','合约'),col('algoId','Algo ID'),col('side','方向'),col('orderType','类型'),col('algoStatus','状态'),col('triggerPrice','触发价',true),col('quantity','数量',true),col('actualOrderId','实际订单 ID'),col('createTime','创建时间 (UTC)',false,true),col('source','来源')];
-const trades = [col('symbol','合约'),col('id','成交 ID'),col('orderId','订单 ID'),col('side','方向'),col('positionSide','持仓模式'),col('price','价格',true),col('qty','数量',true),col('commission','手续费',true),col('commissionAsset','费用币种'),col('realizedPnl','已实现盈亏',true),col('time','时间 (UTC)',false,true),col('source','来源')];
-const income = [col('symbol','合约'),col('incomeType','流水类型'),col('income','金额',true),col('asset','币种'),col('time','时间 (UTC)',false,true)];
-const audit = [col('actor_id','管理员 ID',true),col('previous','变更前'),col('enabled','变更后'),col('changed_at','时间 (UTC)',false,true)];
+const orders = [col('symbol','合约'),col('orderId','订单 ID'),col('side','方向'),col('type','类型'),col('status','状态'),col('price','价格',true),col('origQty','委托数量',true),col('executedQty','成交数量',true),col('time','创建时间',false,true),col('source','来源')];
+const algos = [col('symbol','合约'),col('algoId','Algo ID'),col('side','方向'),col('orderType','类型'),col('algoStatus','状态'),col('triggerPrice','触发价',true),col('quantity','数量',true),col('actualOrderId','实际订单 ID'),col('createTime','创建时间',false,true),col('source','来源')];
+const trades = [col('symbol','合约'),col('id','成交 ID'),col('orderId','订单 ID'),col('side','方向'),col('positionSide','持仓模式'),col('price','价格',true),col('qty','数量',true),col('commission','手续费',true),col('commissionAsset','费用币种'),col('realizedPnl','已实现盈亏',true),col('time','时间',false,true),col('source','来源')];
+const income = [col('symbol','合约'),col('incomeType','流水类型'),col('income','金额',true),col('asset','币种'),col('time','时间',false,true)];
+const audit = [col('actor_id','管理员 ID',true),col('previous','变更前'),col('enabled','变更后'),col('changed_at','时间',false,true)];
 const contracts = ref(new Map<string, ContractQuote>());
 
 onMounted(() => {
@@ -126,7 +127,7 @@ onBeforeUnmount(() => { stopped = true; clearInterval(timer); });
       v-if="snapshot?.connection.observation"
       class="text-sm text-muted-foreground"
     >
-      最近评估 · {{ snapshot.connection.observation.strategy }} · {{ new Date(snapshot.connection.observation.evaluated_at).toLocaleTimeString() }}
+      最近评估 · {{ snapshot.connection.observation.strategy }} · {{ formatFullDateTimeWithTimezone(snapshot.connection.observation.evaluated_at) }}
       · {{ snapshot.connection.observation.direction ?? '暂无信号' }}
     </p>
     <section class="space-y-3 rounded-xl border bg-card p-4 sm:p-5">
@@ -137,8 +138,8 @@ onBeforeUnmount(() => { stopped = true; clearInterval(timer); });
       <div class="flex flex-wrap gap-4 border-t pt-3 text-xs text-muted-foreground">
         <span data-testid="live-connection">账户：{{ connectionStatus }}{{ snapshot?.connection.reason ? ' · ' + snapshot.connection.reason : '' }}</span>
         <span>私有流：{{ snapshot?.connection.stream_connected ? '已连接' : '未连接' }}</span>
-        <span>最后同步 (UTC)：{{ view?.synced_at ?? '—' }}</span>
-        <span>开关更新时间：{{ control?.updated_at ?? '—' }}</span>
+        <span>最后同步：{{ formatFullDateTimeWithTimezone(view?.synced_at) }}</span>
+        <span>开关更新时间：{{ formatFullDateTimeWithTimezone(control?.updated_at) }}</span>
       </div>
       <p
         v-if="!view?.complete || connectionStatus !== '同步正常'"

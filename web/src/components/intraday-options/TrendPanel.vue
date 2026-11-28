@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { getDisplayTimezone, displayTimezoneLabel } from '@/utils/format';
 import { computed, onBeforeUnmount, ref, shallowRef, watch } from 'vue';
 import { fetchIntradayMarket, type IntradayBar } from '@/api/intradayMarket';
 import type { SimulationSnapshot, TrendResult } from '@/api/intradayOptions';
@@ -49,7 +50,7 @@ const tradeColumns = [
   { key: 'at', label: '进退场 / 计划时间' }, { key: 'priceAt', label: '价格时间' },
   { key: 'processedAt', label: '实际处理时间' }, { key: 'reason', label: '原因' },
 ];
-const timestampLabel = (at: string | undefined) => at ? new Date(at).toLocaleString('zh-CN', { timeZone: 'America/New_York', hour12: false }) : '未知';
+const timestampLabel = (at: string | undefined) => at ? new Date(at).toLocaleString('zh-CN', { timeZone: getDisplayTimezone(), hour12: false }) : '未知';
 const overlays = computed(() => [...tradingSessionOverlays(rows.value), ...trendOverlays(closed.value, window.value, mode.value, resolvedTheme.value === 'dark'),
   ...structureOverlays(props.result?.structure),
   ...(showTrades.value ? simulationTradeOverlays(tradeMarkers.value, resolvedTheme.value === 'dark', selectTrade) : [])]);
@@ -89,7 +90,7 @@ onBeforeUnmount(() => { stopped = true; generation++; controller?.abort(); clear
   <TableExpansionPanel data-testid="options-trend-panel">
     <div class="flex flex-wrap items-center justify-between gap-2">
       <strong class="text-sm">{{ symbol }} · {{ chartDate || '当日' }} · 最近24小时1分钟K线</strong>
-      <span class="text-xs text-muted-foreground">纽约时间 · 全天闭合分钟线参与评分</span>
+      <span class="text-xs text-muted-foreground">{{ displayTimezoneLabel() }} · 全天闭合分钟线参与评分</span>
     </div>
     <AppApiErrorAlert
       v-if="error"
@@ -132,7 +133,7 @@ onBeforeUnmount(() => { stopped = true; generation++; controller?.abort(); clear
       :overlays="overlays"
       :focus-timestamp="showTrades && selectedTrade ? selectedTrade.timestamp : undefined"
       :focus-request="focusRequest"
-      timezone="America/New_York"
+      :timezone="getDisplayTimezone()"
     />
     <p
       v-else
@@ -177,7 +178,7 @@ onBeforeUnmount(() => { stopped = true; generation++; controller?.abort(); clear
       data-testid="simulation-trade-detail"
     >
       <h3 class="border-b bg-muted/30 px-4 py-3 text-sm font-semibold">
-        {{ symbol }} · 模拟 {{ selectedTrade.label }} 记录（纽约时间）
+        {{ symbol }} · 模拟 {{ selectedTrade.label }} 记录（{{ displayTimezoneLabel() }}）
       </h3>
       <SimulationTable
         :rows="selectedTrade.operations"

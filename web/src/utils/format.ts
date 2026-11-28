@@ -1,6 +1,7 @@
 import { getActivePinia } from 'pinia';
 import {
   DEFAULT_DISPLAY_TIMEZONE,
+  DISPLAY_TIMEZONES,
   type DisplayTimezone,
   useTimezoneStore,
 } from '@/stores/timezoneStore';
@@ -9,6 +10,9 @@ export function getDisplayTimezone(): DisplayTimezone {
   if (!getActivePinia()) return DEFAULT_DISPLAY_TIMEZONE;
   return useTimezoneStore().displayTimezone;
 }
+
+export const displayTimezoneLabel = () =>
+  DISPLAY_TIMEZONES.find(zone => zone.value === getDisplayTimezone())!.label;
 
 export const toUtcIsoString = (value: string | Date): string => {
   const date = value instanceof Date ? value : new Date(value);
@@ -21,11 +25,11 @@ export const localDateTimeToUtcIso = (
   value: string,
   timeZone: DisplayTimezone = getDisplayTimezone(),
 ): string => {
-  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/);
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/);
   if (!match) return value;
 
-  const [, year, month, day, hour, minute] = match;
-  const targetUtc = Date.UTC(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute));
+  const [, year, month, day, hour, minute, second = '0'] = match;
+  const targetUtc = Date.UTC(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute), Number(second));
   const formatter = new Intl.DateTimeFormat('en-CA', {
     timeZone,
     year: 'numeric',
@@ -53,11 +57,16 @@ export const localDateTimeToUtcIso = (
   };
 
   const firstPass = targetUtc - offsetAt(targetUtc);
-  return new Date(targetUtc - offsetAt(firstPass)).toISOString();
+  const corrected = targetUtc - offsetAt(firstPass);
+  // In a spring-forward gap neither offset maps back to the wall time.
+  // Advance by the gap, consistent with the native Date disambiguation.
+  const instant = corrected + offsetAt(corrected) === targetUtc ? corrected : Math.max(firstPass, corrected);
+  return new Date(instant).toISOString();
 };
 
 export const formatDateTimeInDisplayTimezone = (value?: string | null): string => {
   if (!value) return '—';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
 
@@ -104,10 +113,10 @@ export const formatCompactDateTimeInDisplayTimezone = (value?: string | null, no
   return `${parts.month}-${parts.day} ${parts.hour}:${parts.minute}`;
 };
 
-export const formatFullDateTimeWithTimezone = (value?: string | null): string => {
-  if (!value) return '—';
+export const formatFullDateTimeWithTimezone = (value?: string | number | null): string => {
+  if (value == null || value === '') return '—';
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
+  if (Number.isNaN(date.getTime())) return '—';
   const parts = dateTimePartsInDisplayTimezone(date);
   return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}:${parts.second} ${getDisplayTimezone()}`;
 };
@@ -149,9 +158,7 @@ export const formatDate = (value?: string | null): string => {
 };
 
 export const toDateInputValue = (date: Date): string => {
-  const year = date.getFullYear();
-  const month = `${date.getMonth() + 1}`.padStart(2, '0');
-  const day = `${date.getDate()}`.padStart(2, '0');
+  const { year, month, day } = dateTimePartsInDisplayTimezone(date);
   return `${year}-${month}-${day}`;
 };
 

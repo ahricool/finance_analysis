@@ -3,7 +3,6 @@ import { beforeEach, expect, it, vi } from 'vitest';
 import NotificationsPage from '../NotificationsPage.vue';
 import { notificationsApi } from '@/api/notifications';
 vi.mock('@/api/notifications', () => ({ notificationsApi: { list: vi.fn(), detail: vi.fn() } }));
-vi.mock('@/utils/format', () => ({ formatDateTimeInDisplayTimezone: (value: string) => value }));
 
 beforeEach(() => {
   vi.clearAllMocks();

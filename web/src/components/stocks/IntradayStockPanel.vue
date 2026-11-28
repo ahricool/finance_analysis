@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { displayTimezoneLabel, getDisplayTimezone } from '@/utils/format';
 import { computed, onBeforeUnmount, ref, shallowRef, watch } from 'vue';
 import type { OverlayCreate } from 'klinecharts';
 import { fetchIntradayMarket, type IntradayBar, type IntradaySnapshot, type PatternEvent } from '@/api/intradayMarket';
@@ -28,15 +29,13 @@ const selectedEvents = shallowRef<PatternEvent[]>([]);
 const { resolvedTheme } = useTheme();
 function clearSelection() { selected.value = null; selectedEvents.value = []; }
 const now = useCurrentTime(1_000);
-const timezones = { CN: 'Asia/Shanghai', HK: 'Asia/Hong_Kong', US: 'America/New_York' };
-const timezone = computed(() => timezones[props.market]);
+const timezone = computed(getDisplayTimezone);
 const toChartBar = (bar: IntradayBar) => ({ ...bar, turnover: bar.turnover ?? undefined });
 const bars = computed(() => rows.value.filter(bar => bar.confirmed).map(toChartBar));
 const current = computed(() => { const bar = rows.value.find(bar => !bar.confirmed); return bar ? toChartBar(bar) : null; });
 const quote = computed(() => snapshot.value?.quote);
 const minuteSource = computed(() => rows.value.at(-1)?.source === 'tencent_intraday' ? '腾讯' : '新浪');
-const sourceLabel = computed(() => props.market === 'CN' ? `${minuteSource.value} · 原生分钟线 · 上海时间`
-  : `Longbridge · 原生分钟线 · ${props.market === 'HK' ? '香港时间' : '纽约时间'}`);
+const sourceLabel = computed(() => `${props.market === 'CN' ? minuteSource.value : 'Longbridge'} · 原生分钟线 · ${displayTimezoneLabel()}`);
 const referencePrice = computed(() => {
   const price = props.market === 'CN' ? quote.value?.preClose : null;
   return price != null && Number.isFinite(price) && price > 0 ? price : undefined;

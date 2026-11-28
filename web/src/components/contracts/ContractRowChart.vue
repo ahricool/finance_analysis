@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { getDisplayTimezone } from '@/utils/format';
 import { computed, ref, shallowRef, watch } from 'vue';
 import { contractsApi, type Candle, type ContractQuote } from '@/api/contracts';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
@@ -67,7 +68,7 @@ watch([() => props.row.symbol, interval, retry], ([symbol, period], _, cleanup) 
       :period="period"
       :bars="aggregated.bars"
       :current="aggregated.current"
-      timezone="UTC"
+      :timezone="interval === '1m' ? getDisplayTimezone() : undefined"
       live-snapshot
       disable-forecast
     />

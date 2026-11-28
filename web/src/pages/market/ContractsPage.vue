@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatFullDateTimeWithTimezone } from '@/utils/format';
 import InstrumentTable from '@/components/market-data/instrument-table/InstrumentTable.vue';
 import InstrumentRow from '@/components/market-data/instrument-table/InstrumentRow.vue';
 import TrendWindowCell from '@/components/market-data/TrendWindowCell.vue';
@@ -94,7 +95,7 @@ const orderedRows = computed(() => {
   return [...sort.sorted.filter(row => pinned.has(row.symbol)), ...sort.sorted.filter(row => !pinned.has(row.symbol))];
 });
 const existingSymbols = computed(() => rows.value.map(row => row.symbol));
-const priceChangeColumn = { key: 'list_metrics.price_change.value', label: '1h 涨跌幅', unit: 'change', description: '同一 UTC 窗口内，末分钟收盘价相对首分钟开盘价的变化。' };
+const priceChangeColumn = { key: 'list_metrics.price_change.value', label: '1h 涨跌幅', unit: 'change', description: '同一小时窗口内，末分钟收盘价相对首分钟开盘价的变化。' };
 const flowColumns = [
   { key: 'list_metrics.oi_change.value', label: '1h OI 数量变化', unit: 'change', description: '期末与一小时前的未平仓合约数量变化率。' },
   { key: 'list_metrics.buy_share.value', label: '1h 主动买入占比', unit: 'share', description: '整小时主动买入量占主动买卖成交量之和的比例，按成交量加权。' },
@@ -212,7 +213,7 @@ onBeforeUnmount(() => { stopped = true; });
             合约列表 <span class="text-xs text-muted-foreground"> {{ rows.length }} 个</span>
           </h2>
           <p class="text-xs text-muted-foreground">
-            点击行展开行情，点击名称查看标的详情 · 日内分析从 UTC 00:00 起使用已收盘分钟线
+            点击行展开行情，点击名称查看标的详情 · 日内分析从 {{ formatFullDateTimeWithTimezone(Math.floor(now.getTime() / 86_400_000) * 86_400_000) }} 起使用已收盘分钟线
           </p>
         </div>
         <Button

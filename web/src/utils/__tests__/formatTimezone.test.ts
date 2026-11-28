@@ -40,6 +40,7 @@ describe('timezone display formatting', () => {
     const store = useTimezoneStore();
     store.setDisplayTimezone('America/New_York');
 
+    expect(formatDateTimeInDisplayTimezone('2026-06-10')).toBe('2026-06-10');
     expect(formatDateOnly('2026-06-10')).toBe('2026-06-10');
   });
 
@@ -51,6 +52,12 @@ describe('timezone display formatting', () => {
     expect(localDateTimeToUtcIso('2026-06-10T09:30', 'Asia/Shanghai')).toBe('2026-06-10T01:30:00.000Z');
     expect(localDateTimeToUtcIso('2026-06-10T09:30', 'America/New_York')).toBe('2026-06-10T13:30:00.000Z');
     expect(localDateTimeToUtcIso('2026-01-10T09:30', 'America/New_York')).toBe('2026-01-10T14:30:00.000Z');
+  });
+
+  it('resolves DST gaps, repeated hours and end-of-day filters in the selected zone', () => {
+    expect(localDateTimeToUtcIso('2026-03-08T02:30', 'America/New_York')).toBe('2026-03-08T07:30:00.000Z');
+    expect(localDateTimeToUtcIso('2026-11-01T01:30', 'America/New_York')).toBe('2026-11-01T05:30:00.000Z');
+    expect(localDateTimeToUtcIso('2026-11-01T23:59:59', 'America/New_York')).toBe('2026-11-02T04:59:59.000Z');
   });
 
   it('formats compact times for today and older days in the display timezone', () => {

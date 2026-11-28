@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { displayTimezoneLabel } from '@/utils/format';
 import StockLink from '@/components/stocks/StockLink.vue';
 import { computed, ref } from 'vue';
 import { Activity, ArrowDownLeft, ArrowUpRight, Clock3, ShieldCheck } from 'lucide-vue-next';
@@ -178,7 +179,7 @@ function historyValue(t: SimTrade, key: string) {
           {{ remaining != null && phase === 'active' ? `${remaining} 分钟` : phase === 'preopen' ? '尚未开盘' : phase === 'stopped' ? '已截止' : phase === 'unknown' ? '待同步' : '休市' }}
         </p>
         <p class="mt-1 text-xs text-muted-foreground">
-          {{ cutoff ? `停止进场 ${clock(cutoff)}${exitCutoff ? ` · 清仓 ${clock(exitCutoff)}` : ''} · 纽约` : phase === 'unknown' ? '日历缺失 · 暂停信号' : '当日无交易窗口' }}
+          {{ cutoff ? `停止进场 ${clock(cutoff)}${exitCutoff ? ` · 清仓 ${clock(exitCutoff)}` : ''} · ${displayTimezoneLabel()}` : phase === 'unknown' ? '日历缺失 · 暂停信号' : '当日无交易窗口' }}
         </p>
       </div>
     </div>
@@ -188,7 +189,7 @@ function historyValue(t: SimTrade, key: string) {
         class="size-1.5 rounded-full"
         :class="disconnected || snapshotExpired ? 'bg-destructive' : 'bg-foreground/60'"
       />{{ disconnected ? '连接中断，仅显示历史状态' : snapshotExpired ? '快照更新延迟，仅显示历史状态' : phase === 'closed' ? '休市 · 已连接，保留最后状态' : entryPaused ? '停止新进场 · 未平仓标的继续监测报价' : '后台持续监测 · 每 5 秒更新' }}</span>
-      <span>快照 {{ clock(snapshot.generatedAt) }} · 时间均为纽约</span>
+      <span>快照 {{ clock(snapshot.generatedAt) }} · {{ displayTimezoneLabel() }}</span>
     </div>
 
     <section aria-label="当前模拟持仓">

@@ -4,14 +4,16 @@ import logging
 from datetime import date, datetime
 
 from finance_analysis.confluence import config as c
-from finance_analysis.core.time import utc_now
+from finance_analysis.core.time import coerce_aware_utc, utc_now
 from finance_analysis.database.repositories.confluence import ConfluenceRepository
 
 logger = logging.getLogger(__name__)
 
 
 def json_safe(value):
-    if isinstance(value, (date, datetime)):
+    if isinstance(value, datetime):
+        return coerce_aware_utc(value).isoformat()
+    if isinstance(value, date):
         return value.isoformat()
     if isinstance(value, dict):
         return {key: json_safe(item) for key, item in value.items()}
