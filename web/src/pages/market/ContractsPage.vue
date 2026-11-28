@@ -57,11 +57,16 @@ function currentOpportunity(row: ContractQuote) {
   return analysis && !delayed(row) && status.value.endsWith('已连接') && now.value.getTime() - analysis.as_of < 90_000
     ? analysis.opportunity : null;
 }
+const metricPeriod = 5 * 60_000;
+const metricGrace = 60_000;
+const maxMetricDelay = 15 * 60_000;
 const displayRows = computed(() => {
   const stamp = now.value.getTime();
-  const boundary = Math.floor(stamp / 300000) * 300000;
+  const boundary = Math.floor(stamp / metricPeriod) * metricPeriod;
   return rows.value.map(row => ({
     ...row,
+    list_metrics: Object.fromEntries(Object.entries(row.list_metrics ?? {}).filter(([, reading]) =>
+      reading.timestamp <= stamp && stamp - reading.timestamp <= metricPeriod + maxMetricDelay)),
     trend: toCamelCase<RealtimeTrend | null>(row.analysis?.trend_1m ?? null),
     pattern: toCamelCase<RealtimePatternState | null>(row.analysis?.pattern_1m ?? null),
     mark: row.mark && Math.abs(stamp - row.mark.timestamp) < 60000 ? row.mark : null,
@@ -80,13 +85,17 @@ const sort = useTableSort(() => displayRows.value, (row, key) => {
 sort.sortKey = 'opportunity';
 sort.direction = 'desc';
 const existingSymbols = computed(() => rows.value.map(row => row.symbol));
-const priceChangeColumn = { key: 'metrics.price_change', label: '1h 涨跌幅', unit: 'change', description: '同一 UTC 窗口内，末分钟收盘价相对首分钟开盘价的变化。' };
+const priceChangeColumn = { key: 'list_metrics.price_change.value', label: '1h 涨跌幅', unit: 'change', description: '同一 UTC 窗口内，末分钟收盘价相对首分钟开盘价的变化。' };
 const flowColumns = [
-  { key: 'metrics.oi_change', label: '1h OI 数量变化', unit: 'change', description: '期末与一小时前的未平仓合约数量变化率。' },
-  { key: 'metrics.buy_share', label: '1h 主动买入占比', unit: 'share', description: '整小时主动买入量占主动买卖成交量之和的比例，按成交量加权。' },
-  { key: 'metrics.accounts.ratio', label: '账户多空比', unit: 'multiple', description: '全市场净多账户数 / 净空账户数。大户持仓多空比按仓位规模计算。' },
+  { key: 'list_metrics.oi_change.value', label: '1h OI 数量变化', unit: 'change', description: '期末与一小时前的未平仓合约数量变化率。' },
+  { key: 'list_metrics.buy_share.value', label: '1h 主动买入占比', unit: 'share', description: '整小时主动买入量占主动买卖成交量之和的比例，按成交量加权。' },
+  { key: 'list_metrics.account_ratio.value', label: '账户多空比', unit: 'multiple', description: '全市场净多账户数 / 净空账户数。大户持仓多空比按仓位规模计算。' },
 ];
 const metricColumns = [priceChangeColumn, ...flowColumns];
+function metricDelayed(row: ContractQuote, key: string) {
+  const reading = row.list_metrics?.[key.split('.')[1]!];
+  return reading && now.value.getTime() - reading.timestamp > metricPeriod + metricGrace;
+}
 function metricText(row: ContractQuote, column: typeof metricColumns[number]) {
   const value = sortField(row, column.key);
   if (typeof value !== 'number') return '—';
@@ -277,6 +286,10 @@ onBeforeUnmount(() => { stopped = true; });
               </TableCell>
               <TableCell class="whitespace-nowrap px-4 py-3 text-right tabular-nums">
                 {{ metricText(row, priceChangeColumn) }}
+                <small
+                  v-if="metricDelayed(row, priceChangeColumn.key)"
+                  class="text-muted-foreground"
+                >数据延迟</small>
               </TableCell>
               <TableCell class="whitespace-nowrap px-4 py-3 text-right tabular-nums">
                 {{ currentOpportunity(row) ? fmt(currentOpportunity(row)?.quality_score, 0) + '分 · ' + opportunityKinds[currentOpportunity(row)!.kind] : '—' }}
@@ -298,6 +311,10 @@ onBeforeUnmount(() => { stopped = true; });
                 class="whitespace-nowrap px-4 py-3 text-right tabular-nums"
               >
                 {{ metricText(row, column) }}
+                <small
+                  v-if="metricDelayed(row, column.key)"
+                  class="text-muted-foreground"
+                >数据延迟</small>
               </TableCell>
               <TableCell
                 v-if="admin"

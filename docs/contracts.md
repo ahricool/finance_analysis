@@ -71,7 +71,7 @@ GET 快照、搜索、添加响应及 WS/SSE 的合约项均包含 `underlying_s
 GET /api/v1/crypto/contracts/BTCUSDT/metrics?start=1795672800000&end=1795676400000&limit=12
 ```
 
-若 `next_start` 非空，下一页将 start 设为该值并沿用 end。空页返回 `items: []` 与 `next_start: null`。每行包含 symbol、period、timestamp、price、oi、taker 及三组多空结构，缺失组为 null。列表 GET 和 WS/SSE 仅携带该边界的最新摘要，历史副图在展开后选择指标时读取最近 24 小时。
+若 `next_start` 非空，下一页将 start 设为该值并沿用 end。空页返回 `items: []` 与 `next_start: null`。每行包含 symbol、period、timestamp、price、oi、taker 及三组多空结构，缺失组为 null。列表 GET 和 WS/SSE 的 metrics 为当前边界摘要，list_metrics 单独提供四列各自最近一次可计算的值与统计截止时间。应更新时间为该列统计截止时间加 5 分钟。应更新后 1 分钟内照常显示，超过 1 分钟保留数值并标注「数据延迟」，超过 15 分钟或无可用样本显示横杠，历史副图在展开后选择指标时读取最近 24 小时。
 
 ### 验证记录（2026-11-26）
 

@@ -200,8 +200,25 @@ async def test_old_quote_and_new_snapshots_have_identical_wire_fields_and_expire
     assert current == MarketSnapshot.model_validate(current).model_dump(exclude_unset=True)
     assert stream.encode(current)["operations"] == [{"op": "set", "path": ["items", 0, "metrics"], "value": summary}]
     monkeypatch.setattr(service, "now_ms", lambda: T + metrics.STEP)
-    expired = stream.encode(await service.live_snapshot(redis))
+    cache[service.key(S, "metrics")]["oi_change"] = 0
+    legacy = (await service.live_snapshot(redis))["items"][0]
+    assert legacy["metrics"] is None
+    assert legacy["list_metrics"] == {"oi_change": {"value": 0, "timestamp": T}}
+    rows = hour()
+    rows.append({"timestamp": T + metrics.STEP, "accounts": {"ratio": 0}})
+    readings = metrics.list_metrics(rows, metrics.summarize_hour(rows, T + metrics.STEP))
+    assert readings["buy_share"] == {"value": .65, "timestamp": T}
+    assert readings["account_ratio"] == {"value": 0, "timestamp": T + metrics.STEP}
+    cache[service.key(S, "metrics")]["list_metrics"] = readings
+    snapshot = await service.live_snapshot(redis)
+    assert snapshot == MarketSnapshot.model_validate(snapshot).model_dump(exclude_unset=True)
+    assert snapshot["items"][0]["list_metrics"] == readings
+    expired = stream.encode(snapshot)
     assert {"op": "set", "path": ["items", 0, "metrics"], "value": None} in expired["operations"]
+    monkeypatch.setattr(service, "now_ms", lambda: T + metrics.LIST_METRIC_MAX_AGE)
+    assert (await service.live_snapshot(redis))["items"][0]["list_metrics"] == readings
+    monkeypatch.setattr(service, "now_ms", lambda: T + metrics.LIST_METRIC_MAX_AGE + 1)
+    assert (await service.live_snapshot(redis))["items"][0]["list_metrics"] == {"account_ratio": readings["account_ratio"]}
 
 
 @pytest.mark.asyncio

@@ -8,7 +8,7 @@ import websockets
 from redis.exceptions import RedisError
 
 from finance_analysis.contracts.analysis import summarize
-from finance_analysis.contracts.metrics import aligned
+from finance_analysis.contracts.metrics import LIST_METRIC_MAX_AGE, aligned, summary_readings
 from finance_analysis.database.repositories import contracts as repository
 from finance_analysis.integrations.crypto.binance import BinanceClient, number, parse_bar
 
@@ -400,8 +400,15 @@ async def live_snapshot(redis, symbol=None, interval=None):
             value = json.loads(raw) if raw else None
             if value and kind in ("quote", "mark", "book") and abs(now - value["timestamp"]) >= QUOTE_TTL * 1000:
                 value = None
-            if value and kind == "metrics" and value["timestamp"] != aligned(now):
-                value = None
+            if value and kind == "metrics":
+                readings = value.pop("list_metrics", None)
+                if readings is None:
+                    readings = summary_readings(value)
+                if readings:
+                    row["list_metrics"] = {field: reading for field, reading in readings.items()
+                                           if 0 <= now - reading["timestamp"] <= LIST_METRIC_MAX_AGE}
+                if value["timestamp"] != aligned(now):
+                    value = None
             if value and kind == "analysis" and value["as_of"] <= now // DAY * DAY:
                 value = None
             row[kind] = value

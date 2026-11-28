@@ -5,6 +5,7 @@ MINUTE = 60_000
 STEP = 5 * MINUTE
 HOUR = 12 * STEP
 DAY = 24 * HOUR
+LIST_METRIC_MAX_AGE = STEP + 15 * MINUTE
 ENDPOINTS = {
     "accounts": "globalLongShortAccountRatio",
     "oi": "openInterestHist",
@@ -72,3 +73,22 @@ def summarize_hour(rows, end):
         "oi_change": change(baseline.get("quantity"), (current.get("oi") or {}).get("quantity")),
         **{source: current.get(source) for source in ENDPOINTS},
     }
+
+
+def summary_readings(summary):
+    values = {field: summary[field] for field in ("price_change", "oi_change", "buy_share")}
+    values["account_ratio"] = (summary["accounts"] or {}).get("ratio")
+    return {field: {"value": value, "timestamp": summary["timestamp"]}
+            for field, value in values.items() if value is not None}
+
+
+def list_metrics(rows, current):
+    """Find each column's latest complete calculation, keeping its original boundary."""
+    end = current["timestamp"]
+    readings = summary_readings(current)
+    for age in range(STEP, LIST_METRIC_MAX_AGE + 1, STEP):
+        if len(readings) == 4:
+            break
+        for field, reading in summary_readings(summarize_hour(rows, end - age)).items():
+            readings.setdefault(field, reading)
+    return readings

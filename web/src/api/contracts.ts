@@ -23,6 +23,7 @@ export interface HourSummary extends MetricSample {
 }
 export interface Depth { timestamp: number; bids: number | null; asks: number | null; bids_levels: number; asks_levels: number }
 export interface ContractQuote extends Contract {
+  list_metrics?: Record<string, { value: number; timestamp: number }> | null;
   metrics?: HourSummary | null;
   mark?: { timestamp: number; mark_price: number | null; index_price: number | null; basis: number | null;
     next_funding: number | null; funding_rate: number } | null;

@@ -138,7 +138,13 @@ class DepthSnapshot(BaseModel):
     asks_levels: int
 
 
+class MetricReading(BaseModel):
+    value: float
+    timestamp: int
+
+
 class ContractQuote(Contract):
+    list_metrics: dict[str, MetricReading] | None = None
     quote: Quote | None
     mark: MarkPrice | None = None
     book: BookTicker | None = None
