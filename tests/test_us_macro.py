@@ -108,7 +108,7 @@ def test_seed_migration_idempotence_scope_and_etf_isolation(database):
     resolver = UniverseResolver(UniverseRepository(database))
     before = {item.code: item.id for item in resolver.resolve_universe("us_index_etf")}
     scripts = ScriptDirectory.from_config(Config("alembic.ini"))
-    assert scripts.get_heads() == ["0103_futures_metric_sample"]
+    assert scripts.get_heads() == ["0104_utc_evidence_cutoff"]
     migration = scripts.get_revision("0051_us_macro").module
     with database.engine.begin() as connection:
         migration.op = Operations(MigrationContext.configure(connection))

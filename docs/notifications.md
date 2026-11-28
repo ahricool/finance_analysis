@@ -32,7 +32,7 @@ API 从认证会话取得 uid；列表和详情均只允许 `uid = 当前用户 
 
 - `GET /api/v1/notifications`：page（默认 1）、page_size（默认 20，最大 100）、keyword（标题及正文）、route_type、severity、start_time、end_time。时间接受 ISO 8601；默认按 created_at DESC、id DESC 排序。返回 items / total / page / page_size，列表只返回最多 240 字符的 content_preview。
 - `GET /api/v1/notifications/{id}`：完整 Markdown 正文，无投递状态。
-- 头像菜单“消息中心”进入 `/notifications`，不加入顶部导航。筛选时间输入按本机时区转换为 UTC，消息时间沿用应用展示时区；详情复用现有安全 Markdown renderer。
+- 头像菜单“消息中心”进入 `/notifications`，不加入顶部导航。筛选时间输入按右上角菜单所选时区转换为 UTC，消息时间沿用应用展示时区；详情复用现有安全 Markdown renderer。
 
 不包含已读、红点、删除、收藏、实时订阅或统计功能。
 

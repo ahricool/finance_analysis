@@ -3,13 +3,14 @@ name: finance-analysis-dev
 services:
   postgres:
     image: postgres:16-alpine
+    command: ["postgres", "-c", "timezone=UTC"]
     container_name: finance-analysis-dev-db
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      TZ: Asia/Shanghai
+      TZ: UTC
       PGDATA: /var/lib/postgresql/data/pgdata
     volumes:
       - postgres_data_dev:/var/lib/postgresql/data

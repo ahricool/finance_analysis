@@ -59,7 +59,7 @@ onBeforeUnmount(() => { ++generation; controller?.abort(); });
         </h3>
         <p class="text-xs text-muted-foreground">
           <template v-if="contract">
-            Kronos · 连续 UTC 分钟 · 最多 60 根
+            Kronos · 连续自然分钟 · 最多 60 根
           </template>
           <template v-else>
             全站共享 · 开启后使用已有的 1 分钟 K 线预测未来最多 60 根，截止当日收盘；数据不足时跳过。

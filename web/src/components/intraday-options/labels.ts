@@ -1,3 +1,4 @@
+import { getDisplayTimezone } from '@/utils/format';
 import type { IntradayOptionRow, OpportunityBranch, IntradayStructure, TrendDirection, TrendStage } from '@/api/intradayOptions';
 
 export const directions: Record<TrendDirection, string> = {
@@ -18,7 +19,7 @@ export function fmt(value: number | null | undefined, digits = 1) {
 export function pct(value: number | null | undefined) { return value == null ? '—' : `${value > 0 ? '+' : ''}${fmt(value, 2)}%`; }
 export function tone(value: number | null | undefined) { return value == null || value === 0 ? '' : value > 0 ? 'text-market-up' : 'text-market-down'; }
 export function clock(value: string | null | undefined) {
-  return value ? new Date(value).toLocaleTimeString('zh-CN', { timeZone: 'America/New_York', hour12: false }) : '—';
+  return value ? new Date(value).toLocaleTimeString('zh-CN', { timeZone: getDisplayTimezone(), hour12: false }) : '—';
 }
 
 export const structureLabels: Record<IntradayStructure['kind'], string> = {

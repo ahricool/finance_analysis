@@ -11,6 +11,13 @@
 专题细节见 `docs/market-streamer.md`、`docs/quant-research.md`、
 `docs/etf-rotation.md` 和 `docs/holdings-portfolio-risk.md`；其中时间表和迁移步骤可能落后，易变事实仍以代码为准。
 
+## 时间与时区（全系统约定）
+
+- 前端仅提供北京时间（`Asia/Shanghai`）和美东时间（`America/New_York`）。用户通过右上角菜单选择，所有页面随选择切换；美东时间按日期应用夏令时规则。
+- 后端统一以 UTC 存储和交换时间点。数据库使用带时区时间戳，API、Redis 和工件使用带 UTC 标识的 ISO 8601 或契约指定单位的 Unix 时间戳。
+- 前端按所选时区展示后端传入的时间点，包括图表、提示、列表、详情及导出中的展示字段。用户输入的本地日期时间按所选时区换算为 UTC 后查询或提交。
+- 交易日期、财报日期等纯日期保持日期语义。交易所分桶、市场日历和调度使用业务定义的时区，独立于用户显示偏好。
+
 ## 系统概览
 
 Finance Analysis 是一个多市场证券研究与任务自动化系统。Instrument、WatchList 和实时 Streamer 支持 CN/HK/US；定时前复权日线同步与 Quant 只覆盖 CN/US，港股没有独立 daily sync 任务。当前部署不是单体进程，而是以下协作组件：

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { getDisplayTimezone, formatFullDateTimeWithTimezone } from '@/utils/format';
 import { computed, ref, watch } from 'vue';
 import VChart from 'vue-echarts';
 import { use } from 'echarts/core';
@@ -49,6 +50,10 @@ function value(row: HistorySample) {
 const points = computed(() => rows.value.map(row => [row.timestamp, value(row) ?? null] as const));
 const observed = computed(() => points.value.filter(p => p[1] != null));
 const option = computed(() => {
+  const formatter = new Intl.DateTimeFormat('zh-CN', {
+    timeZone: getDisplayTimezone(), month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+  });
+  const axisPointer = { label: { formatter: ({ value }: { value: number }) => formatter.format(value) } };
   const data: [number, number | null][] = [];
   for (const [stamp, y] of points.value) {
     const prev = data.at(-1);
@@ -58,11 +63,11 @@ const option = computed(() => {
   return {
     animation: false, useUTC: true, tooltip: { trigger: 'axis' },
     grid: { containLabel: true, left: 12, right: 18, top: 12, bottom: 12 },
-    xAxis: { type: 'time' }, yAxis: { type: 'value', scale: true },
+    xAxis: { type: 'time', axisLabel: { formatter: (value: number) => formatter.format(value) }, axisPointer }, yAxis: { type: 'value', scale: true },
     series: [{ type: 'line', name: options.find(o => o.value === selected.value)?.label, data, showSymbol: observed.value.length === 1 }],
   };
 });
-function utc(stamp: number) { return new Date(stamp).toISOString().slice(0, 16).replace('T', ' '); }
+
 </script>
 
 <template>
@@ -78,7 +83,7 @@ function utc(stamp: number) { return new Date(stamp).toISOString().slice(0, 16).
         v-if="observed.length"
         class="text-xs text-muted-foreground"
       >
-        {{ utc(observed[0]![0]) }} 至 {{ utc(observed.at(-1)![0]) }} UTC
+        {{ formatFullDateTimeWithTimezone(observed[0]![0]) }} 至 {{ formatFullDateTimeWithTimezone(observed.at(-1)![0]) }}
       </p>
       <div
         v-if="observed.length"

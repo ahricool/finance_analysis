@@ -40,13 +40,13 @@ describe('inline intraday ownership and incremental updates', () => {
     expect(chart().props('current').timestamp).toBe(at + 60_000);
     panel.unmount();
   });
-  it('renders cached Hong Kong minutes using local market time', async () => {
+  it('renders cached Hong Kong minutes using the selected display timezone', async () => {
     mocks.fetch.mockResolvedValue({ ...snapshot('700.HK'), market: 'HK', fullSnapshot: true });
     const panel = mount(IntradayStockPanel, { props: { symbol: '700.HK', market: 'HK' },
       global: { stubs: { MarketKLineChart: true } } });
     await flushPromises();
-    expect(panel.getComponent({ name: 'MarketKLineChart' }).props('timezone')).toBe('Asia/Hong_Kong');
-    expect(panel.text()).toContain('香港时间');
+    expect(panel.getComponent({ name: 'MarketKLineChart' }).props('timezone')).toBe('Asia/Shanghai');
+    expect(panel.text()).toContain('北京时间');
     panel.unmount();
   });
 

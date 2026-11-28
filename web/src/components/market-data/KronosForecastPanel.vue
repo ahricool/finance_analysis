@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { getDisplayTimezone } from '@/utils/format';
 import { computed } from 'vue';
 import { ChevronDown } from 'lucide-vue-next';
 import type { ForecastAccuracy, ForecastBar, MinuteForecast } from '@/api/minuteForecast';
@@ -22,10 +23,10 @@ const averages = computed(() => {
 });
 const time = (at: number) => isDay.value ? new Date(at).toISOString().slice(0, 10)
   : new Date(at).toLocaleTimeString('zh-CN', {
-    timeZone: props.timezone ?? 'UTC', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+    timeZone: props.timezone ?? getDisplayTimezone(), hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
   });
 const dateTime = (at: number) => new Date(at).toLocaleString('zh-CN', {
-  timeZone: props.timezone ?? 'UTC', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+  timeZone: props.timezone ?? getDisplayTimezone(), month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
 });
 const price = (value: number) => value.toLocaleString('zh-CN', { maximumFractionDigits: props.pricePrecision ?? 3 });
 const first = computed(() => props.bars[0]);

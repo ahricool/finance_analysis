@@ -2,7 +2,7 @@
 import type { AcceptableValue } from 'reka-ui';
 import { computed, ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
-import { Bell, ChevronDown, Clock3, LogOut, Monitor, Moon, Palette, Sun, User, UserRound } from 'lucide-vue-next';
+import { Bell, ChevronDown, LogOut, Monitor, Moon, Palette, Sun, User, UserRound } from 'lucide-vue-next';
 import { RouterLink, RouterView, useRoute } from 'vue-router';
 import MarketSwitch from './MarketSwitch.vue';
 import AppConfirmDialog from '@/components/app/AppConfirmDialog.vue';
@@ -77,9 +77,6 @@ const THEME_OPTIONS: Array<{ value: ThemePreference; label: string; icon: typeof
 
 const themeLabel = computed(
   () => THEME_OPTIONS.find((option) => option.value === theme.value)?.label ?? '跟随系统',
-);
-const timezoneLabel = computed(
-  () => DISPLAY_TIMEZONES.find((option) => option.value === displayTimezone.value)?.label ?? '北京时间',
 );
 
 function isDestinationActive(item: NavDestination): boolean {
@@ -302,31 +299,25 @@ watch(
                   </DropdownMenuRadioGroup>
                 </DropdownMenuSubContent>
               </DropdownMenuSub>
-              <DropdownMenuSub>
-                <DropdownMenuSubTrigger data-testid="timezone-menu">
-                  <Clock3 />时区
-                  <span class="ml-auto truncate text-xs text-muted-foreground">{{ timezoneLabel }}</span>
-                </DropdownMenuSubTrigger>
-                <DropdownMenuSubContent class="w-48">
-                  <DropdownMenuRadioGroup
-                    :model-value="displayTimezone"
-                    aria-label="时区"
-                    data-testid="timezone-preference"
-                    @update:model-value="setTimezonePreference"
-                  >
-                    <DropdownMenuRadioItem
-                      v-for="option in timezoneOptions"
-                      :key="option.value"
-                      :value="option.value"
-                    >
-                      <span class="flex flex-col gap-0.5">
-                        <span>{{ option.label }}</span>
-                        <span class="text-xs tabular-nums text-muted-foreground">{{ option.currentTime }}</span>
-                      </span>
-                    </DropdownMenuRadioItem>
-                  </DropdownMenuRadioGroup>
-                </DropdownMenuSubContent>
-              </DropdownMenuSub>
+              <DropdownMenuSeparator />
+              <DropdownMenuLabel>时区</DropdownMenuLabel>
+              <DropdownMenuRadioGroup
+                :model-value="displayTimezone"
+                aria-label="时区"
+                data-testid="timezone-preference"
+                @update:model-value="setTimezonePreference"
+              >
+                <DropdownMenuRadioItem
+                  v-for="option in timezoneOptions"
+                  :key="option.value"
+                  :value="option.value"
+                >
+                  <span class="flex flex-col gap-0.5">
+                    <span>{{ option.label }}</span>
+                    <span class="text-xs tabular-nums text-muted-foreground">{{ option.currentTime }}</span>
+                  </span>
+                </DropdownMenuRadioItem>
+              </DropdownMenuRadioGroup>
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 variant="destructive"

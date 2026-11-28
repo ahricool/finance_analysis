@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { getTodayInDisplayTimezone } from '@/utils/format';
 import SortableTableHeader from '@/components/stocks/SortableTableHeader.vue';
 import { useQuantTableSort } from '@/composables/useQuantTableSort';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
@@ -22,7 +23,8 @@ const { market, marketQuery } = useQuantMarket();
 const runs = ref<ModelRun[]>([]), releases = ref<QuantRelease[]>([]);
 const error = ref<ParsedApiError | null>(null);
 const loading = ref(false), busy = ref(false), formOpen = ref(false), confirmOpen = ref(false);
-const from = ref(`${new Date().getFullYear()-5}-01-01`), to = ref(new Date().toISOString().slice(0,10)), version = ref('');
+const today = getTodayInDisplayTimezone();
+const from = ref(`${Number(today.slice(0, 4)) - 5}-01-01`), to = ref(today), version = ref('');
 const preflight = ref<TrainingPreflight | null>(null);
 const cs = ref(''), ts = ref(''), reason = ref(''), message = ref('');
 let generation = 0;

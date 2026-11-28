@@ -469,7 +469,7 @@ onBeforeUnmount(() => { observer?.disconnect(); destroy(); });
         ref="element"
         class="h-80 min-w-0 w-full sm:h-[28rem]"
         role="img"
-        :aria-label="`${symbol} ${period} K线，红涨绿跌，时间为${timezone ?? 'UTC'}，可拖动和缩放查看历史`"
+        :aria-label="`${symbol} ${period} K线，红涨绿跌，${timezone ? '时间为' + timezone : '按交易日期显示'}，可拖动和缩放查看历史`"
       />
       <div
         v-if="hoverHint"

@@ -31,7 +31,7 @@ describe('TimezoneSwitcher header menu', () => {
     };
   });
 
-  it('uses a dedicated timezone trigger and renders timezone controls inside the menu', async () => {
+  it('shows both display timezone choices directly in the user menu', async () => {
     const router = createTestRouter();
     await router.push('/dashboard');
     await router.isReady();
@@ -40,10 +40,6 @@ describe('TimezoneSwitcher header menu', () => {
     expect(wrapper.find('button[aria-label="切换展示时区"]').exists()).toBe(false);
 
     await wrapper.get('button[aria-label="打开用户菜单"]').trigger('click');
-    await vi.waitFor(() => expect(document.body.querySelector('[data-testid="timezone-menu"]')).not.toBeNull());
-    const trigger = document.body.querySelector<HTMLElement>('[data-testid="timezone-menu"]');
-    trigger?.dispatchEvent(new PointerEvent('pointermove', { bubbles: true }));
-    trigger?.click();
     await vi.waitFor(() => expect(document.body.querySelector('[data-testid="timezone-preference"]')).not.toBeNull());
 
     const menuText = document.body.textContent;

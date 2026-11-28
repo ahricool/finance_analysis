@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatDateTime } from '@/utils/format';
 import InstrumentTable from '@/components/market-data/instrument-table/InstrumentTable.vue';
 import InstrumentRow from '@/components/market-data/instrument-table/InstrumentRow.vue';
 import { computed, defineAsyncComponent, onBeforeUnmount, ref, watch } from 'vue';
@@ -126,7 +127,7 @@ async function download() {
         <span>已识别 <strong class="font-medium text-foreground">{{ data.coveredCount }} / {{ data.scannedCount }}</strong></span>
         <span>有效买点 <strong class="font-medium text-foreground">{{ data.candidateCount }}</strong></span>
         <span>信号中心按分支质量取前 {{ data.candidateLimit }} 只 · 超出 {{ Math.max(0, data.candidateCount - data.candidateLimit) }} 只</span>
-        <span v-if="data.generatedAt">生成于 {{ data.generatedAt.replace('T', ' ').slice(0, 19) }} UTC</span>
+        <span v-if="data.generatedAt">生成于 {{ formatDateTime(data.generatedAt) }}</span>
       </div>
     </CardHeader>
     <CardContent class="space-y-4 p-4 sm:p-5">

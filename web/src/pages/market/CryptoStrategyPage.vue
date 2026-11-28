@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatDateTime } from '@/utils/format';
 import { onMounted, ref } from 'vue';
 import { loadCatalog, usdt, type Catalog } from '@/api/cryptoStrategy';
 import AppApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
@@ -77,7 +78,7 @@ onMounted(load);
             :key="p.environment + p.start"
             class="py-2 text-sm"
           >
-            {{ p.environment === 'paper' ? 'Paper Trade' : 'Live Trade' }} · {{ new Date(p.start).toLocaleString() }} 至 {{ p.end ? new Date(p.end).toLocaleString() : '使用中' }}
+            {{ p.environment === 'paper' ? 'Paper Trade' : 'Live Trade' }} · {{ formatDateTime(p.start) }} 至 {{ p.end ? formatDateTime(p.end) : '使用中' }}
             <p>{{ usdt(p.start_equity) }} → {{ usdt(p.end_equity) }} · 收益 {{ usdt(p.profit) }}</p>
           </li>
         </ul>

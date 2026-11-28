@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatDateTime, displayTimezoneLabel } from '@/utils/format';
 import { computed, ref, shallowRef, watch } from 'vue';
 import { useElementSize, useIntervalFn } from '@vueuse/core';
 import { fetchIndustryMapMetadata, type IndustryMapMetadata, type IntradayOptionRow } from '@/api/intradayOptions';
@@ -10,12 +11,6 @@ import { branchIds, layoutIndustryMap } from './industryMapLayout';
 import IndustryMapNode from './IndustryMapNode.vue';
 
 const props = defineProps<{ rows: IntradayOptionRow[]; disconnected: boolean }>();
-const nyDateTime = new Intl.DateTimeFormat('zh-CN', {
-  timeZone: 'America/New_York',
-  dateStyle: 'medium',
-  timeStyle: 'short',
-  hour12: false,
-});
 const metadata = shallowRef<IndustryMapMetadata>();
 const error = shallowRef<ParsedApiError | null>(null);
 const attempt = ref(0);
@@ -28,7 +23,7 @@ const map = computed(() => buildIndustryMap(props.rows, metadata.value?.items ??
 const layout = computed(() => layoutIndustryMap(map.value.root, collapsed.value, compact.value));
 const capTime = computed(() => {
   const value = Date.parse(metadata.value?.marketCapAsOf ?? '');
-  return Number.isFinite(value) ? nyDateTime.format(value) : null;
+  return Number.isFinite(value) ? formatDateTime(metadata.value?.marketCapAsOf) : null;
 });
 
 useIntervalFn(() => attempt.value++, 15 * 60_000);
@@ -99,7 +94,7 @@ function toggle(id: string) {
         v-if="metadata && (capTime || map.missingCaps)"
         class="text-xs text-muted-foreground"
       >
-        <span v-if="capTime">市值快照 {{ capTime }}（纽约）</span>
+        <span v-if="capTime">市值快照 {{ capTime }}（{{ displayTimezoneLabel() }}）</span>
         <span v-if="capTime && map.missingCaps"> · </span>
         <span v-if="map.missingCaps">{{ map.missingCaps }} 只个股缺少市值，排在各行业末尾</span>
       </p>

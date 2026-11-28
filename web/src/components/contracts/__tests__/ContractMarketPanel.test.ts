@@ -1,3 +1,6 @@
+import { createPinia, setActivePinia } from 'pinia';
+import { nextTick } from 'vue';
+import { useTimezoneStore } from '@/stores/timezoneStore';
 import { flushPromises, mount } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import ContractMarketPanel from '../ContractMarketPanel.vue';
@@ -22,6 +25,19 @@ beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(now); });
 afterEach(() => vi.useRealTimers());
 
 describe('contract inline indicators', () => {
+  it('switches the chart and quote labels without shifting candle timestamps', async () => {
+    const store = useTimezoneStore(setActivePinia(createPinia()));
+    const panel = render([candle(minute, 100)]);
+    const chart = panel.findComponent({ name: 'MarketKLineChart' });
+    expect(chart.props('timezone')).toBe('Asia/Shanghai');
+    expect(panel.text()).toContain('18:20:00');
+    store.setDisplayTimezone('America/New_York');
+    await nextTick();
+    expect(chart.props('timezone')).toBe('America/New_York');
+    expect(chart.props('current').timestamp).toBe(minute);
+    expect(panel.text()).toContain('05:20:00');
+    panel.unmount();
+  });
   it('excludes the forming minute from MA and preserves it as chart preview', () => {
     const panel = render([...history, candle(minute, 200)]);
     const chart = panel.findComponent({ name: 'MarketKLineChart' });

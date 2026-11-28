@@ -1,8 +1,11 @@
 import { mount } from '@vue/test-utils';
-import { afterEach, expect, it, vi } from 'vitest';
+import { createPinia, setActivePinia } from 'pinia';
+import { useTimezoneStore } from '@/stores/timezoneStore';
+import { beforeEach, afterEach, expect, it, vi } from 'vitest';
 import SimulationPanel from '../SimulationPanel.vue';
 import type { IntradayOptionsSnapshot } from '@/api/intradayOptions';
 
+beforeEach(() => useTimezoneStore(setActivePinia(createPinia())).setDisplayTimezone('America/New_York'));
 afterEach(() => vi.useRealTimers());
 it('labels simulated positions, keeps event identity on replay and masks stale execution', async () => {
   vi.useFakeTimers(); vi.setSystemTime(new Date('2026-11-17T16:00:00Z'));

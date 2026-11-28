@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { getDisplayTimezone, formatFullDateTimeWithTimezone, displayTimezoneLabel } from '@/utils/format';
 import { computed } from 'vue';
 import { ChartNoAxesCombined } from 'lucide-vue-next';
 import VChart from 'vue-echarts';
@@ -18,6 +19,10 @@ const samples = computed(() => props.points.map(({ time, equity }): [number, num
 }).filter(([time]) => Number.isFinite(time)).sort((a, b) => a[0] - b[0]));
 const latest = computed(() => samples.value.filter((p): p is [number, number] => p[1] !== null).at(-1));
 const options = computed(() => {
+  const formatter = new Intl.DateTimeFormat('zh-CN', {
+    timeZone: getDisplayTimezone(), month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+  });
+  const axisPointer = { label: { formatter: ({ value }: { value: number }) => formatter.format(value) } };
   const dark = resolvedTheme.value === 'dark';
   const ink = dark ? '#abb7c6' : '#566579';
   const line = dark ? '#80b4ff' : '#356cc1';
@@ -29,8 +34,8 @@ const options = computed(() => {
       textStyle: { color: ink }, axisPointer: { type: 'line', lineStyle: { color: line, type: 'dashed' } },
       valueFormatter: (value: unknown) => typeof value === 'number' ? amount.format(value) + ' ' + props.unit : '—',
     },
-    xAxis: { type: 'time', splitNumber: 4, axisTick: { show: false }, axisLine: { show: false },
-      axisLabel: { color: ink, fontSize: 10, hideOverlap: true } },
+    xAxis: { type: 'time', axisPointer, splitNumber: 4, axisTick: { show: false }, axisLine: { show: false },
+      axisLabel: { color: ink, fontSize: 10, hideOverlap: true, formatter: (value: number) => formatter.format(value) } },
     yAxis: { type: 'value', scale: true, splitNumber: 4, axisLabel: { color: ink, fontSize: 10 },
       splitLine: { lineStyle: { type: 'dashed', color: dark ? '#333d4b' : '#dce2eb' } } },
     series: [{ name: '账户权益', type: 'line', data: samples.value, showSymbol: true,
@@ -54,7 +59,7 @@ const options = computed(() => {
       <h2 class="text-base font-semibold">
         账户权益曲线
       </h2>
-      <span class="text-xs text-muted-foreground">{{ unit }} · UTC</span>
+      <span class="text-xs text-muted-foreground">{{ unit }} · {{ displayTimezoneLabel() }}</span>
     </figcaption>
     <template v-if="latest">
       <div class="mt-2 flex flex-wrap items-baseline gap-x-3">
@@ -63,7 +68,7 @@ const options = computed(() => {
           class="text-xs text-muted-foreground"
           :datetime="new Date(latest[0]).toISOString()"
         >
-          {{ new Date(latest[0]).toISOString().slice(0, 16).replace('T', ' ') }} UTC
+          {{ formatFullDateTimeWithTimezone(latest[0]) }}
         </time>
       </div>
       <div class="mt-2 h-44 w-full sm:h-52">

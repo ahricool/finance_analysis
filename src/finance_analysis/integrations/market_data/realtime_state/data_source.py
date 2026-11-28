@@ -198,7 +198,7 @@ class RealtimeMarketDataSource:
             return self._miss(canonical_symbol, reason)
         if include_incomplete and current_candle is not None:
             valid = _merge_current(valid, current_candle, canonical_symbol, normalized_market, current)
-        result = [_candle_to_bar(candle, normalized_market) for candle in valid[-requested_count:]]
+        result = [_candle_to_bar(candle) for candle in valid[-requested_count:]]
         logger.info("symbol=%s source=market_streamer bars=%s", canonical_symbol, len(result))
         return MarketDataLookup(result)
 
@@ -240,7 +240,7 @@ class RealtimeMarketDataSource:
             if existing is None or _prefer_candle(bar, existing):
                 by_identity[bar.identity] = bar
         return [
-            _candle_to_bar(bar, normalized_market)
+            _candle_to_bar(bar)
             for bar in sorted(by_identity.values(), key=lambda item: item.bar_time)[-max(1, int(count)):]
         ]
 
@@ -608,9 +608,9 @@ def _prefer_candle(candidate: CandleState, existing: CandleState) -> bool:
     return candidate.received_at >= existing.received_at
 
 
-def _candle_to_bar(candle: CandleState, market_type: MarketType) -> dict[str, Any]:
+def _candle_to_bar(candle: CandleState) -> dict[str, Any]:
     return {
-        "timestamp": candle.bar_time.astimezone(market_timezone(market_type)).isoformat(),
+        "timestamp": candle.bar_time.astimezone(timezone.utc).isoformat(),
         "open": float(candle.open),
         "high": float(candle.high),
         "low": float(candle.low),
