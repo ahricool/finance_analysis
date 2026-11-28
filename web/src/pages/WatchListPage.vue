@@ -38,7 +38,7 @@ import { useRealtimeQuotes } from '@/composables/useRealtimeQuotes';
 import type { Market } from '@/types/stockIndex';
 import { formatSecurityLabel } from '@/utils/security';
 import { signedTextClass } from '@/utils/marketTone';
-import { trendSortValue, patternSortValue } from '@/utils/realtimeTableSort';
+import { currentStockOpportunity, stockOpportunityText, trendSortValue, patternSortValue } from '@/utils/realtimeTableSort';
 import { calculateIntradayDirection, intradayDirectionSortValue } from '@/utils/intradayDirection';
 import { Eye, Heart, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-vue-next';
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
@@ -54,6 +54,7 @@ type WatchListSortKey =
   | 'changeAmount'
   | 'changePct'
   | 'trend'
+  | 'opportunity'
   | 'pattern'
   | 'intradayDirection';
 
@@ -151,6 +152,7 @@ function sortValue(
   if (key === 'lastPrice') return quote?.lastPrice;
   if (key === 'changeAmount') return quote?.changeAmount;
   if (key === 'changePct') return quote?.changePct;
+  if (key === 'opportunity') return currentStockOpportunity(quote, currentTime.value, realtimeStatus.value)?.qualityScore ?? null;
   if (key === 'trend') return trendSortValue(quote?.trend1m);
   if (key === 'pattern') return patternSortValue(quote?.pattern1m);
   if (key === 'intradayDirection') {
@@ -591,6 +593,13 @@ onMounted(() => {
                 />
                 <SortableTableHeader
                   scope="watch"
+                  label="短线机会"
+                  :active="sortKey === 'opportunity'"
+                  :direction="sortDirection"
+                  @sort="toggleSort('opportunity')"
+                />
+                <SortableTableHeader
+                  scope="watch"
                   label="日内方向状态"
                   :active="sortKey === 'intradayDirection'"
                   :direction="sortDirection"
@@ -604,7 +613,7 @@ onMounted(() => {
             <TableBody>
               <TableRow v-if="!visibleItems.length">
                 <TableCell
-                  colspan="10"
+                  colspan="11"
                   class="px-4 py-10 text-center text-muted-foreground"
                 >
                   当前筛选下暂无自选股
@@ -715,6 +724,9 @@ onMounted(() => {
                         :pattern="getQuote(item.code, item.marketType)?.pattern1m"
                         :now="currentTime"
                       />
+                    </TableCell>
+                    <TableCell class="whitespace-nowrap">
+                      {{ stockOpportunityText(getQuote(item.code, item.marketType), currentTime, realtimeStatus) }}
                     </TableCell>
                     <TableCell class="px-4 py-3">
                       <IntradayDirectionStatus

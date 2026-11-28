@@ -21,6 +21,8 @@ from finance_analysis.market_stream.config import US_MINUTE_LIMIT, US_MINUTE_WIN
 def _encode(value: Any) -> str:
     if value is None:
         return ""
+    if isinstance(value, dict):
+        return json.dumps(value, separators=(",", ":"))
     if isinstance(value, bool):
         return "1" if value else "0"
     if isinstance(value, Decimal):

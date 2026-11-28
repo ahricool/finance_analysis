@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 from finance_analysis.intraday_options.structure import atr, box, metrics
 from finance_analysis.intraday_options.analysis_window import HORIZON, REQUIRED_MINUTES, analysis_window, minute_timeline, observed
 from finance_analysis.intraday_options.rules import CONTINUATION, ENTRY_VERSION, RULES, START_KINDS, entry_interval, policy
-from finance_analysis.intraday_options.breakout_alerts import annotate_breakouts
+from finance_analysis.intraday_options.breakout_alerts import BREAKOUT_KINDS, annotate_breakouts
 from finance_analysis.intraday_options.starts import breakout_seeds
 from finance_analysis.intraday_options.continuation import setup, confirmation, pullback_anchor
 
@@ -391,6 +391,29 @@ def start_branches(ordered, settings, snapshots=None):
         else:
             result.append(branch)
     return result
+
+
+TABLE_BREAKOUT_ATR = 0.5
+
+
+def table_opportunities(opportunities):
+    """Project the rolling branches for display without changing alert or simulation evidence."""
+    visible = [b for b in opportunities["branches"] if b["kind"] not in BREAKOUT_KINDS
+               or (b.get("distance_atr") or 0) >= TABLE_BREAKOUT_ATR]
+    # Branches already use the canonical quality/kind/identity order within each status.
+    primary = next((b for b in visible if b["status"] == "confirmed" and not b.get("superseded_by")
+                    and not b.get("breakout_rejection")), None) if opportunities["primary"] else None
+    reasons = opportunities["reasons"]
+    if opportunities["primary"] and not primary:
+        reasons = [*reasons, f"突破收盘距离未达表格展示门槛 {TABLE_BREAKOUT_ATR:g} ATR"]
+    return {**opportunities, "primary": primary, "branches": visible, "reasons": reasons}
+
+
+def table_summary(opportunities):
+    primary = table_opportunities(opportunities)["primary"]
+    return primary and {k: primary[k] for k in (
+        "quality_score", "direction", "kind", "trigger", "invalidation", "structure_id", "confirmed_at", "expires_at",
+    )}
 
 
 def calculate_opportunities(ordered, settings=None, opening=None):

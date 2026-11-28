@@ -8,7 +8,7 @@ import time
 import websockets
 from redis.exceptions import RedisError
 
-from finance_analysis.intraday_options.opportunity_alert import alert_opportunity
+from finance_analysis.intraday_options.opportunity_alert import queue_opportunities
 from finance_analysis.contracts.analysis import summarize
 from finance_analysis.contracts.metrics import LIST_METRIC_MAX_AGE, aligned, summary_readings
 from finance_analysis.database.repositories import contracts as repository
@@ -109,7 +109,6 @@ class ContractCollector:
         self.funding = {}
         self.daily_current = {}
         self.dirty = set()
-        self.alert_tasks = set()
 
     async def symbols(self):
         return {row["symbol"] for row in await asyncio.to_thread(repository.contracts)}
@@ -267,17 +266,14 @@ class ContractCollector:
             pipe.set(key(symbol, "analysis"), json.dumps(summary), ex=120)
             writes += 1
             quote = self.quotes.get(symbol)
-            if quote:
-                alerts.extend((symbol, b, summary["as_of"], quote["timestamp"]) for b in candidates)
+            if summary:
+                alerts.append((symbol, candidates, summary["as_of"], quote["timestamp"] if quote else None))
         if writes:
             await pipe.execute()
-        for symbol, candidate, as_of, quote_at in alerts:
-            task = asyncio.create_task(alert_opportunity(
-                self.redis, symbol, candidate, datetime.fromtimestamp(as_of / 1000, UTC),
-                datetime.fromtimestamp(quote_at / 1000, UTC), datetime.now(UTC),
-            ))
-            self.alert_tasks.add(task)
-            task.add_done_callback(self.alert_tasks.discard)
+        await asyncio.gather(*(queue_opportunities(
+            self.redis, symbol, candidates, datetime.fromtimestamp(as_of / 1000, UTC),
+            datetime.fromtimestamp(quote_at / 1000, UTC) if quote_at is not None else None, datetime.now(UTC),
+        ) for symbol, candidates, as_of, quote_at in alerts))
 
     async def receive(self, socket, symbols):
         while True:
@@ -341,7 +337,6 @@ class ContractCollector:
             # If the handshake failed, allow initial REST warmup to finish.
             # Otherwise stop the old session before another can write.
             await asyncio.gather(*tasks, warmup, return_exceptions=True)
-            await asyncio.gather(*tuple(self.alert_tasks), return_exceptions=True)
             await self.flush()
 
     async def run(self):

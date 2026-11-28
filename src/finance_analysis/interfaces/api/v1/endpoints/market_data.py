@@ -467,6 +467,11 @@ def _quote_payload(
         "trading_date": quote.trading_date.isoformat() if quote is not None else None,
         "trend_1m": trend_payload(trend),
         "pattern_1m": pattern_payload(pattern),
+        "opportunity": trend.opportunity if (
+            trend.opportunity and quote and now - min(quote.received_at, quote.event_time) <= timedelta(seconds=30)
+            and trend.bar_time and timedelta(0) <= now - trend.bar_time - timedelta(minutes=1) < timedelta(seconds=75)
+            and now < datetime.fromisoformat(trend.opportunity["expires_at"])
+        ) else None,
     }
     if quote is None:
         return base

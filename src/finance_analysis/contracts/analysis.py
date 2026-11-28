@@ -4,9 +4,9 @@ from decimal import Decimal
 
 from finance_analysis.integrations.market_data.realtime_state.models import CandleState
 from finance_analysis.intraday_options.opportunity_alert import alert_candidates
-from finance_analysis.intraday_options.opportunities import calculate_opportunities
+from finance_analysis.intraday_options.opportunities import calculate_opportunities, table_summary
 from finance_analysis.intraday_options.structure import calculate_structure
-from finance_analysis.intraday_options.scoring import ROLLING_MINUTES, trend_summary
+from finance_analysis.intraday_options.scoring import ROLLING_MINUTES, rolling_bars, trend_summary
 from finance_analysis.market_stream.indicator_payloads import pattern_payload, trend_payload
 from finance_analysis.market_stream.patterns.config import PatternConfig
 from finance_analysis.market_stream.patterns.detector import formal_pattern_state
@@ -15,25 +15,30 @@ from finance_analysis.market_stream.trend import rolling_ma_trend
 
 def summarize(symbol, rows, now_ms, *, include_alerts=False):
     now = datetime.fromtimestamp(now_ms / 1000, UTC)
-    opening = now.replace(second=0, microsecond=0) - timedelta(minutes=ROLLING_MINUTES)
+    closed = [r for r in rows if r.get("closed") and r["timestamp"] + 60_000 <= now_ms
+              and r.get("received_at_ms", r.get("event_time", 0)) <= now_ms]
+    if not closed:
+        return None
+    start_ms = max(r["timestamp"] for r in closed) - (ROLLING_MINUTES - 1) * 60_000
     bars = []
-    for row in rows:
+    for row in closed:
+        if row["timestamp"] < start_ms:
+            continue
         at = datetime.fromtimestamp(row["timestamp"] / 1000, UTC)
         close_time = at + timedelta(minutes=1)
-        if row.get("closed") and opening <= at and close_time <= now:
-            received = datetime.fromtimestamp(row.get("received_at_ms", row.get("event_time", 0)) / 1000, UTC)
-            bars.append(CandleState(
-                symbol=symbol, bar_time=at, confirmed=True, trade_session=None, received_at=max(received, close_time),
-                source="binance", **{k: Decimal(str(row[k])) for k in ("open", "high", "low", "close", "turnover")},
-                volume=row["volume"],
-            ))
+        received = datetime.fromtimestamp(row.get("received_at_ms", row.get("event_time", 0)) / 1000, UTC)
+        bars.append(CandleState(
+            symbol=symbol, bar_time=at, confirmed=True, trade_session=None, received_at=max(received, close_time),
+            source="binance", **{k: Decimal(str(row[k])) for k in ("open", "high", "low", "close", "turnover")},
+            volume=row["volume"],
+        ))
+    bars = rolling_bars(symbol, bars, now)
     if not bars:
         return None
     opening = bars[0].bar_time
     trend, windows = trend_summary(bars, opening)
     structure = calculate_structure(bars, opening=opening)
     opportunities = calculate_opportunities(bars, opening=opening)
-    primary = opportunities["primary"]
     start = len(bars)
     while start > 0 and bars[start - 1].is_valid():
         if start < len(bars) and bars[start].bar_time - bars[start - 1].bar_time != timedelta(minutes=1):
@@ -52,5 +57,5 @@ def summarize(symbol, rows, now_ms, *, include_alerts=False):
             "dataStatus": w["data_status"], "missingBars": w["missing_bars"], "availableBars": w["available_bars"],
         } for w in windows},
         "reference": any(w["data_status"] != "ready" for w in windows),
-        "opportunity": primary and {k: primary[k] for k in ("quality_score", "direction", "kind", "trigger", "invalidation", "structure_id", "confirmed_at", "expires_at")},
+        "opportunity": table_summary(opportunities),
     }

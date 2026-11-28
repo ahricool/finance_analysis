@@ -7,6 +7,7 @@ import json
 import logging
 from datetime import datetime, timedelta
 
+from finance_analysis.intraday_options.opportunities import table_opportunities
 from finance_analysis.intraday_options.config import CONFIG, SYMBOLS, VERSION
 from finance_analysis.intraday_options.simulation import plan as execution_plan, quote_value
 from finance_analysis.intraday_options.scoring import calculate, rolling_bars
@@ -157,6 +158,8 @@ async def read_snapshot(repository, names, now, symbols=None):
                 quote_status = "ready"
         simulation = json.loads(sim_raw) if sim_raw else None
         display = None
+        if result and result.get("opportunities"):
+            result["opportunities"] = table_opportunities(result["opportunities"])
         primary = ((result or {}).get("opportunities") or {}).get("primary")
         if primary and status == "ready" and quote_status == "ready" and now < datetime.fromisoformat(primary["expires_at"]):
             display = {**primary, "opportunity_reason": "滚动形态已确认", "execution_reason": ""}

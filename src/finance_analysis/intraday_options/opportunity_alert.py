@@ -1,7 +1,10 @@
 """Global, once-per-confirmed-structure alerts for both rolling market feeds."""
 import asyncio
 from datetime import datetime, timedelta
+import json
 import logging
+
+from finance_analysis.core.time import utc_now
 
 from finance_analysis.intraday_options.breakout_alerts import ALERT_THRESHOLD, BREAKOUT_KINDS
 from finance_analysis.intraday_options.notification import KIND_LABELS
@@ -46,28 +49,106 @@ def alert_candidates(opportunities):
     return [*candidates, *breakouts.values()]
 
 
-async def alert_opportunity(redis, symbol, primary, as_of, quote_at, now):
-    if not primary or not quote_at:
+MAX_PER_MINUTE = 3
+
+
+def minute_key(minute):
+    return f"rt:rolling-alert:minute:{minute}"
+
+
+async def queue_opportunities(redis, symbol, branches, as_of, quote_at, now):
+    """Replace this symbol's result within its closed-bar UTC minute."""
+    minute = int(as_of.timestamp()) // 60
+    if as_of > now or int(now.timestamp()) // 60 != minute:
         return
-    if not (timedelta(0) <= now - quote_at <= timedelta(seconds=60)
-            and timedelta(0) <= now - as_of < timedelta(seconds=90)
-            and now < datetime.fromisoformat(primary["expires_at"])):
+    key = minute_key(minute)
+    try:
+        if not branches or not quote_at or not timedelta(0) <= now - quote_at <= timedelta(seconds=60):
+            await redis.hdel(key, symbol)
+            return
+        pipe = redis.pipeline(transaction=True)
+        pipe.hset(key, symbol, json.dumps(branches, allow_nan=False))
+        pipe.expire(key, 180)
+        await pipe.execute()
+    except Exception:
+        logger.exception("短线机会候选入队失败: %s", symbol)
+
+
+def delivery_key(symbol, branch):
+    identity = branch["structure_id"]
+    if branch["kind"] in BREAKOUT_KINDS:
+        identity = f"breakout:{branch['direction']}:{branch['started_at']}"
+    key = f"rt:rolling-alert:{symbol}:{identity}"
+    return f"{key}:extended" if branch.get("status") == "extended" else key
+
+
+async def select_winners(redis, key, now):
+    rows = await redis.hgetall(key)
+    ranked = [(symbol, branch) for symbol, raw in rows.items() for branch in json.loads(raw)
+              if now < datetime.fromisoformat(branch["expires_at"])]
+    ranked.sort(key=lambda item: (-item[1].get("breakout_alert_score", item[1]["quality_score"]),
+                                  item[0], item[1]["structure_id"]))
+    winners = []
+    selected = set()
+    for symbol, branch in ranked:
+        claim = delivery_key(symbol, branch)
+        if claim in selected or await redis.get(claim):
+            continue
+        if branch["kind"] in BREAKOUT_KINDS and branch["status"] != "extended" and await redis.get(f"{claim}:extended"):
+            continue
+        selected.add(claim)
+        winners.append((symbol, branch))
+        if len(winners) == MAX_PER_MINUTE:
+            break
+    return winners
+
+
+async def dispatch_minute(redis, now):
+    """Freeze at most three winners before any delivery, including across leader restarts."""
+    minute = int(now.timestamp()) // 60
+    key = minute_key(minute - 1)
+    deadline = (minute - 1) * 60 + 90
+    if now.timestamp() >= deadline or await redis.get(f"{key}:done"):
         return
+    if not await redis.set(f"{key}:sending", "1", ex=5, nx=True):
+        return
+    selection = f"{key}:winners"
+    frozen = await redis.get(selection)
+    if frozen is None:
+        winners = await select_winners(redis, key, now)
+        if not await redis.set(selection, json.dumps(winners), ex=180, nx=True):
+            winners = json.loads(await redis.get(selection))
+    else:
+        winners = json.loads(frozen)
+    for symbol, branch in winners:
+        at = utc_now()
+        if at.timestamp() >= deadline:
+            return
+        if at < datetime.fromisoformat(branch["expires_at"]) and not await send_opportunity(redis, symbol, branch):
+            return
+    await redis.set(f"{key}:done", "1", ex=180)
+
+
+async def dispatch_loop(redis):
+    while True:
+        try:
+            await dispatch_minute(redis, utc_now())
+        except Exception:
+            logger.exception("短线机会分钟汇总失败")
+        await asyncio.sleep(1)
+
+
+async def send_opportunity(redis, symbol, primary):
     breakout = primary["kind"] in BREAKOUT_KINDS
     if breakout and primary.get("breakout_alert_score", 0) < ALERT_THRESHOLD:
-        return
-    identity = primary["structure_id"]
-    if breakout:
-        identity = f"breakout:{primary['direction']}:{primary['started_at']}"
-    key = f"rt:rolling-alert:{symbol}:{identity}"
+        return True
+    key = delivery_key(symbol, primary)
     extended = primary.get("status") == "extended"
-    if extended:
-        key += ":extended"
     try:
         if breakout and not extended and await redis.get(f"{key}:extended"):
-            return
+            return True
         if not await redis.set(key, "claimed", ex=86400, nx=True):
-            return
+            return await redis.get(key) == "sent"
         kind = KIND_LABELS[primary["kind"]]
         direction = "偏多" if primary["direction"] == "bullish" else "偏空"
         title = f"{symbol} 短线机会 · {kind} · {direction}"
@@ -89,15 +170,20 @@ async def alert_opportunity(redis, symbol, primary, as_of, quote_at, now):
             content += "\n价格已远离触发位，提示跟踪原形态进展。"
 
         def deliver():
-            return get_notification_service().send(content, title=title, route_type="alert", severity="info",
-                                                   dedup_key=key, cooldown_key=key)
+            service = get_notification_service()
+            persisted = service.send(content, title=title, route_type="alert", severity="info", push=False)
+            if persisted.notification_id is not None:
+                service.push_existing(content, notification_id=persisted.notification_id, title=title,
+                                      route_type="alert", severity="info", dedup_key=key, cooldown_key=key)
+            return persisted
 
-        try:
-            persisted = await asyncio.to_thread(deliver)
-            if persisted.notification_id is None:
-                await redis.delete(key)
-        except Exception:
+        persisted = await asyncio.to_thread(deliver)
+        if persisted.notification_id is None:
             await redis.delete(key)
-            raise
+            return False
+        await redis.set(key, "sent", ex=86400)
+        return True
     except Exception:
+        # A transport exception can follow persistence. Keep any existing claim.
         logger.exception("短线机会提醒失败: %s", symbol)
+        return False

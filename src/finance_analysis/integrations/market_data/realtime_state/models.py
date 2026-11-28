@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, fields
 from datetime import date, datetime
 from decimal import Decimal
@@ -209,6 +210,7 @@ class TrendState:
     trading_date: date | None = None
     trade_session: str | None = None
     confirmed: bool = False
+    opportunity: dict | None = None
 
     @classmethod
     def from_mapping(cls, value: Mapping[str, Any]) -> "TrendState":
@@ -219,6 +221,7 @@ class TrendState:
         return cls(
             symbol=str(value["symbol"]),
             timeframe="1m",
+            opportunity=json.loads(value["opportunity"]) if value.get("opportunity") else None,
             target_period=int(value.get("target_period") or 20),
             effective_period=int(value.get("effective_period") or 0),
             minimum_period=int(value.get("minimum_period") or 5),

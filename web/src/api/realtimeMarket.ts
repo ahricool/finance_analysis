@@ -1,4 +1,4 @@
-import type { IntradayOptionsSnapshot } from './intradayOptions';
+import type { IntradayOptionsSnapshot, OpportunityBranch } from './intradayOptions';
 import type { IntradayOptionsDelta } from './intradayOptionsDelta';
 import { API_BASE_URL } from '@/utils/constants';
 import type { MarketType } from './watchList';
@@ -104,6 +104,7 @@ export interface RealtimeQuote {
   tradeSession?: string | null;
   eventTime?: string | null;
   receivedAt?: string | null;
+  opportunity?: Pick<OpportunityBranch, 'kind' | 'direction' | 'qualityScore' | 'expiresAt'> | null;
   trend1m?: RealtimeTrend | null;
   pattern1m?: RealtimePatternState | null;
 }
