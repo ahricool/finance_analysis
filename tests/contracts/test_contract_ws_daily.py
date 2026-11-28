@@ -278,6 +278,31 @@ def test_utc_weekend_analysis_ignores_previous_day_and_unclosed_minutes():
     assert result["as_of"] == midnight + 2 * MINUTE
     assert result["windows"]["5"]["availableBars"] == 2
     assert result["reference"]
+    assert result["trend_1m"]["effective_period"] == 2
+    assert result["pattern_1m"]["status"] == "insufficient"
+
+
+def test_contract_indicators_use_closed_contiguous_weekend_minutes():
+    from finance_analysis.contracts.analysis import summarize
+
+    midnight = int(datetime(2026, 11, 28, tzinfo=timezone.utc).timestamp() * 1000)
+    prices = [(100, 100.5, 99.5, 100.1 if i % 2 else 99.9) for i in range(15)]
+    prices += [(99.8, 100, 98.8, 99.2), (99.3, 100.1, 99.2, 99.8), (99.9, 100.5, 99.8, 100.3)]
+    rows = [
+        {**bar(midnight + i * MINUTE), "open": o, "high": h, "low": low, "close": c, "closed": True}
+        for i, (o, h, low, c) in enumerate(prices)
+    ]
+    now = midnight + len(rows) * MINUTE
+    analysis = summarize(SYMBOL, rows, now)
+    assert analysis["trend_1m"]["state"] == "above"
+    assert analysis["trend_1m"]["streak"] == 1
+    signal = analysis["pattern_1m"]["signal"]
+    assert signal["direction"] == "bearish_to_bullish"
+    assert signal["stage"] == "confirmed"
+    assert signal["trading_date"] == "2026-11-28"
+    gap = summarize(SYMBOL, rows[:-3] + rows[-2:], now)
+    assert gap["trend_1m"]["effective_period"] == 2
+    assert gap["pattern_1m"]["status"] == "insufficient"
 
 
 def test_rolling_minutes_delta_keeps_unchanged_bars_off_wire():

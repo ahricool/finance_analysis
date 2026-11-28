@@ -50,7 +50,8 @@ from finance_analysis.market_stream.config import (
     us_minute_cutoff,
 )
 from finance_analysis.market_stream.patterns.config import PatternConfig
-from finance_analysis.market_stream.patterns.models import PatternSignal, PatternState
+from finance_analysis.market_stream.indicator_payloads import number, pattern_payload, trend_payload
+from finance_analysis.market_stream.patterns.models import PatternState
 from finance_analysis.minute_forecast.cache import close_replay_forecast, comparison_forecast, latest_forecast
 from finance_analysis.minute_forecast.evaluation import evaluation_day, read_accuracy
 from finance_analysis.minute_forecast.models import MinuteForecastPreferencePayload, MinuteForecastResponse
@@ -363,66 +364,6 @@ def _user_exists(uid: int) -> bool:
     return UserRepository().get_by_uid(uid) is not None
 
 
-def _number(value: Decimal | int | None) -> float | int | None:
-    if value is None:
-        return None
-    return int(value) if isinstance(value, int) else float(value)
-
-
-def _trend_payload(trend: TrendState) -> dict[str, Any]:
-    return {
-        "timeframe": trend.timeframe,
-        "target_period": trend.target_period,
-        "effective_period": trend.effective_period,
-        "minimum_period": trend.minimum_period,
-        "state": trend.state,
-        "streak": trend.streak,
-        "ma_value": _number(trend.ma_value),
-        "close": _number(trend.close),
-        "distance_pct": _number(trend.distance_pct),
-        "bar_time": utc_isoformat(trend.bar_time),
-        "trading_date": trend.trading_date.isoformat() if trend.trading_date else None,
-        "trade_session": trend.trade_session,
-        "confirmed": trend.confirmed,
-    }
-
-
-def _pattern_signal_payload(signal: PatternSignal) -> dict[str, Any]:
-    return {
-        "timeframe": signal.timeframe,
-        "pattern_type": signal.pattern_type,
-        "pattern_name": signal.pattern_name,
-        "direction": signal.direction,
-        "stage": signal.stage,
-        "quality_score": signal.quality_score,
-        "occurred_at": utc_isoformat(signal.occurred_at),
-        "confirmed_at": utc_isoformat(signal.confirmed_at),
-        "trading_date": signal.trading_date.isoformat() if signal.trading_date else None,
-        "trade_session": signal.trade_session,
-        "bars_ago": signal.bars_ago,
-        "session_minutes_ago": signal.session_minutes_ago,
-        "reference_level": _number(signal.reference_level),
-        "invalidation_price": _number(signal.invalidation_price),
-        "reasons": list(signal.reasons),
-        "confirmed": signal.confirmed,
-    }
-
-
-def _pattern_payload(pattern: PatternState) -> dict[str, Any]:
-    return {
-        "timeframe": pattern.timeframe,
-        "status": pattern.status,
-        "trading_date": pattern.trading_date.isoformat() if pattern.trading_date else None,
-        "bar_time": utc_isoformat(pattern.bar_time),
-        "signal": _pattern_signal_payload(pattern.signal) if pattern.signal else None,
-        "preview_status": pattern.preview_status,
-        "preview_signal": _pattern_signal_payload(pattern.preview_signal) if pattern.preview_signal else None,
-        "preview_bar_time": utc_isoformat(pattern.preview_bar_time),
-        "preview_price": _number(pattern.preview_price),
-        "preview_updated_at": utc_isoformat(pattern.preview_updated_at),
-    }
-
-
 def _display_trading_date(market_type: str, now: datetime) -> date:
     from finance_analysis.market_stream.session import display_day
 
@@ -573,8 +514,8 @@ def _quote_payload(
         **asdict(stock),
         "available": quote is not None,
         "trading_date": quote.trading_date.isoformat() if quote is not None else None,
-        "trend_1m": _trend_payload(trend),
-        "pattern_1m": _pattern_payload(pattern),
+        "trend_1m": trend_payload(trend),
+        "pattern_1m": pattern_payload(pattern),
     }
     if quote is None:
         return base
@@ -588,15 +529,15 @@ def _quote_payload(
 
     return {
         **base,
-        "last_price": _number(quote.last_price),
-        "change_amount": _number(change_amount),
-        "change_pct": _number(change_pct),
-        "open": _number(quote.open),
-        "high": _number(quote.high),
-        "low": _number(quote.low),
-        "pre_close": _number(quote.pre_close),
+        "last_price": number(quote.last_price),
+        "change_amount": number(change_amount),
+        "change_pct": number(change_pct),
+        "open": number(quote.open),
+        "high": number(quote.high),
+        "low": number(quote.low),
+        "pre_close": number(quote.pre_close),
         "volume": quote.volume,
-        "turnover": _number(quote.turnover),
+        "turnover": number(quote.turnover),
         "trade_session": quote.trade_session,
         "event_time": utc_isoformat(quote.event_time),
         "received_at": utc_isoformat(quote.received_at),

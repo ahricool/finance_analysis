@@ -9,10 +9,13 @@ test('USD-M market lists contract prices, switches native candles and manages sy
   const metrics = { timestamp, price_change: .03, oi_change: .08, buy_share: .65,
     accounts: { source_time: timestamp, long: .6, short: .4, ratio: 1.5 }, oi: null, taker: null,
     top_accounts: null, top_positions: null, status: {} };
+  const analysis = { as_of: now, windows: {}, trend_1m: { state: 'above', streak: 7 },
+    pattern_1m: { status: 'active', signal: { pattern_name: '突破', direction: 'bullish_breakout',
+      stage: 'confirmed', quality_score: 84, reasons: [], occurred_at: new Date(now).toISOString() } } };
   const initial = [
     { symbol: 'BTCUSDT', category: '加密货币', underlying_symbol: 'BTC.CRYPTO', quote: { price: 100000, change_pct: 2.1, turnover: 20000000, funding_rate: 0.0001, timestamp: Date.now() } },
     { symbol: 'NVDAUSDT', category: '美股', underlying_symbol: 'NVDA.US', quote: { price: 123, change_pct: 1, turnover: 1000000, funding_rate: 0, timestamp: Date.now() } },
-    { symbol: 'SOXLUSDT', category: 'ETF', underlying_symbol: 'SOXL.US', metrics, quote: { price: 45.12, change_pct: -1, turnover: 1000000, funding_rate: -0.0002, timestamp: Date.now() } },
+    { symbol: 'SOXLUSDT', category: 'ETF', underlying_symbol: 'SOXL.US', metrics, analysis, quote: { price: 45.12, change_pct: -1, turnover: 1000000, funding_rate: -0.0002, timestamp: Date.now() } },
   ];
   const candle = (timestamp: number) => ({ timestamp, open: 40, high: 47, low: 39, close: 45, volume: 100, turnover: 4500 });
   const day = Math.floor(Date.now() / 86400000) * 86400000;
@@ -96,6 +99,20 @@ test('USD-M market lists contract prices, switches native candles and manages sy
   const soxl = page.getByTestId('contract-row').filter({ hasText: 'SOXLUSDT' });
   const table = page.getByRole('table');
   await expect(table.getByRole('columnheader', { name: /成交额|资金费率|分类/ })).toHaveCount(0);
+  const headers = table.getByRole('columnheader');
+  const cells = soxl.getByRole('cell');
+  for (const [index, label, value] of [
+    [4, '趋势持续', '多 7'], [5, '最近形态', '向上突破'], [6, '1h 涨跌幅', '+3.00%'],
+    [15, '1h OI 数量变化', '+8.00%'], [16, '1h 主动买入占比', '65.00%'], [17, '账户多空比', '1.50'],
+  ] as const) {
+    await expect(headers.nth(index)).toContainText(label);
+    await expect(cells.nth(index)).toContainText(value);
+  }
+  await expect(headers.nth(18)).toContainText('操作');
+  for (const index of [4, 5]) {
+    await headers.nth(index).getByRole('button').first().click();
+    await expect(page.getByTestId('contract-row').first()).toContainText('SOXLUSDT');
+  }
   await expect(soxl.getByRole('button', { name: /删除|移除/ })).toHaveCount(0);
   await expect(soxl.getByRole('cell').first()).toContainText(/永续\s*· ETF/);
   await expect(table.getByRole('columnheader', { name: '操作' })).toHaveCSS('position', 'static');

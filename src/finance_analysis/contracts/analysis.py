@@ -6,6 +6,10 @@ from finance_analysis.integrations.market_data.realtime_state.models import Cand
 from finance_analysis.intraday_options.opportunities import calculate_opportunities
 from finance_analysis.intraday_options.structure import calculate_structure
 from finance_analysis.intraday_options.scoring import trend_summary
+from finance_analysis.market_stream.indicator_payloads import pattern_payload, trend_payload
+from finance_analysis.market_stream.patterns.config import PatternConfig
+from finance_analysis.market_stream.patterns.detector import formal_pattern_state
+from finance_analysis.market_stream.trend import rolling_ma_trend
 
 
 def summarize(symbol, rows, now_ms):
@@ -29,7 +33,15 @@ def summarize(symbol, rows, now_ms):
     primary = calculate_opportunities(bars, opening=opening)["primary"]
     if any(w["data_status"] == "gap" for w in windows):
         primary = None
+    start = len(bars)
+    while start > 0 and bars[start - 1].is_valid():
+        if start < len(bars) and bars[start].bar_time - bars[start - 1].bar_time != timedelta(minutes=1):
+            break
+        start -= 1
+    tail = bars[start:]
     return {
+        "trend_1m": trend_payload(rolling_ma_trend(tail, symbol, now.date())),
+        "pattern_1m": pattern_payload(formal_pattern_state(tail, None, now.date(), PatternConfig())) if tail else None,
         "as_of": int(bars[-1].bar_time.timestamp() * 1000) + 60_000,
         "structure": {key: structure[key] for key in ("kind", "phase", "reference")},
         "score": trend["score"], "direction": trend.get("direction"), "state": trend.get("state"),

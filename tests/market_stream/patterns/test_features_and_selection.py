@@ -167,7 +167,7 @@ def test_confirmed_preview_signal_is_downgraded_without_changing_formal_signal(m
     def fixed_signals(*args, **kwargs):
         return [confirmed_signal]
 
-    monkeypatch.setattr("finance_analysis.market_stream.patterns.detector.detect_pattern_signals", fixed_signals)
+    monkeypatch.setattr("finance_analysis.market_stream.patterns.detector.signals_from_context", fixed_signals)
     unfinished = replace(candle(15, (100, 101, 99, 100.5)), confirmed=False)
     state = calculate_pattern_state([*baseline(), unfinished], market_type="US", include_preview=True)
 

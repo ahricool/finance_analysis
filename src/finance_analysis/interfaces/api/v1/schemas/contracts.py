@@ -48,6 +48,8 @@ class ContractStructure(BaseModel):
 
 
 class ContractAnalysis(BaseModel):
+    trend_1m: dict | None = None
+    pattern_1m: dict | None = None
     structure: ContractStructure | None = None
     as_of: int
     score: float | None

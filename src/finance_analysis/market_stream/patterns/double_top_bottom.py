@@ -28,6 +28,10 @@ def detect_double_patterns(context: PatternContext) -> list[PatternSignal]:
 def _detect_side(context: PatternContext, *, bullish: bool) -> list[PatternSignal]:
     bars, config, atr = context.bars, context.config, context.atr
     swings = swing_low_indices(bars, config.swing_span) if bullish else swing_high_indices(bars, config.swing_span)
+    # Earlier pairs cannot confirm within the signal age limit, even at the last allowed minute.
+    oldest_first = (len(bars) - 1 - config.maximum_age_bars
+                    - config.double_confirmation_max_bars - config.double_max_separation)
+    swings = [index for index in swings if index >= oldest_first]
     results: list[PatternSignal] = []
     for first_position, first_index in enumerate(swings):
         for second_index in swings[first_position + 1 :]:

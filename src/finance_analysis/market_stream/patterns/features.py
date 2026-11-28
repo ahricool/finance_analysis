@@ -322,7 +322,7 @@ def session_vwap(
 @dataclass(frozen=True, slots=True)
 class PatternContext:
     bars: tuple[CandleState, ...]
-    market_type: MarketType
+    market_type: MarketType | None
     config: PatternConfig
     atr: Decimal
     body_median: Decimal
@@ -337,6 +337,8 @@ class PatternContext:
         return len(self.bars) - 1 - index
 
     def session_minutes_ago(self, index: int) -> int:
+        if self.market_type is None:
+            return self.bars_ago(index)  # Continuous, gap-free UTC session.
         return session_minutes_between(self.bars[index], self.latest, self.market_type)
 
 
@@ -348,6 +350,12 @@ def prepare_context(
     preview: bool = False,
 ) -> PatternContext | None:
     ordered = prepare_preview_bars(bars, market_type) if preview else sanitize_bars(bars, market_type)
+    return context_from_ordered(ordered, market_type, config)
+
+
+def context_from_ordered(
+    ordered: Sequence[CandleState], market_type: MarketType | None, config: PatternConfig,
+) -> PatternContext | None:
     if len(ordered) < config.minimum_history_bars:
         return None
     atr = robust_atr(ordered, config.baseline_window)

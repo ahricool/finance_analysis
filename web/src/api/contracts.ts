@@ -28,6 +28,7 @@ export interface ContractQuote extends Contract {
     next_funding: number | null; funding_rate: number } | null;
   book?: { bid: number; ask: number; spread_bps: number; timestamp: number } | null;
   quote: Quote | null; analysis?: {
+  trend_1m?: Record<string, unknown> | null; pattern_1m?: Record<string, unknown> | null;
   structure?: Pick<IntradayStructure, 'kind' | 'phase' | 'reference'> | null;
   score: number | null; direction: TrendDirection | null; state: TrendStage | null; reference: boolean; as_of: number;
   windows: Record<string, Pick<WindowScore, 'score' | 'direction' | 'returnPct' | 'dataStatus' | 'missingBars' | 'availableBars'>>;

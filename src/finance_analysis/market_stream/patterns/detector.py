@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import replace
-from datetime import datetime
+from datetime import date, datetime
 
 from finance_analysis.integrations.market_data.realtime_state.models import CandleState, QuoteState
 from finance_analysis.market_stream.config import market_trading_date
@@ -13,7 +13,13 @@ from finance_analysis.market_stream.patterns.compression import detect_compressi
 from finance_analysis.market_stream.patterns.config import PatternConfig
 from finance_analysis.market_stream.patterns.double_top_bottom import detect_double_patterns
 from finance_analysis.market_stream.patterns.failed_breakout import detect_failed_breakouts
-from finance_analysis.market_stream.patterns.features import prepare_context, prepare_preview_bars, sanitize_bars
+from finance_analysis.market_stream.patterns.features import (
+    PatternContext,
+    context_from_ordered,
+    prepare_context,
+    prepare_preview_bars,
+    sanitize_bars,
+)
 from finance_analysis.market_stream.patterns.impulse_pullback import detect_impulse_pullbacks
 from finance_analysis.market_stream.patterns.models import PatternSignal, PatternState
 from finance_analysis.market_stream.patterns.vwap import detect_vwap_patterns
@@ -41,8 +47,13 @@ def detect_pattern_signals(
     """Detect candidates from formal bars, or an explicitly prepared preview sequence."""
     selected_config = config or PatternConfig()
     context = prepare_context(bars, market_type=market_type, config=selected_config, preview=preview)
+    return signals_from_context(context)
+
+
+def signals_from_context(context: PatternContext | None) -> list[PatternSignal]:
     if context is None:
         return []
+    selected_config = context.config
     failed = detect_failed_breakouts(context)
     ordinary = [
         *detect_breakout_retests(context),
@@ -95,6 +106,18 @@ def select_primary_pattern(
     )
 
 
+def formal_pattern_state(
+    ordered: Sequence[CandleState], market_type: MarketType | None, trading_date: date, config: PatternConfig,
+) -> PatternState:
+    latest = ordered[-1]
+    context = context_from_ordered(ordered, market_type, config)
+    primary = select_primary_pattern(signals_from_context(context), latest_bar_time=latest.bar_time, config=config)
+    return PatternState(
+        symbol=latest.symbol, status="insufficient" if context is None else "active" if primary else "none",
+        signal=primary, trading_date=trading_date, bar_time=latest.bar_time,
+    )
+
+
 def calculate_pattern_state(
     bars: Sequence[CandleState],
     *,
@@ -111,27 +134,7 @@ def calculate_pattern_state(
         formal = PatternState(symbol=symbol)
     else:
         trading_date = market_trading_date(ordered[-1].bar_time, market_type)
-        if prepare_context(ordered, market_type=market_type, config=selected_config) is None:
-            formal = PatternState(
-                symbol=symbol,
-                status="insufficient",
-                trading_date=trading_date,
-                bar_time=ordered[-1].bar_time,
-            )
-        else:
-            signals = detect_pattern_signals(ordered, market_type=market_type, config=selected_config)
-            primary = select_primary_pattern(
-                signals,
-                latest_bar_time=ordered[-1].bar_time,
-                config=selected_config,
-            )
-            formal = PatternState(
-                symbol=symbol,
-                status="active" if primary else "none",
-                signal=primary,
-                trading_date=trading_date,
-                bar_time=ordered[-1].bar_time,
-            )
+        formal = formal_pattern_state(ordered, market_type, trading_date, selected_config)
     if not include_preview:
         return formal
 
@@ -148,12 +151,7 @@ def calculate_pattern_state(
             preview_price=unfinished.close,
             preview_updated_at=unfinished.received_at,
         )
-    preview_signals = detect_pattern_signals(
-        preview_bars,
-        market_type=market_type,
-        config=selected_config,
-        preview=True,
-    )
+    preview_signals = signals_from_context(preview_context)
     preview_signal = select_primary_pattern(
         preview_signals,
         latest_bar_time=unfinished.bar_time,
