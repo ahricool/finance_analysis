@@ -9,7 +9,7 @@ const StockDailyChart = defineAsyncComponent(() => import('./StockDailyChart.vue
 const IntradayStockPanel = defineAsyncComponent(() => import('@/components/stocks/IntradayStockPanel.vue'));
 defineOptions({ inheritAttrs: false });
 const props = defineProps<{
-  symbol?: string | null; rowId?: string | number; market?: string; virtual?: boolean; noCandles?: boolean;
+  symbol?: string | null; rowId?: string | number; market?: string; virtual?: boolean; allPeriods?: boolean; noCandles?: boolean;
 }>();
 const table = inject(expansionKey)!;
 const row = ref<HTMLTableRowElement | null>(null);
@@ -56,7 +56,7 @@ function toggle(event: MouseEvent | KeyboardEvent) {
     >
       <div :style="virtual ? { height: virtualChartHeight + 'px', overflow: 'auto' } : undefined">
         <LazyChartPanel
-          v-if="!noCandles && (tableChartPeriod === '1d' || tableChartPeriod === '1m')"
+          v-if="!noCandles && (allPeriods || tableChartPeriod === '1d' || tableChartPeriod === '1m')"
           :row-visible="visible"
         >
           <slot

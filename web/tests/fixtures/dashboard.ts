@@ -53,5 +53,7 @@ export function dashboardResponse(url: URL): object {
     ];
     return { items: url.searchParams.get('category') === 'event' ? items.filter(item => item.category === 'event') : items, total: items.length, next_cursor: null, has_more: false, limit: 10 };
   }
+  if (path === '/api/v1/crypto/contracts/favorites') return [];
+  if (/^\/api\/v1\/crypto\/contracts\/[^/]+\/forecast(?:\/preference)?$/.test(path)) return { enabled: false };
   throw new Error(`Unexpected Dashboard request: ${path}`);
 }

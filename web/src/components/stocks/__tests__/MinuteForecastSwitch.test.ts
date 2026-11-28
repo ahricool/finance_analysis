@@ -22,14 +22,14 @@ describe('shared minute forecast switch', () => {
     let finish!: (value: { enabled: boolean }) => void;
     vi.mocked(saveMinuteForecastPreference).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
     await control().trigger('click');
-    expect(saveMinuteForecastPreference).toHaveBeenCalledWith('AAPL.US', true);
+    expect(saveMinuteForecastPreference).toHaveBeenCalledWith('AAPL.US', true, false);
     expect(control().attributes('aria-checked')).toBe('false');
     expect(control().attributes('disabled')).toBeDefined();
     finish({ enabled: true }); await flushPromises();
     expect(control().attributes('aria-checked')).toBe('true');
     vi.mocked(saveMinuteForecastPreference).mockResolvedValueOnce({ enabled: false });
     await control().trigger('click'); await flushPromises();
-    expect(saveMinuteForecastPreference).toHaveBeenLastCalledWith('AAPL.US', false);
+    expect(saveMinuteForecastPreference).toHaveBeenLastCalledWith('AAPL.US', false, false);
     expect(control().attributes('aria-checked')).toBe('false');
     wrapper.unmount();
   });

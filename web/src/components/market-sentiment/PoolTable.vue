@@ -22,7 +22,7 @@ defineProps<{ pool: Pool | null }>();
     <InstrumentTable class="w-full min-w-max text-left text-xs">
       <thead class="bg-muted">
         <tr>
-          <th>
+          <th class="instrument-column">
             <IndicatorHelpLabel
               scope="sentiment"
               label="代码 / 名称"
@@ -93,7 +93,7 @@ defineProps<{ pool: Pool | null }>();
           market="CN"
           class="border-t align-top"
         >
-          <td class="whitespace-nowrap">
+          <td class="instrument-column">
             <StockLink
               :code="r.thscode"
               :name="r.name"

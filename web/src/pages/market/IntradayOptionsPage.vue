@@ -172,6 +172,7 @@ watch(stream.intradayOptions, result => {
               :description="column.description"
               :active="table.sortKey === column.key"
               :direction="table.direction"
+              :class="{ 'instrument-column': column.key === 'symbol' }"
               @sort="toggleSort(column.key)"
             />
           </TableRow>
@@ -195,7 +196,7 @@ watch(stream.intradayOptions, result => {
               class="cursor-pointer"
               :data-testid="`options-row-${row.symbol}`"
             >
-              <TableCell class="max-w-48 py-2">
+              <TableCell class="instrument-column max-w-48 py-2">
                 <StockLink
                   :code="row.symbol"
                   :name="row.name"

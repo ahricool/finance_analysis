@@ -288,6 +288,7 @@ const detailInitialTab = ref<'overview' | 'options'>('options');
               :description="optionHelp[column.label]"
               :active="sortKey === column.key"
               :direction="sortDirection"
+              :class="{ 'instrument-column': column.key === 'symbol' }"
               @sort="toggleSort(column.key)"
             />
           </TableRow>
@@ -300,7 +301,7 @@ const detailInitialTab = ref<'overview' | 'options'>('options');
             market="US"
             class="cursor-pointer transition-colors hover:bg-muted/40"
           >
-            <TableCell>
+            <TableCell class="instrument-column">
               <StockLink
                 :code="r.symbol"
                 :name="r.name"

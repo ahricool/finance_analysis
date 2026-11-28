@@ -16,8 +16,9 @@ import type { TradeSession } from '@/api/intradayMarket';
 
 const props = defineProps<{
   symbol: string;
+  contractForecast?: boolean;
   disableForecast?: boolean;
-  period: '1m' | '5m' | '15m' | '1h' | '4h' | '1d' | '1w' | '1M';
+  period: '1m' | '5m' | '15m' | '1h' | '4h' | '1d' | '1w' | '1M' | '1y';
   pricePrecision?: number;
   bars: KLineData[];
   dailyForecast?: DailyForecast | null;
@@ -34,7 +35,7 @@ const props = defineProps<{
 const element = ref<HTMLElement>();
 const { resolvedTheme } = useTheme();
 const now = useCurrentTime(3_000);
-const forecastResponse = useMinuteForecast(() => props.symbol, () => !props.disableForecast && props.period === '1m' && props.bars.length > 0);
+const forecastResponse = useMinuteForecast(() => props.symbol, () => !props.disableForecast && props.period === '1m' && props.bars.length > 0, props.contractForecast);
 const showForecast = ref(true);
 const forecast = computed(() => {
   const value = forecastResponse.value?.forecast;
@@ -388,7 +389,7 @@ function initialize() {
     '1m': { type: 'minute', span: 1 }, '5m': { type: 'minute', span: 5 },
     '15m': { type: 'minute', span: 15 }, '1h': { type: 'hour', span: 1 },
     '4h': { type: 'hour', span: 4 }, '1d': { type: 'day', span: 1 },
-    '1w': { type: 'week', span: 1 }, '1M': { type: 'month', span: 1 },
+    '1y': { type: 'year', span: 1 }, '1w': { type: 'week', span: 1 }, '1M': { type: 'month', span: 1 },
   } as const;
   chart.setPeriod(periods[props.period]);
   chart.setDataLoader({

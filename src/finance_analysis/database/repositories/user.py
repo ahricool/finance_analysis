@@ -161,7 +161,7 @@ class UserRepository:
             raise ValueError("invalid gender")
 
         def _write(session: Session) -> Optional[int]:
-            row = session.get(User, uid)
+            row = session.get(User, uid, with_for_update=True)
             if row is None:
                 return None
             if username_val is not None:
@@ -171,7 +171,7 @@ class UserRepository:
                 next_extra["gender"] = gender
             if notification is not None:
                 next_extra["notification"] = normalize_user_extra({"notification": notification})["notification"]
-            row.extra = next_extra
+            row.extra = {**(row.extra or {}), **next_extra}
             session.flush()
             return row.id
 

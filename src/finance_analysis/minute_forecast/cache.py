@@ -21,6 +21,7 @@ if old then
 end
 local ttl = math.max(tonumber(ARGV[3]), math.ceil((tonumber(ARGV[7]) - now) / 1000))
 redis.call('SET', KEYS[1], ARGV[2], 'EX', ttl)
+if ARGV[9] == '0' then return 1 end
 redis.call('ZADD', KEYS[2], ARGV[1], ARGV[8])
 redis.call('ZREMRANGEBYRANK', KEYS[2], 0, -17)
 redis.call('EXPIRE', KEYS[2], ARGV[3])
@@ -68,7 +69,7 @@ async def comparison_forecast(redis, symbol: str, now_ms: int) -> ForecastSnapsh
     return _decode(found[0]) if found else None
 
 
-async def publish_forecast(redis, forecast: ForecastSnapshot) -> None:
+async def publish_forecast(redis, forecast: ForecastSnapshot, *, track_accuracy: bool = True) -> None:
     key = forecast_key(forecast.symbol)
     # Keep the established short-horizon accuracy series without queuing every rolling path until the close.
     comparison = forecast.model_copy(update={"bars": forecast.bars[:ERROR_HORIZON], "session_close": None})
@@ -76,7 +77,7 @@ async def publish_forecast(redis, forecast: ForecastSnapshot) -> None:
         _PUBLISH, 3, live_forecast_key(forecast.symbol), f"{key}:recent", pending_error_key(forecast.symbol),
         forecast.anchor, forecast.model_dump_json(), TTL_SECONDS, forecast.bars[0].timestamp + MINUTE_MS,
         comparison.bars[-1].timestamp + MINUTE_MS, EVALUATION_TTL_SECONDS,
-        forecast.session_close or 0, comparison.model_dump_json(),
+        forecast.session_close or 0, comparison.model_dump_json(), int(track_accuracy),
     )
 
 

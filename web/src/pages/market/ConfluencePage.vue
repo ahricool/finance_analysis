@@ -323,7 +323,7 @@ const detailInitialTab = ref<'overview' | 'confluence'>('confluence');
             <TableHeader>
               <TableRow class="bg-muted/35 hover:bg-muted/35">
                 <SortableTableHeader
-                  class="w-44"
+                  class="instrument-column w-44"
                   label="证券 / 证据一致性"
                   v-bind="table.header('name')"
                 /><SortableTableHeader
@@ -357,7 +357,7 @@ const detailInitialTab = ref<'overview' | 'confluence'>('confluence');
                 :market="market"
                 class="cursor-pointer"
               >
-                <TableCell class="py-5">
+                <TableCell class="instrument-column py-5">
                   <div class="flex items-start gap-3">
                     <span class="mt-1 font-mono text-xs text-muted-foreground">{{ formatRank(originalRanks.get(row.code), result?.total) }}</span><div>
                       <StockLink

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 
 from finance_analysis.core.time import utc_now
@@ -60,6 +60,13 @@ def calculate_ma_trend(
     from finance_analysis.market_stream.quality import indicator_tail
 
     ordered = indicator_tail(ordered, market_type)
+    return rolling_ma_trend(ordered, symbol, target_date, target_period, minimum_period)
+
+
+def rolling_ma_trend(
+    ordered: Sequence[CandleState], symbol: str, target_date: date, target_period: int = 20, minimum_period: int = 5,
+) -> TrendState:
+    """Evaluate a validated, contiguous sequence of completed session bars."""
     latest = ordered[-1] if ordered else None
     count = len(ordered)
     base = TrendState(

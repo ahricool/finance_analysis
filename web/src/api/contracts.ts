@@ -1,4 +1,4 @@
-import type { TrendDirection, TrendStage, WindowScore, OpportunityBranch } from './intradayOptions';
+import type { TrendDirection, TrendStage, WindowScore, IntradayStructure, OpportunityBranch } from './intradayOptions';
 import apiClient from './index';
 import { API_BASE_URL } from '@/utils/constants';
 
@@ -28,11 +28,13 @@ export interface ContractQuote extends Contract {
     next_funding: number | null; funding_rate: number } | null;
   book?: { bid: number; ask: number; spread_bps: number; timestamp: number } | null;
   quote: Quote | null; analysis?: {
+  trend_1m?: Record<string, unknown> | null; pattern_1m?: Record<string, unknown> | null;
+  structure?: Pick<IntradayStructure, 'kind' | 'phase' | 'reference'> | null;
   score: number | null; direction: TrendDirection | null; state: TrendStage | null; reference: boolean; as_of: number;
   windows: Record<string, Pick<WindowScore, 'score' | 'direction' | 'returnPct' | 'dataStatus' | 'missingBars' | 'availableBars'>>;
   opportunity: Pick<OpportunityBranch, 'direction' | 'kind'> & {quality_score: number} | null;
 } | null }
-export interface Candle {
+export type Candle = {
   closed?: boolean; received_at_ms?: number; event_time?: number;
   timestamp: number; open: number; high: number; low: number; close: number; volume: number; turnover: number;
 }
@@ -42,6 +44,12 @@ export interface MarketSnapshot {
 
 const path = '/api/v1/crypto/contracts';
 export const contractsApi = {
+  async favorites(): Promise<string[]> {
+    return (await apiClient.get(path + '/favorites')).data;
+  },
+  async favorite(symbol: string, enabled: boolean): Promise<string[]> {
+    return (await apiClient.put(path + '/' + encodeURIComponent(symbol) + '/favorite', { enabled })).data;
+  },
   async snapshot(): Promise<MarketSnapshot> {
     return (await apiClient.get(path)).data;
   },

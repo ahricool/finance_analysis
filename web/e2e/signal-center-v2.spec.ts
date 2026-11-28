@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { expectPinnedInstrumentColumn } from './instrumentColumn';
 
 const day = '2026-10-29';
 const picks = ['600000.SH', '510300.SH', '600001.SH'].map((symbol, index) => ({
@@ -39,6 +40,7 @@ for (const width of [390, 768, 1024, 1280, 1440, 1920]) {
       await page.goto('/research/signal-center');
       await expect(page.getByTestId('signal-pick')).toHaveCount(3);
       await expect(page.getByTestId('global-market-switch')).toHaveAttribute('aria-checked', 'false');
+      if (width === 390) await expectPinnedInstrumentColumn(page.getByRole('table'), 2);
       await page.getByTestId('signal-pick').first().getByText('核验证据').click();
       await expect(page.getByText('600000.SH.trends.20.rank', { exact: true })).toBeVisible();
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);

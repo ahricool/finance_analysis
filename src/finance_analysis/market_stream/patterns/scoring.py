@@ -73,7 +73,8 @@ def make_signal(
         quality_score=clamp_score(score),
         occurred_at=context.bars[occurred_index].bar_time,
         confirmed_at=context.bars[confirmed_index].bar_time if confirmed_index is not None else None,
-        trading_date=market_trading_date(context.latest.bar_time, context.market_type),
+        trading_date=(market_trading_date(context.latest.bar_time, context.market_type)
+                      if context.market_type else context.latest.bar_time.date()),
         trade_session=context.bars[effective_index].trade_session,
         bars_ago=bars_ago,
         session_minutes_ago=context.session_minutes_ago(effective_index),

@@ -495,10 +495,11 @@ def raw_structure(bars, end):
     return result
 
 
-def calculate_structure(ordered):
+def calculate_structure(ordered, opening=None):
     end = ordered[-1].bar_time
-    opening, _ = session_bounds("US", market_trading_date(end, "US"))
-    bars, coverage, reasons = analysis_window(ordered)
+    if opening is None:
+        opening, _ = session_bounds("US", market_trading_date(end, "US"))
+    bars, coverage, reasons = analysis_window(ordered, opening=opening)
     expected = min(60, int((end - opening) / MINUTE) + 1)
     result = raw_structure(bars, end)
     if end - opening < (REQUIRED_MINUTES - 1) * MINUTE:

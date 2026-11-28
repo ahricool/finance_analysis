@@ -198,6 +198,24 @@
     flex-shrink: 0;
   }
 
+  .instrument-column {
+    @apply sticky left-0 z-1 bg-card;
+  }
+
+  th.instrument-column {
+    @apply z-2 bg-muted;
+  }
+
+  td.instrument-column {
+    max-width: min(16rem, 48vw);
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  tr:is(:hover, :focus-within) > td.instrument-column {
+    @apply bg-muted;
+  }
+
   /* Numeric columns: right-aligned, tabular figures. */
   .num {
     @apply text-right tabular-nums font-medium;

@@ -256,7 +256,7 @@ const detailInitialTab = ref<'overview' | 'intraday'>('intraday');
             <TableHeader class="bg-muted/30">
               <TableRow>
                 <SortableTableHeader
-                  class="w-44 pl-4"
+                  class="instrument-column w-44 pl-4"
                   label="证券 / 来源"
                   description="按证券名称排序"
                   v-bind="table.header('name')"
@@ -317,7 +317,7 @@ const detailInitialTab = ref<'overview' | 'intraday'>('intraday');
                 :market="market"
                 class="cursor-pointer hover:bg-muted/40"
               >
-                <TableCell class="space-y-2 py-4 pl-4">
+                <TableCell class="instrument-column space-y-2 py-4 pl-4">
                   <StockLink
                     :code="row.code"
                     :name="row.name"

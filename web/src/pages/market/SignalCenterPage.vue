@@ -163,7 +163,7 @@ onBeforeUnmount(() => { ++generation; ++detailGeneration; });
                 label="市场"
                 compact
               />
-            </TableHead><TableHead>
+            </TableHead><TableHead class="instrument-column">
               <IndicatorHelpLabel
                 scope="signal"
                 label="股票"
@@ -217,7 +217,7 @@ onBeforeUnmount(() => { ++generation; ++detailGeneration; });
                 {{ row.signalDate }}
               </TableCell>
               <TableCell>{{ names[row.market] }}</TableCell>
-              <TableCell>
+              <TableCell class="instrument-column">
                 <StockLink
                   v-if="pick"
                   :code="pick.symbol"

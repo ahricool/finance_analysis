@@ -187,6 +187,8 @@ def test_search_add_duplicate_remove_use_exchange_catalog_and_database(monkeypat
     engine = create_engine("sqlite://", poolclass=StaticPool, connect_args={"check_same_thread": False})
     FuturesContract.__table__.create(engine)
     FuturesDailyBar.__table__.create(engine)
+    from finance_analysis.database.models.minute_forecast import MinuteForecastPreference
+    MinuteForecastPreference.__table__.create(engine)
     session_factory = sessionmaker(engine)
     api = FastAPI()
     api.include_router(crypto.router, prefix="/api/v1/crypto")
@@ -212,7 +214,12 @@ def test_search_add_duplicate_remove_use_exchange_catalog_and_database(monkeypat
         with session_factory() as db:
             assert db.get(FuturesContract, "SOXLUSDT").category == "ETF"
             assert db.get(FuturesContract, "SOXLUSDT").underlying_symbol == "SOXL.US"
+        forecast_pref = base + "/SOXLUSDT/forecast/preference"
+        assert client.put(forecast_pref, json={"enabled": True}).json() == {"enabled": True}
+        assert client.get(forecast_pref).json() == {"enabled": True}
         assert client.delete(base + "/SOXLUSDT").status_code == 204
+        with session_factory() as db:
+            assert db.get(MinuteForecastPreference, "SOXLUSDT") is None
         assert client.delete(base + "/SOXLUSDT").status_code == 404
         with session_factory() as db:
             assert db.get(FuturesContract, "SOXLUSDT") is None

@@ -197,6 +197,7 @@ async function download() {
                 :label="label"
                 :active="sort === key"
                 :direction="direction"
+                :class="{ 'instrument-column': key === 'name' }"
                 @sort="changeSort(key)"
               />
             </TableRow>
@@ -233,6 +234,7 @@ async function download() {
                   v-for="[key] in opportunityColumns"
                   :key="key"
                   class="whitespace-nowrap px-4 py-3 tabular-nums"
+                  :class="{ 'instrument-column': key === 'name' }"
                 >
                   <div v-if="key === 'name'">
                     <StockLink

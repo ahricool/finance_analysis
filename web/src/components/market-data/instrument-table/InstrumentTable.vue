@@ -1,8 +1,9 @@
 <script setup lang="ts">
+import ChartPeriodSelector from './ChartPeriodSelector.vue';
 import { provide, ref, watch } from 'vue';
 import { Button } from '@/components/ui/button';
 import { Table } from '@/components/ui/table';
-import { createExpansion, expansionKey, periods, tableChartPeriod } from './state';
+import { createExpansion, expansionKey, tableChartPeriod } from './state';
 
 defineOptions({ inheritAttrs: false });
 const props = withDefaults(defineProps<{ charts?: boolean; expansion?: ReturnType<typeof createExpansion> }>(), { charts: true, expansion: undefined });
@@ -19,7 +20,7 @@ provide(expansionKey, expansion);
 <template>
   <div
     v-if="charts"
-    class="flex flex-wrap items-center gap-x-4 gap-y-2 px-2 py-2"
+    class="flex flex-wrap items-center justify-between gap-2 border-b bg-muted/25 px-3 py-2"
     aria-label="表格 K 线"
     role="toolbar"
   >
@@ -39,23 +40,7 @@ provide(expansionKey, expansion);
         全部收起
       </Button>
     </div>
-    <div
-      class="flex flex-wrap items-center gap-1"
-      role="group"
-      aria-label="K 线周期"
-    >
-      <span class="mr-1 text-xs text-muted-foreground">K 线周期</span>
-      <Button
-        v-for="[value, label] in periods"
-        :key="value"
-        size="sm"
-        :variant="tableChartPeriod === value ? 'secondary' : 'ghost'"
-        :aria-pressed="tableChartPeriod === value"
-        @click="tableChartPeriod = value"
-      >
-        {{ label }}
-      </Button>
-    </div>
+    <ChartPeriodSelector v-model="tableChartPeriod" />
   </div>
   <Table
     ref="table"
